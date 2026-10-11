@@ -27,13 +27,20 @@ export class Memory {
       () => true,
       () => false,
     );
-    if (!initialized) {
-      await this.git('init', '-b', 'main');
+    if (!initialized) await this.git('init', '-b', 'main');
+    const hasHead = await this.git('rev-parse', '--verify', 'HEAD').then(
+      () => true,
+      () => false,
+    );
+    if (!hasHead) {
       await mkdir(join(this.root, 'global'), { recursive: true });
       await writeFile(
         join(this.root, 'global', 'MEMORY.md'),
         '# Global memory\n',
-      );
+        { flag: 'wx' },
+      ).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      });
       await this.commit('chore(memory): initialize shared memory');
     }
   }
@@ -155,6 +162,10 @@ export class Memory {
       'core.hooksPath=/dev/null',
       '-c',
       'commit.gpgsign=false',
+      '-c',
+      'user.name=Agent Harness',
+      '-c',
+      'user.email=agent-harness@localhost',
       'commit',
       '-m',
       message,

@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, readFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 import { Memory } from '../src/memory/memory.js';
+
+const execute = promisify(execFile);
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'harness-memory-'));
@@ -14,6 +18,73 @@ async function fixture() {
   const scope = await memory.scope(project);
   return { memory, scope, root, project };
 }
+
+await test('initialization resumes an unborn repository without replacing existing notes', async () => {
+  for (const seeded of [false, true]) {
+    const root = await mkdtemp(join(tmpdir(), 'harness-incomplete-memory-'));
+    await execute('git', ['init', '-b', 'main'], { cwd: root });
+    const note = join(root, 'global', 'MEMORY.md');
+    if (seeded) {
+      await mkdir(join(root, 'global'));
+      await writeFile(note, 'Preserve this preference.');
+    }
+    const memory = new Memory(root);
+    await memory.initialize();
+    assert.equal(
+      await readFile(note, 'utf8'),
+      seeded ? 'Preserve this preference.' : '# Global memory\n',
+    );
+    const revision = await memory.revision();
+    await writeFile(note, 'Pending change.');
+    await memory.initialize();
+    assert.equal(await memory.revision(), revision);
+    assert.equal(await readFile(note, 'utf8'), 'Pending change.');
+    assert.equal(await memory.isDirty(), true);
+  }
+});
+
+await test('memory commits use their own identity without global Git configuration', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'harness-memory-identity-'));
+  const module = new URL('../src/memory/memory.ts', import.meta.url).href;
+  const { stdout } = await execute(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      `import { Memory } from ${JSON.stringify(module)};
+       import { writeFile } from 'node:fs/promises';
+       const memory = new Memory(${JSON.stringify(root)});
+       await memory.initialize();
+       await writeFile(${JSON.stringify(join(root, 'global', 'MEMORY.md'))}, 'New preference.');
+       await memory.commit('save preference');
+       console.log(await memory.read('global/MEMORY.md'));`,
+    ],
+    {
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'user.useConfigOnly',
+        GIT_CONFIG_VALUE_0: 'true',
+        GIT_AUTHOR_NAME: undefined,
+        GIT_AUTHOR_EMAIL: undefined,
+        GIT_COMMITTER_NAME: undefined,
+        GIT_COMMITTER_EMAIL: undefined,
+      },
+    },
+  );
+  assert.equal(stdout.trim(), 'New preference.');
+  const log = await execute('git', ['log', '--format=%an <%ae> | %cn <%ce>'], {
+    cwd: root,
+  });
+  assert.deepEqual(log.stdout.trim().split('\n'), [
+    'Agent Harness <agent-harness@localhost> | Agent Harness <agent-harness@localhost>',
+    'Agent Harness <agent-harness@localhost> | Agent Harness <agent-harness@localhost>',
+  ]);
+});
 
 await test('accepted snapshots exclude dirty tracked and newly created notes', async () => {
   const { memory, scope } = await fixture();
