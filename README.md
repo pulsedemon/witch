@@ -4,7 +4,7 @@ A personal terminal app for installed Codex and Claude Code, with Git-backed sha
 
 ## Install
 
-Install Node.js 22 or newer, pnpm, Git and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing.
+Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing.
 
 ```sh
 pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
@@ -18,22 +18,15 @@ Rerun `pnpm build` after changes.
 cd project && witch
 ```
 
-Flags and the state default are in `witch --help`. Use `/help` for keyboard controls and `Ctrl+P` for commands. `/model` lists the connected agent's models; `/model <id> [effort]` also accepts an explicit ID. Cmd+click opens web links through the system URL handler and file links in VS Code.
+Flags and the state default are in `witch --help`. Use `/help` for keyboard controls and `Ctrl+P` for commands.
 
-State lives under `~/.witch`. Pass `--state-dir <directory>` for an isolated instance. Keep the memory repository local or back it up yourself; the app never pushes it. Conversations retain native session IDs, so native session storage must remain available for resume.
+Keep the memory repository local or back it up yourself; the app never pushes it. Conversations retain native session IDs, so native session storage must remain available for resume.
 
-The lifecycle, recovery rules and scope are defined in the [implementation plan](docs/implementation-plan.md).
+The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md).
 
 ## Development
 
-```sh
-pnpm typecheck
-pnpm test
-pnpm lint
-pnpm build
-```
-
-`pnpm test:integration` uses existing native logins and consumes account usage. It creates disposable projects, runs real agent turns and prints the artifact directory. It checks native project instructions, memory transfer in both directions, project isolation, a coding handoff and restart. The files are retained for inspection. Set `WITCH_CODEX_MODEL` to select a different model for that check.
+The development scripts are in [package.json](package.json). `pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. Keep backend types and protocol handling inside its adapter. The coordinator and UI consume the existing contract.
 

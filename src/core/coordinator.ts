@@ -36,6 +36,7 @@ function message(error: unknown): string {
 class RestartRequired extends Error {}
 async function editInVSCode(file: string, signal: AbortSignal): Promise<void> {
   const application = '/Applications/Visual Studio Code.app/Contents';
+  // as VS Code's own launcher does: Electron runs cli.js as Node, and Witch's Node options pass under VS Code's names
   const { NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE, ...environment } =
     process.env;
   await execute(
@@ -363,6 +364,7 @@ export class Coordinator {
     this.cancelled = true;
     this.connecting?.abort();
     this.editorCancellation?.abort();
+    // a session that is still starting has no turn to interrupt, so stopping it closes it
     if (this.snapshot.phase === 'starting') await this.session?.close();
     else await this.session?.interrupt();
   }
@@ -746,6 +748,7 @@ export class Coordinator {
       id: info.id,
       model: info.model,
       hasHistory: info.hasHistory,
+      // a new native session has seen no memory snapshot yet
       deliveredRevision:
         previous?.id === info.id ? previous.deliveredRevision : undefined,
     };

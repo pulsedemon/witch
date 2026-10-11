@@ -351,6 +351,7 @@ class ClaudeSession implements AgentSession {
         };
         this.options.onEvent({ type: 'info', info: this.info });
       } else if (
+        // more activity can follow a result, so a turn ends only at native idle
         message.subtype === 'session_state_changed' &&
         message.state === 'idle' &&
         this.turn?.result
