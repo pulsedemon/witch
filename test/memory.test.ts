@@ -58,7 +58,7 @@ await test('memory commits use their own identity without global Git configurati
     process.execPath,
     [
       '--import',
-      'tsx',
+      import.meta.resolve('tsx'),
       '--input-type=module',
       '-e',
       `import { Memory } from ${JSON.stringify(module)};
@@ -70,6 +70,7 @@ await test('memory commits use their own identity without global Git configurati
        console.log(await memory.read('global/MEMORY.md'));`,
     ],
     {
+      cwd: root,
       env: {
         ...process.env,
         GIT_CONFIG_GLOBAL: '/dev/null',

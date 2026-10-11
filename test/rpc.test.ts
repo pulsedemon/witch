@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { JsonRpc } from '../src/agents/json-rpc.js';
 
 function server() {
-  return spawn(process.execPath, ['test/fixtures/rpc-server.mjs'], {
-    stdio: 'pipe',
-  });
+  return spawn(
+    process.execPath,
+    [fileURLToPath(new URL('fixtures/rpc-server.mjs', import.meta.url))],
+    { cwd: tmpdir(), stdio: 'pipe' },
+  );
 }
 
 await test('pairs out-of-order replies with the original request', async () => {

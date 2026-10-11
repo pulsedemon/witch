@@ -41,8 +41,13 @@ await test('one app owns state until its process exits, including a crash', asyn
   const root = await mkdtemp(join(tmpdir(), 'harness-lock-'));
   const child = spawn(
     process.execPath,
-    ['--import', 'tsx', 'test/fixtures/lock.ts', root],
-    { stdio: ['pipe', 'pipe', 'pipe'] },
+    [
+      '--import',
+      import.meta.resolve('tsx'),
+      fileURLToPath(new URL('fixtures/lock.ts', import.meta.url)),
+      root,
+    ],
+    { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] },
   );
   try {
     await once(child.stdout, 'data');
