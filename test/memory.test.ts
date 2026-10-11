@@ -136,15 +136,15 @@ await test('memory commits use their own identity without global Git configurati
        await note(mine, 'global/mine.md', 'Mine.');
        await mine.commit('mine');
        await mine.publish();
-       await note(theirs, 'global/MEMORY.md', 'Their preference.');
+       await note(theirs, 'global/preference.md', 'Their preference.');
        await theirs.commit('their preference');
        await theirs.publish();
-       await note(mine, 'global/MEMORY.md', 'New preference.');
+       await note(mine, 'global/preference.md', 'New preference.');
        await mine.commit('my preference');
        if ((await mine.publish()) !== 'conflict') throw new Error('expected a conflict');
        await mine.keepMine();
        await mine.publish();
-       console.log(await memory.read('refs/heads/main', 'global/MEMORY.md'));`,
+       console.log(await memory.read('refs/heads/main', 'global/preference.md'));`,
     ],
     {
       cwd: root,
@@ -678,4 +678,21 @@ await test('discarding works when notes are named main and HEAD', async () => {
   assert.equal(await workspace.isDirty(), false);
   await workspace.discardMine();
   assert.equal(await workspace.revision(), await memory.resolve(main));
+});
+
+await test('index lines both sides add to MEMORY.md merge without a conflict', async () => {
+  const { memory, open } = await fixture();
+  const { workspace: first } = await open('first');
+  const { workspace: second } = await open('second');
+  await save(first, {
+    'global/MEMORY.md': '# Global memory\n- [first](first.md)\n',
+  });
+  await save(second, {
+    'global/MEMORY.md': '# Global memory\n- [second](second.md)\n',
+  });
+  assert.equal(await first.publish(), 'published');
+  assert.equal(await second.publish(), 'published');
+  const index = await memory.read(main, 'global/MEMORY.md');
+  assert.match(index, /- \[first\]\(first\.md\)/);
+  assert.match(index, /- \[second\]\(second\.md\)/);
 });

@@ -115,13 +115,17 @@ export class FixtureAgent implements AgentAdapter {
       send: async (prompt): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.inputs.push({ session: info.id, prompt });
-        const note =
-          /remember:(\S+)/.exec(prompt)?.[1] ??
-          (prompt.includes('remember-port') ? 'Use port 4567.' : undefined);
+        // MEMORY.md merges both sides, so a note that can conflict goes elsewhere
+        const note = /remember:(\S+)/.exec(prompt)?.[1];
         if (note)
           await writeFile(
-            join(options.memoryDirectories[1]!, 'MEMORY.md'),
+            join(options.memoryDirectories[1]!, 'notes.md'),
             note,
+          );
+        if (prompt.includes('remember-port'))
+          await writeFile(
+            join(options.memoryDirectories[1]!, 'MEMORY.md'),
+            'Use port 4567.',
           );
         if (prompt.includes('symlink-note'))
           await symlink(

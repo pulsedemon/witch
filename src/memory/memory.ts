@@ -1,6 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, realpath, rename, rm } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
 import { Workspace } from './workspace.js';
 
@@ -134,6 +141,11 @@ export class Memory {
       'main',
       building,
     ]);
+    // every agent indexes its notes in MEMORY.md, so overlapping index lines merge instead of conflicting
+    await writeFile(
+      join(building, 'info', 'attributes'),
+      'MEMORY.md merge=union\n',
+    );
     const blob = await this.git(building, ['hash-object', '-w', '--stdin'], {
       input: '# Global memory\n',
     });

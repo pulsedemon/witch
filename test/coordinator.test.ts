@@ -106,6 +106,8 @@ async function fixture(
     memory.workspace(join(root, 'state', 'conversations', id), id);
   const note = async () =>
     `${(await memory.scopePaths(project)).project}/MEMORY.md`;
+  const notes = async () =>
+    `${(await memory.scopePaths(project)).project}/notes.md`;
   /** another conversation's workspace, for publishing to main from outside. */
   const outsider = async (id = randomUUID()) => {
     await mkdir(join(root, 'state', 'conversations', id), { recursive: true });
@@ -125,6 +127,7 @@ async function fixture(
     project,
     workspace,
     note,
+    notes,
     outsider,
   };
 }
@@ -883,20 +886,20 @@ await test('a failed rebase abort stops in the error phase until restart', async
 
 await test('keep mine publishes with the attribution of the conversation that kept its side', async () => {
   const context = await fixture();
-  const { coordinator, a, memory, note } = context;
+  const { coordinator, a, memory, notes } = context;
   const gate = new TurnGate();
   try {
     await coordinator.send('Start');
     a.gate = gate;
     const sending = coordinator.send('remember:mine');
     await within(gate.entered, 2000, 'the gated turn');
-    await publishOutside(context, { [await note()]: 'theirs' });
+    await publishOutside(context, { [await notes()]: 'theirs' });
     gate.open();
     await sending;
     assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
     await coordinator.recoverMemory('keep');
     assert.equal(coordinator.snapshot.phase, 'idle');
-    assert.equal(await memory.read(main, await note()), 'mine');
+    assert.equal(await memory.read(main, await notes()), 'mine');
     assert.match(
       await memory.git(memory.root, ['log', '-1', '--format=%b', main]),
       new RegExp(`conversation: ${coordinator.snapshot.conversation!.id}`),
@@ -939,7 +942,7 @@ await test('two coordinators in two directories run turns at once and both publi
     for (const gate of gates) gate.open();
     await Promise.all(sends);
     for (const [index, cwd] of [context.project, other].entries()) {
-      const path = `${(await memory.scopePaths(cwd)).project}/MEMORY.md`;
+      const path = `${(await memory.scopePaths(cwd)).project}/notes.md`;
       assert.equal(await memory.read(main, path), `note-${index}`);
       assert.match(
         await memory.git(memory.root, [
@@ -964,7 +967,7 @@ await test('two coordinators in two directories run turns at once and both publi
 for (const decision of ['keep', 'discard'] as const) {
   await test(`a conflict between two coordinators resolves with ${decision}`, async () => {
     const context = await fixture();
-    const { store, memory, project, note } = context;
+    const { store, memory, project, notes } = context;
     await context.coordinator.close();
     const agents = [new FixtureAgent('a'), new FixtureAgent('a')];
     const gates = agents.map((agent) => (agent.gate = new TurnGate()));
@@ -992,7 +995,7 @@ for (const decision of ['keep', 'discard'] as const) {
       await second.recoverMemory(decision);
       assert.equal(second.snapshot.phase, 'idle');
       if (decision === 'keep')
-        assert.equal(await memory.read(main, await note()), 'text-1');
+        assert.equal(await memory.read(main, await notes()), 'text-1');
       else
         assert.equal(
           await context.workspace(second.snapshot.conversation!.id).revision(),
