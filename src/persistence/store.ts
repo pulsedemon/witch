@@ -28,7 +28,7 @@ export class StateStore {
     } catch (error) {
       await lock.close();
       throw new Error(
-        'Another harness is already running for this state directory',
+        'Another Witch is already running for this state directory',
         { cause: error },
       );
     }

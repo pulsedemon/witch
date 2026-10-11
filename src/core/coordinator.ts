@@ -386,9 +386,9 @@ export class Coordinator {
         ? handoff
         : undefined;
     const context = [
-      'You are running inside Agent Harness. Follow your native and project instructions.',
+      'You are running inside Witch. Follow your native and project instructions.',
       `Shared memory directories: ${this.scope!.global} and ${this.scope!.project}.`,
-      'Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in MEMORY.md. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. The harness owns memory Git commits; do not run Git in those memory directories.',
+      'Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in MEMORY.md. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.',
       ...(reference.deliveredRevision !== memory.revision ? [memory.text] : []),
       ...(pendingHandoff?.summary
         ? [

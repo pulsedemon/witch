@@ -1,4 +1,4 @@
-# Personal coding harness implementation plan
+# Witch implementation plan
 
 ## Goal and constraints
 
@@ -34,7 +34,7 @@ Persist native IDs and display history. One coordinator exclusively owns applica
 
 ## Task 3: Shared memory
 
-Keep memory in a dedicated Git repository under ~/.agent-harness, separate from logs and handoff state. Separate global and canonical-project scopes. Existing project docs remain authoritative. Agents use ordinary file tools and scoped native permissions; only the coordinator manages memory Git operations.
+Keep memory in a dedicated Git repository under ~/.witch, separate from logs and handoff state. Separate global and canonical-project scopes. Existing project docs remain authoritative. Agents use ordinary file tools and scoped native permissions; only the coordinator manages memory Git operations.
 
 Each turn begins with clean memory and durable base-revision/origin metadata. Successful completion commits that turn's changes, with attribution and no empty commits. Accepted memory is HEAD. Interrupted, failed or uncommitted changes remain pending; block new execution until explicit accept/discard recovery. Never sweep another turn's pending changes into a later commit.
 

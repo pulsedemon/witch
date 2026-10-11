@@ -18,7 +18,7 @@ import { Memory } from '../src/memory/memory.js';
 const execute = promisify(execFile);
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'harness-memory-'));
+  const root = await mkdtemp(join(tmpdir(), 'witch-memory-'));
   const project = join(root, 'project');
   await mkdir(project);
   const memory = new Memory(join(root, 'memory'));
@@ -29,7 +29,7 @@ async function fixture() {
 
 await test('initialization resumes an unborn repository without replacing existing notes', async () => {
   for (const seeded of [false, true]) {
-    const root = await mkdtemp(join(tmpdir(), 'harness-incomplete-memory-'));
+    const root = await mkdtemp(join(tmpdir(), 'witch-incomplete-memory-'));
     await execute('git', ['init', '-b', 'main'], { cwd: root });
     const note = join(root, 'global', 'MEMORY.md');
     if (seeded) {
@@ -52,7 +52,7 @@ await test('initialization resumes an unborn repository without replacing existi
 });
 
 await test('memory commits use their own identity without global Git configuration', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'harness-memory-identity-'));
+  const root = await mkdtemp(join(tmpdir(), 'witch-memory-identity-'));
   const module = new URL('../src/memory/memory.ts', import.meta.url).href;
   const { stdout } = await execute(
     process.execPath,
@@ -90,8 +90,8 @@ await test('memory commits use their own identity without global Git configurati
     cwd: root,
   });
   assert.deepEqual(log.stdout.trim().split('\n'), [
-    'Agent Harness <agent-harness@localhost> | Agent Harness <agent-harness@localhost>',
-    'Agent Harness <agent-harness@localhost> | Agent Harness <agent-harness@localhost>',
+    'Witch <witch@localhost> | Witch <witch@localhost>',
+    'Witch <witch@localhost> | Witch <witch@localhost>',
   ]);
 });
 
@@ -225,7 +225,7 @@ await test('pending symlinks cannot be accepted or read through a recovery previ
 });
 
 await test('initialization refuses a symlinked note directory without changing its target', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'harness-memory-link-'));
+  const root = await mkdtemp(join(tmpdir(), 'witch-memory-link-'));
   const outside = join(root, 'outside');
   await mkdir(outside);
   const note = join(outside, 'MEMORY.md');

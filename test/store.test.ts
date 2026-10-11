@@ -11,7 +11,7 @@ import { applyDisplayUpdate } from '../src/core/state.js';
 import type { DisplayItem } from '../src/core/state.js';
 
 await test('the CLI rejects a missing state directory before opening the store', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'harness-cli-state-'));
+  const directory = await mkdtemp(join(tmpdir(), 'witch-cli-state-'));
   const cli = fileURLToPath(new URL('../src/cli.tsx', import.meta.url));
   for (const args of [[], [''], ['--state-dir']]) {
     const child = spawn(
@@ -38,7 +38,7 @@ await test('the CLI rejects a missing state directory before opening the store',
 });
 
 await test('one app owns state until its process exits, including a crash', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'harness-lock-'));
+  const root = await mkdtemp(join(tmpdir(), 'witch-lock-'));
   const child = spawn(
     process.execPath,
     [
@@ -63,7 +63,7 @@ await test('one app owns state until its process exits, including a crash', asyn
 });
 
 await test('serialized metadata saves preserve the latest conversation across restart', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'harness-state-'));
+  const root = await mkdtemp(join(tmpdir(), 'witch-state-'));
   let store = await StateStore.open(root);
   await Promise.all([
     store.save({ version: 1, conversations: [], activeId: 'first' }),
@@ -76,7 +76,7 @@ await test('serialized metadata saves preserve the latest conversation across re
 });
 
 await test('display history keeps streamed deltas without duplicating final messages', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'harness-history-'));
+  const root = await mkdtemp(join(tmpdir(), 'witch-history-'));
   const store = await StateStore.open(root);
   try {
     await store.append('conversation', {
@@ -115,7 +115,7 @@ await test('display history keeps streamed deltas without duplicating final mess
 });
 
 await test('a truncated final record cannot corrupt history written after restart', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'harness-partial-'));
+  const root = await mkdtemp(join(tmpdir(), 'witch-partial-'));
   let store = await StateStore.open(root);
   await store.append('c', {
     id: 'first',

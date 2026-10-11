@@ -8,7 +8,7 @@ import { ClaudeAdapter } from '../src/agents/claude.js';
 import type { AgentEvent } from '../src/agents/types.js';
 
 async function fixture(onEvent: (event: AgentEvent) => void = () => {}) {
-  const cwd = await mkdtemp(join(tmpdir(), 'harness-claude-'));
+  const cwd = await mkdtemp(join(tmpdir(), 'witch-claude-'));
   const adapter = new ClaudeAdapter((options) => {
     assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
     assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');

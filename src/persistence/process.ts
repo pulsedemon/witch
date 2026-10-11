@@ -35,6 +35,6 @@ export async function stopPreviousProcess(
     if (!remaining || remaining.started !== recorded.started) return;
   }
   throw new Error(
-    `The previous agent process (${recorded.pid}) has not stopped. Stop it before restarting the harness.`,
+    `The previous agent process (${recorded.pid}) has not stopped. Stop it before restarting Witch.`,
   );
 }

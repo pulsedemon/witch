@@ -11,7 +11,7 @@ import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 
 const execute = promisify(execFile);
-const root = await mkdtemp(join(tmpdir(), 'harness-live-'));
+const root = await mkdtemp(join(tmpdir(), 'witch-live-'));
 const project = join(root, 'project');
 const otherProject = join(root, 'other-project');
 const state = join(root, 'state');
@@ -87,7 +87,7 @@ let coordinator = await open(project);
 console.log(`Live artifacts: ${root}`);
 try {
   await coordinator.selectModel(
-    process.env.HARNESS_CODEX_MODEL ?? 'gpt-6.1-sol',
+    process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol',
     'medium',
   );
   await send(
@@ -116,7 +116,7 @@ try {
   );
   await coordinator.newConversation('codex');
   await coordinator.selectModel(
-    process.env.HARNESS_CODEX_MODEL ?? 'gpt-6.1-sol',
+    process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol',
     'medium',
   );
   await send(
@@ -127,7 +127,7 @@ try {
   await coordinator.close();
   coordinator = await open(otherProject);
   await coordinator.selectModel(
-    process.env.HARNESS_CODEX_MODEL ?? 'gpt-6.1-sol',
+    process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol',
     'medium',
   );
   const isolated = await send(

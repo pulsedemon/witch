@@ -11,7 +11,7 @@ import { App } from './ui/app.js';
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
   process.stdout.write(
-    'Usage: harness [directory] [--state-dir directory]\n\nOpen a project in the terminal. Use /help inside the app for controls.\n',
+    'Usage: witch [directory] [--state-dir directory]\n\nOpen a project in the terminal. Use /help inside the app for controls.\n',
   );
 } else {
   const flag = args.indexOf('--state-dir');
@@ -19,11 +19,11 @@ if (args.includes('--help')) {
   if (flag >= 0 && (!stateArgument || stateArgument.startsWith('--')))
     throw new Error('--state-dir requires a directory.');
   const stateDirectory =
-    flag < 0 ? join(homedir(), '.agent-harness') : resolve(stateArgument!);
+    flag < 0 ? join(homedir(), '.witch') : resolve(stateArgument!);
   if (flag >= 0) args.splice(flag, 2);
   const directory = resolve(args[0] ?? process.cwd());
   if (!process.stdin.isTTY || !process.stdout.isTTY)
-    throw new Error('The harness needs an interactive terminal.');
+    throw new Error('Witch needs an interactive terminal.');
   const store = await StateStore.open(stateDirectory);
   const coordinator = new Coordinator(
     store,

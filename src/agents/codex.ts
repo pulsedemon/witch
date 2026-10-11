@@ -111,8 +111,8 @@ class CodexSession implements AgentSession {
   async initialize(): Promise<void> {
     await this.rpc.request('initialize', {
       clientInfo: {
-        name: 'agent_harness',
-        title: 'Agent Harness',
+        name: 'witch',
+        title: 'Witch',
         version: '0.1.0',
       },
       capabilities: { experimentalApi: true },

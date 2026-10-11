@@ -30,7 +30,7 @@ async function until(predicate: () => boolean | Promise<boolean>) {
 
 await test('a deleted note remains discoverable and can be restored through its history picker', async () => {
   const root = await realpath(
-    await mkdtemp(join(tmpdir(), 'harness-ui-memory-')),
+    await mkdtemp(join(tmpdir(), 'witch-ui-memory-')),
   );
   const cwd = join(root, 'project');
   await mkdir(cwd);

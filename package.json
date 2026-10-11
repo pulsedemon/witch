@@ -1,10 +1,10 @@
 {
-  "name": "agent-harness",
+  "name": "witch",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "harness": "dist/cli.js"
+    "witch": "dist/cli.js"
   },
   "engines": {
     "node": ">=22"

@@ -85,7 +85,7 @@ async function fixture(
   editFile?: ConstructorParameters<typeof Coordinator>[3],
 ) {
   const root = await realpath(
-    await mkdtemp(join(tmpdir(), 'harness-coordinator-')),
+    await mkdtemp(join(tmpdir(), 'witch-coordinator-')),
   );
   const project = join(root, 'project');
   await mkdir(project);

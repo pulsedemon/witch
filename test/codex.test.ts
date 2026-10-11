@@ -8,7 +8,7 @@ import { CodexAdapter } from '../src/agents/codex.js';
 import type { AgentEvent } from '../src/agents/types.js';
 
 async function fixture(onEvent: (event: AgentEvent) => void = () => {}) {
-  const cwd = await mkdtemp(join(tmpdir(), 'harness-codex-'));
+  const cwd = await mkdtemp(join(tmpdir(), 'witch-codex-'));
   const adapter = new CodexAdapter((_, directory) =>
     spawn(process.execPath, [resolve('test/fixtures/codex.mjs')], {
       cwd: directory,
