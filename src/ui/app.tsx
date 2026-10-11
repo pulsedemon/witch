@@ -204,18 +204,22 @@ export function App({
         run(coordinator.newConversation(argument || undefined));
         break;
       case 'sessions':
-        picker(
-          'Conversations',
-          state.conversations.map((conversation) => ({
-            id: conversation.id,
-            label: `${conversation.title} · ${conversation.agent} · ${basename(conversation.cwd)}`,
-            cwd: conversation.cwd,
-          })),
-          (id) => {
-            setView({ kind: 'chat' });
-            setTop(null);
-            run(coordinator.selectConversation(id));
-          },
+        run(
+          coordinator.conversations().then((conversations) =>
+            picker(
+              'Conversations',
+              conversations.map((conversation) => ({
+                id: conversation.id,
+                label: `${conversation.title} · ${conversation.agent}`,
+                cwd: conversation.cwd,
+              })),
+              (id) => {
+                setView({ kind: 'chat' });
+                setTop(null);
+                run(coordinator.selectConversation(id));
+              },
+            ),
+          ),
         );
         break;
       case 'agent':

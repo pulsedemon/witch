@@ -15,20 +15,21 @@ import type {
 } from '../agents/types.js';
 import type { Memory } from '../memory/memory.js';
 import type { MemoryScope } from '../memory/memory.js';
-import type { StateStore } from '../persistence/store.js';
-import {
-  identifyProcess,
-  stopPreviousProcess,
-} from '../persistence/process.js';
+import { lockedElsewhere } from '../persistence/store.js';
+import type { ConversationStore, StateStore } from '../persistence/store.js';
+import { identifyProcess } from '../persistence/process.js';
 import { applyDisplayUpdate } from './state.js';
 import type {
-  AppData,
   Conversation,
+  ConversationRecord,
   DisplayItem,
   DisplayUpdate,
 } from './state.js';
 
 const execute = promisify(execFile);
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 async function editInVSCode(file: string, signal: AbortSignal): Promise<void> {
   const application = '/Applications/Visual Studio Code.app/Contents';
   const { NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE, ...environment } =
@@ -60,7 +61,6 @@ type Phase =
 export interface Snapshot {
   phase: Phase;
   conversation?: Conversation;
-  conversations: readonly Conversation[];
   items: readonly DisplayItem[];
   requests: readonly UserRequest[];
   models: readonly Model[];
@@ -71,7 +71,8 @@ export interface Snapshot {
 
 export class Coordinator {
   snapshot: Snapshot;
-  private data: AppData = { version: 1, conversations: [] };
+  private record?: ConversationRecord;
+  private files?: ConversationStore;
   private session?: AgentSession;
   private scope?: MemoryScope;
   private listeners = new Set<() => void>();
@@ -89,7 +90,6 @@ export class Coordinator {
   ) {
     this.snapshot = {
       phase: 'starting',
-      conversations: [],
       items: [],
       requests: [],
       models: [],
@@ -119,40 +119,101 @@ export class Coordinator {
   }
 
   private async load(directory: string): Promise<void> {
-    this.data = await this.store.load();
-    if (this.data.process) {
-      await stopPreviousProcess(this.data.process);
-      delete this.data.process;
-    }
     await this.memory.initialize();
     const cwd = await realpath(directory);
-    let conversation =
-      this.data.conversations.find(
-        (item) => item.id === this.data.activeId && item.cwd === cwd,
-      ) ?? this.data.conversations.findLast((item) => item.cwd === cwd);
-    if (!conversation) {
-      conversation = this.createConversation(
-        cwd,
-        this.agents.find((agent) => agent.executable)?.adapter.id ??
-          this.agents[0]!.adapter.id,
+    const target = (await this.store.conversations(cwd))[0];
+    const report = await this.sweep(target?.id);
+    try {
+      await this.openConversation(
+        target
+          ? { id: target.id }
+          : {
+              create: this.newRecord(
+                cwd,
+                this.agents.find((agent) => agent.executable)?.adapter.id ??
+                  this.agents[0]!.adapter.id,
+              ),
+            },
       );
+    } catch (error) {
+      if (report === undefined) throw error;
+      throw new Error(`${message(error)}\n\n${report}`, { cause: error });
     }
-    this.data.activeId = conversation.id;
-    this.scope = await this.memory.scope(cwd);
-    const items = (await this.store.history(conversation.id)).reduce<
-      DisplayItem[]
-    >(applyDisplayUpdate, []);
-    const dirty = await this.memory.isDirty();
-    if (!dirty) delete this.data.activity;
-    for (const saved of this.data.conversations)
-      if (!saved.handoff?.activated) delete saved.handoff;
-    await this.store.save(this.data);
+    await this.settle(report);
+  }
+
+  /** stops orphans and clears stale activity in conversations no instance holds. */
+  private async sweep(skip: string | undefined): Promise<string | undefined> {
+    const { records, unreadable } = await this.store.records();
+    const problems = unreadable.map(
+      ({ id, error }) =>
+        `- conversations/${id}/state.json can't be read: ${error}`,
+    );
+    for (const record of records) {
+      if (record.id === skip || (!record.process && !record.activity)) continue;
+      let reported = false;
+      // close() rethrows a save failure the catch already reported
+      const problem = (error: unknown) => {
+        if (reported) return;
+        reported = true;
+        problems.push(`- ${record.title} in ${record.cwd}: ${message(error)}`);
+      };
+      let files: ConversationStore | undefined;
+      try {
+        files = await this.store.claim(record.id);
+        if (files.record.activity && !(await this.memory.isDirty())) {
+          delete files.record.activity;
+          await files.save(files.record);
+        }
+      } catch (error) {
+        if (!lockedElsewhere(error)) problem(error);
+      } finally {
+        await files?.close().catch(problem);
+      }
+    }
+    return problems.length
+      ? `Witch couldn't check these conversations:\n${problems.join('\n')}`
+      : undefined;
+  }
+
+  /** claims the target first, so a failed claim leaves the current conversation untouched. */
+  private async openConversation(
+    target: { id: string } | { create: Conversation },
+  ): Promise<void> {
+    const files =
+      'id' in target
+        ? await this.store.claim(target.id)
+        : await this.store.create(target.create);
+    let items;
+    let scope;
+    try {
+      items = await files.items();
+      scope = await this.memory.scope(files.record.cwd);
+    } catch (error) {
+      await files.close().catch(() => {});
+      throw error;
+    }
+    let failure: unknown;
+    try {
+      await this.disconnect();
+    } catch (error) {
+      failure = error;
+    } finally {
+      await this.files?.close().catch((error: unknown) => {
+        failure ??= error;
+      });
+    }
+    this.files = files;
+    this.record = files.record;
+    this.scope = scope;
+    if (!this.record.handoff?.activated) delete this.record.handoff;
     this.publish({
-      conversation,
-      conversations: this.data.conversations,
+      conversation: this.record,
       items,
-      phase: dirty ? 'recovery' : 'idle',
+      models: [],
+      native: undefined,
     });
+    if (failure !== undefined) this.report(failure);
   }
 
   async send(prompt: string): Promise<void> {
@@ -165,42 +226,19 @@ export class Coordinator {
   async newConversation(agent = this.current().agent): Promise<void> {
     await this.operate('starting', async () => {
       this.registration(agent);
-      await this.disconnect();
-      const conversation = this.createConversation(this.current().cwd, agent);
-      this.data.activeId = conversation.id;
-      await this.store.save(this.data);
-      this.publish({
-        conversation,
-        conversations: this.data.conversations,
-        items: [],
-        models: [],
-        native: undefined,
-        error: undefined,
+      await this.openConversation({
+        create: this.newRecord(this.current().cwd, agent),
       });
     });
   }
 
   async selectConversation(id: string): Promise<void> {
-    await this.operate('starting', async () => {
-      const conversation = this.data.conversations.find(
-        (item) => item.id === id,
-      );
-      if (!conversation) throw new Error('Conversation does not exist');
-      await this.disconnect();
-      this.scope = await this.memory.scope(conversation.cwd);
-      this.data.activeId = id;
-      await this.store.save(this.data);
-      this.publish({
-        conversation,
-        items: (await this.store.history(id)).reduce<DisplayItem[]>(
-          applyDisplayUpdate,
-          [],
-        ),
-        models: [],
-        native: undefined,
-        error: undefined,
-      });
-    });
+    if (id === this.record?.id) return;
+    await this.operate('starting', () => this.openConversation({ id }));
+  }
+
+  conversations(): Promise<Conversation[]> {
+    return this.store.conversations(this.current().cwd);
   }
 
   async refreshModels(refresh = true): Promise<void> {
@@ -220,7 +258,7 @@ export class Coordinator {
         requestedModel: model,
         effort,
       };
-      await this.store.save(this.data);
+      await this.save();
       this.publish({ conversation: this.current(), native: session.info });
     });
   }
@@ -250,7 +288,7 @@ export class Coordinator {
     await this.operate(
       'editing',
       async () => {
-        const origin = this.data.activity;
+        const origin = this.current().activity;
         const actor =
           origin?.kind === 'memory-edit'
             ? 'manual'
@@ -260,8 +298,8 @@ export class Coordinator {
             `chore(memory): recover ${actor} changes\n\nconversation: ${origin?.conversationId ?? 'manual'}\nturn: ${origin?.id ?? 'manual'}`,
           );
         } else await this.memory.discard();
-        delete this.data.activity;
-        await this.store.save(this.data);
+        delete this.current().activity;
+        await this.save();
       },
       'recovery',
     );
@@ -285,8 +323,8 @@ export class Coordinator {
       }
       if (this.cancelled) return;
       await this.memory.commit('chore(memory): save edited notes');
-      delete this.data.activity;
-      await this.store.save(this.data);
+      delete this.current().activity;
+      await this.save();
     });
   }
 
@@ -297,9 +335,7 @@ export class Coordinator {
   }
 
   report(error: unknown): void {
-    this.publish({
-      error: error instanceof Error ? error.message : String(error),
-    });
+    this.publish({ error: message(error) });
   }
 
   async close(): Promise<void> {
@@ -311,7 +347,7 @@ export class Coordinator {
       await this.task?.catch(() => {});
       await this.disconnect();
     } finally {
-      await this.store.close();
+      await this.files?.close();
     }
   }
 
@@ -336,7 +372,7 @@ export class Coordinator {
       }
       if (this.cancelled) throw new Error('Handoff was interrupted');
       conversation.handoff = { from, to: agent, summary, activated: false };
-      await this.store.save(this.data);
+      await this.save();
       await this.disconnect();
       await this.connect(agent);
       if (this.cancelled) {
@@ -344,7 +380,7 @@ export class Coordinator {
       }
       conversation.agent = agent;
       conversation.handoff.activated = true;
-      await this.store.save(this.data);
+      await this.save();
       activated = true;
       this.publish({ conversation, native: this.session?.info });
       if (summary)
@@ -353,7 +389,7 @@ export class Coordinator {
           'turn',
         );
       else delete conversation.handoff;
-      await this.store.save(this.data);
+      await this.save();
     } catch (error) {
       if (!activated) {
         conversation.agent = from;
@@ -361,7 +397,7 @@ export class Coordinator {
           delete conversation.handoff;
         await this.disconnect();
       }
-      await this.store.save(this.data);
+      await this.save();
       this.publish({ conversation, native: this.session?.info });
       throw error;
     }
@@ -399,44 +435,44 @@ export class Coordinator {
     ].join('\n\n');
     if (kind === 'turn' && conversation.title === 'New conversation')
       conversation.title = prompt.replace(/\s+/g, ' ').slice(0, 80);
-    this.record({
+    this.display({
       id: randomUUID(),
       kind: kind === 'handoff' ? 'notice' : 'user',
       text: prompt,
       cwd: conversation.cwd,
     });
-    await this.store.save(this.data);
+    await this.save();
     let result: TurnResult;
     try {
       result = await session.send(context);
     } catch (error) {
       result = { status: 'failed', text: '', error: String(error) };
     }
-    await this.store.flush();
+    await this.files!.flush();
     if (result.status === 'completed') {
       await this.memory.commit(
         `chore(memory): save ${activity.agent} notes\n\nconversation: ${activity.conversationId}\nturn: ${activity.id}`,
       );
       conversation.sessions[activity.agent]!.deliveredRevision =
         memory.revision;
-      delete this.data.activity;
+      delete conversation.activity;
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {
-      this.record({
+      this.display({
         id: randomUUID(),
         kind: 'notice',
         text: result.error ?? 'Turn interrupted',
         cwd: conversation.cwd,
       });
-      if (!(await this.memory.isDirty())) delete this.data.activity;
+      if (!(await this.memory.isDirty())) delete conversation.activity;
     }
-    await this.store.save(this.data);
+    await this.save();
     return result;
   }
 
   private async beginActivity(
-    kind: NonNullable<AppData['activity']>['kind'],
-  ): Promise<NonNullable<AppData['activity']>> {
+    kind: NonNullable<ConversationRecord['activity']>['kind'],
+  ): Promise<NonNullable<ConversationRecord['activity']>> {
     if (await this.memory.isDirty())
       throw new Error('Resolve pending memory before running another task');
     const conversation = this.current();
@@ -448,8 +484,8 @@ export class Coordinator {
       baseRevision: await this.memory.revision(),
       startedAt: new Date().toISOString(),
     };
-    this.data.activity = activity;
-    await this.store.save(this.data);
+    conversation.activity = activity;
+    await this.save();
     return activity;
   }
 
@@ -462,6 +498,7 @@ export class Coordinator {
       return this.session;
     await this.disconnect();
     const conversation = this.current();
+    const files = this.files!;
     const { adapter, executable } = this.registration(agent);
     const stored = conversation.sessions[agent];
     this.connecting = new AbortController();
@@ -475,11 +512,15 @@ export class Coordinator {
         effort: stored?.effort,
         memoryDirectories: [this.scope!.global, this.scope!.project],
         signal: this.connecting.signal,
-        onEvent: (event) => this.receive(conversation, agent, event),
+        onEvent: (event) => {
+          if (!files.closed) this.receive(conversation, agent, event);
+        },
         onProcess: async (pid) => {
-          this.data.process =
+          const process =
             pid === undefined ? undefined : await identifyProcess(pid);
-          await this.store.save(this.data);
+          if (files.closed) return;
+          conversation.process = process;
+          await files.save(conversation);
         },
       });
     } finally {
@@ -487,7 +528,7 @@ export class Coordinator {
     }
     this.session = session;
     this.saveInfo(conversation, agent, session.info);
-    await this.store.save(this.data);
+    await this.save();
     this.publish({ native: session.info, models: await session.models() });
     return session;
   }
@@ -496,18 +537,19 @@ export class Coordinator {
     const session = this.session;
     this.session = undefined;
     await session?.close();
-    delete this.data.process;
-    await this.store.save(this.data);
+    if (!this.record) return;
+    delete this.record.process;
+    await this.save();
   }
 
   private receive(
-    conversation: Conversation,
+    conversation: ConversationRecord,
     agent: string,
     event: AgentEvent,
   ): void {
     if (event.type === 'info') {
       this.saveInfo(conversation, agent, event.info);
-      this.persist(this.store.save(this.data));
+      this.persist(this.save());
       if (conversation.agent === agent)
         this.publish({ native: event.info, conversation });
     } else if (event.type === 'request') {
@@ -519,15 +561,15 @@ export class Coordinator {
         ),
       });
     } else if (event.type === 'notice') {
-      this.record({
+      this.display({
         id: randomUUID(),
         kind: 'notice',
         text: event.text,
         cwd: conversation.cwd,
       });
     } else {
-      const id = `${this.data.activity?.id ?? 'session'}/${agent}/${event.id}`;
-      this.record(
+      const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
+      this.display(
         event.type === 'text'
           ? {
               id,
@@ -566,11 +608,15 @@ export class Coordinator {
     };
   }
 
-  private record(update: DisplayUpdate): void {
+  private display(update: DisplayUpdate): void {
     this.publish({
       items: applyDisplayUpdate(this.snapshot.items, update),
     });
-    this.persist(this.store.append(this.current().id, update));
+    this.persist(this.files!.append(update));
+  }
+
+  private save(): Promise<void> {
+    return this.files!.save(this.current());
   }
 
   private persist(operation: Promise<void>): void {
@@ -579,8 +625,8 @@ export class Coordinator {
     });
   }
 
-  private createConversation(cwd: string, agent: string): Conversation {
-    const conversation: Conversation = {
+  private newRecord(cwd: string, agent: string): Conversation {
+    return {
       id: randomUUID(),
       title: 'New conversation',
       cwd,
@@ -588,16 +634,11 @@ export class Coordinator {
       sessions: {},
       createdAt: new Date().toISOString(),
     };
-    this.data.conversations.push(conversation);
-    return conversation;
   }
 
-  private current(): Conversation {
-    const conversation = this.data.conversations.find(
-      (item) => item.id === this.data.activeId,
-    );
-    if (!conversation) throw new Error('No active conversation');
-    return conversation;
+  private current(): ConversationRecord {
+    if (!this.record) throw new Error('No active conversation');
+    return this.record;
   }
 
   private registration(id: string): AgentRegistration {
@@ -609,13 +650,18 @@ export class Coordinator {
     return registration;
   }
 
-  private async settle(): Promise<void> {
+  /** a load passes its report here, so the phase leaves `starting` with it. */
+  private async settle(report?: string): Promise<void> {
     if (this.closed) return;
-    await this.store.flush();
+    await this.files!.flush();
     const dirty = await this.memory.isDirty();
-    if (!dirty) delete this.data.activity;
-    await this.store.save(this.data);
-    this.publish({ phase: dirty ? 'recovery' : 'idle', requests: [] });
+    if (!dirty) delete this.current().activity;
+    await this.save();
+    this.publish({
+      phase: dirty ? 'recovery' : 'idle',
+      requests: [],
+      ...(report === undefined ? {} : { error: report }),
+    });
   }
 
   private async operate(

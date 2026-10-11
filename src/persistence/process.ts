@@ -1,13 +1,13 @@
 import { execFile } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import type { AppData } from '../core/state.js';
+import type { ConversationRecord } from '../core/state.js';
 
 const execute = promisify(execFile);
 
 export async function identifyProcess(
   pid: number,
-): Promise<AppData['process']> {
+): Promise<ConversationRecord['process']> {
   try {
     const { stdout } = await execute('/bin/ps', [
       '-p',
@@ -24,7 +24,7 @@ export async function identifyProcess(
 }
 
 export async function stopPreviousProcess(
-  recorded: NonNullable<AppData['process']>,
+  recorded: NonNullable<ConversationRecord['process']>,
 ): Promise<void> {
   const current = await identifyProcess(recorded.pid);
   if (!current || current.started !== recorded.started) return;

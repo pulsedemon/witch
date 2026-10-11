@@ -30,7 +30,7 @@ Use an alternate-screen header, scrolling transcript, fixed multiline composer a
 
 Follow output only at the bottom. Keep typing responsive with long expanded tool results, preserve scroll on view changes and resize, batch streamed display changes and reuse completed rendering. Web links use OSC 8 and the default browser. File references use encoded VS Code URLs with optional line/column, resolved against their originating cwd. Preserve links in Markdown, bare text, tool output, wrapping and clipping. Test actual Cmd+click in Ghostty.
 
-Persist native IDs and display history. One coordinator exclusively owns application state. Reject another instance; recover after a dead owner and reconcile native execution. Never automatically replay a prompt.
+Persist native IDs and display history. Each instance has one conversation open, and its coordinator exclusively owns that state. Refuse a conversation another instance holds; recover after a dead owner and reconcile native execution. Never automatically replay a prompt.
 
 ## Task 3: Shared memory
 

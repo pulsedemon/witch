@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import {
+  chmod,
   mkdtemp,
   mkdir,
   realpath,
+  rm,
   writeFile,
   readFile,
   symlink,
@@ -12,9 +15,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
+import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory } from '../src/memory/memory.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import type {
   AgentAdapter,
@@ -28,7 +34,9 @@ class FixtureAgent implements AgentAdapter {
   readonly label: string;
   readonly inputs: { session: string; prompt: string }[] = [];
   readonly resumed: (string | undefined)[] = [];
+  readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
   failConnect = false;
+  failClose = false;
   interruptNext = false;
   constructor(readonly id: string) {
     this.label = id;
@@ -45,8 +53,12 @@ class FixtureAgent implements AgentAdapter {
       hasHistory: true,
     };
     options.onEvent({ type: 'info', info });
+    // a bounded stand-in for the native process, never the test runner's pid
+    const sleeper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+    sleeper.unref();
+    await options.onProcess(sleeper.pid);
     let closed = false;
-    return {
+    const session: AgentSession = {
       info,
       get closed() {
         return closed;
@@ -59,6 +71,12 @@ class FixtureAgent implements AgentAdapter {
       interrupt: async () => {},
       close: async () => {
         closed = true;
+        try {
+          if (this.failClose) throw new Error('Close failed');
+        } finally {
+          sleeper.kill();
+          await options.onProcess(undefined);
+        }
       },
       send: async (prompt): Promise<TurnResult> => {
         this.inputs.push({ session: info.id, prompt });
@@ -78,6 +96,63 @@ class FixtureAgent implements AgentAdapter {
         return { status: 'completed', text };
       },
     };
+    this.sessions.push({ options, session });
+    return session;
+  }
+}
+
+function record(id: string, cwd: string, agent = 'a'): Conversation {
+  return {
+    id,
+    title: `Title ${id}`,
+    cwd,
+    agent,
+    sessions: {},
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function activity(conversationId: string): ConversationRecord['activity'] {
+  return {
+    id: 'stale-turn',
+    conversationId,
+    agent: 'a',
+    kind: 'turn',
+    baseRevision: 'unknown',
+    startedAt: new Date().toISOString(),
+  };
+}
+
+async function readRecord(
+  root: string,
+  id: string,
+): Promise<ConversationRecord> {
+  return JSON.parse(
+    await readFile(
+      join(root, 'state', 'conversations', id, 'state.json'),
+      'utf8',
+    ),
+  ) as ConversationRecord;
+}
+
+async function within<T>(
+  promise: Promise<T>,
+  milliseconds: number,
+  what: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${what} timed out`)),
+          milliseconds,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -155,7 +230,7 @@ await test('handoff returns to the original native session with updated context'
 });
 
 await test('destination startup failure retains the source conversation and session', async () => {
-  const { coordinator, a, b, store } = await fixture();
+  const { coordinator, a, b, root } = await fixture();
   try {
     await coordinator.send('Start');
     b.failConnect = true;
@@ -164,8 +239,8 @@ await test('destination startup failure retains the source conversation and sess
       /Destination unavailable/,
     );
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
-    const saved = await store.load();
-    assert.equal(saved.conversations[0]?.sessions.a?.id, a.inputs[0]?.session);
+    const saved = await readRecord(root, coordinator.snapshot.conversation!.id);
+    assert.equal(saved.sessions.a?.id, a.inputs[0]?.session);
     await coordinator.send('Continue the original task');
     assert.equal(a.inputs.at(-1)?.session, a.inputs[0]?.session);
   } finally {
@@ -240,13 +315,13 @@ for (const stage of [
       memory,
       a,
       b,
-      root,
       project,
     } = await fixture();
-    const data = await store.load();
+    const id = original.snapshot.conversation!.id;
     await original.close();
     const activated = ['activated', 'continuing', 'completed'].includes(stage);
-    const conversation = data.conversations[0]!;
+    const files = await store.claim(id);
+    const conversation = files.record;
     conversation.agent = activated ? 'b' : 'a';
     conversation.sessions.a = {
       id: 'original-a',
@@ -266,7 +341,7 @@ for (const stage of [
       summary: stage === 'summarizing' ? undefined : 'Continue the migration',
     };
     if (stage === 'continuing')
-      data.activity = {
+      conversation.activity = {
         id: 'interrupted-destination-turn',
         conversationId: conversation.id,
         agent: 'b',
@@ -274,11 +349,16 @@ for (const stage of [
         baseRevision: await memory.revision(),
         startedAt: new Date().toISOString(),
       };
-    const pending = await StateStore.open(join(root, 'state'));
-    await pending.save(data);
-    await pending.close();
+    await files.append({
+      id: 'earlier',
+      kind: 'user',
+      text: 'Start the migration',
+      cwd: project,
+    });
+    await files.save(conversation);
+    await files.close();
     const restarted = new Coordinator(
-      await StateStore.open(join(root, 'state')),
+      store,
       memory,
       [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
     );
@@ -353,7 +433,7 @@ for (const action of ['interrupt', 'close'] as const) {
     { timeout: 5000 },
     async () => {
       const opened = Promise.withResolvers<void>();
-      const { coordinator, memory, root, project, a } = await fixture(
+      const { coordinator, store, memory, root, project, a } = await fixture(
         async (path, signal) => {
           await writeFile(path, 'Pending manual preference.');
           opened.resolve();
@@ -375,13 +455,25 @@ for (const action of ['interrupt', 'close'] as const) {
       if (action === 'interrupt')
         assert.equal(coordinator.snapshot.phase, 'recovery');
       await coordinator.close();
-      const reopened = await StateStore.open(join(root, 'state'));
-      const recovered = new Coordinator(reopened, memory, [
+      const id = coordinator.snapshot.conversation!.id;
+      const recovered = new Coordinator(store, memory, [
         { adapter: a, executable: 'a' },
       ]);
       try {
-        assert.equal((await reopened.load()).activity?.kind, 'memory-edit');
+        assert.equal(
+          (await readRecord(root, id)).activity?.kind,
+          'memory-edit',
+        );
+        const files = await store.claim(id);
+        await files.append({
+          id: 'earlier',
+          kind: 'notice',
+          text: 'Earlier',
+          cwd: project,
+        });
+        await files.close();
         await recovered.initialize(project);
+        assert.equal(recovered.snapshot.conversation!.id, id);
         await recovered.recoverMemory('accept');
         const scope = await memory.scope(project);
         assert.match(
@@ -402,12 +494,12 @@ await test('undelivered handoff context survives visiting another conversation a
     memory,
     a,
     b,
-    root,
     project,
   } = await fixture();
-  const data = await store.load();
+  const id = original.snapshot.conversation!.id;
   await original.close();
-  const conversation = data.conversations[0]!;
+  const files = await store.claim(id);
+  const conversation = files.record;
   conversation.agent = 'b';
   conversation.handoff = {
     from: 'a',
@@ -420,11 +512,16 @@ await test('undelivered handoff context survives visiting another conversation a
     model: 'b-model',
     hasHistory: false,
   };
-  const pending = await StateStore.open(join(root, 'state'));
-  await pending.save(data);
-  await pending.close();
+  await files.append({
+    id: 'earlier',
+    kind: 'user',
+    text: 'Start',
+    cwd: project,
+  });
+  await files.save(conversation);
+  await files.close();
   const coordinator = new Coordinator(
-    await StateStore.open(join(root, 'state')),
+    store,
     memory,
     [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
   );
@@ -441,6 +538,294 @@ await test('undelivered handoff context survives visiting another conversation a
     await coordinator.send('Continue manually');
     assert.match(b.inputs.at(-1)!.prompt, /amber-195/);
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+async function sweepFixture() {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-sweep-')));
+  const project = join(root, 'project');
+  const fresh = join(root, 'fresh');
+  await mkdir(project);
+  await mkdir(fresh);
+  const store = await StateStore.open(join(root, 'state'));
+  const memory = new Memory(join(root, 'state', 'memory'));
+  const a = new FixtureAgent('a');
+  const launch = async () => {
+    const coordinator = new Coordinator(store, memory, [
+      { adapter: a, executable: 'a' },
+    ]);
+    await coordinator.initialize(fresh);
+    return coordinator;
+  };
+  const save = async (
+    id: string,
+    edit: (record: ConversationRecord) => void | Promise<void>,
+  ) => {
+    const files = await store.create(record(id, project));
+    await edit(files.record);
+    await files.save(files.record);
+    await files.close();
+  };
+  return {
+    root,
+    store,
+    launch,
+    save,
+    directory: (id: string) => join(root, 'state', 'conversations', id),
+  };
+}
+
+await test('the launch sweep stops a live orphan in an unlocked conversation', async () => {
+  const { root, launch, save } = await sweepFixture();
+  const orphan = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
+  try {
+    const exited = once(orphan, 'exit');
+    const process = await identifyProcess(orphan.pid!);
+    await save('orphan', (saved) => {
+      saved.process = process;
+    });
+    const coordinator = await launch();
+    try {
+      await within(exited, 2000, 'the orphan exit');
+      assert.equal((await readRecord(root, 'orphan')).process, undefined);
+      assert.equal(coordinator.snapshot.error, undefined);
+    } finally {
+      await coordinator.close();
+    }
+  } finally {
+    orphan.kill('SIGKILL');
+  }
+});
+
+await test('the launch sweep skips a conversation another instance holds', async () => {
+  const { store, launch } = await sweepFixture();
+  const sleeper = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
+  const held = await store.create(record('held', '/elsewhere'));
+  try {
+    held.record.activity = activity('held');
+    held.record.process = await identifyProcess(sleeper.pid!);
+    await held.save(held.record);
+    const coordinator = await launch();
+    try {
+      assert.equal(sleeper.exitCode, null);
+      assert.doesNotThrow(() => process.kill(sleeper.pid!, 0));
+      assert.equal(coordinator.snapshot.error, undefined);
+    } finally {
+      await coordinator.close();
+    }
+  } finally {
+    await held.close();
+    sleeper.kill('SIGKILL');
+  }
+});
+
+await test('one conversation the sweep fails on does not stop the launch', async () => {
+  const { store, launch, save, directory } = await sweepFixture();
+  await save('readonly', (saved) => {
+    saved.activity = activity('readonly');
+  });
+  await chmod(directory('readonly'), 0o500);
+  try {
+    const coordinator = await launch();
+    try {
+      assert.equal(coordinator.snapshot.phase, 'idle');
+      assert.match(coordinator.snapshot.error ?? '', /Title readonly/);
+    } finally {
+      await coordinator.close();
+    }
+  } finally {
+    await chmod(directory('readonly'), 0o700);
+  }
+  await (await store.claim('readonly')).close();
+});
+
+await test("the launch sweep clears a clean conversation's stale activity", async () => {
+  const { root, launch, save } = await sweepFixture();
+  await save('stale', (saved) => {
+    saved.activity = activity('stale');
+  });
+  const coordinator = await launch();
+  await coordinator.close();
+  assert.equal((await readRecord(root, 'stale')).activity, undefined);
+});
+
+await test('an unreadable state file is named in the launch report and skipped', async () => {
+  const { launch, directory } = await sweepFixture();
+  await mkdir(directory('broken'));
+  await writeFile(join(directory('broken'), 'state.json'), '{"id":');
+  const coordinator = await launch();
+  try {
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.match(
+      coordinator.snapshot.error ?? '',
+      /conversations\/broken\/state\.json/,
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a claim that fails for a reason other than a held lock is reported', async () => {
+  const { launch, save, directory } = await sweepFixture();
+  await save('blocked', (saved) => {
+    saved.activity = activity('blocked');
+  });
+  await rm(join(directory('blocked'), 'lock'));
+  await mkdir(join(directory('blocked'), 'lock'));
+  const coordinator = await launch();
+  try {
+    assert.match(coordinator.snapshot.error ?? '', /Title blocked/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+for (const reason of ['held', 'bad history'] as const) {
+  await test(`a switch to a conversation with ${reason} keeps the current conversation, session and lock`, async () => {
+    const { coordinator, store, a, root, project } = await fixture();
+    const target = await store.create(record(randomUUID(), project));
+    try {
+      await coordinator.send('Start');
+      const current = coordinator.snapshot.conversation!.id;
+      if (reason === 'bad history') {
+        await target.close();
+        await writeFile(
+          join(
+            root,
+            'state',
+            'conversations',
+            target.record.id,
+            'history.jsonl',
+          ),
+          '{"id":\n',
+        );
+      }
+      const resumed = a.resumed.length;
+      await assert.rejects(
+        coordinator.selectConversation(target.record.id),
+        reason === 'held' ? /open in another Witch instance/ : /JSON/,
+      );
+      assert.equal(coordinator.snapshot.conversation!.id, current);
+      await assert.rejects(
+        store.claim(current),
+        /open in another Witch instance/,
+      );
+      assert.equal(a.sessions.at(-1)!.session.closed, false);
+      assert.equal(a.resumed.length, resumed);
+      if (reason === 'bad history')
+        await (await store.claim(target.record.id)).close();
+    } finally {
+      await target.close();
+      await coordinator.close();
+    }
+  });
+}
+
+await test('selecting the current conversation keeps its session and claim', async () => {
+  const { coordinator, store, a } = await fixture();
+  try {
+    await coordinator.send('Start');
+    const current = coordinator.snapshot.conversation!.id;
+    await coordinator.selectConversation(current);
+    assert.equal(a.sessions.at(-1)!.session.closed, false);
+    await assert.rejects(
+      store.claim(current),
+      /open in another Witch instance/,
+    );
+    assert.equal(coordinator.snapshot.error, undefined);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+async function failedCloseSwitch() {
+  const context = await fixture();
+  const { coordinator, store, a, project } = context;
+  await coordinator.send('Start');
+  const previous = coordinator.snapshot.conversation!.id;
+  const released = a.sessions.at(-1)!.options;
+  const target = await store.create({
+    ...record(randomUUID(), project),
+    handoff: { from: 'b', to: 'a', activated: false },
+  });
+  await target.close();
+  a.failClose = true;
+  await coordinator.selectConversation(target.record.id);
+  a.failClose = false;
+  return { ...context, previous, released, target: target.record.id };
+}
+
+await test('a disconnect that throws during a switch still adopts the new conversation', async () => {
+  const { coordinator, store, previous, target } = await failedCloseSwitch();
+  try {
+    assert.equal(coordinator.snapshot.conversation!.id, target);
+    assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
+    assert.match(coordinator.snapshot.error ?? '', /Close failed/);
+    await (await store.claim(previous)).close();
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a late event from a released session reaches neither conversation', async () => {
+  const { coordinator, root, previous, released, target } =
+    await failedCloseSwitch();
+  const sleeper = spawn('/bin/sleep', ['5'], { stdio: 'ignore' });
+  try {
+    const reported = coordinator.snapshot.error;
+    const errors: (string | undefined)[] = [];
+    coordinator.subscribe(() => errors.push(coordinator.snapshot.error));
+    const files = (id: string) =>
+      Promise.all(
+        ['state.json', 'history.jsonl'].map((name) =>
+          readFile(
+            join(root, 'state', 'conversations', id, name),
+            'utf8',
+          ).catch(() => ''),
+        ),
+      );
+    const before = await files(previous);
+    const adopted = await files(target);
+    const items = coordinator.snapshot.items;
+    released.onEvent({ type: 'text', id: 'late', text: 'Late text' });
+    let rejection: unknown;
+    await within(
+      released.onProcess(sleeper.pid).catch((error: unknown) => {
+        rejection = error;
+      }),
+      2000,
+      'the late process report',
+    );
+    assert.equal(rejection, undefined);
+    for (let elapsed = 0; elapsed < 200; elapsed += 20) {
+      assert.deepEqual(await files(previous), before);
+      assert.deepEqual(await files(target), adopted);
+      await delay(20);
+    }
+    assert.equal(coordinator.snapshot.items, items);
+    assert.equal((await readRecord(root, target)).process, undefined);
+    assert.deepEqual(
+      errors.filter((error) => error !== reported),
+      [],
+    );
+  } finally {
+    sleeper.kill('SIGKILL');
+    await coordinator.close();
+  }
+});
+
+await test('switching between conversations on one agent connects a fresh native session', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.send('First');
+    const first = coordinator.snapshot.conversation!.id;
+    assert.ok((await readRecord(root, first)).process);
+    await coordinator.newConversation('a');
+    assert.equal((await readRecord(root, first)).process, undefined);
+    await coordinator.send('Second');
+    assert.notEqual(a.inputs.at(-1)!.session, a.inputs[0]!.session);
   } finally {
     await coordinator.close();
   }

@@ -20,8 +20,6 @@ pnpm build
 pnpm exec node dist/cli.js /absolute/path/to/project
 ```
 
-Use the same Node runtime for installation and execution. The file-lock dependency is native; run `pnpm rebuild fs-ext` after changing runtimes. On this machine, pnpm uses Node 26.5.0 while the shell's `node` is 22.16.0, so use the pnpm commands above.
-
 State lives under `~/.witch`. Pass `--state-dir <directory>` for an isolated instance. Keep the memory repository local or back it up yourself; the app never pushes it. Conversations retain native session IDs, so native session storage must remain available for resume.
 
 The lifecycle, recovery rules and scope are defined in the [implementation plan](docs/implementation-plan.md).

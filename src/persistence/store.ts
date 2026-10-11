@@ -1,55 +1,173 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
-import fsExt from 'fs-ext';
-import { appDataSchema, displayUpdateSchema } from '../core/state.js';
-import type { AppData, DisplayUpdate } from '../core/state.js';
+import {
+  conversationRecordSchema,
+  displayUpdateSchema,
+  foldDisplayUpdates,
+} from '../core/state.js';
+import type {
+  Conversation,
+  ConversationRecord,
+  DisplayItem,
+  DisplayUpdate,
+} from '../core/state.js';
+import { stopPreviousProcess } from './process.js';
+
+// macOS O_EXLOCK, which Node doesn't export.
+const exclusiveLock = 0x20;
 
 function missing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-export class StateStore {
-  private queue: Promise<unknown> = Promise.resolve();
-  private failure?: Error;
-  private histories = new Map<string, FileHandle>();
+export function lockedElsewhere(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.cause instanceof Error &&
+    'code' in error.cause &&
+    error.cause.code === 'EAGAIN'
+  );
+}
 
-  private constructor(
-    readonly root: string,
-    private readonly lock: FileHandle,
-  ) {}
-
-  static async open(root: string): Promise<StateStore> {
-    await mkdir(join(root, 'history'), { recursive: true, mode: 0o700 });
-    const lock = await open(join(root, 'instance.lock'), 'a', 0o600);
-    try {
-      fsExt.flockSync(lock.fd, 'exnb');
-    } catch (error) {
-      await lock.close();
+async function tryLock(path: string): Promise<FileHandle> {
+  try {
+    return await open(
+      path,
+      constants.O_RDWR |
+        constants.O_CREAT |
+        constants.O_NONBLOCK |
+        exclusiveLock,
+      0o600,
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EAGAIN')
       throw new Error(
-        'Another Witch is already running for this state directory',
+        'This conversation is open in another Witch instance or being recovered.',
         { cause: error },
       );
-    }
-    return new StateStore(root, lock);
+    throw error;
+  }
+}
+
+async function readRecord(directory: string): Promise<ConversationRecord> {
+  return conversationRecordSchema.parse(
+    JSON.parse(await readFile(join(directory, 'state.json'), 'utf8')),
+  );
+}
+
+export interface UnreadableRecord {
+  id: string;
+  error: string;
+}
+
+export class StateStore {
+  private constructor(readonly root: string) {}
+
+  static async open(root: string): Promise<StateStore> {
+    await mkdir(join(root, 'conversations'), { recursive: true, mode: 0o700 });
+    return new StateStore(root);
   }
 
-  async load(): Promise<AppData> {
+  async records(): Promise<{
+    records: ConversationRecord[];
+    unreadable: UnreadableRecord[];
+  }> {
+    const records: ConversationRecord[] = [];
+    const unreadable: UnreadableRecord[] = [];
+    for (const id of await readdir(join(this.root, 'conversations'))) {
+      try {
+        records.push(await readRecord(this.directory(id)));
+      } catch (error) {
+        if (!missing(error))
+          unreadable.push({
+            id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+      }
+    }
+    return { records, unreadable };
+  }
+
+  /** this directory's conversations that have history, newest first. */
+  async conversations(cwd: string): Promise<Conversation[]> {
+    const listed: { conversation: Conversation; modified: number }[] = [];
+    for (const record of (await this.records()).records) {
+      if (record.cwd !== cwd) continue;
+      const history = await stat(
+        join(this.directory(record.id), 'history.jsonl'),
+      ).catch((error: unknown) => {
+        if (missing(error)) return undefined;
+        throw error;
+      });
+      if (history?.size)
+        listed.push({ conversation: record, modified: history.mtimeMs });
+    }
+    return listed
+      .sort((a, b) => b.modified - a.modified)
+      .map(({ conversation }) => conversation);
+  }
+
+  /** locks before writing `state.json`, so `records()` never lists an unlocked new conversation. */
+  async create(conversation: Conversation): Promise<ConversationStore> {
+    const directory = this.directory(conversation.id);
+    await mkdir(directory, { mode: 0o700 });
+    const lock = await tryLock(join(directory, 'lock'));
+    const files = new ConversationStore(directory, lock, conversation);
     try {
-      return appDataSchema.parse(
-        JSON.parse(await readFile(join(this.root, 'state.json'), 'utf8')),
-      );
+      await files.save(conversation);
     } catch (error) {
-      if (missing(error)) return { version: 1, conversations: [] };
+      await files.close().catch(() => {});
+      throw error;
+    }
+    return files;
+  }
+
+  async claim(id: string): Promise<ConversationStore> {
+    const directory = this.directory(id);
+    const lock = await tryLock(join(directory, 'lock'));
+    try {
+      const record = await readRecord(directory);
+      const files = new ConversationStore(directory, lock, record);
+      if (record.process) {
+        await stopPreviousProcess(record.process);
+        delete record.process;
+        await files.save(record);
+      }
+      return files;
+    } catch (error) {
+      await lock.close();
       throw error;
     }
   }
 
-  save(data: AppData): Promise<void> {
-    const content = `${JSON.stringify(data, null, 2)}\n`;
+  private directory(id: string): string {
+    return join(this.root, 'conversations', encodeURIComponent(id));
+  }
+}
+
+export class ConversationStore {
+  private queue: Promise<unknown> = Promise.resolve();
+  private failure?: Error;
+  private historyFile?: FileHandle;
+  private released = false;
+
+  constructor(
+    readonly directory: string,
+    private readonly lock: FileHandle,
+    readonly record: ConversationRecord,
+  ) {}
+
+  get closed(): boolean {
+    return this.released;
+  }
+
+  save(record: ConversationRecord): Promise<void> {
+    const content = `${JSON.stringify(record, null, 2)}\n`;
     return this.enqueue(async () => {
-      const temporary = join(this.root, `state-${randomUUID()}.tmp`);
+      const temporary = join(this.directory, `state-${randomUUID()}.tmp`);
       const file = await open(temporary, 'wx', 0o600);
       try {
         await file.writeFile(content);
@@ -57,30 +175,29 @@ export class StateStore {
       } finally {
         await file.close();
       }
-      await rename(temporary, join(this.root, 'state.json'));
+      await rename(temporary, join(this.directory, 'state.json'));
     });
   }
 
-  append(conversation: string, update: DisplayUpdate): Promise<void> {
+  append(update: DisplayUpdate): Promise<void> {
     const line = `${JSON.stringify(update)}\n`;
     return this.enqueue(async () => {
-      let file = this.histories.get(conversation);
-      if (!file) {
-        file = await open(this.historyPath(conversation), 'a+', 0o600);
+      if (!this.historyFile) {
+        const file = await open(this.historyPath(), 'a+', 0o600);
         const existing = await file.readFile();
         if (existing.length && existing.at(-1) !== 10) {
           await file.truncate(existing.lastIndexOf(10) + 1);
         }
-        this.histories.set(conversation, file);
+        this.historyFile = file;
       }
-      await file.write(line);
+      await this.historyFile.write(line);
     });
   }
 
-  async history(conversation: string): Promise<DisplayUpdate[]> {
+  async history(): Promise<DisplayUpdate[]> {
     await this.flush();
     try {
-      const content = await readFile(this.historyPath(conversation), 'utf8');
+      const content = await readFile(this.historyPath(), 'utf8');
       const lines = content.split('\n');
       if (!content.endsWith('\n')) lines.pop();
       return lines
@@ -92,33 +209,35 @@ export class StateStore {
     }
   }
 
+  async items(): Promise<DisplayItem[]> {
+    return foldDisplayUpdates(await this.history());
+  }
+
   async flush(): Promise<void> {
     await this.queue;
     if (this.failure) throw this.failure;
-    await Promise.all([...this.histories.values()].map((file) => file.sync()));
+    await this.historyFile?.sync();
   }
 
   async close(): Promise<void> {
+    if (this.released) return;
+    this.released = true;
     try {
       await this.flush();
     } finally {
-      await Promise.all(
-        [...this.histories.values()].map((file) => file.close()),
-      );
-      this.histories.clear();
+      await this.historyFile?.close();
+      this.historyFile = undefined;
       await this.lock.close();
     }
   }
 
-  private historyPath(conversation: string): string {
-    return join(
-      this.root,
-      'history',
-      `${encodeURIComponent(conversation)}.jsonl`,
-    );
+  private historyPath(): string {
+    return join(this.directory, 'history.jsonl');
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
+    if (this.released)
+      return Promise.reject(new Error('This conversation is no longer open.'));
     const next = this.queue.then(() => {
       if (this.failure) throw this.failure;
       return operation();
