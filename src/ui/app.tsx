@@ -318,10 +318,11 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map((item) => `/${item.id}  ${item.label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown scroll.\nTab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nEscape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nCmd+click web links to open your browser.\nCmd+click file paths to open VS Code at their line and column.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map((item) => `/${item.id}  ${item.label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown scroll.\nTab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nEscape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nCmd+click web links to open your browser.\nCmd+click file paths to open VS Code at their line and column.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n/exit also quits.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'quit':
+      case 'exit':
         onExit();
         break;
     }
@@ -331,7 +332,7 @@ export function App({
     // Enter while tools are focused expands a tool, even in the same read as Tab
     if (toolFocusRef.current) return false;
     const match =
-      /^\/(new|sessions|agent|model|memory|help|quit)(?:\s+(.*))?$/.exec(
+      /^\/(new|sessions|agent|model|memory|help|quit|exit)(?:\s+(.*))?$/.exec(
         text.trim(),
       );
     if (match) {

@@ -741,6 +741,29 @@ await test('Escape declines a question and the turn continues', async () => {
   }
 });
 
+await test('/exit quits without sending a prompt', async () => {
+  const { app, calls } = fake({});
+  let exits = 0;
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {
+        exits++;
+      },
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('/exit');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the exit', () => exits === 1);
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('Ctrl+C while closing quits instead of interrupting again', async () => {
   const { app, coordinator, calls } = fake({});
   let exits = 0;
