@@ -86,6 +86,11 @@ await test('display history keeps streamed deltas without duplicating final mess
       cwd: '/project',
       text: 'lo',
     });
+    const streamed = (await store.history('conversation')).reduce<
+      DisplayItem[]
+    >(applyDisplayUpdate, []);
+    assert.equal(streamed.length, 1);
+    assert.equal(streamed[0]?.text, 'Hello');
     await store.append('conversation', {
       id: 'message',
       kind: 'assistant',

@@ -371,8 +371,6 @@ export class Coordinator {
     prompt: string,
     kind: 'turn' | 'handoff',
   ): Promise<TurnResult> {
-    if (await this.memory.isDirty())
-      throw new Error('Resolve pending memory before running another task');
     const conversation = this.current();
     const activity = await this.beginActivity(kind);
     const session = await this.connect();
@@ -570,7 +568,7 @@ export class Coordinator {
 
   private record(update: DisplayUpdate): void {
     this.publish({
-      items: applyDisplayUpdate([...this.snapshot.items], update),
+      items: applyDisplayUpdate(this.snapshot.items, update),
     });
     this.persist(this.store.append(this.current().id, update));
   }

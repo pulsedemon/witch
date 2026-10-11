@@ -59,7 +59,7 @@ export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
 
 export function applyDisplayUpdate(
-  items: DisplayItem[],
+  items: readonly DisplayItem[],
   update: DisplayUpdate,
 ): DisplayItem[] {
   const index = items.findIndex((item) => item.id === update.id);

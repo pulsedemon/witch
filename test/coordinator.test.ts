@@ -126,9 +126,9 @@ await test('unfinished memory blocks execution until recovery preserves the orig
     await assert.rejects(coordinator.send('unrelated task'), /pending memory/);
     await coordinator.recoverMemory('accept');
     const scope = await memory.scope(coordinator.snapshot.conversation!.cwd);
-    assert.match(
+    assert.equal(
       (await memory.history(join(scope.project, 'MEMORY.md')))[0]!.subject,
-      /a/,
+      'chore(memory): recover a changes',
     );
     assert.equal(await memory.isDirty(), false);
     await coordinator.send('continue');
