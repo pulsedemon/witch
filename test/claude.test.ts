@@ -4,7 +4,6 @@ import { mkdtemp, readFile, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import type { AgentEvent } from '../src/agents/types.js';
 
@@ -49,29 +48,54 @@ await test('refresh consumes a fresh native catalog without replacing the defaul
   }
 });
 
-await test('a result before native idle does not finish the turn', async () => {
+await test('invalid effort preserves the displayed and native model', async () => {
   const { session, cwd } = await fixture();
   try {
-    let completed = false;
-    const turn = session.send('wait for idle').then((value) => {
-      completed = true;
-      return value;
-    });
-    while (
-      !(await access(join(cwd, 'prompt.txt')).then(
-        () => true,
-        () => false,
-      ))
-    )
-      await delay(5);
-    await delay(30);
-    assert.equal(completed, false);
-    await writeFile(join(cwd, 'allow-idle'), 'yes');
-    assert.deepEqual(await turn, { status: 'completed', text: 'Finished.' });
+    await session.selectModel('claude-a', 'low');
+    await assert.rejects(session.selectModel('claude-b', 'invalid'));
+    assert.equal(session.info.model, 'claude-a');
+    assert.equal((await session.send('report model')).status, 'completed');
+    assert.equal(session.info.model, 'claude-a');
+    assert.deepEqual(
+      JSON.parse(await readFile(join(cwd, 'settings.json'), 'utf8')),
+      { effortLevel: 'low' },
+    );
   } finally {
     await session.close();
   }
 });
+
+await test(
+  'a result followed by running and requires_action waits for native idle',
+  { timeout: 3000 },
+  async () => {
+    const progress = new Map(
+      ['running', 'requires_action'].map((state) => [
+        state,
+        Promise.withResolvers<void>(),
+      ]),
+    );
+    const { session, cwd } = await fixture((event) => {
+      if (event.type === 'text') progress.get(event.text)?.resolve();
+    });
+    try {
+      let completed = false;
+      const turn = session.send('wait for idle').then((value) => {
+        completed = true;
+        return value;
+      });
+      for (const [state, observed] of progress) {
+        await writeFile(join(cwd, `allow-${state}`), 'yes');
+        await observed.promise;
+        assert.equal(completed, false, `turn completed at ${state}`);
+      }
+      await writeFile(join(cwd, 'allow-idle'), 'yes');
+      assert.deepEqual(await turn, { status: 'completed', text: 'Finished.' });
+    } finally {
+      await session.close();
+    }
+  },
+);
 
 for (const decision of ['accept', 'decline'] as const) {
   await test(`Claude approval ${decision} returns the matching tool decision`, async () => {

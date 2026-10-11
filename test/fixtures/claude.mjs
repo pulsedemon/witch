@@ -38,11 +38,35 @@ const result = () =>
 const finish = () => {
   result();
   if (lastPrompt === 'wait for idle') {
+    const states = ['running', 'requires_action', 'idle'];
     const interval = setInterval(() => {
-      if (existsSync(join(process.cwd(), 'allow-idle'))) {
-        clearInterval(interval);
-        state('idle');
-      }
+      const next = states[0];
+      if (!existsSync(join(process.cwd(), `allow-${next}`))) return;
+      states.shift();
+      state(next);
+      if (next === 'idle') clearInterval(interval);
+      else
+        send({
+          type: 'assistant',
+          uuid: randomUUID(),
+          session_id,
+          parent_tool_use_id: null,
+          message: {
+            id: randomUUID(),
+            type: 'message',
+            role: 'assistant',
+            model,
+            content: [{ type: 'text', text: next }],
+            stop_reason: 'end_turn',
+            stop_sequence: null,
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        });
     }, 5);
   } else state('idle');
 };

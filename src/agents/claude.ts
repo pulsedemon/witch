@@ -217,9 +217,10 @@ class ClaudeSession implements AgentSession {
   async selectModel(model: string, effort?: string): Promise<void> {
     if (this.turn)
       throw new Error('Stop the current turn before changing models');
+    const level = effort ? effortLevel.parse(effort) : null;
     await this.query.setModel(model);
     await this.query.applyFlagSettings({
-      effortLevel: effort ? effortLevel.parse(effort) : null,
+      effortLevel: level,
     });
     this.info = { ...this.info, model };
     this.options.onEvent({ type: 'info', info: this.info });
