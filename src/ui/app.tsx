@@ -39,8 +39,10 @@ type View =
       kind: 'page';
       title: string;
       text: string;
-      file?: string;
-      memory?: boolean;
+      /** the absolute file the title links to, when there is one. */
+      link?: string;
+      /** a memory note's relative path, for edit and history. */
+      note?: string;
     };
 
 export function App({
@@ -80,13 +82,27 @@ export function App({
   const [toolSelection, setToolSelection] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [recovery, setRecovery] = useState('');
   const [layout] = useState(() => new TranscriptLayout());
   const transcript = useMemo(
     () => layout.render(state.items, width - 2, expanded),
     [layout, state.items, width, expanded],
   );
-  const transcriptHeight = Math.max(2, height - 10 - (state.error ? 1 : 0));
+  const errorLimit = Math.max(1, Math.floor(height / 3));
+  const errorLines = state.error
+    ? wrapAnsi(linkify(state.error, cwd), width - 2, {
+        hard: true,
+        trim: false,
+      }).split('\n')
+    : [];
+  const errorRows =
+    errorLines.length > errorLimit
+      ? [
+          ...errorLines.slice(0, errorLimit - 1),
+          `+${errorLines.length - errorLimit + 1} more rows`,
+        ]
+      : errorLines;
+  const bodyHeight = height - 3 - errorRows.length;
+  const transcriptHeight = Math.max(2, bodyHeight - 7);
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
   const scrollTop =
     top === null ? maxTop : Math.min(transcript.rowOf(top), maxTop);
@@ -125,13 +141,19 @@ export function App({
     setView({ kind: 'picker', title, choices: entries, choose, custom });
   };
   const showMemory = async () => {
-    const files = await coordinator.memoryEntries();
+    const memory = await coordinator.memoryView();
+    const files = await coordinator.memory.catalog(
+      memory.revision,
+      memory.scope,
+    );
     const entries = await Promise.all(
       files.map(async (file) => ({
         id: file.path,
         label: `${file.path}${file.deleted ? ' (deleted)' : ''}`,
-        search: file.deleted ? '' : await coordinator.memory.read(file.path),
-        cwd: coordinator.memory.root,
+        search: file.deleted
+          ? ''
+          : await coordinator.memory.read(memory.revision, file.path),
+        cwd: memory.root,
       })),
     );
     picker(
@@ -145,14 +167,14 @@ export function App({
           showHistory(file);
         } else
           run(
-            coordinator.memory.read(file).then((text) => {
+            coordinator.memory.read(memory.revision, file).then((text) => {
               setPageScroll(0);
               setView({
                 kind: 'page',
                 title: file,
                 text,
-                file: join(coordinator.memory.root, file),
-                memory: true,
+                link: memory.root && join(memory.root, file),
+                note: file,
               });
             }),
           );
@@ -161,19 +183,22 @@ export function App({
   };
   const showHistory = (file: string) => {
     run(
-      coordinator.memory.history(file).then((history) =>
-        picker(
-          'Restore a memory version',
-          history.map((item) => ({
-            id: item.revision,
-            label: `${item.revision.slice(0, 8)} ${item.subject}`,
-          })),
-          (revision) => {
-            setView({ kind: 'chat' });
-            run(coordinator.restoreMemory(file, revision));
-          },
+      coordinator
+        .memoryView()
+        .then((memory) => coordinator.memory.history(memory.revision, file))
+        .then((history) =>
+          picker(
+            'Restore a memory version',
+            history.map((item) => ({
+              id: item.revision,
+              label: `${item.revision.slice(0, 8)} ${item.subject}`,
+            })),
+            (revision) => {
+              setView({ kind: 'chat' });
+              run(coordinator.restoreMemory(file, revision));
+            },
+          ),
         ),
-      ),
     );
   };
   const selectModel = (id: string) => {
@@ -279,11 +304,8 @@ export function App({
     setToolSelection(0);
   }, [state.conversation?.id]);
   useEffect(() => {
-    if (state.phase === 'recovery') {
-      setPageScroll(0);
-      run(coordinator.memory.diff().then(setRecovery));
-    }
-  }, [state.phase, coordinator]);
+    if (state.phase === 'recovery') setPageScroll(0);
+  }, [state.phase]);
 
   useInput((input, key) => {
     if (key.eventType === 'release') return;
@@ -295,13 +317,17 @@ export function App({
     if (request) return;
     if (state.phase === 'recovery') {
       if (key.pageDown || key.downArrow)
-        setPageScroll((value) => value + (key.pageDown ? height - 8 : 1));
+        setPageScroll((value) => value + (key.pageDown ? bodyHeight - 5 : 1));
       if (key.pageUp || key.upArrow)
         setPageScroll((value) =>
-          Math.max(0, value - (key.pageUp ? height - 8 : 1)),
+          Math.max(0, value - (key.pageUp ? bodyHeight - 5 : 1)),
         );
-      if (input === 'a' || input === 'd')
-        run(coordinator.recoverMemory(input === 'a' ? 'accept' : 'discard'));
+      const kind = state.recovery?.kind;
+      if (input === 'd') run(coordinator.recoverMemory('discard'));
+      if (input === 'a' && kind === 'pending')
+        run(coordinator.recoverMemory('accept'));
+      if (input === 'k' && kind === 'conflict')
+        run(coordinator.recoverMemory('keep'));
       return;
     }
     if (key.escape) {
@@ -322,18 +348,18 @@ export function App({
     }
     if (view.kind === 'page') {
       if (key.pageDown || key.downArrow)
-        setPageScroll((value) => value + (key.pageDown ? height - 5 : 1));
+        setPageScroll((value) => value + (key.pageDown ? bodyHeight - 2 : 1));
       if (key.pageUp || key.upArrow)
         setPageScroll((value) =>
-          Math.max(0, value - (key.pageUp ? height - 5 : 1)),
+          Math.max(0, value - (key.pageUp ? bodyHeight - 2 : 1)),
         );
-      if (view.memory && view.file) {
+      if (view.note) {
         if (input === 'e') {
           setView({ kind: 'chat' });
-          run(coordinator.editMemory(view.file));
+          run(coordinator.editMemory(view.note));
         }
         if (input === 'h') {
-          showHistory(view.file);
+          showHistory(view.note);
         }
       }
       return;
@@ -373,44 +399,58 @@ export function App({
         key={request.id}
         request={request}
         width={width - 2}
-        height={height - 3}
+        height={bodyHeight}
         cwd={cwd}
         respond={(response) => run(coordinator.respond(request.id, response))}
       />
     );
   else if (state.phase === 'recovery') {
-    const lines = wrapAnsi(
-      linkify(recovery, coordinator.memory.root),
-      width - 2,
-      { hard: true, trim: false },
-    ).split('\n');
-    const top = Math.min(pageScroll, Math.max(0, lines.length - height + 8));
+    const recovery = state.recovery;
+    const conflict = recovery?.kind === 'conflict';
+    const text = conflict
+      ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.join('\n')}` : 'This conflict has no single path.'}\n\nYour changes:\n${recovery.diff}`
+      : (recovery?.diff ?? '');
+    const lines = wrapAnsi(linkify(text, recovery?.root ?? cwd), width - 2, {
+      hard: true,
+      trim: false,
+    }).split('\n');
+    const visible = Math.max(1, bodyHeight - 5);
+    const top = Math.min(pageScroll, Math.max(0, lines.length - visible));
     body = (
-      <Box flexDirection="column" height={height - 3}>
+      <Box flexDirection="column" height={bodyHeight}>
         <Text color="yellow" bold>
-          Unfinished memory changes
+          {conflict
+            ? 'Memory conflicts with another conversation'
+            : 'Unfinished memory changes'}
         </Text>
         <Text>
-          Accept these changes with their original attribution, or discard them.
+          {conflict
+            ? 'Another conversation published changes to the same notes.'
+            : 'Accept these changes with their original attribution, or discard them.'}
         </Text>
-        <Box height={Math.max(1, height - 8)} overflow="hidden">
-          <Text>
-            {lines.slice(top, top + Math.max(1, height - 8)).join('\n')}
-          </Text>
+        <Box height={visible} overflow="hidden">
+          <Text>{lines.slice(top, top + visible).join('\n')}</Text>
         </Box>
-        <Text bold>a accept · d discard · ↑/↓ scroll · Ctrl+C quit</Text>
+        <Text bold>
+          {conflict
+            ? 'k keep mine (your side of each conflicting change wins) · d discard mine'
+            : 'a accept · d discard'}{' '}
+          · ↑/↓ scroll · Ctrl+C quit
+        </Text>
       </Box>
     );
   } else if (view.kind === 'picker') {
-    const count = Math.max(1, height - 9);
+    const count = Math.max(1, bodyHeight - 6);
     const first = Math.max(0, selected - count + 1);
     body = (
-      <Box flexDirection="column" height={height - 3}>
+      <Box flexDirection="column" height={bodyHeight}>
         <Text bold>{view.title}</Text>
-        <Box height={height - 7} flexDirection="column" overflow="hidden">
+        <Box height={bodyHeight - 4} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => (
             <Text key={choice.id} inverse={first + index === selected}>
-              {linkify(` ${choice.label} `, choice.cwd ?? cwd)}
+              {choice.cwd
+                ? linkify(` ${choice.label} `, choice.cwd)
+                : ` ${choice.label} `}
             </Text>
           ))}
         </Box>
@@ -442,17 +482,18 @@ export function App({
       hard: true,
       trim: false,
     }).split('\n');
-    const top = Math.min(pageScroll, Math.max(0, lines.length - height + 6));
+    const visible = Math.max(1, bodyHeight - 3);
+    const top = Math.min(pageScroll, Math.max(0, lines.length - visible));
     body = (
-      <Box flexDirection="column" height={height - 3}>
+      <Box flexDirection="column" height={bodyHeight}>
         <Text bold>
-          {view.file ? hyperlink(view.title, view.file, cwd) : view.title}
+          {view.link ? hyperlink(view.title, view.link, cwd) : view.title}
         </Text>
-        <Box height={height - 6} overflow="hidden">
-          <Text>{lines.slice(top, top + height - 6).join('\n')}</Text>
+        <Box height={visible} overflow="hidden">
+          <Text>{lines.slice(top, top + visible).join('\n')}</Text>
         </Box>
         <Text dimColor>
-          {view.memory ? 'e edit · h history · ' : ''}↑/↓ scroll · Esc back
+          {view.note ? 'e edit · h history · ' : ''}↑/↓ scroll · Esc back
         </Text>
       </Box>
     );
@@ -474,7 +515,7 @@ export function App({
         visible[selectedToolRow - scrollTop],
       );
     body = (
-      <Box flexDirection="column" height={height - 3}>
+      <Box flexDirection="column" height={bodyHeight}>
         <Box height={transcriptHeight} overflow="hidden">
           <Text>
             {state.items.length
@@ -484,11 +525,6 @@ export function App({
                 )}
           </Text>
         </Box>
-        {state.error && (
-          <Box height={1} overflow="hidden">
-            <Text color="red">{linkify(state.error, cwd)}</Text>
-          </Box>
-        )}
         <Box
           borderStyle="round"
           borderColor={toolFocus ? 'gray' : 'cyan'}
@@ -562,6 +598,11 @@ export function App({
       <Box flexDirection="column" paddingX={1}>
         {body}
       </Box>
+      {errorRows.length > 0 && (
+        <Box height={errorRows.length} paddingX={1} overflow="hidden">
+          <Text color="red">{errorRows.join('\n')}</Text>
+        </Box>
+      )}
       <Box height={1}>
         <Text dimColor>
           Cmd+click links · Esc {view.kind === 'chat' ? 'interrupt' : 'back'}

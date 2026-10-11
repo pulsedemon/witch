@@ -15,7 +15,7 @@ const root = await mkdtemp(join(tmpdir(), 'witch-live-'));
 const project = join(root, 'project');
 const otherProject = join(root, 'other-project');
 const state = join(root, 'state');
-const memory = new Memory(join(state, 'memory'));
+const memory = new Memory(join(state, 'memory.git'));
 const agents = await installedAgents();
 assert.ok(
   agents.every((agent) => agent.executable),
@@ -99,7 +99,7 @@ try {
     `Remember that this project's acceptance phrase is ${projectFact}. Save it in project shared-memory MEMORY.md, using the memory path supplied above. Do not put it in project files or global memory. Reply saved after writing.`,
     'saved',
   );
-  assert.equal(await memory.isDirty(), false);
+  assert.equal(coordinator.snapshot.recovery, undefined);
   await coordinator.newConversation('claude');
   await send(
     'What is this project’s acceptance phrase? Use shared memory and reply with the phrase only. Do not change files.',
@@ -165,7 +165,7 @@ try {
     'Run node --test sum.test.mjs and report the result. Do not change files.',
   );
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
-  assert.equal(await memory.isDirty(), false);
+  assert.equal(coordinator.snapshot.recovery, undefined);
   console.log(
     'PASS: native instructions, fresh memory both ways, project isolation, coding handoff, return-to-agent and restart.',
   );

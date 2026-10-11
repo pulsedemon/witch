@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { access, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -13,8 +13,9 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import type { Memory } from '../memory/memory.js';
-import type { MemoryScope } from '../memory/memory.js';
+import { main } from '../memory/memory.js';
+import type { Memory, MemoryScope } from '../memory/memory.js';
+import type { Workspace } from '../memory/workspace.js';
 import { lockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
@@ -66,13 +67,31 @@ export interface Snapshot {
   models: readonly Model[];
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
+  recovery?: Recovery;
   error?: string;
+}
+
+export interface Recovery {
+  kind: 'pending' | 'conflict';
+  /** the conflicting paths; empty when the conflict has no single path. */
+  paths: string[];
+  diff: string;
+  root: string;
+}
+
+/** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
+export interface MemoryView {
+  revision: string;
+  scope: MemoryScope;
+  /** the worktree, when the conversation has one, for links. */
+  root?: string;
 }
 
 export class Coordinator {
   snapshot: Snapshot;
   private record?: ConversationRecord;
   private files?: ConversationStore;
+  private workspace?: Workspace;
   private session?: AgentSession;
   private scope?: MemoryScope;
   private listeners = new Set<() => void>();
@@ -142,26 +161,56 @@ export class Coordinator {
     await this.settle(report);
   }
 
-  /** stops orphans and clears stale activity in conversations no instance holds. */
+  /** stops orphans, publishes stranded memory and reports what it can't settle in conversations no instance holds. */
   private async sweep(skip: string | undefined): Promise<string | undefined> {
     const { records, unreadable } = await this.store.records();
-    const problems = unreadable.map(
+    const ahead = new Set(
+      (
+        await this.memory.git(this.memory.root, [
+          'for-each-ref',
+          '--format=%(refname:short) %(ahead-behind:refs/heads/main)',
+          'refs/heads/conversations',
+        ])
+      )
+        .split('\n')
+        .map((line) => line.split(' '))
+        .filter(([, count]) => Number(count) > 0)
+        .map(([branch]) => branch!.slice('conversations/'.length)),
+    );
+    const lines = unreadable.map(
       ({ id, error }) =>
         `- conversations/${id}/state.json can't be read: ${error}`,
     );
+    const listed = new Set(records.map(({ id }) => id));
+    for (const id of ahead)
+      if (!listed.has(id))
+        lines.push(`- conversations/${id} has unpublished memory but no state`);
     for (const record of records) {
-      if (record.id === skip || (!record.process && !record.activity)) continue;
-      let reported = false;
+      if (
+        record.id === skip ||
+        (!record.process && !record.activity && !ahead.has(record.id))
+      )
+        continue;
+      let reason: string | undefined;
       // close() rethrows a save failure the catch already reported
       const problem = (error: unknown) => {
-        if (reported) return;
-        reported = true;
-        problems.push(`- ${record.title} in ${record.cwd}: ${message(error)}`);
+        reason ??= message(error);
       };
       let files: ConversationStore | undefined;
       try {
         files = await this.store.claim(record.id);
-        if (files.record.activity && !(await this.memory.isDirty())) {
+        const workspace = this.memory.workspace(files.directory, record.id);
+        let state: 'clean' | 'pending' | 'conflict' = 'clean';
+        if (await workspace.branchExists()) {
+          await workspace.ensureWorktree();
+          if (await workspace.isDirty()) state = 'pending';
+          else if ((await workspace.publish()) === 'conflict')
+            state = 'conflict';
+        }
+        if (state === 'pending') reason = 'unfinished memory changes';
+        else if (state === 'conflict')
+          reason = 'memory conflicts with another conversation';
+        if (state !== 'pending' && files.record.activity) {
           delete files.record.activity;
           await files.save(files.record);
         }
@@ -170,9 +219,20 @@ export class Coordinator {
       } finally {
         await files?.close().catch(problem);
       }
+      if (reason)
+        lines.push(
+          `- ${record.title} in ${record.cwd}${
+            (await access(record.cwd).then(
+              () => true,
+              () => false,
+            ))
+              ? ''
+              : ' (recreate this directory first)'
+          }: ${reason}`,
+        );
     }
-    return problems.length
-      ? `Witch couldn't check these conversations:\n${problems.join('\n')}`
+    return lines.length
+      ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`
       : undefined;
   }
 
@@ -184,11 +244,15 @@ export class Coordinator {
       'id' in target
         ? await this.store.claim(target.id)
         : await this.store.create(target.create);
+    const workspace = this.memory.workspace(files.directory, files.record.id);
     let items;
-    let scope;
+    let scope: MemoryScope | undefined;
     try {
       items = await files.items();
-      scope = await this.memory.scope(files.record.cwd);
+      if (await workspace.branchExists()) {
+        await workspace.ensureWorktree();
+        scope = await workspace.scope(files.record.cwd);
+      }
     } catch (error) {
       await files.close().catch(() => {});
       throw error;
@@ -205,6 +269,7 @@ export class Coordinator {
     }
     this.files = files;
     this.record = files.record;
+    this.workspace = workspace;
     this.scope = scope;
     if (!this.record.handoff?.activated) delete this.record.handoff;
     this.publish({
@@ -284,37 +349,56 @@ export class Coordinator {
     if (response.decision === 'cancel') await this.interrupt();
   }
 
-  async recoverMemory(decision: 'accept' | 'discard'): Promise<void> {
+  async recoverMemory(decision: 'accept' | 'discard' | 'keep'): Promise<void> {
+    const kind = this.snapshot.recovery?.kind;
     await this.operate(
       'editing',
       async () => {
-        const origin = this.current().activity;
-        const actor =
-          origin?.kind === 'memory-edit'
-            ? 'manual'
-            : (origin?.agent ?? 'manual');
-        if (decision === 'accept') {
-          await this.memory.commit(
-            `chore(memory): recover ${actor} changes\n\nconversation: ${origin?.conversationId ?? 'manual'}\nturn: ${origin?.id ?? 'manual'}`,
-          );
-        } else await this.memory.discard();
-        delete this.current().activity;
+        const workspace = this.workspace!;
+        if (kind === 'conflict') {
+          if (decision === 'keep') await workspace.keepMine();
+          else if (decision === 'discard') await workspace.discardMine();
+          else throw new Error('Keep your memory changes or discard them.');
+        } else {
+          const origin = this.current().activity;
+          const actor =
+            origin?.kind === 'memory-edit'
+              ? 'manual'
+              : (origin?.agent ?? 'manual');
+          if (decision === 'accept')
+            await workspace.commit(
+              `chore(memory): recover ${actor} changes\n\nconversation: ${origin?.conversationId ?? 'manual'}\nturn: ${origin?.id ?? 'manual'}`,
+            );
+          else if (decision === 'discard') await workspace.discardPending();
+          else throw new Error('Accept these memory changes or discard them.');
+          delete this.current().activity;
+        }
         await this.save();
       },
       'recovery',
     );
   }
 
-  async memoryEntries() {
-    return this.memory.catalog(this.scope!);
+  async memoryView(): Promise<MemoryView> {
+    const workspace = this.workspace!;
+    const scope = await this.memory.scopePaths(this.current().cwd);
+    if (await workspace.exists())
+      return {
+        revision: await workspace.revision(),
+        scope,
+        root: workspace.root,
+      };
+    return { revision: await this.memory.resolve(main), scope };
   }
 
   async editMemory(path?: string): Promise<void> {
     await this.operate('editing', async () => {
+      const note =
+        path ??
+        `${(await this.memory.scopePaths(this.current().cwd)).project}/MEMORY.md`;
+      this.notice(`Memory edit: ${note}`);
       await this.beginActivity('memory-edit');
-      const file = await this.memory.prepareNote(
-        path ?? join(this.scope!.project, 'MEMORY.md'),
-      );
+      const file = await this.workspace!.prepareNote(note);
       this.editorCancellation = new AbortController();
       try {
         await this.editFile(file, this.editorCancellation.signal);
@@ -322,7 +406,7 @@ export class Coordinator {
         this.editorCancellation = undefined;
       }
       if (this.cancelled) return;
-      await this.memory.commit('chore(memory): save edited notes');
+      await this.workspace!.commit('chore(memory): save edited notes');
       delete this.current().activity;
       await this.save();
     });
@@ -330,7 +414,11 @@ export class Coordinator {
 
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
-      await this.memory.restore(path, revision);
+      this.notice(`Memory restore: ${path} at ${revision.slice(0, 8)}`);
+      await this.beginActivity('memory-edit');
+      await this.workspace!.restore(path, revision);
+      delete this.current().activity;
+      await this.save();
     });
   }
 
@@ -345,6 +433,12 @@ export class Coordinator {
     try {
       await this.interrupt();
       await this.task?.catch(() => {});
+      // settle() returns early once closed, so an accepted recovery is published here
+      if (
+        (await this.workspace?.exists()) &&
+        !(await this.workspace!.isDirty())
+      )
+        await this.workspace!.publish();
       await this.disconnect();
     } finally {
       await this.files?.close();
@@ -412,8 +506,11 @@ export class Coordinator {
     const session = await this.connect();
     if (this.cancelled) return { status: 'interrupted', text: '' };
     const reference = conversation.sessions[conversation.agent]!;
+    const workspace = this.workspace!;
     const memory = await this.memory.snapshot(
-      this.scope!,
+      activity.baseRevision,
+      workspace.root,
+      await this.memory.scopePaths(conversation.cwd),
       reference.deliveredRevision,
     );
     const handoff = conversation.handoff;
@@ -450,7 +547,7 @@ export class Coordinator {
     }
     await this.files!.flush();
     if (result.status === 'completed') {
-      await this.memory.commit(
+      await workspace.commit(
         `chore(memory): save ${activity.agent} notes\n\nconversation: ${activity.conversationId}\nturn: ${activity.id}`,
       );
       conversation.sessions[activity.agent]!.deliveredRevision =
@@ -464,7 +561,7 @@ export class Coordinator {
         text: result.error ?? 'Turn interrupted',
         cwd: conversation.cwd,
       });
-      if (!(await this.memory.isDirty())) delete conversation.activity;
+      if (!(await workspace.isDirty())) delete conversation.activity;
     }
     await this.save();
     return result;
@@ -473,15 +570,17 @@ export class Coordinator {
   private async beginActivity(
     kind: NonNullable<ConversationRecord['activity']>['kind'],
   ): Promise<NonNullable<ConversationRecord['activity']>> {
-    if (await this.memory.isDirty())
-      throw new Error('Resolve pending memory before running another task');
     const conversation = this.current();
+    const workspace = this.workspace!;
+    await workspace.ensureWorktree();
+    const begun = await workspace.begin(conversation.cwd);
+    this.scope = begun.scope;
     const activity = {
       id: randomUUID(),
       conversationId: conversation.id,
       agent: conversation.agent,
       kind,
-      baseRevision: await this.memory.revision(),
+      baseRevision: begun.revision,
       startedAt: new Date().toISOString(),
     };
     conversation.activity = activity;
@@ -500,6 +599,8 @@ export class Coordinator {
     const conversation = this.current();
     const files = this.files!;
     const { adapter, executable } = this.registration(agent);
+    await this.workspace!.ensureWorktree();
+    this.scope = await this.workspace!.scope(conversation.cwd);
     const stored = conversation.sessions[agent];
     this.connecting = new AbortController();
     let session: AgentSession;
@@ -615,6 +716,15 @@ export class Coordinator {
     this.persist(this.files!.append(update));
   }
 
+  private notice(text: string): void {
+    this.display({
+      id: randomUUID(),
+      kind: 'notice',
+      text,
+      cwd: this.current().cwd,
+    });
+  }
+
   private save(): Promise<void> {
     return this.files!.save(this.current());
   }
@@ -654,13 +764,46 @@ export class Coordinator {
   private async settle(report?: string): Promise<void> {
     if (this.closed) return;
     await this.files!.flush();
-    const dirty = await this.memory.isDirty();
+    const workspace = this.workspace!;
+    let dirty = false;
+    let conflict = false;
+    let failure: string | undefined;
+    if (await workspace.exists()) {
+      dirty = await workspace.isDirty();
+      if (!dirty)
+        try {
+          conflict = (await workspace.publish()) === 'conflict';
+        } catch (error) {
+          failure = message(error);
+        }
+      // accept or keep mine would publish the markers a stuck rebase leaves
+      if (await workspace.rebaseStopped())
+        throw new Error(
+          'Restart Witch: memory is stuck in a rebase that could not be aborted.',
+        );
+    }
     if (!dirty) delete this.current().activity;
     await this.save();
+    const recovery: Recovery | undefined = dirty
+      ? {
+          kind: 'pending',
+          paths: [],
+          diff: await workspace.diff(),
+          root: workspace.root,
+        }
+      : conflict
+        ? {
+            kind: 'conflict',
+            ...(await workspace.conflict()),
+            root: workspace.root,
+          }
+        : undefined;
+    const error = [report, failure].filter(Boolean).join('\n\n');
     this.publish({
-      phase: dirty ? 'recovery' : 'idle',
+      phase: recovery ? 'recovery' : 'idle',
+      recovery,
       requests: [],
-      ...(report === undefined ? {} : { error: report }),
+      ...(error ? { error } : {}),
     });
   }
 

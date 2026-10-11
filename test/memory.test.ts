@@ -1,54 +1,108 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
+  chmod,
   mkdtemp,
   mkdir,
-  writeFile,
+  readdir,
   readFile,
-  unlink,
   rename,
+  rm,
+  stat,
   symlink,
+  unlink,
+  writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { Memory } from '../src/memory/memory.js';
+import { Memory, main } from '../src/memory/memory.js';
+import type { Workspace } from '../src/memory/workspace.js';
+import { hookedGit, passThrough } from './fixtures/git.js';
+import type { GitHook } from './fixtures/git.js';
 
 const execute = promisify(execFile);
+const lines = (changes: Record<number, string> = {}) =>
+  [1, 2, 3, 4, 5].map((line) => changes[line] ?? `line ${line}`).join('\n') +
+  '\n';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'witch-memory-'));
   const project = join(root, 'project');
   await mkdir(project);
-  const memory = new Memory(join(root, 'memory'));
+  const hook = { current: passThrough };
+  const memory = new Memory(join(root, 'memory.git'), hookedGit(hook));
   await memory.initialize();
-  const scope = await memory.scope(project);
-  return { memory, scope, root, project };
+  const open = async (id: string) => {
+    const directory = join(root, 'conversations', id);
+    await mkdir(directory, { recursive: true });
+    const workspace = memory.workspace(directory, id);
+    await workspace.ensureWorktree();
+    return { workspace, scope: await workspace.scope(project) };
+  };
+  return { memory, root, project, hook, open };
 }
 
-await test('initialization resumes an unborn repository without replacing existing notes', async () => {
-  for (const seeded of [false, true]) {
-    const root = await mkdtemp(join(tmpdir(), 'witch-incomplete-memory-'));
-    await execute('git', ['init', '-b', 'main'], { cwd: root });
-    const note = join(root, 'global', 'MEMORY.md');
-    if (seeded) {
-      await mkdir(join(root, 'global'));
-      await writeFile(note, 'Preserve this preference.');
+async function save(
+  workspace: Workspace,
+  files: Record<string, string | null>,
+  message = 'save',
+) {
+  for (const [path, text] of Object.entries(files)) {
+    const file = join(workspace.root, path);
+    if (text === null) await rm(file);
+    else {
+      await mkdir(join(file, '..'), { recursive: true });
+      await writeFile(file, text);
     }
-    const memory = new Memory(root);
-    await memory.initialize();
-    assert.equal(
-      await readFile(note, 'utf8'),
-      seeded ? 'Preserve this preference.' : '# Global memory\n',
-    );
-    const revision = await memory.revision();
-    await writeFile(note, 'Pending change.');
-    await memory.initialize();
-    assert.equal(await memory.revision(), revision);
-    assert.equal(await readFile(note, 'utf8'), 'Pending change.');
-    assert.equal(await memory.isDirty(), true);
   }
+  await workspace.commit(message);
+}
+
+async function git(cwd: string, ...args: string[]): Promise<string> {
+  return (await execute('git', args, { cwd })).stdout;
+}
+
+await test('parallel initialization seeds one repository and leaves a stray build alone', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'witch-memory-init-'));
+  const stray = join(root, `memory.git.${randomUUID()}`);
+  await git(root, 'init', '--bare', '--quiet', stray);
+  const before = await readdir(stray, { recursive: true });
+  const held = Promise.withResolvers<void>();
+  const inited = Promise.withResolvers<void>();
+  let calls = 0;
+  const hook = {
+    current: (async (command, run) => {
+      const result = await run();
+      if (command[0] === 'init' && calls++ === 0) {
+        inited.resolve();
+        await held.promise;
+      }
+      return result;
+    }) as GitHook,
+  };
+  const memory = new Memory(join(root, 'memory.git'), hookedGit(hook));
+  const seeded = async () => {
+    await git(memory.root, 'rev-parse', '--verify', 'main');
+    assert.equal(
+      (await git(memory.root, 'rev-list', '--count', 'main')).trim(),
+      '1',
+    );
+  };
+  const first = memory.initialize();
+  await inited.promise;
+  await memory.initialize();
+  await seeded();
+  held.resolve();
+  await first;
+  await seeded();
+  assert.deepEqual(
+    (await readdir(root)).sort(),
+    ['memory.git', stray.slice(root.length + 1)].sort(),
+  );
+  assert.deepEqual(await readdir(stray, { recursive: true }), before);
 });
 
 await test('memory commits use their own identity without global Git configuration', async () => {
@@ -62,12 +116,35 @@ await test('memory commits use their own identity without global Git configurati
       '--input-type=module',
       '-e',
       `import { Memory } from ${JSON.stringify(module)};
-       import { writeFile } from 'node:fs/promises';
-       const memory = new Memory(${JSON.stringify(root)});
+       import { mkdir, writeFile } from 'node:fs/promises';
+       import { join } from 'node:path';
+       const root = ${JSON.stringify(root)};
+       const memory = new Memory(join(root, 'memory.git'));
        await memory.initialize();
-       await writeFile(${JSON.stringify(join(root, 'global', 'MEMORY.md'))}, 'New preference.');
-       await memory.commit('save preference');
-       console.log(await memory.read('global/MEMORY.md'));`,
+       const open = async (id) => {
+         await mkdir(join(root, id));
+         const workspace = memory.workspace(join(root, id), id);
+         await workspace.ensureWorktree();
+         return workspace;
+       };
+       const mine = await open('mine');
+       const theirs = await open('theirs');
+       const note = (workspace, path, text) => writeFile(join(workspace.root, path), text);
+       await note(theirs, 'global/theirs.md', 'Theirs.');
+       await theirs.commit('theirs');
+       await theirs.publish();
+       await note(mine, 'global/mine.md', 'Mine.');
+       await mine.commit('mine');
+       await mine.publish();
+       await note(theirs, 'global/MEMORY.md', 'Their preference.');
+       await theirs.commit('their preference');
+       await theirs.publish();
+       await note(mine, 'global/MEMORY.md', 'New preference.');
+       await mine.commit('my preference');
+       if ((await mine.publish()) !== 'conflict') throw new Error('expected a conflict');
+       await mine.keepMine();
+       await mine.publish();
+       console.log(await memory.read('refs/heads/main', 'global/MEMORY.md'));`,
     ],
     {
       cwd: root,
@@ -86,27 +163,35 @@ await test('memory commits use their own identity without global Git configurati
     },
   );
   assert.equal(stdout.trim(), 'New preference.');
-  const log = await execute('git', ['log', '--format=%an <%ae> | %cn <%ce>'], {
-    cwd: root,
-  });
-  assert.deepEqual(log.stdout.trim().split('\n'), [
-    'Witch <witch@localhost> | Witch <witch@localhost>',
-    'Witch <witch@localhost> | Witch <witch@localhost>',
-  ]);
+  const log = await git(
+    join(root, 'memory.git'),
+    'log',
+    '--format=%an <%ae> | %cn <%ce>',
+    main,
+  );
+  const identities = log.trim().split('\n');
+  assert.equal(identities.length, 5);
+  for (const identity of identities)
+    assert.equal(identity, 'Witch <witch@localhost> | Witch <witch@localhost>');
 });
 
 await test('accepted snapshots exclude dirty tracked and newly created notes', async () => {
-  const { memory, scope } = await fixture();
+  const { memory, open, project } = await fixture();
+  const { workspace, scope } = await open('a');
   await writeFile(join(scope.project, 'MEMORY.md'), 'Accepted project fact.');
-  await memory.commit('seed');
+  await workspace.commit('seed');
   await writeFile(join(scope.project, 'MEMORY.md'), 'Unfinished project fact.');
   await writeFile(join(scope.project, 'pending.md'), 'Unfinished new note.');
-  assert.equal(await memory.isDirty(), true);
-  const snapshot = await memory.snapshot(scope);
+  assert.equal(await workspace.isDirty(), true);
+  const snapshot = await memory.snapshot(
+    await workspace.revision(),
+    workspace.root,
+    await memory.scopePaths(project),
+  );
   assert.match(snapshot.text, /Accepted project fact/);
   assert.doesNotMatch(snapshot.text, /Unfinished/);
-  await memory.discard();
-  assert.equal(await memory.isDirty(), false);
+  await workspace.discardPending();
+  assert.equal(await workspace.isDirty(), false);
   assert.equal(
     await readFile(join(scope.project, 'MEMORY.md'), 'utf8'),
     'Accepted project fact.',
@@ -115,92 +200,111 @@ await test('accepted snapshots exclude dirty tracked and newly created notes', a
 });
 
 await test('global memory crosses projects while project notes remain scoped', async () => {
-  const { memory, scope, root } = await fixture();
+  const { memory, open, root } = await fixture();
+  const { workspace, scope } = await open('a');
   await writeFile(join(scope.global, 'MEMORY.md'), 'Use concise replies.');
   await writeFile(
     join(scope.project, 'MEMORY.md'),
     'Project A uses port 4567.',
   );
-  await memory.commit('preferences');
+  await workspace.commit('preferences');
+  await workspace.publish();
   const other = join(root, 'other');
   await mkdir(other);
-  const otherScope = await memory.scope(other);
-  const snapshot = await memory.snapshot(otherScope);
+  const snapshot = await memory.snapshot(
+    await memory.resolve(main),
+    workspace.root,
+    await memory.scopePaths(other),
+  );
   assert.match(snapshot.text, /Use concise replies/);
   assert.doesNotMatch(snapshot.text, /4567/);
 });
 
 await test('restore produces a new accepted revision and deletion remains visible', async () => {
-  const { memory, scope } = await fixture();
+  const { memory, open, project } = await fixture();
+  const { workspace, scope } = await open('a');
+  const paths = await memory.scopePaths(project);
   const path = join(scope.project, 'MEMORY.md');
+  const note = `${paths.project}/MEMORY.md`;
   await writeFile(path, 'Use value A.');
-  await memory.commit('first preference');
-  const first = await memory.revision();
+  await workspace.commit('first preference');
+  const first = await workspace.revision();
   await writeFile(path, 'Use value B.');
-  await memory.commit('second preference');
-  const second = await memory.revision();
-  await memory.restore(path, first);
-  const restored = await memory.snapshot(scope);
+  await workspace.commit('second preference');
+  const second = await workspace.revision();
+  await workspace.restore(note, first);
+  const restored = await memory.snapshot(
+    await workspace.revision(),
+    workspace.root,
+    paths,
+  );
   assert.notEqual(restored.revision, first);
   assert.notEqual(restored.revision, second);
   assert.match(restored.text, /Use value A/);
-  assert.equal((await memory.history(path)).length, 3);
+  assert.equal((await memory.history(restored.revision, note)).length, 3);
   await unlink(path);
-  await memory.commit('remove preference');
-  assert.doesNotMatch((await memory.snapshot(scope)).text, /Use value A/);
+  await workspace.commit('remove preference');
+  assert.doesNotMatch(
+    (await memory.snapshot(await workspace.revision(), workspace.root, paths))
+      .text,
+    /Use value A/,
+  );
 });
 
 await test('a clean turn does not add an empty memory commit', async () => {
-  const { memory } = await fixture();
-  const before = await memory.revision();
-  await memory.commit('no changes');
-  assert.equal(await memory.revision(), before);
+  const { open } = await fixture();
+  const { workspace } = await open('a');
+  const before = await workspace.revision();
+  await workspace.commit('no changes');
+  assert.equal(await workspace.revision(), before);
 });
 
 await test('restore refuses symlinked destinations and parent directories', async () => {
   for (const parent of [false, true]) {
-    const { memory, scope, root } = await fixture();
+    const { open, root } = await fixture();
+    const { workspace, scope } = await open('a');
     const path = join(scope.project, 'note.md');
     await writeFile(path, 'Saved preference.');
-    const revision = await memory.commit('save note');
+    await workspace.commit('save note');
+    const revision = await workspace.revision();
     const outside = join(root, 'outside');
     await mkdir(outside);
     const target = join(outside, 'note.md');
     await writeFile(target, 'External content.');
     await rename(parent ? scope.project : path, join(root, 'original'));
     await symlink(parent ? outside : target, parent ? scope.project : path);
-    await execute('git', ['add', '--all'], { cwd: memory.root });
-    await execute(
-      'git',
-      [
-        '-c',
-        'user.name=Fixture',
-        '-c',
-        'user.email=fixture@localhost',
-        '-c',
-        'commit.gpgsign=false',
-        '-c',
-        'core.hooksPath=/dev/null',
-        'commit',
-        '-m',
-        'legacy symlink',
-      ],
-      { cwd: memory.root },
+    await git(workspace.root, 'add', '--all');
+    await git(
+      workspace.root,
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@localhost',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '-m',
+      'legacy symlink',
     );
-    assert.equal(await memory.isDirty(), false);
+    assert.equal(await workspace.isDirty(), false);
     await assert.rejects(
-      memory.restore(path, revision),
+      workspace.restore(path, revision),
       /regular (file|directory)/,
     );
-    await assert.rejects(memory.prepareNote(path), /regular (file|directory)/);
+    await assert.rejects(
+      workspace.prepareNote(path),
+      /regular (file|directory)/,
+    );
     assert.equal(await readFile(target, 'utf8'), 'External content.');
     if (!parent) {
-      const linkedRevision = await memory.revision();
+      const linkedRevision = await workspace.revision();
       await rename(path, join(root, 'saved-link'));
       await writeFile(path, 'Regular note again.');
-      await memory.commit('replace link with note');
+      await workspace.commit('replace link with note');
       await assert.rejects(
-        memory.restore(path, linkedRevision),
+        workspace.restore(path, linkedRevision),
         /regular files/,
       );
       assert.equal(await readFile(path, 'utf8'), 'Regular note again.');
@@ -209,30 +313,365 @@ await test('restore refuses symlinked destinations and parent directories', asyn
 });
 
 await test('pending symlinks cannot be accepted or read through a recovery preview', async () => {
-  const { memory, scope, root } = await fixture();
-  const before = await memory.revision();
+  const { open, root } = await fixture();
+  const { workspace, scope } = await open('a');
+  const before = await workspace.revision();
   const target = join(root, 'private.txt');
   await writeFile(target, 'External private content.');
   await symlink(target, join(scope.project, 'reference.md'));
-  await assert.rejects(memory.commit('accept link'), /regular file/);
-  assert.equal(await memory.revision(), before);
-  const diff = await memory.diff();
+  await assert.rejects(workspace.commit('accept link'), /regular file/);
+  assert.equal(await workspace.revision(), before);
+  const diff = await workspace.diff();
   assert.match(diff, /reference.md/);
   assert.doesNotMatch(diff, /External private content/);
-  await memory.discard();
-  assert.equal(await memory.isDirty(), false);
+  await workspace.discardPending();
+  assert.equal(await workspace.isDirty(), false);
   assert.equal(await readFile(target, 'utf8'), 'External private content.');
 });
 
-await test('initialization refuses a symlinked note directory without changing its target', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-memory-link-'));
+await test('a scope refuses a symlinked note directory without changing its target', async () => {
+  const { open, root, project } = await fixture();
+  const { workspace } = await open('a');
   const outside = join(root, 'outside');
   await mkdir(outside);
   const note = join(outside, 'MEMORY.md');
   await writeFile(note, 'Existing external note.');
-  const memory = new Memory(join(root, 'memory'));
-  await mkdir(memory.root);
-  await symlink(outside, join(memory.root, 'global'));
-  await assert.rejects(memory.initialize(), /regular directory/);
+  await rm(join(workspace.root, 'global'), { recursive: true });
+  await symlink(outside, join(workspace.root, 'global'));
+  await assert.rejects(workspace.scope(project), /regular directory/);
   assert.equal(await readFile(note, 'utf8'), 'Existing external note.');
+});
+
+await test('two workspaces publish different notes, each with its own attribution', async () => {
+  const { memory, open } = await fixture();
+  const { workspace: first } = await open('first');
+  const { workspace: second } = await open('second');
+  await save(
+    first,
+    { 'global/first.md': 'First.' },
+    'save\n\nconversation: first',
+  );
+  await save(
+    second,
+    { 'global/second.md': 'Second.' },
+    'save\n\nconversation: second',
+  );
+  assert.equal(await first.publish(), 'published');
+  assert.equal(await second.publish(), 'published');
+  assert.equal(await memory.read(main, 'global/first.md'), 'First.');
+  assert.equal(await memory.read(main, 'global/second.md'), 'Second.');
+  const bodies = await git(memory.root, 'log', '--format=%b', main);
+  assert.match(bodies, /conversation: first/);
+  assert.match(bodies, /conversation: second/);
+});
+
+await test('keep mine wins conflicting lines and merges every other change', async () => {
+  for (const decision of ['keep', 'discard'] as const) {
+    const { memory, open, project } = await fixture();
+    const { workspace: theirs } = await open('theirs');
+    const { workspace: mine } = await open('mine');
+    const base = {
+      'global/one.md': lines(),
+      'global/two.md': lines(),
+    };
+    await save(theirs, base);
+    await theirs.publish();
+    await mine.begin(project);
+    await save(theirs, {
+      'global/one.md': lines({ 1: 'theirs 1', 3: 'theirs 3' }),
+      'global/two.md': lines({ 1: 'theirs 1' }),
+    });
+    await theirs.publish();
+    await save(mine, {
+      'global/one.md': lines({ 1: 'mine 1' }),
+      'global/two.md': lines({ 3: 'mine 3' }),
+      'global/three.md': 'Mine only.',
+    });
+    assert.equal(await mine.publish(), 'conflict');
+    if (decision === 'keep') {
+      await mine.keepMine();
+      assert.equal(await mine.publish(), 'published');
+      assert.equal(
+        await memory.read(main, 'global/one.md'),
+        lines({ 1: 'mine 1', 3: 'theirs 3' }),
+      );
+      assert.equal(
+        await memory.read(main, 'global/two.md'),
+        lines({ 1: 'theirs 1', 3: 'mine 3' }),
+      );
+      assert.equal(await memory.read(main, 'global/three.md'), 'Mine only.');
+    } else {
+      await mine.discardMine();
+      assert.equal(await mine.revision(), await memory.resolve(main));
+      assert.equal(
+        await readFile(join(mine.root, 'global/one.md'), 'utf8'),
+        lines({ 1: 'theirs 1', 3: 'theirs 3' }),
+      );
+      assert.equal(await mine.publish(), 'published');
+    }
+  }
+});
+
+await test('keep mine carries no markers through a rename on either side', async () => {
+  for (const renamer of ['theirs', 'mine'] as const) {
+    const { memory, open, project } = await fixture();
+    const { workspace: theirs } = await open('theirs');
+    const { workspace: mine } = await open('mine');
+    await save(theirs, { 'global/one.md': lines() });
+    await theirs.publish();
+    await mine.begin(project);
+    if (renamer === 'theirs') {
+      await save(theirs, {
+        'global/one.md': null,
+        'global/renamed.md': lines({ 2: 'theirs 2' }),
+      });
+      await save(mine, { 'global/one.md': lines({ 2: 'mine 2' }) });
+    } else {
+      await save(theirs, {
+        'global/one.md': lines({ 2: 'theirs 2', 4: 'theirs 4' }),
+      });
+      await save(mine, {
+        'global/one.md': null,
+        'global/renamed.md': lines({ 2: 'mine 2' }),
+      });
+    }
+    await theirs.publish();
+    assert.equal(await mine.publish(), 'conflict');
+    await mine.keepMine();
+    assert.equal(await mine.publish(), 'published');
+    assert.equal(
+      (
+        await execute('git', ['grep', '-c', '<<<<<<<', main], {
+          cwd: memory.root,
+        }).catch(() => ({ stdout: '' }))
+      ).stdout,
+      '',
+    );
+    await assert.rejects(memory.read(main, 'global/one.md'));
+    assert.equal(
+      await memory.read(main, 'global/renamed.md'),
+      renamer === 'theirs'
+        ? lines({ 2: 'mine 2' })
+        : lines({ 2: 'mine 2', 4: 'theirs 4' }),
+    );
+  }
+});
+
+await test('a publish that loses the race to update main retries onto the new main', async () => {
+  const { memory, open, hook } = await fixture();
+  const { workspace: first } = await open('first');
+  const { workspace: second } = await open('second');
+  await save(first, { 'global/first.md': 'First.' });
+  await save(second, { 'global/second.md': 'Second.' });
+  let armed = true;
+  hook.current = async (command, run, options) => {
+    const result = await run();
+    if (
+      armed &&
+      options.cwd === first.root &&
+      command.join(' ') === `rev-parse ${main}`
+    ) {
+      armed = false;
+      await second.publish();
+    }
+    return result;
+  };
+  await first.publish().catch(() => {});
+  assert.equal(await memory.read(main, 'global/first.md'), 'First.');
+  assert.equal(await memory.read(main, 'global/second.md'), 'Second.');
+});
+
+await test('keep mine merges against the main it read even when main moves', async () => {
+  const { memory, open, hook } = await fixture();
+  const { workspace: theirs } = await open('theirs');
+  const { workspace: mine } = await open('mine');
+  const { workspace: other } = await open('other');
+  await save(theirs, { 'global/one.md': 'Theirs.\n' });
+  await save(mine, { 'global/one.md': 'Mine.\n' });
+  await save(other, { 'global/other.md': 'Other.' });
+  await theirs.publish();
+  assert.equal(await mine.publish(), 'conflict');
+  hook.current = async (command, run) => {
+    const result = await run();
+    if (command[0] === 'merge-tree') {
+      hook.current = passThrough;
+      await other.publish();
+    }
+    return result;
+  };
+  await mine.keepMine();
+  assert.equal(await mine.publish(), 'published');
+  assert.equal(await memory.read(main, 'global/one.md'), 'Mine.\n');
+  assert.equal(await memory.read(main, 'global/other.md'), 'Other.');
+});
+
+await test('a crash inside keep mine before its reset leaves the worktree clean and the conflict standing', async () => {
+  const { open, hook } = await fixture();
+  const { workspace: theirs } = await open('theirs');
+  const { workspace: mine } = await open('mine');
+  await save(theirs, { 'global/one.md': 'Theirs.\n' });
+  await save(mine, { 'global/one.md': 'Mine.\n' });
+  await theirs.publish();
+  assert.equal(await mine.publish(), 'conflict');
+  hook.current = async (command, run) => {
+    const result = await run();
+    if (command[0] === 'commit-tree') throw new Error('crashed');
+    return result;
+  };
+  await assert.rejects(mine.keepMine(), /crashed/);
+  hook.current = passThrough;
+  assert.equal(await mine.isDirty(), false);
+  assert.equal(await mine.publish(), 'conflict');
+});
+
+await test('a deleted worktree directory comes back on its branch with its unpublished commit', async () => {
+  const { memory, open } = await fixture();
+  const { workspace } = await open('a');
+  await save(workspace, { 'global/kept.md': 'Kept.' });
+  const commit = await workspace.revision();
+  await rm(workspace.root, { recursive: true });
+  await workspace.ensureWorktree();
+  assert.equal(
+    (await git(workspace.root, 'symbolic-ref', 'HEAD')).trim(),
+    'refs/heads/conversations/a',
+  );
+  assert.equal(await workspace.revision(), commit);
+  await workspace.publish();
+  assert.equal(await memory.read(main, 'global/kept.md'), 'Kept.');
+});
+
+await test('a leftover rebase is aborted back onto the branch before publishing', async () => {
+  const { memory, open, root } = await fixture();
+  const { workspace } = await open('a');
+  await save(workspace, { 'global/kept.md': 'Kept.' });
+  const editor = join(root, 'break.sh');
+  await writeFile(editor, '#!/bin/sh\nprintf "break\\n" > "$1"\n');
+  await chmod(editor, 0o755);
+  await execute('git', ['rebase', '-i', 'HEAD~1'], {
+    cwd: workspace.root,
+    env: { ...process.env, GIT_SEQUENCE_EDITOR: editor },
+  });
+  assert.equal(await workspace.rebaseStopped(), true);
+  await workspace.ensureWorktree();
+  assert.equal(await workspace.rebaseStopped(), false);
+  assert.equal(
+    (await git(workspace.root, 'symbolic-ref', 'HEAD')).trim(),
+    'refs/heads/conversations/a',
+  );
+  await workspace.publish();
+  assert.equal(await memory.read(main, 'global/kept.md'), 'Kept.');
+});
+
+for (const [name, mineChange, theirChange, expected] of [
+  ['I delete, they edit', null, lines({ 2: 'theirs 2' }), undefined],
+  ['I edit, they delete', lines({ 2: 'mine 2' }), null, lines({ 2: 'mine 2' })],
+] as const) {
+  await test(`keep mine when ${name}`, async () => {
+    const { memory, open, project } = await fixture();
+    const { workspace: theirs } = await open('theirs');
+    const { workspace: mine } = await open('mine');
+    await save(theirs, { 'global/one.md': lines(), 'global/keep.md': 'Keep.' });
+    await theirs.publish();
+    await mine.begin(project);
+    await save(theirs, { 'global/one.md': theirChange });
+    await save(mine, { 'global/one.md': mineChange });
+    await theirs.publish();
+    assert.equal(await mine.publish(), 'conflict');
+    await mine.keepMine();
+    await mine.publish();
+    if (expected === undefined)
+      await assert.rejects(memory.read(main, 'global/one.md'));
+    else assert.equal(await memory.read(main, 'global/one.md'), expected);
+    assert.equal(await memory.read(main, 'global/keep.md'), 'Keep.');
+  });
+}
+
+await test('keep mine keeps their renamed copy of a note I deleted', async () => {
+  const { memory, open, project } = await fixture();
+  const { workspace: theirs } = await open('theirs');
+  const { workspace: mine } = await open('mine');
+  await save(theirs, { 'global/one.md': lines(), 'global/keep.md': 'Keep.' });
+  await theirs.publish();
+  await mine.begin(project);
+  await save(theirs, { 'global/one.md': null, 'global/renamed.md': lines() });
+  await save(mine, { 'global/one.md': null });
+  await theirs.publish();
+  assert.equal(await mine.publish(), 'conflict');
+  await mine.keepMine();
+  await mine.publish();
+  assert.equal(await memory.read(main, 'global/renamed.md'), lines());
+});
+
+await test('begin recreates the project directory after its last note is deleted on main', async () => {
+  const { memory, open, project } = await fixture();
+  const { workspace: first, scope } = await open('first');
+  const { workspace: second } = await open('second');
+  const paths = await memory.scopePaths(project);
+  await writeFile(join(scope.project, 'MEMORY.md'), 'Project note.');
+  await first.commit('note');
+  await first.publish();
+  await second.begin(project);
+  await rm(join(second.root, paths.project, 'MEMORY.md'));
+  await second.commit('delete');
+  await second.publish();
+  const { scope: begun } = await first.begin(project);
+  assert.ok((await stat(begun.project)).isDirectory());
+  assert.ok((await stat(begun.global)).isDirectory());
+});
+
+await test('snapshot paths point into the worktree, never the bare repository', async () => {
+  const { memory, open, project } = await fixture();
+  const { workspace } = await open('a');
+  const paths = await memory.scopePaths(project);
+  const snapshot = await memory.snapshot(
+    await workspace.revision(),
+    workspace.root,
+    paths,
+  );
+  assert.ok(
+    snapshot.text
+      .split('\n')
+      .includes(join(workspace.root, paths.project, 'MEMORY.md')),
+  );
+  assert.doesNotMatch(snapshot.text, /memory\.git/);
+});
+
+await test('begin returns the worktree revision when main moves during it', async () => {
+  const { memory, open, hook, project } = await fixture();
+  const { workspace: first } = await open('first');
+  const { workspace: second } = await open('second');
+  await save(second, { 'global/later.md': 'Later.' });
+  hook.current = async (command, run, options) => {
+    const result = await run();
+    if (options.cwd === first.root && command[0] === 'merge') {
+      hook.current = passThrough;
+      await second.publish();
+    }
+    return result;
+  };
+  const { revision } = await first.begin(project);
+  assert.equal(revision, await first.revision());
+  assert.notEqual(revision, await memory.resolve(main));
+});
+
+await test('publishing a clean worktree behind main leaves it where it was', async () => {
+  const { open } = await fixture();
+  const { workspace: first } = await open('first');
+  const { workspace: second } = await open('second');
+  const before = await first.revision();
+  await save(second, { 'global/later.md': 'Later.' });
+  await second.publish();
+  assert.equal(await first.publish(), 'published');
+  assert.equal(await first.revision(), before);
+});
+
+await test('discarding works when notes are named main and HEAD', async () => {
+  const { memory, open } = await fixture();
+  const { workspace } = await open('a');
+  await save(workspace, { main: 'A note named main.', HEAD: 'And HEAD.' });
+  await writeFile(join(workspace.root, 'HEAD'), 'Pending.');
+  await workspace.discardPending();
+  assert.equal(await workspace.isDirty(), false);
+  await workspace.discardMine();
+  assert.equal(await workspace.revision(), await memory.resolve(main));
 });

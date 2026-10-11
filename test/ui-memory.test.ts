@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import {
   mkdtemp,
   mkdir,
@@ -34,20 +35,33 @@ await test('a deleted note remains discoverable and can be restored through its 
   );
   const cwd = join(root, 'project');
   await mkdir(cwd);
-  const memory = new Memory(join(root, 'state', 'memory'));
-  const coordinator = new Coordinator(
-    await StateStore.open(join(root, 'state')),
-    memory,
-    [{ adapter: new CodexAdapter() }],
-  );
+  const store = await StateStore.open(join(root, 'state'));
+  const memory = new Memory(join(root, 'state', 'memory.git'));
+  const coordinator = new Coordinator(store, memory, [
+    { adapter: new CodexAdapter() },
+  ]);
   await coordinator.initialize(cwd);
-  const scope = await memory.scope(cwd);
+  const id = randomUUID();
+  const files = await store.create({
+    id,
+    title: 'Notes',
+    cwd,
+    agent: 'codex',
+    sessions: {},
+    createdAt: new Date().toISOString(),
+  });
+  await files.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
+  const workspace = memory.workspace(files.directory, id);
+  await workspace.ensureWorktree();
+  const scope = await workspace.scope(cwd);
   const reference = join(scope.project, 'decisions.md');
   await writeFile(reference, 'Accepted project decision.');
-  await memory.commit('save reference');
-  const originalRevision = await memory.revision();
+  await workspace.commit('save reference');
+  const originalRevision = await workspace.revision();
   await unlink(reference);
-  await memory.commit('delete reference');
+  await workspace.commit('delete reference');
+  await files.close();
+  await coordinator.selectConversation(id);
   const ui = render(createElement(App, { coordinator, onExit: () => {} }));
   try {
     await delay(40);
@@ -71,8 +85,8 @@ await test('a deleted note remains discoverable and can be restored through its 
         (await readFile(reference, 'utf8').catch(() => '')) ===
           'Accepted project decision.',
     );
-    assert.notEqual(await memory.revision(), originalRevision);
-    assert.equal(await memory.isDirty(), false);
+    assert.notEqual(await workspace.revision(), originalRevision);
+    assert.equal(await workspace.isDirty(), false);
   } finally {
     ui.unmount();
     await coordinator.close();

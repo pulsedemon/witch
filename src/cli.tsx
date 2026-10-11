@@ -27,7 +27,7 @@ if (args.includes('--help')) {
   const store = await StateStore.open(stateDirectory);
   const coordinator = new Coordinator(
     store,
-    new Memory(join(stateDirectory, 'memory')),
+    new Memory(join(stateDirectory, 'memory.git')),
     await installedAgents(),
   );
   let shuttingDown = false;

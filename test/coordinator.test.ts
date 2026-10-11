@@ -19,87 +19,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
-import { Memory } from '../src/memory/memory.js';
+import { Memory, main } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
-import type {
-  AgentAdapter,
-  AgentSession,
-  SessionOptions,
-  SessionInfo,
-  TurnResult,
-} from '../src/agents/types.js';
-
-class FixtureAgent implements AgentAdapter {
-  readonly label: string;
-  readonly inputs: { session: string; prompt: string }[] = [];
-  readonly resumed: (string | undefined)[] = [];
-  readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
-  failConnect = false;
-  failClose = false;
-  interruptNext = false;
-  constructor(readonly id: string) {
-    this.label = id;
-  }
-  async connect(options: SessionOptions): Promise<AgentSession> {
-    if (this.failConnect) throw new Error('Destination unavailable');
-    this.resumed.push(options.resume);
-    const info: SessionInfo = {
-      id: options.resume ?? randomUUID(),
-      agent: this.id,
-      cwd: options.cwd,
-      model: `${this.id}-model`,
-      permissionMode: 'default',
-      hasHistory: true,
-    };
-    options.onEvent({ type: 'info', info });
-    // a bounded stand-in for the native process, never the test runner's pid
-    const sleeper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
-    sleeper.unref();
-    await options.onProcess(sleeper.pid);
-    let closed = false;
-    const session: AgentSession = {
-      info,
-      get closed() {
-        return closed;
-      },
-      models: async () => [
-        { id: info.model, label: info.model, description: '', efforts: [] },
-      ],
-      selectModel: async () => {},
-      respond: () => {},
-      interrupt: async () => {},
-      close: async () => {
-        closed = true;
-        try {
-          if (this.failClose) throw new Error('Close failed');
-        } finally {
-          sleeper.kill();
-          await options.onProcess(undefined);
-        }
-      },
-      send: async (prompt): Promise<TurnResult> => {
-        this.inputs.push({ session: info.id, prompt });
-        if (prompt.includes('remember-port'))
-          await writeFile(
-            join(options.memoryDirectories[1]!, 'MEMORY.md'),
-            'Use port 4567.',
-          );
-        if (this.interruptNext) {
-          this.interruptNext = false;
-          return { status: 'interrupted', text: '' };
-        }
-        const text = prompt.includes('handoff summary')
-          ? `${this.id}: finish the migration`
-          : 'Done.';
-        options.onEvent({ type: 'text', id: randomUUID(), text });
-        return { status: 'completed', text };
-      },
-    };
-    this.sessions.push({ options, session });
-    return session;
-  }
-}
+import { FixtureAgent, TurnGate } from './fixtures/agent.js';
+import { hookedGit, passThrough } from './fixtures/git.js';
 
 function record(id: string, cwd: string, agent = 'a'): Conversation {
   return {
@@ -165,7 +89,8 @@ async function fixture(
   const project = join(root, 'project');
   await mkdir(project);
   const store = await StateStore.open(join(root, 'state'));
-  const memory = new Memory(join(root, 'state', 'memory'));
+  const hook = { current: passThrough };
+  const memory = new Memory(join(root, 'state', 'memory.git'), hookedGit(hook));
   const a = new FixtureAgent('a');
   const b = new FixtureAgent('b');
   const coordinator = new Coordinator(
@@ -175,7 +100,31 @@ async function fixture(
     editFile,
   );
   await coordinator.initialize(project);
-  return { coordinator, store, memory, a, b, root, project };
+  const workspace = (id = coordinator.snapshot.conversation!.id) =>
+    memory.workspace(join(root, 'state', 'conversations', id), id);
+  const note = async () =>
+    `${(await memory.scopePaths(project)).project}/MEMORY.md`;
+  /** another conversation's workspace, for publishing to main from outside. */
+  const outsider = async (id = randomUUID()) => {
+    await mkdir(join(root, 'state', 'conversations', id), { recursive: true });
+    const other = workspace(id);
+    await other.ensureWorktree();
+    await other.scope(project);
+    return other;
+  };
+  return {
+    coordinator,
+    store,
+    memory,
+    hook,
+    a,
+    b,
+    root,
+    project,
+    workspace,
+    note,
+    outsider,
+  };
 }
 
 await test('a fresh conversation receives committed memory without a handoff', async () => {
@@ -193,19 +142,18 @@ await test('a fresh conversation receives committed memory without a handoff', a
 });
 
 await test('unfinished memory blocks execution until recovery preserves the original attribution', async () => {
-  const { coordinator, memory, a } = await fixture();
+  const { coordinator, memory, a, workspace, note } = await fixture();
   try {
     a.interruptNext = true;
     await coordinator.send('remember-port');
     assert.equal(coordinator.snapshot.phase, 'recovery');
     await assert.rejects(coordinator.send('unrelated task'), /pending memory/);
     await coordinator.recoverMemory('accept');
-    const scope = await memory.scope(coordinator.snapshot.conversation!.cwd);
     assert.equal(
-      (await memory.history(join(scope.project, 'MEMORY.md')))[0]!.subject,
+      (await memory.history(main, await note()))[0]!.subject,
       'chore(memory): recover a changes',
     );
-    assert.equal(await memory.isDirty(), false);
+    assert.equal(await workspace().isDirty(), false);
     await coordinator.send('continue');
     assert.equal(a.inputs.length, 2);
   } finally {
@@ -249,12 +197,13 @@ await test('destination startup failure retains the source conversation and sess
 });
 
 await test('restored memory refreshes an existing session before the next turn', async () => {
-  const { coordinator, memory, a } = await fixture();
+  const { coordinator, a, note, outsider } = await fixture();
   try {
     await coordinator.send('remember-port');
-    const scope = await memory.scope(coordinator.snapshot.conversation!.cwd);
-    await writeFile(join(scope.project, 'MEMORY.md'), 'Use port 9001.');
-    await memory.commit('change port');
+    const other = await outsider();
+    await writeFile(join(other.root, await note()), 'Use port 9001.');
+    await other.commit('change port');
+    await other.publish();
     await coordinator.send('Continue');
     assert.match(a.inputs.at(-1)!.prompt, /Use port 9001/);
     assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Use port 4567/);
@@ -265,7 +214,7 @@ await test('restored memory refreshes an existing session before the next turn',
 });
 
 await test('recovery has one owner and shutdown waits for its accepted commit', async () => {
-  const { coordinator, memory, a } = await fixture();
+  const { coordinator, memory, a, workspace, note } = await fixture();
   a.interruptNext = true;
   await coordinator.send('remember-port');
   const recovering = coordinator.recoverMemory('accept');
@@ -274,14 +223,8 @@ await test('recovery has one owner and shutdown waits for its accepted commit', 
     /Stop the current operation/,
   );
   await Promise.all([recovering, coordinator.close()]);
-  assert.equal(await memory.isDirty(), false);
-  assert.match(
-    await memory.read(
-      (await memory.scope(coordinator.snapshot.conversation!.cwd)).project +
-        '/MEMORY.md',
-    ),
-    /4567/,
-  );
+  assert.equal(await workspace().isDirty(), false);
+  assert.match(await memory.read(main, await note()), /4567/);
 });
 
 await test('startup failures leave an exit-capable error state', async () => {
@@ -346,7 +289,7 @@ for (const stage of [
         conversationId: conversation.id,
         agent: 'b',
         kind: 'turn',
-        baseRevision: await memory.revision(),
+        baseRevision: await memory.resolve(main),
         startedAt: new Date().toISOString(),
       };
     await files.append({
@@ -389,10 +332,12 @@ for (const stage of [
 
 await test('editing a previously committed symlink never opens its external target', async () => {
   let edits = 0;
-  const { coordinator, memory, root, project } = await fixture(async () => {
+  const { coordinator, root, project, workspace } = await fixture(async () => {
     edits++;
   });
   try {
+    const memory = workspace();
+    await memory.ensureWorktree();
     const scope = await memory.scope(project);
     const target = join(root, 'external.md');
     const note = join(scope.project, 'linked.md');
@@ -433,8 +378,8 @@ for (const action of ['interrupt', 'close'] as const) {
     { timeout: 5000 },
     async () => {
       const opened = Promise.withResolvers<void>();
-      const { coordinator, store, memory, root, project, a } = await fixture(
-        async (path, signal) => {
+      const { coordinator, store, memory, root, project, a, workspace, note } =
+        await fixture(async (path, signal) => {
           await writeFile(path, 'Pending manual preference.');
           opened.resolve();
           await new Promise<void>((_, reject) =>
@@ -445,13 +390,12 @@ for (const action of ['interrupt', 'close'] as const) {
               { once: true },
             ),
           );
-        },
-      );
+        });
       const editing = coordinator.editMemory().catch(() => {});
       await opened.promise;
       await coordinator[action]();
       await editing;
-      assert.equal(await memory.isDirty(), true);
+      assert.equal(await workspace().isDirty(), true);
       if (action === 'interrupt')
         assert.equal(coordinator.snapshot.phase, 'recovery');
       await coordinator.close();
@@ -464,21 +408,21 @@ for (const action of ['interrupt', 'close'] as const) {
           (await readRecord(root, id)).activity?.kind,
           'memory-edit',
         );
-        const files = await store.claim(id);
-        await files.append({
-          id: 'earlier',
-          kind: 'notice',
-          text: 'Earlier',
-          cwd: project,
-        });
-        await files.close();
         await recovered.initialize(project);
         assert.equal(recovered.snapshot.conversation!.id, id);
+        assert.equal(recovered.snapshot.phase, 'recovery');
+        assert.equal(recovered.snapshot.error, undefined);
         await recovered.recoverMemory('accept');
-        const scope = await memory.scope(project);
+        const [latest] = await memory.history(main, await note());
+        assert.match(latest!.subject, /recover manual changes/);
         assert.match(
-          (await memory.history(join(scope.project, 'MEMORY.md')))[0]!.subject,
-          /recover manual changes/,
+          await memory.git(memory.root, [
+            'log',
+            '-1',
+            '--format=%b',
+            latest!.revision,
+          ]),
+          new RegExp(`conversation: ${id}`),
         );
       } finally {
         await recovered.close();
@@ -550,7 +494,7 @@ async function sweepFixture() {
   await mkdir(project);
   await mkdir(fresh);
   const store = await StateStore.open(join(root, 'state'));
-  const memory = new Memory(join(root, 'state', 'memory'));
+  const memory = new Memory(join(root, 'state', 'memory.git'));
   const a = new FixtureAgent('a');
   const launch = async () => {
     const coordinator = new Coordinator(store, memory, [
@@ -569,6 +513,7 @@ async function sweepFixture() {
     await files.close();
   };
   return {
+    memory,
     root,
     store,
     launch,
@@ -642,13 +587,20 @@ await test('one conversation the sweep fails on does not stop the launch', async
 });
 
 await test("the launch sweep clears a clean conversation's stale activity", async () => {
-  const { root, launch, save } = await sweepFixture();
+  const { root, launch, save, memory } = await sweepFixture();
   await save('stale', (saved) => {
     saved.activity = activity('stale');
   });
   const coordinator = await launch();
   await coordinator.close();
   assert.equal((await readRecord(root, 'stale')).activity, undefined);
+  assert.equal(
+    await memory.git(memory.root, [
+      'for-each-ref',
+      'refs/heads/conversations/stale',
+    ]),
+    '',
+  );
 });
 
 await test('an unreadable state file is named in the launch report and skipped', async () => {
@@ -829,4 +781,372 @@ await test('switching between conversations on one agent connects a fresh native
   } finally {
     await coordinator.close();
   }
+});
+
+/** a conversation whose branch holds an unpublished commit, made after any launch sweep. */
+async function stranded(
+  context: Awaited<ReturnType<typeof fixture>>,
+  files: Record<string, string>,
+  cwd = context.project,
+) {
+  const { store, workspace } = context;
+  const created = await store.create(record(randomUUID(), cwd));
+  const id = created.record.id;
+  await created.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
+  const memory = workspace(id);
+  await memory.ensureWorktree();
+  for (const [path, text] of Object.entries(files)) {
+    await mkdir(join(memory.root, path, '..'), { recursive: true });
+    await writeFile(join(memory.root, path), text);
+  }
+  await memory.commit(`chore(memory): save a notes\n\nconversation: ${id}`);
+  return { id, files: created, memory };
+}
+
+/** publishes a change to main from a workspace no conversation owns. */
+async function publishOutside(
+  context: Awaited<ReturnType<typeof fixture>>,
+  files: Record<string, string>,
+) {
+  const other = await context.outsider();
+  for (const [path, text] of Object.entries(files)) {
+    await mkdir(join(other.root, path, '..'), { recursive: true });
+    await writeFile(join(other.root, path), text);
+  }
+  await other.commit('chore(memory): save outside notes');
+  await other.publish();
+}
+
+await test('an agent-created nested repository is refused on accept and removed on discard', async () => {
+  const { coordinator, a, workspace, note } = await fixture();
+  try {
+    a.interruptNext = true;
+    await coordinator.send('remember-port');
+    const nested = join(workspace().root, await note(), '..', 'nested');
+    await mkdir(nested);
+    await promisify(execFile)('git', ['init', '--quiet', nested]);
+    await assert.rejects(
+      coordinator.recoverMemory('accept'),
+      /regular file: .*nested/,
+    );
+    assert.equal(coordinator.snapshot.recovery?.kind, 'pending');
+    await coordinator.recoverMemory('discard');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(await workspace().isDirty(), false);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a publish failure in settle is reported and the phase goes idle', async () => {
+  const { coordinator, hook, memory } = await fixture();
+  try {
+    const before = await memory.resolve(main);
+    hook.current = async (command, run) => {
+      if (command[0] !== 'update-ref') return run();
+      hook.current = passThrough;
+      return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+    };
+    await coordinator.send('remember-port');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
+    assert.equal(await memory.resolve(main), before);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a failed rebase abort stops in the error phase until restart', async () => {
+  const context = await fixture();
+  const { coordinator, hook } = context;
+  try {
+    const target = await stranded(context, { 'global/one.md': 'Mine.\n' });
+    await target.files.close();
+    await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
+    hook.current = async (command, run) => {
+      if (command.join(' ') !== 'rebase --abort') return run();
+      hook.current = passThrough;
+      throw new Error('abort failed');
+    };
+    await assert.rejects(
+      coordinator.selectConversation(target.id),
+      /Restart Witch/,
+    );
+    assert.equal(coordinator.snapshot.phase, 'error');
+    await assert.rejects(coordinator.recoverMemory('accept'));
+  } finally {
+    await coordinator.close().catch(() => {});
+  }
+});
+
+await test('keep mine publishes with the attribution of the conversation that kept its side', async () => {
+  const context = await fixture();
+  const { coordinator, a, memory, note } = context;
+  const gate = new TurnGate();
+  try {
+    await coordinator.send('Start');
+    a.gate = gate;
+    const sending = coordinator.send('remember:mine');
+    await within(gate.entered, 2000, 'the gated turn');
+    await publishOutside(context, { [await note()]: 'theirs' });
+    gate.open();
+    await sending;
+    assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
+    await coordinator.recoverMemory('keep');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(await memory.read(main, await note()), 'mine');
+    assert.match(
+      await memory.git(memory.root, ['log', '-1', '--format=%b', main]),
+      new RegExp(`conversation: ${coordinator.snapshot.conversation!.id}`),
+    );
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('two coordinators in two directories run turns at once and both publish', async () => {
+  const context = await fixture();
+  const { root, store, memory } = context;
+  const other = join(root, 'other');
+  await mkdir(other);
+  const agents = [new FixtureAgent('a'), new FixtureAgent('a')];
+  const gates = agents.map((agent) => (agent.gate = new TurnGate()));
+  const coordinators = [context.coordinator];
+  coordinators.push(
+    new Coordinator(store, memory, [{ adapter: agents[1]!, executable: 'a' }]),
+  );
+  try {
+    await coordinators[1]!.initialize(other);
+    // the first coordinator was built with its own agent; swap in a gated one
+    await context.coordinator.close();
+    coordinators[0] = new Coordinator(store, memory, [
+      { adapter: agents[0]!, executable: 'a' },
+    ]);
+    await coordinators[0].initialize(context.project);
+    const sends = coordinators.map((coordinator, index) =>
+      coordinator.send(`remember:note-${index}`),
+    );
+    await within(
+      Promise.all(gates.map((gate) => gate.entered)),
+      5000,
+      'both turns',
+    );
+    for (const coordinator of coordinators)
+      assert.equal(coordinator.snapshot.phase, 'running');
+    for (const gate of gates) gate.open();
+    await Promise.all(sends);
+    for (const [index, cwd] of [context.project, other].entries()) {
+      const path = `${(await memory.scopePaths(cwd)).project}/MEMORY.md`;
+      assert.equal(await memory.read(main, path), `note-${index}`);
+      assert.match(
+        await memory.git(memory.root, [
+          'log',
+          '-1',
+          '--format=%b',
+          main,
+          '--',
+          path,
+        ]),
+        new RegExp(
+          `conversation: ${coordinators[index]!.snapshot.conversation!.id}`,
+        ),
+      );
+    }
+  } finally {
+    for (const gate of gates) gate.open();
+    for (const coordinator of coordinators) await coordinator.close();
+  }
+});
+
+for (const decision of ['keep', 'discard'] as const) {
+  await test(`a conflict between two coordinators resolves with ${decision}`, async () => {
+    const context = await fixture();
+    const { store, memory, project, note } = context;
+    await context.coordinator.close();
+    const agents = [new FixtureAgent('a'), new FixtureAgent('a')];
+    const gates = agents.map((agent) => (agent.gate = new TurnGate()));
+    const coordinators = agents.map(
+      (adapter) =>
+        new Coordinator(store, memory, [{ adapter, executable: 'a' }]),
+    );
+    try {
+      for (const coordinator of coordinators)
+        await coordinator.initialize(project);
+      const sends = coordinators.map((coordinator, index) =>
+        coordinator.send(`remember:text-${index}`),
+      );
+      await within(
+        Promise.all(gates.map((gate) => gate.entered)),
+        5000,
+        'both turns',
+      );
+      gates[0]!.open();
+      await sends[0];
+      gates[1]!.open();
+      await sends[1];
+      const second = coordinators[1]!;
+      assert.equal(second.snapshot.recovery?.kind, 'conflict');
+      await second.recoverMemory(decision);
+      assert.equal(second.snapshot.phase, 'idle');
+      if (decision === 'keep')
+        assert.equal(await memory.read(main, await note()), 'text-1');
+      else
+        assert.equal(
+          await context.workspace(second.snapshot.conversation!.id).revision(),
+          await memory.resolve(main),
+        );
+    } finally {
+      for (const gate of gates) gate.open();
+      for (const coordinator of coordinators) await coordinator.close();
+    }
+  });
+}
+
+await test('the launch sweep publishes an unpublished commit whose project directory is gone', async () => {
+  const context = await fixture();
+  const { root, memory } = context;
+  await context.coordinator.close();
+  const gone = await stranded(
+    context,
+    { 'global/stranded.md': 'Stranded.' },
+    join(root, 'deleted-project'),
+  );
+  await gone.files.close();
+  const fresh = join(root, 'fresh');
+  await mkdir(fresh);
+  const coordinator = new Coordinator(context.store, memory, [
+    { adapter: context.a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(fresh);
+    assert.equal(await memory.read(main, 'global/stranded.md'), 'Stranded.');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('the launch sweep publishes what it can and reports the rest in one message', async () => {
+  const context = await fixture();
+  const { root, memory, store } = context;
+  await context.coordinator.close();
+  const conflict = await stranded(context, { 'global/one.md': 'Mine.\n' });
+  await conflict.files.close();
+  await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
+  const unpublished = await stranded(context, { 'global/two.md': 'Two.' });
+  await unpublished.files.close();
+  const dirty = await stranded(context, {});
+  dirty.files.record.activity = activity(dirty.id);
+  await dirty.files.save(dirty.files.record);
+  await dirty.files.close();
+  await writeFile(join(dirty.memory.root, 'global', 'three.md'), 'Three.');
+  const fresh = join(root, 'fresh');
+  await mkdir(fresh);
+  for (const launch of [1, 2]) {
+    const coordinator = new Coordinator(store, memory, [
+      { adapter: context.a, executable: 'a' },
+    ]);
+    const reports: (string | undefined)[] = [];
+    coordinator.subscribe(() => {
+      if (coordinator.snapshot.phase !== 'starting')
+        reports.push(coordinator.snapshot.error);
+    });
+    try {
+      await coordinator.initialize(fresh);
+      if (launch === 1)
+        assert.equal(await memory.read(main, 'global/two.md'), 'Two.');
+      assert.ok(reports.length > 0);
+      for (const report of reports) {
+        assert.match(report ?? '', /Open each from \/sessions/);
+        assert.match(
+          report ?? '',
+          new RegExp(`Title ${conflict.id}.*conflicts`),
+        );
+        assert.match(report ?? '', new RegExp(`Title ${dirty.id}.*unfinished`));
+        assert.doesNotMatch(
+          report ?? '',
+          new RegExp(`Title ${unpublished.id}`),
+        );
+      }
+    } finally {
+      await coordinator.close();
+    }
+  }
+});
+
+await test('a sweep failure after the claim is reported and releases the claim', async () => {
+  const context = await fixture();
+  const { root, store, memory } = context;
+  await context.coordinator.close();
+  const broken = await stranded(context, { 'global/x.md': 'X.' });
+  broken.files.record.activity = activity(broken.id);
+  await broken.files.save(broken.files.record);
+  await broken.files.close();
+  await writeFile(join(broken.memory.root, '.git'), 'not a worktree\n');
+  const fresh = join(root, 'fresh');
+  await mkdir(fresh);
+  const coordinator = new Coordinator(store, memory, [
+    { adapter: context.a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(fresh);
+    assert.match(
+      coordinator.snapshot.error ?? '',
+      new RegExp(`Title ${broken.id}`),
+    );
+    await (await store.claim(broken.id)).close();
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a switch target with a broken worktree leaves the current conversation untouched', async () => {
+  const context = await fixture();
+  const { coordinator, store, a } = context;
+  try {
+    await coordinator.send('Start');
+    const current = coordinator.snapshot.conversation!.id;
+    const target = await stranded(context, { 'global/x.md': 'X.' });
+    await target.files.close();
+    await writeFile(join(target.memory.root, '.git'), 'not a worktree\n');
+    await assert.rejects(coordinator.selectConversation(target.id));
+    assert.equal(coordinator.snapshot.conversation!.id, current);
+    assert.equal(a.sessions.at(-1)!.session.closed, false);
+    await assert.rejects(
+      store.claim(current),
+      /open in another Witch instance/,
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('opening a conversation aborts its stopped rebase before classifying it', async () => {
+  const context = await fixture();
+  const { coordinator } = context;
+  try {
+    const target = await stranded(context, { 'global/one.md': 'Mine.\n' });
+    await target.files.close();
+    await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
+    await promisify(execFile)(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@t', 'rebase', main],
+      { cwd: target.memory.root },
+    ).catch(() => {});
+    assert.equal(await target.memory.rebaseStopped(), true);
+    await coordinator.selectConversation(target.id);
+    assert.equal(await target.memory.rebaseStopped(), false);
+    assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a launch that never connects creates no memory branch', async () => {
+  const { coordinator, memory } = await fixture();
+  await coordinator.close();
+  assert.equal(
+    await memory.git(memory.root, ['for-each-ref', 'refs/heads/conversations']),
+    '',
+  );
 });
