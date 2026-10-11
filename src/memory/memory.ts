@@ -14,8 +14,6 @@ import { promisify } from 'node:util';
 const execute = promisify(execFile);
 
 export interface MemoryScope {
-  cwd: string;
-  key: string;
   global: string;
   project: string;
 }
@@ -56,8 +54,6 @@ export class Memory {
     );
     const key = `${basename(projectRoot)}-${createHash('sha256').update(projectRoot).digest('hex').slice(0, 16)}`;
     const scope = {
-      cwd,
-      key,
       global: join(this.root, 'global'),
       project: join(this.root, 'projects', key),
     };
