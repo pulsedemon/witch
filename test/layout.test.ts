@@ -98,6 +98,45 @@ await test('expanded logs exceed the argument limit with complete output and usa
     const anchor = output.anchorAt(150000)!;
     assert.equal(anchor.item, 'large');
     if (wrapped) assert.equal(anchor.line, 1);
-    else assert.equal(output.rowOf(anchor), 150000);
+    assert.equal(output.rowOf(anchor), 150000);
   }
+});
+
+await test('a reading anchor keeps its position within a wrapped line after resize', () => {
+  const item: DisplayItem = {
+    id: 'log',
+    kind: 'tool',
+    title: 'Log',
+    text: 'x'.repeat(10000),
+    cwd: '/work',
+    done: true,
+  };
+  const layout = new TranscriptLayout();
+  const expanded = new Set(['log']);
+  const original = layout.render([item], 80, expanded);
+  const anchor = original.anchorAt(90)!;
+  assert.equal(original.rowOf(anchor), 90);
+  assert.equal(layout.render([item], 40, expanded).rowOf(anchor), 179);
+  assert.equal(layout.render([item], 160, expanded).rowOf(anchor), 45);
+});
+
+await test('a reading anchor includes spaces trimmed while wrapping a title', () => {
+  const item: DisplayItem = {
+    id: 'log',
+    kind: 'tool',
+    title: Array.from(
+      { length: 20 },
+      (_, index) => `word${String(index).padStart(3, '0')}`,
+    ).join(' '),
+    text: 'body',
+    cwd: '/work',
+    done: true,
+  };
+  const layout = new TranscriptLayout();
+  const narrow = layout.render([item], 40, new Set());
+  const anchor = narrow.anchorAt(2)!;
+  assert.match(stripAnsi(narrow.lines[2]!), /^word009/);
+  const wide = layout.render([item], 80, new Set());
+  assert.equal(wide.rowOf(anchor), 1);
+  assert.match(stripAnsi(wide.lines[wide.rowOf(anchor)]!), /^word009/);
 });

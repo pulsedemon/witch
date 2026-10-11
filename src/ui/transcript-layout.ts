@@ -1,4 +1,5 @@
 import wrapAnsi from 'wrap-ansi';
+import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
 import { colors, markdown } from './markdown.js';
 import { linkify } from './links.js';
@@ -6,11 +7,12 @@ import { linkify } from './links.js';
 export interface ScrollAnchor {
   item: string;
   line: number;
+  offset: number;
 }
 
 interface Block {
   lines: string[];
-  sourceLines: number[];
+  anchors: Omit<ScrollAnchor, 'item'>[];
 }
 
 export class TranscriptLayout {
@@ -58,7 +60,7 @@ export class TranscriptLayout {
             : []),
           '',
         ];
-        const sourceLines: number[] = [];
+        const anchors: Block['anchors'] = [];
         let sourceLine = 0;
         for (const [section, trim] of [
           [title, true],
@@ -66,14 +68,22 @@ export class TranscriptLayout {
           ['', false],
         ] as const) {
           for (const line of section.split('\n')) {
-            const count = wrapAnsi(line, width, { hard: true, trim }).split(
+            const source = trim
+              ? stripAnsi(wrapAnsi(line, Infinity, { trim: false }))
+              : undefined;
+            let offset = 0;
+            for (const row of wrapAnsi(line, width, { hard: true, trim }).split(
               '\n',
-            ).length;
-            for (let row = 0; row < count; row++) sourceLines.push(sourceLine);
+            )) {
+              const plain = stripAnsi(row);
+              if (source !== undefined) offset = source.indexOf(plain, offset);
+              anchors.push({ line: sourceLine, offset });
+              offset += plain.length;
+            }
             sourceLine++;
           }
         }
-        block = { lines: blockLines, sourceLines };
+        block = { lines: blockLines, anchors };
         cached.set(key, block);
       }
       starts.set(item.id, lines.length);
@@ -91,13 +101,20 @@ export class TranscriptLayout {
         const [item, start] = entry;
         return {
           item,
-          line: rendered.get(item)!.sourceLines[row - start] ?? 0,
+          ...(rendered.get(item)!.anchors[row - start] ?? {
+            line: 0,
+            offset: 0,
+          }),
         };
       },
       rowOf(anchor: ScrollAnchor): number {
         const start = starts.get(anchor.item) ?? 0;
         const offset =
-          rendered.get(anchor.item)?.sourceLines.indexOf(anchor.line) ?? 0;
+          rendered
+            .get(anchor.item)
+            ?.anchors.findLastIndex(
+              (row) => row.line === anchor.line && row.offset <= anchor.offset,
+            ) ?? 0;
         return start + Math.max(0, offset);
       },
     };
