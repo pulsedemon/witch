@@ -260,6 +260,17 @@ for (const [name, frames] of [
     ],
   ],
   [
+    'an append that also moves the tool to another directory',
+    [
+      { items: [tool('see src/a.ts\nnext')], width: 40, expanded: ['tool'] },
+      {
+        items: [{ ...tool('see src/a.ts\nnext src/b.ts'), cwd: '/other' }],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+  [
     'an append to an expanded tool with no output yet',
     [
       { items: [tool('')], width: 40, expanded: ['tool'] },
