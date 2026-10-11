@@ -73,3 +73,31 @@ await test('a reading anchor follows its original log line when a narrower windo
   assert.match(stripAnsi(narrow.lines[narrow.rowOf(anchor)]!), /^Line 700:/);
   assert.doesNotMatch(stripAnsi(narrow.lines[row]!), /^Line 700:/);
 });
+
+await test('expanded logs exceed the argument limit with complete output and usable anchors', () => {
+  const layout = new TranscriptLayout();
+  for (const wrapped of [false, true]) {
+    const item: DisplayItem = {
+      id: 'large',
+      kind: 'tool',
+      title: 'Log',
+      cwd: '/work',
+      done: true,
+      text: wrapped
+        ? 'x'.repeat(400000)
+        : Array<string>(200000).fill('line').join('\n'),
+    };
+    const output = layout.render([item], wrapped ? 2 : 80, new Set(['large']));
+    assert.equal(
+      output.lines.filter(
+        (line) => stripAnsi(line) === (wrapped ? 'xx' : 'line'),
+      ).length,
+      200000,
+    );
+    assert.equal(stripAnsi(output.lines.at(-2)!), wrapped ? 'xx' : 'line');
+    const anchor = output.anchorAt(150000)!;
+    assert.equal(anchor.item, 'large');
+    if (wrapped) assert.equal(anchor.line, 1);
+    else assert.equal(output.rowOf(anchor), 150000);
+  }
+});

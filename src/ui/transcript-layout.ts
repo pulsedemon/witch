@@ -69,14 +69,15 @@ export class TranscriptLayout {
             const count = wrapAnsi(line, width, { hard: true, trim }).split(
               '\n',
             ).length;
-            sourceLines.push(...Array<number>(count).fill(sourceLine++));
+            for (let row = 0; row < count; row++) sourceLines.push(sourceLine);
+            sourceLine++;
           }
         }
         block = { lines: blockLines, sourceLines };
         cached.set(key, block);
       }
       starts.set(item.id, lines.length);
-      lines.push(...block.lines);
+      for (const line of block.lines) lines.push(line);
       blocks.push(block.lines);
       rendered.set(item.id, block);
     }
