@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
 import { basename, join } from 'node:path';
 import wrapAnsi from 'wrap-ansi';
@@ -87,8 +81,11 @@ export function App({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [recovery, setRecovery] = useState('');
-  const layout = useRef(new TranscriptLayout()).current;
-  const transcript = layout.render(state.items, width - 2, expanded);
+  const [layout] = useState(() => new TranscriptLayout());
+  const transcript = useMemo(
+    () => layout.render(state.items, width - 2, expanded),
+    [layout, state.items, width, expanded],
+  );
   const transcriptHeight = Math.max(2, height - 10 - (state.error ? 1 : 0));
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
   const scrollTop =
