@@ -106,6 +106,44 @@ await test('the visible terminal cursor reaches the current insertion point with
     await ui.waitUntilRenderFlush();
     assert.equal([...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1], '4');
     assert.ok(stdout.output.includes('\u001b[2A\u001b[4G'));
+    for (const [text, width, column, leftColumn] of [
+      ['a\tb', 30, '10', '9'],
+      ['e\u0301ab', 30, '4', '3'],
+      ['e\u0301abcd', 5, '1', '5'],
+    ] as const) {
+      const submitted: string[] = [];
+      ui.rerender(
+        createElement(Input, {
+          key: text,
+          width,
+          height: 3,
+          cwd: '/work',
+          active: true,
+          onSubmit: (value) => {
+            submitted.push(value);
+            return true;
+          },
+        }),
+      );
+      await delay(30);
+      stdin.write(`\u001b[200~${text}\u001b[201~`);
+      await delay(30);
+      await ui.waitUntilRenderFlush();
+      assert.equal(
+        [...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1],
+        column,
+      );
+      stdin.write('\u001b[D');
+      await delay(30);
+      await ui.waitUntilRenderFlush();
+      assert.equal(
+        [...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1],
+        leftColumn,
+      );
+      stdin.write('\r');
+      await delay(30);
+      assert.deepEqual(submitted, [text]);
+    }
   } finally {
     ui.unmount();
   }

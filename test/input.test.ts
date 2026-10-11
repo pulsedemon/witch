@@ -27,3 +27,12 @@ await test('line navigation and insertion retain the intended text order', () =>
     cursor: 3,
   });
 });
+
+await test('Home and Down navigate an empty first line', () => {
+  const state = { value: '\nabc', cursor: 0 };
+  assert.deepEqual(editInput(state, { type: 'home' }), state);
+  assert.deepEqual(editInput(state, { type: 'down' }), {
+    value: '\nabc',
+    cursor: 1,
+  });
+});

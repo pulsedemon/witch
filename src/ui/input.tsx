@@ -41,10 +41,15 @@ export function Input({
   const [origin, setOrigin] = useState<{ x: number; y: number }>();
   const { setCursorPosition } = useCursor();
   const visible = (value: string) =>
-    secret ? value.replace(/[^\n]/gu, '•') : value;
-  const value = visible(state.value);
-  const cursor = visible(state.value.slice(0, state.cursor)).length;
-  const wrapped = wrapAnsi(linkify(`${value} `, cwd), width, {
+    wrapAnsi(
+      linkify(secret ? value.replace(/[^\n]/gu, '•') : value, cwd),
+      Infinity,
+      { trim: false },
+    );
+  const display = visible(state.value);
+  const value = stripAnsi(display);
+  const cursor = stripAnsi(visible(state.value.slice(0, state.cursor))).length;
+  const wrapped = wrapAnsi(`${display} `, width, {
     hard: true,
     trim: false,
   }).split('\n');

@@ -26,7 +26,7 @@ export function editInput(state: InputBuffer, action: Edit): InputBuffer {
   boundaries.push(value.length);
   const left = boundaries.findLast((index) => index < cursor) ?? 0;
   const right = boundaries.find((index) => index > cursor) ?? value.length;
-  const start = value.lastIndexOf('\n', cursor - 1) + 1;
+  const start = value.slice(0, cursor).lastIndexOf('\n') + 1;
   const newline = value.indexOf('\n', cursor);
   const end = newline < 0 ? value.length : newline;
   switch (action.type) {
