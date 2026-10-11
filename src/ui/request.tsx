@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
@@ -22,7 +22,8 @@ const approvalOptions = ['Allow once', 'Decline', 'Cancel turn'];
 export function Request({ request, width, height, cwd, respond }: Props) {
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [questionIndex, questionIndexRef, setQuestionIndex] = useLiveState(0);
-  const [, answersRef, setAnswers] = useLiveState<Record<string, string[]>>({});
+  // never rendered, so a ref alone carries answers between keys
+  const answers = useRef<Record<string, string[]>>({});
   const [scroll, scrollRef, setScroll] = useLiveState(0);
   const [error, setError] = useState('');
   // keys meant for the composer must not answer a request that just appeared
@@ -96,11 +97,11 @@ export function Request({ request, width, height, cwd, respond }: Props) {
           ? [options[selectionRef.current]!]
           : [];
       if (!values.length) return false;
-      const next = { ...answersRef.current, [question.id]: values };
+      const next = { ...answers.current, [question.id]: values };
       if (index + 1 === request.questions!.length)
         respond({ decision: 'accept', answers: next });
       else {
-        setAnswers(next);
+        answers.current = next;
         setQuestionIndex(index + 1);
         setSelection(0);
         setScroll(0);

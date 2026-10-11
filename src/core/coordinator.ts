@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -13,7 +13,7 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import { main } from '../memory/memory.js';
+import { exists, main } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import { lockedElsewhere } from '../persistence/store.js';
@@ -97,7 +97,6 @@ export class Coordinator {
   private files?: ConversationStore;
   private workspace?: Workspace;
   private session?: AgentSession;
-  private scope?: MemoryScope;
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
@@ -228,17 +227,11 @@ export class Coordinator {
       } finally {
         await files?.close().catch(problem);
       }
-      if (reason)
-        lines.push(
-          `- ${record.title} in ${record.cwd}${
-            (await access(record.cwd).then(
-              () => true,
-              () => false,
-            ))
-              ? ''
-              : ' (recreate this directory first)'
-          }: ${reason}`,
-        );
+      if (!reason) continue;
+      const gone = !(await exists(record.cwd));
+      lines.push(
+        `- ${record.title} in ${record.cwd}${gone ? ' (recreate this directory first)' : ''}: ${reason}`,
+      );
     }
     return lines.length
       ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`
@@ -255,13 +248,9 @@ export class Coordinator {
         : await this.store.create(target.create);
     const workspace = this.memory.workspace(files.directory, files.record.id);
     let items;
-    let scope: MemoryScope | undefined;
     try {
       items = await files.items();
-      if (await workspace.branchExists()) {
-        await workspace.ensureWorktree();
-        scope = await workspace.scope(files.record.cwd);
-      }
+      if (await workspace.branchExists()) await workspace.ensureWorktree();
     } catch (error) {
       await files.close().catch(() => {});
       throw error;
@@ -279,7 +268,6 @@ export class Coordinator {
     this.files = files;
     this.record = files.record;
     this.workspace = workspace;
-    this.scope = scope;
     if (!this.record.handoff?.activated) delete this.record.handoff;
     this.publish({
       conversation: this.record,
@@ -543,7 +531,7 @@ export class Coordinator {
     delivered?: () => void,
   ): Promise<TurnResult> {
     const conversation = this.current();
-    const activity = await this.beginActivity(kind);
+    const { activity, scope } = await this.beginActivity(kind);
     const session = await this.connect();
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
@@ -560,7 +548,7 @@ export class Coordinator {
         : undefined;
     const context = [
       'You are running inside Witch. Follow your native and project instructions.',
-      `Shared memory directories: ${this.scope!.global} and ${this.scope!.project}.`,
+      `Shared memory directories: ${scope.global} and ${scope.project}.`,
       'Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in MEMORY.md. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.',
       ...(reference.deliveredRevision !== memory.revision ? [memory.text] : []),
       ...(pendingHandoff?.summary
@@ -599,12 +587,7 @@ export class Coordinator {
       delete conversation.activity;
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {
-      this.display({
-        id: randomUUID(),
-        kind: 'notice',
-        text: result.error ?? 'Turn interrupted',
-        cwd: conversation.cwd,
-      });
+      this.notice(result.error ?? 'Turn interrupted');
       if (!(await workspace.isDirty())) delete conversation.activity;
     }
     await this.save();
@@ -613,12 +596,14 @@ export class Coordinator {
 
   private async beginActivity(
     kind: NonNullable<ConversationRecord['activity']>['kind'],
-  ): Promise<NonNullable<ConversationRecord['activity']>> {
+  ): Promise<{
+    activity: NonNullable<ConversationRecord['activity']>;
+    scope: MemoryScope;
+  }> {
     const conversation = this.current();
     const workspace = this.workspace!;
     await workspace.ensureWorktree();
     const begun = await workspace.begin(conversation.cwd);
-    this.scope = begun.scope;
     const activity = {
       id: randomUUID(),
       conversationId: conversation.id,
@@ -629,7 +614,7 @@ export class Coordinator {
     };
     conversation.activity = activity;
     await this.save();
-    return activity;
+    return { activity, scope: begun.scope };
   }
 
   private async connect(agent = this.current().agent): Promise<AgentSession> {
@@ -644,7 +629,7 @@ export class Coordinator {
     const files = this.files!;
     const { adapter, executable } = this.registration(agent);
     await this.workspace!.ensureWorktree();
-    this.scope = await this.workspace!.scope(conversation.cwd);
+    const scope = await this.workspace!.scope(conversation.cwd);
     const stored = conversation.sessions[agent];
     this.connecting = new AbortController();
     let session: AgentSession;
@@ -655,7 +640,7 @@ export class Coordinator {
         resume: stored?.hasHistory ? stored.id : undefined,
         model: stored?.requestedModel,
         effort: stored?.effort,
-        memoryDirectories: [this.scope!.global, this.scope!.project],
+        memoryDirectories: [scope.global, scope.project],
         signal: this.connecting.signal,
         onEvent: (event) => {
           if (!files.closed) this.receive(conversation, agent, event);
@@ -706,12 +691,7 @@ export class Coordinator {
         ),
       });
     } else if (event.type === 'notice') {
-      this.display({
-        id: randomUUID(),
-        kind: 'notice',
-        text: event.text,
-        cwd: conversation.cwd,
-      });
+      this.notice(event.text);
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       this.display(
@@ -782,13 +762,11 @@ export class Coordinator {
 
   /** a rejected flush is a sticky write failure, which only a restart clears. */
   private async needsRestart(error: unknown): Promise<boolean> {
-    return (
-      error instanceof RestartRequired ||
-      ((await this.files?.flush().then(
-        () => false,
-        () => true,
-      )) ??
-        false)
+    if (error instanceof RestartRequired) return true;
+    if (!this.files) return false;
+    return this.files.flush().then(
+      () => false,
+      () => true,
     );
   }
 
