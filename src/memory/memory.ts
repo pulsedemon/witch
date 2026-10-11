@@ -1,6 +1,13 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import {
+  access,
+  lstat,
+  mkdir,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -22,6 +29,7 @@ export class Memory {
   constructor(readonly root: string) {}
 
   async initialize(): Promise<void> {
+    await this.checkedPath(this.root, 'directory');
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const initialized = await access(join(this.root, '.git')).then(
       () => true,
@@ -33,14 +41,7 @@ export class Memory {
       () => false,
     );
     if (!hasHead) {
-      await mkdir(join(this.root, 'global'), { recursive: true });
-      await writeFile(
-        join(this.root, 'global', 'MEMORY.md'),
-        '# Global memory\n',
-        { flag: 'wx' },
-      ).catch((error: unknown) => {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      });
+      await this.prepareNote('global/MEMORY.md', '# Global memory\n');
       await this.commit('chore(memory): initialize shared memory');
     }
   }
@@ -60,8 +61,12 @@ export class Memory {
       global: join(this.root, 'global'),
       project: join(this.root, 'projects', key),
     };
-    await mkdir(scope.global, { recursive: true });
-    await mkdir(scope.project, { recursive: true });
+    await mkdir(await this.checkedPath(scope.global, 'directory'), {
+      recursive: true,
+    });
+    await mkdir(await this.checkedPath(scope.project, 'directory'), {
+      recursive: true,
+    });
     return scope;
   }
 
@@ -84,7 +89,7 @@ export class Memory {
       paths.map(async (path) => {
         const index = `${path}/MEMORY.md`;
         const content = files.includes(index)
-          ? await this.git('show', `HEAD:${index}`)
+          ? await this.read(index)
           : '(No saved essentials.)';
         return `${join(this.root, index)}\n${content}`;
       }),
@@ -120,18 +125,35 @@ export class Memory {
     const result = await this.git(
       'ls-tree',
       '-r',
-      '--name-only',
       '-z',
       'HEAD',
       '--',
       'global',
       this.path(scope.project),
     );
-    return result.split('\0').filter(Boolean);
+    return result
+      .split('\0')
+      .filter(Boolean)
+      .map((entry) => {
+        if (!/^100(644|755) blob /.test(entry))
+          throw new Error(
+            `Memory notes must be regular files: ${entry.slice(entry.indexOf('\t') + 1)}`,
+          );
+        return entry.slice(entry.indexOf('\t') + 1);
+      });
   }
 
   async read(path: string): Promise<string> {
-    return this.git('show', `HEAD:${this.path(path)}`);
+    return this.readRevision(this.path(path), 'HEAD');
+  }
+
+  async prepareNote(path: string, initial = ''): Promise<string> {
+    const file = await this.checkedPath(path);
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, initial, { flag: 'wx' }).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    });
+    return file;
   }
 
   async catalog(
@@ -156,6 +178,15 @@ export class Memory {
 
   async commit(message: string): Promise<string> {
     if (!(await this.isDirty())) return this.revision();
+    const files = await this.git(
+      'ls-files',
+      '--cached',
+      '--others',
+      '--exclude-standard',
+      '-z',
+    );
+    for (const file of new Set(files.split('\0').filter(Boolean)))
+      await this.checkedPath(file);
     await this.git('add', '--all', '--', '.');
     await this.git(
       '-c',
@@ -183,7 +214,10 @@ export class Memory {
     const additions = await Promise.all(
       untracked.map(
         async (file) =>
-          `New file: ${file}\n${await readFile(join(this.root, file), 'utf8')}`,
+          `New file: ${file}\n${await this.checkedPath(file).then(
+            (path) => readFile(path, 'utf8'),
+            (error: unknown) => String(error),
+          )}`,
       ),
     );
     return [tracked, ...additions].filter(Boolean).join('\n\n');
@@ -219,9 +253,10 @@ export class Memory {
     if (await this.isDirty())
       throw new Error('Resolve pending memory before restoring a file');
     const file = this.path(path);
-    const content = await this.git('show', `${revision}:${file}`);
-    await mkdir(dirname(join(this.root, file)), { recursive: true });
-    await writeFile(join(this.root, file), content);
+    const destination = await this.checkedPath(file);
+    const content = await this.readRevision(file, revision);
+    await mkdir(dirname(destination), { recursive: true });
+    await writeFile(destination, content);
     await this.commit(`chore(memory): restore ${file}`);
   }
 
@@ -230,6 +265,35 @@ export class Memory {
     if (file === '..' || file.startsWith(`..${sep}`) || file.startsWith('.git'))
       throw new Error('Memory path is outside the note directories');
     return file;
+  }
+
+  private async checkedPath(
+    path: string,
+    kind: 'file' | 'directory' = 'file',
+  ): Promise<string> {
+    const parts = this.path(path).split(sep).filter(Boolean);
+    let current = this.root;
+    for (let index = 0; index <= parts.length; index++) {
+      if (index > 0) current = join(current, parts[index - 1]!);
+      const stat = await lstat(current).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        return undefined;
+      });
+      if (!stat) break;
+      const directory = index < parts.length || kind === 'directory';
+      if (directory ? !stat.isDirectory() : !stat.isFile())
+        throw new Error(
+          `Memory path must be a regular ${directory ? 'directory' : 'file'}: ${current}`,
+        );
+    }
+    return join(this.root, ...parts);
+  }
+
+  private async readRevision(file: string, revision: string): Promise<string> {
+    const entry = await this.git('ls-tree', '-z', revision, '--', file);
+    if (!/^100(644|755) blob /.test(entry))
+      throw new Error(`Memory notes must be regular files: ${file}`);
+    return this.git('show', `${revision}:${file}`);
   }
 
   private async git(...args: string[]): Promise<string> {

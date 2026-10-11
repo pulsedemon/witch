@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -272,18 +272,11 @@ export class Coordinator {
   }
 
   async editMemory(path?: string): Promise<void> {
-    const file = path ?? join(this.scope!.project, 'MEMORY.md');
     await this.operate('editing', async () => {
       await this.beginActivity('memory-edit');
-      await mkdir(this.scope!.project, { recursive: true });
-      await writeFile(file, '', { flag: 'ax' }).catch((error: unknown) => {
-        if (!(
-          error instanceof Error &&
-          'code' in error &&
-          error.code === 'EEXIST'
-        ))
-          throw error;
-      });
+      const file = await this.memory.prepareNote(
+        path ?? join(this.scope!.project, 'MEMORY.md'),
+      );
       this.editorCancellation = new AbortController();
       try {
         await this.editFile(file, this.editorCancellation.signal);

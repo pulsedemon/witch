@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile, unlink } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  unlink,
+  rename,
+  symlink,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -146,4 +154,84 @@ await test('a clean turn does not add an empty memory commit', async () => {
   const before = await memory.revision();
   await memory.commit('no changes');
   assert.equal(await memory.revision(), before);
+});
+
+await test('restore refuses symlinked destinations and parent directories', async () => {
+  for (const parent of [false, true]) {
+    const { memory, scope, root } = await fixture();
+    const path = join(scope.project, 'note.md');
+    await writeFile(path, 'Saved preference.');
+    const revision = await memory.commit('save note');
+    const outside = join(root, 'outside');
+    await mkdir(outside);
+    const target = join(outside, 'note.md');
+    await writeFile(target, 'External content.');
+    await rename(parent ? scope.project : path, join(root, 'original'));
+    await symlink(parent ? outside : target, parent ? scope.project : path);
+    await execute('git', ['add', '--all'], { cwd: memory.root });
+    await execute(
+      'git',
+      [
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@localhost',
+        '-c',
+        'commit.gpgsign=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        'commit',
+        '-m',
+        'legacy symlink',
+      ],
+      { cwd: memory.root },
+    );
+    assert.equal(await memory.isDirty(), false);
+    await assert.rejects(
+      memory.restore(path, revision),
+      /regular (file|directory)/,
+    );
+    await assert.rejects(memory.prepareNote(path), /regular (file|directory)/);
+    assert.equal(await readFile(target, 'utf8'), 'External content.');
+    if (!parent) {
+      const linkedRevision = await memory.revision();
+      await rename(path, join(root, 'saved-link'));
+      await writeFile(path, 'Regular note again.');
+      await memory.commit('replace link with note');
+      await assert.rejects(
+        memory.restore(path, linkedRevision),
+        /regular files/,
+      );
+      assert.equal(await readFile(path, 'utf8'), 'Regular note again.');
+    }
+  }
+});
+
+await test('pending symlinks cannot be accepted or read through a recovery preview', async () => {
+  const { memory, scope, root } = await fixture();
+  const before = await memory.revision();
+  const target = join(root, 'private.txt');
+  await writeFile(target, 'External private content.');
+  await symlink(target, join(scope.project, 'reference.md'));
+  await assert.rejects(memory.commit('accept link'), /regular file/);
+  assert.equal(await memory.revision(), before);
+  const diff = await memory.diff();
+  assert.match(diff, /reference.md/);
+  assert.doesNotMatch(diff, /External private content/);
+  await memory.discard();
+  assert.equal(await memory.isDirty(), false);
+  assert.equal(await readFile(target, 'utf8'), 'External private content.');
+});
+
+await test('initialization refuses a symlinked note directory without changing its target', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'harness-memory-link-'));
+  const outside = join(root, 'outside');
+  await mkdir(outside);
+  const note = join(outside, 'MEMORY.md');
+  await writeFile(note, 'Existing external note.');
+  const memory = new Memory(join(root, 'memory'));
+  await mkdir(memory.root);
+  await symlink(outside, join(memory.root, 'global'));
+  await assert.rejects(memory.initialize(), /regular directory/);
+  assert.equal(await readFile(note, 'utf8'), 'Existing external note.');
 });

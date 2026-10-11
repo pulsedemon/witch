@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  realpath,
+  writeFile,
+  readFile,
+  symlink,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
@@ -297,6 +306,46 @@ for (const stage of [
     }
   });
 }
+
+await test('editing a previously committed symlink never opens its external target', async () => {
+  let edits = 0;
+  const { coordinator, memory, root, project } = await fixture(async () => {
+    edits++;
+  });
+  try {
+    const scope = await memory.scope(project);
+    const target = join(root, 'external.md');
+    const note = join(scope.project, 'linked.md');
+    await writeFile(target, 'External content.');
+    await symlink(target, note);
+    const execute = promisify(execFile);
+    await execute('git', ['add', '--all'], { cwd: memory.root });
+    await execute(
+      'git',
+      [
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@localhost',
+        '-c',
+        'commit.gpgsign=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        'commit',
+        '-m',
+        'legacy symlink',
+      ],
+      { cwd: memory.root },
+    );
+    assert.equal(await memory.isDirty(), false);
+    await assert.rejects(coordinator.editMemory(note), /regular file/);
+    assert.equal(edits, 0);
+    assert.equal(await readFile(target, 'utf8'), 'External content.');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+  } finally {
+    await coordinator.close();
+  }
+});
 
 for (const action of ['interrupt', 'close'] as const) {
   await test(
