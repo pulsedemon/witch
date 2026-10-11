@@ -16,7 +16,7 @@ pnpm exec node --import tsx --test --test-name-pattern='invalid effort' test/cla
 pnpm build     # tsc -p tsconfig.build.json into dist/
 ```
 
-`pnpm dev <project>` needs an interactive terminal and throws when stdin or stdout is not a TTY. `pnpm test:integration` runs real turns on both signed-in CLIs and spends account usage, so confirm before running it.
+`pnpm dev` opens this repo, takes the same arguments as `witch`, and needs an interactive terminal. `pnpm test:integration` runs real turns on both signed-in CLIs and spends account usage, so confirm before running it.
 
 ## Architecture
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
+import { parseArgs } from 'node:util';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { Coordinator } from './core/coordinator.js';
@@ -8,20 +9,47 @@ import { Memory } from './memory/memory.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
 
-const args = process.argv.slice(2);
-if (args.includes('--help')) {
-  process.stdout.write(
-    'Usage: witch [directory] [--state-dir directory]\n\nOpen a project in the terminal. Use /help inside the app for controls.\n',
+const defaultState = join(homedir(), '.witch');
+const usage = `Usage: witch [options] [prompt...]
+
+Start a conversation in the current directory, sending the prompt if one is given.
+
+Options:
+  -c, --continue       continue this directory's most recent conversation
+  --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
+  -h, --help           show this help
+
+Every word that starts with - is read as an option, so quote a prompt that
+contains one, and put -- before a prompt that starts with -.
+Use /help inside the app for controls.
+`;
+
+let values;
+let positionals;
+try {
+  ({ values, positionals } = parseArgs({
+    options: {
+      'state-dir': { type: 'string' },
+      continue: { type: 'boolean', short: 'c' },
+      help: { type: 'boolean', short: 'h' },
+    },
+    allowPositionals: true,
+    strict: true,
+  }));
+  // parseArgs accepts an empty value, which would put state in the project
+  if (values['state-dir'] === '')
+    throw new Error("Option '--state-dir' needs a directory");
+} catch (error) {
+  process.stderr.write(
+    `witch: ${error instanceof Error ? error.message : String(error)}\n`,
   );
+  process.exit(1);
+}
+if (values.help) {
+  process.stdout.write(usage);
 } else {
-  const flag = args.indexOf('--state-dir');
-  const stateArgument = args[flag + 1];
-  if (flag >= 0 && (!stateArgument || stateArgument.startsWith('--')))
-    throw new Error('--state-dir requires a directory.');
-  const stateDirectory =
-    flag < 0 ? join(homedir(), '.witch') : resolve(stateArgument!);
-  if (flag >= 0) args.splice(flag, 2);
-  const directory = resolve(args[0] ?? process.cwd());
+  const stateDirectory = resolve(values['state-dir'] ?? defaultState);
+  const prompt = positionals.join(' ');
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new Error('Witch needs an interactive terminal.');
   const store = await StateStore.open(stateDirectory);
@@ -44,7 +72,11 @@ if (args.includes('--help')) {
     );
   };
   const application = render(
-    <App coordinator={coordinator} onExit={shutdown} />,
+    <App
+      coordinator={coordinator}
+      onExit={shutdown}
+      initialPrompt={prompt || undefined}
+    />,
     {
       alternateScreen: true,
       exitOnCtrlC: false,
@@ -56,7 +88,7 @@ if (args.includes('--help')) {
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   void coordinator
-    .initialize(directory)
+    .initialize(process.cwd(), { continue: values.continue })
     .catch((error: unknown) => coordinator.report(error));
   await application.waitUntilExit();
   process.removeListener('SIGTERM', shutdown);

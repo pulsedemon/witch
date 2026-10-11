@@ -125,8 +125,12 @@ export class Coordinator {
     return () => this.listeners.delete(listener);
   }
 
-  async initialize(directory: string): Promise<void> {
-    this.task = this.load(directory);
+  /** opens a new conversation in `directory`, or with `continue` its most recent one. */
+  async initialize(
+    directory: string,
+    options: { continue?: boolean } = {},
+  ): Promise<void> {
+    this.task = this.load(directory, options.continue ?? false);
     try {
       await this.task;
     } catch (error) {
@@ -137,10 +141,12 @@ export class Coordinator {
     }
   }
 
-  private async load(directory: string): Promise<void> {
+  private async load(directory: string, resume: boolean): Promise<void> {
     await this.memory.initialize();
     const cwd = await realpath(directory);
-    const target = (await this.store.conversations(cwd))[0];
+    const target = resume
+      ? (await this.store.conversations(cwd))[0]
+      : undefined;
     const report = await this.sweep(target?.id);
     try {
       await this.openConversation(

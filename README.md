@@ -2,23 +2,23 @@
 
 A personal terminal app for installed Codex and Claude Code, with Git-backed shared memory.
 
-## Run
+## Install
 
 Install Node.js 22 or newer, pnpm, Git and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing.
 
 ```sh
-pnpm install
-pnpm dev /absolute/path/to/project
+pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
 ```
 
-Use `/help` for keyboard controls and `Ctrl+P` for commands. `/model` lists the connected agent's models; `/model <id> [effort]` also accepts an explicit ID. Cmd+click opens web links through the system URL handler and file links in VS Code.
+Rerun `pnpm build` after changes.
 
-For the compiled app:
+## Usage
 
 ```sh
-pnpm build
-pnpm exec node dist/cli.js /absolute/path/to/project
+cd project && witch
 ```
+
+Flags and the state default are in `witch --help`. Use `/help` for keyboard controls and `Ctrl+P` for commands. `/model` lists the connected agent's models; `/model <id> [effort]` also accepts an explicit ID. Cmd+click opens web links through the system URL handler and file links in VS Code.
 
 State lives under `~/.witch`. Pass `--state-dir <directory>` for an isolated instance. Keep the memory repository local or back it up yourself; the app never pushes it. Conversations retain native session IDs, so native session storage must remain available for resume.
 

@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
 import { basename, join } from 'node:path';
 import wrapAnsi from 'wrap-ansi';
@@ -48,9 +54,12 @@ type View =
 export function App({
   coordinator,
   onExit,
+  initialPrompt,
 }: {
   coordinator: Coordinator;
   onExit(): void;
+  /** sent once the load ends idle with nothing reported, otherwise left as the draft. */
+  initialPrompt?: string;
 }) {
   const subscription = useMemo(
     () => (notify: () => void) => {
@@ -82,6 +91,9 @@ export function App({
   const [toolSelection, setToolSelection] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // Input reads its initial value only when it mounts
+  const [composerKey, setComposerKey] = useState(0);
+  const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout());
   const transcript = useMemo(
     () => layout.render(state.items, width - 2, expanded),
@@ -299,10 +311,43 @@ export function App({
     }
   };
 
+  const submit = (text: string): boolean => {
+    const match =
+      /^\/(new|sessions|agent|model|memory|help|quit)(?:\s+(.*))?$/.exec(
+        text.trim(),
+      );
+    if (match) {
+      command(match[1]!, match[2]);
+      return true;
+    }
+    if (coordinator.snapshot.phase !== 'idle') {
+      coordinator.report(
+        'Wait for this operation to finish, or press Escape to interrupt.',
+      );
+      return false;
+    }
+    setTop(null);
+    run(coordinator.send(text));
+    return true;
+  };
+
   useEffect(() => {
     setTop(null);
     setToolSelection(0);
   }, [state.conversation?.id]);
+  useEffect(() => {
+    const prompt = pendingPrompt.current;
+    if (prompt === undefined || state.phase === 'starting') return;
+    pendingPrompt.current = undefined;
+    if (state.phase === 'idle' && !state.error) submit(prompt);
+    else {
+      setDrafts((previous) => ({
+        ...previous,
+        [state.conversation?.id ?? '']: prompt,
+      }));
+      setComposerKey((key) => key + 1);
+    }
+  }, [state.phase]);
   useEffect(() => {
     if (state.phase === 'recovery') setPageScroll(0);
   }, [state.phase]);
@@ -532,7 +577,7 @@ export function App({
           paddingX={1}
         >
           <Input
-            key={state.conversation?.id ?? 'initial'}
+            key={`${state.conversation?.id ?? 'initial'}/${composerKey}`}
             width={width - 6}
             height={3}
             cwd={cwd}
@@ -547,25 +592,7 @@ export function App({
                 [state.conversation?.id ?? '']: value,
               }))
             }
-            onSubmit={(text) => {
-              const match =
-                /^\/(new|sessions|agent|model|memory|help|quit)(?:\s+(.*))?$/.exec(
-                  text.trim(),
-                );
-              if (match) {
-                command(match[1]!, match[2]);
-                return true;
-              }
-              if (coordinator.snapshot.phase !== 'idle') {
-                coordinator.report(
-                  'Wait for this operation to finish, or press Escape to interrupt.',
-                );
-                return false;
-              }
-              setTop(null);
-              run(coordinator.send(text));
-              return true;
-            }}
+            onSubmit={submit}
           />
         </Box>
         <Text dimColor>

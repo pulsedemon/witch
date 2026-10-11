@@ -11,6 +11,7 @@ import {
   writeFile,
   readFile,
   symlink,
+  utimes,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -306,7 +307,7 @@ for (const stage of [
       [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
     );
     try {
-      await restarted.initialize(project);
+      await restarted.initialize(project, { continue: true });
       assert.equal(
         restarted.snapshot.conversation!.agent,
         activated ? 'b' : 'a',
@@ -408,7 +409,7 @@ for (const action of ['interrupt', 'close'] as const) {
           (await readRecord(root, id)).activity?.kind,
           'memory-edit',
         );
-        await recovered.initialize(project);
+        await recovered.initialize(project, { continue: true });
         assert.equal(recovered.snapshot.conversation!.id, id);
         assert.equal(recovered.snapshot.phase, 'recovery');
         assert.equal(recovered.snapshot.error, undefined);
@@ -470,7 +471,7 @@ await test('undelivered handoff context survives visiting another conversation a
     [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
   );
   try {
-    await coordinator.initialize(project);
+    await coordinator.initialize(project, { continue: true });
     await coordinator.newConversation('a');
     await coordinator.send('Independent task');
     assert.doesNotMatch(a.inputs.at(-1)!.prompt, /amber-195/);
@@ -1149,4 +1150,166 @@ await test('a launch that never connects creates no memory branch', async () => 
     await memory.git(memory.root, ['for-each-ref', 'refs/heads/conversations']),
     '',
   );
+});
+
+/** conversations with history, created in name order. */
+async function listed(
+  store: StateStore,
+  root: string,
+  cwd: string,
+  ids: string[],
+) {
+  for (const id of ids) {
+    const files = await store.create(record(id, cwd));
+    await files.append({ id: 'n', kind: 'notice', text: id, cwd });
+    await files.close();
+  }
+  const touch = (id: string, seconds: number) =>
+    utimes(
+      join(root, 'state', 'conversations', id, 'history.jsonl'),
+      seconds,
+      seconds,
+    );
+  return touch;
+}
+
+await test('continue opens the newest conversation in this directory, ignoring newer ones elsewhere', async () => {
+  const { coordinator: first, store, root, project, a } = await fixture();
+  await first.close();
+  const elsewhere = join(root, 'elsewhere');
+  await mkdir(elsewhere);
+  const touch = await listed(store, root, project, ['a1', 'a2', 'a3']);
+  await listed(store, root, elsewhere, ['b1']);
+  await touch('a1', 1000);
+  await touch('a2', 3000);
+  await touch('a3', 2000);
+  await touch('b1', 4000);
+  const coordinator = new Coordinator(store, first.memory, [
+    { adapter: a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(project, { continue: true });
+    assert.equal(coordinator.snapshot.conversation!.id, 'a2');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('continue with nothing in this directory starts a new conversation here', async () => {
+  const { coordinator: first, store, root, project, a } = await fixture();
+  await first.close();
+  const elsewhere = join(root, 'elsewhere');
+  await mkdir(elsewhere);
+  await listed(store, root, elsewhere, ['b1']);
+  const coordinator = new Coordinator(store, first.memory, [
+    { adapter: a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(project, { continue: true });
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.notEqual(coordinator.snapshot.conversation!.id, 'b1');
+    assert.equal(coordinator.snapshot.conversation!.cwd, project);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a plain launch starts a new conversation even when this directory has one', async () => {
+  const { coordinator: first, store, root, project, a } = await fixture();
+  await first.close();
+  await listed(store, root, project, ['earlier']);
+  const coordinator = new Coordinator(store, first.memory, [
+    { adapter: a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(project);
+    assert.notEqual(coordinator.snapshot.conversation!.id, 'earlier');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test("/sessions lists only this directory's conversations", async () => {
+  const { coordinator, store, root, project } = await fixture();
+  try {
+    const elsewhere = join(root, 'elsewhere');
+    await mkdir(elsewhere);
+    await listed(store, root, project, ['here']);
+    await listed(store, root, elsewhere, ['there']);
+    assert.deepEqual(
+      (await coordinator.conversations()).map(({ id }) => id),
+      ['here'],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('continue into a held conversation shows the lock error with the launch report', async () => {
+  const context = await fixture();
+  const { coordinator: first, store, root, project, a, memory } = context;
+  await first.close();
+  await listed(store, root, project, ['held']);
+  const holder = await store.claim('held');
+  const elsewhere = join(root, 'elsewhere');
+  await mkdir(elsewhere);
+  const dirty = await stranded(context, {}, elsewhere);
+  dirty.files.record.activity = activity(dirty.id);
+  await dirty.files.save(dirty.files.record);
+  await dirty.files.close();
+  await writeFile(join(dirty.memory.root, 'global', 'pending.md'), 'Pending.');
+  const coordinator = new Coordinator(store, memory, [
+    { adapter: a, executable: 'a' },
+  ]);
+  try {
+    await assert.rejects(coordinator.initialize(project, { continue: true }));
+    assert.equal(coordinator.snapshot.phase, 'error');
+    assert.match(
+      coordinator.snapshot.error ?? '',
+      /open in another Witch instance/,
+    );
+    assert.doesNotMatch(coordinator.snapshot.error ?? '', /^Restart Witch/);
+    assert.match(
+      coordinator.snapshot.error ?? '',
+      new RegExp(`Title ${dirty.id}`),
+    );
+  } finally {
+    await holder.close();
+    await coordinator.close();
+  }
+});
+
+await test('a publish failure while settling the launch is added to its report', async () => {
+  const context = await fixture();
+  const { coordinator: first, store, root, memory, hook, a } = context;
+  await first.close();
+  const elsewhere = join(root, 'elsewhere');
+  await mkdir(elsewhere);
+  const dirty = await stranded(context, {}, elsewhere);
+  dirty.files.record.activity = activity(dirty.id);
+  await dirty.files.save(dirty.files.record);
+  await dirty.files.close();
+  await writeFile(join(dirty.memory.root, 'global', 'pending.md'), 'Pending.');
+  const own = await stranded(context, { 'global/own.md': 'Own.' });
+  await own.files.close();
+  hook.current = async (command, run, options) => {
+    if (command[0] !== 'update-ref' || options.cwd !== own.memory.root)
+      return run();
+    hook.current = passThrough;
+    return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+  };
+  const coordinator = new Coordinator(store, memory, [
+    { adapter: a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(context.project, { continue: true });
+    assert.equal(coordinator.snapshot.conversation!.id, own.id);
+    assert.match(
+      coordinator.snapshot.error ?? '',
+      new RegExp(`Title ${dirty.id}`),
+    );
+    assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
+  } finally {
+    await coordinator.close();
+  }
 });

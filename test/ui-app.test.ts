@@ -336,3 +336,78 @@ await test('memory without a worktree shows no links, builds no worktree, and ke
     await coordinator.close();
   }
 });
+
+await test('an initial prompt is sent once when the load ends idle with nothing reported', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'starting' });
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      initialPrompt: 'say hello',
+    }),
+  );
+  try {
+    await delay(60);
+    coordinator.publish({ phase: 'idle' });
+    await until('the send', () => calls.some(([name]) => name === 'send'));
+    assert.ok(ui.text().includes('Ask the agent, or type /help'));
+    assert.ok(!ui.text().includes('say hello'));
+    coordinator.publish({ phase: 'running' });
+    await delay(60);
+    coordinator.publish({ phase: 'idle' });
+    await delay(60);
+    assert.deepEqual(
+      calls.filter(([name]) => name === 'send'),
+      [['send', 'say hello']],
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+for (const [name, update] of [
+  [
+    'recovery',
+    {
+      phase: 'recovery',
+      recovery: { kind: 'pending', paths: [], diff: 'x', root: '/m' },
+    },
+  ],
+  [
+    'a launch report',
+    { phase: 'idle', error: 'These conversations need attention.' },
+  ],
+  [
+    'a failed open',
+    { phase: 'error', error: 'Open failed.', conversation: undefined },
+  ],
+] as const) {
+  await test(`an initial prompt stays in the composer after ${name}`, async () => {
+    const { app, coordinator, calls } = fake({ phase: 'starting' });
+    const ui = show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {},
+        initialPrompt: 'say hello',
+      }),
+    );
+    try {
+      await delay(60);
+      coordinator.publish(update as Partial<Snapshot>);
+      if (update.phase === 'recovery') {
+        await delay(60);
+        coordinator.publish({ phase: 'idle', recovery: undefined });
+      }
+      await until('the seeded composer', () =>
+        ui.text().includes('│ say hello'),
+      );
+      await delay(60);
+      assert.deepEqual(
+        calls.filter(([call]) => call === 'send'),
+        [],
+      );
+    } finally {
+      ui.unmount();
+    }
+  });
+}

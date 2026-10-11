@@ -35,13 +35,16 @@ await writeFile(
   `When asked for the native instruction marker, answer ${nativeRule}.\n`,
 );
 
-async function open(cwd: string): Promise<Coordinator> {
+async function open(
+  cwd: string,
+  options: { continue?: boolean } = {},
+): Promise<Coordinator> {
   const coordinator = new Coordinator(
     await StateStore.open(state),
     memory,
     agents,
   );
-  await coordinator.initialize(cwd);
+  await coordinator.initialize(cwd, options);
   coordinator.subscribe(() => {
     for (const request of coordinator.snapshot.requests) {
       if (request.kind !== 'approval') continue;
@@ -137,7 +140,7 @@ try {
   assert.ok(isolated.includes('UNKNOWN'));
   assert.ok(!isolated.includes(projectFact));
   await coordinator.close();
-  coordinator = await open(project);
+  coordinator = await open(project, { continue: true });
   assert.equal(coordinator.snapshot.conversation!.id, conversationId);
   await send(
     'Create sum.mjs exporting sum(values), which sums numbers. Do not create tests yet. The next agent will add sum.test.mjs using node:test, covering empty, negative and mixed numbers, and run node --test. Stop after creating sum.mjs. Do not commit project files.',
@@ -159,7 +162,7 @@ try {
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
   const sourceConversation = coordinator.snapshot.conversation!.id;
   await coordinator.close();
-  coordinator = await open(project);
+  coordinator = await open(project, { continue: true });
   assert.equal(coordinator.snapshot.conversation!.id, sourceConversation);
   await send(
     'Run node --test sum.test.mjs and report the result. Do not change files.',
