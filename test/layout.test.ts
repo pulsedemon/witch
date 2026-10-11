@@ -140,3 +140,173 @@ await test('a reading anchor includes spaces trimmed while wrapping a title', ()
   assert.equal(wide.rowOf(anchor), 1);
   assert.match(stripAnsi(wide.lines[wide.rowOf(anchor)]!), /^word009/);
 });
+
+interface Frame {
+  items: DisplayItem[];
+  width: number;
+  expanded: string[];
+}
+
+/** renders each frame on one layout and on a fresh one, which must agree in lines and anchors. */
+function sameAsFull(frames: Frame[]) {
+  const layout = new TranscriptLayout();
+  for (const frame of frames) {
+    const expanded = new Set(frame.expanded);
+    const incremental = layout.render(frame.items, frame.width, expanded);
+    const full = new TranscriptLayout().render(
+      frame.items,
+      frame.width,
+      expanded,
+    );
+    assert.deepEqual(incremental.lines, full.lines);
+    for (let row = 0; row < full.lines.length; row++)
+      assert.deepEqual(incremental.anchorAt(row), full.anchorAt(row));
+  }
+}
+
+const tool = (text: string, done = false): DisplayItem => ({
+  id: 'tool',
+  kind: 'tool',
+  title: 'npm test',
+  text,
+  cwd: '/work',
+  done,
+});
+const early =
+  'PASS src/a.ts:1 https://example.com/a\nPASS test/b.test.ts:2\nrun';
+
+for (const [name, frames] of [
+  [
+    'an append to an expanded running tool',
+    [
+      { items: [tool(early)], width: 40, expanded: ['tool'] },
+      { items: [tool(`${early}ning\nmore`)], width: 40, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'a done flip and an append in one update',
+    [
+      { items: [tool(early)], width: 40, expanded: ['tool'] },
+      { items: [tool(`${early} done`, true)], width: 40, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'a link split across the append',
+    [
+      { items: [tool('see src/ma')], width: 40, expanded: ['tool'] },
+      {
+        items: [tool('see src/main.ts:3\nnext')],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+  [
+    'a link opened on an earlier line',
+    [
+      {
+        items: [tool('\u001b]8;;https://example.com\u0007start\nmid')],
+        width: 40,
+        expanded: ['tool'],
+      },
+      {
+        items: [
+          tool(
+            '\u001b]8;;https://example.com\u0007start\nmiddle\u001b]8;;\u0007',
+          ),
+        ],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+  [
+    'a replacement that does not extend the text',
+    [
+      { items: [tool(early)], width: 40, expanded: ['tool'] },
+      { items: [tool('replaced output')], width: 40, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'an append to a collapsed tool',
+    [
+      { items: [tool(early)], width: 40, expanded: [] },
+      { items: [tool(`${early} more`)], width: 40, expanded: [] },
+    ],
+  ],
+  [
+    'an append after a resize narrower than an earlier line',
+    [
+      { items: [tool(early)], width: 80, expanded: ['tool'] },
+      { items: [tool(early)], width: 12, expanded: ['tool'] },
+      { items: [tool(`${early} more`)], width: 12, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'a resize, an append, then a resize back',
+    [
+      { items: [tool(early)], width: 160, expanded: ['tool'] },
+      { items: [tool(early)], width: 159, expanded: ['tool'] },
+      { items: [tool(`${early} more`)], width: 159, expanded: ['tool'] },
+      { items: [tool(`${early} more`)], width: 160, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'an append in the frame that expands the tool',
+    [
+      { items: [tool(early)], width: 40, expanded: ['tool'] },
+      { items: [tool(early)], width: 40, expanded: [] },
+      { items: [tool(`${early} more`)], width: 40, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'an append to an expanded tool with no output yet',
+    [
+      { items: [tool('')], width: 40, expanded: ['tool'] },
+      { items: [tool('first line')], width: 40, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'a streaming heading in an expanded assistant item',
+    [
+      {
+        items: [{ id: 'tool', kind: 'assistant', text: 'Title', cwd: '/work' }],
+        width: 40,
+        expanded: ['tool'],
+      },
+      {
+        items: [
+          { id: 'tool', kind: 'assistant', text: 'Title\n===', cwd: '/work' },
+        ],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+] as [string, Frame[]][])
+  await test(`incremental layout matches a full render for ${name}`, () =>
+    sameAsFull(frames));
+
+await test('a warm append to a 20k-line tool costs under a tenth of a full render', () => {
+  let text = '';
+  for (let index = 0; index < 20000; index++)
+    text += `PASS test/case-${index}.test.ts (12 ms) see src/a.ts:${index}\n`;
+  const expanded = new Set(['tool']);
+  let start = performance.now();
+  new TranscriptLayout().render([tool(text)], 118, expanded);
+  const full = performance.now() - start;
+  const layout = new TranscriptLayout();
+  let item = tool(text);
+  layout.render([item], 118, expanded);
+  const appends: number[] = [];
+  for (let index = 0; index < 3; index++) {
+    item = tool(`${item.text}PASS test/extra-${index}.test.ts\n`);
+    start = performance.now();
+    layout.render([item], 118, expanded);
+    appends.push(performance.now() - start);
+  }
+  assert.ok(
+    Math.min(...appends) < full / 10,
+    `append ${Math.min(...appends)} ms against a full ${full} ms`,
+  );
+});

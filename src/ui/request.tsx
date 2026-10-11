@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
@@ -7,6 +7,7 @@ import { fullFormats } from 'ajv-formats/dist/formats.js';
 import type { UserRequest, UserResponse } from '../agents/types.js';
 import { Input } from './input.js';
 import { linkify } from './links.js';
+import { useLiveState } from './live-state.js';
 
 interface Props {
   request: UserRequest;
@@ -16,14 +17,22 @@ interface Props {
   respond(response: UserResponse): void;
 }
 
+const approvalOptions = ['Allow once', 'Decline', 'Cancel turn'];
+
 export function Request({ request, width, height, cwd, respond }: Props) {
-  const [selection, setSelection] = useState(0);
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string[]>>({});
-  const [scroll, setScroll] = useState(0);
+  const [selection, selectionRef, setSelection] = useLiveState(0);
+  const [questionIndex, questionIndexRef, setQuestionIndex] = useLiveState(0);
+  const [, answersRef, setAnswers] = useLiveState<Record<string, string[]>>({});
+  const [scroll, scrollRef, setScroll] = useLiveState(0);
   const [error, setError] = useState('');
+  // keys meant for the composer must not answer a request that just appeared
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setReady(true), 500);
+    return () => clearTimeout(timer);
+  }, []);
   const question = request.questions?.[questionIndex];
-  const options = question?.options ?? ['Allow once', 'Decline', 'Cancel turn'];
+  const options = question?.options ?? approvalOptions;
   const bodyHeight = Math.max(2, height - 7);
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
@@ -34,29 +43,46 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   }).split('\n');
   const top = Math.min(scroll, Math.max(0, lines.length - bodyHeight));
 
-  useInput((input, key) => {
-    if (key.eventType === 'release') return;
-    if (key.escape) {
-      respond({ decision: 'cancel' });
-      return;
-    }
-    if (key.pageUp) setScroll(Math.max(0, top - bodyHeight));
-    if (key.pageDown) setScroll(Math.min(lines.length - 1, top + bodyHeight));
-    if (key.upArrow) setSelection(Math.max(0, selection - 1));
-    if (key.downArrow)
-      setSelection(Math.min(options.length - 1, selection + 1));
-    if (!question && request.kind === 'approval') {
-      if (input === 'y') respond({ decision: 'accept' });
-      if (input === 'n') respond({ decision: 'decline' });
-      if (key.return)
-        respond({
-          decision: (['accept', 'decline', 'cancel'] as const)[selection]!,
-        });
-    }
-  });
+  useInput(
+    (input, key) => {
+      if (key.eventType === 'release') return;
+      if (key.escape) {
+        respond({ decision: 'decline' });
+        return;
+      }
+      const current = Math.min(
+        scrollRef.current,
+        Math.max(0, lines.length - bodyHeight),
+      );
+      if (key.pageUp) setScroll(Math.max(0, current - bodyHeight));
+      if (key.pageDown)
+        setScroll(Math.min(lines.length - 1, current + bodyHeight));
+      const count = (
+        request.questions?.[questionIndexRef.current]?.options ??
+        approvalOptions
+      ).length;
+      if (key.upArrow) setSelection(Math.max(0, selectionRef.current - 1));
+      if (key.downArrow)
+        setSelection(Math.min(count - 1, selectionRef.current + 1));
+      if (!request.questions && request.kind === 'approval') {
+        if (input === 'y') respond({ decision: 'accept' });
+        if (input === 'n') respond({ decision: 'decline' });
+        if (key.return)
+          respond({
+            decision: (['accept', 'decline', 'cancel'] as const)[
+              selectionRef.current
+            ]!,
+          });
+      }
+    },
+    { isActive: ready },
+  );
 
   const submit = (text: string): boolean => {
+    const index = questionIndexRef.current;
+    const question = request.questions?.[index];
     if (question) {
+      const options = question.options;
       const values = text.trim()
         ? (question.multiple ? text.split(',') : [text]).map((value) => {
             const number = Number(value.trim());
@@ -66,16 +92,16 @@ export function Request({ request, width, height, cwd, respond }: Props) {
               ? options[number - 1]!
               : value.trim();
           })
-        : options[selection]
-          ? [options[selection]!]
+        : options[selectionRef.current]
+          ? [options[selectionRef.current]!]
           : [];
       if (!values.length) return false;
-      const next = { ...answers, [question.id]: values };
-      if (questionIndex + 1 === request.questions!.length)
+      const next = { ...answersRef.current, [question.id]: values };
+      if (index + 1 === request.questions!.length)
         respond({ decision: 'accept', answers: next });
       else {
         setAnswers(next);
-        setQuestionIndex(questionIndex + 1);
+        setQuestionIndex(index + 1);
         setSelection(0);
         setScroll(0);
       }
@@ -126,7 +152,8 @@ export function Request({ request, width, height, cwd, respond }: Props) {
               .join('   ')}
           </Text>
           <Text dimColor>
-            ↑/↓ choose · Enter confirm · y allow · n decline · Esc cancel
+            ↑/↓ choose · Enter confirm · y allow · n decline · Esc decline ·
+            Ctrl+C stop turn
           </Text>
         </Box>
       ) : (
@@ -144,13 +171,13 @@ export function Request({ request, width, height, cwd, respond }: Props) {
             key={questionIndex}
             width={width - 2}
             height={3}
-            cwd={cwd}
-            active
+            active={ready}
             secret={question?.secret}
             multiline={!question}
             placeholder={question ? 'Your answer' : '{}'}
             onSubmit={submit}
           />
+          <Text dimColor>Esc decline · Ctrl+C stop turn</Text>
         </Box>
       )}
       {error && <Text color="red">{error}</Text>}

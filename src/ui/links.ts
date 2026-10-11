@@ -5,8 +5,9 @@ import ansiEscapes from 'ansi-escapes';
 import LinkifyIt from 'linkify-it';
 
 const urls = new LinkifyIt();
+// a bare name starts only at the start of a run of name characters, which keeps long runs of dashes or dots linear
 const files =
-  /(?<![\w/])(?:["'`]((?:\.{0,2}\/|~\/|[\w@.-]+\/)[^\n"'`]+)["'`]|(?:\.{1,2}\/|~\/|\/[\w.@-]+\/)[^\s<>"'`[\]()]+|(?:[\w@.-]+\/)*[\w@-]+\.[a-zA-Z][a-zA-Z\d]{0,12}(?::\d+(?::\d+)?)?)/gu;
+  /(?<![\w/])(?:["'`]((?:\.{0,2}\/|~\/|[\w@.-]+\/)[^\n"'`]+)["'`]|(?:\.{1,2}\/|~\/|\/[\w.@-]+\/)[^\s<>"'`[\]()]+)|(?<![\w/@.-])(?:[\w@.-]+\/)*\.?[\w@-]+(?:\.[\w@-]+)*\.[a-zA-Z][a-zA-Z\d]{0,12}(?::\d+(?::\d+)?)?/gu;
 
 export function linkTarget(target: string, cwd: string): string {
   if (/^https?:\/\//i.test(target)) return target;

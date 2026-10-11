@@ -60,7 +60,11 @@ if (values.help) {
   );
   let shuttingDown = false;
   const shutdown = () => {
-    if (shuttingDown) return;
+    // a second request quits without waiting for a stuck agent
+    if (shuttingDown) {
+      application.unmount();
+      process.exit(130);
+    }
     shuttingDown = true;
     void coordinator.close().then(
       () => application.unmount(),

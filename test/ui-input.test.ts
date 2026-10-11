@@ -15,7 +15,6 @@ await test('the terminal composer keeps a bracketed paste unsent until Enter', a
     createElement(Input, {
       width: 60,
       height: 4,
-      cwd: '/work',
       active: true,
       onSubmit: (value) => {
         sent.push(value);
@@ -74,7 +73,6 @@ await test('the visible terminal cursor reaches the current insertion point with
       createElement(Input, {
         width: 30,
         height: 3,
-        cwd: '/work',
         active: true,
         onSubmit: () => true,
       }),
@@ -91,7 +89,6 @@ await test('the visible terminal cursor reaches the current insertion point with
       createElement(Input, {
         width: 10,
         height: 3,
-        cwd: '/work',
         active: true,
         onSubmit: () => true,
       }),
@@ -99,10 +96,8 @@ await test('the visible terminal cursor reaches the current insertion point with
     await delay(30);
     stdin.write('a abcdefghi');
     await delay(30);
-    for (let index = 0; index < 6; index++) {
-      stdin.write('\u001b[D');
-      await delay(15);
-    }
+    stdin.write('\u001b[D'.repeat(6));
+    await delay(30);
     await ui.waitUntilRenderFlush();
     assert.equal([...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1], '4');
     assert.ok(stdout.output.includes('\u001b[2A\u001b[4G'));
@@ -117,7 +112,6 @@ await test('the visible terminal cursor reaches the current insertion point with
           key: text,
           width,
           height: 3,
-          cwd: '/work',
           active: true,
           onSubmit: (value) => {
             submitted.push(value);
@@ -169,7 +163,8 @@ await test('native secret questions mask the display and preserve commas in a si
     }),
   );
   try {
-    await delay(30);
+    // past the 500 ms in which a new request ignores keys
+    await delay(600);
     ui.stdin.write('\u001b[200~red, green\u001b[201~');
     await delay(30);
     assert.ok(!ui.frames.some((frame) => frame.includes('red, green')));
@@ -241,7 +236,7 @@ await test('MCP form submissions validate required fields, types and constraints
       }),
     );
     try {
-      await delay(30);
+      await delay(600);
       if (text) ui.stdin.write(`\u001b[200~${text}\u001b[201~`);
       await delay(30);
       ui.stdin.write('\r');
@@ -257,7 +252,7 @@ await test('MCP form submissions validate required fields, types and constraints
       } else {
         ui.stdin.write('\u001b');
         await delay(30);
-        assert.deepEqual(sent, [{ decision: 'cancel' }]);
+        assert.deepEqual(sent, [{ decision: 'decline' }]);
       }
     } finally {
       ui.unmount();
@@ -283,7 +278,7 @@ await test('browser elicitation confirms without JSON form content', async () =>
     }),
   );
   try {
-    await delay(30);
+    await delay(600);
     ui.stdin.write('\r');
     await delay(30);
     assert.deepEqual(sent, [{ decision: 'accept', content: undefined }]);

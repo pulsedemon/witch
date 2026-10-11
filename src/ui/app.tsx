@@ -15,6 +15,7 @@ import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
 import { colors, markdown } from './markdown.js';
 import { hyperlink, linkify } from './links.js';
+import { useLiveState } from './live-state.js';
 
 const commands = [
   { id: 'new', label: 'New conversation' },
@@ -84,11 +85,11 @@ export function App({
   const cwd = state.conversation?.cwd ?? process.cwd();
   const [view, setView] = useState<View>({ kind: 'chat' });
   const [query, setQuery] = useState('');
-  const [selection, setSelection] = useState(0);
+  const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
   const [top, setTop] = useState<ScrollAnchor | null>(null);
-  const [toolFocus, setToolFocus] = useState(false);
-  const [toolSelection, setToolSelection] = useState(0);
+  const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
+  const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   // a send resolves after later renders, so it reads the live drafts
@@ -126,15 +127,24 @@ export function App({
     top === null ? maxTop : Math.min(transcript.rowOf(top), maxTop);
   const scrollTo = (row: number | null) =>
     setTop(row === null ? null : (transcript.anchorAt(row) ?? null));
+  /** scrolls from the latest position, so two page keys in one read move two pages. */
+  const scrollBy = (rows: number) =>
+    setTop((previous) => {
+      const current =
+        previous === null
+          ? maxTop
+          : Math.min(transcript.rowOf(previous), maxTop);
+      const next = Math.min(maxTop, Math.max(0, current + rows));
+      return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
+    });
   const tools = state.items.filter((item) => item.kind === 'tool');
-  const choices =
-    view.kind === 'picker'
-      ? view.choices.filter((choice) =>
-          `${choice.label} ${choice.id} ${choice.search ?? ''}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
-        )
-      : [];
+  const filter = (entries: Choice[], text: string) =>
+    entries.filter((choice) =>
+      `${choice.label} ${choice.id} ${choice.search ?? ''}`
+        .toLowerCase()
+        .includes(text.toLowerCase()),
+    );
+  const choices = view.kind === 'picker' ? filter(view.choices, query) : [];
   const selected = Math.min(selection, Math.max(0, choices.length - 1));
   const request = state.requests[0];
   const busy = [
@@ -308,7 +318,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map((item) => `/${item.id}  ${item.label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown scroll.\nTab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nEscape closes a view or interrupts execution.\nCtrl+C interrupts active work or exits while idle.\n\nCmd+click web links to open your browser.\nCmd+click file paths to open VS Code at their line and column.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map((item) => `/${item.id}  ${item.label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown scroll.\nTab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nEscape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nCmd+click web links to open your browser.\nCmd+click file paths to open VS Code at their line and column.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'quit':
@@ -318,6 +328,8 @@ export function App({
   };
 
   const submit = (text: string): boolean => {
+    // Enter while tools are focused expands a tool, even in the same read as Tab
+    if (toolFocusRef.current) return false;
     const match =
       /^\/(new|sessions|agent|model|memory|help|quit)(?:\s+(.*))?$/.exec(
         text.trim(),
@@ -367,7 +379,8 @@ export function App({
   useInput((input, key) => {
     if (key.eventType === 'release') return;
     if (key.ctrl && input === 'c') {
-      if (busy) run(coordinator.interrupt());
+      // a second Ctrl+C while closing quits without waiting for the agent
+      if (busy && state.phase !== 'closing') run(coordinator.interrupt());
       else onExit();
       return;
     }
@@ -389,8 +402,8 @@ export function App({
     }
     if (key.escape) {
       if (view.kind !== 'chat') setView({ kind: 'chat' });
+      else if (toolFocusRef.current) setToolFocus(false);
       else if (busy) run(coordinator.interrupt());
-      else setToolFocus(false);
       return;
     }
     if (key.ctrl && input === 'p') {
@@ -398,9 +411,13 @@ export function App({
       return;
     }
     if (view.kind === 'picker') {
-      if (key.upArrow) setSelection(Math.max(0, selected - 1));
+      const current = Math.min(
+        selectionRef.current,
+        Math.max(0, choices.length - 1),
+      );
+      if (key.upArrow) setSelection(Math.max(0, current - 1));
       if (key.downArrow)
-        setSelection(Math.min(choices.length - 1, selected + 1));
+        setSelection(Math.max(0, Math.min(choices.length - 1, current + 1)));
       return;
     }
     if (view.kind === 'page') {
@@ -421,23 +438,21 @@ export function App({
       }
       return;
     }
-    if (key.pageUp) scrollTo(Math.max(0, scrollTop - transcriptHeight));
-    if (key.pageDown) {
-      const next = Math.min(maxTop, scrollTop + transcriptHeight);
-      scrollTo(next === maxTop ? null : next);
-    }
-    if (key.tab) setToolFocus(!toolFocus);
-    if (toolFocus) {
-      let next = toolSelection;
-      if (key.upArrow) next = Math.max(0, toolSelection - 1);
-      if (key.downArrow) next = Math.min(tools.length - 1, toolSelection + 1);
-      if (next !== toolSelection) {
+    if (key.pageUp) scrollBy(-transcriptHeight);
+    if (key.pageDown) scrollBy(transcriptHeight);
+    if (key.tab) setToolFocus(!toolFocusRef.current);
+    if (toolFocusRef.current) {
+      const current = toolSelectionRef.current;
+      let next = current;
+      if (key.upArrow) next = Math.max(0, current - 1);
+      if (key.downArrow) next = Math.min(tools.length - 1, current + 1);
+      if (next !== current) {
         setToolSelection(next);
         scrollTo(transcript.starts.get(tools[next]?.id ?? '') ?? null);
       }
       if (key.end) setTop(null);
-      if (key.return && tools[toolSelection]) {
-        const id = tools[toolSelection]!.id;
+      if (key.return && tools[next]) {
+        const id = tools[next]!.id;
         setExpanded((previous) => {
           const next = new Set(previous);
           if (next.has(id)) next.delete(id);
@@ -515,7 +530,6 @@ export function App({
           key={view.title}
           width={width - 2}
           height={1}
-          cwd={cwd}
           active
           multiline={false}
           placeholder="Filter, then Enter"
@@ -524,7 +538,10 @@ export function App({
             setSelection(0);
           }}
           onSubmit={(text) => {
-            const choice = choices[selected];
+            // the filter and selection a read changed are not rendered yet
+            const matching = filter(view.choices, text);
+            const choice =
+              matching[Math.min(selectionRef.current, matching.length - 1)];
             if (choice) view.choose(choice.id);
             else if (view.custom && text.trim()) view.choose(text.trim());
             else return false;
@@ -592,7 +609,6 @@ export function App({
             key={`${state.conversation?.id ?? 'initial'}/${composerKey}`}
             width={width - 6}
             height={3}
-            cwd={cwd}
             active={
               !toolFocus &&
               !['starting', 'closing', 'error'].includes(state.phase)
@@ -639,7 +655,14 @@ export function App({
       )}
       <Box height={1}>
         <Text dimColor>
-          Cmd+click links · Esc {view.kind === 'chat' ? 'interrupt' : 'back'}
+          Cmd+click links
+          {request
+            ? ''
+            : view.kind !== 'chat'
+              ? ' · Esc back'
+              : toolFocus
+                ? ' · Esc leave tools'
+                : ' · Esc interrupt'}
         </Text>
       </Box>
     </Box>

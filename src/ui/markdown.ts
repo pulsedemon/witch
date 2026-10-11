@@ -1,4 +1,5 @@
 import { Marked, Renderer } from 'marked';
+import type { Token } from 'marked';
 import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
 import { markdownLink, linkify } from './links.js';
@@ -38,10 +39,29 @@ export function markdown(text: string, cwd: string): string {
       .split('\n')
       .map((line) => `│ ${line}`)
       .join('\n')}\n\n`;
+  /** each block of an item on its own line, with a checkbox kept on the line it marks. */
+  const item = (tokens: Token[]) => {
+    const blocks: string[] = [];
+    let checkbox = '';
+    for (const token of tokens) {
+      if (token.type === 'space') continue;
+      if (token.type === 'checkbox') {
+        checkbox = token.checked ? '[x] ' : '[ ] ';
+        continue;
+      }
+      blocks.push(checkbox + renderer.parser.parse([token]).trim());
+      checkbox = '';
+    }
+    if (checkbox) blocks.push(checkbox.trimEnd());
+    return blocks.join('\n');
+  };
   renderer.list = ({ items, ordered, start }) =>
-    `${items.map((item, index) => `${ordered ? `${Number(start) + index}.` : '•'} ${renderer.parser.parse(item.tokens).trim()}`).join('\n')}\n\n`;
-  renderer.listitem = ({ tokens }) => renderer.parser.parse(tokens);
-  renderer.checkbox = ({ checked }) => (checked ? '[x] ' : '[ ] ');
+    `${items
+      .map((entry, index) => {
+        const bullet = ordered ? `${Number(start) + index}.` : '•';
+        return `${bullet} ${item(entry.tokens).replaceAll('\n', `\n${' '.repeat(bullet.length + 1)}`)}`;
+      })
+      .join('\n')}\n\n`;
   renderer.table = ({ header, rows }) =>
     `${[header, ...rows].map((row) => row.map((cell) => renderer.parser.parseInline(cell.tokens)).join(' │ ')).join('\n')}\n\n`;
   return new Marked({ gfm: true })

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
 import { test } from 'node:test';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
-import { linkify, linkTarget } from '../src/ui/links.js';
+import { hyperlink, linkify, linkTarget } from '../src/ui/links.js';
 import { markdown } from '../src/ui/markdown.js';
 
 await test('bare URLs retain their exact browser target across wrapping', () => {
@@ -90,5 +91,35 @@ await test('malformed file URLs remain readable without breaking a persisted tra
       linkify('\u001b]8;;file://%\u0007Invalid path\u001b]8;;\u0007', '/work'),
     ),
     'Invalid path',
+  );
+});
+
+await test('long runs of dashes, dots and @ signs link in linear time', () => {
+  for (const character of ['-', '.', '@']) {
+    const start = performance.now();
+    linkify(character.repeat(16000), '/work');
+    const elapsed = performance.now() - start;
+    assert.ok(elapsed < 50, `${character} took ${elapsed} ms`);
+  }
+});
+
+await test('multi-dot names, dotfiles and quoted or prefixed paths after a dash link whole', () => {
+  for (const [text, target] of [
+    ['test/claude.test.ts:3', 'vscode://file/work/test/claude.test.ts:3'],
+    ['.eslintrc.json', 'vscode://file/work/.eslintrc.json'],
+    ['dir/.hidden.ts', 'vscode://file/work/dir/.hidden.ts'],
+    ['-"src/a b.ts"', 'vscode://file/work/src/a%20b.ts'],
+    ['x-~/notes.md', `vscode://file${homedir()}/notes.md`],
+  ] as const)
+    assert.ok(
+      linkify(text, '/work').includes(`\u001b]8;;${target}\u0007`),
+      text,
+    );
+});
+
+await test('a web target with a control character stays plain text', () => {
+  assert.equal(
+    hyperlink('label', 'https://example.com/\u001b]8;;x', '/work'),
+    'label',
   );
 });

@@ -132,6 +132,8 @@ function fake(snapshot: Partial<Snapshot>) {
     interrupt: record('interrupt'),
     respond: record('respond'),
     recoverMemory: record('recoverMemory'),
+    newConversation: record('newConversation'),
+    selectConversation: record('selectConversation'),
     report: (error: unknown) => calls.push(['report', String(error)]),
     conversations: async () => [],
   };
@@ -447,5 +449,318 @@ await test('a prompt the agent never got comes back into an empty composer and l
     } finally {
       ui.unmount();
     }
+  }
+});
+
+const ENTER = '\u001b[13u';
+const DOWN = '\u001b[B';
+const tools = (prefix: string) =>
+  [1, 2].map((n) => ({
+    id: `${prefix}-tool-${n}`,
+    kind: 'tool' as const,
+    title: `${prefix} tool ${n}`,
+    text: `${prefix} output ${n}`,
+    cwd: '/work',
+    done: true,
+  }));
+const approval = {
+  id: 'r1',
+  kind: 'approval' as const,
+  title: 'rm -rf build',
+  detail: '{}',
+};
+
+await test('Down and Enter in one read decline an approval', async () => {
+  const { app, calls } = fake({ phase: 'running', requests: [approval] });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(600);
+    ui.stdin.write(DOWN + ENTER);
+    await until('the response', () => calls.length > 0);
+    assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('two questions answered in one read each get their own option', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Questions',
+        detail: '',
+        questions: [
+          { id: 'first', title: 'First?', options: ['a1', 'b1'] },
+          { id: 'second', title: 'Second?', options: ['a2', 'b2'] },
+        ],
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(600);
+    ui.stdin.write(`1${ENTER}2${ENTER}`);
+    await until('the response', () => calls.length > 0);
+    assert.deepEqual(calls, [
+      [
+        'respond',
+        'q',
+        { decision: 'accept', answers: { first: ['a1'], second: ['b2'] } },
+      ],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+/** opens the command picker and waits for it. */
+async function commands(ui: ReturnType<typeof show>) {
+  ui.stdin.write('\u0010');
+  await until('the command picker', () => ui.text().includes('Commands'));
+  await delay(30);
+}
+
+for (const [name, keys] of [
+  ['Down and Enter', DOWN + ENTER],
+  ['a filter and Enter', `sess${ENTER}`],
+  ['a filter, Down past it and Enter', `sess${DOWN}${ENTER}`],
+] as const)
+  await test(`${name} in one read pick the selected command`, async () => {
+    const { app, calls } = fake({});
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      await commands(ui);
+      ui.stdin.write(keys);
+      await until('the conversations picker', () =>
+        ui.text().includes('Conversations'),
+      );
+      assert.ok(!calls.some(([call]) => call === 'newConversation'));
+    } finally {
+      ui.unmount();
+    }
+  });
+
+await test('a filter resets the picker selection within the same read', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`${DOWN}conv${ENTER}`);
+    await until('the new conversation', () =>
+      calls.some(([call]) => call === 'newConversation'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('reopening the picker resets its selection', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(DOWN);
+    await delay(30);
+    ui.stdin.write('\u001b');
+    await until('the chat view', () => !ui.text().includes('Commands'));
+    await commands(ui);
+    ui.stdin.write(ENTER);
+    await until('the new conversation', () =>
+      calls.some(([call]) => call === 'newConversation'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft', async () => {
+  const { app, calls } = fake({ items: tools('first') });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/help');
+    await delay(30);
+    ui.stdin.write(`\t${DOWN}${ENTER}`);
+    await until('the expanded tool', () =>
+      ui.text().includes('first output 2'),
+    );
+    assert.ok(!ui.text().includes('first output 1'));
+    assert.ok(!ui.text().includes('Keyboard help'));
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a conversation switch resets the tool selection within the next read', async () => {
+  const { app, coordinator } = fake({ items: tools('first') });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`\t${DOWN}`);
+    await delay(30);
+    ui.stdin.write('\u001b');
+    await delay(30);
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+      items: tools('second'),
+    });
+    await until('the new conversation', () =>
+      ui.text().includes('second tool 1'),
+    );
+    ui.stdin.write(`\t${ENTER}`);
+    await until('the expanded tool', () =>
+      ui.text().includes('second output 1'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('two page keys in one read scroll two pages', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app, coordinator } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const rows = () =>
+    ui
+      .text()
+      .split('\n')
+      .map((row) => row.trim());
+  try {
+    await delay(60);
+    ui.stdin.write('\u001b[5~\u001b[5~');
+    // 302 lines in a 30-row transcript start at row 272; two pages up is 212
+    await until('two pages up', () => rows()[2] === 'row 212');
+    coordinator.publish({
+      phase: 'running',
+      requests: [
+        {
+          ...approval,
+          detail: Array.from({ length: 200 }, (_, n) => `d${n + 1}`).join('\n'),
+        },
+      ],
+    });
+    await delay(600);
+    ui.stdin.write('\u001b[6~\u001b[6~');
+    // the detail starts on line 4, and two 30-row pages down show line 61
+    await until('two pages down', () => {
+      const all = rows();
+      return all[all.indexOf('Approval required') + 1] === 'd58';
+    });
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Escape while tools are focused during a turn leaves focus without interrupting', async () => {
+  const { app, calls } = fake({ phase: 'running', items: tools('first') });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('\t');
+    await until('tool focus', () => ui.text().includes('Esc leave tools'));
+    ui.stdin.write('\u001b');
+    await until('the composer', () => ui.text().includes('Esc interrupt'));
+    assert.ok(!calls.some(([call]) => call === 'interrupt'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a new request ignores keys for its first 500 ms', async () => {
+  const { app, calls } = fake({ phase: 'running', requests: [approval] });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the request', () => ui.text().includes('Approval required'));
+    ui.stdin.write('y');
+    await delay(100);
+    assert.deepEqual(calls, []);
+    await delay(500);
+    ui.stdin.write('y');
+    await until('the accept', () => calls.length > 0);
+    assert.deepEqual(calls, [['respond', 'r1', { decision: 'accept' }]]);
+  } finally {
+    ui.unmount();
+  }
+  const question = fake({
+    phase: 'running',
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Question',
+        detail: '',
+        questions: [{ id: 'one', title: 'Pick?', options: ['only'] }],
+      },
+    ],
+  });
+  const asked = show(
+    createElement(App, { coordinator: question.app, onExit: () => {} }),
+  );
+  try {
+    await until('the question', () => asked.text().includes('Pick?'));
+    asked.stdin.write(ENTER);
+    await delay(100);
+    assert.deepEqual(question.calls, []);
+  } finally {
+    asked.unmount();
+  }
+});
+
+await test('Escape declines a question and the turn continues', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Question',
+        detail: '',
+        questions: [{ id: 'one', title: 'Pick?', options: ['only'] }],
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(600);
+    ui.stdin.write('\u001b');
+    await until('the decline', () => calls.length > 0);
+    assert.deepEqual(calls, [['respond', 'q', { decision: 'decline' }]]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Ctrl+C while closing quits instead of interrupting again', async () => {
+  const { app, coordinator, calls } = fake({});
+  let exits = 0;
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {
+        exits++;
+      },
+    }),
+  );
+  try {
+    await delay(60);
+    coordinator.publish({ phase: 'closing' });
+    await until('the closing frame', () => ui.text().includes('closing'));
+    ui.stdin.write('\u0003');
+    await delay(60);
+    assert.equal(exits, 1);
+    assert.ok(!calls.some(([call]) => call === 'interrupt'));
+  } finally {
+    ui.unmount();
   }
 });
