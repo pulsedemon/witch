@@ -1,13 +1,41 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { appendFile, mkdtemp } from 'node:fs/promises';
+import { appendFile, mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { StateStore } from '../src/persistence/store.js';
 import { applyDisplayUpdate } from '../src/core/state.js';
 import type { DisplayItem } from '../src/core/state.js';
+
+await test('the CLI rejects a missing state directory before opening the store', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'harness-cli-state-'));
+  const cli = fileURLToPath(new URL('../src/cli.tsx', import.meta.url));
+  for (const args of [[], [''], ['--state-dir']]) {
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        import.meta.resolve('tsx'),
+        cli,
+        directory,
+        '--state-dir',
+        ...args,
+      ],
+      { cwd: directory, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let error = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      error += chunk.toString();
+    });
+    const [code] = await once(child, 'close');
+    assert.equal(code, 1);
+    assert.match(error, /--state-dir requires a directory/);
+    assert.deepEqual(await readdir(directory), []);
+  }
+});
 
 await test('one app owns state until its process exits, including a crash', async () => {
   const root = await mkdtemp(join(tmpdir(), 'harness-lock-'));

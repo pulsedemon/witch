@@ -15,10 +15,11 @@ if (args.includes('--help')) {
   );
 } else {
   const flag = args.indexOf('--state-dir');
+  const stateArgument = args[flag + 1];
+  if (flag >= 0 && (!stateArgument || stateArgument.startsWith('--')))
+    throw new Error('--state-dir requires a directory.');
   const stateDirectory =
-    flag < 0
-      ? join(homedir(), '.agent-harness')
-      : resolve(args[flag + 1] ?? '');
+    flag < 0 ? join(homedir(), '.agent-harness') : resolve(stateArgument!);
   if (flag >= 0) args.splice(flag, 2);
   const directory = resolve(args[0] ?? process.cwd());
   if (!process.stdin.isTTY || !process.stdout.isTTY)
