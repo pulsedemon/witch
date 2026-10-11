@@ -97,10 +97,7 @@ function build(item: DisplayItem, width: number, expanded: boolean): Block {
     item,
     lines,
     anchors,
-    tail:
-      tool && expanded && body
-        ? tailOf(item, anchors, head.lines.length)
-        : undefined,
+    tail: tool && body ? tailOf(item, anchors, head.lines.length) : undefined,
   };
 }
 

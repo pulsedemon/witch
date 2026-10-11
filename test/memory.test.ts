@@ -509,7 +509,11 @@ await test('a crash inside keep mine before its reset leaves the worktree clean 
   const { open, hook } = await fixture();
   const { workspace: theirs } = await open('theirs');
   const { workspace: mine } = await open('mine');
-  await save(theirs, { 'global/one.md': 'Theirs.\n' });
+  // their extra note puts the merged tree ahead of my HEAD, which a real index would stage
+  await save(theirs, {
+    'global/one.md': 'Theirs.\n',
+    'global/theirs.md': 'Theirs only.',
+  });
   await save(mine, { 'global/one.md': 'Mine.\n' });
   await theirs.publish();
   assert.equal(await mine.publish(), 'conflict');

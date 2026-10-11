@@ -182,7 +182,10 @@ await test('malformed notifications post one notice per method and the turn comp
 await test('a malformed settings notification fails the model change', async () => {
   const { session, cwd } = await fixture();
   try {
-    await assert.rejects(within(session.selectModel('bad-settings'), 2000));
+    await assert.rejects(
+      within(session.selectModel('bad-settings'), 2000),
+      /thread\/settings\/updated/,
+    );
   } finally {
     await close(session, cwd);
   }

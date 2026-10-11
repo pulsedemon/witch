@@ -260,6 +260,17 @@ for (const [name, frames] of [
     ],
   ],
   [
+    'an append that also renames the tool',
+    [
+      { items: [tool('see src/a.ts\nnext')], width: 40, expanded: ['tool'] },
+      {
+        items: [{ ...tool('see src/a.ts\nnext line'), title: 'npm run test' }],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+  [
     'an append that also moves the tool to another directory',
     [
       { items: [tool('see src/a.ts\nnext')], width: 40, expanded: ['tool'] },
