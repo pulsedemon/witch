@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
+import { Ajv2020 } from 'ajv/dist/2020.js';
+import { fullFormats } from 'ajv-formats/dist/formats.js';
 import type { UserRequest, UserResponse } from '../agents/types.js';
 import { Input } from './input.js';
 import { linkify } from './links.js';
@@ -80,9 +82,19 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       return true;
     }
     try {
-      const content = text.trim()
-        ? z.record(z.string(), z.unknown()).parse(JSON.parse(text))
-        : undefined;
+      const content =
+        request.url && !request.schema
+          ? undefined
+          : z
+              .record(z.string(), z.unknown())
+              .parse(JSON.parse(text.trim() || '{}'));
+      if (request.schema) {
+        const validator = new Ajv2020({ strict: false, formats: fullFormats });
+        if (!validator.validate(request.schema, content)) {
+          setError(validator.errorsText());
+          return false;
+        }
+      }
       respond({ decision: 'accept', content });
       return true;
     } catch {

@@ -7,6 +7,7 @@ import { Input } from '../src/ui/input.js';
 import { Request } from '../src/ui/request.js';
 import { render as renderTerminal, Box } from 'ink';
 import { PassThrough, Writable } from 'node:stream';
+import type { UserResponse } from '../src/agents/types.js';
 
 await test('the terminal composer keeps a bracketed paste unsent until Enter', async () => {
   const sent: string[] = [];
@@ -140,6 +141,114 @@ await test('native secret questions mask the display and preserve commas in a si
     assert.deepEqual(answers, [
       { decision: 'accept', answers: { answer: ['red, green'] } },
     ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('MCP form submissions validate required fields, types and constraints before responding', async () => {
+  const schema = {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'object',
+    properties: {
+      email: {
+        type: 'string',
+        format: 'email',
+        default: 'default@example.com',
+      },
+      age: { type: 'integer', minimum: 18, maximum: 120 },
+      colors: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 2,
+        items: { enum: ['red', 'blue'] },
+      },
+    },
+    required: ['email', 'age', 'colors'],
+  };
+  const valid = { email: 'user@example.com', age: 21, colors: ['blue'] };
+  const cases = [
+    ['', /required property 'email'/],
+    [
+      JSON.stringify({ age: 21, colors: ['blue'] }),
+      /required property 'email'/,
+    ],
+    [JSON.stringify({ ...valid, age: '21' }), /must be integer/],
+    [JSON.stringify({ ...valid, age: 17 }), /must be >= 18/],
+    [JSON.stringify({ ...valid, email: 'invalid' }), /must match format/],
+    [
+      JSON.stringify({ ...valid, colors: [] }),
+      /must NOT have fewer than 1 items/,
+    ],
+    [
+      JSON.stringify({ ...valid, colors: ['green'] }),
+      /must be equal to one of/,
+    ],
+  ] as const;
+  for (const [text, error] of cases) {
+    const sent: UserResponse[] = [];
+    const ui = render(
+      createElement(Request, {
+        width: 100,
+        height: 25,
+        cwd: '/work',
+        request: {
+          id: 'form',
+          kind: 'elicitation',
+          title: 'Contact',
+          detail: 'MCP server',
+          schema,
+        },
+        respond: (response) => sent.push(response),
+      }),
+    );
+    try {
+      await delay(30);
+      if (text) ui.stdin.write(`\u001b[200~${text}\u001b[201~`);
+      await delay(30);
+      ui.stdin.write('\r');
+      await delay(40);
+      assert.deepEqual(sent, []);
+      assert.match(ui.lastFrame() ?? '', error);
+      if (!text) {
+        ui.stdin.write(`\u001b[200~${JSON.stringify(valid)}\u001b[201~`);
+        await delay(30);
+        ui.stdin.write('\r');
+        await delay(40);
+        assert.deepEqual(sent, [{ decision: 'accept', content: valid }]);
+      } else {
+        ui.stdin.write('\u001b');
+        await delay(30);
+        assert.deepEqual(sent, [{ decision: 'cancel' }]);
+      }
+    } finally {
+      ui.unmount();
+    }
+  }
+});
+
+await test('browser elicitation confirms without JSON form content', async () => {
+  const sent: UserResponse[] = [];
+  const ui = render(
+    createElement(Request, {
+      width: 80,
+      height: 20,
+      cwd: '/work',
+      request: {
+        id: 'url',
+        kind: 'elicitation',
+        title: 'Connect',
+        detail: 'MCP server',
+        url: 'https://example.com/connect',
+      },
+      respond: (response) => sent.push(response),
+    }),
+  );
+  try {
+    await delay(30);
+    ui.stdin.write('\r');
+    await delay(30);
+    assert.deepEqual(sent, [{ decision: 'accept', content: undefined }]);
   } finally {
     ui.unmount();
   }
