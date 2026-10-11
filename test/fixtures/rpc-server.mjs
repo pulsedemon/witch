@@ -27,6 +27,8 @@ for await (const line of lines) {
     process.stdout.write(
       JSON.stringify({ method: 'approved', params: message.result }) + '\n',
     );
+  } else if (message.method === 'garbage') {
+    process.stdout.write('not json\n');
   } else if (message.method === 'exit') {
     process.stderr.write('Native configuration is invalid', () =>
       process.exit(7),

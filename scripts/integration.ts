@@ -60,7 +60,11 @@ async function send(prompt: string, expected?: string): Promise<string> {
     void coordinator.interrupt();
   }, 180_000);
   try {
-    await coordinator.send(prompt);
+    assert.equal(
+      await coordinator.send(prompt),
+      true,
+      coordinator.snapshot.error,
+    );
     assert.equal(
       coordinator.snapshot.phase,
       'idle',

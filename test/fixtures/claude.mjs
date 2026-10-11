@@ -1,10 +1,13 @@
 import { setInterval, clearInterval } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
-import { writeFileSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { appendFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+// modes that a prompt can't reach come from the command line
+const mode = process.argv[2] ?? '';
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const session_id = randomUUID();
@@ -18,6 +21,28 @@ const state = (state) =>
     state,
     uuid: randomUUID(),
     session_id,
+  });
+const assistant = (text) =>
+  send({
+    type: 'assistant',
+    uuid: randomUUID(),
+    session_id,
+    parent_tool_use_id: null,
+    message: {
+      id: randomUUID(),
+      type: 'message',
+      role: 'assistant',
+      model,
+      content: [{ type: 'text', text }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: {
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
   });
 const result = () =>
   send({
@@ -35,6 +60,17 @@ const result = () =>
     permission_denials: [],
     total_cost_usd: 0,
   });
+/** exits once a grandchild sharing stderr is running; it writes a line about 65 ms later. */
+const exitBeforeGrandchild = (code) => {
+  const grandchild = spawn(
+    '/bin/sh',
+    ['-c', 'printf r >&4; cat <&3; sleep 0.05; echo grandchild line >&2'],
+    { stdio: ['ignore', 'ignore', 'inherit', 'pipe', 'pipe'] },
+  );
+  grandchild.stdio[4].once('data', () =>
+    process.stderr.write('fixture stderr text\n', () => process.exit(code)),
+  );
+};
 const finish = () => {
   result();
   if (lastPrompt === 'wait for idle') {
@@ -45,30 +81,12 @@ const finish = () => {
       states.shift();
       state(next);
       if (next === 'idle') clearInterval(interval);
-      else
-        send({
-          type: 'assistant',
-          uuid: randomUUID(),
-          session_id,
-          parent_tool_use_id: null,
-          message: {
-            id: randomUUID(),
-            type: 'message',
-            role: 'assistant',
-            model,
-            content: [{ type: 'text', text: next }],
-            stop_reason: 'end_turn',
-            stop_sequence: null,
-            usage: {
-              input_tokens: 1,
-              output_tokens: 1,
-              cache_creation_input_tokens: 0,
-              cache_read_input_tokens: 0,
-            },
-          },
-        });
+      else assistant(next);
     }, 5);
-  } else state('idle');
+  } else {
+    state('idle');
+    if (mode === 'exit-when-idle') exitBeforeGrandchild(1);
+  }
 };
 for await (const line of lines) {
   const message = JSON.parse(line);
@@ -81,6 +99,18 @@ for await (const line of lines) {
         join(process.cwd(), 'initialize.json'),
         JSON.stringify(request),
       );
+      if (mode === 'init-error') {
+        process.stderr.write('init failed text\n');
+        send({
+          type: 'control_response',
+          response: {
+            subtype: 'error',
+            request_id: message.request_id,
+            error: 'initialize refused',
+          },
+        });
+        continue;
+      }
       response = {
         commands: [],
         agents: [],
@@ -99,14 +129,22 @@ for await (const line of lines) {
       };
     }
     if (request.subtype === 'set_model') model = request.model;
-    if (request.subtype === 'apply_flag_settings')
+    if (request.subtype === 'apply_flag_settings') {
       writeFileSync(
         join(process.cwd(), 'settings.json'),
         JSON.stringify(request.settings),
       );
+      appendFileSync(
+        join(process.cwd(), 'settings.jsonl'),
+        `${JSON.stringify(request.settings)}\n`,
+      );
+    }
     if (request.subtype === 'interrupt') {
-      result();
-      state('idle');
+      if (lastPrompt === 'still queued') response = { still_queued: ['q-1'] };
+      else {
+        result();
+        state('idle');
+      }
     }
     send({
       type: 'control_response',
@@ -152,7 +190,19 @@ for await (const line of lines) {
           tool_use_id: 'tool-1',
         },
       });
-    else if (lastPrompt !== 'wait') finish();
+    else if (['wait', 'still queued'].includes(lastPrompt))
+      assistant('Working.');
+    else if (lastPrompt === 'crash') {
+      assistant('Working.');
+      exitBeforeGrandchild(1);
+    } else if (lastPrompt === 'die') {
+      assistant('Working.');
+      // holds stdout, so the SDK's read loop outlives the exit
+      spawn('/bin/sleep', ['1'], { stdio: ['ignore', 'inherit', 'ignore'] });
+      process.exit(1);
+    } else if (lastPrompt === 'quit early')
+      process.stderr.write('quitting early\n', () => process.exit(0));
+    else finish();
   } else if (
     message.type === 'control_response' &&
     message.response.request_id === 'permit-1'

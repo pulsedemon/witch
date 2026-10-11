@@ -91,6 +91,12 @@ export function App({
   const [toolSelection, setToolSelection] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // a send resolves after later renders, so it reads the live drafts
+  const draftsRef = useRef(drafts);
+  const setDraft = (id: string, value: string) => {
+    draftsRef.current = { ...draftsRef.current, [id]: value };
+    setDrafts(draftsRef.current);
+  };
   // Input reads its initial value only when it mounts
   const [composerKey, setComposerKey] = useState(0);
   const pendingPrompt = useRef(initialPrompt);
@@ -221,7 +227,7 @@ export function App({
       picker(
         `Reasoning for ${id}`,
         [
-          { id: '', label: 'Native default' },
+          { id: '', label: 'Keep current effort' },
           ...efforts.map((effort) => ({ id: effort, label: effort })),
         ],
         (effort) => {
@@ -327,7 +333,16 @@ export function App({
       return false;
     }
     setTop(null);
-    run(coordinator.send(text));
+    const id = coordinator.snapshot.conversation?.id ?? '';
+    // a prompt the agent never got comes back, unless a new draft took its place
+    void coordinator.send(text).then(
+      (delivered) => {
+        if (delivered || draftsRef.current[id]) return;
+        setDraft(id, text);
+        setComposerKey((key) => key + 1);
+      },
+      (error: unknown) => coordinator.report(error),
+    );
     return true;
   };
 
@@ -341,10 +356,7 @@ export function App({
     pendingPrompt.current = undefined;
     if (state.phase === 'idle' && !state.error) submit(prompt);
     else {
-      setDrafts((previous) => ({
-        ...previous,
-        [state.conversation?.id ?? '']: prompt,
-      }));
+      setDraft(state.conversation?.id ?? '', prompt);
       setComposerKey((key) => key + 1);
     }
   }, [state.phase]);
@@ -586,12 +598,7 @@ export function App({
               !['starting', 'closing', 'error'].includes(state.phase)
             }
             initialValue={drafts[state.conversation?.id ?? ''] ?? ''}
-            onChange={(value) =>
-              setDrafts((previous) => ({
-                ...previous,
-                [state.conversation?.id ?? '']: value,
-              }))
-            }
+            onChange={(value) => setDraft(state.conversation?.id ?? '', value)}
             onSubmit={submit}
           />
         </Box>

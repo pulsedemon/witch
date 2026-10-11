@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
   AgentAdapter,
@@ -40,25 +41,31 @@ export class FixtureAgent implements AgentAdapter {
   readonly inputs: { session: string; prompt: string }[] = [];
   readonly resumed: (string | undefined)[] = [];
   readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
+  readonly selections: [string, string | null | undefined][] = [];
   failConnect = false;
   failClose = false;
+  failInterrupt = false;
   interruptNext = false;
   gate?: TurnGate;
+  /** runs before a connect does anything else. */
+  beforeConnect?: (options: SessionOptions) => Promise<void>;
 
   constructor(readonly id: string) {
     this.label = id;
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {
+    await this.beforeConnect?.(options);
     if (this.failConnect) throw new Error('Destination unavailable');
     this.resumed.push(options.resume);
-    const info: SessionInfo = {
+    let info: SessionInfo = {
       id: options.resume ?? randomUUID(),
       agent: this.id,
       cwd: options.cwd,
       model: `${this.id}-model`,
       permissionMode: 'default',
       hasHistory: true,
+      effort: options.effort,
     };
     options.onEvent({ type: 'info', info });
     // a bounded stand-in for the native process, never the test runner's pid
@@ -68,16 +75,31 @@ export class FixtureAgent implements AgentAdapter {
     let closed = false;
     let turn: PromiseWithResolvers<TurnResult> | undefined;
     const session: AgentSession = {
-      info,
+      get info() {
+        return info;
+      },
       get closed() {
         return closed;
       },
       models: async () => [
-        { id: info.model, label: info.model, description: '', efforts: [] },
+        {
+          id: `${this.id}-model`,
+          label: `${this.id}-model`,
+          description: '',
+          efforts: [],
+        },
       ],
-      selectModel: async () => {},
+      selectModel: async (model, effort) => {
+        this.selections.push([model, effort]);
+        info = {
+          ...info,
+          model,
+          effort: effort === undefined ? info.effort : (effort ?? undefined),
+        };
+      },
       respond: () => {},
       interrupt: async () => {
+        if (this.failInterrupt) throw new Error('Interrupt failed');
         turn?.resolve({ status: 'interrupted', text: '' });
       },
       close: async () => {
@@ -100,6 +122,11 @@ export class FixtureAgent implements AgentAdapter {
           await writeFile(
             join(options.memoryDirectories[1]!, 'MEMORY.md'),
             note,
+          );
+        if (prompt.includes('symlink-note'))
+          await symlink(
+            tmpdir(),
+            join(options.memoryDirectories[1]!, 'linked.md'),
           );
         if (this.interruptNext) {
           this.interruptNext = false;

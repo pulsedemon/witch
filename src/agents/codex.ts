@@ -10,6 +10,7 @@ import type {
   SessionInfo,
   SessionOptions,
   TurnResult,
+  UserRequest,
   UserResponse,
 } from './types.js';
 
@@ -20,6 +21,7 @@ const nativeSession = z.object({
   cwd: z.string(),
   approvalPolicy: z.unknown(),
   approvalsReviewer: z.string().optional(),
+  reasoningEffort: z.string().nullish(),
 });
 const modelPage = z.object({
   data: z.array(
@@ -75,7 +77,6 @@ export class CodexAdapter implements AgentAdapter {
 class CodexSession implements AgentSession {
   info: SessionInfo;
   closed = false;
-  private effort?: string;
   private turn?: {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
@@ -84,6 +85,7 @@ class CodexSession implements AgentSession {
   private requests = new Map<string, RpcMessage>();
   private closing = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
+  private readonly malformed = new Set<string>();
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -97,7 +99,6 @@ class CodexSession implements AgentSession {
       permissionMode: '',
       hasHistory: !!options.resume,
     };
-    this.effort = options.effort;
     rpc.onMessage = (message) => this.receive(message);
     rpc.onExit = (error) => {
       this.settings?.reject(error);
@@ -168,7 +169,8 @@ class CodexSession implements AgentSession {
     return models;
   }
 
-  async selectModel(model: string, effort?: string): Promise<void> {
+  /** Codex can't clear effort, so `null` keeps the effort in force as an omitted one does. */
+  async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn)
       throw new Error('Stop the current turn before changing models');
     this.settings = Promise.withResolvers<void>();
@@ -199,7 +201,7 @@ class CodexSession implements AgentSession {
         await this.rpc.request('turn/start', {
           threadId: this.info.id,
           input: [{ type: 'text', text: prompt, text_elements: [] }],
-          effort: this.effort,
+          effort: this.info.effort,
         }),
       );
       turn.started.resolve(response.turn.id);
@@ -290,22 +292,40 @@ class CodexSession implements AgentSession {
       model: data.model,
       cwd: data.cwd,
       permissionMode: `${policy}${data.approvalsReviewer ? ` / ${data.approvalsReviewer}` : ''}`,
+      effort: this.options.effort ?? data.reasoningEffort ?? undefined,
     };
     this.options.onEvent({ type: 'info', info: this.info });
   }
 
+  /** one malformed notification posts a notice per method and fails only what it settles. */
   private receive(message: RpcMessage): void {
     if (message.id !== undefined && message.method) {
       this.requestInput(message);
       return;
     }
+    try {
+      this.notification(message);
+    } catch (error) {
+      const text = `Witch could not read Codex's ${message.method} notification: ${error instanceof Error ? error.message : String(error)}`;
+      if (message.method === 'turn/completed') this.finish('failed', text);
+      else if (message.method === 'thread/settings/updated')
+        this.settings?.reject(new Error(text));
+      if (this.malformed.has(message.method!)) return;
+      this.malformed.add(message.method!);
+      this.options.onEvent({ type: 'notice', text });
+    }
+  }
+
+  private notification(message: RpcMessage): void {
     const data = message.params == null ? {} : object.parse(message.params);
     switch (message.method) {
       case 'thread/settings/updated': {
         const settings = object.parse(data.threadSettings);
-        this.info = { ...this.info, model: z.string().parse(settings.model) };
-        this.effort =
-          typeof settings.effort === 'string' ? settings.effort : undefined;
+        this.info = {
+          ...this.info,
+          model: z.string().parse(settings.model),
+          effort: z.string().nullish().parse(settings.effort) ?? undefined,
+        };
         this.options.onEvent({ type: 'info', info: this.info });
         this.settings?.resolve();
         break;
@@ -360,12 +380,16 @@ class CodexSession implements AgentSession {
         break;
       case 'turn/completed': {
         const turn = object.parse(data.turn);
-        const status = z
-          .enum(['completed', 'interrupted', 'failed'])
-          .parse(turn.status);
+        const status = z.string().parse(turn.status);
         const error =
           turn.error == null ? undefined : object.parse(turn.error).message;
-        this.finish(status, typeof error === 'string' ? error : undefined);
+        if (['completed', 'interrupted', 'failed'].includes(status))
+          this.finish(
+            status as TurnResult['status'],
+            typeof error === 'string' ? error : undefined,
+          );
+        else
+          this.finish('failed', `Codex ended the turn with status ${status}`);
         break;
       }
       case 'model/rerouted':
@@ -389,55 +413,16 @@ class CodexSession implements AgentSession {
   }
 
   private requestInput(message: RpcMessage): void {
-    const id = String(message.id);
-    const data = object.parse(message.params);
-    this.requests.set(id, message);
-    const request = {
-      id,
-      title: String(
-        data.reason ?? data.message ?? data.command ?? message.method,
-      ),
-      detail: JSON.stringify(data, null, 2),
-    };
-    if (message.method === 'item/tool/requestUserInput') {
-      this.options.onEvent({
-        type: 'request',
-        request: {
-          ...request,
-          kind: 'question',
-          questions: questionList.parse(data.questions).map((question) => ({
-            id: question.id,
-            title: question.question,
-            secret: question.isSecret,
-            options: question.options?.map((option) => option.label) ?? [],
-          })),
-        },
-      });
-    } else if (message.method === 'mcpServer/elicitation/request') {
-      this.options.onEvent({
-        type: 'request',
-        request: {
-          ...request,
-          kind: 'elicitation',
-          url: typeof data.url === 'string' ? data.url : undefined,
-          schema: data.requestedSchema
-            ? object.parse(data.requestedSchema)
-            : undefined,
-        },
-      });
-    } else if (
-      [
-        'item/commandExecution/requestApproval',
-        'item/fileChange/requestApproval',
-        'item/permissions/requestApproval',
-      ].includes(message.method ?? '')
-    ) {
-      this.options.onEvent({
-        type: 'request',
-        request: { ...request, kind: 'approval' },
-      });
-    } else {
-      this.requests.delete(id);
+    let request;
+    try {
+      request = this.parseRequest(message);
+    } catch (error) {
+      const text = `Witch could not read Codex's ${message.method} request: ${error instanceof Error ? error.message : String(error)}`;
+      this.rpc.reject(message.id!, text);
+      this.options.onEvent({ type: 'notice', text });
+      return;
+    }
+    if (!request) {
       this.rpc.reject(
         message.id!,
         `Unsupported native request: ${message.method}`,
@@ -446,7 +431,51 @@ class CodexSession implements AgentSession {
         type: 'notice',
         text: `Unsupported native request: ${message.method}`,
       });
+      return;
     }
+    this.requests.set(request.id, message);
+    this.options.onEvent({ type: 'request', request });
+  }
+
+  private parseRequest(message: RpcMessage): UserRequest | undefined {
+    const id = String(message.id);
+    const data = object.parse(message.params);
+    const request = {
+      id,
+      title: String(
+        data.reason ?? data.message ?? data.command ?? message.method,
+      ),
+      detail: JSON.stringify(data, null, 2),
+    };
+    if (message.method === 'item/tool/requestUserInput')
+      return {
+        ...request,
+        kind: 'question',
+        questions: questionList.parse(data.questions).map((question) => ({
+          id: question.id,
+          title: question.question,
+          secret: question.isSecret,
+          options: question.options?.map((option) => option.label) ?? [],
+        })),
+      };
+    if (message.method === 'mcpServer/elicitation/request')
+      return {
+        ...request,
+        kind: 'elicitation',
+        url: typeof data.url === 'string' ? data.url : undefined,
+        schema: data.requestedSchema
+          ? object.parse(data.requestedSchema)
+          : undefined,
+      };
+    if (
+      [
+        'item/commandExecution/requestApproval',
+        'item/fileChange/requestApproval',
+        'item/permissions/requestApproval',
+      ].includes(message.method ?? '')
+    )
+      return { ...request, kind: 'approval' };
+    return undefined;
   }
 
   private finish(status: TurnResult['status'], error?: string): void {

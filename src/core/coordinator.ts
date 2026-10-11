@@ -31,6 +31,9 @@ const execute = promisify(execFile);
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** an error that only a restart clears. */
+class RestartRequired extends Error {}
 async function editInVSCode(file: string, signal: AbortSignal): Promise<void> {
   const application = '/Applications/Visual Studio Code.app/Contents';
   const { NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE, ...environment } =
@@ -134,8 +137,7 @@ export class Coordinator {
     try {
       await this.task;
     } catch (error) {
-      this.publish({ phase: 'error', error: String(error) });
-      throw error;
+      throw this.enterError(error, await this.needsRestart(error));
     } finally {
       this.task = undefined;
     }
@@ -287,11 +289,20 @@ export class Coordinator {
     if (failure !== undefined) this.report(failure);
   }
 
-  async send(prompt: string): Promise<void> {
-    if (!prompt.trim()) return;
+  /** resolves whether the prompt reached the agent; a failure before that is reported. */
+  async send(prompt: string): Promise<boolean> {
+    if (!prompt.trim()) return true;
+    let delivered = false;
     await this.operate('running', async () => {
-      await this.performTurn(prompt, 'turn');
+      try {
+        await this.performTurn(prompt, 'turn', () => {
+          delivered = true;
+        });
+      } catch (error) {
+        this.report(error);
+      }
     });
+    return delivered;
   }
 
   async newConversation(agent = this.current().agent): Promise<void> {
@@ -319,15 +330,21 @@ export class Coordinator {
     });
   }
 
+  /** an omitted effort keeps the one in force, except on a model that lists none. */
   async selectModel(model: string, effort?: string): Promise<void> {
     await this.operate('starting', async () => {
       const session = await this.connect();
-      await session.selectModel(model, effort);
+      const listed = this.snapshot.models.find((item) => item.id === model);
+      // a kept effort would reach a model that takes none on the next connect
+      await session.selectModel(
+        model,
+        listed && !listed.efforts.length ? null : effort,
+      );
       this.current().sessions[this.current().agent] = {
         ...this.current().sessions[this.current().agent]!,
         model: session.info.model,
         requestedModel: model,
-        effort,
+        effort: session.info.effort,
       };
       await this.save();
       this.publish({ conversation: this.current(), native: session.info });
@@ -428,7 +445,9 @@ export class Coordinator {
     });
   }
 
+  /** an error phase keeps its message until restart. */
   report(error: unknown): void {
+    if (this.snapshot.phase === 'error') return;
     this.publish({ error: message(error) });
   }
 
@@ -436,8 +455,15 @@ export class Coordinator {
     if (this.closed) return;
     this.closed = true;
     this.publish({ phase: 'closing' });
+    let failure: unknown;
     try {
-      await this.interrupt();
+      try {
+        await this.interrupt();
+      } catch (error) {
+        failure = error;
+        // Codex's close() interrupts again and would rethrow, so the session ends here
+        await this.disconnect().catch(() => {});
+      }
       await this.task?.catch(() => {});
       // settle() returns early once closed, so an accepted recovery is published here
       if (
@@ -445,10 +471,16 @@ export class Coordinator {
         !(await this.workspace!.isDirty())
       )
         await this.workspace!.publish();
-      await this.disconnect();
+    } catch (error) {
+      failure ??= error;
     } finally {
-      await this.files?.close();
+      try {
+        await this.disconnect();
+      } finally {
+        await this.files?.close();
+      }
     }
+    if (failure !== undefined) throw failure;
   }
 
   private async handoff(agent: string): Promise<void> {
@@ -506,11 +538,11 @@ export class Coordinator {
   private async performTurn(
     prompt: string,
     kind: 'turn' | 'handoff',
+    delivered?: () => void,
   ): Promise<TurnResult> {
     const conversation = this.current();
     const activity = await this.beginActivity(kind);
     const session = await this.connect();
-    if (this.cancelled) return { status: 'interrupted', text: '' };
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
     const memory = await this.memory.snapshot(
@@ -536,6 +568,9 @@ export class Coordinator {
         : []),
       `User request:\n${prompt}`,
     ].join('\n\n');
+    // no await from here to the send, so a Ctrl+C before it never reaches the agent
+    if (this.cancelled || session.closed)
+      return { status: 'interrupted', text: '' };
     if (kind === 'turn' && conversation.title === 'New conversation')
       conversation.title = prompt.replace(/\s+/g, ' ').slice(0, 80);
     this.display({
@@ -544,7 +579,8 @@ export class Coordinator {
       text: prompt,
       cwd: conversation.cwd,
     });
-    await this.save();
+    this.persist(this.save());
+    delivered?.();
     let result: TurnResult;
     try {
       result = await session.send(context);
@@ -737,8 +773,26 @@ export class Coordinator {
 
   private persist(operation: Promise<void>): void {
     void operation.catch((error: unknown) => {
-      this.publish({ phase: 'error', error: String(error) });
+      this.enterError(error, true);
     });
+  }
+
+  /** a rejected flush is a sticky write failure, which only a restart clears. */
+  private async needsRestart(error: unknown): Promise<boolean> {
+    return (
+      error instanceof RestartRequired ||
+      ((await this.files?.flush().then(
+        () => false,
+        () => true,
+      )) ??
+        false)
+    );
+  }
+
+  private enterError(error: unknown, restart: boolean): Error {
+    const text = `${restart ? 'Restart Witch: ' : ''}${message(error)}`;
+    this.publish({ phase: 'error', error: text });
+    return new Error(text, { cause: error });
   }
 
   private newRecord(cwd: string, agent: string): Conversation {
@@ -784,8 +838,8 @@ export class Coordinator {
         }
       // accept or keep mine would publish the markers a stuck rebase leaves
       if (await workspace.rebaseStopped())
-        throw new Error(
-          'Restart Witch: memory is stuck in a rebase that could not be aborted.',
+        throw new RestartRequired(
+          'memory is stuck in a rebase that could not be aborted.',
         );
     }
     if (!dirty) delete this.current().activity;
@@ -822,7 +876,9 @@ export class Coordinator {
       throw new Error(
         this.snapshot.phase === 'recovery'
           ? 'Resolve pending memory before running another task'
-          : 'Stop the current operation first',
+          : this.snapshot.phase === 'error' && this.snapshot.error
+            ? this.snapshot.error
+            : 'Stop the current operation first',
       );
     this.cancelled = false;
     this.publish({ phase, error: undefined });
@@ -837,8 +893,7 @@ export class Coordinator {
       try {
         await this.settle();
       } catch (error) {
-        this.publish({ phase: 'error', error: String(error) });
-        throw error;
+        throw this.enterError(error, await this.needsRestart(error));
       }
       if (failure !== undefined) throw failure;
     })();

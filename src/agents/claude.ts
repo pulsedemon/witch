@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   SpawnOptions,
@@ -11,6 +12,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
+import { watchChild, withTail } from './stderr.js';
+import type { ChildExit } from './stderr.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -60,6 +63,17 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 }
 
+interface Turn {
+  finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
+  result?: TurnResult;
+  interrupted: boolean;
+  messages: Map<string, string>;
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 class ClaudeSession implements AgentSession {
   info: SessionInfo;
   closed = false;
@@ -67,7 +81,7 @@ class ClaudeSession implements AgentSession {
   private readonly query: Query;
   private readonly reading: Promise<void>;
   private registered = Promise.resolve();
-  private readonly exited = Promise.withResolvers<void>();
+  private child?: ChildExit;
   private readonly abort = new AbortController();
   private readonly cancelConnection = () => this.abort.abort();
   private readonly requests = new Map<
@@ -75,12 +89,7 @@ class ClaudeSession implements AgentSession {
     ReturnType<typeof Promise.withResolvers<UserResponse>>
   >();
   private currentMessage = '';
-  private turn?: {
-    finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
-    result?: TurnResult;
-    interrupted: boolean;
-    messages: Map<string, string>;
-  };
+  private turn?: Turn;
 
   constructor(
     private readonly options: SessionOptions,
@@ -97,6 +106,7 @@ class ClaudeSession implements AgentSession {
       model: options.model ?? '',
       permissionMode: '',
       hasHistory: !!options.resume,
+      effort: options.effort,
     };
     this.query = query({
       prompt: this.input,
@@ -118,9 +128,10 @@ class ClaudeSession implements AgentSession {
         env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
+          this.child = watchChild(child);
           this.registered = options.onProcess(child.pid);
-          child.once('exit', () => this.exited.resolve());
-          child.once('error', () => this.exited.resolve());
+          // initialize() awaits it, but may fail before it does
+          this.registered.catch(() => {});
           return child;
         },
         canUseTool: async (toolName, input, context) => {
@@ -196,7 +207,15 @@ class ClaudeSession implements AgentSession {
   }
 
   async initialize(): Promise<void> {
-    await this.query.initializationResult();
+    try {
+      await this.query.initializationResult();
+    } catch (error) {
+      // the CLI may still be alive, holding its stderr open
+      await Promise.race([this.child?.closed, delay(1000)]);
+      throw new Error(withTail(message(error), this.child?.tail() ?? ''), {
+        cause: error,
+      });
+    }
     await this.registered;
   }
 
@@ -214,15 +233,19 @@ class ClaudeSession implements AgentSession {
     }));
   }
 
-  async selectModel(model: string, effort?: string): Promise<void> {
+  /** an omitted effort leaves `effortLevel` unsent, which keeps the effort in force. */
+  async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn)
       throw new Error('Stop the current turn before changing models');
-    const level = effort ? effortLevel.parse(effort) : null;
+    const level = effort == null ? effort : effortLevel.parse(effort);
     await this.query.setModel(model);
-    await this.query.applyFlagSettings({
-      effortLevel: level,
-    });
-    this.info = { ...this.info, model };
+    if (level !== undefined)
+      await this.query.applyFlagSettings({ effortLevel: level });
+    this.info = {
+      ...this.info,
+      model,
+      effort: level === undefined ? this.info.effort : (level ?? undefined),
+    };
     this.options.onEvent({ type: 'info', info: this.info });
   }
 
@@ -253,15 +276,22 @@ class ClaudeSession implements AgentSession {
     const turn = this.turn;
     if (!turn) return;
     turn.interrupted = true;
-    const receipt = await this.query.interrupt();
+    let receipt;
+    try {
+      receipt = await this.query.interrupt();
+    } catch (error) {
+      // the SDK rejects once closed, and when the CLI dies with the interrupt pending
+      if (!this.closed && !this.child?.exited) throw error;
+      await turn.finished.promise;
+      return;
+    }
     if (receipt?.still_queued?.length) {
-      this.query.close();
-      await this.exited.promise;
-      this.finish({
+      this.closed = true;
+      this.finish(turn, {
         status: 'interrupted',
         text: [...turn.messages.values()].join('\n\n'),
       });
-      this.closed = true;
+      this.query.close();
     }
     await turn.finished.promise;
   }
@@ -271,7 +301,7 @@ class ClaudeSession implements AgentSession {
     this.input.close();
     this.query.close();
     await this.reading;
-    await this.exited.promise;
+    await this.child?.closed;
     this.options.signal?.removeEventListener('abort', this.cancelConnection);
     await this.options.onProcess(undefined);
   }
@@ -298,20 +328,9 @@ class ClaudeSession implements AgentSession {
   private async read(): Promise<void> {
     try {
       for await (const message of this.query) this.receive(message);
-      if (this.turn)
-        this.finish({
-          status: this.turn.interrupted ? 'interrupted' : 'failed',
-          text: '',
-          error: 'Claude exited before reporting idle',
-        });
+      if (this.turn) await this.end('Claude exited before reporting idle');
     } catch (error) {
-      this.finish({
-        status: this.turn?.interrupted ? 'interrupted' : 'failed',
-        text: '',
-        error: String(error),
-      });
-      if (!this.closed)
-        this.options.onEvent({ type: 'notice', text: String(error) });
+      await this.end(String(error), true);
     } finally {
       this.closed = true;
       for (const request of this.requests.values())
@@ -336,7 +355,7 @@ class ClaudeSession implements AgentSession {
         message.state === 'idle' &&
         this.turn?.result
       ) {
-        this.finish(this.turn.result);
+        this.finish(this.turn, this.turn.result);
       }
     } else if (
       message.type === 'stream_event' &&
@@ -420,9 +439,27 @@ class ClaudeSession implements AgentSession {
     }
   }
 
-  private finish(result: TurnResult): void {
+  /** ends the turn a stopped CLI leaves, once its stderr is complete. */
+  private async end(error: string, notice = false): Promise<void> {
+    const closed = this.closed;
+    // set before the wait, so a send() can't start a turn on a dead process
+    this.closed = true;
     const turn = this.turn;
-    this.turn = undefined;
-    turn?.finished.resolve(result);
+    // this also covers a receive() throw while the CLI lives; the SDK's SIGTERM bounds the wait
+    this.query.close();
+    await this.child?.closed;
+    const text = withTail(error, this.child?.tail() ?? '');
+    if (turn)
+      this.finish(turn, {
+        status: turn.interrupted ? 'interrupted' : 'failed',
+        text: '',
+        error: text,
+      });
+    if (notice && !closed) this.options.onEvent({ type: 'notice', text });
+  }
+
+  private finish(turn: Turn, result: TurnResult): void {
+    if (this.turn === turn) this.turn = undefined;
+    turn.finished.resolve(result);
   }
 }

@@ -14,6 +14,8 @@ export interface SessionInfo {
   model: string;
   permissionMode: string;
   hasHistory: boolean;
+  /** the requested effort in force; undefined when none was requested. */
+  effort?: string;
 }
 
 export interface Question {
@@ -65,10 +67,16 @@ export interface TurnResult {
 export interface AgentSession {
   readonly info: SessionInfo;
   readonly closed: boolean;
+  /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
   send(prompt: string): Promise<TurnResult>;
-  selectModel(model: string, effort?: string): Promise<void>;
+  /** an omitted effort keeps the one in force; `null` resets it where the native agent can. */
+  selectModel(model: string, effort?: string | null): Promise<void>;
   respond(id: string, response: UserResponse): void;
+  /**
+   * does nothing with no turn in flight. the session may close after an
+   * interrupt, and the coordinator then reconnects with resume.
+   */
   interrupt(): Promise<void>;
   close(): Promise<void>;
 }
@@ -78,6 +86,7 @@ export interface SessionOptions {
   executable: string;
   resume?: string;
   model?: string;
+  /** the effort to start with; omitted keeps the native default. */
   effort?: string;
   memoryDirectories: string[];
   signal?: AbortSignal;

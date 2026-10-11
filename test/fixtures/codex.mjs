@@ -1,25 +1,36 @@
 import process from 'node:process';
 import readline from 'node:readline';
-import { writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 let model = 'model-a';
+let effort = 'low';
 let hasHistory = false;
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const notify = (method, params) => send({ method, params });
+const file = (name) => join(process.cwd(), name);
 const session = () => ({
   thread: { id: 'native-thread' },
   model,
   cwd: process.cwd(),
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
+  reasoningEffort: effort,
 });
-const finish = (status) =>
+const finish = (status, error = null) =>
   notify('turn/completed', {
     threadId: 'native-thread',
-    turn: { id: 'turn-1', status, error: null },
+    turn: { id: 'turn-1', status, error },
   });
+// a held event waits for the test's release file after its reply is out
+const held = async () => {
+  writeFileSync(file('replied'), 'yes');
+  while (!existsSync(file('release'))) await delay(5);
+};
+let prompt = '';
 for await (const line of lines) {
   const request = JSON.parse(line);
   const reply = (result) => send({ id: request.id, result });
@@ -55,24 +66,62 @@ for await (const line of lines) {
       });
       continue;
     }
-    writeFileSync(join(process.cwd(), 'start.json'), JSON.stringify(request));
+    writeFileSync(file('start.json'), JSON.stringify(request));
     model = request.params.model ?? model;
     reply(session());
   }
   if (request.method === 'thread/settings/update') {
     model = request.params.model;
+    // the server can't clear effort, so an omitted one stays in force
+    effort = request.params.effort ?? effort;
+    reply({});
+    if (model === 'held') await held();
     notify('thread/settings/updated', {
       threadId: 'native-thread',
-      threadSettings: { model, effort: request.params.effort ?? null },
+      threadSettings:
+        model === 'bad-settings' ? { model: 5 } : { model, effort },
     });
-    reply({});
   }
   if (request.method === 'turn/start') {
     hasHistory = true;
-    writeFileSync(join(process.cwd(), 'prompt.json'), JSON.stringify(request));
+    prompt = request.params.input[0].text;
+    writeFileSync(file('prompt.json'), JSON.stringify(request));
     reply({ turn: { id: 'turn-1' } });
-    if (request.params.input[0].text === 'wait') continue;
-    if (request.params.input[0].text === 'question') {
+    if (prompt === 'wait' || prompt === 'hold') continue;
+    if (prompt === 'malformed') {
+      for (let count = 0; count < 2; count++)
+        notify('item/agentMessage/delta', { itemId: 7, delta: 'bad' });
+      finish('completed');
+      continue;
+    }
+    if (prompt === 'null-turn') {
+      notify('turn/completed', { threadId: 'native-thread', turn: null });
+      continue;
+    }
+    if (prompt === 'in-progress') {
+      finish('inProgress');
+      continue;
+    }
+    if (prompt === 'failed') {
+      finish('failed', { message: 'native failure' });
+      continue;
+    }
+    if (prompt === 'bad-request') {
+      send({
+        id: 90,
+        method: 'item/tool/requestUserInput',
+        params: { questions: 'not a list' },
+      });
+      continue;
+    }
+    if (prompt === 'grandchild') {
+      const grandchild = spawn('/bin/sleep', ['3'], {
+        stdio: ['ignore', 'inherit', 'inherit'],
+      });
+      writeFileSync(file('grandchild.pid'), String(grandchild.pid));
+      process.exit(1);
+    }
+    if (prompt === 'question') {
       send({
         id: 88,
         method: 'item/tool/requestUserInput',
@@ -91,7 +140,7 @@ for await (const line of lines) {
       });
       continue;
     }
-    if (request.params.input[0].text === 'elicitation') {
+    if (prompt === 'elicitation') {
       send({
         id: 89,
         method: 'mcpServer/elicitation/request',
@@ -119,7 +168,7 @@ for await (const line of lines) {
   }
   if (request.id === 77 && request.result) {
     if (request.result.decision === 'accept')
-      writeFileSync(join(process.cwd(), 'approved.txt'), 'approved');
+      writeFileSync(file('approved.txt'), 'approved');
     notify('item/agentMessage/delta', {
       itemId: 'message-1',
       delta: 'Finished.',
@@ -131,13 +180,23 @@ for await (const line of lines) {
   }
   if ((request.id === 88 || request.id === 89) && request.result) {
     writeFileSync(
-      join(process.cwd(), `response-${request.id}.json`),
+      file(`response-${request.id}.json`),
       JSON.stringify(request.result),
     );
     finish('completed');
   }
+  if (request.id === 90 && request.error) {
+    writeFileSync(file('error-90.json'), JSON.stringify(request.error));
+    finish('completed');
+  }
   if (request.method === 'turn/interrupt') {
-    finish('interrupted');
-    reply({});
+    if (prompt === 'hold') {
+      reply({});
+      await held();
+      finish('interrupted');
+    } else {
+      finish('interrupted');
+      reply({});
+    }
   }
 }

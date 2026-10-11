@@ -22,9 +22,10 @@ import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory, main } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';
-import { StateStore } from '../src/persistence/store.js';
+import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
+import type { GitHook } from './fixtures/git.js';
 
 function record(id: string, cwd: string, agent = 'a'): Conversation {
   return {
@@ -874,7 +875,7 @@ await test('a failed rebase abort stops in the error phase until restart', async
       /Restart Witch/,
     );
     assert.equal(coordinator.snapshot.phase, 'error');
-    await assert.rejects(coordinator.recoverMemory('accept'));
+    await assert.rejects(coordinator.recoverMemory('accept'), /Restart Witch/);
   } finally {
     await coordinator.close().catch(() => {});
   }
@@ -1309,6 +1310,418 @@ await test('a publish failure while settling the launch is added to its report',
       new RegExp(`Title ${dirty.id}`),
     );
     assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+/** holds the snapshot's note listing until released. */
+function holdSnapshot(hook: { current: GitHook }) {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  hook.current = async (command, run) => {
+    if (command[0] === 'ls-tree' && command[1] === '-r') {
+      hook.current = passThrough;
+      entered.resolve();
+      await release.promise;
+    }
+    return run();
+  };
+  return { entered: entered.promise, release: () => release.resolve() };
+}
+
+await test('an interrupt during the memory snapshot delivers nothing', async () => {
+  const { coordinator, a, hook } = await fixture();
+  try {
+    await coordinator.send('Start');
+    const before = a.inputs.length;
+    const snapshot = holdSnapshot(hook);
+    const sending = coordinator.send('Second');
+    await within(snapshot.entered, 2000, 'the snapshot');
+    await coordinator.interrupt();
+    snapshot.release();
+    assert.equal(await within(sending, 2000, 'the send'), false);
+    assert.equal(a.inputs.length, before);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a connect failure leaves the prompt undelivered', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    a.failConnect = true;
+    assert.equal(await coordinator.send('Start'), false);
+    assert.match(coordinator.snapshot.error ?? '', /Destination unavailable/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a session that closes during the snapshot receives nothing', async () => {
+  const { coordinator, a, hook } = await fixture();
+  try {
+    await coordinator.send('Start');
+    const before = a.inputs.length;
+    const snapshot = holdSnapshot(hook);
+    const sending = coordinator.send('Second');
+    await within(snapshot.entered, 2000, 'the snapshot');
+    await a.sessions.at(-1)!.session.close();
+    snapshot.release();
+    assert.equal(await within(sending, 2000, 'the send'), false);
+    assert.equal(a.inputs.length, before);
+    assert.ok(
+      !coordinator.snapshot.items.some(
+        (item) => item.kind === 'user' && item.text === 'Second',
+      ),
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('Ctrl+C during the save before sending reaches the agent', async () => {
+  const { coordinator, a, hook } = await fixture();
+  const gate = new TurnGate();
+  const save = ConversationStore.prototype.save;
+  const held = Promise.withResolvers<void>();
+  try {
+    await coordinator.send('Start');
+    a.gate = gate;
+    let armed = false;
+    hook.current = async (command, run) => {
+      if (command[0] === 'ls-tree' && command[1] === '-r') {
+        hook.current = passThrough;
+        armed = true;
+      }
+      return run();
+    };
+    ConversationStore.prototype.save = function (record) {
+      if (!armed) return save.call(this, record);
+      armed = false;
+      return held.promise.then(() => save.call(this, record));
+    };
+    const sending = coordinator.send('Second');
+    await within(gate.entered, 2000, 'the gated turn');
+    await coordinator.interrupt();
+    assert.equal(
+      (await within(gate.result, 2000, 'the turn result')).status,
+      'interrupted',
+    );
+    held.resolve();
+    assert.equal(await sending, true);
+  } finally {
+    ConversationStore.prototype.save = save;
+    held.resolve();
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('a failure after the agent has the prompt still counts as delivered', async () => {
+  const { coordinator } = await fixture();
+  try {
+    assert.equal(await coordinator.send('symlink-note'), true);
+    assert.match(coordinator.snapshot.error ?? '', /regular file/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+/** a conversation on agent a with one turn, ready to hand off to b. */
+async function handoffFixture() {
+  const context = await fixture();
+  await context.coordinator.send('Start the migration');
+  const source = context.a.inputs[0]!.session;
+  const assertSourceActive = async () => {
+    const { coordinator, a, root } = context;
+    const conversation = coordinator.snapshot.conversation!;
+    assert.equal(conversation.agent, 'a');
+    assert.equal(conversation.handoff, undefined);
+    assert.equal(
+      (await readRecord(root, conversation.id)).sessions.a?.id,
+      source,
+    );
+    assert.equal(a.sessions.at(-1)!.session.closed, true);
+    a.gate = undefined;
+    await coordinator.send('Continue here');
+    assert.equal(a.inputs.at(-1)!.session, source);
+  };
+  return { ...context, assertSourceActive };
+}
+
+await test('a handoff cancelled during the summary keeps the source', async () => {
+  const context = await handoffFixture();
+  const { coordinator, a } = context;
+  const gate = new TurnGate();
+  a.gate = gate;
+  try {
+    const switching = coordinator.switchAgent('b');
+    await within(gate.entered, 2000, 'the summary turn');
+    await coordinator.interrupt();
+    await assert.rejects(switching, /interrupted/);
+    await context.assertSourceActive();
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('a handoff cancelled while the summary is saved never connects the destination', async () => {
+  const context = await handoffFixture();
+  const { coordinator, a, b } = context;
+  const gate = new TurnGate();
+  a.gate = gate;
+  const save = ConversationStore.prototype.save;
+  const held = Promise.withResolvers<void>();
+  const holding = Promise.withResolvers<void>();
+  try {
+    const switching = coordinator.switchAgent('b');
+    await within(gate.entered, 2000, 'the summary turn');
+    ConversationStore.prototype.save = function (record) {
+      ConversationStore.prototype.save = save;
+      holding.resolve();
+      return held.promise.then(() => save.call(this, record));
+    };
+    gate.open();
+    await within(holding.promise, 2000, 'the save after the summary');
+    const connects = b.resumed.length;
+    await coordinator.interrupt();
+    held.resolve();
+    await assert.rejects(switching, /interrupted/);
+    assert.equal(b.resumed.length, connects);
+    await context.assertSourceActive();
+  } finally {
+    ConversationStore.prototype.save = save;
+    held.resolve();
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('a handoff cancelled during the destination connect keeps the source', async () => {
+  const context = await handoffFixture();
+  const { coordinator, b } = context;
+  const connecting = Promise.withResolvers<void>();
+  b.beforeConnect = async (options) => {
+    connecting.resolve();
+    await new Promise((resolve) =>
+      options.signal?.addEventListener('abort', resolve, { once: true }),
+    );
+  };
+  try {
+    const switching = coordinator.switchAgent('b');
+    await within(connecting.promise, 2000, 'the destination connect');
+    await coordinator.interrupt();
+    await assert.rejects(switching, /interrupted/);
+    await context.assertSourceActive();
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a handoff cancelled during the continuation stays with the destination', async () => {
+  const context = await handoffFixture();
+  const { coordinator, b } = context;
+  const gate = new TurnGate();
+  b.gate = gate;
+  try {
+    const switching = coordinator.switchAgent('b');
+    await within(gate.entered, 2000, 'the continuation');
+    await coordinator.interrupt();
+    await within(switching, 2000, 'the handoff');
+    const conversation = coordinator.snapshot.conversation!;
+    assert.equal(conversation.agent, 'b');
+    assert.equal(conversation.handoff?.activated, true);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('close ends a held turn when its interrupt throws', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    await coordinator.send('Start');
+    a.gate = gate;
+    let sent = false;
+    const sending = coordinator.send('Held').finally(() => {
+      sent = true;
+    });
+    await within(gate.entered, 2000, 'the gated turn');
+    a.failInterrupt = true;
+    a.failClose = true;
+    await within(
+      assert.rejects(coordinator.close(), /Interrupt failed/),
+      3000,
+      'close',
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sent, true);
+    await sending.catch(() => {});
+  } finally {
+    gate.open();
+    a.failInterrupt = false;
+    a.failClose = false;
+  }
+});
+
+await test('close releases the conversation when its disconnect throws', async () => {
+  const { coordinator, a, store } = await fixture();
+  await coordinator.send('Start');
+  const id = coordinator.snapshot.conversation!.id;
+  a.failClose = true;
+  await assert.rejects(coordinator.close(), /Close failed/);
+  await (await store.claim(id)).close();
+});
+
+await test('close rejects with a publish failure and still closes the session and the conversation', async () => {
+  const { coordinator, a, hook, store } = await fixture();
+  a.interruptNext = true;
+  await coordinator.send('remember-port');
+  const id = coordinator.snapshot.conversation!.id;
+  let attempted = false;
+  hook.current = async (command, run) => {
+    if (command[0] !== 'update-ref') return run();
+    attempted = true;
+    return { stdout: '', stderr: 'cannot publish', code: 1 };
+  };
+  const recovering = coordinator.recoverMemory('accept');
+  await assert.rejects(coordinator.close(), /cannot publish/);
+  await recovering.catch(() => {});
+  assert.equal(attempted, true);
+  assert.equal(a.sessions.at(-1)!.session.closed, true);
+  await (await store.claim(id)).close();
+});
+
+await test('a failed state write in settle needs a restart, and later messages keep it', async () => {
+  const { coordinator, root } = await fixture();
+  const directory = join(
+    root,
+    'state',
+    'conversations',
+    coordinator.snapshot.conversation!.id,
+  );
+  try {
+    await coordinator.send('Start');
+    await chmod(directory, 0o500);
+    await assert.rejects(coordinator.send('Next'), /Restart Witch/);
+    coordinator.report('x');
+    assert.match(coordinator.snapshot.error ?? '', /^Restart Witch/);
+    await assert.rejects(coordinator.send('Again'), /Restart Witch/);
+  } finally {
+    await chmod(directory, 0o700);
+    await coordinator.close().catch(() => {});
+  }
+});
+
+await test('a failed state write while continuing at launch needs a restart', async () => {
+  const {
+    coordinator: first,
+    store,
+    memory,
+    root,
+    project,
+    a,
+  } = await fixture();
+  await first.send('Start');
+  const id = first.snapshot.conversation!.id;
+  await first.close();
+  const directory = join(root, 'state', 'conversations', id);
+  await chmod(directory, 0o500);
+  const coordinator = new Coordinator(store, memory, [
+    { adapter: a, executable: 'a' },
+  ]);
+  try {
+    await assert.rejects(
+      coordinator.initialize(project, { continue: true }),
+      /Restart Witch/,
+    );
+    assert.match(coordinator.snapshot.error ?? '', /^Restart Witch/);
+  } finally {
+    await chmod(directory, 0o700);
+    await coordinator.close().catch(() => {});
+  }
+});
+
+await test('a failed history write outside any operation needs a restart', async () => {
+  const { coordinator, a, root } = await fixture();
+  const directory = join(
+    root,
+    'state',
+    'conversations',
+    coordinator.snapshot.conversation!.id,
+  );
+  try {
+    await coordinator.refreshModels();
+    await chmod(directory, 0o500);
+    const errors: string[] = [];
+    coordinator.subscribe(() => {
+      if (coordinator.snapshot.error) errors.push(coordinator.snapshot.error);
+    });
+    a.sessions
+      .at(-1)!
+      .options.onEvent({ type: 'notice', text: 'Native notice' });
+    for (let attempt = 0; attempt < 100 && !errors.length; attempt++)
+      await delay(10);
+    assert.match(errors[0] ?? '', /^Restart Witch/);
+  } finally {
+    await chmod(directory, 0o700);
+    await coordinator.close().catch(() => {});
+  }
+});
+
+await test('a git failure in settle shows its own message without a restart', async () => {
+  const { coordinator, a, hook } = await fixture();
+  const gate = new TurnGate();
+  try {
+    await coordinator.send('Start');
+    a.gate = gate;
+    const sending = coordinator.send('Next');
+    await within(gate.entered, 2000, 'the gated turn');
+    hook.current = async (command, run) => {
+      if (command.join(' ') !== 'rev-parse --git-path rebase-merge')
+        return run();
+      hook.current = passThrough;
+      return { stdout: '', stderr: 'git path failed', code: 128 };
+    };
+    gate.open();
+    await assert.rejects(sending);
+    assert.equal(coordinator.snapshot.phase, 'error');
+    assert.equal(coordinator.snapshot.error, 'git path failed');
+  } finally {
+    gate.open();
+    await coordinator.close().catch(() => {});
+  }
+});
+
+await test('a model chosen to keep the current effort stores the effort in force', async () => {
+  const { coordinator, root } = await fixture();
+  try {
+    await coordinator.selectModel('first', 'high');
+    await coordinator.selectModel('second');
+    const record = await readRecord(
+      root,
+      coordinator.snapshot.conversation!.id,
+    );
+    assert.equal(record.sessions.a?.effort, 'high');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a model that lists no efforts resets the effort', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.selectModel('first', 'high');
+    await coordinator.selectModel('a-model');
+    assert.deepEqual(a.selections.at(-1), ['a-model', null]);
+    const record = await readRecord(
+      root,
+      coordinator.snapshot.conversation!.id,
+    );
+    assert.equal(record.sessions.a?.effort, undefined);
   } finally {
     await coordinator.close();
   }

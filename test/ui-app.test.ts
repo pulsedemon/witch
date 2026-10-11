@@ -125,7 +125,10 @@ function fake(snapshot: Partial<Snapshot>) {
       coordinator.snapshot = { ...coordinator.snapshot, ...update };
       for (const listener of listeners) listener();
     },
-    send: record('send'),
+    send: async (text: string) => {
+      calls.push(['send', text]);
+      return true;
+    },
     interrupt: record('interrupt'),
     respond: record('respond'),
     recoverMemory: record('recoverMemory'),
@@ -411,3 +414,38 @@ for (const [name, update] of [
     }
   });
 }
+
+await test('a prompt the agent never got comes back into an empty composer and leaves a new draft alone', async () => {
+  for (const retyped of [false, true]) {
+    const { app, coordinator, calls } = fake({});
+    const delivery = Promise.withResolvers<boolean>();
+    Object.assign(coordinator, {
+      send: (text: string) => {
+        calls.push(['send', text]);
+        return delivery.promise;
+      },
+    });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write('hello');
+      await delay(30);
+      ui.stdin.write('\r');
+      await until('the send', () => calls.length === 1);
+      if (retyped) {
+        await delay(30);
+        ui.stdin.write('newer');
+        await until('the new draft', () => ui.text().includes('│ newer'));
+      }
+      delivery.resolve(false);
+      await delay(60);
+      if (retyped) {
+        assert.ok(ui.text().includes('│ newer'));
+        assert.ok(!ui.text().includes('│ hello'));
+      } else
+        await until('the restored prompt', () => ui.text().includes('│ hello'));
+    } finally {
+      ui.unmount();
+    }
+  }
+});

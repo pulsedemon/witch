@@ -1,6 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { z } from 'zod';
+import { watchChild, withTail } from './stderr.js';
+import type { ChildExit } from './stderr.js';
 
 const envelope = z.object({
   id: z.union([z.string(), z.number()]).optional(),
@@ -23,10 +25,10 @@ export class JsonRpc {
     ReturnType<typeof Promise.withResolvers<unknown>>
   >();
   private failure?: Error;
-  private stderr = '';
-  private closed = Promise.withResolvers<void>();
+  private readonly child: ChildExit;
 
   constructor(private readonly process: ChildProcessWithoutNullStreams) {
+    this.child = watchChild(process);
     const lines = createInterface({ input: process.stdout });
     lines.on('line', (line) => {
       try {
@@ -43,20 +45,18 @@ export class JsonRpc {
         this.fail(error instanceof Error ? error : new Error(String(error)));
       }
     });
-    process.stderr.setEncoding('utf8');
-    process.stderr.on('data', (text: string) => {
-      this.stderr = (this.stderr + text).slice(-4096);
-    });
     process.stdin.on('error', (error) => this.fail(error));
     process.on('error', (error) => this.fail(error));
     process.on('close', (code, signal) => {
       lines.close();
       this.fail(
         new Error(
-          `Agent process exited (${signal ?? code})${this.stderr.trim() ? `: ${this.stderr.trim()}` : ''}`,
+          withTail(
+            `Agent process exited (${signal ?? code})`,
+            this.child.tail(),
+          ),
         ),
       );
-      this.closed.resolve();
     });
   }
 
@@ -83,10 +83,14 @@ export class JsonRpc {
 
   async close(): Promise<void> {
     this.process.stdin.end();
-    if (this.process.exitCode === null && this.process.signalCode === null) {
+    // killing in the tick after a failed spawn signals the caller's whole process group
+    if (
+      this.process.pid !== undefined &&
+      this.process.exitCode === null &&
+      this.process.signalCode === null
+    )
       this.process.kill('SIGTERM');
-    }
-    await this.closed.promise;
+    await this.child.closed;
   }
 
   private write(message: RpcMessage): void {
@@ -97,6 +101,9 @@ export class JsonRpc {
   private fail(error: Error): void {
     if (this.failure) return;
     this.failure = error;
+    // a failed spawn has already set exitCode
+    if (this.process.exitCode === null && this.process.signalCode === null)
+      this.process.kill();
     for (const request of this.pending.values()) request.reject(error);
     this.pending.clear();
     this.onExit(error);
