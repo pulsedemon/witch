@@ -20,6 +20,20 @@ await test('image alt text renders as plain text, so it cannot carry a link of i
   assert.equal(stripAnsi(output), 'Fixed in [src/app.ts:12]');
 });
 
+await test('a URL in inline code links to itself, alone, after a command or after a quoted path', () => {
+  for (const input of [
+    'Run `curl http://localhost:3000/api` to check.',
+    'Open `http://localhost:3000/api` now.',
+    "See `./My Notes.md' http://localhost:3000/api` now.",
+  ])
+    assert.ok(
+      markdown(input, '/work').includes(
+        '\u001b]8;;http://localhost:3000/api\u0007http://localhost:3000/api\u001b]8;;\u0007',
+      ),
+      input,
+    );
+});
+
 await test('ordered items number from their start, and a continuation line indents under its item text', () => {
   for (const [input, expected] of [
     ['- line1\n  line2', '• line1\n  line2'],

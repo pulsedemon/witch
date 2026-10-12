@@ -22,8 +22,15 @@ export function markdown(text: string, cwd: string): string {
     colors.italic(renderer.parser.parseInline(tokens));
   renderer.del = ({ tokens }) =>
     colors.strikethrough(renderer.parser.parseInline(tokens));
-  renderer.codespan = ({ text }) =>
-    colors.cyan(linkify(`\`${text}\``, cwd).slice(1, -1));
+  renderer.codespan = ({ text }) => {
+    // the backticks let a path with spaces link whole; a URL can swallow the closing one, so anything else links bare
+    const quoted = linkify(`\`${text}\``, cwd);
+    return colors.cyan(
+      quoted.startsWith('`\u001b]8;') && quoted.endsWith('`')
+        ? quoted.slice(1, -1)
+        : linkify(text, cwd),
+    );
+  };
   renderer.code = ({ text }) => `${linkify(text, cwd)}\n\n`;
   renderer.link = ({ href, tokens }) =>
     markdownLink(stripAnsi(renderer.parser.parseInline(tokens)), href, cwd);
