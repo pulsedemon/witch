@@ -714,6 +714,35 @@ await test('/model with Keep current effort selects the model without an effort'
   }
 });
 
+await test('a model id carrying a link sequence shows as plain text in the effort picker title', async () => {
+  const { app } = fake({
+    models: [
+      {
+        id: '\u001b]8;;x-evil:payload\u0007m\u001b]8;;\u0007',
+        label: 'Model M',
+        description: '',
+        efforts: ['low', 'high'],
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/model');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the model picker', () => ui.text().includes('Model M'));
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the effort picker', () =>
+      ui.text().includes('Reasoning for m'),
+    );
+    assert.ok(!ui.frame().includes('x-evil:'), JSON.stringify(ui.frame()));
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const typed of ['gpt-5.1', 'gpt-6'])
   await test(`typing ${typed} in the model picker selects exactly it`, async () => {
     const { app, calls } = fake({

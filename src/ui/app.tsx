@@ -425,7 +425,7 @@ export function App({
     return true;
   };
 
-  /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces only its token. */
+  /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces its token and a space already after it. */
   const complete = (open: List) => {
     const index = selectedIn(open);
     const { value } = bufferRef.current;
@@ -434,7 +434,6 @@ export function App({
       composer.current?.set({ value: text, cursor: text.length });
     } else {
       const text = `@${open.items[index]!} `;
-      // the space after the path stands in for one already following the token
       const rest = value.slice(open.end).replace(/^ /, '');
       composer.current?.set({
         value: value.slice(0, open.start) + text + rest,
@@ -665,7 +664,7 @@ export function App({
     const first = Math.max(0, selected - count + 1);
     body = (
       <Box flexDirection="column" height={bodyHeight}>
-        <Text bold>{view.title}</Text>
+        <Text bold>{plain(view.title)}</Text>
         <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => (
             <Text key={choice.id} inverse={first + index === selected}>
