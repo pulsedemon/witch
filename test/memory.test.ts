@@ -306,7 +306,7 @@ await test('a clean turn does not add an empty memory commit', async () => {
   assert.equal(await workspace.revision(), before);
 });
 
-await test('restore refuses symlinked destinations and parent directories', async () => {
+await test('commit, restore and note preparation refuse symlinked destinations and parent directories', async () => {
   for (const parent of [false, true]) {
     const { open, root } = await fixture();
     const { workspace, scope } = await open('a');
@@ -320,6 +320,7 @@ await test('restore refuses symlinked destinations and parent directories', asyn
     await writeFile(target, 'External content.');
     await rename(parent ? scope.project : path, join(root, 'original'));
     await symlink(parent ? outside : target, parent ? scope.project : path);
+    await assert.rejects(workspace.commit('link'), /regular (file|directory)/);
     await git(workspace.root, 'add', '--all');
     await git(
       workspace.root,
