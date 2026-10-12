@@ -161,7 +161,7 @@ export class TranscriptLayout {
     const cache = new Map<string, Map<boolean, Block>>();
     for (const item of items) {
       const open = expanded.has(item.id);
-      const variants = new Map(this.cache.get(item.id));
+      const variants = this.cache.get(item.id) ?? new Map<boolean, Block>();
       const previous = variants.get(open);
       const block =
         previous?.item === item
