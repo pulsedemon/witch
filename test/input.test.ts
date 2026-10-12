@@ -56,6 +56,8 @@ await test('cursor moves and deletions land on grapheme boundaries across lines'
   assert.deepEqual(at(2, 'down'), { value, cursor: 4 });
   assert.deepEqual(at(9, 'home'), { value, cursor: 4 });
   assert.deepEqual(at(4, 'end'), { value, cursor: 10 });
+  assert.deepEqual(at(2, 'up'), { value, cursor: 2 });
+  assert.deepEqual(at(11, 'down'), { value, cursor: 11 });
   assert.deepEqual(initialInput('a\r\nb'), { value: 'a\nb', cursor: 3 });
 });
 
