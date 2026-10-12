@@ -66,7 +66,7 @@ const assistant = (text, content = [{ type: 'text', text }], parent = null) => {
     },
   });
 };
-const result = () =>
+const result = (fields = {}) =>
   send({
     type: 'result',
     subtype: 'success',
@@ -81,6 +81,7 @@ const result = () =>
     modelUsage: {},
     permission_denials: [],
     total_cost_usd: 0,
+    ...fields,
   });
 /** exits once a grandchild sharing stderr is running; it writes a line about 65 ms later. */
 const exitBeforeGrandchild = (code) => {
@@ -305,6 +306,17 @@ for await (const line of lines) {
       // holds stdout, so the SDK's read loop outlives the exit
       spawn('/bin/sleep', ['1'], { stdio: ['ignore', 'inherit', 'ignore'] });
       process.exit(1);
+    } else if (lastPrompt === 'execution error') {
+      result({
+        subtype: 'error_during_execution',
+        is_error: true,
+        result: undefined,
+        errors: ['tool crashed'],
+      });
+      state('idle');
+    } else if (lastPrompt === 'api error') {
+      result({ is_error: true, result: 'API Error: 500' });
+      state('idle');
     } else if (lastPrompt === 'quit early')
       process.stderr.write('quitting early\n', () => process.exit(0));
     else if (lastPrompt === 'add skill') {

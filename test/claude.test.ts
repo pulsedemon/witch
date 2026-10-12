@@ -374,6 +374,22 @@ await test('an interrupt after the CLI died resolves and the turn ends', async (
   }
 });
 
+for (const [prompt, expected] of [
+  ['execution error', { status: 'failed', text: '', error: 'tool crashed' }],
+  [
+    'api error',
+    { status: 'failed', text: 'API Error: 500', error: 'API Error: 500' },
+  ],
+] as const)
+  await test(`an ${prompt} result fails the turn with its error`, async () => {
+    const { session } = await fixture();
+    try {
+      assert.deepEqual(await session.send(prompt), expected);
+    } finally {
+      await session.close();
+    }
+  });
+
 await test('a CLI that exits cleanly before idle fails the turn with its stderr', async () => {
   const { session } = await fixture();
   try {
