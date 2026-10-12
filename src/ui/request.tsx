@@ -65,7 +65,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       if (key.upArrow) setSelection(Math.max(0, selectionRef.current - 1));
       if (key.downArrow)
         setSelection(Math.min(count - 1, selectionRef.current + 1));
-      if (!request.questions && request.kind === 'approval') {
+      if (request.kind === 'approval') {
         if (input === 'y') respond({ decision: 'accept' });
         if (input === 'n') respond({ decision: 'decline' });
         if (key.return)
