@@ -8,7 +8,11 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
-import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
+import type {
+  AgentEvent,
+  SessionOptions,
+  UserRequest,
+} from '../src/agents/types.js';
 import { within } from './fixtures/within.js';
 
 const claude = fileURLToPath(new URL('fixtures/claude.mjs', import.meta.url));
@@ -16,9 +20,11 @@ const claude = fileURLToPath(new URL('fixtures/claude.mjs', import.meta.url));
 async function launcher(mode?: string) {
   const cwd = await mkdtemp(join(tmpdir(), 'witch-claude-'));
   const children: ChildProcessWithoutNullStreams[] = [];
+  const args: string[][] = [];
   const adapter = new ClaudeAdapter((options) => {
     assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
     assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
+    args.push(options.args);
     const child = spawn(process.execPath, [claude, ...(mode ? [mode] : [])], {
       cwd,
       stdio: 'pipe',
@@ -36,7 +42,7 @@ async function launcher(mode?: string) {
       onProcess: async () => {},
       ...options,
     });
-  return { cwd, children, connect };
+  return { cwd, children, args, connect };
 }
 
 async function fixture(
@@ -154,6 +160,32 @@ await test('a model chosen without an effort keeps the effort in force and sends
   }
 });
 
+await test('a null effort clears the effort in force', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    await session.selectModel('claude-a', 'high');
+    await session.selectModel('claude-b', null);
+    assert.equal(session.info.effort, undefined);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(cwd, 'settings.json'), 'utf8')),
+      { effortLevel: null },
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+await test('a stored session resumes by its id instead of starting a new one', async () => {
+  const { args, connect } = await launcher();
+  const session = await connect({ resume: 'stored-session' });
+  try {
+    assert.ok(args[0]!.includes('--resume=stored-session'));
+    assert.ok(!args[0]!.some((arg) => arg.startsWith('--session-id')));
+  } finally {
+    await session.close();
+  }
+});
+
 await test(
   'a result followed by running and requires_action waits for native idle',
   { timeout: 3000 },
@@ -206,6 +238,64 @@ for (const decision of ['accept', 'decline'] as const) {
     }
   });
 }
+
+await test('a Claude question lists its choices and returns a multiple choice joined', async () => {
+  const requests: UserRequest[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type !== 'request') return;
+    requests.push(event.request);
+    active.respond(event.request.id, {
+      decision: 'accept',
+      answers: { 'Colors?': ['red', 'green'] },
+    });
+  });
+  const active = session;
+  try {
+    assert.equal((await session.send('question')).status, 'completed');
+    assert.equal(requests[0]?.kind, 'question');
+    assert.deepEqual(requests[0]?.questions, [
+      {
+        id: 'Colors?',
+        title: 'Colors?',
+        options: ['red', 'green', 'blue'],
+        multiple: true,
+      },
+    ]);
+    const response = JSON.parse(
+      await readFile(join(cwd, 'response.json'), 'utf8'),
+    );
+    assert.equal(response.behavior, 'allow');
+    assert.deepEqual(response.updatedInput.answers, {
+      'Colors?': 'red, green',
+    });
+  } finally {
+    await session.close();
+  }
+});
+
+await test('a Claude elicitation returns the accepted content', async () => {
+  const requests: UserRequest[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type !== 'request') return;
+    requests.push(event.request);
+    active.respond(event.request.id, {
+      decision: 'accept',
+      content: { project: 'witch' },
+    });
+  });
+  const active = session;
+  try {
+    assert.equal((await session.send('elicit')).status, 'completed');
+    assert.equal(requests[0]?.kind, 'elicitation');
+    assert.equal(requests[0]?.title, 'Which project?');
+    assert.deepEqual(
+      JSON.parse(await readFile(join(cwd, 'response.json'), 'utf8')),
+      { action: 'accept', content: { project: 'witch' } },
+    );
+  } finally {
+    await session.close();
+  }
+});
 
 await test('a mid-turn interrupt ends the turn with the native result', async () => {
   const { seen, onEvent } = working();

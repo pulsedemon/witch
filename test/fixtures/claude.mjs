@@ -209,6 +209,44 @@ for await (const line of lines) {
           tool_use_id: 'tool-1',
         },
       });
+    else if (lastPrompt === 'question')
+      send({
+        type: 'control_request',
+        request_id: 'permit-1',
+        request: {
+          subtype: 'can_use_tool',
+          tool_name: 'AskUserQuestion',
+          input: {
+            questions: [
+              {
+                question: 'Colors?',
+                header: 'Colors',
+                multiSelect: true,
+                options: [
+                  { label: 'red' },
+                  { label: 'green' },
+                  { label: 'blue' },
+                ],
+              },
+            ],
+          },
+          tool_use_id: 'tool-1',
+        },
+      });
+    else if (lastPrompt === 'elicit')
+      send({
+        type: 'control_request',
+        request_id: 'elicit-1',
+        request: {
+          subtype: 'elicitation',
+          mcp_server_name: 'tracker',
+          message: 'Which project?',
+          requested_schema: {
+            type: 'object',
+            properties: { project: { type: 'string' } },
+          },
+        },
+      });
     else if (['wait', 'still queued'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {
@@ -241,12 +279,18 @@ for await (const line of lines) {
     } else finish();
   } else if (
     message.type === 'control_response' &&
-    message.response.request_id === 'permit-1'
+    ['permit-1', 'elicit-1'].includes(message.response.request_id)
   ) {
-    if (message.response.response.behavior === 'allow')
+    const { response } = message.response;
+    if (lastPrompt !== 'approval')
+      writeFileSync(
+        join(process.cwd(), 'response.json'),
+        JSON.stringify(response),
+      );
+    else if (response.behavior === 'allow')
       writeFileSync(
         join(process.cwd(), 'approved.txt'),
-        message.response.response.updatedInput.content,
+        response.updatedInput.content,
       );
     finish();
   }
