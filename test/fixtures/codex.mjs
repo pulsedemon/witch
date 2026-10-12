@@ -9,7 +9,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 const mode = process.argv[2] ?? '';
 let model = 'model-a';
 let effort = 'low';
-let hasHistory = false;
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const notify = (method, params) => send({ method, params });
@@ -98,16 +97,14 @@ for await (const line of lines) {
       ],
     });
   }
-  if (request.method === 'thread/start' || request.method === 'thread/resume') {
-    if (request.method === 'thread/resume' && !hasHistory) {
-      send({
-        id: request.id,
-        error: {
-          message: `no rollout found for thread id ${request.params.threadId}`,
-        },
-      });
-      continue;
-    }
+  if (request.method === 'thread/resume')
+    send({
+      id: request.id,
+      error: {
+        message: `no rollout found for thread id ${request.params.threadId}`,
+      },
+    });
+  if (request.method === 'thread/start') {
     writeFileSync(file('start.json'), JSON.stringify(request));
     model = request.params.model ?? model;
     reply(session());
@@ -129,7 +126,6 @@ for await (const line of lines) {
       });
   }
   if (request.method === 'turn/start') {
-    hasHistory = true;
     const prompt = request.params.input[0].text;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
     reply({ turn: { id: 'turn-1' } });
