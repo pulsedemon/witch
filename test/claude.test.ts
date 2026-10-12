@@ -222,9 +222,8 @@ for (const decision of ['accept', 'decline'] as const) {
   await test(`Claude approval ${decision} returns the matching tool decision`, async () => {
     const { session, cwd } = await fixture((event) => {
       if (event.type === 'request')
-        active.respond(event.request.id, { decision });
+        session.respond(event.request.id, { decision });
     });
-    const active = session;
     try {
       assert.equal((await session.send('approval')).status, 'completed');
       if (decision === 'accept')
@@ -244,12 +243,11 @@ await test('a Claude question lists its choices and returns a multiple choice jo
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
     requests.push(event.request);
-    active.respond(event.request.id, {
+    session.respond(event.request.id, {
       decision: 'accept',
       answers: { 'Colors?': ['red', 'green'] },
     });
   });
-  const active = session;
   try {
     assert.equal((await session.send('question')).status, 'completed');
     assert.equal(requests[0]?.kind, 'question');
@@ -278,12 +276,11 @@ await test('a Claude elicitation returns the accepted content', async () => {
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
     requests.push(event.request);
-    active.respond(event.request.id, {
+    session.respond(event.request.id, {
       decision: 'accept',
       content: { project: 'witch' },
     });
   });
-  const active = session;
   try {
     assert.equal((await session.send('elicit')).status, 'completed');
     assert.equal(requests[0]?.kind, 'elicitation');
