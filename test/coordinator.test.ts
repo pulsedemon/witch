@@ -1956,7 +1956,7 @@ await test('a failed first connect keeps the remembered model, and a model chose
   }
 });
 
-await test('/new copies this conversation for its own agent, and starts another agent on its default', async () => {
+await test('/new copies this conversation for its own agent, starts another agent on its default, and refuses an uninstalled one', async () => {
   const { coordinator, a, b, store, project } = await fixture();
   try {
     const source = await store.create({
@@ -1978,6 +1978,12 @@ await test('/new copies this conversation for its own agent, and starts another 
       ['a-big', 'high', undefined],
     );
     assert.notEqual(session.info.id, opened);
+    const current = coordinator.snapshot.conversation!.id;
+    await assert.rejects(
+      coordinator.newConversation('c'),
+      /c is not installed/,
+    );
+    assert.equal(coordinator.snapshot.conversation!.id, current);
   } finally {
     await coordinator.close();
   }
