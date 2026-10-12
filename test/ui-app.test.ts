@@ -775,7 +775,7 @@ await test('reopening the picker resets its selection', async () => {
   }
 });
 
-await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft', async () => {
+await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -787,6 +787,11 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
       ui.text().includes('first output 2'),
     );
     assert.ok(!ui.text().includes('first output 1'));
+    ui.stdin.write(ENTER);
+    await until(
+      'the collapsed tool',
+      () => !ui.text().includes('first output 2'),
+    );
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
