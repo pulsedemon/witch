@@ -422,7 +422,7 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   }
 });
 
-await test('Claude tool use and its result update one tool, a streamed reply ends as its full message, and subagent text stays out of the transcript', async () => {
+await test("Claude tool use and its result update one tool, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -434,6 +434,8 @@ await test('Claude tool use and its result update one tool, a streamed reply end
       [
         ['tool-1', 'Bash', '{\n  "command": "ls"\n}', false],
         ['tool-1', '', 'a.md', true],
+        ['tool-2', 'Agent', '{\n  "prompt": "look"\n}', false],
+        ['tool-2', '', 'Found a.md.', true],
       ],
     );
     const texts = events.filter((event) => event.type === 'text');

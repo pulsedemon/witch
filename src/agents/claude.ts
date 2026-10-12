@@ -438,6 +438,7 @@ class ClaudeSession implements AgentSession {
       }
     } else if (
       message.type === 'user' &&
+      message.parent_tool_use_id === null &&
       Array.isArray(message.message.content)
     ) {
       for (const block of message.message.content) {

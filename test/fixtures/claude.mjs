@@ -66,6 +66,17 @@ const assistant = (text, content = [{ type: 'text', text }], parent = null) => {
     },
   });
 };
+const toolResult = (id, content, parent = null) =>
+  send({
+    type: 'user',
+    uuid: randomUUID(),
+    session_id,
+    parent_tool_use_id: parent,
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: id, content }],
+    },
+  });
 const result = (fields = {}) =>
   send({
     type: 'result',
@@ -281,19 +292,23 @@ for await (const line of lines) {
           input: { command: 'ls' },
         },
       ]);
-      send({
-        type: 'user',
-        uuid: randomUUID(),
-        session_id,
-        parent_tool_use_id: null,
-        message: {
-          role: 'user',
-          content: [
-            { type: 'tool_result', tool_use_id: 'tool-1', content: 'a.md' },
-          ],
+      toolResult('tool-1', 'a.md');
+      assistant('', [
+        {
+          type: 'tool_use',
+          id: 'tool-2',
+          name: 'Agent',
+          input: { prompt: 'look' },
         },
-      });
-      assistant('Subagent text.', undefined, 'tool-1');
+      ]);
+      assistant('Subagent text.', undefined, 'tool-2');
+      assistant(
+        '',
+        [{ type: 'tool_use', id: 'sub-1', name: 'Read', input: {} }],
+        'tool-2',
+      );
+      toolResult('sub-1', 'inner', 'tool-2');
+      toolResult('tool-2', 'Found a.md.');
       assistant('Done.');
       finish();
     } else if (['wait', 'still queued'].includes(lastPrompt))
