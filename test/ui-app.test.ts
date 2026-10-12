@@ -557,18 +557,22 @@ const approval = {
   detail: '{}',
 };
 
-await test('Down and Enter in one read decline an approval', async () => {
-  const { app, calls } = fake({ phase: 'running', requests: [approval] });
-  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  try {
-    await delay(600);
-    ui.stdin.write(DOWN + ENTER);
-    await until('the response', () => calls.length > 0);
-    assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
-  } finally {
-    ui.unmount();
-  }
-});
+for (const [name, keys] of [
+  ['Down and Enter in one read decline', DOWN + ENTER],
+  ['n declines', 'n'],
+] as const)
+  await test(`${name} an approval`, async () => {
+    const { app, calls } = fake({ phase: 'running', requests: [approval] });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(600);
+      ui.stdin.write(keys);
+      await until('the response', () => calls.length > 0);
+      assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
+    } finally {
+      ui.unmount();
+    }
+  });
 
 await test('two questions answered in one read each get their own option', async () => {
   const { app, calls } = fake({
@@ -823,7 +827,7 @@ await test('a conversation switch resets the tool selection within the next read
   }
 });
 
-await test('two page keys in one read scroll two pages', async () => {
+await test('two page keys in one read scroll two pages, and PageUp scrolls a request back', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
   );
@@ -856,6 +860,11 @@ await test('two page keys in one read scroll two pages', async () => {
     await until('two pages down', () => {
       const all = rows();
       return all[all.indexOf('Approval required') + 1] === 'd58';
+    });
+    ui.stdin.write('\u001b[5~');
+    await until('a page up', () => {
+      const all = rows();
+      return all[all.indexOf('Approval required') + 1] === 'd28';
     });
   } finally {
     ui.unmount();
