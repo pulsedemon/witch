@@ -630,7 +630,7 @@ export class Coordinator {
         skillCall(prompt, this.snapshot.skills),
       );
     } catch (error) {
-      result = { status: 'failed', text: '', error: String(error) };
+      result = { status: 'failed', text: '', error: message(error) };
     }
     await this.files!.flush();
     if (result.status === 'completed') {
