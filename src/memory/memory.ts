@@ -298,6 +298,8 @@ export class Memory {
       '--format=%H%x09%s',
       '--diff-filter=AM',
       '--no-renames',
+      // a user's log.follow would otherwise follow the note's earlier name
+      '--no-follow',
       revision,
       '--',
       notePath(path),

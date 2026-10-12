@@ -112,7 +112,7 @@ await test('parallel initialization seeds one repository and leaves a stray buil
   assert.deepEqual(await readdir(stray, { recursive: true }), before);
 });
 
-await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend and hidden untracked files', async () => {
+await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend, hidden untracked files and log.follow', async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-memory-identity-'));
   const template = join(root, 'template');
   await mkdir(template);
@@ -125,7 +125,7 @@ await test('memory works under user Git configuration with no identity, an empty
       '--input-type=module',
       '-e',
       `import { Memory } from ${JSON.stringify(module)};
-       import { mkdir, writeFile } from 'node:fs/promises';
+       import { mkdir, rename, writeFile } from 'node:fs/promises';
        import { join } from 'node:path';
        const root = ${JSON.stringify(root)};
        const memory = new Memory(join(root, 'memory.git'));
@@ -153,7 +153,14 @@ await test('memory works under user Git configuration with no identity, an empty
        if ((await mine.publish()) !== 'conflict') throw new Error('expected a conflict');
        await mine.keepMine();
        await mine.publish();
-       console.log(await memory.read('refs/heads/main', 'global/preference.md'));`,
+       console.log(await memory.read('refs/heads/main', 'global/preference.md'));
+       await rename(join(mine.root, 'global/mine.md'), join(mine.root, 'global/renamed.md'));
+       await mine.commit('rename mine');
+       await note(mine, 'global/renamed.md', 'Renamed.');
+       await mine.commit('edit renamed');
+       await mine.publish();
+       const history = await memory.history('refs/heads/main', 'global/renamed.md');
+       console.log(history.map(({ subject }) => subject).join(', '));`,
     ],
     {
       cwd: root,
@@ -161,13 +168,15 @@ await test('memory works under user Git configuration with no identity, an empty
         ...process.env,
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_COUNT: '3',
+        GIT_CONFIG_COUNT: '4',
         GIT_CONFIG_KEY_0: 'user.useConfigOnly',
         GIT_CONFIG_VALUE_0: 'true',
         GIT_CONFIG_KEY_1: 'rebase.backend',
         GIT_CONFIG_VALUE_1: 'apply',
         GIT_CONFIG_KEY_2: 'status.showUntrackedFiles',
         GIT_CONFIG_VALUE_2: 'no',
+        GIT_CONFIG_KEY_3: 'log.follow',
+        GIT_CONFIG_VALUE_3: 'true',
         GIT_TEMPLATE_DIR: template,
         GIT_AUTHOR_NAME: undefined,
         GIT_AUTHOR_EMAIL: undefined,
@@ -176,7 +185,10 @@ await test('memory works under user Git configuration with no identity, an empty
       },
     },
   );
-  assert.equal(stdout.trim(), 'New preference.');
+  assert.deepEqual(stdout.trim().split('\n'), [
+    'New preference.',
+    'edit renamed, rename mine',
+  ]);
   const log = await git(
     join(root, 'memory.git'),
     'log',
@@ -184,7 +196,7 @@ await test('memory works under user Git configuration with no identity, an empty
     main,
   );
   const identities = log.trim().split('\n');
-  assert.equal(identities.length, 5);
+  assert.equal(identities.length, 7);
   for (const identity of identities)
     assert.equal(identity, 'Witch <witch@localhost> | Witch <witch@localhost>');
 });
