@@ -55,6 +55,32 @@ await test('a work tree lists tracked and untracked files under the cwd, without
   assert.equal((await listFiles(root, 2)).length, 2);
 });
 
+await test('a path in a merge conflict is listed once', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-files-')));
+  const git = (...args: string[]) =>
+    execute('git', [
+      '-C',
+      root,
+      '-c',
+      'user.name=t',
+      '-c',
+      'user.email=t@t',
+      ...args,
+    ]);
+  await git('init', '-q', '-b', 'main');
+  await files(root, { 'tracked.txt': 'base\n' });
+  await git('add', '.');
+  await git('commit', '-qm', 'base');
+  await git('checkout', '-qb', 'other');
+  await files(root, { 'tracked.txt': 'theirs\n' });
+  await git('commit', '-qam', 'theirs');
+  await git('checkout', '-q', 'main');
+  await files(root, { 'tracked.txt': 'mine\n' });
+  await git('commit', '-qam', 'mine');
+  await assert.rejects(git('merge', '-q', 'other'));
+  assert.deepEqual(await listFiles(root), ['tracked.txt']);
+});
+
 await test('outside a work tree a walk lists files breadth first and skips dot entries and unreadable directories', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-files-')));
   await files(root, {
