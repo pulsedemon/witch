@@ -95,13 +95,14 @@ await test('malformed file URLs remain readable without breaking a persisted tra
 });
 
 await test('long runs of dashes, dots and @ signs link in linear time', () => {
-  // the fastest of three runs drops pauses from parallel tests; 4x the input takes 4x as long when linear, 16x when quadratic
+  // this process's CPU time ignores load from parallel tests; 4x the input costs 4x when linear, 16x when quadratic
   const fastest = (text: string) =>
     Math.min(
       ...[1, 2, 3].map(() => {
-        const start = performance.now();
+        const start = process.cpuUsage();
         linkify(text, '/work');
-        return performance.now() - start;
+        const { user, system } = process.cpuUsage(start);
+        return user + system;
       }),
     );
   for (const character of ['-', '.', '@']) {
@@ -109,7 +110,7 @@ await test('long runs of dashes, dots and @ signs link in linear time', () => {
     const large = fastest(character.repeat(64000));
     assert.ok(
       large < small * 8,
-      `${character} took ${small} ms, then ${large} ms for 4x the input`,
+      `${character} took ${small} µs of CPU, then ${large} µs for 4x the input`,
     );
   }
 });
