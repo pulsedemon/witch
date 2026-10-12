@@ -91,6 +91,14 @@ async function until(
 }
 
 /** a coordinator stand-in that publishes snapshots and records the calls the app makes. */
+/** a link sequence whole, which strip-ansi removes, then split by codes whose removal joins it back up */
+function forgedLink(target: string, text: string) {
+  return (
+    `\u001b]8;;${target}\u0007${text}\u001b]8;;\u0007` +
+    `\u001b\u001b[31m]8;;${target}\u0007${text}\u001b\u001b[0m]8;;\u0007`
+  );
+}
+
 function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
@@ -499,9 +507,8 @@ await test('e on a note page edits that note, and the + entry edits project esse
 
 await test('a note file name carrying a link sequence shows as plain text in the picker and on its page', async () => {
   const { seed, coordinator } = await memoryApp();
-  const forged = '\u001b]8;;x-evil:payload\u0007';
   await writeFile(
-    join(seed.root, 'global', `${forged}forged${'\u001b]8;;\u0007'}.md`),
+    join(seed.root, 'global', `${forgedLink('x-evil:payload', 'forged')}.md`),
     'Forged note.',
   );
   await seed.commit('chore(memory): save forged note');
@@ -512,16 +519,14 @@ await test('a note file name carrying a link sequence shows as plain text in the
     ui.stdin.write('/memory');
     await delay(30);
     ui.stdin.write('\r');
-    await until('the memory picker', () =>
-      ui.text().includes('global/forged.md'),
-    );
-    assert.ok(!ui.frame().includes('x-evil:'));
+    await until('the memory picker', () => ui.text().includes('global/forged'));
+    assert.ok(!ui.frame().includes('\u001b]8;;x-evil'));
     await delay(30);
     ui.stdin.write('Forged note');
     await delay(30);
     ui.stdin.write('\r');
     await until('the note page', () => ui.text().includes('e edit'));
-    assert.ok(!ui.frame().includes('x-evil:'));
+    assert.ok(!ui.frame().includes('\u001b]8;;x-evil'));
   } finally {
     ui.unmount();
     await coordinator.close();
@@ -744,7 +749,7 @@ await test('a model id carrying a link sequence shows as plain text in the effor
   const { app } = fake({
     models: [
       {
-        id: '\u001b]8;;x-evil:payload\u0007m\u001b]8;;\u0007',
+        id: forgedLink('x-evil:payload', 'm'),
         label: 'Model M',
         description: '',
         efforts: ['low', 'high'],
@@ -763,7 +768,10 @@ await test('a model id carrying a link sequence shows as plain text in the effor
     await until('the effort picker', () =>
       ui.text().includes('Reasoning for m'),
     );
-    assert.ok(!ui.frame().includes('x-evil:'), JSON.stringify(ui.frame()));
+    assert.ok(
+      !ui.frame().includes('\u001b]8;;x-evil'),
+      JSON.stringify(ui.frame()),
+    );
   } finally {
     ui.unmount();
   }
@@ -995,8 +1003,7 @@ await test('the header shows the stored model until the session reports one, and
 });
 
 await test('a project name, model and permission mode carrying a link sequence show as plain text in the header', async () => {
-  const forged = (name: string) =>
-    `\u001b]8;;x-evil:payload\u0007${name}\u001b]8;;\u0007`;
+  const forged = (name: string) => forgedLink('x-evil:payload', name);
   const { app } = fake({
     conversation: {
       id: 'c',
@@ -1018,8 +1025,11 @@ await test('a project name, model and permission mode carrying a link sequence s
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await until('the header', () => ui.text().includes('model'));
-    assert.match(ui.text(), /project {2}· {2}a {2}· {2}model/);
-    assert.ok(!ui.frame().includes('x-evil:'), JSON.stringify(ui.frame()));
+    assert.match(ui.text(), /project\]8;;x-evil:payloadproject\]8;; {2}· {2}a/);
+    assert.ok(
+      !ui.frame().includes('\u001b]8;;x-evil'),
+      JSON.stringify(ui.frame()),
+    );
   } finally {
     ui.unmount();
   }
@@ -1524,8 +1534,7 @@ await test('a skill named like a Witch command is left out, since the command ru
 });
 
 await test('list rows drop a link forged in a skill description or a file name', async () => {
-  const forged = (text: string) =>
-    `\u001b]8;;https://evil.example\u0007${text}\u001b]8;;\u0007`;
+  const forged = (text: string) => forgedLink('https://evil.example', text);
   const skill = await launched({
     skills: [{ name: 'x-evil', description: `see ${forged('docs')}` }],
   });
@@ -1535,10 +1544,10 @@ await test('list rows drop a link forged in a skill description or a file name',
     await until('the skill list', () =>
       skill.ui.text().includes('/x-evil see docs'),
     );
-    assert.ok(!skill.ui.frame().includes('evil.example'));
+    assert.ok(!skill.ui.frame().includes('\u001b]8;;https://evil.example'));
     file.ui.stdin.write('@a');
-    await until('the file list', () => file.ui.text().includes('@ab.txt'));
-    assert.ok(!file.ui.frame().includes('evil.example'));
+    await until('the file list', () => file.ui.text().includes('.txt'));
+    assert.ok(!file.ui.frame().includes('\u001b]8;;https://evil.example'));
   } finally {
     skill.ui.unmount();
     file.ui.unmount();

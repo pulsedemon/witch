@@ -325,7 +325,8 @@ await test('a validation error quoting a schema property name cannot carry a lin
         schema: {
           type: 'object',
           required: [
-            '\u001b]8;;https://evil.example/share\u0007name\u001b]8;;\u0007',
+            '\u001b]8;;https://evil.example/share\u0007name\u001b]8;;\u0007' +
+              '\u001b\u001b[31m]8;;https://evil.example/share\u0007name\u001b\u001b[0m]8;;\u0007',
           ],
         },
       },
@@ -340,7 +341,7 @@ await test('a validation error quoting a schema property name cannot carry a lin
     const error = (ui.lastFrame() ?? '')
       .split('\n')
       .find((line) => line.includes('required property'));
-    assert.match(error ?? '', /required property 'name'/);
+    assert.match(error ?? '', /required property 'name/);
     assert.ok(!error?.includes('\u001b]8;;'), JSON.stringify(error));
   } finally {
     ui.unmount();
