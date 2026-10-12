@@ -83,7 +83,7 @@ export function editInput(state: InputBuffer, action: Edit): InputBuffer {
       return { value: value.slice(0, cursor) + value.slice(right()), cursor };
     case 'up': {
       if (start === 0) return state;
-      const previous = value.lastIndexOf('\n', start - 2) + 1;
+      const [previous] = lineAt(value, start - 1);
       const destination = Math.min(start - 1, previous + cursor - start);
       return {
         value,
