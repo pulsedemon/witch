@@ -10,9 +10,7 @@ export interface AgentRegistration {
   executable?: string;
 }
 
-export async function findExecutable(
-  name: string,
-): Promise<string | undefined> {
+async function findExecutable(name: string): Promise<string | undefined> {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
     const executable = join(directory, name);
     if (
