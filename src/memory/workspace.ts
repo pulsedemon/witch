@@ -5,8 +5,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { exists, main, notePath } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
-export type PublishResult = 'published' | 'conflict';
-
 /** one conversation's memory: a worktree of the shared bare repository on its own branch. */
 export class Workspace {
   readonly branch: string;
@@ -95,7 +93,7 @@ export class Workspace {
     return { revision: await this.revision(), scope: await this.scope(cwd) };
   }
 
-  async publish(): Promise<PublishResult> {
+  async publish(): Promise<'published' | 'conflict'> {
     for (let attempt = 0; attempt < 50; attempt++) {
       const latest = (await this.git(['rev-parse', main])).trim();
       // an idle worktree behind main stays where its last turn left it
