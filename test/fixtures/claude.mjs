@@ -270,7 +270,20 @@ for await (const line of lines) {
           tool_use_id: 'tool-1',
         },
       });
-    else if (lastPrompt === 'elicit')
+    else if (lastPrompt === 'withdrawn') {
+      send({
+        type: 'control_request',
+        request_id: 'permit-2',
+        request: {
+          subtype: 'can_use_tool',
+          tool_name: 'Write',
+          input: { file_path: join(process.cwd(), 'withdrawn.txt') },
+          tool_use_id: 'tool-2',
+        },
+      });
+      send({ type: 'control_cancel_request', request_id: 'permit-2' });
+      finish();
+    } else if (lastPrompt === 'elicit')
       send({
         type: 'control_request',
         request_id: 'elicit-1',

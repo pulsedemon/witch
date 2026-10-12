@@ -309,6 +309,22 @@ await test('a Claude elicitation returns the accepted content', async () => {
   }
 });
 
+await test('a permission prompt the CLI withdraws leaves the queue', async () => {
+  const events: AgentEvent[] = [];
+  const { session } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('withdrawn')).status, 'completed');
+    assert.deepEqual(
+      events
+        .map((event) => event.type)
+        .filter((type) => type.startsWith('request')),
+      ['request', 'request-resolved'],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
 await test('a mid-turn interrupt ends the turn with the native result', async () => {
   const { seen, onEvent } = working();
   const { session } = await fixture(onEvent);
