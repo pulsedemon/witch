@@ -225,6 +225,16 @@ await test('global memory crosses projects while project notes remain scoped', a
   assert.doesNotMatch(snapshot.text, /4567/);
 });
 
+await test('a subdirectory of a repository shares its project memory', async () => {
+  const { memory, project } = await fixture();
+  await git(project, 'init', '--quiet');
+  await mkdir(join(project, 'src'));
+  assert.equal(
+    (await memory.scopePaths(join(project, 'src'))).project,
+    (await memory.scopePaths(project)).project,
+  );
+});
+
 await test('restore produces a new accepted revision and deletion remains visible', async () => {
   const { memory, open, project } = await fixture();
   const { workspace, scope } = await open('a');
@@ -370,7 +380,7 @@ await test('two workspaces publish different notes, each with its own attributio
   assert.match(bodies, /conversation: second/);
 });
 
-await test('keep mine wins conflicting lines and merges every other change', async () => {
+await test('keep mine wins conflicting lines and merges every other change, and discard mine takes main', async () => {
   for (const decision of ['keep', 'discard'] as const) {
     const { memory, open, project } = await fixture();
     const { workspace: theirs } = await open('theirs');
@@ -481,7 +491,7 @@ await test('a publish that loses the race to update main retries onto the new ma
     }
     return result;
   };
-  await first.publish().catch(() => {});
+  assert.equal(await first.publish(), 'published');
   assert.equal(await memory.read(main, 'global/first.md'), 'First.');
   assert.equal(await memory.read(main, 'global/second.md'), 'Second.');
 });
