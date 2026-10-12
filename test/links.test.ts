@@ -95,11 +95,22 @@ await test('malformed file URLs remain readable without breaking a persisted tra
 });
 
 await test('long runs of dashes, dots and @ signs link in linear time', () => {
+  // the fastest of three runs drops pauses from parallel tests; 4x the input takes 4x as long when linear, 16x when quadratic
+  const fastest = (text: string) =>
+    Math.min(
+      ...[1, 2, 3].map(() => {
+        const start = performance.now();
+        linkify(text, '/work');
+        return performance.now() - start;
+      }),
+    );
   for (const character of ['-', '.', '@']) {
-    const start = performance.now();
-    linkify(character.repeat(16000), '/work');
-    const elapsed = performance.now() - start;
-    assert.ok(elapsed < 50, `${character} took ${elapsed} ms`);
+    const small = fastest(character.repeat(16000));
+    const large = fastest(character.repeat(64000));
+    assert.ok(
+      large < small * 8,
+      `${character} took ${small} ms, then ${large} ms for 4x the input`,
+    );
   }
 });
 
