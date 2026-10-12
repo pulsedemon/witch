@@ -952,16 +952,16 @@ for (const decision of ['keep', 'discard'] as const) {
   await test(`a conflict between two coordinators resolves with ${decision}`, async () => {
     const context = await fixture();
     const { store, memory, project, notes } = context;
-    await context.coordinator.close();
-    const agents = [new FixtureAgent('a'), new FixtureAgent('a')];
+    const agents = [context.a, new FixtureAgent('a')];
     const gates = agents.map((agent) => (agent.gate = new TurnGate()));
-    const coordinators = agents.map(
-      (adapter) =>
-        new Coordinator(store, memory, [{ adapter, executable: 'a' }]),
-    );
+    const coordinators = [
+      context.coordinator,
+      new Coordinator(store, memory, [
+        { adapter: agents[1]!, executable: 'a' },
+      ]),
+    ];
     try {
-      for (const coordinator of coordinators)
-        await coordinator.initialize(project);
+      await coordinators[1]!.initialize(project);
       const sends = coordinators.map((coordinator, index) =>
         coordinator.send(`remember:text-${index}`),
       );
