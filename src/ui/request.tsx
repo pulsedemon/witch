@@ -113,7 +113,12 @@ export function Request({ request, width, height, cwd, respond }: Props) {
               .record(z.string(), z.unknown())
               .parse(JSON.parse(text.trim() || '{}'));
       if (request.schema) {
-        const validator = new Ajv2020({ strict: false, formats: fullFormats });
+        // MCP allows any $schema, and Ajv2020 throws on a meta-schema it lacks
+        const validator = new Ajv2020({
+          strict: false,
+          validateSchema: false,
+          formats: fullFormats,
+        });
         if (!validator.validate(request.schema, content)) {
           setError(validator.errorsText());
           return false;

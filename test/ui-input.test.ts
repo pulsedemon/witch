@@ -273,6 +273,44 @@ await test('MCP form submissions validate required fields, types and constraints
   }
 });
 
+await test('an MCP form whose schema names draft-07 validates the answer', async () => {
+  const sent: UserResponse[] = [];
+  const ui = render(
+    createElement(Request, {
+      width: 100,
+      height: 25,
+      cwd: '/work',
+      request: {
+        id: 'form',
+        kind: 'elicitation',
+        title: 'Contact',
+        detail: 'MCP server',
+        schema: {
+          $schema: 'http://json-schema.org/draft-07/schema#',
+          type: 'object',
+          properties: { name: { type: 'string' } },
+          required: ['name'],
+        },
+      },
+      respond: (response) => sent.push(response),
+    }),
+  );
+  try {
+    await delay(600);
+    ui.stdin.write('\r');
+    await delay(40);
+    assert.deepEqual(sent, []);
+    assert.match(ui.lastFrame() ?? '', /required property 'name'/);
+    ui.stdin.write(`\u001b[200~${JSON.stringify({ name: 'Ada' })}\u001b[201~`);
+    await delay(30);
+    ui.stdin.write('\r');
+    await delay(40);
+    assert.deepEqual(sent, [{ decision: 'accept', content: { name: 'Ada' } }]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('browser elicitation confirms without JSON form content', async () => {
   const sent: UserResponse[] = [];
   const ui = render(
