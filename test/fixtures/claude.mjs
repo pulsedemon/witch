@@ -22,18 +22,18 @@ const state = (state) =>
     uuid: randomUUID(),
     session_id,
   });
-const assistant = (text) =>
+const assistant = (text, content = [{ type: 'text', text }], parent = null) =>
   send({
     type: 'assistant',
     uuid: randomUUID(),
     session_id,
-    parent_tool_use_id: null,
+    parent_tool_use_id: parent,
     message: {
       id: randomUUID(),
       type: 'message',
       role: 'assistant',
       model,
-      content: [{ type: 'text', text }],
+      content,
       stop_reason: 'end_turn',
       stop_sequence: null,
       usage: {
@@ -245,7 +245,30 @@ for await (const line of lines) {
           },
         },
       });
-    else if (['wait', 'still queued'].includes(lastPrompt))
+    else if (lastPrompt === 'tools') {
+      assistant('', [
+        {
+          type: 'tool_use',
+          id: 'tool-1',
+          name: 'Bash',
+          input: { command: 'ls' },
+        },
+      ]);
+      send({
+        type: 'user',
+        uuid: randomUUID(),
+        session_id,
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'tool-1', content: 'a.md' },
+          ],
+        },
+      });
+      assistant('Subagent text.', undefined, 'tool-1');
+      finish();
+    } else if (['wait', 'still queued'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {
       assistant('Working.');

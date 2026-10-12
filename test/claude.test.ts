@@ -406,6 +406,30 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   }
 });
 
+await test('Claude tool use and its result update one tool, and subagent text stays out of the transcript', async () => {
+  const events: AgentEvent[] = [];
+  const { session } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('tools')).status, 'completed');
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'tool')
+        .map(({ id, title, text, done }) => [id, title, text, done]),
+      [
+        ['tool-1', 'Bash', '{\n  "command": "ls"\n}', false],
+        ['tool-1', '', 'a.md', true],
+      ],
+    );
+    assert.ok(
+      !events.some(
+        (event) => event.type === 'text' && event.text.includes('Subagent'),
+      ),
+    );
+  } finally {
+    await session.close();
+  }
+});
+
 await test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
   const { children, connect } = await launcher('init-error');
   try {
