@@ -90,7 +90,6 @@ async function until(
   assert.fail(`timed out waiting for ${what}`);
 }
 
-/** a coordinator stand-in that publishes snapshots and records the calls the app makes. */
 /** a link sequence whole, which strip-ansi removes, then split by codes whose removal joins it back up */
 function forgedLink(target: string, text: string) {
   return (
@@ -99,6 +98,7 @@ function forgedLink(target: string, text: string) {
   );
 }
 
+/** a coordinator stand-in that publishes snapshots and records the calls the app makes. */
 function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
