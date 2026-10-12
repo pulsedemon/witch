@@ -18,13 +18,20 @@ async function fixture(
     effort,
     resume,
     mode,
-  }: { effort?: string; resume?: string; mode?: string } = {},
+    signal,
+  }: {
+    effort?: string;
+    resume?: string;
+    mode?: string;
+    signal?: AbortSignal;
+  } = {},
 ) {
   const cwd = await mkdtemp(join(tmpdir(), 'witch-codex-'));
-  const adapter = new CodexAdapter((_, directory) =>
+  const adapter = new CodexAdapter((_, directory, signal) =>
     spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
       cwd: directory,
       stdio: 'pipe',
+      signal,
     }),
   );
   const session = await adapter.connect({
@@ -32,6 +39,7 @@ async function fixture(
     executable: 'codex',
     effort,
     resume,
+    signal,
     memoryDirectories: ['/shared/global', '/shared/project'],
     onEvent,
     onProcess: async () => {},
@@ -114,6 +122,16 @@ await test('a Codex that exits during a model change fails the change without a 
   } finally {
     await close(session, cwd).catch(() => {});
   }
+});
+
+await test('an aborted connect rejects', async () => {
+  const controller = new AbortController();
+  const connecting = fixture(() => {}, {
+    mode: 'hang-on-init',
+    signal: controller.signal,
+  });
+  controller.abort();
+  await assert.rejects(within(connecting, 3000, 'connect'), /aborted/);
 });
 
 await test('a stored thread resumes by its id, and a missing one fails the connect with no exit notice', async () => {

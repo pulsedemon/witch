@@ -42,6 +42,11 @@ for await (const line of lines) {
   const request = JSON.parse(line);
   const reply = (result) => send({ id: request.id, result });
   if (request.method === 'initialize') {
+    if (mode === 'hang-on-init') {
+      // bounded, so an ignored abort fails the test instead of hanging it
+      setTimeout(() => process.exit(1), 5000);
+      continue;
+    }
     if (mode === 'exit-on-init')
       process.stderr.write('init exit text\n', () => process.exit(1));
     else reply({ userAgent: 'fixture' });
