@@ -40,3 +40,24 @@ for (const [args, expected] of [
     assert.deepEqual(await readdir(directory), []);
   });
 }
+
+await test('witch --help with stdout piped prints the usage and exits 0 before opening the store', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'witch-cli-'));
+  const child = spawn(
+    process.execPath,
+    ['--import', import.meta.resolve('tsx'), cli, '--help'],
+    {
+      cwd: directory,
+      env: { ...process.env, HOME: directory },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  let output = '';
+  child.stdout.on('data', (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  const [code] = await once(child, 'close');
+  assert.equal(code, 0);
+  assert.match(output, /^Usage: witch /);
+  assert.deepEqual(await readdir(directory), []);
+});
