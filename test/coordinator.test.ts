@@ -1803,6 +1803,23 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
   }
 });
 
+await test('a native session that replaces the stored one gets the memory snapshot again', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    await coordinator.send('remember-port');
+    await coordinator.send('Again');
+    // the native agent starts a fresh session instead of resuming
+    a.beforeConnect = async (options) => {
+      options.resume = undefined;
+    };
+    await a.sessions.at(-1)!.session.close();
+    await coordinator.send('Next');
+    assert.match(a.inputs.at(-1)!.prompt, /Use port 4567/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('agent events reach the transcript with their own replace, append and cwd', async () => {
   const { coordinator, a, project } = await fixture();
   try {
