@@ -1820,6 +1820,26 @@ await test('a native session that replaces the stored one gets the memory snapsh
   }
 });
 
+await test('Ctrl+C during a model change closes the session that holds it', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    const { session } = a.sessions.at(-1)!;
+    const entered = Promise.withResolvers<void>();
+    // as Codex's does, the change ends only when its session closes
+    session.selectModel = async () => {
+      entered.resolve();
+      for (let wait = 0; wait < 100 && !session.closed; wait++) await delay(10);
+      throw new Error(session.closed ? 'Session closed' : 'Still open');
+    };
+    const selecting = coordinator.selectModel('next');
+    await within(entered.promise, 2000, 'the model change');
+    await coordinator.interrupt();
+    await assert.rejects(selecting, /Session closed/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('agent events reach the transcript with their own replace, append and cwd', async () => {
   const { coordinator, a, project } = await fixture();
   try {
