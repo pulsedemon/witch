@@ -822,6 +822,31 @@ await test('two page keys in one read scroll two pages', async () => {
   }
 });
 
+await test('a typed /agent returns to live output', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app, calls } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('\u001b[5~');
+    await until('earlier output', () =>
+      ui.text().includes('Reading earlier output'),
+    );
+    ui.stdin.write('/agent b');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await until('live output', () => !ui.text().includes('Reading earlier'));
+    assert.deepEqual(calls, [['switchAgent', 'b']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('Down with tools focused and no tools keeps the reading position, and End returns to live output', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',

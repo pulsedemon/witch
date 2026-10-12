@@ -347,19 +347,17 @@ export function App({
         );
         break;
       case 'agent':
-        if (argument) run(coordinator.switchAgent(argument));
-        else
+        if (argument) {
+          setTop(null);
+          run(coordinator.switchAgent(argument));
+        } else
           picker(
             'Installed agents',
             state.agents.map((agent) => ({
               id: agent.id,
               label: `${agent.label}${agent.installed ? '' : ' (not installed)'}`,
             })),
-            (id) => {
-              setView({ kind: 'chat' });
-              setTop(null);
-              run(coordinator.switchAgent(id));
-            },
+            (id) => command('agent', id),
           );
         break;
       case 'model':
