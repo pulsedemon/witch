@@ -349,10 +349,10 @@ export class Coordinator {
     return this.store.conversations(this.current().cwd);
   }
 
-  async refreshModels(refresh = true): Promise<void> {
+  async refreshModels(): Promise<void> {
     await this.operate('starting', async () => {
       const session = await this.connect();
-      this.publish({ models: await session.models(refresh) });
+      this.publish({ models: await session.models(true) });
     });
   }
 
@@ -379,14 +379,14 @@ export class Coordinator {
         model,
         listed && !listed.efforts.length ? null : effort,
       );
-      this.current().sessions[this.current().agent] = {
-        ...this.current().sessions[this.current().agent]!,
+      conversation.sessions[conversation.agent] = {
+        ...conversation.sessions[conversation.agent]!,
         model: session.info.model,
         requestedModel: model,
         effort: session.info.effort,
       };
       await this.save();
-      this.publish({ conversation: this.current(), native: session.info });
+      this.publish({ conversation, native: session.info });
     });
   }
 
@@ -545,7 +545,6 @@ export class Coordinator {
       if (this.cancelled) throw new Error('Handoff was interrupted');
       conversation.handoff = { from, to: agent, summary, activated: false };
       await this.save();
-      await this.disconnect();
       await this.connect(agent);
       if (this.cancelled) {
         throw new Error('Handoff was interrupted');
