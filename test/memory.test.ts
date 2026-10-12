@@ -468,14 +468,9 @@ await test('keep mine carries no markers through a rename on either side', async
     assert.equal(await mine.publish(), 'conflict');
     await mine.keepMine();
     assert.equal(await mine.publish(), 'published');
-    assert.equal(
-      (
-        await execute('git', ['grep', '-c', '<<<<<<<', main], {
-          cwd: memory.root,
-        }).catch(() => ({ stdout: '' }))
-      ).stdout,
-      '',
-    );
+    await memory.run(memory.root, ['grep', '-q', '<<<<<<<', main], {
+      codes: [1],
+    });
     await assert.rejects(memory.read(main, 'global/one.md'));
     assert.equal(
       await memory.read(main, 'global/renamed.md'),
