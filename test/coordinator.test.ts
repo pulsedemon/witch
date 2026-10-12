@@ -121,7 +121,7 @@ await test('a fresh conversation receives committed memory without a handoff', a
     await coordinator.newConversation('b');
     await coordinator.send('Which port should this project use?');
     assert.match(b.inputs.at(-1)!.prompt, /Use port 4567/);
-    assert.doesNotMatch(b.inputs.at(-1)!.prompt, /handoff summary/);
+    assert.doesNotMatch(b.inputs.at(-1)!.prompt, /Pending task context/);
     assert.equal(a.inputs.length, 1);
   } finally {
     await coordinator.close();
@@ -2082,7 +2082,10 @@ await test('/new copies this conversation for its own agent, starts another agen
     await coordinator.selectConversation(source.record.id);
     await coordinator.newConversation('b');
     assert.equal(b.sessions.at(-1)!.options.model, undefined);
+    const started = b.sessions.length;
     await coordinator.newConversation();
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.equal(b.sessions.length, started + 1);
     assert.equal(b.sessions.at(-1)!.options.model, undefined);
     await coordinator.selectConversation(source.record.id);
     const opened = a.sessions.at(-1)!.session.info.id;
