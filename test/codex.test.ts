@@ -478,6 +478,17 @@ await test('a null effort stops requesting one', async () => {
   }
 });
 
+await test("a turn after connecting with an effort requests it, not Codex's own", async () => {
+  const { session, cwd } = await fixture(() => {}, { effort: 'high' });
+  try {
+    assert.equal((await session.send('tool')).status, 'completed');
+    const prompt = JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8'));
+    assert.equal(prompt.params.effort, 'high');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a model choice that changes no native setting returns and shows the choice', async () => {
   const { session, cwd } = await fixture(() => {}, { effort: 'high' });
   try {
