@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { access } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
 import { delimiter, join } from 'node:path';
 import { ClaudeAdapter } from './claude.js';
 import { CodexAdapter } from './codex.js';
@@ -14,10 +14,15 @@ async function findExecutable(name: string): Promise<string | undefined> {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
     const executable = join(directory, name);
     if (
-      await access(executable, constants.X_OK).then(
+      // a searchable directory passes the execute check too
+      (await stat(executable).then(
+        (stats) => stats.isFile(),
+        () => false,
+      )) &&
+      (await access(executable, constants.X_OK).then(
         () => true,
         () => false,
-      )
+      ))
     )
       return executable;
   }
