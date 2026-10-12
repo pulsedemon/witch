@@ -363,7 +363,7 @@ class ClaudeSession implements AgentSession {
       for await (const message of this.query) this.receive(message);
       if (this.turn) await this.end('Claude exited before reporting idle');
     } catch (error) {
-      await this.end(errorMessage(error), true);
+      await this.end(errorMessage(error));
     } finally {
       this.closed = true;
       for (const request of this.requests.values())
@@ -486,7 +486,7 @@ class ClaudeSession implements AgentSession {
   }
 
   /** ends the turn a stopped CLI leaves, once its stderr is complete. */
-  private async end(error: string, notice = false): Promise<void> {
+  private async end(error: string): Promise<void> {
     const closed = this.closed;
     // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
@@ -502,7 +502,7 @@ class ClaudeSession implements AgentSession {
         error: text,
       });
     // a turn reports the error through its result
-    if (notice && !turn && this.connected && !closed)
+    if (!turn && this.connected && !closed)
       this.options.onEvent({ type: 'notice', text });
   }
 
