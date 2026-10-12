@@ -1798,7 +1798,7 @@ await test('a native skills change replaces the list, unless its session has clo
   }
 });
 
-await test('a resolved request leaves the queue, and cancelling one interrupts the turn', async () => {
+await test('a resolved request leaves the queue, cancelling one interrupts the turn, and the settled turn leaves none', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   try {
@@ -1822,6 +1822,7 @@ await test('a resolved request leaves the queue, and cancelling one interrupts t
       'interrupted',
     );
     await sending;
+    assert.deepEqual(coordinator.snapshot.requests, []);
   } finally {
     gate.open();
     await coordinator.close();
