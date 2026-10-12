@@ -18,3 +18,15 @@ await test('a list item continuation line indents under its text', () => {
     '• line1\n  line2',
   );
 });
+
+await test('headings, emphasis, quotes, rules and tables render as terminal text', () => {
+  assert.equal(
+    stripAnsi(
+      markdown(
+        '# Plan\n\n**bold** *em* ~~gone~~\n\n> quoted\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |',
+        '/work',
+      ),
+    ),
+    'Plan\n\nbold em gone\n\n│ quoted\n\n────────\na │ b\n1 │ 2',
+  );
+});
