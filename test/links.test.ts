@@ -110,7 +110,7 @@ await test('long runs of dashes, dots and @ signs, and links on many lines or on
       { length: count },
       (_, n) => `dev${n}@example.com https://example.com/${n}`,
     ).join(separator);
-  // as a Claude tool input shows it: JSON with no whitespace to cut at
+  // minified, as an API returns it: no whitespace to cut at
   const emails = (count: number) =>
     JSON.stringify(
       Array.from({ length: count }, (_, n) => ({
@@ -133,6 +133,27 @@ await test('long runs of dashes, dots and @ signs, and links on many lines or on
       `${input} took ${smallTime} µs of CPU, then ${largeTime} µs for 4x the input`,
     );
   }
+});
+
+await test('text past 2000 characters is cut after a newline, else after a space, so a link across the cut stays whole', () => {
+  const file = `src/notes ${'n'.repeat(20)}.md`;
+  for (const [text, target] of [
+    [
+      `${'x'.repeat(1990)} https://example.com/abcdef end`,
+      'https://example.com/abcdef',
+    ],
+    // the space inside the quotes is the last whitespace before the cut
+    [
+      `${'x'.repeat(1980)}\n"${file}" end`,
+      `vscode://file/work/${file.replace(' ', '%20')}`,
+    ],
+  ] as const) {
+    const output = linkify(text, '/work');
+    assert.ok(output.includes(`\u001b]8;;${target}\u0007`), target);
+    assert.equal(stripAnsi(output), text);
+  }
+  const unbroken = 'x'.repeat(5000);
+  assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
 await test('multi-dot names, dotfiles and quoted or prefixed paths after a dash link whole', () => {
