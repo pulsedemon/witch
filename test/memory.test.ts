@@ -248,7 +248,7 @@ await test('a subdirectory of a repository shares its project memory', async () 
   );
 });
 
-await test('restore produces a new accepted revision and deletion remains visible', async () => {
+await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
   const { memory, open, project } = await fixture();
   const { workspace, scope } = await open('a');
   const paths = await memory.scopePaths(project);
@@ -260,7 +260,9 @@ await test('restore produces a new accepted revision and deletion remains visibl
   await writeFile(path, 'Use value B.');
   await workspace.commit('second preference');
   const second = await workspace.revision();
+  await rm(scope.project, { recursive: true });
   await workspace.restore(note, first);
+  assert.equal(await readFile(path, 'utf8'), 'Use value A.');
   const restored = await workspace.revision();
   assert.notEqual(restored, first);
   assert.notEqual(restored, second);
