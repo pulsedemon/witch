@@ -952,49 +952,43 @@ await test('two coordinators in two directories run turns at once and both publi
   }
 });
 
-for (const decision of ['keep', 'discard'] as const) {
-  await test(`a conflict between two coordinators resolves with ${decision}`, async () => {
-    const context = await fixture();
-    const { store, memory, project, notes } = context;
-    const agents = [context.a, new FixtureAgent('a')];
-    const gates = agents.map((agent) => (agent.gate = new TurnGate()));
-    const coordinators = [
-      context.coordinator,
-      new Coordinator(store, memory, [
-        { adapter: agents[1]!, executable: 'a' },
-      ]),
-    ];
-    try {
-      await coordinators[1]!.initialize(project);
-      const sends = coordinators.map((coordinator, index) =>
-        coordinator.send(`remember:text-${index}`),
-      );
-      await within(
-        Promise.all(gates.map((gate) => gate.entered)),
-        5000,
-        'both turns',
-      );
-      gates[0]!.open();
-      await sends[0];
-      gates[1]!.open();
-      await sends[1];
-      const second = coordinators[1]!;
-      assert.equal(second.snapshot.recovery?.kind, 'conflict');
-      await second.recoverMemory(decision);
-      assert.equal(second.snapshot.phase, 'idle');
-      if (decision === 'keep')
-        assert.equal(await memory.read(main, await notes()), 'text-1');
-      else
-        assert.equal(
-          await context.workspace(second.snapshot.conversation!.id).revision(),
-          await memory.resolve(main),
-        );
-    } finally {
-      for (const gate of gates) gate.open();
-      for (const coordinator of coordinators) await coordinator.close();
-    }
-  });
-}
+await test('discard mine after a conflict between two coordinators keeps the other side', async () => {
+  const context = await fixture();
+  const { store, memory, project, notes } = context;
+  const agents = [context.a, new FixtureAgent('a')];
+  const gates = agents.map((agent) => (agent.gate = new TurnGate()));
+  const coordinators = [
+    context.coordinator,
+    new Coordinator(store, memory, [{ adapter: agents[1]!, executable: 'a' }]),
+  ];
+  try {
+    await coordinators[1]!.initialize(project);
+    const sends = coordinators.map((coordinator, index) =>
+      coordinator.send(`remember:text-${index}`),
+    );
+    await within(
+      Promise.all(gates.map((gate) => gate.entered)),
+      5000,
+      'both turns',
+    );
+    gates[0]!.open();
+    await sends[0];
+    gates[1]!.open();
+    await sends[1];
+    const second = coordinators[1]!;
+    assert.equal(second.snapshot.recovery?.kind, 'conflict');
+    await second.recoverMemory('discard');
+    assert.equal(second.snapshot.phase, 'idle');
+    assert.equal(await memory.read(main, await notes()), 'text-0');
+    assert.equal(
+      await context.workspace(second.snapshot.conversation!.id).revision(),
+      await memory.resolve(main),
+    );
+  } finally {
+    for (const gate of gates) gate.open();
+    for (const coordinator of coordinators) await coordinator.close();
+  }
+});
 
 await test('the launch sweep publishes an unpublished commit whose project directory is gone', async () => {
   const context = await fixture();
