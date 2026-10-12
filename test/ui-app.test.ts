@@ -601,6 +601,31 @@ await test('/model with Keep current effort selects the model without an effort'
   }
 });
 
+await test('a typed model ID that a longer listed ID contains selects itself', async () => {
+  const { app, calls } = fake({
+    models: ['gpt-5.1-codex', 'gpt-5.1'].map((id) => ({
+      id,
+      label: id,
+      description: '',
+      efforts: [],
+    })),
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/model');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the model picker', () => ui.text().includes('gpt-5.1-codex'));
+    await delay(30);
+    ui.stdin.write(`gpt-5.1${ENTER}`);
+    await until('the selection', () => calls.length === 2);
+    assert.deepEqual(calls, [['refreshModels'], ['selectModel', 'gpt-5.1']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const [typed, call] of [
   ['/model m high', ['selectModel', 'm', 'high']],
   ['/agent b', ['switchAgent', 'b']],

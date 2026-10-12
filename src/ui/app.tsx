@@ -204,12 +204,17 @@ export function App({
       return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
     });
   const tools = state.items.filter((item) => item.kind === 'tool');
+  /** an exact ID goes first, so Enter never picks a longer ID that contains it. */
   const filter = (entries: Choice[], text: string) =>
-    entries.filter((choice) =>
-      `${choice.label} ${choice.id} ${choice.search ?? ''}`
-        .toLowerCase()
-        .includes(text.toLowerCase()),
-    );
+    entries
+      .filter((choice) =>
+        `${choice.label} ${choice.id} ${choice.search ?? ''}`
+          .toLowerCase()
+          .includes(text.toLowerCase()),
+      )
+      .sort(
+        (a, b) => Number(b.id === text.trim()) - Number(a.id === text.trim()),
+      );
   const choices = view.kind === 'picker' ? filter(view.choices, query) : [];
   const selected = Math.min(selection, Math.max(0, choices.length - 1));
   const request = state.requests[0];
