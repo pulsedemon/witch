@@ -649,7 +649,7 @@ for (const reason of ['held', 'bad history'] as const) {
           '{"id":\n',
         );
       }
-      const resumed = a.resumed.length;
+      const connects = a.sessions.length;
       await assert.rejects(
         coordinator.selectConversation(target.record.id),
         reason === 'held' ? /open in another Witch instance/ : /JSON/,
@@ -660,7 +660,7 @@ for (const reason of ['held', 'bad history'] as const) {
         /open in another Witch instance/,
       );
       assert.equal(a.sessions.at(-1)!.session.closed, false);
-      assert.equal(a.resumed.length, resumed);
+      assert.equal(a.sessions.length, connects);
       if (reason === 'bad history')
         await (await store.claim(target.record.id)).close();
     } finally {
@@ -1460,11 +1460,11 @@ await test('a handoff cancelled while the summary is saved never connects the de
     };
     gate.open();
     await within(holding.promise, 2000, 'the save after the summary');
-    const connects = b.resumed.length;
+    const connects = b.sessions.length;
     await coordinator.interrupt();
     held.resolve();
     await assert.rejects(switching, /interrupted/);
-    assert.equal(b.resumed.length, connects);
+    assert.equal(b.sessions.length, connects);
     await context.assertSourceActive();
   } finally {
     ConversationStore.prototype.save = save;

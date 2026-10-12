@@ -45,7 +45,6 @@ export class FixtureAgent implements AgentAdapter {
   /** what each session's `skills()` returns. */
   skills: Skill[] = [];
   failSkills = false;
-  readonly resumed: (string | undefined)[] = [];
   readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
   readonly selections: [string, string | null | undefined][] = [];
   failConnect = false;
@@ -63,7 +62,6 @@ export class FixtureAgent implements AgentAdapter {
   async connect(options: SessionOptions): Promise<AgentSession> {
     await this.beforeConnect?.(options);
     if (this.failConnect) throw new Error('Destination unavailable');
-    this.resumed.push(options.resume);
     let info: SessionInfo = {
       id: options.resume ?? randomUUID(),
       agent: this.id,
