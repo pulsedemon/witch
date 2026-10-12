@@ -120,7 +120,8 @@ export function Request({ request, width, height, cwd, respond }: Props) {
           formats: fullFormats,
         });
         if (!validator.validate(request.schema, content)) {
-          setError(validator.errorsText());
+          // Ajv quotes the agent's property names, escapes included
+          setError(linkify(validator.errorsText(), cwd));
           return false;
         }
       }

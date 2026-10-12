@@ -311,6 +311,39 @@ await test('an MCP form whose schema names draft-07 validates the answer', async
   }
 });
 
+await test('a validation error quoting a schema property name cannot carry a link of its own', async () => {
+  const ui = render(
+    createElement(Request, {
+      width: 100,
+      height: 25,
+      cwd: '/work',
+      request: {
+        id: 'form',
+        kind: 'elicitation',
+        title: 'Contact',
+        detail: 'MCP server',
+        schema: {
+          type: 'object',
+          required: [
+            '\u001b]8;;smb://evil.example/share\u0007name\u001b]8;;\u0007',
+          ],
+        },
+      },
+      respond: () => {},
+    }),
+  );
+  try {
+    await delay(600);
+    ui.stdin.write('\r');
+    await delay(40);
+    const frame = ui.lastFrame() ?? '';
+    assert.match(frame, /required property 'name'/);
+    assert.ok(!frame.includes('\u001b]8;;smb:'), JSON.stringify(frame));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('browser elicitation confirms without JSON form content', async () => {
   const sent: UserResponse[] = [];
   const ui = render(
