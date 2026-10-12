@@ -29,7 +29,8 @@ async function until(predicate: () => boolean | Promise<boolean>) {
   assert.fail('The expected UI operation did not complete');
 }
 
-await test('a deleted note remains discoverable and can be restored through its history picker', async () => {
+/** a stored conversation whose memory worktree is ready for notes, before it opens. */
+async function conversation() {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), 'witch-ui-memory-')),
   );
@@ -50,10 +51,16 @@ await test('a deleted note remains discoverable and can be restored through its 
     sessions: {},
     createdAt: new Date().toISOString(),
   });
-  await files.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
   const workspace = memory.workspace(files.directory, id);
   await workspace.ensureWorktree();
   const scope = await workspace.scope(cwd);
+  return { coordinator, cwd, id, files, workspace, scope };
+}
+
+await test('a deleted note remains discoverable and can be restored through its history picker', async () => {
+  const { coordinator, cwd, id, files, workspace, scope } =
+    await conversation();
+  await files.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
   const reference = join(scope.project, 'decisions.md');
   await writeFile(reference, 'Accepted project decision.');
   await workspace.commit('save reference');
@@ -91,6 +98,53 @@ await test('a deleted note remains discoverable and can be restored through its 
     );
     assert.notEqual(await workspace.revision(), originalRevision);
     assert.equal(await workspace.isDirty(), false);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('a note page scrolls one full page at a time and stops at its last row', async () => {
+  const { coordinator, id, files, workspace, scope } = await conversation();
+  await writeFile(
+    join(scope.project, 'long.md'),
+    Array.from({ length: 60 }, (_, row) => `- row ${row + 1}\n`).join(''),
+  );
+  await workspace.commit('save long note');
+  await files.close();
+  await assert.rejects(
+    coordinator.selectConversation(id),
+    /Codex is not installed/,
+  );
+  const ui = render(createElement(App, { coordinator, onExit: () => {} }));
+  const shown = () =>
+    [...stripAnsi(ui.lastFrame() ?? '').matchAll(/row (\d+)/g)].map((match) =>
+      Number(match[1]),
+    );
+  const pageDown = '\u001B[6~';
+  try {
+    await delay(40);
+    ui.stdin.write('/memory');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until(() => !!ui.lastFrame()?.includes('long.md'));
+    await delay(30);
+    ui.stdin.write('long.md');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until(() => shown()[0] === 1);
+    const rows = shown().length;
+    ui.stdin.write(pageDown);
+    await until(() => shown()[0] !== 1);
+    assert.equal(shown()[0], rows + 1);
+    for (let page = 0; page < 60 / rows + 1; page++) {
+      await delay(30);
+      ui.stdin.write(pageDown);
+    }
+    await until(() => shown().at(-1) === 60);
+    await delay(30);
+    ui.stdin.write('\u001B[A');
+    await until(() => shown().at(-1) === 59);
   } finally {
     ui.unmount();
     await coordinator.close();

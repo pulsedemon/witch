@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
+import type { Key } from 'ink';
 import { basename, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
@@ -494,6 +495,46 @@ export function App({
     if (state.phase === 'recovery') setPageScroll(0);
   }, [state.phase]);
 
+  const recovery = state.recovery;
+  const conflict = recovery?.kind === 'conflict';
+  const pageText =
+    state.phase === 'recovery'
+      ? linkify(
+          conflict
+            ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.join('\n')}` : 'This conflict has no single path.'}\n\nYour changes:\n${recovery.diff}`
+            : (recovery?.diff ?? ''),
+          recovery?.root ?? cwd,
+        )
+      : view.kind === 'page'
+        ? markdown(view.text, cwd)
+        : '';
+  const pageLines = wrapAnsi(pageText, width - 2, {
+    hard: true,
+    trim: false,
+  }).split('\n');
+  const pageRows = Math.max(
+    1,
+    bodyHeight - (state.phase === 'recovery' ? 5 : 3),
+  );
+  const pageLast = Math.max(0, pageLines.length - pageRows);
+  const pageTop = Math.min(pageScroll, pageLast);
+  /** steps from the shown top, so a key past either end moves the page at once. */
+  const scrollPage = (key: Key) => {
+    const rows = key.pageDown
+      ? pageRows
+      : key.downArrow
+        ? 1
+        : key.pageUp
+          ? -pageRows
+          : key.upArrow
+            ? -1
+            : 0;
+    if (rows)
+      setPageScroll((value) =>
+        Math.max(0, Math.min(pageLast, Math.min(value, pageLast) + rows)),
+      );
+  };
+
   useInput((input, key) => {
     if (key.eventType === 'release') return;
     if (key.ctrl && input === 'c') {
@@ -504,13 +545,8 @@ export function App({
     }
     if (request) return;
     if (state.phase === 'recovery') {
-      if (key.pageDown || key.downArrow)
-        setPageScroll((value) => value + (key.pageDown ? bodyHeight - 5 : 1));
-      if (key.pageUp || key.upArrow)
-        setPageScroll((value) =>
-          Math.max(0, value - (key.pageUp ? bodyHeight - 5 : 1)),
-        );
-      const kind = state.recovery?.kind;
+      scrollPage(key);
+      const kind = recovery?.kind;
       if (input === 'd') run(coordinator.recoverMemory('discard'));
       if (input === 'a' && kind === 'pending')
         run(coordinator.recoverMemory('accept'));
@@ -548,12 +584,7 @@ export function App({
       return;
     }
     if (view.kind === 'page') {
-      if (key.pageDown || key.downArrow)
-        setPageScroll((value) => value + (key.pageDown ? bodyHeight - 2 : 1));
-      if (key.pageUp || key.upArrow)
-        setPageScroll((value) =>
-          Math.max(0, value - (key.pageUp ? bodyHeight - 2 : 1)),
-        );
+      scrollPage(key);
       if (view.note) {
         if (input === 'e') {
           setView({ kind: 'chat' });
@@ -604,17 +635,6 @@ export function App({
       />
     );
   else if (state.phase === 'recovery') {
-    const recovery = state.recovery;
-    const conflict = recovery?.kind === 'conflict';
-    const text = conflict
-      ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.join('\n')}` : 'This conflict has no single path.'}\n\nYour changes:\n${recovery.diff}`
-      : (recovery?.diff ?? '');
-    const lines = wrapAnsi(linkify(text, recovery?.root ?? cwd), width - 2, {
-      hard: true,
-      trim: false,
-    }).split('\n');
-    const visible = Math.max(1, bodyHeight - 5);
-    const top = Math.min(pageScroll, Math.max(0, lines.length - visible));
     body = (
       <Box flexDirection="column" height={bodyHeight}>
         <Text color="yellow" bold>
@@ -627,8 +647,8 @@ export function App({
             ? 'Another conversation published changes to the same notes.'
             : 'Accept these changes with their original attribution, or discard them.'}
         </Text>
-        <Box height={visible} overflow="hidden">
-          <Text>{lines.slice(top, top + visible).join('\n')}</Text>
+        <Box height={pageRows} overflow="hidden">
+          <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
         </Box>
         <Text bold>
           {conflict
@@ -679,19 +699,13 @@ export function App({
       </Box>
     );
   } else if (view.kind === 'page') {
-    const lines = wrapAnsi(markdown(view.text, cwd), width - 2, {
-      hard: true,
-      trim: false,
-    }).split('\n');
-    const visible = Math.max(1, bodyHeight - 3);
-    const top = Math.min(pageScroll, Math.max(0, lines.length - visible));
     body = (
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>
           {view.link ? hyperlink(view.title, view.link, cwd) : view.title}
         </Text>
-        <Box height={visible} overflow="hidden">
-          <Text>{lines.slice(top, top + visible).join('\n')}</Text>
+        <Box height={pageRows} overflow="hidden">
+          <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
         </Box>
         <Text dimColor>
           {view.note ? 'e edit · h history · ' : ''}↑/↓ scroll · Esc back
