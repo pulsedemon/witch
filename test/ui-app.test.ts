@@ -626,6 +626,37 @@ await test('a typed model ID that a longer listed ID contains selects itself', a
   }
 });
 
+await test('a long picker shows as many choices as its rows hold', async () => {
+  const { app } = fake({
+    models: Array.from({ length: 40 }, (_, n) => ({
+      id: `model-${n + 1}`,
+      label: `model-${n + 1}`,
+      description: '',
+      efforts: [],
+    })),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    24,
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('/model');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the model picker', () => ui.text().includes('Models ·'));
+    const shown = ui
+      .text()
+      .split('\n')
+      .filter((row) => row.trim().startsWith('model-'));
+    // 24 rows less the header, status, title, filter, hint, footer and the row every view leaves free
+    assert.equal(shown.length, 17);
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const [typed, call] of [
   ['/model m high', ['selectModel', 'm', 'high']],
   ['/agent b', ['switchAgent', 'b']],

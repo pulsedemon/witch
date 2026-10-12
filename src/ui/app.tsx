@@ -665,12 +665,12 @@ export function App({
       </Box>
     );
   } else if (view.kind === 'picker') {
-    const count = Math.max(1, bodyHeight - 6);
+    const count = Math.max(1, bodyHeight - 4);
     const first = Math.max(0, selected - count + 1);
     body = (
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>{view.title}</Text>
-        <Box height={bodyHeight - 4} flexDirection="column" overflow="hidden">
+        <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => (
             <Text key={choice.id} inverse={first + index === selected}>
               {choice.cwd
