@@ -1031,6 +1031,10 @@ await test('the launch sweep publishes what it can and reports the rest in one m
   await dirty.files.save(dirty.files.record);
   await dirty.files.close();
   await writeFile(join(dirty.memory.root, 'global', 'three.md'), 'Three.');
+  const stateless = randomUUID();
+  const orphan = await context.outsider(stateless);
+  await writeFile(join(orphan.root, 'global', 'four.md'), 'Four.');
+  await orphan.commit('chore(memory): save outside notes');
   const fresh = join(root, 'fresh');
   await mkdir(fresh);
   for (const launch of [1, 2]) {
@@ -1062,6 +1066,10 @@ await test('the launch sweep publishes what it can and reports the rest in one m
         assert.doesNotMatch(
           report ?? '',
           new RegExp(`Title ${unpublished.id}`),
+        );
+        assert.match(
+          report ?? '',
+          new RegExp(`conversations/${stateless} has unpublished memory`),
         );
       }
     } finally {
