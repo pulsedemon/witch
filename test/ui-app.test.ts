@@ -348,6 +348,51 @@ await test('memory without a worktree shows no links, builds no worktree, and ke
   }
 });
 
+await test('a note page scrolls one full page at a time and stops at its last row', async () => {
+  const { seed, coordinator } = await memoryApp();
+  await writeFile(
+    join(seed.root, 'global', 'long.md'),
+    Array.from({ length: 60 }, (_, row) => `- row ${row + 1}\n`).join(''),
+  );
+  await seed.commit('chore(memory): save long note');
+  await seed.publish();
+  const ui = show(
+    createElement(App, { coordinator, onExit: () => {} }),
+    100,
+    24,
+  );
+  const shown = () =>
+    [...ui.text().matchAll(/row (\d+)/g)].map((match) => Number(match[1]));
+  const pageDown = '\u001b[6~';
+  try {
+    await delay(60);
+    ui.stdin.write('/memory');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the memory picker', () => ui.text().includes('long.md'));
+    await delay(30);
+    ui.stdin.write('long.md');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => shown()[0] === 1);
+    const rows = shown().length;
+    ui.stdin.write(pageDown);
+    await until('the second page', () => shown()[0] !== 1);
+    assert.equal(shown()[0], rows + 1);
+    for (let page = 0; page < 60 / rows + 1; page++) {
+      await delay(30);
+      ui.stdin.write(pageDown);
+    }
+    await until('the last row', () => shown().at(-1) === 60);
+    await delay(30);
+    ui.stdin.write('\u001b[A');
+    await until('one row up', () => shown().at(-1) === 59);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
 await test('an initial prompt is sent once when the load ends idle with nothing reported', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
   const ui = show(
