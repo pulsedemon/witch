@@ -1023,7 +1023,11 @@ await test('the launch sweep publishes what it can and reports the rest in one m
   const context = await fixture();
   const { root, memory, store } = context;
   await context.coordinator.close();
-  const conflict = await stranded(context, { 'global/one.md': 'Mine.\n' });
+  const conflict = await stranded(
+    context,
+    { 'global/one.md': 'Mine.\n' },
+    join(root, 'deleted-project'),
+  );
   await conflict.files.close();
   await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
   const unpublished = await stranded(context, { 'global/two.md': 'Two.' });
@@ -1053,9 +1057,14 @@ await test('the launch sweep publishes what it can and reports the rest in one m
         assert.match(report ?? '', /Open each from \/sessions/);
         assert.match(
           report ?? '',
-          new RegExp(`Title ${conflict.id}.*conflicts`),
+          new RegExp(
+            `Title ${conflict.id} in .*deleted-project \\(recreate this directory first\\): memory conflicts`,
+          ),
         );
-        assert.match(report ?? '', new RegExp(`Title ${dirty.id}.*unfinished`));
+        assert.match(
+          report ?? '',
+          new RegExp(`Title ${dirty.id} in [^(\n]*: unfinished`),
+        );
         assert.doesNotMatch(
           report ?? '',
           new RegExp(`Title ${unpublished.id}`),
