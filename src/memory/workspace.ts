@@ -57,7 +57,6 @@ export class Workspace {
   }
 
   async rebaseStopped(): Promise<boolean> {
-    if (!(await this.exists())) return false;
     const path = await this.git(['rev-parse', '--git-path', 'rebase-merge']);
     return exists(resolve(this.root, path.trim()));
   }
