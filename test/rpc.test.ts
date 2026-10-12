@@ -5,11 +5,11 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { JsonRpc } from '../src/agents/json-rpc.js';
+import { within } from './fixtures/within.js';
 
 function server() {
   return spawn(
@@ -62,17 +62,9 @@ await test('rejects pending requests with the native diagnostic when its process
 await test('a garbage line from the agent kills it', async () => {
   const child = server();
   const rpc = new JsonRpc(child);
-  const exited = new Promise<void>((resolve) =>
-    child.once('exit', () => resolve()),
-  );
   try {
     rpc.notify('garbage', {});
-    await Promise.race([
-      exited,
-      delay(1000).then(() =>
-        assert.fail('the agent outlived its garbage line'),
-      ),
-    ]);
+    await within(once(child, 'exit'), 1000, 'the agent exit');
   } finally {
     child.kill('SIGKILL');
     await rpc.close();
@@ -82,7 +74,7 @@ await test('a garbage line from the agent kills it', async () => {
 for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
   await test(`${adapter.label} with a missing executable fails to connect and cleans up`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'witch-missing-'));
-    await Promise.race([
+    await within(
       assert.rejects(
         adapter.connect({
           cwd,
@@ -92,8 +84,9 @@ for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
           onProcess: async () => {},
         }),
       ),
-      delay(2000).then(() => assert.fail('connect did not settle in 2 s')),
-    ]);
+      2000,
+      'connect',
+    );
   });
 }
 
