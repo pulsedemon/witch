@@ -20,9 +20,9 @@ pnpm exec node --import tsx --test --test-name-pattern='invalid effort' test/cla
 `src/cli.tsx` parses the arguments, opens the `StateStore`, builds one `Coordinator` from `Memory` and the adapters found on `PATH`, and renders `App`.
 
 - `Coordinator` (`src/core/coordinator.ts`) is the only owner of application state for the one conversation it has open. It publishes an immutable `Snapshot`; `App` reads it through `useSyncExternalStore`, batched to 40 ms, and calls coordinator methods. Every action runs through `operate()`, which rejects unless the phase is `idle` (`recovery` for memory recovery) and finishes in `settle()`, which publishes the conversation's memory and classifies what is left.
-- `performTurn` records an `activity` with the memory base revision and wraps the prompt with Witch context, a memory snapshot when the native session's `deliveredRevision` is stale, and any activated handoff summary. The recovery, handoff failure and Claude idle-completion rules are in [docs/rules.md](docs/rules.md).
+- `performTurn` runs each turn; its memory, recovery, handoff and Claude idle-completion rules are in [docs/rules.md](docs/rules.md).
 - Adapters implement `AgentAdapter` from `src/agents/types.ts`, and native protocol types stay inside them. Claude uses `@anthropic-ai/claude-agent-sdk` pointed at the installed CLI. Codex speaks JSON-RPC to `codex app-server --stdio` through `src/agents/json-rpc.ts`.
-- The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/workspace.ts` and `src/cli.tsx`, which places `memory.git`.
+- The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/memory.ts` and `src/cli.tsx`, which places `memory.git`.
 
 macOS assumptions are deliberate: memory editing launches VS Code from `/Applications`, process identity reads `/bin/ps`, and conversation locks use `O_EXLOCK`.
 
