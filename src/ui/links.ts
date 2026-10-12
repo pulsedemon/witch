@@ -112,7 +112,13 @@ export function linkify(text: string, cwd: string): string {
   let buffer = '';
   let target: string | undefined;
   const flush = () => {
-    output += target ? hyperlink(buffer, target, cwd) : bareLinks(buffer, cwd);
+    // linkify-it rescans the rest of its input after every match, and no link spans a newline
+    output += target
+      ? hyperlink(buffer, target, cwd)
+      : buffer
+          .split('\n')
+          .map((line) => bareLinks(line, cwd))
+          .join('\n');
     buffer = '';
   };
   for (const token of tokenize(text)) {

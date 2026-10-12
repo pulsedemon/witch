@@ -94,7 +94,7 @@ await test('malformed file URLs remain readable without breaking a persisted tra
   );
 });
 
-await test('long runs of dashes, dots and @ signs link in linear time', () => {
+await test('long runs of dashes, dots and @ signs, and many lines of links, link in linear time', () => {
   // this process's CPU time ignores load from parallel tests; 4x the input costs 4x when linear, 16x when quadratic
   const fastest = (text: string) =>
     Math.min(
@@ -105,12 +105,23 @@ await test('long runs of dashes, dots and @ signs link in linear time', () => {
         return user + system;
       }),
     );
-  for (const character of ['-', '.', '@']) {
-    const small = fastest(character.repeat(16000));
-    const large = fastest(character.repeat(64000));
+  const links = (lines: number) =>
+    Array.from(
+      { length: lines },
+      (_, n) => `dev${n}@example.com https://example.com/${n}`,
+    ).join('\n');
+  for (const [input, small, large] of [
+    ...['-', '.', '@'].map(
+      (character) =>
+        [character, character.repeat(16000), character.repeat(64000)] as const,
+    ),
+    ['lines of links', links(500), links(2000)] as const,
+  ]) {
+    const smallTime = fastest(small);
+    const largeTime = fastest(large);
     assert.ok(
-      large < small * 8,
-      `${character} took ${small} µs of CPU, then ${large} µs for 4x the input`,
+      largeTime < smallTime * 8,
+      `${input} took ${smallTime} µs of CPU, then ${largeTime} µs for 4x the input`,
     );
   }
 });
