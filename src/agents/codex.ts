@@ -88,7 +88,7 @@ export class CodexAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
-      await rpc.close();
+      await session.close();
       throw error;
     }
   }

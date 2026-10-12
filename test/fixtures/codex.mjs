@@ -97,7 +97,9 @@ for await (const line of lines) {
     if (request.method === 'thread/resume' && !hasHistory) {
       send({
         id: request.id,
-        error: { message: 'no rollout found for thread id native-thread' },
+        error: {
+          message: `no rollout found for thread id ${request.params.threadId}`,
+        },
       });
       continue;
     }

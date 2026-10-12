@@ -14,6 +14,7 @@ const codex = fileURLToPath(new URL('fixtures/codex.mjs', import.meta.url));
 async function fixture(
   onEvent: (event: AgentEvent) => void = () => {},
   effort?: string,
+  resume?: string,
 ) {
   const cwd = await mkdtemp(join(tmpdir(), 'witch-codex-'));
   const adapter = new CodexAdapter((_, directory) =>
@@ -23,6 +24,7 @@ async function fixture(
     cwd,
     executable: 'codex',
     effort,
+    resume,
     memoryDirectories: ['/shared/global', '/shared/project'],
     onEvent,
     onProcess: async () => {},
@@ -96,6 +98,17 @@ await test('loads every model page and preserves native roots without overriding
   } finally {
     await close(session, cwd);
   }
+});
+
+await test('a stored thread resumes by its id, and a missing one fails the connect with no exit notice', async () => {
+  const events: AgentEvent[] = [];
+  await assert.rejects(
+    fixture((event) => events.push(event), undefined, 'stored-thread').then(
+      ({ session, cwd }) => close(session, cwd),
+    ),
+    /no rollout found for thread id stored-thread/,
+  );
+  assert.deepEqual(events, []);
 });
 
 for (const decision of ['accept', 'decline'] as const) {
