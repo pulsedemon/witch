@@ -377,7 +377,7 @@ await test('memory without a worktree shows no links, builds no worktree, and ke
   }
 });
 
-await test('a note page scrolls one full page at a time and stops at its last row', async () => {
+await test('a note page scrolls by rows and full pages and stops at its last row', async () => {
   const { seed, coordinator } = await memoryApp();
   await writeFile(
     join(seed.root, 'global', 'long.md'),
@@ -416,6 +416,10 @@ await test('a note page scrolls one full page at a time and stops at its last ro
     await delay(30);
     ui.stdin.write('\u001b[A');
     await until('one row up', () => shown().at(-1) === 59);
+    ui.stdin.write('\u001b[B');
+    await until('one row down', () => shown().at(-1) === 60);
+    ui.stdin.write('\u001b[5~');
+    await until('a page up', () => shown()[0] === 61 - 2 * rows);
   } finally {
     ui.unmount();
     await coordinator.close();
