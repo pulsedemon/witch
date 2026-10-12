@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -121,7 +122,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
         });
         if (!validator.validate(request.schema, content)) {
           // Ajv quotes the agent's property names, escapes included
-          setError(linkify(validator.errorsText(), cwd));
+          setError(linkify(stripAnsi(validator.errorsText()), cwd));
           return false;
         }
       }
