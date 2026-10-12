@@ -322,9 +322,9 @@ await test('a clean turn does not add an empty memory commit', async () => {
   assert.equal(await workspace.revision(), before);
 });
 
-await test('commit, restore and note preparation refuse symlinked destinations and parent directories', async () => {
+await test('commit, restore, note preparation and the note list refuse symlinked destinations and parent directories', async () => {
   for (const parent of [false, true]) {
-    const { open, root } = await fixture();
+    const { memory, open, project, root } = await fixture();
     const { workspace, scope } = await open('a');
     const path = join(scope.project, 'note.md');
     await writeFile(path, 'Saved preference.');
@@ -353,6 +353,13 @@ await test('commit, restore and note preparation refuse symlinked destinations a
       'legacy symlink',
     );
     assert.equal(await workspace.isDirty(), false);
+    await assert.rejects(
+      memory.files(
+        await workspace.revision(),
+        await memory.scopePaths(project),
+      ),
+      /regular files/,
+    );
     await assert.rejects(
       workspace.restore(path, revision),
       /regular (file|directory)/,
