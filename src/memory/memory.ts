@@ -80,12 +80,7 @@ export async function exists(path: string): Promise<boolean> {
 /** a note path relative to the memory root, refusing anything outside the note directories. */
 export function notePath(path: string): string {
   const file = posix.normalize(path);
-  if (
-    posix.isAbsolute(file) ||
-    file === '..' ||
-    file.startsWith('../') ||
-    file.startsWith('.git')
-  )
+  if (file === '..' || file.startsWith('../') || file.startsWith('.git'))
     throw new Error('Memory path is outside the note directories');
   return file;
 }
