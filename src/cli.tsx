@@ -4,6 +4,7 @@ import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
+import { errorMessage } from './agents/stderr.js';
 import { Coordinator } from './core/coordinator.js';
 import { Memory } from './memory/memory.js';
 import { StateStore } from './persistence/store.js';
@@ -43,9 +44,7 @@ try {
   if (!values.help && !(process.stdin.isTTY && process.stdout.isTTY))
     throw new Error('Witch needs an interactive terminal.');
 } catch (error) {
-  process.stderr.write(
-    `witch: ${error instanceof Error ? error.message : String(error)}\n`,
-  );
+  process.stderr.write(`witch: ${errorMessage(error)}\n`);
   process.exit(1);
 }
 if (values.help) {
@@ -71,7 +70,7 @@ if (values.help) {
       () => application.unmount(),
       (error: unknown) => {
         application.unmount();
-        process.stderr.write(`${String(error)}\n`);
+        process.stderr.write(`witch: ${errorMessage(error)}\n`);
         process.exitCode = 1;
       },
     );
