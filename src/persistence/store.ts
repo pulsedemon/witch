@@ -23,14 +23,7 @@ function missing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-export function lockedElsewhere(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.cause instanceof Error &&
-    'code' in error.cause &&
-    error.cause.code === 'EAGAIN'
-  );
-}
+export class LockedElsewhere extends Error {}
 
 async function tryLock(path: string): Promise<FileHandle> {
   try {
@@ -44,7 +37,7 @@ async function tryLock(path: string): Promise<FileHandle> {
     );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EAGAIN')
-      throw new Error(
+      throw new LockedElsewhere(
         'This conversation is open in another Witch instance or being recovered.',
         { cause: error },
       );

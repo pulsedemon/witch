@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { identifyProcess } from '../src/persistence/process.js';
-import { StateStore, lockedElsewhere } from '../src/persistence/store.js';
+import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { foldDisplayUpdates } from '../src/core/state.js';
 import type { Conversation } from '../src/core/state.js';
 
@@ -59,8 +59,8 @@ await test('a second claim of a conversation is refused while another conversati
     await assert.rejects(
       store.claim('first'),
       (error) =>
-        lockedElsewhere(error) &&
-        /open in another Witch instance/.test((error as Error).message),
+        error instanceof LockedElsewhere &&
+        /open in another Witch instance/.test(error.message),
     );
     await (await store.claim('second')).close();
   } finally {

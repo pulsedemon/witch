@@ -19,7 +19,7 @@ import type {
 import { exists, main } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
-import { lockedElsewhere } from '../persistence/store.js';
+import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
 import { listFiles } from './files.js';
@@ -244,7 +244,7 @@ export class Coordinator {
           await files.save(files.record);
         }
       } catch (error) {
-        if (!lockedElsewhere(error)) problem(error);
+        if (!(error instanceof LockedElsewhere)) problem(error);
       } finally {
         await files?.close().catch(problem);
       }
