@@ -174,12 +174,13 @@ await test('a null effort clears the effort in force', async () => {
   }
 });
 
-await test('a new session has history once its first prompt starts', async () => {
+await test('a new session has history and the native permission mode once its first prompt starts', async () => {
   const { session } = await fixture();
   try {
     assert.equal(session.info.hasHistory, false);
     await session.send('hello');
     assert.equal(session.info.hasHistory, true);
+    assert.equal(session.info.permissionMode, 'default');
   } finally {
     await session.close();
   }
