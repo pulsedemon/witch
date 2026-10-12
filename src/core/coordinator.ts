@@ -525,10 +525,7 @@ export class Coordinator {
     let activated = false;
     try {
       let summary = '';
-      if (
-        previousHandoff?.activated ||
-        this.snapshot.items.some((item) => item.kind === 'user')
-      ) {
+      if (this.snapshot.items.some((item) => item.kind === 'user')) {
         const result = await this.performTurn(
           'Produce a concise handoff summary: objective, constraints, verified decisions, changed files, completed checks, and remaining work. Only summarize. Do not run tools or change files.',
           'handoff',
