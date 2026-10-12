@@ -9,7 +9,7 @@ const session = z.object({
   deliveredRevision: z.string().optional(),
 });
 
-export const conversationSchema = z.object({
+const conversationSchema = z.object({
   id: z.string(),
   title: z.string(),
   cwd: z.string(),
