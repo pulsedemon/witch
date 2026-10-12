@@ -251,6 +251,24 @@ await test('replay folds appends, replacements and new ids, keeping a title an e
   );
 });
 
+await test('an append keeps the cwd its item has, and a replacement takes its own', () => {
+  const tool = { id: 't', kind: 'tool', title: '', done: false } as const;
+  assert.equal(
+    foldDisplayUpdates([
+      { ...tool, text: '', cwd: '/p/sub', replace: true },
+      { ...tool, text: 'a.md', cwd: '/p' },
+    ])[0]?.cwd,
+    '/p/sub',
+  );
+  assert.equal(
+    foldDisplayUpdates([
+      { ...tool, text: '', cwd: '/p' },
+      { ...tool, text: 'a.md', cwd: '/p/sub', replace: true },
+    ])[0]?.cwd,
+    '/p/sub',
+  );
+});
+
 await test("listing keeps this directory's conversations with history, newest history first", async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-listing-'));
   const store = await StateStore.open(root);
