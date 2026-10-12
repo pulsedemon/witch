@@ -95,6 +95,22 @@ await test('a stored thread resumes by its id, and a missing one fails the conne
   assert.deepEqual(events, []);
 });
 
+await test('an accepted permissions request grants the requested permissions for the turn', async () => {
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'request')
+      session.respond(event.request.id, { decision: 'accept' });
+  });
+  try {
+    assert.equal((await session.send('permissions')).status, 'completed');
+    assert.deepEqual(
+      JSON.parse(await readFile(join(cwd, 'response-91.json'), 'utf8')),
+      { permissions: { network: { enabled: true } }, scope: 'turn' },
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 for (const decision of ['accept', 'decline'] as const) {
   await test(`native approval ${decision} controls the requested side effect`, async () => {
     const { session, cwd } = await fixture((event) => {

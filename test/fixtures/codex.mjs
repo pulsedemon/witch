@@ -30,7 +30,6 @@ const held = async () => {
   writeFileSync(file('replied'), 'yes');
   while (!existsSync(file('release'))) await delay(5);
 };
-let prompt = '';
 let skillAdded = false;
 const skill = (name, fields) => ({
   name,
@@ -121,10 +120,10 @@ for await (const line of lines) {
   }
   if (request.method === 'turn/start') {
     hasHistory = true;
-    prompt = request.params.input[0].text;
+    const prompt = request.params.input[0].text;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
     reply({ turn: { id: 'turn-1' } });
-    if (prompt === 'wait' || prompt === 'hold') continue;
+    if (prompt === 'hold') continue;
     if (prompt === 'add skill') {
       skillAdded = true;
       notify('skills/changed', {});
@@ -183,6 +182,19 @@ for await (const line of lines) {
       });
       continue;
     }
+    if (prompt === 'permissions') {
+      send({
+        id: 91,
+        method: 'item/permissions/requestApproval',
+        params: {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          itemId: 'tool-1',
+          permissions: { network: { enabled: true }, fileSystem: null },
+        },
+      });
+      continue;
+    }
     if (prompt === 'elicitation') {
       send({
         id: 89,
@@ -221,7 +233,7 @@ for await (const line of lines) {
     });
     finish('completed');
   }
-  if ((request.id === 88 || request.id === 89) && request.result) {
+  if ([88, 89, 91].includes(request.id) && request.result) {
     writeFileSync(
       file(`response-${request.id}.json`),
       JSON.stringify(request.result),
@@ -233,13 +245,8 @@ for await (const line of lines) {
     finish('completed');
   }
   if (request.method === 'turn/interrupt') {
-    if (prompt === 'hold') {
-      reply({});
-      await held();
-      finish('interrupted');
-    } else {
-      finish('interrupted');
-      reply({});
-    }
+    reply({});
+    await held();
+    finish('interrupted');
   }
 }
