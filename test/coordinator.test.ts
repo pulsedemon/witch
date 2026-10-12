@@ -1311,7 +1311,7 @@ function holdSnapshot(hook: { current: GitHook }) {
 await test('an interrupt during the memory snapshot delivers nothing', async () => {
   const { coordinator, a, hook } = await fixture();
   try {
-    await coordinator.send('Start');
+    await coordinator.send('remember-port');
     const before = a.inputs.length;
     const snapshot = holdSnapshot(hook);
     const sending = coordinator.send('Second');
@@ -1340,7 +1340,7 @@ await test('a connect failure leaves the prompt undelivered', async () => {
 await test('a session that closes during the snapshot receives nothing', async () => {
   const { coordinator, a, hook } = await fixture();
   try {
-    await coordinator.send('Start');
+    await coordinator.send('remember-port');
     const before = a.inputs.length;
     const snapshot = holdSnapshot(hook);
     const sending = coordinator.send('Second');
@@ -1365,7 +1365,7 @@ await test('Ctrl+C during the save before sending reaches the agent', async () =
   const save = ConversationStore.prototype.save;
   const held = Promise.withResolvers<void>();
   try {
-    await coordinator.send('Start');
+    await coordinator.send('remember-port');
     a.gate = gate;
     let armed = false;
     hook.current = async (command, run) => {
