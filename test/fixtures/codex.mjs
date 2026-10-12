@@ -157,6 +157,17 @@ for await (const line of lines) {
       finish('failed', { message: 'native failure' });
       continue;
     }
+    if (prompt === 'reroute') {
+      notify('model/rerouted', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        fromModel: model,
+        toModel: 'model-c',
+        reason: 'highRiskCyberActivity',
+      });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'error') {
       notify('error', {
         threadId: 'native-thread',

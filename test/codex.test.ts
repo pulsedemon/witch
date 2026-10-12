@@ -403,6 +403,18 @@ await test('a model choice that changes no native setting returns and shows the 
   }
 });
 
+await test('a reroute shows the model in use, and choosing the thread model again returns', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    assert.equal((await session.send('reroute')).status, 'completed');
+    assert.equal(session.info.model, 'model-c');
+    await within(session.selectModel('model-a'), 2000, 'the thread model');
+    assert.equal(session.info.model, 'model-a');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a fresh thread reports the requested effort over the native default', async () => {
   const { session, cwd } = await fixture(() => {}, { effort: 'high' });
   try {
