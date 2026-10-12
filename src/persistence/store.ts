@@ -3,6 +3,7 @@ import { constants } from 'node:fs';
 import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
+import { errorMessage } from '../agents/stderr.js';
 import {
   conversationRecordSchema,
   displayUpdateSchema,
@@ -75,10 +76,7 @@ export class StateStore {
         records.push(await readRecord(this.directory(id)));
       } catch (error) {
         if (!missing(error))
-          unreadable.push({
-            id,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          unreadable.push({ id, error: errorMessage(error) });
       }
     }
     return { records, unreadable };
