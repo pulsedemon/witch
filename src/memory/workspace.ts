@@ -261,10 +261,10 @@ export class Workspace {
     await this.git(['reset', '--hard', '--quiet', main]);
   }
 
-  async prepareNote(path: string, initial = ''): Promise<string> {
+  async prepareNote(path: string): Promise<string> {
     const file = await this.checkedPath(path);
     await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, initial, { flag: 'wx' }).catch((error: unknown) => {
+    await writeFile(file, '', { flag: 'wx' }).catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     });
     return file;
