@@ -611,7 +611,7 @@ export class Coordinator {
     if (this.cancelled || session.closed)
       return { status: 'interrupted', text: '' };
     if (kind === 'turn' && conversation.title === 'New conversation')
-      conversation.title = prompt.replace(/\s+/g, ' ').slice(0, 80);
+      conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
     this.display({
       id: randomUUID(),
       kind: kind === 'handoff' ? 'notice' : 'user',
