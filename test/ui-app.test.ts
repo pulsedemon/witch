@@ -201,6 +201,34 @@ await test('the pending view ignores k', async () => {
   }
 });
 
+await test('PageDown in the recovery view starts at the first row it hid', async () => {
+  const { app } = fake({
+    phase: 'recovery',
+    recovery: {
+      kind: 'pending',
+      paths: [],
+      diff: Array.from({ length: 60 }, (_, n) => `+row ${n + 1}`).join('\n'),
+      root: '/m',
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    24,
+  );
+  const shown = () =>
+    [...ui.text().matchAll(/row (\d+)/g)].map((match) => Number(match[1]));
+  try {
+    await until('the pending diff', () => shown()[0] === 1);
+    const rows = shown().length;
+    ui.stdin.write('\u001b[6~');
+    await until('the second page', () => shown()[0] !== 1);
+    assert.equal(shown()[0], rows + 1);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('an error shows in the recovery view', async () => {
   const { app } = fake({
     phase: 'recovery',
