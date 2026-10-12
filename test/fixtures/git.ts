@@ -11,7 +11,7 @@ export type GitHook = (
   options: GitOptions,
 ) => Promise<GitResult>;
 
-/** a git runner a test can act through between two commands; `command` omits the identity flags. */
+/** a git runner a test can act through between two commands; `command` omits the `-c` overrides. */
 export function hookedGit(hook: { current: GitHook }): GitRunner {
   return (args, options) => {
     let start = 0;

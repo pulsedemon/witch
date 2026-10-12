@@ -36,7 +36,7 @@ export type GitRunner = (
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
 
-const identity = [
+const overrides = [
   '-c',
   'user.name=Witch',
   '-c',
@@ -102,7 +102,7 @@ export class Memory {
       codes?: readonly number[];
     } = {},
   ): Promise<GitResult> {
-    const result = await this.runner([...identity, ...args], {
+    const result = await this.runner([...overrides, ...args], {
       cwd,
       env: options.env,
       input: options.input,
