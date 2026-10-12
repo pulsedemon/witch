@@ -142,31 +142,33 @@ function extend(
 }
 
 export class TranscriptLayout {
-  /** blocks by item id, then by width and expanded state. */
-  private cache = new Map<string, Map<string, Block>>();
+  /** blocks by item id, then by expanded state, all at `width`. */
+  private cache = new Map<string, Map<boolean, Block>>();
+  private width = 0;
 
   render(
     items: readonly DisplayItem[],
     width: number,
     expanded: ReadonlySet<string>,
   ) {
+    if (width !== this.width) this.cache = new Map();
+    this.width = width;
     const lines: string[] = [];
     const blocks: string[][] = [];
     const starts = new Map<string, number>();
     const rendered = new Map<string, Block>();
     // entries for items no longer shown fall away with the old cache
-    const cache = new Map<string, Map<string, Block>>();
+    const cache = new Map<string, Map<boolean, Block>>();
     for (const item of items) {
       const open = expanded.has(item.id);
-      const key = `${width}/${open}`;
       const variants = new Map(this.cache.get(item.id));
-      const previous = variants.get(key);
+      const previous = variants.get(open);
       const block =
         previous?.item === item
           ? previous
           : ((previous && extend(previous, item, width)) ??
             build(item, width, open));
-      variants.set(key, block);
+      variants.set(open, block);
       cache.set(item.id, variants);
       starts.set(item.id, lines.length);
       for (const line of block.lines) lines.push(line);
