@@ -44,3 +44,7 @@ export function watchChild(child: ChildProcess): ChildExit {
 export function withTail(message: string, tail: string): string {
   return tail ? `${message}: ${tail}` : message;
 }
+
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

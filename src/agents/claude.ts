@@ -13,7 +13,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
-import { watchChild, withTail } from './stderr.js';
+import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
 import type {
   AgentAdapter,
@@ -85,10 +85,6 @@ function skillsOf(commands: SlashCommand[]): Skill[] {
       description,
       ...(argumentHint ? { argumentHint } : {}),
     }));
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 class ClaudeSession implements AgentSession {
@@ -231,7 +227,7 @@ class ClaudeSession implements AgentSession {
     } catch (error) {
       // the CLI may still be alive, holding its stderr open
       await Promise.race([this.child?.closed, delay(1000)]);
-      throw new Error(withTail(message(error), this.child?.tail() ?? ''), {
+      throw new Error(withTail(errorMessage(error), this.child?.tail() ?? ''), {
         cause: error,
       });
     }
@@ -367,7 +363,7 @@ class ClaudeSession implements AgentSession {
       for await (const message of this.query) this.receive(message);
       if (this.turn) await this.end('Claude exited before reporting idle');
     } catch (error) {
-      await this.end(message(error), true);
+      await this.end(errorMessage(error), true);
     } finally {
       this.closed = true;
       for (const request of this.requests.values())

@@ -3,6 +3,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
+import { errorMessage } from './stderr.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -277,7 +278,7 @@ class CodexSession implements AgentSession {
       this.options.onEvent({ type: 'info', info: this.info });
     } catch (error) {
       turn.started.resolve('');
-      this.finish('failed', String(error));
+      this.finish('failed', errorMessage(error));
     }
     return turn.finished.promise;
   }
@@ -378,7 +379,7 @@ class CodexSession implements AgentSession {
     try {
       this.notification(message);
     } catch (error) {
-      const text = `Witch could not read Codex's ${message.method} notification: ${error instanceof Error ? error.message : String(error)}`;
+      const text = `Witch could not read Codex's ${message.method} notification: ${errorMessage(error)}`;
       if (message.method === 'turn/completed') this.finish('failed', text);
       else if (message.method === 'thread/settings/updated')
         this.settings?.reject(new Error(text));
@@ -407,7 +408,10 @@ class CodexSession implements AgentSession {
           void this.skills().then(
             (skills) => this.options.onEvent({ type: 'skills', skills }),
             (error: unknown) =>
-              this.options.onEvent({ type: 'notice', text: String(error) }),
+              this.options.onEvent({
+                type: 'notice',
+                text: errorMessage(error),
+              }),
           );
         break;
       case 'item/agentMessage/delta': {
@@ -497,7 +501,7 @@ class CodexSession implements AgentSession {
     try {
       request = this.parseRequest(message);
     } catch (error) {
-      const text = `Witch could not read Codex's ${message.method} request: ${error instanceof Error ? error.message : String(error)}`;
+      const text = `Witch could not read Codex's ${message.method} request: ${errorMessage(error)}`;
       this.rpc.reject(message.id!, text);
       this.options.onEvent({ type: 'notice', text });
       return;
