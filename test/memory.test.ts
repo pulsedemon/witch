@@ -285,6 +285,17 @@ await test('preparing an existing note keeps its text', async () => {
   assert.equal(await readFile(path, 'utf8'), 'Saved.');
 });
 
+await test('preparing a note outside the note directories is refused', async () => {
+  const { open } = await fixture();
+  const { workspace } = await open('a');
+  for (const path of ['../outside.md', '.git'])
+    await assert.rejects(
+      workspace.prepareNote(path),
+      /outside the note directories/,
+      path,
+    );
+});
+
 await test('a clean turn does not add an empty memory commit', async () => {
   const { open } = await fixture();
   const { workspace } = await open('a');
