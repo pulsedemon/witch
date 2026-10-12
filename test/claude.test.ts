@@ -406,7 +406,7 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   }
 });
 
-await test('Claude tool use and its result update one tool, and subagent text stays out of the transcript', async () => {
+await test('Claude tool use and its result update one tool, a streamed reply ends as its full message, and subagent text stays out of the transcript', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -420,11 +420,15 @@ await test('Claude tool use and its result update one tool, and subagent text st
         ['tool-1', '', 'a.md', true],
       ],
     );
-    assert.ok(
-      !events.some(
-        (event) => event.type === 'text' && event.text.includes('Subagent'),
-      ),
+    const texts = events.filter((event) => event.type === 'text');
+    assert.deepEqual(
+      texts.map(({ text, replace }) => [text, replace]),
+      [
+        ['Done.', undefined],
+        ['Done.', true],
+      ],
     );
+    assert.equal(texts[0]!.id, texts[1]!.id);
   } finally {
     await session.close();
   }

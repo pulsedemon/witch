@@ -22,14 +22,35 @@ const state = (state) =>
     uuid: randomUUID(),
     session_id,
   });
-const assistant = (text, content = [{ type: 'text', text }], parent = null) =>
+const streamEvent = (event, parent) =>
+  send({
+    type: 'stream_event',
+    uuid: randomUUID(),
+    session_id,
+    parent_tool_use_id: parent,
+    event,
+  });
+/** streams a text reply as a delta before its full message, as partial messages do. */
+const assistant = (text, content = [{ type: 'text', text }], parent = null) => {
+  const id = randomUUID();
+  if (text) {
+    streamEvent({ type: 'message_start', message: { id } }, parent);
+    streamEvent(
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text },
+      },
+      parent,
+    );
+  }
   send({
     type: 'assistant',
     uuid: randomUUID(),
     session_id,
     parent_tool_use_id: parent,
     message: {
-      id: randomUUID(),
+      id,
       type: 'message',
       role: 'assistant',
       model,
@@ -44,6 +65,7 @@ const assistant = (text, content = [{ type: 'text', text }], parent = null) =>
       },
     },
   });
+};
 const result = () =>
   send({
     type: 'result',
@@ -271,6 +293,7 @@ for await (const line of lines) {
         },
       });
       assistant('Subagent text.', undefined, 'tool-1');
+      assistant('Done.');
       finish();
     } else if (['wait', 'still queued'].includes(lastPrompt))
       assistant('Working.');
