@@ -324,7 +324,7 @@ await test('an unsupported native request gets an error reply and the turn conti
   }
 });
 
-await test('a command streams its output into one tool that completes once', async () => {
+await test('a command streams its output into one tool that completes once, and the user message and reasoning show none', async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);

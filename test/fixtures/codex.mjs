@@ -178,6 +178,17 @@ for await (const line of lines) {
         command: 'ls',
         cwd: '/elsewhere',
       };
+      notify('item/started', {
+        item: { type: 'userMessage', id: 'user-1', content: [] },
+      });
+      notify('item/completed', {
+        item: {
+          type: 'reasoning',
+          id: 'reasoning-1',
+          summary: [],
+          content: [],
+        },
+      });
       notify('item/started', { item: { ...item, aggregatedOutput: '' } });
       notify('item/commandExecution/outputDelta', {
         itemId: 'cmd-1',
