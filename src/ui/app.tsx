@@ -603,7 +603,8 @@ export function App({
       const current = toolSelectionRef.current;
       let next = current;
       if (key.upArrow) next = Math.max(0, current - 1);
-      if (key.downArrow) next = Math.min(tools.length - 1, current + 1);
+      if (key.downArrow)
+        next = Math.max(0, Math.min(tools.length - 1, current + 1));
       if (next !== current) {
         setToolSelection(next);
         scrollTo(transcript.starts.get(tools[next]?.id ?? '') ?? null);
