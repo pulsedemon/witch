@@ -145,6 +145,26 @@ await test('a stored thread resumes by its id, and a missing one fails the conne
   assert.deepEqual(events, []);
 });
 
+await test('a request Codex resolves itself leaves the queue before the turn ends', async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    const turn = session.send('withdrawn');
+    await appears(join(cwd, 'replied'));
+    await delay(50);
+    assert.deepEqual(
+      events
+        .map((event) => event.type)
+        .filter((type) => type.startsWith('request')),
+      ['request', 'request-resolved'],
+    );
+    await writeFile(join(cwd, 'release'), 'yes');
+    assert.equal((await turn).status, 'completed');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('an accepted permissions request grants the requested permissions for the turn', async () => {
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'request')

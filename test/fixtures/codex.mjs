@@ -256,6 +256,26 @@ for await (const line of lines) {
       });
       continue;
     }
+    if (prompt === 'withdrawn') {
+      send({
+        id: 93,
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          itemId: 'tool-1',
+          command: 'write withdrawn.txt',
+          cwd: process.cwd(),
+        },
+      });
+      notify('serverRequest/resolved', {
+        threadId: 'native-thread',
+        requestId: 93,
+      });
+      await held();
+      finish('completed');
+      continue;
+    }
     if (prompt === 'permissions') {
       send({
         id: 91,
