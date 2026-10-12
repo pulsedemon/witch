@@ -63,6 +63,17 @@ function working() {
   return { seen: seen.promise, onEvent };
 }
 
+await test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
+  const { args, connect } = await launcher();
+  const session = await connect({ effort: 'high' });
+  try {
+    assert.ok(args[0]!.includes('--effort=high'), JSON.stringify(args[0]));
+    assert.equal(session.info.effort, 'high');
+  } finally {
+    await session.close();
+  }
+});
+
 await test('refresh consumes a fresh native catalog without replacing the default system prompt', async () => {
   const { session, cwd } = await fixture();
   try {
