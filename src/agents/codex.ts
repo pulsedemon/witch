@@ -104,6 +104,8 @@ class CodexSession implements AgentSession {
   };
   private requests = new Map<string, RpcMessage>();
   private closing = false;
+  /** an exit before this rejects the connect, which reports it. */
+  private connected = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
   private readonly malformed = new Set<string>();
   /** each listed skill's SKILL.md, which a skill input names. */
@@ -126,7 +128,7 @@ class CodexSession implements AgentSession {
       this.settings?.reject(error);
       this.closed = true;
       this.finish('failed', error.message);
-      if (!this.closing)
+      if (this.connected && !this.closing)
         options.onEvent({ type: 'notice', text: error.message });
     };
   }
@@ -167,6 +169,7 @@ class CodexSession implements AgentSession {
         parameters,
       ),
     );
+    this.connected = true;
   }
 
   async models(): Promise<Model[]> {
