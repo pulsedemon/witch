@@ -193,6 +193,10 @@ await test('a truncated final record cannot corrupt history written after restar
   );
   files = await store.claim('c');
   try {
+    assert.deepEqual(
+      (await files.history()).map((entry) => entry.text),
+      ['before'],
+    );
     await files.append({
       id: 'next',
       kind: 'notice',
