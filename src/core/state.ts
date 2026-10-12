@@ -4,7 +4,7 @@ const session = z.object({
   id: z.string(),
   model: z.string(),
   requestedModel: z.string().optional(),
-  hasHistory: z.boolean().default(false),
+  hasHistory: z.boolean(),
   effort: z.string().optional(),
   deliveredRevision: z.string().optional(),
 });
