@@ -938,6 +938,37 @@ await test('the header shows the stored model until the session reports one, and
   }
 });
 
+await test('a project name, model and permission mode carrying a link sequence show as plain text in the header', async () => {
+  const forged = (name: string) =>
+    `\u001b]8;;x-evil:payload\u0007${name}\u001b]8;;\u0007`;
+  const { app } = fake({
+    conversation: {
+      id: 'c',
+      title: 't',
+      cwd: `/work/${forged('project')}`,
+      agent: 'a',
+      sessions: {},
+      createdAt: '',
+    },
+    native: {
+      id: 's',
+      agent: 'a',
+      cwd: '/work',
+      model: forged('model'),
+      permissionMode: forged('mode'),
+      hasHistory: true,
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the header', () => ui.text().includes('model'));
+    assert.match(ui.text(), /project {2}· {2}a {2}· {2}model/);
+    assert.ok(!ui.frame().includes('x-evil:'), JSON.stringify(ui.frame()));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a conversation switch resets the tool selection within the next read', async () => {
   const { app, coordinator } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));

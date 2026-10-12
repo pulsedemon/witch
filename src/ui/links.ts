@@ -37,13 +37,7 @@ export function hyperlink(text: string, target: string, cwd: string): string {
   } catch {
     return text;
   }
-  if (
-    [...url].some(
-      (character) =>
-        character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
-    )
-  )
-    return text;
+  if (/\p{Cc}/u.test(url)) return text;
   return ansiEscapes.link(text, url);
 }
 

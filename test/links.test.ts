@@ -183,6 +183,10 @@ await test('a web target with a control character stays plain text', () => {
     hyperlink('label', 'https://example.com/\u001b]8;;x', '/work'),
     'label',
   );
+  assert.equal(
+    hyperlink('label', 'https://example.com/\u009d8;;smb://x\u009c', '/work'),
+    'label',
+  );
 });
 
 await test('a stray escape or bell left by a dropped sequence cannot rejoin into a link', () => {

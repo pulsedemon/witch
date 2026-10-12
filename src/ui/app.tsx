@@ -621,7 +621,7 @@ export function App({
     }
   });
 
-  const header = `${hyperlink(basename(cwd), cwd, cwd)}  ·  ${state.conversation?.agent ?? 'Starting'}  ·  ${state.native?.model || state.conversation?.sessions[state.conversation.agent]?.model || 'Native default'}`;
+  const header = `${hyperlink(plain(basename(cwd)), cwd, cwd)}  ·  ${state.conversation?.agent ?? 'Starting'}  ·  ${plain(state.native?.model || state.conversation?.sessions[state.conversation.agent]?.model || 'Native default')}`;
   let body;
   if (request)
     body = (
@@ -798,7 +798,7 @@ export function App({
         <Text dimColor>
           {state.phase}
           {state.native?.permissionMode
-            ? ` · ${state.native.permissionMode}`
+            ? ` · ${plain(state.native.permissionMode)}`
             : ''}
           {top !== null && view.kind === 'chat'
             ? ' · Reading earlier output'
