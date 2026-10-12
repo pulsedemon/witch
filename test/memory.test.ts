@@ -266,11 +266,14 @@ await test('restore produces a new accepted revision and deletion remains visibl
   assert.equal((await memory.history(restored.revision, note)).length, 3);
   await unlink(path);
   await workspace.commit('remove preference');
-  assert.doesNotMatch(
-    (await memory.snapshot(await workspace.revision(), workspace.root, paths))
-      .text,
-    /Use value A/,
+  const removed = await memory.snapshot(
+    await workspace.revision(),
+    workspace.root,
+    paths,
+    restored.revision,
   );
+  assert.doesNotMatch(removed.text, /Use value A/);
+  assert.ok(removed.text.includes(`since the previous snapshot:\nD\t${note}`));
 });
 
 await test('a clean turn does not add an empty memory commit', async () => {
