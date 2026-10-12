@@ -125,6 +125,7 @@ class CodexSession implements AgentSession {
       model: options.model ?? '',
       permissionMode: '',
       hasHistory: !!options.resume,
+      effort: options.effort,
     };
     rpc.onMessage = (message) => this.receive(message);
     rpc.onExit = (error) => {
@@ -223,32 +224,35 @@ class CodexSession implements AgentSession {
     return skills;
   }
 
-  /** Codex can't clear effort, so `null` keeps the effort in force as an omitted one does. */
+  /** Codex can't clear its thread's effort, so `null` only stops requesting one. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn)
       throw new Error('Stop the current turn before changing models');
     // Codex notifies only when the settings change
     if (
-      model === this.native.model &&
-      (effort == null || effort === this.native.effort)
+      model !== this.native.model ||
+      (effort != null && effort !== this.native.effort)
     ) {
-      this.info = { ...this.info, model, effort: effort ?? this.info.effort };
-      this.options.onEvent({ type: 'info', info: this.info });
-      return;
+      this.settings = Promise.withResolvers<void>();
+      try {
+        await Promise.all([
+          this.rpc.request('thread/settings/update', {
+            threadId: this.info.id,
+            model,
+            effort,
+          }),
+          this.settings.promise,
+        ]);
+      } finally {
+        this.settings = undefined;
+      }
     }
-    this.settings = Promise.withResolvers<void>();
-    try {
-      await Promise.all([
-        this.rpc.request('thread/settings/update', {
-          threadId: this.info.id,
-          model,
-          effort,
-        }),
-        this.settings.promise,
-      ]);
-    } finally {
-      this.settings = undefined;
-    }
+    this.info = {
+      ...this.info,
+      model: this.native.model,
+      effort: effort === undefined ? this.info.effort : (effort ?? undefined),
+    };
+    this.options.onEvent({ type: 'info', info: this.info });
   }
 
   async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
@@ -366,7 +370,6 @@ class CodexSession implements AgentSession {
       model: data.model,
       cwd: data.cwd,
       permissionMode: `${policy}${data.approvalsReviewer ? ` / ${data.approvalsReviewer}` : ''}`,
-      effort: this.options.effort ?? data.reasoningEffort ?? undefined,
     };
     this.options.onEvent({ type: 'info', info: this.info });
   }
@@ -399,7 +402,7 @@ class CodexSession implements AgentSession {
           model: z.string().parse(settings.model),
           effort: z.string().nullish().parse(settings.effort) ?? undefined,
         };
-        this.info = { ...this.info, ...this.native };
+        this.info = { ...this.info, model: this.native.model };
         this.options.onEvent({ type: 'info', info: this.info });
         this.settings?.resolve();
         break;

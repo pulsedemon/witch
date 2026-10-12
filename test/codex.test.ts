@@ -406,10 +406,12 @@ await test('a grandchild holding the native pipes cannot keep a dead turn open, 
   }
 });
 
-await test('selecting a model without an effort keeps the effort in force', async () => {
+await test("a model chosen without an effort keeps the requested one and never reports Codex's default as requested", async () => {
   const { session, cwd } = await fixture();
   try {
-    assert.equal(session.info.effort, 'low');
+    assert.equal(session.info.effort, undefined);
+    await session.selectModel('model-b');
+    assert.equal(session.info.effort, undefined);
     await session.selectModel('model-a', 'high');
     await session.selectModel('model-b');
     assert.equal(session.info.effort, 'high');
@@ -418,9 +420,21 @@ await test('selecting a model without an effort keeps the effort in force', asyn
   }
 });
 
+await test('a null effort stops requesting one', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    await session.selectModel('model-a', 'high');
+    await session.selectModel('model-b', null);
+    assert.equal(session.info.effort, undefined);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a model choice that changes no native setting returns and shows the choice', async () => {
   const { session, cwd } = await fixture(() => {}, { effort: 'high' });
   try {
+    assert.equal(session.info.effort, 'high');
     await within(session.selectModel('model-a'), 2000, 'the same model');
     assert.equal(session.info.effort, 'high');
     await within(
@@ -441,15 +455,6 @@ await test('a reroute shows the model in use, and choosing the thread model agai
     assert.equal(session.info.model, 'model-c');
     await within(session.selectModel('model-a'), 2000, 'the thread model');
     assert.equal(session.info.model, 'model-a');
-  } finally {
-    await close(session, cwd);
-  }
-});
-
-await test('a fresh thread reports the requested effort over the native default', async () => {
-  const { session, cwd } = await fixture(() => {}, { effort: 'high' });
-  try {
-    assert.equal(session.info.effort, 'high');
   } finally {
     await close(session, cwd);
   }
