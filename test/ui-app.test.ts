@@ -570,7 +570,6 @@ await test('two questions answered in one read each get their own option', async
   }
 });
 
-/** opens the command picker and waits for it. */
 await test('/model with Keep current effort selects the model without an effort', async () => {
   const { app, calls } = fake({
     models: [
@@ -601,6 +600,7 @@ await test('/model with Keep current effort selects the model without an effort'
   }
 });
 
+/** opens the command picker and waits for it. */
 async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
   await until('the command picker', () => ui.text().includes('Commands'));
