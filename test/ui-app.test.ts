@@ -891,6 +891,35 @@ for (const typed of ['/ex', '/quit '])
     }
   });
 
+for (const [phase, outcome, exits, interrupts] of [
+  ['idle', 'exits', 1, 0],
+  ['running', 'interrupts', 0, 1],
+] as const)
+  await test(`Ctrl+C while ${phase} ${outcome}`, async () => {
+    const { app, calls } = fake({ phase });
+    let exited = 0;
+    const ui = show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {
+          exited++;
+        },
+      }),
+    );
+    try {
+      await delay(60);
+      ui.stdin.write('\u0003');
+      await delay(60);
+      assert.equal(exited, exits);
+      assert.equal(
+        calls.filter(([call]) => call === 'interrupt').length,
+        interrupts,
+      );
+    } finally {
+      ui.unmount();
+    }
+  });
+
 await test('Ctrl+C while closing quits instead of interrupting again', async () => {
   const { app, coordinator, calls } = fake({});
   let exits = 0;
