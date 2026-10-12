@@ -152,7 +152,7 @@ await test('unfinished memory blocks execution until recovery preserves the orig
 await test('handoff returns to the original native session with updated context', async () => {
   const { coordinator, a, b } = await fixture();
   try {
-    await coordinator.send('Start the migration');
+    await coordinator.send(' Start the migration\n');
     const original = a.inputs[0]!.session;
     await coordinator.switchAgent('b');
     assert.match(b.inputs[0]!.prompt, /a: finish the migration/);
