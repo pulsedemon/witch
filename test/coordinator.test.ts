@@ -160,6 +160,10 @@ await test('handoff returns to the original native session with updated context'
     assert.equal(a.inputs.at(-1)!.session, original);
     assert.match(a.inputs.at(-1)!.prompt, /b: finish the migration/);
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
+    assert.equal(
+      coordinator.snapshot.conversation?.title,
+      'Start the migration',
+    );
   } finally {
     await coordinator.close();
   }
@@ -196,6 +200,8 @@ await test('restored memory refreshes an existing session before the next turn',
     assert.match(a.inputs.at(-1)!.prompt, /Use port 9001/);
     assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Use port 4567/);
     assert.equal(a.inputs[0]?.session, a.inputs.at(-1)?.session);
+    await coordinator.send('Again');
+    assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
   } finally {
     await coordinator.close();
   }
@@ -899,20 +905,14 @@ await test('two coordinators in two directories run turns at once and both publi
   const { root, store, memory } = context;
   const other = join(root, 'other');
   await mkdir(other);
-  const agents = [new FixtureAgent('a'), new FixtureAgent('a')];
+  const agents = [context.a, new FixtureAgent('a')];
   const gates = agents.map((agent) => (agent.gate = new TurnGate()));
-  const coordinators = [context.coordinator];
-  coordinators.push(
+  const coordinators = [
+    context.coordinator,
     new Coordinator(store, memory, [{ adapter: agents[1]!, executable: 'a' }]),
-  );
+  ];
   try {
     await coordinators[1]!.initialize(other);
-    // the first coordinator was built with its own agent; swap in a gated one
-    await context.coordinator.close();
-    coordinators[0] = new Coordinator(store, memory, [
-      { adapter: agents[0]!, executable: 'a' },
-    ]);
-    await coordinators[0].initialize(context.project);
     const sends = coordinators.map((coordinator, index) =>
       coordinator.send(`remember:note-${index}`),
     );
