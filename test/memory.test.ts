@@ -413,6 +413,10 @@ await test('keep mine wins conflicting lines and merges every other change, and 
       'global/three.md': 'Mine only.',
     });
     assert.equal(await mine.publish(), 'conflict');
+    const conflict = await mine.conflict();
+    assert.deepEqual(conflict.paths, ['global/one.md']);
+    assert.match(conflict.diff, /^\+mine 1$/m);
+    assert.doesNotMatch(conflict.diff, /theirs/);
     if (decision === 'keep') {
       await mine.keepMine();
       assert.equal(await mine.publish(), 'published');
