@@ -278,6 +278,22 @@ await test('restore produces a new accepted revision and deletion remains visibl
   assert.ok(removed.includes(`since the previous snapshot:\nD\t${note}`));
 });
 
+await test('a changed note with a non-ASCII name reaches the agent as written', async () => {
+  const { memory, open, project } = await fixture();
+  const { workspace } = await open('a');
+  const before = await workspace.revision();
+  await save(workspace, { 'global/café.md': 'Order the café au lait.' });
+  const snapshot = await memory.snapshot(
+    await workspace.revision(),
+    workspace.root,
+    await memory.scopePaths(project),
+    before,
+  );
+  assert.ok(
+    snapshot.includes('since the previous snapshot:\nA\tglobal/café.md'),
+  );
+});
+
 await test('preparing an existing note keeps its text', async () => {
   const { open } = await fixture();
   const { workspace, scope } = await open('a');

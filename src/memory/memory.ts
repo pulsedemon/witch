@@ -45,6 +45,9 @@ const overrides = [
   'core.hooksPath=/dev/null',
   '-c',
   'commit.gpgsign=false',
+  // prints non-ASCII paths as written instead of octal-escaped and quoted
+  '-c',
+  'core.quotePath=false',
 ];
 
 export const runGit: GitRunner = (args, { cwd, env, input }) =>
