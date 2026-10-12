@@ -200,8 +200,8 @@ await test('accepted snapshots exclude dirty tracked and newly created notes', a
     workspace.root,
     await memory.scopePaths(project),
   );
-  assert.match(snapshot.text, /Accepted project fact/);
-  assert.doesNotMatch(snapshot.text, /Unfinished/);
+  assert.match(snapshot, /Accepted project fact/);
+  assert.doesNotMatch(snapshot, /Unfinished/);
   await workspace.discardPending();
   assert.equal(await workspace.isDirty(), false);
   assert.equal(
@@ -228,8 +228,8 @@ await test('global memory crosses projects while project notes remain scoped', a
     workspace.root,
     await memory.scopePaths(other),
   );
-  assert.match(snapshot.text, /Use concise replies/);
-  assert.doesNotMatch(snapshot.text, /4567/);
+  assert.match(snapshot, /Use concise replies/);
+  assert.doesNotMatch(snapshot, /4567/);
 });
 
 await test('a subdirectory of a repository shares its project memory', async () => {
@@ -255,25 +255,24 @@ await test('restore produces a new accepted revision and deletion remains visibl
   await workspace.commit('second preference');
   const second = await workspace.revision();
   await workspace.restore(note, first);
-  const restored = await memory.snapshot(
-    await workspace.revision(),
-    workspace.root,
-    paths,
+  const restored = await workspace.revision();
+  assert.notEqual(restored, first);
+  assert.notEqual(restored, second);
+  assert.match(
+    await memory.snapshot(restored, workspace.root, paths),
+    /Use value A/,
   );
-  assert.notEqual(restored.revision, first);
-  assert.notEqual(restored.revision, second);
-  assert.match(restored.text, /Use value A/);
-  assert.equal((await memory.history(restored.revision, note)).length, 3);
+  assert.equal((await memory.history(restored, note)).length, 3);
   await unlink(path);
   await workspace.commit('remove preference');
   const removed = await memory.snapshot(
     await workspace.revision(),
     workspace.root,
     paths,
-    restored.revision,
+    restored,
   );
-  assert.doesNotMatch(removed.text, /Use value A/);
-  assert.ok(removed.text.includes(`since the previous snapshot:\nD\t${note}`));
+  assert.doesNotMatch(removed, /Use value A/);
+  assert.ok(removed.includes(`since the previous snapshot:\nD\t${note}`));
 });
 
 await test('preparing an existing note keeps its text', async () => {
@@ -677,11 +676,11 @@ await test('snapshot paths point into the worktree, never the bare repository', 
     paths,
   );
   assert.ok(
-    snapshot.text
+    snapshot
       .split('\n')
       .includes(join(workspace.root, paths.project, 'MEMORY.md')),
   );
-  assert.doesNotMatch(snapshot.text, /memory\.git/);
+  assert.doesNotMatch(snapshot, /memory\.git/);
 });
 
 await test('begin returns the worktree revision when main moves during it', async () => {

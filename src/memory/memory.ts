@@ -16,11 +16,6 @@ export interface MemoryScope {
   project: string;
 }
 
-export interface MemorySnapshot {
-  revision: string;
-  text: string;
-}
-
 export interface GitOptions {
   cwd: string;
   env?: Record<string, string>;
@@ -201,7 +196,7 @@ export class Memory {
     root: string,
     scope: MemoryScope,
     previous?: string,
-  ): Promise<MemorySnapshot> {
+  ): Promise<string> {
     const paths = [scope.global, scope.project];
     const files = await this.files(revision, scope);
     const essentials = await Promise.all(
@@ -224,20 +219,15 @@ export class Memory {
             ...paths,
           ])
         : '';
-    return {
-      revision,
-      text: [
-        `Accepted shared memory, revision ${revision}.`,
-        'This snapshot supersedes earlier shared-memory snapshots. Removed facts are no longer active preferences. Re-read changed reference notes before relying on them.',
-        ...essentials,
-        `Available reference notes:\n${files.map((file) => join(root, file)).join('\n') || '(none)'}`,
-        ...(changes
-          ? [
-              `Changed or deleted notes since the previous snapshot:\n${changes}`,
-            ]
-          : []),
-      ].join('\n\n'),
-    };
+    return [
+      `Accepted shared memory, revision ${revision}.`,
+      'This snapshot supersedes earlier shared-memory snapshots. Removed facts are no longer active preferences. Re-read changed reference notes before relying on them.',
+      ...essentials,
+      `Available reference notes:\n${files.map((file) => join(root, file)).join('\n') || '(none)'}`,
+      ...(changes
+        ? [`Changed or deleted notes since the previous snapshot:\n${changes}`]
+        : []),
+    ].join('\n\n');
   }
 
   async files(revision: string, scope: MemoryScope): Promise<string[]> {
