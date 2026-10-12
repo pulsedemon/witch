@@ -112,7 +112,7 @@ await test('parallel initialization seeds one repository and leaves a stray buil
   assert.deepEqual(await readdir(stray, { recursive: true }), before);
 });
 
-await test('memory works under user Git configuration with no identity, an empty template and the apply rebase backend', async () => {
+await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend and hidden untracked files', async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-memory-identity-'));
   const template = join(root, 'template');
   await mkdir(template);
@@ -161,11 +161,13 @@ await test('memory works under user Git configuration with no identity, an empty
         ...process.env,
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_COUNT: '2',
+        GIT_CONFIG_COUNT: '3',
         GIT_CONFIG_KEY_0: 'user.useConfigOnly',
         GIT_CONFIG_VALUE_0: 'true',
         GIT_CONFIG_KEY_1: 'rebase.backend',
         GIT_CONFIG_VALUE_1: 'apply',
+        GIT_CONFIG_KEY_2: 'status.showUntrackedFiles',
+        GIT_CONFIG_VALUE_2: 'no',
         GIT_TEMPLATE_DIR: template,
         GIT_AUTHOR_NAME: undefined,
         GIT_AUTHOR_EMAIL: undefined,

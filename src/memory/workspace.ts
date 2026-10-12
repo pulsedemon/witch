@@ -77,7 +77,11 @@ export class Workspace {
   }
 
   async isDirty(): Promise<boolean> {
-    return (await this.git(['status', '--porcelain'])).length > 0;
+    // the user's status.showUntrackedFiles=no would hide new notes
+    return (
+      (await this.git(['status', '--porcelain', '--untracked-files=normal']))
+        .length > 0
+    );
   }
 
   /** publishes anything left over, moves to `main`, and returns the revision and scope the turn starts from. */
