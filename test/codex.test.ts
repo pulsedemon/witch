@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
 import type { AgentEvent, AgentSession } from '../src/agents/types.js';
+import { within } from './fixtures/within.js';
 
 const codex = fileURLToPath(new URL('fixtures/codex.mjs', import.meta.url));
 
@@ -36,23 +37,6 @@ async function fixture(
 async function close(session: AgentSession, cwd: string) {
   await writeFile(join(cwd, 'release'), 'yes');
   await session.close();
-}
-
-async function within<T>(promise: Promise<T>, milliseconds: number) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`no result within ${milliseconds} ms`)),
-          milliseconds,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 async function appears(path: string) {
@@ -158,7 +142,7 @@ await test('skills keep the first enabled entry per name and prefer its interfac
       { cwds: [cwd], forceReload: true },
     );
     assert.equal((await session.send('add skill')).status, 'completed');
-    const event = await within(changed.promise, 2000);
+    const event = await within(changed.promise, 2000, 'skills change');
     assert.deepEqual(
       event.type === 'skills' && event.skills.map(({ name }) => name),
       ['review', 'legacy', 'bare', 'later'],
@@ -199,7 +183,7 @@ await test('interrupt waits for the native turn to complete', async () => {
     await delay(50);
     assert.equal(done(), false);
     await writeFile(join(cwd, 'release'), 'yes');
-    await within(interrupting, 2000);
+    await within(interrupting, 2000, 'interrupt');
     assert.equal((await turn).status, 'interrupted');
   } finally {
     await close(session, cwd);
@@ -215,7 +199,7 @@ await test('model selection waits for the settings notification', async () => {
     await delay(50);
     assert.equal(done(), false);
     await writeFile(join(cwd, 'release'), 'yes');
-    await within(selecting, 2000);
+    await within(selecting, 2000, 'model selection');
   } finally {
     await close(session, cwd);
   }
@@ -228,7 +212,7 @@ await test('malformed notifications post one notice per method and the turn comp
   });
   try {
     assert.equal(
-      (await within(session.send('malformed'), 2000)).status,
+      (await within(session.send('malformed'), 2000, 'malformed turn')).status,
       'completed',
     );
     assert.equal(notices.length, 1);
@@ -242,7 +226,7 @@ await test('a malformed settings notification fails the model change', async () 
   const { session, cwd } = await fixture();
   try {
     await assert.rejects(
-      within(session.selectModel('bad-settings'), 2000),
+      within(session.selectModel('bad-settings'), 2000, 'settings update'),
       /thread\/settings\/updated/,
     );
   } finally {
@@ -258,7 +242,7 @@ for (const [prompt, error] of [
   await test(`a turn completed as ${prompt} fails only that turn`, async () => {
     const { session, cwd } = await fixture();
     try {
-      const result = await within(session.send(prompt), 2000);
+      const result = await within(session.send(prompt), 2000, `${prompt} turn`);
       assert.equal(result.status, 'failed');
       assert.match(result.error ?? '', error);
       assert.equal(session.closed, false);
@@ -272,7 +256,8 @@ await test('an unparseable native request gets an error reply and the turn conti
   const { session, cwd } = await fixture();
   try {
     assert.equal(
-      (await within(session.send('bad-request'), 2000)).status,
+      (await within(session.send('bad-request'), 2000, 'bad request turn'))
+        .status,
       'completed',
     );
     assert.match(
@@ -287,7 +272,11 @@ await test('an unparseable native request gets an error reply and the turn conti
 await test('a grandchild holding the native pipes cannot keep a dead turn open', async () => {
   const { session, cwd } = await fixture();
   try {
-    const result = await within(session.send('grandchild'), 1000);
+    const result = await within(
+      session.send('grandchild'),
+      1000,
+      'grandchild turn',
+    );
     assert.equal(result.status, 'failed');
   } finally {
     const pid = Number(

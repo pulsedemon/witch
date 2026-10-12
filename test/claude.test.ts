@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
+import { within } from './fixtures/within.js';
 
 const claude = fileURLToPath(new URL('fixtures/claude.mjs', import.meta.url));
 
@@ -45,23 +46,6 @@ async function fixture(
   const { cwd, children, connect } = await launcher(mode);
   const session = await connect({ onEvent });
   return { session, cwd, child: children[0]! };
-}
-
-async function within<T>(promise: Promise<T>, milliseconds: number) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`no result within ${milliseconds} ms`)),
-          milliseconds,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /** resolves on the first text event, so an interrupt can't land ahead of the queued prompt. */
@@ -228,9 +212,9 @@ await test('a mid-turn interrupt ends the turn with the native result', async ()
   const { session } = await fixture(onEvent);
   try {
     const turn = session.send('wait');
-    await within(seen, 2000);
-    await within(session.interrupt(), 2000);
-    assert.deepEqual(await within(turn, 2000), {
+    await within(seen, 2000, 'first output');
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.deepEqual(await within(turn, 2000, 'turn'), {
       status: 'interrupted',
       text: 'Finished.',
     });
@@ -245,11 +229,11 @@ await test('an interrupt that leaves the prompt queued closes the session', asyn
   try {
     const exited = once(child, 'exit');
     const turn = session.send('still queued');
-    await within(seen, 2000);
-    await within(session.interrupt(), 2000);
+    await within(seen, 2000, 'first output');
+    await within(session.interrupt(), 2000, 'interrupt');
     assert.equal(session.closed, true);
     assert.deepEqual(await turn, { status: 'interrupted', text: 'Working.' });
-    await within(exited, 1000);
+    await within(exited, 1000, 'CLI exit');
   } finally {
     await session.close();
   }
@@ -265,8 +249,8 @@ await test('a CLI that exits mid-turn ends the turn only once its stderr is comp
       finished = true;
       return result;
     });
-    await within(seen, 2000);
-    await within(exited, 2000);
+    await within(seen, 2000, 'first output');
+    await within(exited, 2000, 'CLI exit');
     const deadline = Date.now() + 1000;
     while (!session.closed) {
       assert.ok(Date.now() < deadline, 'the session never closed');
@@ -274,8 +258,8 @@ await test('a CLI that exits mid-turn ends the turn only once its stderr is comp
     }
     assert.equal(finished, false);
     await assert.rejects(session.send('again'), /closed/);
-    await within(session.interrupt(), 2000);
-    const result = await within(turn, 2000);
+    await within(session.interrupt(), 2000, 'interrupt');
+    const result = await within(turn, 2000, 'turn');
     assert.equal(result.status, 'interrupted');
     assert.match(result.error ?? '', /fixture stderr text/);
     assert.match(result.error ?? '', /grandchild line/);
@@ -290,10 +274,10 @@ await test('an interrupt after the CLI died resolves and the turn ends', async (
   try {
     const exited = once(child, 'exit');
     const turn = session.send('die');
-    await within(seen, 2000);
-    await within(exited, 2000);
-    await within(session.interrupt(), 2000);
-    assert.equal((await within(turn, 2000)).status, 'interrupted');
+    await within(seen, 2000, 'first output');
+    await within(exited, 2000, 'CLI exit');
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.equal((await within(turn, 2000, 'turn')).status, 'interrupted');
   } finally {
     await session.close();
   }
@@ -302,7 +286,11 @@ await test('an interrupt after the CLI died resolves and the turn ends', async (
 await test('a CLI that exits cleanly before idle fails the turn with its stderr', async () => {
   const { session } = await fixture();
   try {
-    const result = await within(session.send('quit early'), 2000);
+    const result = await within(
+      session.send('quit early'),
+      2000,
+      'quit early turn',
+    );
     assert.equal(result.status, 'failed');
     assert.match(result.error ?? '', /exited before reporting idle/);
     assert.match(result.error ?? '', /quitting early/);
@@ -318,7 +306,10 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   }, 'exit-when-idle');
   try {
     assert.equal((await session.send('hello')).status, 'completed');
-    assert.match(await within(notice.promise, 2000), /grandchild line/);
+    assert.match(
+      await within(notice.promise, 2000, 'exit notice'),
+      /grandchild line/,
+    );
   } finally {
     await session.close();
   }
@@ -327,7 +318,10 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
 await test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
   const { children, connect } = await launcher('init-error');
   try {
-    await assert.rejects(within(connect(), 3000), /init failed text/);
+    await assert.rejects(
+      within(connect(), 3000, 'connect'),
+      /init failed text/,
+    );
   } finally {
     for (const child of children) child.kill('SIGKILL');
   }

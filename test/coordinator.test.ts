@@ -26,6 +26,7 @@ import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
+import { within } from './fixtures/within.js';
 
 function record(id: string, cwd: string, agent = 'a'): Conversation {
   return {
@@ -59,27 +60,6 @@ async function readRecord(
       'utf8',
     ),
   ) as ConversationRecord;
-}
-
-async function within<T>(
-  promise: Promise<T>,
-  milliseconds: number,
-  what: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`${what} timed out`)),
-          milliseconds,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 async function fixture(
