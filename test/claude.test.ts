@@ -482,6 +482,18 @@ await test('a CLI that exits during initialize fails the connect without a notic
   assert.deepEqual(events, []);
 });
 
+await test('an aborted connect rejects', async () => {
+  const { children, connect } = await launcher('hang-on-init');
+  const controller = new AbortController();
+  const connecting = connect({ signal: controller.signal });
+  controller.abort();
+  try {
+    await assert.rejects(within(connecting, 3000, 'connect'), /aborted/);
+  } finally {
+    for (const child of children) child.kill('SIGKILL');
+  }
+});
+
 await test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
   const { children, connect } = await launcher('init-error');
   try {

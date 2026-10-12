@@ -133,6 +133,7 @@ for await (const line of lines) {
         join(process.cwd(), 'initialize.json'),
         JSON.stringify(request),
       );
+      if (mode === 'hang-on-init') continue;
       if (mode === 'exit-on-init') {
         process.stderr.write('init exit text\n', () => process.exit(1));
         continue;
