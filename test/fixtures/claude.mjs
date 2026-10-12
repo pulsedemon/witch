@@ -308,7 +308,10 @@ for await (const line of lines) {
         'tool-2',
       );
       toolResult('sub-1', 'inner', 'tool-2');
-      toolResult('tool-2', 'Found a.md.');
+      toolResult('tool-2', [
+        { type: 'text', text: 'Found a.md.' },
+        { type: 'text', text: 'Read one file.' },
+      ]);
       assistant('Done.');
       finish();
     } else if (['wait', 'still queued'].includes(lastPrompt))

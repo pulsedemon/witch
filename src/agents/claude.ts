@@ -450,7 +450,13 @@ class ClaudeSession implements AgentSession {
             text:
               typeof block.content === 'string'
                 ? block.content
-                : JSON.stringify(block.content, null, 2),
+                : (block.content ?? [])
+                    .map((part) =>
+                      part.type === 'text'
+                        ? part.text
+                        : JSON.stringify(part, null, 2),
+                    )
+                    .join('\n'),
             done: true,
             cwd: this.info.cwd,
           });
