@@ -149,7 +149,7 @@ await test('unfinished memory blocks execution until recovery preserves the orig
   }
 });
 
-await test('handoff returns to the original native session with updated context', async () => {
+await test('handoff returns to the original native session with updated context, and a switch to the current or an uninstalled agent sends nothing', async () => {
   const { coordinator, a, b } = await fixture();
   try {
     await coordinator.send(' Start the migration\n');
@@ -164,6 +164,10 @@ await test('handoff returns to the original native session with updated context'
       coordinator.snapshot.conversation?.title,
       'Start the migration',
     );
+    const sent = a.inputs.length;
+    await coordinator.switchAgent('a');
+    await assert.rejects(coordinator.switchAgent('c'), /c is not installed/);
+    assert.equal(a.inputs.length, sent);
   } finally {
     await coordinator.close();
   }
