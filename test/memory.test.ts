@@ -189,7 +189,7 @@ await test('memory works under user Git configuration with no identity, an empty
     assert.equal(identity, 'Witch <witch@localhost> | Witch <witch@localhost>');
 });
 
-await test('pending notes block the next turn and stay out of accepted snapshots', async () => {
+await test('pending notes show in the recovery diff, block the next turn and stay out of accepted snapshots', async () => {
   const { memory, open, project } = await fixture();
   const { workspace, scope } = await open('a');
   await writeFile(join(scope.project, 'MEMORY.md'), 'Accepted project fact.');
@@ -197,6 +197,9 @@ await test('pending notes block the next turn and stay out of accepted snapshots
   await writeFile(join(scope.project, 'MEMORY.md'), 'Unfinished project fact.');
   await writeFile(join(scope.project, 'pending.md'), 'Unfinished new note.');
   assert.equal(await workspace.isDirty(), true);
+  const diff = await workspace.diff();
+  assert.match(diff, /^\+Unfinished project fact\.$/m);
+  assert.match(diff, /pending\.md\nUnfinished new note\./);
   await assert.rejects(workspace.begin(project), /Resolve pending memory/);
   const snapshot = await memory.snapshot(
     await workspace.revision(),
