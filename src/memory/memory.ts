@@ -211,17 +211,16 @@ export class Memory {
         return `${join(root, index)}\n${content}`;
       }),
     );
-    const changes =
-      previous && previous !== revision
-        ? await this.git(this.root, [
-            'diff',
-            '--name-status',
-            previous,
-            revision,
-            '--',
-            ...paths,
-          ])
-        : '';
+    const changes = previous
+      ? await this.git(this.root, [
+          'diff',
+          '--name-status',
+          previous,
+          revision,
+          '--',
+          ...paths,
+        ])
+      : '';
     return [
       `Accepted shared memory, revision ${revision}.`,
       'This snapshot supersedes earlier shared-memory snapshots. Removed facts are no longer active preferences. Re-read changed reference notes before relying on them.',
