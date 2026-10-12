@@ -501,7 +501,8 @@ class ClaudeSession implements AgentSession {
         text: '',
         error: text,
       });
-    if (notice && this.connected && !closed)
+    // a turn reports the error through its result
+    if (notice && !turn && this.connected && !closed)
       this.options.onEvent({ type: 'notice', text });
   }
 

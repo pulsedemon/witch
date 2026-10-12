@@ -330,9 +330,13 @@ await test('an interrupt that leaves the prompt queued closes the session', asyn
   }
 });
 
-await test('a CLI that exits mid-turn ends the turn only once its stderr is complete', async () => {
+await test('a CLI that exits mid-turn ends the turn only once its stderr is complete, and posts no notice', async () => {
   const { seen, onEvent } = working();
-  const { session, child } = await fixture(onEvent);
+  const notices: AgentEvent[] = [];
+  const { session, child } = await fixture((event) => {
+    onEvent(event);
+    if (event.type === 'notice') notices.push(event);
+  });
   try {
     const exited = once(child, 'exit');
     let finished = false;
@@ -354,6 +358,7 @@ await test('a CLI that exits mid-turn ends the turn only once its stderr is comp
     assert.equal(result.status, 'interrupted');
     assert.match(result.error ?? '', /fixture stderr text/);
     assert.match(result.error ?? '', /grandchild line/);
+    assert.deepEqual(notices, []);
   } finally {
     await session.close();
   }
