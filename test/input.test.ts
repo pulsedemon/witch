@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { editInput, initialInput } from '../src/ui/input-buffer.js';
+import type { Edit } from '../src/ui/input-buffer.js';
 
 await test('an insert stores CRLF line endings as newlines', () => {
   assert.deepEqual(
@@ -42,7 +43,7 @@ await test('cursor moves and deletions land on grapheme boundaries across lines'
   const value = 'e\u0301x\n👩‍💻y\nz';
   const at = (
     cursor: number,
-    type: 'left' | 'right' | 'up' | 'down' | 'backspace' | 'delete',
+    type: Exclude<Edit, { type: 'insert' }>['type'],
   ) => editInput({ value, cursor }, { type });
   assert.deepEqual(at(4, 'left'), { value, cursor: 3 });
   assert.deepEqual(at(4, 'backspace'), { value: 'e\u0301x👩‍💻y\nz', cursor: 3 });
@@ -53,6 +54,8 @@ await test('cursor moves and deletions land on grapheme boundaries across lines'
   assert.deepEqual(at(9, 'backspace'), { value: 'e\u0301x\ny\nz', cursor: 4 });
   assert.deepEqual(at(9, 'up'), { value, cursor: 3 });
   assert.deepEqual(at(2, 'down'), { value, cursor: 4 });
+  assert.deepEqual(at(9, 'home'), { value, cursor: 4 });
+  assert.deepEqual(at(4, 'end'), { value, cursor: 10 });
   assert.deepEqual(initialInput('a\r\nb'), { value: 'a\nb', cursor: 3 });
 });
 
