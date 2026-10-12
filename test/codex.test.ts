@@ -16,10 +16,14 @@ async function fixture(
   onEvent: (event: AgentEvent) => void = () => {},
   effort?: string,
   resume?: string,
+  mode?: string,
 ) {
   const cwd = await mkdtemp(join(tmpdir(), 'witch-codex-'));
   const adapter = new CodexAdapter((_, directory) =>
-    spawn(process.execPath, [codex], { cwd: directory, stdio: 'pipe' }),
+    spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
+      cwd: directory,
+      stdio: 'pipe',
+    }),
   );
   const session = await adapter.connect({
     cwd,
@@ -323,6 +327,24 @@ await test('a command streams its output into one tool that completes once', asy
   } finally {
     await close(session, cwd);
   }
+});
+
+await test('a Codex that exits during initialize fails the connect without a notice', async () => {
+  const events: AgentEvent[] = [];
+  await assert.rejects(
+    within(
+      fixture(
+        (event) => events.push(event),
+        undefined,
+        undefined,
+        'exit-on-init',
+      ),
+      3000,
+      'connect',
+    ),
+    /init exit text/,
+  );
+  assert.deepEqual(events, []);
 });
 
 await test('a grandchild holding the native pipes cannot keep a dead turn open', async () => {

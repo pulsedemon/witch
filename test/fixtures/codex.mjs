@@ -5,6 +5,8 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+// modes that a prompt can't reach come from the command line
+const mode = process.argv[2] ?? '';
 let model = 'model-a';
 let effort = 'low';
 let hasHistory = false;
@@ -40,7 +42,11 @@ const skill = (name, fields) => ({
 for await (const line of lines) {
   const request = JSON.parse(line);
   const reply = (result) => send({ id: request.id, result });
-  if (request.method === 'initialize') reply({ userAgent: 'fixture' });
+  if (request.method === 'initialize') {
+    if (mode === 'exit-on-init')
+      process.stderr.write('init exit text\n', () => process.exit(1));
+    else reply({ userAgent: 'fixture' });
+  }
   if (request.method === 'config/read')
     reply({
       config: {
