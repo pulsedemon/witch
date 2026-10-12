@@ -276,6 +276,15 @@ await test('restore produces a new accepted revision and deletion remains visibl
   assert.ok(removed.text.includes(`since the previous snapshot:\nD\t${note}`));
 });
 
+await test('preparing an existing note keeps its text', async () => {
+  const { open } = await fixture();
+  const { workspace, scope } = await open('a');
+  const path = join(scope.project, 'MEMORY.md');
+  await writeFile(path, 'Saved.');
+  await workspace.prepareNote(path);
+  assert.equal(await readFile(path, 'utf8'), 'Saved.');
+});
+
 await test('a clean turn does not add an empty memory commit', async () => {
   const { open } = await fixture();
   const { workspace } = await open('a');
