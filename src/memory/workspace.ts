@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { exists, main } from './memory.js';
+import { exists, main, notePath } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
 export type PublishResult = 'published' | 'conflict';
@@ -112,9 +112,10 @@ export class Workspace {
         { codes: [0, 1] },
       );
       if (based.code !== 0) {
+        // --merge overrides rebase.backend=apply, which would stop where rebaseStopped() doesn't look
         const rebase = await this.memory.run(
           this.root,
-          ['rebase', '--quiet', latest],
+          ['rebase', '--merge', '--quiet', latest],
           { codes: [0, 1, 128] },
         );
         if (rebase.code !== 0) {
@@ -154,7 +155,7 @@ export class Workspace {
     await this.git(['commit', '--quiet', '-m', message]);
   }
 
-  /** today's uncommitted changes, with new files shown whole. */
+  /** the pending changes, with new files shown whole. */
   async diff(): Promise<string> {
     const tracked = await this.git(['diff', 'HEAD', '--']);
     const untracked = (
@@ -287,10 +288,7 @@ export class Workspace {
   }
 
   private path(path: string): string {
-    const file = relative(this.root, resolve(this.root, path));
-    if (file === '..' || file.startsWith(`..${sep}`) || file.startsWith('.git'))
-      throw new Error('Memory path is outside the note directories');
-    return file;
+    return notePath(relative(this.root, resolve(this.root, path)));
   }
 
   private async checkedPath(

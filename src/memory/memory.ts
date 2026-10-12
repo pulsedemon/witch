@@ -141,6 +141,8 @@ export class Memory {
       'main',
       building,
     ]);
+    // git init copies info/ from its template, which may not have one
+    await mkdir(join(building, 'info'), { recursive: true });
     // every agent indexes its notes in MEMORY.md, so overlapping index lines merge instead of conflicting
     await writeFile(
       join(building, 'info', 'attributes'),

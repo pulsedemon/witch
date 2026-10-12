@@ -105,8 +105,10 @@ await test('parallel initialization seeds one repository and leaves a stray buil
   assert.deepEqual(await readdir(stray, { recursive: true }), before);
 });
 
-await test('memory commits use their own identity without global Git configuration', async () => {
+await test('memory works under user Git configuration with no identity, an empty template and the apply rebase backend', async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-memory-identity-'));
+  const template = join(root, 'template');
+  await mkdir(template);
   const module = new URL('../src/memory/memory.ts', import.meta.url).href;
   const { stdout } = await execute(
     process.execPath,
@@ -152,9 +154,12 @@ await test('memory commits use their own identity without global Git configurati
         ...process.env,
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_COUNT: '2',
         GIT_CONFIG_KEY_0: 'user.useConfigOnly',
         GIT_CONFIG_VALUE_0: 'true',
+        GIT_CONFIG_KEY_1: 'rebase.backend',
+        GIT_CONFIG_VALUE_1: 'apply',
+        GIT_TEMPLATE_DIR: template,
         GIT_AUTHOR_NAME: undefined,
         GIT_AUTHOR_EMAIL: undefined,
         GIT_COMMITTER_NAME: undefined,
