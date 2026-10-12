@@ -584,12 +584,15 @@ export class Coordinator {
     const session = await this.connect();
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
-    const memory = await this.memory.snapshot(
-      activity.baseRevision,
-      workspace.root,
-      scope,
-      reference.deliveredRevision,
-    );
+    const snapshot =
+      reference.deliveredRevision === activity.baseRevision
+        ? undefined
+        : await this.memory.snapshot(
+            activity.baseRevision,
+            workspace.root,
+            scope,
+            reference.deliveredRevision,
+          );
     const handoff = conversation.handoff;
     const pendingHandoff =
       handoff?.activated && handoff.to === conversation.agent
@@ -599,7 +602,7 @@ export class Coordinator {
       'You are running inside Witch. Follow your native and project instructions.',
       `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
       'Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in MEMORY.md. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.',
-      ...(reference.deliveredRevision !== memory.revision ? [memory.text] : []),
+      ...(snapshot ? [snapshot.text] : []),
       ...(pendingHandoff?.summary
         ? [
             `Pending task context from ${pendingHandoff.from}:\n${pendingHandoff.summary}`,
@@ -635,7 +638,7 @@ export class Coordinator {
         `chore(memory): save ${activity.agent} notes\n\nconversation: ${activity.conversationId}\nturn: ${activity.id}`,
       );
       conversation.sessions[activity.agent]!.deliveredRevision =
-        memory.revision;
+        activity.baseRevision;
       delete conversation.activity;
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {

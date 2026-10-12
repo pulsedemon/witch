@@ -1293,7 +1293,7 @@ await test('a publish failure while settling the launch is added to its report',
   }
 });
 
-/** holds the snapshot's note listing until released. */
+/** holds the snapshot's note listing until released. a turn takes a snapshot only after memory moves. */
 function holdSnapshot(hook: { current: GitHook }) {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
