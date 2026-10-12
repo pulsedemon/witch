@@ -251,7 +251,6 @@ class CodexSession implements AgentSession {
 
   async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
     if (this.turn) throw new Error('This agent is already running');
-    if (skill && !this.skillPaths.has(skill.name)) await this.skills();
     const path = skill && this.skillPaths.get(skill.name);
     const turn = {
       started: Promise.withResolvers<string>(),

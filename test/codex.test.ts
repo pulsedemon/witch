@@ -179,6 +179,7 @@ await test('a skill send names the first listed path, and a plain send names non
     JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8')).params
       .input as unknown;
   try {
+    await session.skills();
     await session.send('add skill', { name: 'review', args: 'x' });
     assert.deepEqual(await input(), [
       { type: 'text', text: 'add skill', text_elements: [] },
