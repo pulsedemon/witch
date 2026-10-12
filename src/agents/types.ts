@@ -1,5 +1,3 @@
-export type AgentId = string;
-
 export interface Model {
   id: string;
   label: string;
@@ -22,7 +20,7 @@ export interface SkillCall {
 
 export interface SessionInfo {
   id: string;
-  agent: AgentId;
+  agent: string;
   cwd: string;
   model: string;
   permissionMode: string;
@@ -112,7 +110,7 @@ export interface SessionOptions {
 }
 
 export interface AgentAdapter {
-  id: AgentId;
+  id: string;
   label: string;
   connect(options: SessionOptions): Promise<AgentSession>;
 }
