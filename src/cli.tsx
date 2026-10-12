@@ -40,6 +40,8 @@ try {
   // parseArgs accepts an empty value, which would put state in the project
   if (values['state-dir'] === '')
     throw new Error("Option '--state-dir' needs a directory");
+  if (!values.help && !(process.stdin.isTTY && process.stdout.isTTY))
+    throw new Error('Witch needs an interactive terminal.');
 } catch (error) {
   process.stderr.write(
     `witch: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -51,8 +53,6 @@ if (values.help) {
 } else {
   const stateDirectory = resolve(values['state-dir'] ?? defaultState);
   const prompt = positionals.join(' ');
-  if (!process.stdin.isTTY || !process.stdout.isTTY)
-    throw new Error('Witch needs an interactive terminal.');
   const store = await StateStore.open(stateDirectory);
   const coordinator = new Coordinator(
     store,
@@ -94,7 +94,8 @@ if (values.help) {
   process.once('SIGINT', shutdown);
   void coordinator
     .initialize(process.cwd(), { continue: values.continue })
-    .catch((error: unknown) => coordinator.report(error));
+    // initialize shows its own failure
+    .catch(() => {});
   await application.waitUntilExit();
   process.removeListener('SIGTERM', shutdown);
   process.removeListener('SIGINT', shutdown);
