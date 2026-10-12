@@ -264,19 +264,16 @@ export function App({
           run(coordinator.editMemory());
         } else if (files.find((entry) => entry.path === file)?.deleted) {
           showHistory(file);
-        } else
-          run(
-            coordinator.memory.read(memory.revision, file).then((text) => {
-              setPageScroll(0);
-              setView({
-                kind: 'page',
-                title: file,
-                text,
-                link: memory.root && join(memory.root, file),
-                note: file,
-              });
-            }),
-          );
+        } else {
+          setPageScroll(0);
+          setView({
+            kind: 'page',
+            title: file,
+            text: entries.find((entry) => entry.id === file)!.search,
+            link: memory.root && join(memory.root, file),
+            note: file,
+          });
+        }
       },
     );
   };
