@@ -74,6 +74,7 @@ await test('a garbage line from the agent kills it', async () => {
 for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
   await test(`${adapter.label} with a missing executable fails to connect and cleans up`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'witch-missing-'));
+    const reports: (number | undefined)[] = [];
     await within(
       assert.rejects(
         adapter.connect({
@@ -81,12 +82,16 @@ for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
           executable: `/nonexistent/witch-${adapter.id}`,
           memoryDirectories: [],
           onEvent: () => {},
-          onProcess: async () => {},
+          onProcess: async (pid) => {
+            reports.push(pid);
+          },
         }),
       ),
       2000,
       'connect',
     );
+    // the failed spawn reports no pid, then the cleanup reports the process gone
+    assert.deepEqual(reports, [undefined, undefined]);
   });
 }
 
