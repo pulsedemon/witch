@@ -125,6 +125,25 @@ await test('a claim that cannot stop the recorded process releases its lock', as
   }
 });
 
+await test('a claim leaves running a process that reuses the recorded pid', async () => {
+  const store = await StateStore.open(
+    await mkdtemp(join(tmpdir(), 'witch-reused-pid-')),
+  );
+  const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
+  try {
+    const files = await store.create(conversation('reused'));
+    await files.save({
+      ...files.record,
+      process: { pid: child.pid!, started: 'Thu Jan  1 00:00:00 1970' },
+    });
+    await files.close();
+    await (await store.claim('reused')).close();
+    assert.equal((await identifyProcess(child.pid!))?.pid, child.pid);
+  } finally {
+    child.kill('SIGKILL');
+  }
+});
+
 await test('serialized saves of one record keep the latest after restart', async () => {
   const store = await StateStore.open(
     await mkdtemp(join(tmpdir(), 'witch-state-')),
