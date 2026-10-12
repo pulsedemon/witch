@@ -471,6 +471,37 @@ await test('e on a note page edits that note, and the + entry edits project esse
   }
 });
 
+await test('a note file name carrying a link sequence shows as plain text in the picker and on its page', async () => {
+  const { seed, coordinator } = await memoryApp();
+  const forged = '\u001b]8;;x-evil:payload\u0007';
+  await writeFile(
+    join(seed.root, 'global', `${forged}forged${'\u001b]8;;\u0007'}.md`),
+    'Forged note.',
+  );
+  await seed.commit('chore(memory): save forged note');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/memory');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the memory picker', () =>
+      ui.text().includes('global/forged.md'),
+    );
+    assert.ok(!ui.frame().includes('x-evil:'));
+    await delay(30);
+    ui.stdin.write('Forged note');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => ui.text().includes('e edit'));
+    assert.ok(!ui.frame().includes('x-evil:'));
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
 await test('an initial prompt is sent once when the load ends idle with nothing reported', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
   const ui = show(

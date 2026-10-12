@@ -135,7 +135,7 @@ await test('long runs of dashes, dots and @ signs, and links on many lines or on
   }
 });
 
-await test('text past 2000 characters is cut after a newline, else after a space, so a link across the cut stays whole', () => {
+await test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, so a link across the cut stays whole', () => {
   const file = `src/notes ${'n'.repeat(20)}.md`;
   for (const [text, target] of [
     [
@@ -146,6 +146,14 @@ await test('text past 2000 characters is cut after a newline, else after a space
     [
       `${'x'.repeat(1980)}\n"${file}" end`,
       `vscode://file/work/${file.replace(' ', '%20')}`,
+    ],
+    [
+      `${'x'.repeat(1990)}<https://example.com/abcdef>end`,
+      'https://example.com/abcdef',
+    ],
+    [
+      `${'x'.repeat(1990)}"https://example.com/abcdef"]`,
+      'https://example.com/abcdef',
     ],
   ] as const) {
     const output = linkify(text, '/work');

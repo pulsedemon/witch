@@ -107,7 +107,10 @@ function bareLinks(text: string, cwd: string): string {
   return output + fileLinks(text.slice(offset), cwd);
 }
 
-/** linkify-it rescans the rest of its input after every match, so it gets 2000 characters at most: cut after a newline, which ends every link, or else after whitespace, which ends a URL. */
+/**
+ * linkify-it rescans the rest of its input after every match, so it gets 2000 characters at most, cut after a newline, which ends every link,
+ * else after whitespace, `<` or `>`, which end a URL, else after the `"` that separates minified JSON values. A run with none of them is cut where it reaches the limit.
+ */
 function pieces(text: string): string[] {
   const result: string[] = [];
   for (let start = 0; start < text.length;) {
@@ -118,7 +121,7 @@ function pieces(text: string): string[] {
       return cut;
     };
     if (end < text.length)
-      end = [/\n/, /\s/].map(after).find((cut) => cut > start) ?? end;
+      end = [/\n/, /[\s<>]/, /"/].map(after).find((cut) => cut > start) ?? end;
     result.push(text.slice(start, end));
     start = end;
   }

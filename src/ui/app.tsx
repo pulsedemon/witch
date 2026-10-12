@@ -670,7 +670,7 @@ export function App({
             <Text key={choice.id} inverse={first + index === selected}>
               {choice.cwd
                 ? linkify(` ${choice.label} `, choice.cwd)
-                : ` ${choice.label} `}
+                : ` ${stripAnsi(choice.label)} `}
             </Text>
           ))}
         </Box>
@@ -700,11 +700,11 @@ export function App({
       </Box>
     );
   } else if (view.kind === 'page') {
+    // a note's file name is agent-written, and Ink keeps OSC 8 links
+    const title = stripAnsi(view.title);
     body = (
       <Box flexDirection="column" height={bodyHeight}>
-        <Text bold>
-          {view.link ? hyperlink(view.title, view.link, cwd) : view.title}
-        </Text>
+        <Text bold>{view.link ? hyperlink(title, view.link, cwd) : title}</Text>
         <Box height={pageRows} overflow="hidden">
           <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
         </Box>

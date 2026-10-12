@@ -28,7 +28,7 @@ export function markdown(text: string, cwd: string): string {
   renderer.link = ({ href, tokens }) =>
     markdownLink(stripAnsi(renderer.parser.parseInline(tokens)), href, cwd);
   renderer.image = ({ href, text }) =>
-    markdownLink(`[${text || 'Image'}]`, href, cwd);
+    markdownLink(`[${stripAnsi(linkify(text || 'Image', cwd))}]`, href, cwd);
   renderer.br = () => '\n';
   renderer.hr = () => '────────\n';
   renderer.html = ({ text }) => linkify(text, cwd);
