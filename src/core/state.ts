@@ -64,6 +64,7 @@ function merge(
     ...previous,
     ...update,
     title: update.title || previous.title,
+    cwd: replace ? update.cwd : previous.cwd,
     text: replace ? update.text : previous.text + update.text,
   };
 }
