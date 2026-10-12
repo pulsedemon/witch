@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { appendFile, mkdir, mkdtemp, readFile, utimes } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  utimes,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -96,6 +103,27 @@ await test('a closed conversation store rejects writes and leaves its files unch
     ),
     before,
   );
+});
+
+await test('a failed write fails every later write and the close', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'witch-failed-write-'));
+  const store = await StateStore.open(root);
+  const files = await store.create(conversation('failed'));
+  const directory = join(root, 'conversations', 'failed');
+  await chmod(directory, 0o500);
+  try {
+    await assert.rejects(
+      files.append({ id: 'n', kind: 'notice', text: 'lost', cwd: '/p' }),
+      /EACCES/,
+    );
+  } finally {
+    await chmod(directory, 0o700);
+  }
+  await assert.rejects(
+    files.append({ id: 'm', kind: 'notice', text: 'after', cwd: '/p' }),
+    /EACCES/,
+  );
+  await assert.rejects(files.close(), /EACCES/);
 });
 
 await test('a claim that cannot stop the recorded process releases its lock', async () => {
