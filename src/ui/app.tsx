@@ -491,8 +491,14 @@ export function App({
       setComposerKey((key) => key + 1);
     }
   }, [state.phase]);
+  // keys meant for the composer must not answer a recovery that just appeared
+  const [recoveryReady, setRecoveryReady] = useState(false);
   useEffect(() => {
-    if (state.phase === 'recovery') setPageScroll(0);
+    setRecoveryReady(false);
+    if (state.phase !== 'recovery') return;
+    setPageScroll(0);
+    const timer = setTimeout(() => setRecoveryReady(true), 500);
+    return () => clearTimeout(timer);
   }, [state.phase]);
 
   const recovery = state.recovery;
@@ -546,6 +552,7 @@ export function App({
     if (request) return;
     if (state.phase === 'recovery') {
       scrollPage(key);
+      if (!recoveryReady) return;
       const kind = recovery?.kind;
       if (input === 'd') run(coordinator.recoverMemory('discard'));
       if (input === 'a' && kind === 'pending')

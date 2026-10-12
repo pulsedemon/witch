@@ -168,6 +168,7 @@ await test('the conflict view resolves with k and d, ignores a, and links notes 
         .includes('vscode://file/state/conversations/c/memory/global/one.md'),
     );
     assert.ok(!ui.frame().includes('memory.git'));
+    await delay(500);
     for (const key of ['a', 'k', 'd']) {
       ui.stdin.write(key);
       await delay(30);
@@ -191,11 +192,36 @@ await test('the pending view ignores k', async () => {
     await until('the pending view', () =>
       ui.text().includes('a accept · d discard'),
     );
+    await delay(500);
     for (const key of ['k', 'a']) {
       ui.stdin.write(key);
       await delay(30);
     }
     assert.deepEqual(calls, [['recoverMemory', 'accept']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a recovery that appears while typing ignores keys for its first 500 ms', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'running' });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    coordinator.publish({
+      phase: 'recovery',
+      recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
+    });
+    await until('the pending view', () =>
+      ui.text().includes('a accept · d discard'),
+    );
+    ui.stdin.write('d');
+    await delay(100);
+    assert.deepEqual(calls, []);
+    await delay(500);
+    ui.stdin.write('d');
+    await until('the discard', () => calls.length > 0);
+    assert.deepEqual(calls, [['recoverMemory', 'discard']]);
   } finally {
     ui.unmount();
   }
