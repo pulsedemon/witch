@@ -197,7 +197,7 @@ export class Coordinator {
       (
         await this.memory.git(this.memory.root, [
           'for-each-ref',
-          '--format=%(refname:short) %(ahead-behind:refs/heads/main)',
+          `--format=%(refname:short) %(ahead-behind:${main})`,
           'refs/heads/conversations',
         ])
       )
