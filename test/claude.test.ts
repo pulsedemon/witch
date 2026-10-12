@@ -285,6 +285,10 @@ await test('a Claude elicitation returns the accepted content', async () => {
     assert.equal((await session.send('elicit')).status, 'completed');
     assert.equal(requests[0]?.kind, 'elicitation');
     assert.equal(requests[0]?.title, 'Which project?');
+    assert.deepEqual(requests[0]?.schema, {
+      type: 'object',
+      properties: { project: { type: 'string' } },
+    });
     assert.deepEqual(
       JSON.parse(await readFile(join(cwd, 'response.json'), 'utf8')),
       { action: 'accept', content: { project: 'witch' } },
