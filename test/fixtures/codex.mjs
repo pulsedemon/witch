@@ -166,6 +166,10 @@ for await (const line of lines) {
       finish('completed');
       continue;
     }
+    if (prompt === 'unknown-request') {
+      send({ id: 92, method: 'item/unknown/request', params: {} });
+      continue;
+    }
     if (prompt === 'bad-request') {
       send({
         id: 90,
@@ -258,8 +262,11 @@ for await (const line of lines) {
     );
     finish('completed');
   }
-  if (request.id === 90 && request.error) {
-    writeFileSync(file('error-90.json'), JSON.stringify(request.error));
+  if ([90, 92].includes(request.id) && request.error) {
+    writeFileSync(
+      file(`error-${request.id}.json`),
+      JSON.stringify(request.error),
+    );
     finish('completed');
   }
   if (request.method === 'turn/interrupt') {

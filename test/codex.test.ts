@@ -284,6 +284,27 @@ await test('an unparseable native request gets an error reply and the turn conti
   }
 });
 
+await test('an unsupported native request gets an error reply and the turn continues', async () => {
+  const requests: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'request') requests.push(event);
+  });
+  try {
+    assert.equal(
+      (await within(session.send('unknown-request'), 2000, 'unknown request'))
+        .status,
+      'completed',
+    );
+    assert.match(
+      await readFile(join(cwd, 'error-92.json'), 'utf8'),
+      /Unsupported native request: item\/unknown\/request/,
+    );
+    assert.deepEqual(requests, []);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a command streams its output into one tool that completes once', async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
