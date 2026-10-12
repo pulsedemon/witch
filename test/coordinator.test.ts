@@ -1717,6 +1717,24 @@ await test('a model chosen to keep the current effort stores the effort in force
   }
 });
 
+await test('an effort the agent rejects while disconnected keeps the stored one, so the next turn still connects', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.selectModel('a-big', 'high');
+    a.invalidEffort = 'hgih';
+    await a.sessions.at(-1)!.session.close();
+    await assert.rejects(
+      coordinator.selectModel('a-big', 'hgih'),
+      /Invalid effort/,
+    );
+    const id = coordinator.snapshot.conversation!.id;
+    assert.equal((await readRecord(root, id)).sessions.a?.effort, 'high');
+    assert.equal(await coordinator.send('Continue'), true);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a model that lists no efforts resets the effort', async () => {
   const { coordinator, a, root } = await fixture();
   try {

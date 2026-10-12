@@ -356,14 +356,13 @@ export class Coordinator {
     await this.operate('starting', async () => {
       const conversation = this.current();
       if (!this.live(conversation.agent)) {
-        // so a model that fails to connect can be replaced
+        // so a model that fails to connect can be replaced. the effort waits for the session to accept it, since a stored one every connect rejects can't be replaced
         conversation.sessions[conversation.agent] = {
           id: '',
           hasHistory: false,
           ...conversation.sessions[conversation.agent],
           model,
           requestedModel: model,
-          ...(effort ? { effort } : {}),
         };
         await this.save();
       }

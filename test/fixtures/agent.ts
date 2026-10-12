@@ -48,6 +48,8 @@ export class FixtureAgent implements AgentAdapter {
   readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
   readonly selections: [string, string | null | undefined][] = [];
   failConnect = false;
+  /** an effort connect and selectModel reject, as Claude Code rejects one outside its levels. */
+  invalidEffort?: string;
   failClose = false;
   failInterrupt = false;
   interruptNext = false;
@@ -62,6 +64,8 @@ export class FixtureAgent implements AgentAdapter {
   async connect(options: SessionOptions): Promise<AgentSession> {
     await this.beforeConnect?.(options);
     if (this.failConnect) throw new Error('Destination unavailable');
+    if (options.effort && options.effort === this.invalidEffort)
+      throw new Error('Invalid effort');
     let info: SessionInfo = {
       id: options.resume ?? randomUUID(),
       agent: this.id,
@@ -104,6 +108,8 @@ export class FixtureAgent implements AgentAdapter {
         },
       ],
       selectModel: async (model, effort) => {
+        if (effort && effort === this.invalidEffort)
+          throw new Error('Invalid effort');
         this.selections.push([model, effort]);
         info = {
           ...info,
