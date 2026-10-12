@@ -1798,6 +1798,36 @@ await test('a native skills change replaces the list, unless its session has clo
   }
 });
 
+await test('a resolved request leaves the queue, and cancelling one interrupts the turn', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const { options } = a.sessions.at(-1)!;
+    const [first, second] = ['r1', 'r2'].map((id) => ({
+      id,
+      kind: 'approval' as const,
+      title: id,
+      detail: '',
+    }));
+    options.onEvent({ type: 'request', request: first! });
+    options.onEvent({ type: 'request', request: second! });
+    options.onEvent({ type: 'request-resolved', id: 'r1' });
+    assert.deepEqual(coordinator.snapshot.requests, [second]);
+    await coordinator.respond('r2', { decision: 'cancel' });
+    assert.equal(
+      (await within(gate.result, 2000, 'the turn result')).status,
+      'interrupted',
+    );
+    await sending;
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 const chosen = (agent: string, model: string, effort?: string) => ({
   [agent]: {
     id: `${agent}-native`,
