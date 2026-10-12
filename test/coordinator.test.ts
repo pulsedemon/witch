@@ -1321,13 +1321,16 @@ await test('an interrupt during the memory snapshot delivers nothing', async () 
   }
 });
 
-await test('a connect failure leaves the prompt undelivered', async () => {
-  const { coordinator } = await fixture(undefined, (a) => {
+await test('a connect failure leaves the prompt undelivered, and its error clears when the next prompt goes through', async () => {
+  const { coordinator, a } = await fixture(undefined, (a) => {
     a.failConnect = true;
   });
   try {
     assert.equal(await coordinator.send('Start'), false);
     assert.match(coordinator.snapshot.error ?? '', /Destination unavailable/);
+    a.failConnect = false;
+    assert.equal(await coordinator.send('Again'), true);
+    assert.equal(coordinator.snapshot.error, undefined);
   } finally {
     await coordinator.close();
   }
