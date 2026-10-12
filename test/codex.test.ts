@@ -115,9 +115,8 @@ for (const decision of ['accept', 'decline'] as const) {
   await test(`native approval ${decision} controls the requested side effect`, async () => {
     const { session, cwd } = await fixture((event) => {
       if (event.type === 'request')
-        active.respond(event.request.id, { decision });
+        session.respond(event.request.id, { decision });
     });
-    const active = session;
     try {
       await session.selectModel('model-b', 'high');
       assert.equal(session.info.model, 'model-b');
