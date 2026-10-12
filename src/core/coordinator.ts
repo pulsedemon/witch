@@ -4,6 +4,7 @@ import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentRegistration } from '../agents/registry.js';
+import { errorMessage } from '../agents/stderr.js';
 import type {
   AgentEvent,
   AgentSession,
@@ -40,9 +41,6 @@ function skillCall(
   const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
   if (!match || !skills.some(({ name }) => name === match[1])) return;
   return { name: match[1]!, args: match[2]!.trim() };
-}
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** an error that only a restart clears. */
@@ -172,13 +170,10 @@ export class Coordinator {
       );
     } catch (error) {
       if (report === undefined) throw error;
-      throw new Error(`${message(error)}\n\n${report}`, { cause: error });
+      throw new Error(`${errorMessage(error)}\n\n${report}`, { cause: error });
     }
     // a failed connect leaves the conversation open, as a failed send does
-    const failure = await this.connect().then(
-      () => undefined,
-      (error: unknown) => message(error),
-    );
+    const failure = await this.connect().then(() => undefined, errorMessage);
     await this.settle(
       [report, failure].filter(Boolean).join('\n\n') || undefined,
     );
@@ -228,7 +223,7 @@ export class Coordinator {
       let reason: string | undefined;
       // close() rethrows a save failure the catch already reported
       const problem = (error: unknown) => {
-        reason ??= message(error);
+        reason ??= errorMessage(error);
       };
       let files: ConversationStore | undefined;
       try {
@@ -488,7 +483,7 @@ export class Coordinator {
   /** an error phase keeps its message until restart. */
   report(error: unknown): void {
     if (this.snapshot.phase === 'error') return;
-    this.publish({ error: message(error) });
+    this.publish({ error: errorMessage(error) });
   }
 
   async close(): Promise<void> {
@@ -630,7 +625,7 @@ export class Coordinator {
         skillCall(prompt, this.snapshot.skills),
       );
     } catch (error) {
-      result = { status: 'failed', text: '', error: message(error) };
+      result = { status: 'failed', text: '', error: errorMessage(error) };
     }
     await this.files!.flush();
     if (result.status === 'completed') {
@@ -846,7 +841,7 @@ export class Coordinator {
   }
 
   private enterError(error: unknown, restart: boolean): Error {
-    const text = `${restart ? 'Restart Witch: ' : ''}${message(error)}`;
+    const text = `${restart ? 'Restart Witch: ' : ''}${errorMessage(error)}`;
     this.publish({ phase: 'error', error: text });
     return new Error(text, { cause: error });
   }
@@ -906,7 +901,7 @@ export class Coordinator {
         try {
           conflict = (await workspace.publish()) === 'conflict';
         } catch (error) {
-          failure = message(error);
+          failure = errorMessage(error);
         }
       // accept or keep mine would publish the markers a stuck rebase leaves
       if (await workspace.rebaseStopped())
