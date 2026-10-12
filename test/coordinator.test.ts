@@ -1803,6 +1803,28 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
   }
 });
 
+await test('agent events reach the transcript with their own replace, append and cwd', async () => {
+  const { coordinator, a, project } = await fixture();
+  try {
+    const { options } = a.sessions.at(-1)!;
+    options.onEvent({ type: 'text', id: 'm', text: 'Hel' });
+    options.onEvent({ type: 'text', id: 'm', text: 'lo' });
+    options.onEvent({ type: 'text', id: 'm', text: 'Hello!', replace: true });
+    const tool = { type: 'tool', id: 't', title: 'ls' } as const;
+    options.onEvent({ ...tool, text: 'a', done: false, cwd: '/elsewhere' });
+    options.onEvent({ ...tool, text: 'b', done: true, append: true });
+    assert.deepEqual(
+      coordinator.snapshot.items.map(({ text, cwd }) => [text, cwd]),
+      [
+        ['Hello!', project],
+        ['ab', '/elsewhere'],
+      ],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a native skills change replaces the list, unless its session has closed', async () => {
   const { coordinator, a } = await fixture();
   try {
