@@ -284,6 +284,26 @@ await test('an unparseable native request gets an error reply and the turn conti
   }
 });
 
+await test('a command streams its output into one tool that completes once', async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    assert.equal((await session.send('tool')).status, 'completed');
+    assert.deepEqual(
+      tools.map(({ id, text, done, append }) => [id, text, done, append]),
+      [
+        ['cmd-1', '', false, undefined],
+        ['cmd-1', 'a.md\n', false, true],
+        ['cmd-1', 'a.md\n', true, undefined],
+      ],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a grandchild holding the native pipes cannot keep a dead turn open', async () => {
   const { session, cwd } = await fixture();
   try {

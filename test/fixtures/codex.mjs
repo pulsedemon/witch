@@ -148,6 +148,24 @@ for await (const line of lines) {
       finish('failed', { message: 'native failure' });
       continue;
     }
+    if (prompt === 'tool') {
+      const item = {
+        type: 'commandExecution',
+        id: 'cmd-1',
+        command: 'ls',
+        cwd: '/elsewhere',
+      };
+      notify('item/started', { item: { ...item, aggregatedOutput: '' } });
+      notify('item/commandExecution/outputDelta', {
+        itemId: 'cmd-1',
+        delta: 'a.md\n',
+      });
+      notify('item/completed', {
+        item: { ...item, aggregatedOutput: 'a.md\n' },
+      });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'bad-request') {
       send({
         id: 90,
