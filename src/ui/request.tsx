@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
 import type { UserRequest, UserResponse } from '../agents/types.js';
 import { Input } from './input.js';
-import { linkify } from './links.js';
+import { linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 
 interface Props {
@@ -122,7 +121,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
         });
         if (!validator.validate(request.schema, content)) {
           // Ajv quotes the agent's property names, escapes included
-          setError(linkify(stripAnsi(validator.errorsText()), cwd));
+          setError(plain(validator.errorsText()));
           return false;
         }
       }

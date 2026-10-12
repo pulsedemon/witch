@@ -5,6 +5,8 @@ import ansiEscapes from 'ansi-escapes';
 import LinkifyIt from 'linkify-it';
 
 const urls = new LinkifyIt();
+// the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
+const controls = /(?![\n\t\r])\p{Cc}/u;
 // a bare name starts only at the start of a run of name characters, which keeps long runs of dashes or dots linear
 const files =
   /(?<![\w/])(?:["'`]((?:\.{0,2}\/|~\/|[\w@.-]+\/)[^\n"'`]+)["'`]|(?:\.{1,2}\/|~\/|\/[\w.@-]+\/)[^\s<>"'`[\]()]+)|(?<![\w/@.-])(?:[\w@.-]+\/)*\.?[\w@-]+(?:\.[\w@-]+)*\.[a-zA-Z][a-zA-Z\d]{0,12}(?::\d+(?::\d+)?)?/gu;
@@ -146,10 +148,18 @@ export function linkify(text: string, cwd: string): string {
       const separator = token.code.indexOf(';', 4);
       const terminator = token.code.endsWith('\u001b\\') ? 2 : 1;
       target = token.code.slice(separator + 1, -terminator) || undefined;
-    } else if (token.type === 'char') buffer += token.value;
-    else if (token.type === 'control' && /^(\n|\t|\r)$/.test(token.code))
-      buffer += token.code;
+    } else if (token.type === 'char' && !controls.test(token.value))
+      buffer += token.value;
   }
   flush();
   return output;
+}
+
+/** agent-written text with no escapes or links. strip-ansi can't stand in, since removing one sequence can join its neighbours into another. */
+export function plain(text: string): string {
+  return tokenize(text)
+    .map((token) =>
+      token.type === 'char' && !controls.test(token.value) ? token.value : '',
+    )
+    .join('');
 }

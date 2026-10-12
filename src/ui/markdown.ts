@@ -2,7 +2,7 @@ import { Marked, Renderer } from 'marked';
 import type { Token } from 'marked';
 import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
-import { markdownLink, linkify } from './links.js';
+import { markdownLink, linkify, plain } from './links.js';
 
 export const colors = new Chalk({ level: 1 });
 
@@ -28,7 +28,7 @@ export function markdown(text: string, cwd: string): string {
   renderer.link = ({ href, tokens }) =>
     markdownLink(stripAnsi(renderer.parser.parseInline(tokens)), href, cwd);
   renderer.image = ({ href, text }) =>
-    markdownLink(`[${stripAnsi(linkify(text || 'Image', cwd))}]`, href, cwd);
+    markdownLink(`[${plain(text || 'Image')}]`, href, cwd);
   renderer.br = () => '\n';
   renderer.hr = () => '────────\n';
   renderer.html = ({ text }) => linkify(text, cwd);

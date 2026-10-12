@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { test } from 'node:test';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
-import { hyperlink, linkify, linkTarget } from '../src/ui/links.js';
+import { hyperlink, linkify, linkTarget, plain } from '../src/ui/links.js';
 import { markdown } from '../src/ui/markdown.js';
 
 await test('bare URLs retain their exact browser target across wrapping', () => {
@@ -182,5 +182,30 @@ await test('a web target with a control character stays plain text', () => {
   assert.equal(
     hyperlink('label', 'https://example.com/\u001b]8;;x', '/work'),
     'label',
+  );
+});
+
+await test('a stray escape or bell left by a dropped sequence cannot rejoin into a link', () => {
+  const forged =
+    '\u001b\u001b[31m]8;;smb://evil.example/share\u0007name\u001b\u001b[0m]8;;\u0007';
+  const c1 = '\u009d8;;smb://evil.example/share\u0007name\u009d8;;\u0007';
+  assert.equal(
+    linkify(forged, '/work'),
+    ']8;;smb://evil.example/sharename]8;;',
+  );
+  assert.equal(linkify(c1, '/work'), '8;;smb://evil.example/sharename8;;');
+  assert.equal(linkify('a\r\nb\tc', '/work'), 'a\r\nb\tc');
+});
+
+await test('plain text keeps no link, including one that stripping a sequence would build', () => {
+  assert.equal(
+    plain(
+      '\u001b\u001b[31m]8;;https://evil.example/share\u0007name\u001b\u001b[0m]8;;\u0007',
+    ),
+    ']8;;https://evil.example/sharename]8;;',
+  );
+  assert.equal(
+    plain('\u001b]8;;https://evil.example/share\u0007name\u001b]8;;\u0007'),
+    'name',
   );
 });

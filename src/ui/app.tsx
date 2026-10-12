@@ -8,7 +8,6 @@ import {
 import { Box, Text, useInput, useWindowSize } from 'ink';
 import type { Key } from 'ink';
 import { basename, join } from 'node:path';
-import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -25,7 +24,7 @@ import { Request } from './request.js';
 import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
 import { colors, markdown } from './markdown.js';
-import { hyperlink, linkify } from './links.js';
+import { hyperlink, linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
@@ -670,7 +669,7 @@ export function App({
             <Text key={choice.id} inverse={first + index === selected}>
               {choice.cwd
                 ? linkify(` ${choice.label} `, choice.cwd)
-                : ` ${stripAnsi(choice.label)} `}
+                : ` ${plain(choice.label)} `}
             </Text>
           ))}
         </Box>
@@ -701,7 +700,7 @@ export function App({
     );
   } else if (view.kind === 'page') {
     // a note's file name is agent-written, and Ink keeps OSC 8 links
-    const title = stripAnsi(view.title);
+    const title = plain(view.title);
     body = (
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>{view.link ? hyperlink(title, view.link, cwd) : title}</Text>
@@ -776,7 +775,7 @@ export function App({
                   wrap="truncate-end"
                 >
                   {/* Ink keeps OSC 8 links, so a project's file name or skill description could forge one */}
-                  {stripAnsi(text).replace(/\s+/g, ' ')}
+                  {plain(text).replace(/\s+/g, ' ')}
                 </Text>
               ))}
           </Box>
