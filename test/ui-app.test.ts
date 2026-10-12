@@ -668,6 +668,27 @@ await test('two page keys in one read scroll two pages', async () => {
   }
 });
 
+await test('Down with tools focused and no tools keeps the reading position', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const top = () => ui.text().split('\n')[2]?.trim();
+  try {
+    await delay(60);
+    ui.stdin.write('\u001b[5~');
+    await until('a page up', () => top() === 'row 242');
+    ui.stdin.write(`\t${DOWN}`);
+    await delay(60);
+    assert.equal(top(), 'row 242');
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('Escape while tools are focused during a turn leaves focus without interrupting', async () => {
   const { app, calls } = fake({ phase: 'running', items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
