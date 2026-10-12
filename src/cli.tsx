@@ -12,7 +12,8 @@ import { App } from './ui/app.js';
 const defaultState = join(homedir(), '.witch');
 const usage = `Usage: witch [options] [prompt...]
 
-Start a conversation in the current directory, sending the prompt if one is given.
+Start a conversation in the current directory on the agent, model and effort
+you last used, sending the prompt if one is given.
 
 Options:
   -c, --continue       continue this directory's most recent conversation

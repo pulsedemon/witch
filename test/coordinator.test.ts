@@ -1821,3 +1821,163 @@ await test('a native skills change replaces the list, unless its session has clo
     await coordinator.close();
   }
 });
+
+/** a conversation with history, last used at `seconds`. */
+async function used(
+  store: StateStore,
+  root: string,
+  conversation: Conversation,
+  seconds?: number,
+) {
+  const files = await store.create(conversation);
+  if (seconds !== undefined)
+    await files.append({ id: 'n', kind: 'notice', text: 'used', cwd: '/' });
+  await files.close();
+  if (seconds !== undefined)
+    await utimes(
+      join(root, 'state', 'conversations', conversation.id, 'history.jsonl'),
+      seconds,
+      seconds,
+    );
+}
+
+const chosen = (agent: string, model: string, effort?: string) => ({
+  [agent]: {
+    id: `${agent}-native`,
+    model,
+    requestedModel: model,
+    hasHistory: true,
+    ...(effort ? { effort } : {}),
+  },
+});
+
+/** a second launch in a new directory, sharing the first one's state. */
+async function relaunch(
+  installed: string[],
+  prepare?: (a: FixtureAgent) => void,
+) {
+  const context = await fixture();
+  await context.coordinator.close();
+  const a = new FixtureAgent('a');
+  const b = new FixtureAgent('b');
+  prepare?.(a);
+  const launch = async (cwd: string) => {
+    await mkdir(cwd, { recursive: true });
+    const coordinator = new Coordinator(
+      context.store,
+      context.coordinator.memory,
+      [a, b].map((adapter) => ({
+        adapter,
+        executable: installed.includes(adapter.id) ? adapter.id : undefined,
+      })),
+    );
+    await coordinator.initialize(cwd);
+    return coordinator;
+  };
+  return { ...context, a, b, launch };
+}
+
+await test('a launch takes the agent, model and effort of the newest used conversation in any directory', async () => {
+  const { store, root, project, b, launch } = await relaunch(['a', 'b']);
+  await used(
+    store,
+    root,
+    { ...record('older', project), sessions: chosen('a', 'a-old') },
+    1000,
+  );
+  await used(
+    store,
+    root,
+    {
+      ...record('newest', join(root, 'elsewhere'), 'b'),
+      sessions: chosen('b', 'b-big', 'high'),
+    },
+    3000,
+  );
+  await used(store, root, {
+    ...record('unused', project, 'a'),
+    sessions: chosen('a', 'a-unused'),
+  });
+  const coordinator = await launch(join(root, 'third'));
+  try {
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    const { options } = b.sessions.at(-1)!;
+    assert.deepEqual(
+      [options.model, options.effort, options.resume],
+      ['b-big', 'high', undefined],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a launch whose newest agent is uninstalled starts the first installed one on its default', async () => {
+  const { store, root, a, launch } = await relaunch(['a']);
+  await used(
+    store,
+    root,
+    { ...record('newest', root, 'b'), sessions: chosen('b', 'b-big') },
+    3000,
+  );
+  const coordinator = await launch(join(root, 'next'));
+  try {
+    assert.equal(coordinator.snapshot.conversation!.agent, 'a');
+    assert.equal(a.sessions.at(-1)!.options.model, undefined);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a failed first connect keeps the remembered model, and a model chosen next connects with it', async () => {
+  const { store, root, a, launch } = await relaunch(['a', 'b'], (a) => {
+    a.failConnect = true;
+  });
+  await used(
+    store,
+    root,
+    { ...record('newest', root), sessions: chosen('a', 'a-big', 'high') },
+    3000,
+  );
+  const coordinator = await launch(join(root, 'next'));
+  try {
+    assert.match(coordinator.snapshot.error ?? '', /Destination unavailable/);
+    const id = coordinator.snapshot.conversation!.id;
+    assert.equal(
+      (await readRecord(root, id)).sessions.a?.requestedModel,
+      'a-big',
+    );
+    a.failConnect = false;
+    await coordinator.selectModel('a-new');
+    const { options } = a.sessions.at(-1)!;
+    assert.deepEqual([options.model, options.effort], ['a-new', 'high']);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('/new copies this conversation for its own agent, and starts another agent on its default', async () => {
+  const { coordinator, a, b, store, project } = await fixture();
+  try {
+    const source = await store.create({
+      ...record(randomUUID(), project),
+      sessions: { ...chosen('a', 'a-big', 'high'), ...chosen('b', 'b-big') },
+    });
+    await source.close();
+    await coordinator.selectConversation(source.record.id);
+    await coordinator.newConversation('b');
+    assert.equal(b.sessions.at(-1)!.options.model, undefined);
+    await coordinator.newConversation();
+    assert.equal(b.sessions.at(-1)!.options.model, undefined);
+    await coordinator.selectConversation(source.record.id);
+    const opened = a.sessions.at(-1)!.session.info.id;
+    await coordinator.newConversation();
+    const { options, session } = a.sessions.at(-1)!;
+    assert.deepEqual(
+      [options.model, options.effort, options.resume],
+      ['a-big', 'high', undefined],
+    );
+    assert.notEqual(session.info.id, opened);
+  } finally {
+    await coordinator.close();
+  }
+});

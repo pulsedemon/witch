@@ -91,11 +91,11 @@ export class StateStore {
     return { records, unreadable };
   }
 
-  /** this directory's conversations that have history, newest first. */
-  async conversations(cwd: string): Promise<Conversation[]> {
+  /** conversations that have history, newest first: this directory's, or every directory's without one. */
+  async conversations(cwd?: string): Promise<Conversation[]> {
     const listed: { conversation: Conversation; modified: number }[] = [];
     for (const record of (await this.records()).records) {
-      if (record.cwd !== cwd) continue;
+      if (cwd !== undefined && record.cwd !== cwd) continue;
       const history = await stat(
         join(this.directory(record.id), 'history.jsonl'),
       ).catch((error: unknown) => {

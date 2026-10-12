@@ -168,15 +168,7 @@ export class Coordinator {
     const report = await this.sweep(target?.id);
     try {
       await this.openConversation(
-        target
-          ? { id: target.id }
-          : {
-              create: this.newRecord(
-                cwd,
-                this.agents.find((agent) => agent.executable)?.adapter.id ??
-                  this.agents[0]!.adapter.id,
-              ),
-            },
+        target ? { id: target.id } : { create: await this.launchRecord(cwd) },
       );
     } catch (error) {
       if (report === undefined) throw error;
@@ -190,6 +182,17 @@ export class Coordinator {
     await this.settle(
       [report, failure].filter(Boolean).join('\n\n') || undefined,
     );
+  }
+
+  /** a new conversation on the agent, model and effort of the most recently used one. */
+  private async launchRecord(cwd: string): Promise<Conversation> {
+    const [source] = await this.store.conversations();
+    const installed = this.agents.filter(({ executable }) => executable);
+    const agent =
+      installed.find(({ adapter }) => adapter.id === source?.agent) ??
+      installed[0] ??
+      this.agents[0]!;
+    return this.newRecord(cwd, agent.adapter.id, source);
   }
 
   /** stops orphans, publishes stranded memory and reports what it can't settle in conversations no instance holds. */
@@ -317,11 +320,14 @@ export class Coordinator {
     return delivered;
   }
 
-  async newConversation(agent = this.current().agent): Promise<void> {
+  /** without an agent, continues on this conversation's agent, model and effort. */
+  async newConversation(agent?: string): Promise<void> {
     await this.operate('starting', async () => {
-      this.registration(agent);
+      const source = this.current();
+      const chosen = agent ?? source.agent;
+      this.registration(chosen);
       await this.openConversation({
-        create: this.newRecord(this.current().cwd, agent),
+        create: this.newRecord(source.cwd, chosen, source),
       });
       await this.connect();
     });
@@ -353,6 +359,19 @@ export class Coordinator {
   /** an omitted effort keeps the one in force, except on a model that lists none. */
   async selectModel(model: string, effort?: string): Promise<void> {
     await this.operate('starting', async () => {
+      const conversation = this.current();
+      if (!this.live(conversation.agent)) {
+        // so a model that fails to connect can be replaced
+        conversation.sessions[conversation.agent] = {
+          id: '',
+          hasHistory: false,
+          ...conversation.sessions[conversation.agent],
+          model,
+          requestedModel: model,
+          ...(effort ? { effort } : {}),
+        };
+        await this.save();
+      }
       const session = await this.connect();
       const listed = this.snapshot.models.find((item) => item.id === model);
       // a kept effort would reach a model that takes none on the next connect
@@ -827,13 +846,29 @@ export class Coordinator {
     return new Error(text, { cause: error });
   }
 
-  private newRecord(cwd: string, agent: string): Conversation {
+  /** copies the source's explicit model and effort when it ran on the same agent. */
+  private newRecord(
+    cwd: string,
+    agent: string,
+    source?: Conversation,
+  ): Conversation {
+    const stored = source?.agent === agent ? source.sessions[agent] : undefined;
     return {
       id: randomUUID(),
       title: 'New conversation',
       cwd,
       agent,
-      sessions: {},
+      sessions: stored?.requestedModel
+        ? {
+            [agent]: {
+              id: '',
+              model: stored.model,
+              requestedModel: stored.requestedModel,
+              hasHistory: false,
+              ...(stored.effort ? { effort: stored.effort } : {}),
+            },
+          }
+        : {},
       createdAt: new Date().toISOString(),
     };
   }
