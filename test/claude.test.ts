@@ -152,9 +152,8 @@ await test('a model chosen without an effort keeps the effort in force and sends
     const payloads = (await readFile(join(cwd, 'settings.jsonl'), 'utf8'))
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-    for (const payload of payloads.slice(1))
-      assert.equal('effortLevel' in payload, false);
+      .map((line) => JSON.parse(line) as unknown);
+    assert.deepEqual(payloads, [{ effortLevel: 'high' }]);
   } finally {
     await session.close();
   }
