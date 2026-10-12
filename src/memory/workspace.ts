@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { exists, main, notePath } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
-/** one conversation's memory: a worktree of the shared bare repository on its own branch. */
+/** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
   readonly branch: string;
 
@@ -76,8 +76,14 @@ export class Workspace {
   async isDirty(): Promise<boolean> {
     // the user's status.showUntrackedFiles=no would hide new notes
     return (
-      (await this.git(['status', '--porcelain', '--untracked-files=normal']))
-        .length > 0
+      (
+        await this.git([
+          'status',
+          '--porcelain',
+          '--untracked-files=normal',
+          '--ignored=matching',
+        ])
+      ).length > 0
     );
   }
 
@@ -139,25 +145,17 @@ export class Workspace {
 
   async commit(message: string): Promise<void> {
     if (!(await this.isDirty())) return;
-    const files = await this.git([
-      'ls-files',
-      '--cached',
-      '--others',
-      '--exclude-standard',
-      '-z',
-    ]);
+    const files = await this.git(['ls-files', '--cached', '--others', '-z']);
     for (const file of new Set(files.split('\0').filter(Boolean)))
       await this.checkedPath(file);
-    await this.git(['add', '--all', '--', '.']);
+    await this.git(['add', '--all', '--force', '--', '.']);
     await this.git(['commit', '--quiet', '-m', message]);
   }
 
   /** the pending changes, with new files shown whole. */
   async diff(): Promise<string> {
     const tracked = await this.git(['diff', 'HEAD', '--']);
-    const untracked = (
-      await this.git(['ls-files', '--others', '--exclude-standard', '-z'])
-    )
+    const untracked = (await this.git(['ls-files', '--others', '-z']))
       .split('\0')
       .filter(Boolean);
     const additions = await Promise.all(
@@ -195,10 +193,10 @@ export class Workspace {
     };
   }
 
-  /** `clean -ffd` also removes repositories an agent created inside memory. */
+  /** `clean -ffdx` also removes repositories an agent created inside memory. */
   async discardPending(): Promise<void> {
     await this.git(['reset', '--hard', '--quiet']);
-    await this.git(['clean', '-ffd', '--quiet']);
+    await this.git(['clean', '-ffdx', '--quiet']);
   }
 
   /** my side wins each conflicting change; every other change from both sides merges. */

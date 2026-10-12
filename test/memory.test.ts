@@ -112,10 +112,12 @@ await test('parallel initialization seeds one repository and leaves a stray buil
   assert.deepEqual(await readdir(stray, { recursive: true }), before);
 });
 
-await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend, hidden untracked files and log.follow', async () => {
+await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend, hidden untracked files, log.follow and an excludes file', async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-memory-identity-'));
   const template = join(root, 'template');
   await mkdir(template);
+  const excludes = join(root, 'excludes');
+  await writeFile(excludes, 'theirs.md\n');
   const module = new URL('../src/memory/memory.ts', import.meta.url).href;
   const { stdout } = await execute(
     process.execPath,
@@ -153,6 +155,7 @@ await test('memory works under user Git configuration with no identity, an empty
        if ((await mine.publish()) !== 'conflict') throw new Error('expected a conflict');
        await mine.keepMine();
        await mine.publish();
+       console.log(await memory.read('refs/heads/main', 'global/theirs.md'));
        console.log(await memory.read('refs/heads/main', 'global/preference.md'));
        await rename(join(mine.root, 'global/mine.md'), join(mine.root, 'global/renamed.md'));
        await mine.commit('rename mine');
@@ -168,7 +171,7 @@ await test('memory works under user Git configuration with no identity, an empty
         ...process.env,
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_COUNT: '4',
+        GIT_CONFIG_COUNT: '5',
         GIT_CONFIG_KEY_0: 'user.useConfigOnly',
         GIT_CONFIG_VALUE_0: 'true',
         GIT_CONFIG_KEY_1: 'rebase.backend',
@@ -177,6 +180,8 @@ await test('memory works under user Git configuration with no identity, an empty
         GIT_CONFIG_VALUE_2: 'no',
         GIT_CONFIG_KEY_3: 'log.follow',
         GIT_CONFIG_VALUE_3: 'true',
+        GIT_CONFIG_KEY_4: 'core.excludesFile',
+        GIT_CONFIG_VALUE_4: excludes,
         GIT_TEMPLATE_DIR: template,
         GIT_AUTHOR_NAME: undefined,
         GIT_AUTHOR_EMAIL: undefined,
@@ -186,6 +191,7 @@ await test('memory works under user Git configuration with no identity, an empty
     },
   );
   assert.deepEqual(stdout.trim().split('\n'), [
+    'Theirs.',
     'New preference.',
     'edit renamed, rename mine',
   ]);
@@ -227,6 +233,27 @@ await test('pending notes show in the recovery diff, block the next turn and sta
     'Accepted project fact.',
   );
   await assert.rejects(readFile(join(scope.project, 'pending.md')));
+});
+
+await test('a .gitignore inside memory hides no note from the recovery diff, discard, publishing or the symlink check', async () => {
+  const { memory, open } = await fixture();
+  const { workspace, scope } = await open('a');
+  const ignore = join(scope.global, '.gitignore');
+  const hidden = join(scope.global, 'hidden.md');
+  await writeFile(ignore, '*\n');
+  await writeFile(hidden, 'Hidden fact.');
+  assert.equal(await workspace.isDirty(), true);
+  assert.match(await workspace.diff(), /hidden\.md\nHidden fact\./);
+  await workspace.discardPending();
+  assert.equal(await workspace.isDirty(), false);
+  await assert.rejects(readFile(hidden));
+  await writeFile(ignore, '*\n');
+  await writeFile(hidden, 'Hidden fact.');
+  await workspace.commit('save');
+  await workspace.publish();
+  assert.equal(await memory.read(main, 'global/hidden.md'), 'Hidden fact.');
+  await symlink(tmpdir(), join(scope.global, 'linked.md'));
+  await assert.rejects(workspace.commit('link'), /regular file/);
 });
 
 await test('global memory crosses projects while project notes remain scoped', async () => {
