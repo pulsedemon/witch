@@ -161,6 +161,8 @@ for (const decision of ['accept', 'decline'] as const) {
       );
       assert.equal(prompt.params.effort, 'high');
       assert.equal(prompt.params.input[0].text, 'do the task');
+      assert.equal(prompt.params.threadId, 'native-thread');
+      assert.equal(session.info.permissionMode, 'on-request / user');
       if (decision === 'accept')
         assert.equal(
           await readFile(join(cwd, 'approved.txt'), 'utf8'),
