@@ -362,6 +362,7 @@ for await (const line of lines) {
             argumentHint: '',
             builtin: true,
           },
+          { name: 'clear', description: 'Shadowed', argumentHint: '' },
           { name: 'later', description: 'Added later', argumentHint: '' },
         ],
         uuid: randomUUID(),
