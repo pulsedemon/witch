@@ -1131,25 +1131,23 @@ await test('opening a conversation aborts its stopped rebase before classifying 
   }
 });
 
-/** conversations with history, created in name order. */
-async function listed(
+/** a conversation with history, last used at `seconds`. */
+async function used(
   store: StateStore,
   root: string,
-  cwd: string,
-  ids: string[],
+  conversation: Conversation,
+  seconds?: number,
 ) {
-  for (const id of ids) {
-    const files = await store.create(record(id, cwd));
-    await files.append({ id: 'n', kind: 'notice', text: id, cwd });
-    await files.close();
-  }
-  const touch = (id: string, seconds: number) =>
-    utimes(
-      join(root, 'state', 'conversations', id, 'history.jsonl'),
+  const files = await store.create(conversation);
+  if (seconds !== undefined)
+    await files.append({ id: 'n', kind: 'notice', text: 'used', cwd: '/' });
+  await files.close();
+  if (seconds !== undefined)
+    await utimes(
+      join(root, 'state', 'conversations', conversation.id, 'history.jsonl'),
       seconds,
       seconds,
     );
-  return touch;
 }
 
 await test('continue opens the newest conversation in this directory, ignoring newer ones elsewhere', async () => {
@@ -1157,12 +1155,10 @@ await test('continue opens the newest conversation in this directory, ignoring n
   await first.close();
   const elsewhere = join(root, 'elsewhere');
   await mkdir(elsewhere);
-  const touch = await listed(store, root, project, ['a1', 'a2', 'a3']);
-  await listed(store, root, elsewhere, ['b1']);
-  await touch('a1', 1000);
-  await touch('a2', 3000);
-  await touch('a3', 2000);
-  await touch('b1', 4000);
+  await used(store, root, record('a1', project), 1000);
+  await used(store, root, record('a2', project), 3000);
+  await used(store, root, record('a3', project), 2000);
+  await used(store, root, record('b1', elsewhere), 4000);
   const coordinator = new Coordinator(store, first.memory, [
     { adapter: a, executable: 'a' },
   ]);
@@ -1179,7 +1175,7 @@ await test('continue with nothing in this directory starts a new conversation he
   await first.close();
   const elsewhere = join(root, 'elsewhere');
   await mkdir(elsewhere);
-  await listed(store, root, elsewhere, ['b1']);
+  await used(store, root, record('b1', elsewhere), 1000);
   const coordinator = new Coordinator(store, first.memory, [
     { adapter: a, executable: 'a' },
   ]);
@@ -1196,7 +1192,7 @@ await test('continue with nothing in this directory starts a new conversation he
 await test('a plain launch starts a new conversation even when this directory has one', async () => {
   const { coordinator: first, store, root, project, a } = await fixture();
   await first.close();
-  await listed(store, root, project, ['earlier']);
+  await used(store, root, record('earlier', project), 1000);
   const coordinator = new Coordinator(store, first.memory, [
     { adapter: a, executable: 'a' },
   ]);
@@ -1213,8 +1209,8 @@ await test("/sessions lists only this directory's conversations", async () => {
   try {
     const elsewhere = join(root, 'elsewhere');
     await mkdir(elsewhere);
-    await listed(store, root, project, ['here']);
-    await listed(store, root, elsewhere, ['there']);
+    await used(store, root, record('here', project), 1000);
+    await used(store, root, record('there', elsewhere), 1000);
     assert.deepEqual(
       (await coordinator.conversations()).map(({ id }) => id),
       ['here'],
@@ -1228,7 +1224,7 @@ await test('continue into a held conversation shows the lock error with the laun
   const context = await fixture();
   const { coordinator: first, store, root, project, a, memory } = context;
   await first.close();
-  await listed(store, root, project, ['held']);
+  await used(store, root, record('held', project), 1000);
   const holder = await store.claim('held');
   const elsewhere = join(root, 'elsewhere');
   await mkdir(elsewhere);
@@ -1801,25 +1797,6 @@ await test('a native skills change replaces the list, unless its session has clo
     await coordinator.close();
   }
 });
-
-/** a conversation with history, last used at `seconds`. */
-async function used(
-  store: StateStore,
-  root: string,
-  conversation: Conversation,
-  seconds?: number,
-) {
-  const files = await store.create(conversation);
-  if (seconds !== undefined)
-    await files.append({ id: 'n', kind: 'notice', text: 'used', cwd: '/' });
-  await files.close();
-  if (seconds !== undefined)
-    await utimes(
-      join(root, 'state', 'conversations', conversation.id, 'history.jsonl'),
-      seconds,
-      seconds,
-    );
-}
 
 const chosen = (agent: string, model: string, effort?: string) => ({
   [agent]: {
