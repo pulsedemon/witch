@@ -766,7 +766,7 @@ await test('two page keys in one read scroll two pages', async () => {
   }
 });
 
-await test('Down with tools focused and no tools keeps the reading position', async () => {
+await test('Down with tools focused and no tools keeps the reading position, and End returns to live output', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
   );
@@ -782,6 +782,8 @@ await test('Down with tools focused and no tools keeps the reading position', as
     ui.stdin.write(`\t${DOWN}`);
     await delay(60);
     assert.equal(top(), 'row 242');
+    ui.stdin.write('\u001b[F');
+    await until('live output', () => top() === 'row 272');
   } finally {
     ui.unmount();
   }
