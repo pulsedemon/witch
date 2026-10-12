@@ -377,6 +377,22 @@ await test('selecting a model without an effort keeps the effort in force', asyn
   }
 });
 
+await test('a model choice that changes no native setting returns and shows the choice', async () => {
+  const { session, cwd } = await fixture(() => {}, 'high');
+  try {
+    await within(session.selectModel('model-a'), 2000, 'the same model');
+    assert.equal(session.info.effort, 'high');
+    await within(
+      session.selectModel('model-a', 'low'),
+      2000,
+      'the native effort',
+    );
+    assert.equal(session.info.effort, 'low');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a fresh thread reports the requested effort over the native default', async () => {
   const { session, cwd } = await fixture(() => {}, 'high');
   try {

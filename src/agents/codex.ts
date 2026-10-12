@@ -107,6 +107,8 @@ class CodexSession implements AgentSession {
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
+  /** the thread's settings as Codex last reported them, which `model/rerouted` leaves alone. */
+  private native: { model: string; effort?: string } = { model: '' };
   private readonly malformed = new Set<string>();
   /** each listed skill's SKILL.md, which a skill input names. */
   private readonly skillPaths = new Map<string, string>();
@@ -222,6 +224,15 @@ class CodexSession implements AgentSession {
   async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn)
       throw new Error('Stop the current turn before changing models');
+    // Codex notifies only when the settings change
+    if (
+      model === this.native.model &&
+      (effort == null || effort === this.native.effort)
+    ) {
+      this.info = { ...this.info, model, effort: effort ?? this.info.effort };
+      this.options.onEvent({ type: 'info', info: this.info });
+      return;
+    }
     this.settings = Promise.withResolvers<void>();
     try {
       await Promise.all([
@@ -343,6 +354,10 @@ class CodexSession implements AgentSession {
       typeof data.approvalPolicy === 'string'
         ? data.approvalPolicy
         : JSON.stringify(data.approvalPolicy);
+    this.native = {
+      model: data.model,
+      effort: data.reasoningEffort ?? undefined,
+    };
     this.info = {
       ...this.info,
       id: data.thread.id,
@@ -378,11 +393,11 @@ class CodexSession implements AgentSession {
     switch (message.method) {
       case 'thread/settings/updated': {
         const settings = object.parse(data.threadSettings);
-        this.info = {
-          ...this.info,
+        this.native = {
           model: z.string().parse(settings.model),
           effort: z.string().nullish().parse(settings.effort) ?? undefined,
         };
+        this.info = { ...this.info, ...this.native };
         this.options.onEvent({ type: 'info', info: this.info });
         this.settings?.resolve();
         break;

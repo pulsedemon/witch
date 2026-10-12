@@ -113,16 +113,19 @@ for await (const line of lines) {
     reply(session());
   }
   if (request.method === 'thread/settings/update') {
+    const previous = `${model}/${effort}`;
     model = request.params.model;
     // the server can't clear effort, so an omitted one stays in force
     effort = request.params.effort ?? effort;
     reply({});
     if (model === 'held') await held();
-    notify('thread/settings/updated', {
-      threadId: 'native-thread',
-      threadSettings:
-        model === 'bad-settings' ? { model: 5 } : { model, effort },
-    });
+    // as Codex does, only a change is notified
+    if (`${model}/${effort}` !== previous)
+      notify('thread/settings/updated', {
+        threadId: 'native-thread',
+        threadSettings:
+          model === 'bad-settings' ? { model: 5 } : { model, effort },
+      });
   }
   if (request.method === 'turn/start') {
     hasHistory = true;
