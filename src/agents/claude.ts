@@ -107,6 +107,8 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
+  /** an exit before this rejects the connect, which reports it. */
+  private connected = false;
 
   constructor(
     private readonly options: SessionOptions,
@@ -233,6 +235,7 @@ class ClaudeSession implements AgentSession {
         cause: error,
       });
     }
+    this.connected = true;
     await this.registered;
   }
 
@@ -364,7 +367,7 @@ class ClaudeSession implements AgentSession {
       for await (const message of this.query) this.receive(message);
       if (this.turn) await this.end('Claude exited before reporting idle');
     } catch (error) {
-      await this.end(String(error), true);
+      await this.end(message(error), true);
     } finally {
       this.closed = true;
       for (const request of this.requests.values())
@@ -495,7 +498,8 @@ class ClaudeSession implements AgentSession {
         text: '',
         error: text,
       });
-    if (notice && !closed) this.options.onEvent({ type: 'notice', text });
+    if (notice && this.connected && !closed)
+      this.options.onEvent({ type: 'notice', text });
   }
 
   private finish(turn: Turn, result: TurnResult): void {
