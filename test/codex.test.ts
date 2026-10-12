@@ -351,7 +351,7 @@ await test('an unsupported native request gets an error reply and the turn conti
   }
 });
 
-await test('a command streams its output into one tool that completes once, and the user message and reasoning show none', async () => {
+await test("a command streams its output into one tool that completes once in the command's cwd, and the user message and reasoning show none", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -359,11 +359,17 @@ await test('a command streams its output into one tool that completes once, and 
   try {
     assert.equal((await session.send('tool')).status, 'completed');
     assert.deepEqual(
-      tools.map(({ id, text, done, append }) => [id, text, done, append]),
+      tools.map(({ id, text, done, append, cwd }) => [
+        id,
+        text,
+        done,
+        append,
+        cwd,
+      ]),
       [
-        ['cmd-1', '', false, undefined],
-        ['cmd-1', 'a.md\n', false, true],
-        ['cmd-1', 'a.md\n', true, undefined],
+        ['cmd-1', '', false, undefined, '/elsewhere'],
+        ['cmd-1', 'a.md\n', false, true, undefined],
+        ['cmd-1', 'a.md\n', true, undefined, '/elsewhere'],
       ],
     );
   } finally {
