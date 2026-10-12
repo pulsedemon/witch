@@ -425,7 +425,7 @@ export class Coordinator {
               : (origin?.agent ?? 'manual');
           if (decision === 'accept')
             await workspace.commit(
-              `chore(memory): recover ${actor} changes\n\nconversation: ${origin?.conversationId ?? 'manual'}\nturn: ${origin?.id ?? 'manual'}`,
+              `chore(memory): recover ${actor} changes\n\nconversation: ${origin ? this.current().id : 'manual'}\nturn: ${origin?.id ?? 'manual'}`,
             );
           else if (decision === 'discard') await workspace.discardPending();
           else throw new Error('Accept these memory changes or discard them.');
@@ -489,11 +489,13 @@ export class Coordinator {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    // interrupt() reads the phase before `closing` replaces it
+    const interrupting = this.interrupt();
     this.publish({ phase: 'closing' });
     let failure: unknown;
     try {
       try {
-        await this.interrupt();
+        await interrupting;
       } catch (error) {
         failure = error;
         // Codex's close() interrupts again and would rethrow, so the session ends here
@@ -627,7 +629,7 @@ export class Coordinator {
     await this.files!.flush();
     if (result.status === 'completed') {
       await workspace.commit(
-        `chore(memory): save ${activity.agent} notes\n\nconversation: ${activity.conversationId}\nturn: ${activity.id}`,
+        `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
       );
       conversation.sessions[activity.agent]!.deliveredRevision =
         activity.baseRevision;
@@ -653,7 +655,6 @@ export class Coordinator {
     const begun = await workspace.begin(conversation.cwd);
     const activity = {
       id: randomUUID(),
-      conversationId: conversation.id,
       agent: conversation.agent,
       kind,
       baseRevision: begun.revision,

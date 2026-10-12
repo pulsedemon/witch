@@ -96,6 +96,12 @@ export class FixtureAgent implements AgentAdapter {
           description: '',
           efforts: [],
         },
+        {
+          id: `${this.id}-big`,
+          label: `${this.id}-big`,
+          description: '',
+          efforts: ['high'],
+        },
       ],
       selectModel: async (model, effort) => {
         this.selections.push([model, effort]);

@@ -7,7 +7,7 @@ import type { Memory, MemoryScope } from './memory.js';
 
 /** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
-  readonly branch: string;
+  private readonly branch: string;
 
   constructor(
     private readonly memory: Memory,

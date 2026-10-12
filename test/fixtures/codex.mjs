@@ -177,17 +177,22 @@ for await (const line of lines) {
       continue;
     }
     if (prompt === 'error') {
-      notify('error', {
-        threadId: 'native-thread',
-        turnId: 'turn-1',
-        willRetry: false,
-        error: {
-          message: 'native error',
-          codexErrorInfo: null,
-          additionalDetails: null,
-        },
+      const error = (message) => ({
+        message,
+        codexErrorInfo: null,
+        additionalDetails: null,
       });
-      finish('completed');
+      for (const [willRetry, message] of [
+        [true, 'retrying'],
+        [false, 'native error'],
+      ])
+        notify('error', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          willRetry,
+          error: error(message),
+        });
+      finish('failed', error('native error'));
       continue;
     }
     if (prompt === 'tool') {
@@ -208,7 +213,7 @@ for await (const line of lines) {
           content: [],
         },
       });
-      notify('item/started', { item: { ...item, aggregatedOutput: '' } });
+      notify('item/started', { item: { ...item, aggregatedOutput: null } });
       notify('item/commandExecution/outputDelta', {
         itemId: 'cmd-1',
         delta: 'a.md\n',

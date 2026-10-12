@@ -20,8 +20,13 @@ import { stopPreviousProcess } from './process.js';
 // macOS O_EXLOCK, which Node doesn't export.
 const exclusiveLock = 0x20;
 
+// ENOTDIR covers a stray file, such as Finder's .DS_Store, where a conversation directory would be
 function missing(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+  );
 }
 
 export class LockedElsewhere extends Error {}

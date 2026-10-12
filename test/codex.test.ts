@@ -310,14 +310,15 @@ await test('malformed notifications post one notice per method and the turn comp
   }
 });
 
-await test('a native error notification posts its message', async () => {
+await test('a retried native error posts a notice, and the final one only fails the turn', async () => {
   const notices: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notices.push(event.text);
   });
   try {
-    assert.equal((await session.send('error')).status, 'completed');
-    assert.deepEqual(notices, ['native error']);
+    const result = await session.send('error');
+    assert.deepEqual([result.status, result.error], ['failed', 'native error']);
+    assert.deepEqual(notices, ['retrying']);
   } finally {
     await close(session, cwd);
   }

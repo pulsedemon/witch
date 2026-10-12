@@ -31,7 +31,6 @@ export const conversationRecordSchema = conversationSchema.extend({
   activity: z
     .object({
       id: z.string(),
-      conversationId: z.string(),
       agent: z.string(),
       kind: z.enum(['turn', 'handoff', 'memory-edit']),
       baseRevision: z.string(),

@@ -278,7 +278,12 @@ await test('a launch report shows every line, and a taller message ends with a r
   }
 });
 
-async function memoryApp() {
+async function memoryApp(
+  editFile: (
+    file: string,
+    signal: AbortSignal,
+  ) => Promise<void> = async () => {},
+) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-ui-app-')));
   const cwd = join(root, 'project');
   await mkdir(cwd);
@@ -297,6 +302,7 @@ async function memoryApp() {
     memory,
     // uninstalled, so opening the conversation builds no worktree
     [{ adapter: new FixtureAgent('a') }],
+    editFile,
   );
   await coordinator.initialize(cwd);
   return { root, hook, seed, coordinator };
@@ -420,6 +426,45 @@ await test('a note page scrolls by rows and full pages and stops at its last row
     await until('one row down', () => shown().at(-1) === 60);
     ui.stdin.write('\u001b[5~');
     await until('a page up', () => shown()[0] === 61 - 2 * rows);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('e on a note page edits that note, and the + entry edits project essentials', async () => {
+  const edited: string[] = [];
+  const { coordinator } = await memoryApp(async (file) => {
+    edited.push(file);
+  });
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/memory');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the memory picker', () => ui.text().includes('other.md'));
+    await delay(30);
+    ui.stdin.write('other.md');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => ui.text().includes('e edit'));
+    ui.stdin.write('e');
+    await until('the edit', () => edited.length === 1);
+    assert.match(edited[0]!, /\/global\/other\.md$/);
+    await until('idle', () => coordinator.snapshot.phase === 'idle');
+    ui.stdin.write('/memory');
+    await delay(30);
+    ui.stdin.write('\r');
+    // the edit's notice already names other.md
+    await until('the memory picker', () =>
+      ui.text().includes('Edit project essentials'),
+    );
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the second edit', () => edited.length === 2);
+    assert.match(edited[1]!, /\/MEMORY\.md$/);
+    assert.doesNotMatch(edited[1]!, /\/global\//);
   } finally {
     ui.unmount();
     await coordinator.close();
@@ -791,12 +836,72 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
       ui.text().includes('first output 2'),
     );
     assert.ok(!ui.text().includes('first output 1'));
+    const row = (text: string) =>
+      ui
+        .frame()
+        .split('\n')
+        .find((line) => line.includes(text)) ?? '';
+    assert.ok(row('first tool 2').includes('\x1b[7m'));
+    assert.ok(!row('first tool 1').includes('\x1b[7m'));
     ui.stdin.write(ENTER);
     await until(
       'the collapsed tool',
       () => !ui.text().includes('first output 2'),
     );
     assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Enter during a turn keeps the draft and sends nothing', async () => {
+  const { app, calls } = fake({ phase: 'running' });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('hello');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the report', () => calls.length > 0);
+    assert.deepEqual(calls, [
+      [
+        'report',
+        'Wait for this operation to finish, or press Escape to interrupt.',
+      ],
+    ]);
+    assert.ok(ui.text().includes('│ hello'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('the header shows the stored model until the session reports one, and the status its permission mode', async () => {
+  const { app, coordinator } = fake({
+    conversation: {
+      id: 'c',
+      title: 't',
+      cwd: '/work',
+      agent: 'a',
+      sessions: { a: { id: '', model: 'stored-model', hasHistory: false } },
+      createdAt: '',
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const row = (index: number) => ui.text().split('\n')[index] ?? '';
+  try {
+    await until('the stored model', () => row(0).includes('stored-model'));
+    coordinator.publish({
+      native: {
+        id: 's',
+        agent: 'a',
+        cwd: '/work',
+        model: 'live-model',
+        permissionMode: 'on-request',
+        hasHistory: true,
+      },
+    });
+    await until('the live model', () => row(0).includes('live-model'));
+    assert.match(row(1), /^idle · on-request/);
   } finally {
     ui.unmount();
   }
@@ -827,7 +932,7 @@ await test('a conversation switch resets the tool selection within the next read
   }
 });
 
-await test('two page keys in one read scroll two pages, and PageUp scrolls a request back', async () => {
+await test('two page keys in one read scroll two pages, PageDown back to the bottom follows output again, and PageUp scrolls a request back', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
   );
@@ -845,6 +950,12 @@ await test('two page keys in one read scroll two pages, and PageUp scrolls a req
     ui.stdin.write('\u001b[5~\u001b[5~');
     // 302 lines in a 30-row transcript start at row 272; two pages up is 212
     await until('two pages up', () => rows()[2] === 'row 212');
+    assert.ok(ui.text().includes('Reading earlier output'));
+    ui.stdin.write('\u001b[6~\u001b[6~');
+    await until(
+      'live output',
+      () => !ui.text().includes('Reading earlier output'),
+    );
     coordinator.publish({
       phase: 'running',
       requests: [

@@ -12,11 +12,12 @@ await test('nested lists and task lists render indented with each checkbox inlin
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
 
-await test('a list item continuation line indents under its text', () => {
-  assert.equal(
-    stripAnsi(markdown('- line1\n  line2', '/work')),
-    '• line1\n  line2',
-  );
+await test('ordered items number from their start, and a continuation line indents under its item text', () => {
+  for (const [input, expected] of [
+    ['- line1\n  line2', '• line1\n  line2'],
+    ['9. a\n10. b\n    more', '9. a\n10. b\n    more'],
+  ] as const)
+    assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
 
 await test('headings, emphasis, quotes, rules and tables render as terminal text', () => {

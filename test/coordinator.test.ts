@@ -39,10 +39,9 @@ function record(id: string, cwd: string, agent = 'a'): Conversation {
   };
 }
 
-function activity(conversationId: string): ConversationRecord['activity'] {
+function activity(): ConversationRecord['activity'] {
   return {
     id: 'stale-turn',
-    conversationId,
     agent: 'a',
     kind: 'turn',
     baseRevision: 'unknown',
@@ -284,7 +283,6 @@ for (const stage of [
     if (stage === 'continuing')
       conversation.activity = {
         id: 'interrupted-destination-turn',
-        conversationId: conversation.id,
         agent: 'b',
         kind: 'turn',
         baseRevision: await memory.resolve(main),
@@ -477,6 +475,8 @@ await test('undelivered handoff context survives visiting another conversation a
     await coordinator.send('Continue');
     assert.match(b.inputs.at(-1)!.prompt, /amber-195/);
     assert.ok(coordinator.snapshot.conversation!.handoff);
+    b.interruptNext = true;
+    await assert.rejects(coordinator.switchAgent('a'), /interrupted/);
     await coordinator.send('Continue manually');
     assert.match(b.inputs.at(-1)!.prompt, /amber-195/);
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
@@ -548,7 +548,7 @@ await test('the launch sweep skips a conversation another instance holds', async
   const sleeper = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   const held = await store.create(record('held', '/elsewhere'));
   try {
-    held.record.activity = activity('held');
+    held.record.activity = activity();
     held.record.process = await identifyProcess(sleeper.pid!);
     await held.save(held.record);
     const coordinator = await launch();
@@ -568,7 +568,7 @@ await test('the launch sweep skips a conversation another instance holds', async
 await test('one conversation the sweep fails on does not stop the launch', async () => {
   const { store, launch, save, directory } = await sweepFixture();
   await save('readonly', (saved) => {
-    saved.activity = activity('readonly');
+    saved.activity = activity();
   });
   await chmod(directory('readonly'), 0o500);
   try {
@@ -588,7 +588,7 @@ await test('one conversation the sweep fails on does not stop the launch', async
 await test("the launch sweep clears a clean conversation's stale activity", async () => {
   const { root, launch, save, memory } = await sweepFixture();
   await save('stale', (saved) => {
-    saved.activity = activity('stale');
+    saved.activity = activity();
   });
   const coordinator = await launch();
   await coordinator.close();
@@ -621,7 +621,7 @@ await test('an unreadable state file is named in the launch report and skipped',
 await test('a claim that fails for a reason other than a held lock is reported', async () => {
   const { launch, save, directory } = await sweepFixture();
   await save('blocked', (saved) => {
-    saved.activity = activity('blocked');
+    saved.activity = activity();
   });
   await rm(join(directory('blocked'), 'lock'));
   await mkdir(join(directory('blocked'), 'lock'));
@@ -1027,7 +1027,7 @@ await test('the launch sweep publishes what it can and reports the rest in one m
   const unpublished = await stranded(context, { 'global/two.md': 'Two.' });
   await unpublished.files.close();
   const dirty = await stranded(context, {});
-  dirty.files.record.activity = activity(dirty.id);
+  dirty.files.record.activity = activity();
   await dirty.files.save(dirty.files.record);
   await dirty.files.close();
   await writeFile(join(dirty.memory.root, 'global', 'three.md'), 'Three.');
@@ -1083,7 +1083,7 @@ await test('a sweep failure after the claim is reported and releases the claim',
   const { root, store, memory } = context;
   await context.coordinator.close();
   const broken = await stranded(context, { 'global/x.md': 'X.' });
-  broken.files.record.activity = activity(broken.id);
+  broken.files.record.activity = activity();
   await broken.files.save(broken.files.record);
   await broken.files.close();
   await writeFile(join(broken.memory.root, '.git'), 'not a worktree\n');
@@ -1244,7 +1244,7 @@ await test('continue into a held conversation shows the lock error with the laun
   const elsewhere = join(root, 'elsewhere');
   await mkdir(elsewhere);
   const dirty = await stranded(context, {}, elsewhere);
-  dirty.files.record.activity = activity(dirty.id);
+  dirty.files.record.activity = activity();
   await dirty.files.save(dirty.files.record);
   await dirty.files.close();
   await writeFile(join(dirty.memory.root, 'global', 'pending.md'), 'Pending.');
@@ -1276,7 +1276,7 @@ await test('a publish failure while settling the launch is added to its report',
   const elsewhere = join(root, 'elsewhere');
   await mkdir(elsewhere);
   const dirty = await stranded(context, {}, elsewhere);
-  dirty.files.record.activity = activity(dirty.id);
+  dirty.files.record.activity = activity();
   await dirty.files.save(dirty.files.record);
   await dirty.files.close();
   await writeFile(join(dirty.memory.root, 'global', 'pending.md'), 'Pending.');
@@ -1704,6 +1704,7 @@ await test('a model chosen to keep the current effort stores the effort in force
   try {
     await coordinator.selectModel('first', 'high');
     await coordinator.selectModel('second');
+    await coordinator.selectModel('a-big');
     const record = await readRecord(
       root,
       coordinator.snapshot.conversation!.id,
@@ -1828,25 +1829,29 @@ await test('a native session that replaces the stored one gets the memory snapsh
   }
 });
 
-await test('Ctrl+C during a model change closes the session that holds it', async () => {
-  const { coordinator, a } = await fixture();
-  try {
-    const { session } = a.sessions.at(-1)!;
-    const entered = Promise.withResolvers<void>();
-    // as Codex's does, the change ends only when its session closes
-    session.selectModel = async () => {
-      entered.resolve();
-      for (let wait = 0; wait < 100 && !session.closed; wait++) await delay(10);
-      throw new Error(session.closed ? 'Session closed' : 'Still open');
-    };
-    const selecting = coordinator.selectModel('next');
-    await within(entered.promise, 2000, 'the model change');
-    await coordinator.interrupt();
-    await assert.rejects(selecting, /Session closed/);
-  } finally {
-    await coordinator.close();
-  }
-});
+for (const stop of ['interrupt', 'close'] as const)
+  await test(`${stop}() during a model change closes the session that holds it`, async () => {
+    const { coordinator, a } = await fixture();
+    try {
+      const { session } = a.sessions.at(-1)!;
+      const entered = Promise.withResolvers<void>();
+      // as Codex's does, the change ends only when its session closes
+      session.selectModel = async () => {
+        entered.resolve();
+        for (let wait = 0; wait < 100 && !session.closed; wait++)
+          await delay(10);
+        throw new Error(session.closed ? 'Session closed' : 'Still open');
+      };
+      const selecting = coordinator.selectModel('next');
+      await within(entered.promise, 2000, 'the model change');
+      // close() awaits the change, so its rejection needs a handler first
+      const rejected = assert.rejects(selecting, /Session closed/);
+      await coordinator[stop]();
+      await rejected;
+    } finally {
+      await coordinator.close();
+    }
+  });
 
 await test('agent events reach the transcript with their own replace, append and cwd', async () => {
   const { coordinator, a, project } = await fixture();
@@ -1865,6 +1870,23 @@ await test('agent events reach the transcript with their own replace, append and
         ['ab', '/elsewhere'],
       ],
     );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a native info event reaches the footer and the next resume', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    const { options, session } = a.sessions.at(-1)!;
+    options.onEvent({
+      type: 'info',
+      info: { ...session.info, id: 'later', permissionMode: 'plan' },
+    });
+    assert.equal(coordinator.snapshot.native?.permissionMode, 'plan');
+    await session.close();
+    await coordinator.send('Next');
+    assert.equal(a.sessions.at(-1)!.options.resume, 'later');
   } finally {
     await coordinator.close();
   }

@@ -448,7 +448,9 @@ class CodexSession implements AgentSession {
             text:
               typeof item.aggregatedOutput === 'string'
                 ? item.aggregatedOutput
-                : JSON.stringify(item, null, 2),
+                : type === 'commandExecution'
+                  ? ''
+                  : JSON.stringify(item, null, 2),
             done: message.method === 'item/completed',
             cwd: typeof item.cwd === 'string' ? item.cwd : this.info.cwd,
           });
@@ -492,10 +494,12 @@ class CodexSession implements AgentSession {
         break;
       }
       case 'error':
-        this.options.onEvent({
-          type: 'notice',
-          text: z.string().parse(object.parse(data.error).message),
-        });
+        // a final error comes back as the failed turn's error, which the coordinator posts
+        if (data.willRetry || !this.turn)
+          this.options.onEvent({
+            type: 'notice',
+            text: z.string().parse(object.parse(data.error).message),
+          });
     }
   }
 

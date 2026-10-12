@@ -8,6 +8,7 @@ import {
   mkdtemp,
   readFile,
   utimes,
+  writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -316,7 +317,7 @@ await test('an append keeps the cwd its item has, and a replacement takes its ow
   );
 });
 
-await test("listing keeps this directory's conversations with history, newest history first", async () => {
+await test("listing keeps this directory's conversations with history, newest history first, and a stray file is no unreadable record", async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-listing-'));
   const store = await StateStore.open(root);
   for (const [id, cwd, history] of [
@@ -331,6 +332,8 @@ await test("listing keeps this directory's conversations with history, newest hi
     await files.close();
   }
   await mkdir(join(root, 'conversations', 'stray'));
+  await writeFile(join(root, 'conversations', '.DS_Store'), '');
+  assert.deepEqual((await store.records()).unreadable, []);
   for (const [id, seconds] of [
     ['a', 1000],
     ['b', 3000],

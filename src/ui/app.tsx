@@ -241,35 +241,35 @@ export function App({
   };
   const showMemory = async () => {
     const memory = await coordinator.memoryView();
-    const files = await coordinator.memory.catalog(
+    const notes = await coordinator.memory.catalog(
       memory.revision,
       memory.scope,
     );
-    const entries = await Promise.all(
-      files.map(async (file) => ({
-        id: file.path,
-        label: `${file.path}${file.deleted ? ' (deleted)' : ''}`,
-        search: file.deleted
+    const noteChoices = await Promise.all(
+      notes.map(async (note) => ({
+        id: note.path,
+        label: `${note.path}${note.deleted ? ' (deleted)' : ''}`,
+        search: note.deleted
           ? ''
-          : await coordinator.memory.read(memory.revision, file.path),
+          : await coordinator.memory.read(memory.revision, note.path),
         cwd: memory.root,
       })),
     );
     picker(
       'Shared memory',
-      [{ id: '+', label: 'Edit project essentials' }, ...entries],
+      [{ id: '+', label: 'Edit project essentials' }, ...noteChoices],
       (file) => {
         if (file === '+') {
           setView({ kind: 'chat' });
           run(coordinator.editMemory());
-        } else if (files.find((entry) => entry.path === file)?.deleted) {
+        } else if (notes.find((note) => note.path === file)?.deleted) {
           showHistory(file);
         } else {
           setPageScroll(0);
           setView({
             kind: 'page',
             title: file,
-            text: entries.find((entry) => entry.id === file)!.search,
+            text: noteChoices.find((choice) => choice.id === file)!.search,
             link: memory.root && join(memory.root, file),
             note: file,
           });

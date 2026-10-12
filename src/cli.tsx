@@ -28,6 +28,7 @@ Use /help inside the app for controls.
 
 let values;
 let positionals;
+let store: StateStore | undefined;
 try {
   ({ values, positionals } = parseArgs({
     options: {
@@ -43,19 +44,19 @@ try {
     throw new Error("Option '--state-dir' needs a directory");
   if (!values.help && !(process.stdin.isTTY && process.stdout.isTTY))
     throw new Error('Witch needs an interactive terminal.');
+  if (!values.help)
+    store = await StateStore.open(resolve(values['state-dir'] ?? defaultState));
 } catch (error) {
   process.stderr.write(`witch: ${errorMessage(error)}\n`);
   process.exit(1);
 }
-if (values.help) {
+if (!store) {
   process.stdout.write(usage);
 } else {
-  const stateDirectory = resolve(values['state-dir'] ?? defaultState);
   const prompt = positionals.join(' ');
-  const store = await StateStore.open(stateDirectory);
   const coordinator = new Coordinator(
     store,
-    new Memory(join(stateDirectory, 'memory.git')),
+    new Memory(join(store.root, 'memory.git')),
     await installedAgents(),
   );
   let shuttingDown = false;
