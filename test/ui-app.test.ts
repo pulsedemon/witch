@@ -137,6 +137,7 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     selectConversation: record('selectConversation'),
     refreshModels: record('refreshModels'),
     selectModel: record('selectModel'),
+    switchAgent: record('switchAgent'),
     report: (error: unknown) => calls.push(['report', String(error)]),
     conversations: async () => [],
     projectFiles: async () => files,
@@ -599,6 +600,26 @@ await test('/model with Keep current effort selects the model without an effort'
     ui.unmount();
   }
 });
+
+for (const [typed, call] of [
+  ['/model m high', ['selectModel', 'm', 'high']],
+  ['/agent b', ['switchAgent', 'b']],
+  ['/new b', ['newConversation', 'b']],
+] as const)
+  await test(`${typed} passes its arguments`, async () => {
+    const { app, calls } = fake({});
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write(typed);
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the call', () => calls.length > 0);
+      assert.deepEqual(calls, [call]);
+    } finally {
+      ui.unmount();
+    }
+  });
 
 /** opens the command picker and waits for it. */
 async function commands(ui: ReturnType<typeof show>) {
