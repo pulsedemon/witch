@@ -1481,13 +1481,15 @@ await test('a handoff cancelled while the summary is saved never connects the de
   try {
     const switching = coordinator.switchAgent('b');
     await within(gate.entered, 2000, 'the summary turn');
+    // the summary turn saves first, without a handoff
     ConversationStore.prototype.save = function (record) {
+      if (!record.handoff) return save.call(this, record);
       ConversationStore.prototype.save = save;
       holding.resolve();
       return held.promise.then(() => save.call(this, record));
     };
     gate.open();
-    await within(holding.promise, 2000, 'the save after the summary');
+    await within(holding.promise, 2000, 'the save of the summary');
     const connects = b.sessions.length;
     await coordinator.interrupt();
     held.resolve();

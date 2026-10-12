@@ -534,9 +534,9 @@ export class Coordinator {
           throw new Error(result.error ?? 'Handoff was interrupted');
         summary = result.text;
       }
-      if (this.cancelled) throw new Error('Handoff was interrupted');
       conversation.handoff = { from, to: agent, summary, activated: false };
       await this.save();
+      if (this.cancelled) throw new Error('Handoff was interrupted');
       await this.connect(agent);
       if (this.cancelled) {
         throw new Error('Handoff was interrupted');
