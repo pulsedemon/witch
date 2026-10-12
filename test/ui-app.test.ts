@@ -616,6 +616,7 @@ const ENTER = '\u001b[13u';
 const SHIFT_ENTER = '\u001b[13;2u';
 const DOWN = '\u001b[B';
 const UP = '\u001b[A';
+const LEFT = '\u001b[D';
 const TAB = '\u001b[9u';
 const tools = (prefix: string) =>
   [1, 2].map((n) => ({
@@ -1338,11 +1339,11 @@ await test('Escape closes the list during a turn, a new token reopens it, and Es
 await test('Tab inserts a file into the middle of a draft', async () => {
   const { ui, calls } = await launched({}, ['src/app.ts', 'lib/x.ts']);
   try {
-    ui.stdin.write('see @sr');
+    ui.stdin.write(`see @sr now${LEFT.repeat(4)}`);
     await until('the file list', () => ui.text().includes('@src/app.ts'));
     ui.stdin.write(TAB);
     await until('the inserted path', () =>
-      ui.text().includes('│ see @src/app.ts'),
+      ui.text().includes('│ see @src/app.ts now'),
     );
     assert.deepEqual(calls, []);
   } finally {

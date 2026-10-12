@@ -434,8 +434,10 @@ export function App({
       composer.current?.set({ value: text, cursor: text.length });
     } else {
       const text = `@${open.items[index]!} `;
+      // the space after the path stands in for one already following the token
+      const rest = value.slice(open.end).replace(/^ /, '');
       composer.current?.set({
-        value: value.slice(0, open.start) + text + value.slice(open.end),
+        value: value.slice(0, open.start) + text + rest,
         cursor: open.start + text.length,
       });
     }
