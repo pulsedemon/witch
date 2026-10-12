@@ -1,3 +1,4 @@
+import { setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
