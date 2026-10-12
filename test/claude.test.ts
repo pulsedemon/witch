@@ -175,6 +175,17 @@ await test('a null effort clears the effort in force', async () => {
   }
 });
 
+await test('a new session has history once its first prompt starts', async () => {
+  const { session } = await fixture();
+  try {
+    assert.equal(session.info.hasHistory, false);
+    await session.send('hello');
+    assert.equal(session.info.hasHistory, true);
+  } finally {
+    await session.close();
+  }
+});
+
 await test('a stored session resumes by its id instead of starting a new one', async () => {
   const { args, connect } = await launcher();
   const session = await connect({ resume: 'stored-session' });
