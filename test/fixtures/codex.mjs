@@ -113,6 +113,7 @@ for await (const line of lines) {
     reply(session());
   }
   if (request.method === 'thread/settings/update') {
+    if (request.params.model === 'exit') process.exit(1);
     const previous = `${model}/${effort}`;
     model = request.params.model;
     // the server can't clear effort, so an omitted one stays in force
@@ -133,6 +134,11 @@ for await (const line of lines) {
     writeFileSync(file('prompt.json'), JSON.stringify(request));
     reply({ turn: { id: 'turn-1' } });
     if (prompt === 'hold') continue;
+    if (prompt === 'exit when idle') {
+      finish('completed');
+      process.stdout.write('', () => process.exit(1));
+      continue;
+    }
     if (prompt === 'add skill') {
       skillAdded = true;
       notify('skills/changed', {});

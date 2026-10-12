@@ -90,6 +90,32 @@ await test('loads every model page and preserves native roots without overriding
   }
 });
 
+await test('a Codex that exits while idle posts the exit as a notice', async () => {
+  const notice = Promise.withResolvers<string>();
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'notice') notice.resolve(event.text);
+  });
+  try {
+    assert.equal((await session.send('exit when idle')).status, 'completed');
+    assert.ok(await within(notice.promise, 2000, 'exit notice'));
+  } finally {
+    await close(session, cwd).catch(() => {});
+  }
+});
+
+await test('a Codex that exits during a model change fails the change without a notice', async () => {
+  const notices: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'notice') notices.push(event);
+  });
+  try {
+    await assert.rejects(within(session.selectModel('exit'), 2000, 'exit'));
+    assert.deepEqual(notices, []);
+  } finally {
+    await close(session, cwd).catch(() => {});
+  }
+});
+
 await test('a stored thread resumes by its id, and a missing one fails the connect with no exit notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(
@@ -358,8 +384,11 @@ await test('a Codex that exits during initialize fails the connect without a not
   assert.deepEqual(events, []);
 });
 
-await test('a grandchild holding the native pipes cannot keep a dead turn open', async () => {
-  const { session, cwd } = await fixture();
+await test('a grandchild holding the native pipes cannot keep a dead turn open, and the exit posts no notice', async () => {
+  const notices: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'notice') notices.push(event);
+  });
   try {
     const result = await within(
       session.send('grandchild'),
@@ -367,6 +396,7 @@ await test('a grandchild holding the native pipes cannot keep a dead turn open',
       'grandchild turn',
     );
     assert.equal(result.status, 'failed');
+    assert.deepEqual(notices, []);
   } finally {
     const pid = Number(
       await readFile(join(cwd, 'grandchild.pid'), 'utf8').catch(() => '0'),

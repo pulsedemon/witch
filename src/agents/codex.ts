@@ -128,10 +128,12 @@ class CodexSession implements AgentSession {
     };
     rpc.onMessage = (message) => this.receive(message);
     rpc.onExit = (error) => {
+      // a turn or settings change in flight reports the exit itself
+      const reported = !!(this.turn || this.settings);
       this.settings?.reject(error);
       this.closed = true;
       this.finish('failed', error.message);
-      if (this.connected && !this.closing)
+      if (!reported && this.connected && !this.closing)
         options.onEvent({ type: 'notice', text: error.message });
     };
   }
