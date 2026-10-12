@@ -14,13 +14,19 @@ for (const [args, expected] of [
   [['--state-dir', ''], /--state-dir/],
   [['--state-dir', '--continue'], /--state-dir/],
   [['-v'], /^witch: Unknown option '-v'/],
+  [['hi'], /^witch: Witch needs an interactive terminal\.\n$/],
 ] as const) {
   await test(`witch ${JSON.stringify(args)} exits 1 with a one-line error before opening the store`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'witch-cli-'));
     const child = spawn(
       process.execPath,
       ['--import', import.meta.resolve('tsx'), cli, ...args],
-      { cwd: directory, stdio: ['ignore', 'pipe', 'pipe'] },
+      {
+        cwd: directory,
+        // so a store opened at the default ~/.witch lands where readdir looks
+        env: { ...process.env, HOME: directory },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
     );
     let error = '';
     child.stderr.on('data', (chunk: Buffer) => {
@@ -31,7 +37,6 @@ for (const [args, expected] of [
     assert.match(error, /^witch: /);
     assert.match(error, expected);
     assert.doesNotMatch(error, /\n\s+at /);
-    assert.doesNotMatch(error, /interactive terminal/);
     assert.deepEqual(await readdir(directory), []);
   });
 }
