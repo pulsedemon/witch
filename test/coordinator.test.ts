@@ -334,7 +334,7 @@ await test('editing a previously committed symlink never opens its external targ
     await memory.ensureWorktree();
     const scope = await memory.scope(project);
     const target = join(root, 'external.md');
-    const note = join(scope.project, 'linked.md');
+    const note = join(memory.root, scope.project, 'linked.md');
     await writeFile(target, 'External content.');
     await symlink(target, note);
     const execute = promisify(execFile);

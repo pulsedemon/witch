@@ -65,15 +65,11 @@ export class Workspace {
   /** creates both scope directories, which git drops once their last note goes. */
   async scope(cwd: string): Promise<MemoryScope> {
     const paths = await this.memory.scopePaths(cwd);
-    const scope = {
-      global: join(this.root, paths.global),
-      project: join(this.root, paths.project),
-    };
-    for (const directory of [scope.global, scope.project])
+    for (const directory of [paths.global, paths.project])
       await mkdir(await this.checkedPath(directory, 'directory'), {
         recursive: true,
       });
-    return scope;
+    return paths;
   }
 
   async revision(): Promise<string> {

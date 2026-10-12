@@ -40,7 +40,14 @@ async function fixture() {
     await mkdir(directory, { recursive: true });
     const workspace = memory.workspace(directory, id);
     await workspace.ensureWorktree();
-    return { workspace, scope: await workspace.scope(project) };
+    const scope = await workspace.scope(project);
+    return {
+      workspace,
+      scope: {
+        global: join(workspace.root, scope.global),
+        project: join(workspace.root, scope.project),
+      },
+    };
   };
   return { memory, root, project, hook, open };
 }
@@ -634,8 +641,8 @@ await test('begin recreates the project directory after its last note is deleted
   await second.commit('delete');
   await second.publish();
   const { scope: begun } = await first.begin(project);
-  assert.ok((await stat(begun.project)).isDirectory());
-  assert.ok((await stat(begun.global)).isDirectory());
+  assert.ok((await stat(join(first.root, begun.project))).isDirectory());
+  assert.ok((await stat(join(first.root, begun.global))).isDirectory());
 });
 
 await test('snapshot paths point into the worktree, never the bare repository', async () => {

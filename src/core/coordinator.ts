@@ -587,7 +587,7 @@ export class Coordinator {
     const memory = await this.memory.snapshot(
       activity.baseRevision,
       workspace.root,
-      await this.memory.scopePaths(conversation.cwd),
+      scope,
       reference.deliveredRevision,
     );
     const handoff = conversation.handoff;
@@ -597,7 +597,7 @@ export class Coordinator {
         : undefined;
     const context = [
       'You are running inside Witch. Follow your native and project instructions.',
-      `Shared memory directories: ${scope.global} and ${scope.project}.`,
+      `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
       'Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in MEMORY.md. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.',
       ...(reference.deliveredRevision !== memory.revision ? [memory.text] : []),
       ...(pendingHandoff?.summary
@@ -684,8 +684,9 @@ export class Coordinator {
     const conversation = this.current();
     const files = this.files!;
     const { adapter, executable } = this.registration(agent);
-    await this.workspace!.ensureWorktree();
-    const scope = await this.workspace!.scope(conversation.cwd);
+    const workspace = this.workspace!;
+    await workspace.ensureWorktree();
+    const scope = await workspace.scope(conversation.cwd);
     const stored = conversation.sessions[agent];
     this.connecting = new AbortController();
     let session: AgentSession;
@@ -696,7 +697,9 @@ export class Coordinator {
         resume: stored?.hasHistory ? stored.id : undefined,
         model: stored?.requestedModel,
         effort: stored?.effort,
-        memoryDirectories: [scope.global, scope.project],
+        memoryDirectories: [scope.global, scope.project].map((path) =>
+          join(workspace.root, path),
+        ),
         signal: this.connecting.signal,
         onEvent: (event) => {
           if (!files.closed) this.receive(conversation, agent, event);

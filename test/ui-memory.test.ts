@@ -61,7 +61,7 @@ await test('a deleted note remains discoverable and can be restored through its 
   const { coordinator, cwd, id, files, workspace, scope } =
     await conversation();
   await files.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
-  const reference = join(scope.project, 'decisions.md');
+  const reference = join(workspace.root, scope.project, 'decisions.md');
   await writeFile(reference, 'Accepted project decision.');
   await workspace.commit('save reference');
   const originalRevision = await workspace.revision();
@@ -107,7 +107,7 @@ await test('a deleted note remains discoverable and can be restored through its 
 await test('a note page scrolls one full page at a time and stops at its last row', async () => {
   const { coordinator, id, files, workspace, scope } = await conversation();
   await writeFile(
-    join(scope.project, 'long.md'),
+    join(workspace.root, scope.project, 'long.md'),
     Array.from({ length: 60 }, (_, row) => `- row ${row + 1}\n`).join(''),
   );
   await workspace.commit('save long note');
