@@ -463,7 +463,6 @@ class CodexSession implements AgentSession {
           text: z.string().parse(data.delta),
           done: false,
           append: true,
-          cwd: this.info.cwd,
         });
         break;
       case 'turn/completed': {
