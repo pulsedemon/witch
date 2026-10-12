@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -48,7 +55,7 @@ await test('a work tree lists tracked and untracked files under the cwd, without
   assert.equal((await listFiles(root, 2)).length, 2);
 });
 
-await test('outside a work tree a walk lists files breadth first and skips dot entries', async () => {
+await test('outside a work tree a walk lists files breadth first and skips dot entries and unreadable directories', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-files-')));
   await files(root, {
     'top.txt': '',
@@ -58,4 +65,10 @@ await test('outside a work tree a walk lists files breadth first and skips dot e
   });
   assert.deepEqual(await listFiles(root), ['top.txt', 'deep/inner.txt']);
   assert.deepEqual(await listFiles(root, 1), ['top.txt']);
+  await chmod(join(root, 'deep'), 0o000);
+  try {
+    assert.deepEqual(await listFiles(root), ['top.txt']);
+  } finally {
+    await chmod(join(root, 'deep'), 0o700);
+  }
 });
