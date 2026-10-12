@@ -143,7 +143,7 @@ await test('the visible terminal cursor reaches the current insertion point with
   }
 });
 
-await test('native secret questions mask the display and preserve commas in a single answer', async () => {
+await test('native secret questions mask the display and preserve commas in a single answer, and a multiple answer splits', async () => {
   const answers: unknown[] = [];
   const ui = render(
     createElement(Request, {
@@ -157,6 +157,12 @@ await test('native secret questions mask the display and preserve commas in a si
         detail: '',
         questions: [
           { id: 'answer', title: 'Secret value', options: [], secret: true },
+          {
+            id: 'colors',
+            title: 'Colors?',
+            options: ['red', 'green', 'blue'],
+            multiple: true,
+          },
         ],
       },
       respond: (value) => answers.push(value),
@@ -171,8 +177,15 @@ await test('native secret questions mask the display and preserve commas in a si
     assert.ok(ui.lastFrame()?.includes('•••'));
     ui.stdin.write('\r');
     await delay(30);
+    ui.stdin.write('1, 3');
+    await delay(30);
+    ui.stdin.write('\r');
+    await delay(30);
     assert.deepEqual(answers, [
-      { decision: 'accept', answers: { answer: ['red, green'] } },
+      {
+        decision: 'accept',
+        answers: { answer: ['red, green'], colors: ['red', 'blue'] },
+      },
     ]);
   } finally {
     ui.unmount();
