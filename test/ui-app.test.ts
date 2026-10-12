@@ -135,6 +135,8 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     recoverMemory: record('recoverMemory'),
     newConversation: record('newConversation'),
     selectConversation: record('selectConversation'),
+    refreshModels: record('refreshModels'),
+    selectModel: record('selectModel'),
     report: (error: unknown) => calls.push(['report', String(error)]),
     conversations: async () => [],
     projectFiles: async () => files,
@@ -524,6 +526,36 @@ await test('two questions answered in one read each get their own option', async
 });
 
 /** opens the command picker and waits for it. */
+await test('/model with Keep current effort selects the model without an effort', async () => {
+  const { app, calls } = fake({
+    models: [
+      { id: 'm', label: 'Model M', description: '', efforts: ['low', 'high'] },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/model');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the model picker', () => ui.text().includes('Model M'));
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the effort picker', () =>
+      ui.text().includes('Keep current effort'),
+    );
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the selection', () => calls.length === 2);
+    assert.deepEqual(calls, [
+      ['refreshModels'],
+      ['selectModel', 'm', undefined],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
   await until('the command picker', () => ui.text().includes('Commands'));
