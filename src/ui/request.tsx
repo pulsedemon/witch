@@ -42,7 +42,8 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     hard: true,
     trim: false,
   }).split('\n');
-  const top = Math.min(scroll, Math.max(0, lines.length - bodyHeight));
+  const last = Math.max(0, lines.length - bodyHeight);
+  const top = Math.min(scroll, last);
 
   useInput(
     (input, key) => {
@@ -51,13 +52,9 @@ export function Request({ request, width, height, cwd, respond }: Props) {
         respond({ decision: 'decline' });
         return;
       }
-      const current = Math.min(
-        scrollRef.current,
-        Math.max(0, lines.length - bodyHeight),
-      );
+      const current = Math.min(scrollRef.current, last);
       if (key.pageUp) setScroll(Math.max(0, current - bodyHeight));
-      if (key.pageDown)
-        setScroll(Math.min(lines.length - 1, current + bodyHeight));
+      if (key.pageDown) setScroll(Math.min(last, current + bodyHeight));
       const count = (
         request.questions?.[questionIndexRef.current]?.options ??
         approvalOptions
