@@ -7,9 +7,19 @@ import {
 } from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
 import { basename, join } from 'node:path';
+import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
+import type { Skill } from '../agents/types.js';
 import type { Coordinator } from '../core/coordinator.js';
 import { Input } from './input.js';
+import type { InputHandle } from './input.js';
+import type { InputBuffer } from './input-buffer.js';
+import {
+  activeToken,
+  rankCommands,
+  rankFiles,
+  tokenKey,
+} from './completion.js';
 import { Request } from './request.js';
 import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
@@ -17,15 +27,23 @@ import { colors, markdown } from './markdown.js';
 import { hyperlink, linkify } from './links.js';
 import { useLiveState } from './live-state.js';
 
-const commands = [
+const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
   { id: 'sessions', label: 'Saved conversations' },
   { id: 'agent', label: 'Switch agent' },
   { id: 'model', label: 'Choose model and reasoning' },
   { id: 'memory', label: 'Browse shared memory' },
   { id: 'help', label: 'Keyboard help' },
-  { id: 'quit', label: 'Quit' },
+  { id: 'exit', label: 'Exit', aliases: ['quit'] },
 ];
+const claimed = new Set(
+  commands.flatMap(({ id, aliases = [] }) => [id, ...aliases]),
+);
+
+/** what the composer's open list offers: commands and skills, or files for the `@` token at `[start, end)`. */
+type List =
+  | { kind: 'command'; items: Skill[] }
+  | { kind: 'file'; start: number; end: number; items: string[] };
 
 interface Choice {
   id: string;
@@ -100,6 +118,16 @@ export function App({
   };
   // Input reads its initial value only when it mounts
   const [composerKey, setComposerKey] = useState(0);
+  const composer = useRef<InputHandle>(null);
+  const [buffer, bufferRef, setBuffer] = useLiveState<InputBuffer>({
+    value: '',
+    cursor: 0,
+  });
+  const [, listIndexRef, setListIndex] = useLiveState(0);
+  const [, dismissedRef, setDismissed] = useLiveState<string | undefined>(
+    undefined,
+  );
+  const [files, setFiles] = useState<string[]>([]);
   const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout());
   const transcript = useMemo(
@@ -121,7 +149,44 @@ export function App({
         ]
       : errorLines;
   const bodyHeight = height - 3 - errorRows.length;
-  const transcriptHeight = Math.max(2, bodyHeight - 7);
+  const composerPhase = !['starting', 'closing', 'error'].includes(state.phase);
+  const entries = [
+    ...commands.map(({ id, label, aliases }) => ({
+      name: id,
+      description: label,
+      aliases,
+    })),
+    ...state.skills.filter(({ name }) => !claimed.has(name)),
+  ];
+  /** read at key time from the live buffer, since several keys can arrive in one read. */
+  const listFor = ({ value, cursor }: InputBuffer): List | undefined => {
+    if (
+      view.kind !== 'chat' ||
+      !composerPhase ||
+      toolFocusRef.current ||
+      dismissedRef.current === tokenKey(value, cursor)
+    )
+      return;
+    const token = activeToken(value, cursor);
+    if (token?.kind === 'command') {
+      const items = rankCommands(token.query, entries);
+      return items.length ? { kind: 'command', items } : undefined;
+    }
+    if (token?.kind === 'file') {
+      const items = rankFiles(token.query, files);
+      return items.length ? { ...token, items } : undefined;
+    }
+  };
+  /** the selection, clamped to a list that may have shrunk since it moved. */
+  const selectedIn = (open: List) =>
+    Math.min(listIndexRef.current, open.items.length - 1);
+  const list = listFor(buffer);
+  const listSelected = list ? selectedIn(list) : 0;
+  const listRows = list
+    ? Math.min(8, list.items.length, Math.max(1, bodyHeight - 7))
+    : 1;
+  const listFirst = Math.max(0, listSelected - listRows + 1);
+  const transcriptHeight = Math.max(2, bodyHeight - 6 - listRows);
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
   const scrollTop =
     top === null ? maxTop : Math.min(transcript.rowOf(top), maxTop);
@@ -318,10 +383,9 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map((item) => `/${item.id}  ${item.label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown scroll.\nTab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nEscape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nCmd+click web links to open your browser.\nCmd+click file paths to open VS Code at their line and column.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n/exit also quits.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown scroll.\nType / for commands and skills, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nCmd+click web links to open your browser.\nCmd+click file paths to open VS Code at their line and column.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
-      case 'quit':
       case 'exit':
         onExit();
         break;
@@ -331,12 +395,14 @@ export function App({
   const submit = (text: string): boolean => {
     // Enter while tools are focused expands a tool, even in the same read as Tab
     if (toolFocusRef.current) return false;
-    const match =
-      /^\/(new|sessions|agent|model|memory|help|quit|exit)(?:\s+(.*))?$/.exec(
-        text.trim(),
+    const match = /^\/(\S+)(?:\s+(.*))?$/.exec(text.trim());
+    const found =
+      match &&
+      commands.find(
+        ({ id, aliases }) => id === match[1] || aliases?.includes(match[1]!),
       );
-    if (match) {
-      command(match[1]!, match[2]);
+    if (found) {
+      command(found.id, match[2]);
       return true;
     }
     if (coordinator.snapshot.phase !== 'idle') {
@@ -357,6 +423,57 @@ export function App({
       (error: unknown) => coordinator.report(error),
     );
     return true;
+  };
+
+  /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces only its token. */
+  const complete = (open: List) => {
+    const index = selectedIn(open);
+    const { value } = bufferRef.current;
+    if (open.kind === 'command') {
+      const text = `/${open.items[index]!.name} `;
+      composer.current?.set({ value: text, cursor: text.length });
+    } else {
+      const text = `@${open.items[index]!} `;
+      composer.current?.set({
+        value: value.slice(0, open.start) + text + value.slice(open.end),
+        cursor: open.start + text.length,
+      });
+    }
+  };
+  const changeComposer = (value: string, cursor: number) => {
+    const previous = bufferRef.current;
+    setDraft(state.conversation?.id ?? '', value);
+    setBuffer({ value, cursor });
+    if (tokenKey(value, cursor) !== tokenKey(previous.value, previous.cursor)) {
+      setListIndex(0);
+      setDismissed(undefined);
+    }
+    if (
+      activeToken(value, cursor)?.kind === 'file' &&
+      activeToken(previous.value, previous.cursor)?.kind !== 'file'
+    )
+      run(coordinator.projectFiles().then(setFiles));
+  };
+  const moveInList = (direction: 'up' | 'down', current: InputBuffer) => {
+    const open = listFor(current);
+    if (!open) return false;
+    const index = selectedIn(open);
+    setListIndex(
+      direction === 'up'
+        ? Math.max(0, index - 1)
+        : Math.min(open.items.length - 1, index + 1),
+    );
+    return true;
+  };
+  /** Enter runs the selected command or skill, and inserts a file without sending. */
+  const submitComposer = (text: string) => {
+    const open = listFor(bufferRef.current);
+    if (!open) return submit(text);
+    if (open.kind === 'file') {
+      complete(open);
+      return false;
+    }
+    return submit(`/${open.items[selectedIn(open)]!.name}`);
   };
 
   useEffect(() => {
@@ -399,6 +516,15 @@ export function App({
         run(coordinator.recoverMemory('accept'));
       if (input === 'k' && kind === 'conflict')
         run(coordinator.recoverMemory('keep'));
+      return;
+    }
+    const open = listFor(bufferRef.current);
+    if (open && (key.tab || key.escape)) {
+      if (key.tab) complete(open);
+      else
+        setDismissed(
+          tokenKey(bufferRef.current.value, bufferRef.current.cursor),
+        );
       return;
     }
     if (key.escape) {
@@ -610,20 +736,42 @@ export function App({
             key={`${state.conversation?.id ?? 'initial'}/${composerKey}`}
             width={width - 6}
             height={3}
-            active={
-              !toolFocus &&
-              !['starting', 'closing', 'error'].includes(state.phase)
-            }
+            active={!toolFocus && composerPhase}
+            ref={composer}
             initialValue={drafts[state.conversation?.id ?? ''] ?? ''}
-            onChange={(value) => setDraft(state.conversation?.id ?? '', value)}
-            onSubmit={submit}
+            onChange={changeComposer}
+            onSubmit={submitComposer}
+            onArrow={moveInList}
           />
         </Box>
-        <Text dimColor>
-          {toolFocus
-            ? '↑/↓ tools · Enter expand · Tab compose · End live output'
-            : 'Enter send · Shift+Enter newline · Ctrl+P commands · PgUp/PgDn scroll'}
-        </Text>
+        {list ? (
+          <Box height={listRows} flexDirection="column" overflow="hidden">
+            {(list.kind === 'file'
+              ? list.items.map((path) => `@${path}`)
+              : list.items.map(
+                  ({ name, argumentHint, description }) =>
+                    `/${name}${argumentHint ? ` ${argumentHint}` : ''}  ${description}`,
+                )
+            )
+              .slice(listFirst, listFirst + listRows)
+              .map((text, row) => (
+                <Text
+                  key={listFirst + row}
+                  inverse={listFirst + row === listSelected}
+                  wrap="truncate-end"
+                >
+                  {/* Ink keeps OSC 8 links, so a project's file name or skill description could forge one */}
+                  {stripAnsi(text).replace(/\s+/g, ' ')}
+                </Text>
+              ))}
+          </Box>
+        ) : (
+          <Text dimColor>
+            {toolFocus
+              ? '↑/↓ tools · Enter expand · Tab compose · End live output'
+              : 'Enter send · Shift+Enter newline · Ctrl+P commands · PgUp/PgDn scroll'}
+          </Text>
+        )}
       </Box>
     );
   }
@@ -663,7 +811,9 @@ export function App({
               ? ' · Esc back'
               : toolFocus
                 ? ' · Esc leave tools'
-                : ' · Esc interrupt'}
+                : list
+                  ? ' · Esc close list'
+                  : ' · Esc interrupt'}
         </Text>
       </Box>
     </Box>

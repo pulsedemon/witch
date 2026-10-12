@@ -112,7 +112,21 @@ for await (const line of lines) {
         continue;
       }
       response = {
-        commands: [],
+        // a built-in, a user command its name shadows, and a skill
+        commands: [
+          {
+            name: 'compact',
+            description: 'Compact the conversation',
+            argumentHint: '',
+            builtin: true,
+          },
+          { name: 'compact', description: 'Shadowed', argumentHint: '' },
+          {
+            name: 'review',
+            description: 'Review changes',
+            argumentHint: '<target>',
+          },
+        ],
         agents: [],
         output_style: 'default',
         available_output_styles: [],
@@ -156,7 +170,12 @@ for await (const line of lines) {
     });
   } else if (message.type === 'user') {
     lastPrompt = message.message.content;
-    writeFileSync(join(process.cwd(), 'prompt.txt'), lastPrompt);
+    writeFileSync(
+      join(process.cwd(), 'content.json'),
+      JSON.stringify(lastPrompt),
+    );
+    if (typeof lastPrompt === 'string')
+      writeFileSync(join(process.cwd(), 'prompt.txt'), lastPrompt);
     send({
       type: 'system',
       subtype: 'init',
@@ -202,7 +221,24 @@ for await (const line of lines) {
       process.exit(1);
     } else if (lastPrompt === 'quit early')
       process.stderr.write('quitting early\n', () => process.exit(0));
-    else finish();
+    else if (lastPrompt === 'add skill') {
+      send({
+        type: 'system',
+        subtype: 'commands_changed',
+        commands: [
+          {
+            name: 'clear',
+            description: 'Clear',
+            argumentHint: '',
+            builtin: true,
+          },
+          { name: 'later', description: 'Added later', argumentHint: '' },
+        ],
+        uuid: randomUUID(),
+        session_id,
+      });
+      finish();
+    } else finish();
   } else if (
     message.type === 'control_response' &&
     message.response.request_id === 'permit-1'

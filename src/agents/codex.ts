@@ -9,6 +9,8 @@ import type {
   Model,
   SessionInfo,
   SessionOptions,
+  Skill,
+  SkillCall,
   TurnResult,
   UserRequest,
   UserResponse,
@@ -35,6 +37,24 @@ const modelPage = z.object({
     }),
   ),
   nextCursor: z.string().nullable(),
+});
+const skillList = z.object({
+  data: z.array(
+    z.object({
+      skills: z.array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+          shortDescription: z.string().nullish(),
+          interface: z
+            .object({ shortDescription: z.string().nullish() })
+            .nullish(),
+          path: z.string(),
+          enabled: z.boolean(),
+        }),
+      ),
+    }),
+  ),
 });
 const questionList = z.array(
   z.object({
@@ -86,6 +106,8 @@ class CodexSession implements AgentSession {
   private closing = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
   private readonly malformed = new Set<string>();
+  /** each listed skill's SKILL.md, which a skill input names. */
+  private readonly skillPaths = new Map<string, string>();
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -169,6 +191,30 @@ class CodexSession implements AgentSession {
     return models;
   }
 
+  /** enabled skills, first per name, as the TUI offers them. */
+  async skills(): Promise<Skill[]> {
+    const { data } = skillList.parse(
+      await this.rpc.request('skills/list', {
+        cwds: [this.options.cwd],
+        forceReload: true,
+      }),
+    );
+    this.skillPaths.clear();
+    const skills: Skill[] = [];
+    for (const skill of data.flatMap((entry) => entry.skills)) {
+      if (!skill.enabled || this.skillPaths.has(skill.name)) continue;
+      this.skillPaths.set(skill.name, skill.path);
+      skills.push({
+        name: skill.name,
+        description:
+          skill.interface?.shortDescription ??
+          skill.shortDescription ??
+          skill.description,
+      });
+    }
+    return skills;
+  }
+
   /** Codex can't clear effort, so `null` keeps the effort in force as an omitted one does. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn)
@@ -188,8 +234,10 @@ class CodexSession implements AgentSession {
     }
   }
 
-  async send(prompt: string): Promise<TurnResult> {
+  async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
     if (this.turn) throw new Error('This agent is already running');
+    if (skill && !this.skillPaths.has(skill.name)) await this.skills();
+    const path = skill && this.skillPaths.get(skill.name);
     const turn = {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
@@ -200,7 +248,13 @@ class CodexSession implements AgentSession {
       const response = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.rpc.request('turn/start', {
           threadId: this.info.id,
-          input: [{ type: 'text', text: prompt, text_elements: [] }],
+          // the TUI sends a selected skill as an item, which Codex resolves by path
+          input: [
+            { type: 'text', text: prompt, text_elements: [] },
+            ...(skill && path
+              ? [{ type: 'skill', name: skill.name, path }]
+              : []),
+          ],
           effort: this.info.effort,
         }),
       );
@@ -330,6 +384,14 @@ class CodexSession implements AgentSession {
         this.settings?.resolve();
         break;
       }
+      case 'skills/changed':
+        if (!this.closing)
+          void this.skills().then(
+            (skills) => this.options.onEvent({ type: 'skills', skills }),
+            (error: unknown) =>
+              this.options.onEvent({ type: 'notice', text: String(error) }),
+          );
+        break;
       case 'item/agentMessage/delta': {
         const id = z.string().parse(data.itemId);
         const text = z.string().parse(data.delta);

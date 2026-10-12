@@ -9,6 +9,8 @@ import type {
   AgentSession,
   Model,
   SessionInfo,
+  Skill,
+  SkillCall,
   TurnResult,
   UserRequest,
   UserResponse,
@@ -19,6 +21,7 @@ import type { Workspace } from '../memory/workspace.js';
 import { lockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
+import { listFiles } from './files.js';
 import { applyDisplayUpdate } from './state.js';
 import type {
   Conversation,
@@ -28,6 +31,16 @@ import type {
 } from './state.js';
 
 const execute = promisify(execFile);
+
+/** splits `/name args` as Claude Code does: the name ends at the first whitespace. */
+function skillCall(
+  prompt: string,
+  skills: readonly Skill[],
+): SkillCall | undefined {
+  const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
+  if (!match || !skills.some(({ name }) => name === match[1])) return;
+  return { name: match[1]!, args: match[2]!.trim() };
+}
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -69,6 +82,8 @@ export interface Snapshot {
   items: readonly DisplayItem[];
   requests: readonly UserRequest[];
   models: readonly Model[];
+  /** the live session's skills, empty while none is connected. */
+  skills: readonly Skill[];
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
   recovery?: Recovery;
@@ -115,6 +130,7 @@ export class Coordinator {
       items: [],
       requests: [],
       models: [],
+      skills: [],
       agents: agents.map(({ adapter, executable }) => ({
         id: adapter.id,
         label: adapter.label,
@@ -166,7 +182,14 @@ export class Coordinator {
       if (report === undefined) throw error;
       throw new Error(`${message(error)}\n\n${report}`, { cause: error });
     }
-    await this.settle(report);
+    // a failed connect leaves the conversation open, as a failed send does
+    const failure = await this.connect().then(
+      () => undefined,
+      (error: unknown) => message(error),
+    );
+    await this.settle(
+      [report, failure].filter(Boolean).join('\n\n') || undefined,
+    );
   }
 
   /** stops orphans, publishes stranded memory and reports what it can't settle in conversations no instance holds. */
@@ -300,12 +323,20 @@ export class Coordinator {
       await this.openConversation({
         create: this.newRecord(this.current().cwd, agent),
       });
+      await this.connect();
     });
   }
 
   async selectConversation(id: string): Promise<void> {
     if (id === this.record?.id) return;
-    await this.operate('starting', () => this.openConversation({ id }));
+    await this.operate('starting', async () => {
+      await this.openConversation({ id });
+      await this.connect();
+    });
+  }
+
+  projectFiles(): Promise<string[]> {
+    return listFiles(this.current().cwd);
   }
 
   conversations(): Promise<Conversation[]> {
@@ -573,7 +604,10 @@ export class Coordinator {
     delivered?.();
     let result: TurnResult;
     try {
-      result = await session.send(context);
+      result = await session.send(
+        context,
+        skillCall(prompt, this.snapshot.skills),
+      );
     } catch (error) {
       result = { status: 'failed', text: '', error: String(error) };
     }
@@ -617,13 +651,17 @@ export class Coordinator {
     return { activity, scope: begun.scope };
   }
 
-  private async connect(agent = this.current().agent): Promise<AgentSession> {
-    if (
-      this.session &&
+  private live(agent: string): AgentSession | undefined {
+    return this.session &&
       !this.session.closed &&
       this.session.info.agent === agent
-    )
-      return this.session;
+      ? this.session
+      : undefined;
+  }
+
+  private async connect(agent = this.current().agent): Promise<AgentSession> {
+    const live = this.live(agent);
+    if (live) return live;
     await this.disconnect();
     const conversation = this.current();
     const files = this.files!;
@@ -659,13 +697,24 @@ export class Coordinator {
     this.session = session;
     this.saveInfo(conversation, agent, session.info);
     await this.save();
-    this.publish({ native: session.info, models: await session.models() });
+    let skills: Skill[] = [];
+    try {
+      skills = await session.skills();
+    } catch (error) {
+      this.report(error);
+    }
+    this.publish({
+      native: session.info,
+      models: await session.models(),
+      skills,
+    });
     return session;
   }
 
   private async disconnect(): Promise<void> {
     const session = this.session;
     this.session = undefined;
+    this.publish({ skills: [] });
     await session?.close();
     if (!this.record) return;
     delete this.record.process;
@@ -692,6 +741,8 @@ export class Coordinator {
       });
     } else if (event.type === 'notice') {
       this.notice(event.text);
+    } else if (event.type === 'skills') {
+      if (this.live(agent)) this.publish({ skills: event.skills });
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       this.display(

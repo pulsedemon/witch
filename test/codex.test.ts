@@ -129,6 +129,52 @@ for (const decision of ['accept', 'decline'] as const) {
   });
 }
 
+await test('skills keep the first enabled entry per name and prefer its interface description', async () => {
+  const changed = Promise.withResolvers<AgentEvent>();
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'skills') changed.resolve(event);
+  });
+  try {
+    assert.deepEqual(await session.skills(), [
+      { name: 'review', description: 'review interface' },
+      { name: 'legacy', description: 'legacy short' },
+      { name: 'bare', description: 'bare description' },
+    ]);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(cwd, 'skills.json'), 'utf8')).params,
+      { cwds: [cwd], forceReload: true },
+    );
+    assert.equal((await session.send('add skill')).status, 'completed');
+    const event = await within(changed.promise, 2000);
+    assert.deepEqual(
+      event.type === 'skills' && event.skills.map(({ name }) => name),
+      ['review', 'legacy', 'bare', 'later'],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test('a skill send names the first listed path, and a plain send names none', async () => {
+  const { session, cwd } = await fixture();
+  const input = async () =>
+    JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8')).params
+      .input as unknown;
+  try {
+    await session.send('add skill', { name: 'review', args: 'x' });
+    assert.deepEqual(await input(), [
+      { type: 'text', text: 'add skill', text_elements: [] },
+      { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' },
+    ]);
+    await session.send('add skill');
+    assert.deepEqual(await input(), [
+      { type: 'text', text: 'add skill', text_elements: [] },
+    ]);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('interrupt waits for the native turn to complete', async () => {
   const { session, cwd } = await fixture();
   try {

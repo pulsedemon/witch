@@ -8,6 +8,8 @@ import type {
   AgentSession,
   SessionInfo,
   SessionOptions,
+  Skill,
+  SkillCall,
   TurnResult,
 } from '../../src/agents/types.js';
 
@@ -38,7 +40,11 @@ export class TurnGate {
 /** an in-process agent that reports a process and ends turns the way the real adapters do. */
 export class FixtureAgent implements AgentAdapter {
   readonly label: string;
-  readonly inputs: { session: string; prompt: string }[] = [];
+  readonly inputs: { session: string; prompt: string; skill?: SkillCall }[] =
+    [];
+  /** what each session's `skills()` returns. */
+  skills: Skill[] = [];
+  failSkills = false;
   readonly resumed: (string | undefined)[] = [];
   readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
   readonly selections: [string, string | null | undefined][] = [];
@@ -81,6 +87,10 @@ export class FixtureAgent implements AgentAdapter {
       get closed() {
         return closed;
       },
+      skills: async () => {
+        if (this.failSkills) throw new Error('Skills unavailable');
+        return this.skills;
+      },
       models: async () => [
         {
           id: `${this.id}-model`,
@@ -112,9 +122,13 @@ export class FixtureAgent implements AgentAdapter {
           await options.onProcess(undefined);
         }
       },
-      send: async (prompt): Promise<TurnResult> => {
+      send: async (prompt, skill): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
-        this.inputs.push({ session: info.id, prompt });
+        this.inputs.push({
+          session: info.id,
+          prompt,
+          ...(skill ? { skill } : {}),
+        });
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere
         const note = /remember:(\S+)/.exec(prompt)?.[1];
         if (note)

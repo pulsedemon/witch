@@ -1,14 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import type { Ref } from 'react';
 import { Box, Text, measureElement, useCursor, useInput, usePaste } from 'ink';
 import type { DOMElement } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import { editInput, initialInput } from './input-buffer.js';
-import type { Edit } from './input-buffer.js';
+import type { Edit, InputBuffer } from './input-buffer.js';
 import { useLiveState } from './live-state.js';
 
+export interface InputHandle {
+  /** replaces the buffer at once, so later keys of the same read edit the new text. */
+  set(buffer: InputBuffer): void;
+}
+
 interface Props {
+  ref?: Ref<InputHandle>;
   width: number;
   height: number;
   active: boolean;
@@ -16,11 +23,15 @@ interface Props {
   multiline?: boolean;
   placeholder?: string;
   initialValue?: string;
-  onChange?(value: string): void;
+  /** fires on every edit and once on mount. */
+  onChange?(value: string, cursor: number): void;
   onSubmit(value: string): boolean;
+  /** runs before ↑/↓ move the cursor; `true` keeps the cursor where it is. */
+  onArrow?(direction: 'up' | 'down', buffer: InputBuffer): boolean;
 }
 
 export function Input({
+  ref,
   width,
   height,
   active,
@@ -30,6 +41,7 @@ export function Input({
   initialValue = '',
   onChange,
   onSubmit,
+  onArrow,
 }: Props) {
   const [state, current, setState] = useLiveState(() =>
     initialInput(initialValue),
@@ -83,11 +95,15 @@ export function Input({
       : undefined,
   );
 
-  const edit = (action: Edit) => {
-    const next = editInput(current.current, action);
+  const replace = (next: InputBuffer) => {
     setState(next);
-    onChange?.(next.value);
+    onChange?.(next.value, next.cursor);
   };
+  const edit = (action: Edit) => replace(editInput(current.current, action));
+  useImperativeHandle(ref, () => ({ set: replace }));
+  useEffect(() => {
+    onChange?.(current.current.value, current.current.cursor);
+  }, []);
 
   usePaste((text) => edit({ type: 'insert', text }), { isActive: active });
   useInput(
@@ -105,20 +121,19 @@ export function Input({
         return;
       if (key.return) {
         if (key.shift && multiline) edit({ type: 'insert', text: '\n' });
-        else if (onSubmit(current.current.value)) {
-          setState({ value: '', cursor: 0 });
-          onChange?.('');
-        }
+        else if (onSubmit(current.current.value))
+          replace({ value: '', cursor: 0 });
       } else if (key.leftArrow) edit({ type: 'left' });
       else if (key.rightArrow) edit({ type: 'right' });
-      else if (key.upArrow && multiline) edit({ type: 'up' });
-      else if (key.downArrow && multiline) edit({ type: 'down' });
-      else if (key.home) edit({ type: 'home' });
+      else if (key.upArrow || key.downArrow) {
+        const direction = key.upArrow ? 'up' : 'down';
+        if (!onArrow?.(direction, current.current) && multiline)
+          edit({ type: direction });
+      } else if (key.home) edit({ type: 'home' });
       else if (key.end) edit({ type: 'end' });
       else if (key.backspace) edit({ type: 'backspace' });
       else if (key.delete) edit({ type: 'delete' });
-      else if (input && !key.upArrow && !key.downArrow)
-        edit({ type: 'insert', text: input });
+      else if (input) edit({ type: 'insert', text: input });
     },
     { isActive: active },
   );

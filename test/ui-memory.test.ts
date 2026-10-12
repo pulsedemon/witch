@@ -61,7 +61,11 @@ await test('a deleted note remains discoverable and can be restored through its 
   await unlink(reference);
   await workspace.commit('delete reference');
   await files.close();
-  await coordinator.selectConversation(id);
+  // the conversation opens even though its agent can't connect
+  await assert.rejects(
+    coordinator.selectConversation(id),
+    /Codex is not installed/,
+  );
   const ui = render(createElement(App, { coordinator, onExit: () => {} }));
   try {
     await delay(40);

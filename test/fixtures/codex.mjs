@@ -31,6 +31,13 @@ const held = async () => {
   while (!existsSync(file('release'))) await delay(5);
 };
 let prompt = '';
+let skillAdded = false;
+const skill = (name, fields) => ({
+  name,
+  path: `/skills/${name}/SKILL.md`,
+  enabled: true,
+  ...fields,
+});
 for await (const line of lines) {
   const request = JSON.parse(line);
   const reply = (result) => send({ id: request.id, result });
@@ -56,6 +63,34 @@ for await (const line of lines) {
         },
       ],
       nextCursor: second ? null : 'page-2',
+    });
+  }
+  if (request.method === 'skills/list') {
+    writeFileSync(file('skills.json'), JSON.stringify(request));
+    reply({
+      data: [
+        {
+          cwd: process.cwd(),
+          errors: [],
+          skills: [
+            skill('review', {
+              description: 'review description',
+              shortDescription: 'review short',
+              interface: { shortDescription: 'review interface' },
+            }),
+            skill('off', { description: 'disabled', enabled: false }),
+            skill('legacy', {
+              description: 'legacy description',
+              shortDescription: 'legacy short',
+            }),
+            { ...skill('review', { description: 'duplicate' }), path: '/x' },
+            skill('bare', { description: 'bare description' }),
+            ...(skillAdded
+              ? [skill('later', { description: 'added later' })]
+              : []),
+          ],
+        },
+      ],
     });
   }
   if (request.method === 'thread/start' || request.method === 'thread/resume') {
@@ -88,6 +123,12 @@ for await (const line of lines) {
     writeFileSync(file('prompt.json'), JSON.stringify(request));
     reply({ turn: { id: 'turn-1' } });
     if (prompt === 'wait' || prompt === 'hold') continue;
+    if (prompt === 'add skill') {
+      skillAdded = true;
+      notify('skills/changed', {});
+      finish('completed');
+      continue;
+    }
     if (prompt === 'malformed') {
       for (let count = 0; count < 2; count++)
         notify('item/agentMessage/delta', { itemId: 7, delta: 'bad' });

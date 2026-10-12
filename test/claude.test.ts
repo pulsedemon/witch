@@ -93,6 +93,49 @@ await test('refresh consumes a fresh native catalog without replacing the defaul
   }
 });
 
+await test('skills leave out built-ins and the rows they shadow, before and after a native change', async () => {
+  const events: AgentEvent[] = [];
+  const { session } = await fixture((event) => events.push(event));
+  try {
+    assert.deepEqual(await session.skills(), [
+      {
+        name: 'review',
+        description: 'Review changes',
+        argumentHint: '<target>',
+      },
+    ]);
+    assert.equal((await session.send('add skill')).status, 'completed');
+    assert.deepEqual(
+      events.filter((event) => event.type === 'skills'),
+      [
+        {
+          type: 'skills',
+          skills: [{ name: 'later', description: 'Added later' }],
+        },
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+await test('a skill goes last after its context, and a plain prompt stays a string', async () => {
+  const { session, cwd } = await fixture();
+  const content = async () =>
+    JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
+  try {
+    await session.send('context', { name: 'review', args: 'main' });
+    assert.deepEqual(await content(), [
+      { type: 'text', text: 'context' },
+      { type: 'text', text: '/review main' },
+    ]);
+    await session.send('plain');
+    assert.equal(await content(), 'plain');
+  } finally {
+    await session.close();
+  }
+});
+
 await test('invalid effort preserves the displayed and native model', async () => {
   const { session, cwd } = await fixture();
   try {

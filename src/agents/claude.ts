@@ -9,6 +9,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
   ModelInfo,
+  SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
@@ -20,6 +21,8 @@ import type {
   Model,
   SessionInfo,
   SessionOptions,
+  Skill,
+  SkillCall,
   TurnResult,
   UserRequest,
   UserResponse,
@@ -68,6 +71,20 @@ interface Turn {
   result?: TurnResult;
   interrupted: boolean;
   messages: Map<string, string>;
+}
+
+/** everything but Claude Code's own commands, including unmarked rows a built-in shadows, since `/name` runs the built-in. */
+function skillsOf(commands: SlashCommand[]): Skill[] {
+  const builtin = new Set(
+    commands.filter((command) => command.builtin).map(({ name }) => name),
+  );
+  return commands
+    .filter(({ name }) => !builtin.has(name))
+    .map(({ name, description, argumentHint }) => ({
+      name,
+      description,
+      ...(argumentHint ? { argumentHint } : {}),
+    }));
 }
 
 function message(error: unknown): string {
@@ -233,6 +250,11 @@ class ClaudeSession implements AgentSession {
     }));
   }
 
+  /** the CLI keeps this cache current with `commands_changed` pushes, so reading it sends nothing. */
+  async skills(): Promise<Skill[]> {
+    return skillsOf(await this.query.supportedCommands());
+  }
+
   /** an omitted effort leaves `effortLevel` unsent, which keeps the effort in force. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn)
@@ -249,7 +271,7 @@ class ClaudeSession implements AgentSession {
     this.options.onEvent({ type: 'info', info: this.info });
   }
 
-  async send(prompt: string): Promise<TurnResult> {
+  async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
     if (this.closed) throw new Error('The Claude session is closed');
     if (this.turn) throw new Error('This agent is already running');
     const turn = {
@@ -262,7 +284,19 @@ class ClaudeSession implements AgentSession {
       type: 'user',
       uuid: randomUUID(),
       session_id: this.info.id,
-      message: { role: 'user', content: prompt },
+      message: {
+        role: 'user',
+        // the CLI dispatches a command only from the last text block, and the rest become its context
+        content: skill
+          ? [
+              { type: 'text', text: prompt },
+              {
+                type: 'text',
+                text: `/${skill.name}${skill.args ? ` ${skill.args}` : ''}`,
+              },
+            ]
+          : prompt,
+      },
       parent_tool_use_id: null,
     });
     return turn.finished.promise;
@@ -350,6 +384,11 @@ class ClaudeSession implements AgentSession {
           hasHistory: true,
         };
         this.options.onEvent({ type: 'info', info: this.info });
+      } else if (message.subtype === 'commands_changed') {
+        this.options.onEvent({
+          type: 'skills',
+          skills: skillsOf(message.commands),
+        });
       } else if (
         // more activity can follow a result, so a turn ends only at native idle
         message.subtype === 'session_state_changed' &&

@@ -91,7 +91,7 @@ async function until(
 }
 
 /** a coordinator stand-in that publishes snapshots and records the calls the app makes. */
-function fake(snapshot: Partial<Snapshot>) {
+function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
   const record =
@@ -105,6 +105,7 @@ function fake(snapshot: Partial<Snapshot>) {
       items: [],
       requests: [],
       models: [],
+      skills: [],
       agents: [],
       conversation: {
         id: 'c',
@@ -136,6 +137,7 @@ function fake(snapshot: Partial<Snapshot>) {
     selectConversation: record('selectConversation'),
     report: (error: unknown) => calls.push(['report', String(error)]),
     conversations: async () => [],
+    projectFiles: async () => files,
   };
   return { coordinator, calls, app: coordinator as unknown as Coordinator };
 }
@@ -262,7 +264,8 @@ async function memoryApp() {
   const coordinator = new Coordinator(
     await StateStore.open(join(root, 'state')),
     memory,
-    [{ adapter: new FixtureAgent('a'), executable: 'a' }],
+    // uninstalled, so opening the conversation builds no worktree
+    [{ adapter: new FixtureAgent('a') }],
   );
   await coordinator.initialize(cwd);
   return { root, hook, seed, coordinator };
@@ -289,7 +292,8 @@ await test('/memory reads one commit even when main moves during the action', as
     await until('the memory picker', () =>
       ui.text().includes('global/other.md'),
     );
-    assert.equal(coordinator.snapshot.error, undefined);
+    // only the launch's connect report, no error from reading memory
+    assert.match(coordinator.snapshot.error ?? '', /^a is not installed\./);
   } finally {
     ui.unmount();
     await coordinator.close();
@@ -453,7 +457,10 @@ await test('a prompt the agent never got comes back into an empty composer and l
 });
 
 const ENTER = '\u001b[13u';
+const SHIFT_ENTER = '\u001b[13;2u';
 const DOWN = '\u001b[B';
+const UP = '\u001b[A';
+const TAB = '\u001b[9u';
 const tools = (prefix: string) =>
   [1, 2].map((n) => ({
     id: `${prefix}-tool-${n}`,
@@ -584,14 +591,13 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await delay(60);
-    ui.stdin.write('/help');
+    ui.stdin.write('hello');
     await delay(30);
     ui.stdin.write(`\t${DOWN}${ENTER}`);
     await until('the expanded tool', () =>
       ui.text().includes('first output 2'),
     );
     assert.ok(!ui.text().includes('first output 1'));
-    assert.ok(!ui.text().includes('Keyboard help'));
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
@@ -741,28 +747,30 @@ await test('Escape declines a question and the turn continues', async () => {
   }
 });
 
-await test('/exit quits without sending a prompt', async () => {
-  const { app, calls } = fake({});
-  let exits = 0;
-  const ui = show(
-    createElement(App, {
-      coordinator: app,
-      onExit: () => {
-        exits++;
-      },
-    }),
-  );
-  try {
-    await delay(60);
-    ui.stdin.write('/exit');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the exit', () => exits === 1);
-    assert.deepEqual(calls, []);
-  } finally {
-    ui.unmount();
-  }
-});
+// /ex runs from the list; a trailing space opens no list, so /quit resolves as an alias in submit
+for (const typed of ['/ex', '/quit '])
+  await test(`${typed.trim()} exits without sending a prompt`, async () => {
+    const { app, calls } = fake({});
+    let exits = 0;
+    const ui = show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {
+          exits++;
+        },
+      }),
+    );
+    try {
+      await delay(60);
+      ui.stdin.write(typed);
+      await delay(30);
+      ui.stdin.write('\r');
+      await until('the exit', () => exits === 1);
+      assert.deepEqual(calls, []);
+    } finally {
+      ui.unmount();
+    }
+  });
 
 await test('Ctrl+C while closing quits instead of interrupting again', async () => {
   const { app, coordinator, calls } = fake({});
@@ -785,5 +793,245 @@ await test('Ctrl+C while closing quits instead of interrupting again', async () 
     assert.ok(!calls.some(([call]) => call === 'interrupt'));
   } finally {
     ui.unmount();
+  }
+});
+
+const skills = [
+  { name: 'x-one', description: 'First skill' },
+  { name: 'x-two', description: 'Second skill' },
+];
+
+/** mounts while starting and then goes to `phase`, so App's key listener comes before the composer's as in the real app. */
+async function launched(snapshot: Partial<Snapshot>, files?: string[]) {
+  const context = fake({ ...snapshot, phase: 'starting' }, files);
+  const ui = show(
+    createElement(App, { coordinator: context.app, onExit: () => {} }),
+  );
+  await delay(60);
+  context.coordinator.publish({ phase: snapshot.phase ?? 'idle' });
+  await delay(60);
+  return { ...context, ui };
+}
+
+await test('Down and Enter in one read run the second matching skill', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/x${DOWN}${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/x-two']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('typing after Down in the same read resets the selection', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/${DOWN}x${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/x-one']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a slash command nothing matches is sent as typed', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/zzz${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/zzz']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Tab completes a skill and the arguments typed in the same read follow it', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/x-o${TAB}arg${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/x-one arg']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Escape closes the list during a turn, a new token reopens it, and Escape then interrupts', async () => {
+  const { ui, calls } = await launched({ skills, phase: 'running' });
+  const footer = () => ui.text().trimEnd().split('\n').at(-1) ?? '';
+  try {
+    ui.stdin.write('/x');
+    await until('the list', () => footer().includes('Esc close list'));
+    ui.stdin.write('\u001b');
+    await until('the closed list', () => footer().includes('Esc interrupt'));
+    ui.stdin.write('-');
+    await until('the reopened list', () => footer().includes('Esc close list'));
+    // back on the dismissed token, the list stays open
+    ui.stdin.write('\u007f');
+    await until('the shorter token', () => ui.text().includes('│ /x '));
+    assert.match(footer(), /Esc close list/);
+    ui.stdin.write('\u001b');
+    await until('the closed list', () => footer().includes('Esc interrupt'));
+    assert.deepEqual(calls, []);
+    ui.stdin.write('\u001b');
+    await until('the interrupt', () => calls.length > 0);
+    assert.deepEqual(calls, [['interrupt']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Tab inserts a file into the middle of a draft', async () => {
+  const { ui, calls } = await launched({}, ['src/app.ts', 'lib/x.ts']);
+  try {
+    ui.stdin.write('see @sr');
+    await until('the file list', () => ui.text().includes('@src/app.ts'));
+    ui.stdin.write(TAB);
+    await until('the inserted path', () =>
+      ui.text().includes('│ see @src/app.ts'),
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Enter inserts a file without sending', async () => {
+  const { ui, calls } = await launched({}, ['src/app.ts']);
+  try {
+    ui.stdin.write('see @sr');
+    await until('the file list', () => ui.text().includes('@src/app.ts'));
+    ui.stdin.write(ENTER);
+    await until('the inserted path', () =>
+      ui.text().includes('│ see @src/app.ts'),
+    );
+    await delay(60);
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Up chooses in an open list without moving the cursor, and moves it once a space closes the list', async () => {
+  const { ui } = await launched({}, ['src/app.ts']);
+  try {
+    ui.stdin.write('abc');
+    await delay(30);
+    ui.stdin.write(SHIFT_ENTER);
+    await delay(30);
+    ui.stdin.write('see @sr');
+    await until('the file list', () => ui.text().includes('@src/app.ts'));
+    ui.stdin.write(UP);
+    await delay(30);
+    ui.stdin.write('c');
+    await until('typing at the token', () => ui.text().includes('│ see @src'));
+    assert.ok(!ui.text().includes('abcc'));
+    ui.stdin.write(` ${UP}Z`);
+    await until('typing on the first line', () => ui.text().includes('│ abcZ'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('tool focus hides a remounted draft list, which shows once focus returns', async () => {
+  const { ui, coordinator } = await launched({ skills });
+  const conversation = coordinator.snapshot.conversation!;
+  const open = (id: string) =>
+    coordinator.publish({ conversation: { ...conversation, id } });
+  try {
+    open('d');
+    await delay(60);
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-one'));
+    open('c');
+    await until('the empty draft', () => !ui.text().includes('/x-one'));
+    ui.stdin.write(TAB);
+    await until('tool focus', () => ui.text().includes('Esc leave tools'));
+    open('d');
+    await delay(100);
+    assert.ok(!ui.text().includes('/x-one'));
+    ui.stdin.write(TAB);
+    await until('the list again', () => ui.text().includes('/x-one'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Ctrl+P over an open list gives the picker its keys', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-one'));
+    await commands(ui);
+    ui.stdin.write('\u001b');
+    await until('the list again', () => ui.text().includes('/x-one'));
+    await commands(ui);
+    ui.stdin.write(`${DOWN}${ENTER}`);
+    await until('the conversations picker', () =>
+      ui.text().includes('Conversations'),
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('an open list of 8 or more keeps the newest transcript row and the footer in view', async () => {
+  const items = Array.from({ length: 60 }, (_, index) => ({
+    id: `n${index}`,
+    kind: 'notice' as const,
+    text: `row ${index}`,
+    cwd: '/work',
+  }));
+  const many = Array.from({ length: 10 }, (_, index) => ({
+    name: `x-${index}`,
+    description: `Skill ${index}`,
+  }));
+  const { ui } = await launched({ items, skills: many });
+  try {
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-0'));
+    const text = ui.text();
+    assert.ok(text.includes('row 59'));
+    assert.ok(text.includes('/x-7') && !text.includes('/x-8'));
+    assert.match(text.trimEnd(), /Esc close list$/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a skill named like a Witch command is left out, since the command runs instead', async () => {
+  const { ui } = await launched({
+    skills: [{ name: 'help', description: 'Native help' }],
+  });
+  try {
+    ui.stdin.write('/he');
+    await until('the list', () => ui.text().includes('/help Keyboard help'));
+    assert.ok(!ui.text().includes('Native help'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('list rows drop a link forged in a skill description or a file name', async () => {
+  const forged = (text: string) =>
+    `\u001b]8;;https://evil.example\u0007${text}\u001b]8;;\u0007`;
+  const skill = await launched({
+    skills: [{ name: 'x-evil', description: `see ${forged('docs')}` }],
+  });
+  const file = await launched({}, [`a${forged('b')}.txt`]);
+  try {
+    skill.ui.stdin.write('/x');
+    await until('the skill list', () =>
+      skill.ui.text().includes('/x-evil see docs'),
+    );
+    assert.ok(!skill.ui.frame().includes('evil.example'));
+    file.ui.stdin.write('@a');
+    await until('the file list', () => file.ui.text().includes('@ab.txt'));
+    assert.ok(!file.ui.frame().includes('evil.example'));
+  } finally {
+    skill.ui.unmount();
+    file.ui.unmount();
   }
 });

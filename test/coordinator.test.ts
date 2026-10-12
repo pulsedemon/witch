@@ -84,6 +84,8 @@ async function within<T>(
 
 async function fixture(
   editFile?: ConstructorParameters<typeof Coordinator>[3],
+  /** runs before the launch connects. */
+  prepare?: (a: FixtureAgent, b: FixtureAgent) => void,
 ) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), 'witch-coordinator-')),
@@ -101,6 +103,7 @@ async function fixture(
     [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
     editFile,
   );
+  prepare?.(a, b);
   await coordinator.initialize(project);
   const workspace = (id = coordinator.snapshot.conversation!.id) =>
     memory.workspace(join(root, 'state', 'conversations', id), id);
@@ -521,6 +524,7 @@ async function sweepFixture() {
     memory,
     root,
     store,
+    a,
     launch,
     save,
     directory: (id: string) => join(root, 'state', 'conversations', id),
@@ -762,7 +766,7 @@ await test('a late event from a released session reaches neither conversation', 
       await delay(20);
     }
     assert.equal(coordinator.snapshot.items, items);
-    assert.equal((await readRecord(root, target)).process, undefined);
+    assert.notEqual((await readRecord(root, target)).process?.pid, sleeper.pid);
     assert.deepEqual(
       errors.filter((error) => error !== reported),
       [],
@@ -1147,15 +1151,6 @@ await test('opening a conversation aborts its stopped rebase before classifying 
   }
 });
 
-await test('a launch that never connects creates no memory branch', async () => {
-  const { coordinator, memory } = await fixture();
-  await coordinator.close();
-  assert.equal(
-    await memory.git(memory.root, ['for-each-ref', 'refs/heads/conversations']),
-    '',
-  );
-});
-
 /** conversations with history, created in name order. */
 async function listed(
   store: StateStore,
@@ -1351,9 +1346,10 @@ await test('an interrupt during the memory snapshot delivers nothing', async () 
 });
 
 await test('a connect failure leaves the prompt undelivered', async () => {
-  const { coordinator, a } = await fixture();
-  try {
+  const { coordinator } = await fixture(undefined, (a) => {
     a.failConnect = true;
+  });
+  try {
     assert.equal(await coordinator.send('Start'), false);
     assert.match(coordinator.snapshot.error ?? '', /Destination unavailable/);
   } finally {
@@ -1725,6 +1721,102 @@ await test('a model that lists no efforts resets the effort', async () => {
       coordinator.snapshot.conversation!.id,
     );
     assert.equal(record.sessions.a?.effort, undefined);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('opening a conversation connects its agent, at launch, on /new and from /sessions', async () => {
+  const { coordinator, a, store, project } = await fixture();
+  try {
+    assert.equal(a.sessions.length, 1);
+    await coordinator.newConversation();
+    assert.equal(a.sessions.length, 2);
+    const other = await store.create(record(randomUUID(), project));
+    await other.close();
+    await coordinator.selectConversation(other.record.id);
+    assert.equal(a.sessions.length, 3);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a connect failure at launch joins the launch report and leaves the conversation open', async () => {
+  const { launch, directory, a } = await sweepFixture();
+  await mkdir(directory('broken'));
+  await writeFile(join(directory('broken'), 'state.json'), '{"id":');
+  a.failConnect = true;
+  const coordinator = await launch();
+  try {
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.ok(coordinator.snapshot.conversation);
+    assert.match(
+      coordinator.snapshot.error ?? '',
+      /conversations\/broken\/state\.json[\s\S]*Destination unavailable/,
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('the live session publishes its skills, and a failed connect after /new shows none', async () => {
+  const review = { name: 'review', description: 'Review changes' };
+  const { coordinator, b } = await fixture(undefined, (a) => {
+    a.skills = [review];
+  });
+  try {
+    assert.deepEqual(coordinator.snapshot.skills, [review]);
+    b.failConnect = true;
+    await assert.rejects(coordinator.newConversation('b'));
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.deepEqual(coordinator.snapshot.skills, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a skills failure while connecting is reported and keeps the session', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    a.failSkills = true;
+    await coordinator.newConversation();
+    assert.match(coordinator.snapshot.error ?? '', /Skills unavailable/);
+    assert.deepEqual(coordinator.snapshot.skills, []);
+    assert.equal(await coordinator.send('Start'), true);
+    assert.equal(a.sessions.length, 2);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a listed /skill reaches the agent as a skill call, and an unlisted one stays a prompt', async () => {
+  const { coordinator, a } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'review', description: 'Review changes' }];
+  });
+  try {
+    await coordinator.send(' /review  the\ndiff ');
+    assert.deepEqual(a.inputs.at(-1)!.skill, {
+      name: 'review',
+      args: 'the\ndiff',
+    });
+    assert.match(a.inputs.at(-1)!.prompt, /User request:\n \/review {2}the/);
+    await coordinator.send('/reviewer x');
+    assert.equal(a.inputs.at(-1)!.skill, undefined);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a native skills change replaces the list, unless its session has closed', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    const { options, session } = a.sessions.at(-1)!;
+    const later = [{ name: 'later', description: 'Added later' }];
+    options.onEvent({ type: 'skills', skills: later });
+    assert.deepEqual(coordinator.snapshot.skills, later);
+    await session.close();
+    options.onEvent({ type: 'skills', skills: [] });
+    assert.deepEqual(coordinator.snapshot.skills, later);
   } finally {
     await coordinator.close();
   }

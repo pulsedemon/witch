@@ -7,6 +7,19 @@ export interface Model {
   efforts: string[];
 }
 
+/** a native skill the composer offers after `/`, run by sending `/name args`. */
+export interface Skill {
+  name: string;
+  description: string;
+  argumentHint?: string;
+}
+
+/** a `/name args` prompt the coordinator matched to a listed skill. */
+export interface SkillCall {
+  name: string;
+  args: string;
+}
+
 export interface SessionInfo {
   id: string;
   agent: AgentId;
@@ -56,6 +69,8 @@ export type AgentEvent =
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
   | { type: 'info'; info: SessionInfo }
+  /** the native skill list changed; it replaces the one `skills()` gave. */
+  | { type: 'skills'; skills: Skill[] }
   | { type: 'notice'; text: string };
 
 export interface TurnResult {
@@ -69,7 +84,9 @@ export interface AgentSession {
   readonly closed: boolean;
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
-  send(prompt: string): Promise<TurnResult>;
+  skills(): Promise<Skill[]>;
+  /** `skill` runs that native skill with the prompt as its context. */
+  send(prompt: string, skill?: SkillCall): Promise<TurnResult>;
   /** an omitted effort keeps the one in force; `null` resets it where the native agent can. */
   selectModel(model: string, effort?: string | null): Promise<void>;
   respond(id: string, response: UserResponse): void;
