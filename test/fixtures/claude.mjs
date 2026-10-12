@@ -174,8 +174,6 @@ for await (const line of lines) {
       join(process.cwd(), 'content.json'),
       JSON.stringify(lastPrompt),
     );
-    if (typeof lastPrompt === 'string')
-      writeFileSync(join(process.cwd(), 'prompt.txt'), lastPrompt);
     send({
       type: 'system',
       subtype: 'init',
