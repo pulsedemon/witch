@@ -221,6 +221,51 @@ for (const [name, frames] of [
     ],
   ],
   [
+    'a raw newline inside an OSC string',
+    [
+      {
+        items: [tool('PASS a\nstep \u001b]0;build\nlog\u0007one')],
+        width: 40,
+        expanded: ['tool'],
+      },
+      {
+        items: [tool('PASS a\nstep \u001b]0;build\nlog\u0007one two')],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+  [
+    'an OSC string that ends after the append',
+    [
+      {
+        items: [tool('PASS a\nstep \u001b]0;build\nlog')],
+        width: 40,
+        expanded: ['tool'],
+      },
+      {
+        items: [tool('PASS a\nstep \u001b]0;build\nlog\u0007one')],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+  [
+    'an OSC string opened by a C1 introducer',
+    [
+      {
+        items: [tool('PASS a\nstep \u009b]0;build\nlog')],
+        width: 40,
+        expanded: ['tool'],
+      },
+      {
+        items: [tool('PASS a\nstep \u009b]0;build\nlog\u0007one')],
+        width: 40,
+        expanded: ['tool'],
+      },
+    ],
+  ],
+  [
     'a replacement that does not extend the text',
     [
       { items: [tool(early)], width: 40, expanded: ['tool'] },

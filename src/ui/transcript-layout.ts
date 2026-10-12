@@ -52,14 +52,29 @@ function linkOpen(text: string): boolean {
   return !!targets.at(-1)?.[1];
 }
 
-/** the tail of a body that can grow, unless an earlier link would carry into it. */
+/** whether `text` ends inside an OSC string, which the tokenizer drops whole, newlines included. */
+function oscOpen(text: string): boolean {
+  const open = Math.max(
+    text.lastIndexOf('\u001b]'),
+    text.lastIndexOf('\u009b]'),
+  );
+  const close = Math.max(
+    text.lastIndexOf('\u0007'),
+    text.lastIndexOf('\u009c'),
+    text.lastIndexOf('\u001b\\'),
+  );
+  return open > close;
+}
+
+/** the tail of a body that can grow, unless an earlier link or OSC string would carry into it. */
 function tailOf(
   item: DisplayItem,
   anchors: Anchor[],
   bodyRow: number,
 ): Block['tail'] {
   const start = item.text.lastIndexOf('\n') + 1;
-  if (linkOpen(item.text.slice(0, start))) return undefined;
+  const prefix = item.text.slice(0, start);
+  if (linkOpen(prefix) || oscOpen(prefix)) return undefined;
   const line = anchors.at(-2)!.line;
   const row = anchors.findIndex(
     (anchor, index) => index >= bodyRow && anchor.line === line,
