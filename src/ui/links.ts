@@ -107,18 +107,34 @@ function bareLinks(text: string, cwd: string): string {
   return output + fileLinks(text.slice(offset), cwd);
 }
 
+/** linkify-it rescans the rest of its input after every match, so it gets 2000 characters at most: cut after a newline, which ends every link, or else after whitespace, which ends a URL. */
+function pieces(text: string): string[] {
+  const result: string[] = [];
+  for (let start = 0; start < text.length;) {
+    let end = Math.min(start + 2000, text.length);
+    const after = (separator: RegExp) => {
+      let cut = end;
+      while (cut > start && !separator.test(text[cut - 1]!)) cut--;
+      return cut;
+    };
+    if (end < text.length)
+      end = [/\n/, /\s/].map(after).find((cut) => cut > start) ?? end;
+    result.push(text.slice(start, end));
+    start = end;
+  }
+  return result;
+}
+
 export function linkify(text: string, cwd: string): string {
   let output = '';
   let buffer = '';
   let target: string | undefined;
   const flush = () => {
-    // linkify-it rescans the rest of its input after every match, and no link spans a newline
     output += target
       ? hyperlink(buffer, target, cwd)
-      : buffer
-          .split('\n')
-          .map((line) => bareLinks(line, cwd))
-          .join('\n');
+      : pieces(buffer)
+          .map((piece) => bareLinks(piece, cwd))
+          .join('');
     buffer = '';
   };
   for (const token of tokenize(text)) {

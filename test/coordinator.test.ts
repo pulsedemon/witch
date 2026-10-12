@@ -1853,6 +1853,23 @@ for (const stop of ['interrupt', 'close'] as const)
     }
   });
 
+await test('the memory view reads accepted memory, and links into the worktree only while it holds that revision', async () => {
+  const { coordinator, memory, workspace, notes, outsider } = await fixture();
+  try {
+    const other = await outsider();
+    await writeFile(join(other.root, await notes()), 'Published elsewhere.');
+    await other.commit('save elsewhere');
+    await other.publish();
+    const behind = await coordinator.memoryView();
+    assert.equal(behind.revision, await memory.resolve(main));
+    assert.equal(behind.root, undefined);
+    await coordinator.send('Next');
+    assert.equal((await coordinator.memoryView()).root, workspace().root);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('agent events reach the transcript with their own replace, append and cwd', async () => {
   const { coordinator, a, project } = await fixture();
   try {

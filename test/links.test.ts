@@ -94,7 +94,7 @@ await test('malformed file URLs remain readable without breaking a persisted tra
   );
 });
 
-await test('long runs of dashes, dots and @ signs, and many lines of links, link in linear time', () => {
+await test('long runs of dashes, dots and @ signs, and links on many lines or one, link in linear time', () => {
   // this process's CPU time ignores load from parallel tests; 4x the input costs 4x when linear, 16x when quadratic
   const fastest = (text: string) =>
     Math.min(
@@ -105,17 +105,26 @@ await test('long runs of dashes, dots and @ signs, and many lines of links, link
         return user + system;
       }),
     );
-  const links = (lines: number) =>
+  const links = (count: number, separator: string) =>
     Array.from(
-      { length: lines },
+      { length: count },
       (_, n) => `dev${n}@example.com https://example.com/${n}`,
-    ).join('\n');
+    ).join(separator);
+  // as a Claude tool input shows it: JSON with no whitespace to cut at
+  const emails = (count: number) =>
+    JSON.stringify(
+      Array.from({ length: count }, (_, n) => ({
+        email: `dev${n}@example.com`,
+      })),
+    );
   for (const [input, small, large] of [
     ...['-', '.', '@'].map(
       (character) =>
         [character, character.repeat(16000), character.repeat(64000)] as const,
     ),
-    ['lines of links', links(500), links(2000)] as const,
+    ['lines of links', links(500, '\n'), links(2000, '\n')] as const,
+    ['a line of links', links(500, ' '), links(2000, ' ')] as const,
+    ['a line of JSON emails', emails(500), emails(2000)] as const,
   ]) {
     const smallTime = fastest(small);
     const largeTime = fastest(large);

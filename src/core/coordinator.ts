@@ -100,7 +100,7 @@ interface Recovery {
 interface MemoryView {
   revision: string;
   scope: MemoryScope;
-  /** the worktree, when the conversation has one, for links. */
+  /** the conversation's worktree, for links, while it holds this revision. */
   root?: string;
 }
 
@@ -439,14 +439,12 @@ export class Coordinator {
 
   async memoryView(): Promise<MemoryView> {
     const workspace = this.workspace!;
+    const revision = await this.memory.resolve(main);
     const scope = await this.memory.scopePaths(this.current().cwd);
-    if (await workspace.exists())
-      return {
-        revision: await workspace.revision(),
-        scope,
-        root: workspace.root,
-      };
-    return { revision: await this.memory.resolve(main), scope };
+    // an idle worktree stays where its last turn left it, behind anything published since
+    const linked =
+      (await workspace.exists()) && (await workspace.revision()) === revision;
+    return { revision, scope, ...(linked ? { root: workspace.root } : {}) };
   }
 
   async editMemory(path?: string): Promise<void> {
