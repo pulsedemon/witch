@@ -430,6 +430,20 @@ await test('Claude tool use and its result update one tool, and subagent text st
   }
 });
 
+await test('a CLI that exits during initialize fails the connect without a notice', async () => {
+  const events: AgentEvent[] = [];
+  const { connect } = await launcher('exit-on-init');
+  await assert.rejects(
+    within(
+      connect({ onEvent: (event) => events.push(event) }),
+      3000,
+      'connect',
+    ),
+    /init exit text/,
+  );
+  assert.deepEqual(events, []);
+});
+
 await test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
   const { children, connect } = await launcher('init-error');
   try {
