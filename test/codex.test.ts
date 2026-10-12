@@ -14,9 +14,11 @@ const codex = fileURLToPath(new URL('fixtures/codex.mjs', import.meta.url));
 
 async function fixture(
   onEvent: (event: AgentEvent) => void = () => {},
-  effort?: string,
-  resume?: string,
-  mode?: string,
+  {
+    effort,
+    resume,
+    mode,
+  }: { effort?: string; resume?: string; mode?: string } = {},
 ) {
   const cwd = await mkdtemp(join(tmpdir(), 'witch-codex-'));
   const adapter = new CodexAdapter((_, directory) =>
@@ -91,7 +93,7 @@ await test('loads every model page and preserves native roots without overriding
 await test('a stored thread resumes by its id, and a missing one fails the connect with no exit notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(
-    fixture((event) => events.push(event), undefined, 'stored-thread').then(
+    fixture((event) => events.push(event), { resume: 'stored-thread' }).then(
       ({ session, cwd }) => close(session, cwd),
     ),
     /no rollout found for thread id stored-thread/,
@@ -346,12 +348,7 @@ await test('a Codex that exits during initialize fails the connect without a not
   const events: AgentEvent[] = [];
   await assert.rejects(
     within(
-      fixture(
-        (event) => events.push(event),
-        undefined,
-        undefined,
-        'exit-on-init',
-      ),
+      fixture((event) => events.push(event), { mode: 'exit-on-init' }),
       3000,
       'connect',
     ),
@@ -391,7 +388,7 @@ await test('selecting a model without an effort keeps the effort in force', asyn
 });
 
 await test('a model choice that changes no native setting returns and shows the choice', async () => {
-  const { session, cwd } = await fixture(() => {}, 'high');
+  const { session, cwd } = await fixture(() => {}, { effort: 'high' });
   try {
     await within(session.selectModel('model-a'), 2000, 'the same model');
     assert.equal(session.info.effort, 'high');
@@ -407,7 +404,7 @@ await test('a model choice that changes no native setting returns and shows the 
 });
 
 await test('a fresh thread reports the requested effort over the native default', async () => {
-  const { session, cwd } = await fixture(() => {}, 'high');
+  const { session, cwd } = await fixture(() => {}, { effort: 'high' });
   try {
     assert.equal(session.info.effort, 'high');
   } finally {
