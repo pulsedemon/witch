@@ -15,6 +15,7 @@ const root = await mkdtemp(join(tmpdir(), 'witch-live-'));
 const project = join(root, 'project');
 const otherProject = join(root, 'other-project');
 const state = join(root, 'state');
+const codexModel = process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol';
 const memory = new Memory(join(state, 'memory.git'));
 const agents = await installedAgents();
 assert.ok(
@@ -93,10 +94,7 @@ async function send(prompt: string, expected?: string): Promise<string> {
 let coordinator = await open(project);
 console.log(`Live artifacts: ${root}`);
 try {
-  await coordinator.selectModel(
-    process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol',
-    'medium',
-  );
+  await coordinator.selectModel(codexModel, 'medium');
   await send(
     'What is the native instruction marker? Reply with only the marker. Do not change files.',
     nativeRule,
@@ -122,10 +120,7 @@ try {
     'saved',
   );
   await coordinator.newConversation('codex');
-  await coordinator.selectModel(
-    process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol',
-    'medium',
-  );
+  await coordinator.selectModel(codexModel, 'medium');
   await send(
     'What is my preferred test label? Use shared memory and reply only with the label. Do not change files.',
     globalFact,
@@ -133,10 +128,7 @@ try {
   const conversationId = coordinator.snapshot.conversation!.id;
   await coordinator.close();
   coordinator = await open(otherProject);
-  await coordinator.selectModel(
-    process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol',
-    'medium',
-  );
+  await coordinator.selectModel(codexModel, 'medium');
   const isolated = await send(
     'Read only the shared-memory snapshot supplied above. Report my preferred test label and this project’s acceptance phrase. Use UNKNOWN for a missing value. Do not search other projects or change files.',
     globalFact,
