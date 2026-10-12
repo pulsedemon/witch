@@ -487,7 +487,7 @@ class CodexSession implements AgentSession {
       case 'error':
         this.options.onEvent({
           type: 'notice',
-          text: JSON.stringify(data.error ?? data),
+          text: z.string().parse(object.parse(data.error).message),
         });
     }
   }

@@ -157,6 +157,20 @@ for await (const line of lines) {
       finish('failed', { message: 'native failure' });
       continue;
     }
+    if (prompt === 'error') {
+      notify('error', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        willRetry: false,
+        error: {
+          message: 'native error',
+          codexErrorInfo: null,
+          additionalDetails: null,
+        },
+      });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'tool') {
       const item = {
         type: 'commandExecution',
