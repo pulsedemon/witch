@@ -1336,6 +1336,16 @@ await test('a connect failure leaves the prompt undelivered, and its error clear
   }
 });
 
+await test('a blank prompt starts no turn', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    assert.equal(await coordinator.send(' \n'), true);
+    assert.deepEqual(a.inputs, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a session that closes during the snapshot receives nothing', async () => {
   const { coordinator, a, hook } = await fixture();
   try {
