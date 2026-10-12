@@ -51,7 +51,7 @@ async function readRecord(directory: string): Promise<ConversationRecord> {
   );
 }
 
-export interface UnreadableRecord {
+interface UnreadableRecord {
   id: string;
   error: string;
 }

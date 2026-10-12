@@ -88,7 +88,7 @@ export interface Snapshot {
   error?: string;
 }
 
-export interface Recovery {
+interface Recovery {
   kind: 'pending' | 'conflict';
   /** the conflicting paths; empty when the conflict has no single path. */
   paths: string[];
@@ -97,7 +97,7 @@ export interface Recovery {
 }
 
 /** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
-export interface MemoryView {
+interface MemoryView {
   revision: string;
   scope: MemoryScope;
   /** the worktree, when the conversation has one, for links. */
