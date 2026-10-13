@@ -147,7 +147,9 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     selectModel: record('selectModel'),
     switchAgent: record('switchAgent'),
     report: (error: unknown) => calls.push(['report', String(error)]),
-    conversations: async () => [],
+    conversations: async () => [
+      { id: 'c2', title: 'Other', agent: 'a', cwd: '/work' },
+    ],
     projectFiles: async () => files,
   };
   return { coordinator, calls, app: coordinator as unknown as Coordinator };
@@ -908,9 +910,12 @@ for (const [name, keys] of [
       await commands(ui);
       ui.stdin.write(keys);
       await until('the conversations picker', () =>
-        ui.text().includes('Conversations'),
+        ui.text().includes('Other · a'),
       );
-      assert.ok(!calls.some(([call]) => call === 'newConversation'));
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the selection', () => calls.length > 0);
+      assert.deepEqual(calls, [['selectConversation', 'c2']]);
     } finally {
       ui.unmount();
     }
