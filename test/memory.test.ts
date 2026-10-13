@@ -210,6 +210,7 @@ await test('pending notes show in the recovery diff, block the next turn and sta
   await writeFile(join(scope.project, 'pending.md'), 'Unfinished new note.');
   assert.equal(await workspace.isDirty(), true);
   const diff = await workspace.diff();
+  assert.match(diff, /^--- projects\/[^/\n]+\/MEMORY\.md$/m);
   assert.match(diff, /^\+Unfinished project fact\.$/m);
   assert.match(diff, /pending\.md\nUnfinished new note\./);
   await assert.rejects(workspace.begin(project), /Resolve pending memory/);
@@ -502,6 +503,7 @@ await test('keep mine wins conflicting lines and merges every other change, and 
     assert.equal(await mine.publish(), 'conflict');
     const conflict = await mine.conflict();
     assert.deepEqual(conflict.paths, ['global/one.md']);
+    assert.match(conflict.diff, /^--- global\/one\.md$/m);
     assert.match(conflict.diff, /^\+mine 1$/m);
     assert.doesNotMatch(conflict.diff, /theirs/);
     if (decision === 'keep') {

@@ -154,7 +154,7 @@ export class Workspace {
 
   /** the pending changes, with new files shown whole. */
   async diff(): Promise<string> {
-    const tracked = await this.git(['diff', 'HEAD', '--']);
+    const tracked = await this.git(['diff', '--no-prefix', 'HEAD', '--']);
     const untracked = (await this.git(['ls-files', '--others', '-z']))
       .split('\0')
       .filter(Boolean);
@@ -189,7 +189,7 @@ export class Workspace {
     const base = (await this.git(['merge-base', 'HEAD', latest])).trim();
     return {
       paths: merged.stdout.split('\0').slice(1).filter(Boolean),
-      diff: await this.git(['diff', base, 'HEAD', '--']),
+      diff: await this.git(['diff', '--no-prefix', base, 'HEAD', '--']),
     };
   }
 

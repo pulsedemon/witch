@@ -31,6 +31,18 @@ await test('relative files resolve against their originating project with encode
   );
 });
 
+await test('a prefixed or absolute path followed by a colon links without it, keeping a line and column', () => {
+  for (const [text, target] of [
+    ['./src/a.ts:12:const x = 1;', 'vscode://file/work/project/src/a.ts:12'],
+    ['/work/src/b.c:7:5: error: bad', 'vscode://file/work/src/b.c:7:5'],
+    ['- Fix in /work/other: memory conflicts', 'vscode://file/work/other'],
+  ] as const)
+    assert.ok(
+      linkify(text, '/work/project').includes(`\u001b]8;;${target}\u0007`),
+      text,
+    );
+});
+
 await test('Markdown labels and links in code blocks remain clickable', () => {
   const rendered = markdown(
     '[Documentation](https://example.com/docs)\n\n```text\nhttps://example.com/log\nsrc/main.ts:42\n```',
