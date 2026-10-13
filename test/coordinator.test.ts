@@ -397,6 +397,29 @@ await test('memory edit and restore notices resolve their note against the memor
   }
 });
 
+await test('memory notices quote a note name on one line with its brackets escaped', async () => {
+  const { coordinator, memory } = await fixture(async (path) => {
+    await writeFile(path, 'Use port 9001.');
+  });
+  try {
+    const name = 'global/a\n[b].md';
+    await coordinator.editMemory(name);
+    const revision = await memory.resolve(main);
+    await coordinator.restoreMemory(name, revision);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter((item) => item.kind === 'notice')
+        .map(({ text }) => text),
+      [
+        'Memory edit: global/a\\[b\\].md',
+        `Memory restore: global/a\\[b\\].md at ${revision.slice(0, 8)}`,
+      ],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 for (const action of ['interrupt', 'close'] as const) {
   await test(
     `${action} cancels an open memory editor and preserves pending-write provenance`,

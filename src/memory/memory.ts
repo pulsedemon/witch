@@ -86,6 +86,11 @@ export function notePath(path: string): string {
   return file;
 }
 
+/** a note name is agent-written; without control characters it can't carry a terminal escape, such as an OSC 8 link, or a line break into text Witch writes around it. */
+export function printable(path: string): string {
+  return path.replace(/\p{Cc}/gu, '');
+}
+
 export class Memory {
   constructor(
     readonly root: string,

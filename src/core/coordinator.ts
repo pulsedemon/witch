@@ -16,7 +16,7 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import { exists, main } from '../memory/memory.js';
+import { exists, main, printable } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import { LockedElsewhere } from '../persistence/store.js';
@@ -44,9 +44,9 @@ function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
-/** a note name for a notice, which renders as Markdown. an escaped bracket can't open a Markdown link, and it splits an OSC 8 introducer, whose ESC linkify then drops. */
+/** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
 function noteName(path: string): string {
-  return path.replace(/[\\[\]]/g, '\\$&');
+  return printable(path).replace(/[\\[\]]/g, '\\$&');
 }
 
 /** an error that only a restart clears. */
