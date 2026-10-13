@@ -70,14 +70,14 @@ await test('ordered items number from their start, and a continuation line inden
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
 
-await test('headings, emphasis, quotes, rules and tables render as terminal text', () => {
+await test('headings, emphasis, line breaks, quotes, rules and tables render as terminal text', () => {
   assert.equal(
     stripAnsi(
       markdown(
-        '# Plan\n\n**bold** *em* ~~gone~~\n\n> quoted\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |',
+        '# Plan\n\n**bold** *em* ~~gone~~  \nnext\n\n> quoted\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |',
         '/work',
       ),
     ),
-    'Plan\n\nbold em gone\n\n│ quoted\n\n────────\na │ b\n1 │ 2',
+    'Plan\n\nbold em gone\nnext\n\n│ quoted\n\n────────\na │ b\n1 │ 2',
   );
 });
