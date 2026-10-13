@@ -6,6 +6,8 @@ const escape =
 // eslint-disable-next-line no-control-regex
 const unfinished = /\u001b(?:\[[0-?]*[ -/]*|\][^\u0007\u001b]*(?:\u001b)?)?$/;
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+// Witch draws only these links; open would launch a file for a bare path
+const openable = /^(?:https?|vscode):\/\//i;
 
 /**
  * the link each cell of the terminal shows, kept by replaying what is written to it, so a click opens the link
@@ -47,8 +49,10 @@ export class Screen {
       index = match ? escape.lastIndex : index + 1;
       text = index;
       if (match?.[2]) this.control(match[1]!, match[2]);
-      else if (match?.[3]?.startsWith('8;'))
-        this.link = match[3].slice(match[3].indexOf(';', 2) + 1) || undefined;
+      else if (match?.[3]?.startsWith('8;')) {
+        const target = match[3].slice(match[3].indexOf(';', 2) + 1);
+        this.link = openable.test(target) ? target : undefined;
+      }
     }
     this.print(data.slice(text));
   }

@@ -127,3 +127,15 @@ await test('cursor moves place what follows them', () => {
   assert.equal(screen.linkAt(1, 2), docs);
   assert.equal(screen.linkAt(0, 2), undefined);
 });
+
+await test('only http, https and vscode links open, since open would launch a file for any other target', () => {
+  const screen = new Screen({ columns: 20, rows: 1 });
+  screen.write(
+    `${link('a', 'file:///bin/sh')}${link('b', '/Applications/Calculator.app')}${link('c', 'smb://host/x')}${link('d', 'vscode://file/a.ts')}${link('e', 'HTTP://example.com')}`,
+  );
+  assert.equal(screen.linkAt(0, 0), undefined);
+  assert.equal(screen.linkAt(1, 0), undefined);
+  assert.equal(screen.linkAt(2, 0), undefined);
+  assert.equal(screen.linkAt(3, 0), 'vscode://file/a.ts');
+  assert.equal(screen.linkAt(4, 0), 'HTTP://example.com');
+});

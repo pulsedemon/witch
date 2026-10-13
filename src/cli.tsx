@@ -86,8 +86,7 @@ if (!store) {
   const stdin = new MouseInput(process.stdin);
   stdin.on('click', ({ column, row }: Click) => {
     const link = screen.linkAt(column, row);
-    // Witch draws only these links; a bare path would make open launch a file
-    if (link && /^(?:https?|vscode):\/\//i.test(link))
+    if (link)
       execFile('/usr/bin/open', [link], (error) => {
         if (error) coordinator.report(error);
       });

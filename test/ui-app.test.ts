@@ -1330,8 +1330,16 @@ await test('a click and a wheel step between keys leave the draft as typed', asy
   }
 });
 
-await test('the pentacle shows only beside an 80-cell main column, turns while the agent works and rests face on when idle', async () => {
+await test('the pentacle shows only beside an 80-cell main column, turns while the agent works and returns to its rest angle when idle', async () => {
   const braille = (text: string) => text.match(/[⠁-⣿]/g)?.join('');
+  // the working row's spinner is braille too, so only the sidebar's cells count
+  const inSidebar = (text: string) =>
+    braille(
+      text
+        .split('\n')
+        .map((line) => line.slice(80))
+        .join('\n'),
+    );
   const narrow = show(
     createElement(App, { coordinator: fake({}).app, onExit: () => {} }),
     104,
@@ -1348,14 +1356,14 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
     105,
   );
   try {
-    await until('the pentacle', () => !!braille(ui.text()));
-    const rest = braille(ui.text());
+    await until('the pentacle', () => !!inSidebar(ui.text()));
+    const rest = inSidebar(ui.text());
     coordinator.publish({ phase: 'running' });
-    await until('a turn', () => braille(ui.text()) !== rest);
+    await until('a turn', () => inSidebar(ui.text()) !== rest);
     coordinator.publish({ phase: 'idle' });
-    await until('the rest', () => braille(ui.text()) === rest);
+    await until('the rest', () => inSidebar(ui.text()) === rest);
     await delay(200);
-    assert.equal(braille(ui.text()), rest);
+    assert.equal(inSidebar(ui.text()), rest);
   } finally {
     ui.unmount();
   }
