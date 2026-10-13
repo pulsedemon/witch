@@ -191,7 +191,7 @@ await test('destination startup failure retains the source conversation and sess
   }
 });
 
-await test('restored memory refreshes an existing session before the next turn', async () => {
+await test('memory another conversation publishes refreshes an existing session before its next turn', async () => {
   const { coordinator, a, note, outsider } = await fixture();
   try {
     await coordinator.send('remember-port');
