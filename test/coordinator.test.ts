@@ -1840,6 +1840,8 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
       args: 'the\ndiff',
     });
     assert.match(a.inputs.at(-1)!.prompt, /User request:\n \/review {2}the/);
+    await coordinator.send('/review');
+    assert.deepEqual(a.inputs.at(-1)!.skill, { name: 'review', args: '' });
     await coordinator.send('/reviewer x');
     assert.equal(a.inputs.at(-1)!.skill, undefined);
   } finally {
