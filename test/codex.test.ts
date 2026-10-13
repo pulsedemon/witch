@@ -181,6 +181,29 @@ await test('an accepted permissions request grants the requested permissions for
   }
 });
 
+await test('a file change approval reaches the user and returns its decision', async () => {
+  const kinds: string[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type !== 'request') return;
+    kinds.push(event.request.kind);
+    session.respond(event.request.id, { decision: 'accept' });
+  });
+  try {
+    assert.equal(
+      (await within(session.send('file change'), 2000, 'file change turn'))
+        .status,
+      'completed',
+    );
+    assert.deepEqual(kinds, ['approval']);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(cwd, 'response-94.json'), 'utf8')),
+      { decision: 'accept' },
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 for (const decision of ['accept', 'decline'] as const) {
   await test(`native approval ${decision} controls the requested side effect`, async () => {
     const { session, cwd } = await fixture((event) => {

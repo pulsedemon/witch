@@ -295,6 +295,19 @@ for await (const line of lines) {
       });
       continue;
     }
+    if (prompt === 'file change') {
+      send({
+        id: 94,
+        method: 'item/fileChange/requestApproval',
+        params: {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          itemId: 'patch-1',
+          reason: 'write a.md',
+        },
+      });
+      continue;
+    }
     if (prompt === 'elicitation') {
       send({
         id: 89,
@@ -333,7 +346,7 @@ for await (const line of lines) {
     });
     finish('completed');
   }
-  if ([88, 89, 91].includes(request.id) && request.result) {
+  if ([88, 89, 91, 94].includes(request.id) && request.result) {
     writeFileSync(
       file(`response-${request.id}.json`),
       JSON.stringify(request.result),
