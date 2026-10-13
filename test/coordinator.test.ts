@@ -1954,6 +1954,38 @@ await test('agent events reach the transcript with their own replace, append and
   }
 });
 
+await test('each history line records when Witch received it', async () => {
+  const { coordinator, a, root } = await fixture();
+  const id = coordinator.snapshot.conversation!.id;
+  const start = Date.now();
+  let middle: number;
+  let end: number;
+  try {
+    const { options } = a.sessions.at(-1)!;
+    options.onEvent({ type: 'text', id: 'm', text: 'Hel' });
+    await delay(20);
+    middle = Date.now();
+    options.onEvent({ type: 'text', id: 'm', text: 'lo' });
+    end = Date.now();
+  } finally {
+    await coordinator.close();
+  }
+  const times = (
+    await readFile(
+      join(root, 'state', 'conversations', id, 'history.jsonl'),
+      'utf8',
+    )
+  )
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { kind: string; at: string })
+    .filter((update) => update.kind === 'assistant')
+    .map(({ at }) => Date.parse(at));
+  assert.equal(times.length, 2);
+  assert.ok(start <= times[0]! && times[0]! < middle, 'first update');
+  assert.ok(middle <= times[1]! && times[1]! <= end, 'second update');
+});
+
 await test('a native info event reaches the footer and the next resume', async () => {
   const { coordinator, a } = await fixture();
   try {

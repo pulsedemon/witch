@@ -806,10 +806,11 @@ export class Coordinator {
   }
 
   private display(update: DisplayUpdate): void {
+    const stamped = { ...update, at: new Date().toISOString() };
     this.publish({
-      items: applyDisplayUpdate(this.snapshot.items, update),
+      items: applyDisplayUpdate(this.snapshot.items, stamped),
     });
-    this.persist(this.files!.append(update));
+    this.persist(this.files!.append(stamped));
   }
 
   /** `cwd` resolves the paths the notice names, so a memory note links into the worktree. */
