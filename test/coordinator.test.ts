@@ -1731,7 +1731,11 @@ await test('an effort the agent rejects while disconnected keeps the stored one,
     );
     const id = coordinator.snapshot.conversation!.id;
     assert.equal((await readRecord(root, id)).sessions.a?.effort, 'high');
+    await a.sessions.at(-1)!.session.close();
+    const opened = a.sessions.length;
     assert.equal(await coordinator.send('Continue'), true);
+    assert.equal(a.sessions.length, opened + 1);
+    assert.equal(a.sessions.at(-1)!.options.effort, 'high');
   } finally {
     await coordinator.close();
   }
