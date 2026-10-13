@@ -228,17 +228,15 @@ export class Coordinator {
       try {
         files = await this.store.claim(record.id);
         const workspace = this.memory.workspace(files.directory, record.id);
-        let state: 'clean' | 'pending' | 'conflict' = 'clean';
+        let pending = false;
         if (await workspace.branchExists()) {
           await workspace.ensureWorktree();
-          if (await workspace.isDirty()) state = 'pending';
+          pending = await workspace.isDirty();
+          if (pending) reason = 'unfinished memory changes';
           else if ((await workspace.publish()) === 'conflict')
-            state = 'conflict';
+            reason = 'memory conflicts with another conversation';
         }
-        if (state === 'pending') reason = 'unfinished memory changes';
-        else if (state === 'conflict')
-          reason = 'memory conflicts with another conversation';
-        if (state !== 'pending' && files.record.activity) {
+        if (!pending && files.record.activity) {
           delete files.record.activity;
           await files.save(files.record);
         }
