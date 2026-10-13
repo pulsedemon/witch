@@ -77,7 +77,7 @@ export function App({
 }: {
   coordinator: Coordinator;
   onExit(): void;
-  /** sent once the load ends idle with nothing reported, otherwise left as the draft. */
+  /** sent once the load ends idle with nothing reported and tools unfocused, otherwise left as the draft. */
   initialPrompt?: string;
 }) {
   const subscription = useMemo(
@@ -485,8 +485,7 @@ export function App({
     const prompt = pendingPrompt.current;
     if (prompt === undefined || state.phase === 'starting') return;
     pendingPrompt.current = undefined;
-    if (state.phase === 'idle' && !state.error) submit(prompt);
-    else {
+    if (state.phase !== 'idle' || state.error || !submit(prompt)) {
       setDraft(state.conversation?.id ?? '', prompt);
       setComposerKey((key) => key + 1);
     }

@@ -561,22 +561,26 @@ await test('an initial prompt is sent once when the load ends idle with nothing 
   }
 });
 
-for (const [name, update] of [
+for (const [name, update, focusTools] of [
   [
     'recovery',
     {
       phase: 'recovery',
       recovery: { kind: 'pending', paths: [], diff: 'x', root: '/m' },
     },
+    false,
   ],
   [
     'a launch report',
     { phase: 'idle', error: 'These conversations need attention.' },
+    false,
   ],
   [
     'a failed open',
     { phase: 'error', error: 'Open failed.', conversation: undefined },
+    false,
   ],
+  ['a load that ends with tools focused', { phase: 'idle' }, true],
 ] as const) {
   await test(`an initial prompt stays in the composer after ${name}`, async () => {
     const { app, coordinator, calls } = fake({ phase: 'starting' });
@@ -589,6 +593,10 @@ for (const [name, update] of [
     );
     try {
       await delay(60);
+      if (focusTools) {
+        ui.stdin.write('\t');
+        await until('tool focus', () => ui.text().includes('Esc leave tools'));
+      }
       coordinator.publish(update as Partial<Snapshot>);
       if (update.phase === 'recovery') {
         await delay(60);
