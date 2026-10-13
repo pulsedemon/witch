@@ -342,6 +342,14 @@ async function memoryApp(
   return { root, hook, seed, coordinator };
 }
 
+/** types /memory and waits for its picker to show `text`. */
+async function openMemory(ui: ReturnType<typeof show>, text: string) {
+  ui.stdin.write('/memory');
+  await delay(30);
+  ui.stdin.write('\r');
+  await until('the memory picker', () => ui.text().includes(text));
+}
+
 await test('/memory reads one commit even when main moves during the action', async () => {
   const { hook, seed, coordinator } = await memoryApp();
   hook.current = async (command, run) => {
@@ -357,12 +365,7 @@ await test('/memory reads one commit even when main moves during the action', as
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   try {
     await delay(60);
-    ui.stdin.write('/memory');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the memory picker', () =>
-      ui.text().includes('global/other.md'),
-    );
+    await openMemory(ui, 'global/other.md');
     // only the launch's connect report, no error from reading memory
     assert.match(coordinator.snapshot.error ?? '', /^a is not installed\./);
   } finally {
@@ -381,12 +384,7 @@ await test('memory without a worktree shows no links, builds no worktree, and ke
       .find((line) => stripAnsi(line).includes(text)) ?? '';
   try {
     await delay(60);
-    ui.stdin.write('/memory');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the memory picker', () =>
-      ui.text().includes('global/MEMORY.md'),
-    );
+    await openMemory(ui, 'global/MEMORY.md');
     assert.ok(!row('global/MEMORY.md').includes('\u001b]8;'));
     await delay(30);
     ui.stdin.write('global/mem');
@@ -435,10 +433,7 @@ await test('a note page scrolls by rows and full pages and stops at its last row
   const pageDown = '\u001b[6~';
   try {
     await delay(60);
-    ui.stdin.write('/memory');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the memory picker', () => ui.text().includes('long.md'));
+    await openMemory(ui, 'long.md');
     await delay(30);
     ui.stdin.write('long.md');
     await delay(30);
@@ -474,10 +469,7 @@ await test('e on a note page edits that note, and the + entry edits project esse
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   try {
     await delay(60);
-    ui.stdin.write('/memory');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the memory picker', () => ui.text().includes('other.md'));
+    await openMemory(ui, 'other.md');
     await delay(30);
     ui.stdin.write('other.md');
     await delay(30);
@@ -487,13 +479,8 @@ await test('e on a note page edits that note, and the + entry edits project esse
     await until('the edit', () => edited.length === 1);
     assert.match(edited[0]!, /\/global\/other\.md$/);
     await until('idle', () => coordinator.snapshot.phase === 'idle');
-    ui.stdin.write('/memory');
-    await delay(30);
-    ui.stdin.write('\r');
     // the edit's notice already names other.md
-    await until('the memory picker', () =>
-      ui.text().includes('Edit project essentials'),
-    );
+    await openMemory(ui, 'Edit project essentials');
     await delay(30);
     ui.stdin.write('\r');
     await until('the second edit', () => edited.length === 2);
@@ -512,13 +499,8 @@ await test('a note page links its relative Markdown targets beside the note once
   await seed.publish();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   const open = async () => {
-    ui.stdin.write('/memory');
-    await delay(30);
-    ui.stdin.write('\r');
     // the edit's notice already names index.md
-    await until('the memory picker', () =>
-      ui.text().includes('Edit project essentials'),
-    );
+    await openMemory(ui, 'Edit project essentials');
     await delay(30);
     ui.stdin.write('index.md');
     await delay(30);
@@ -560,10 +542,7 @@ await test('a note file name carrying a link sequence shows as plain text in the
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   try {
     await delay(60);
-    ui.stdin.write('/memory');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the memory picker', () => ui.text().includes('global/forged'));
+    await openMemory(ui, 'global/forged');
     assert.ok(!ui.frame().includes('\u001b]8;;x-evil'));
     await delay(30);
     ui.stdin.write('Forged note');
