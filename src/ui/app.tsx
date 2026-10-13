@@ -505,7 +505,7 @@ export function App({
     state.phase === 'recovery'
       ? linkify(
           conflict
-            ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.join('\n')}` : 'This conflict has no single path.'}\n\nYour changes:\n${recovery.diff}`
+            ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nYour changes:\n${recovery.diff}`
             : (recovery?.diff ?? ''),
           recovery?.root ?? cwd,
         )
@@ -682,7 +682,7 @@ export function App({
           {choices.slice(first, first + count).map((choice, index) => (
             <Text key={choice.id} inverse={first + index === selected}>
               {choice.cwd
-                ? linkify(` ${choice.label} `, choice.cwd)
+                ? linkify(` ${plain(choice.label)} `, choice.cwd)
                 : ` ${plain(choice.label)} `}
             </Text>
           ))}

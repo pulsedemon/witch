@@ -193,6 +193,30 @@ await test('the conflict view resolves with k and d, ignores a, and links notes 
   }
 });
 
+await test('a conflicting note name carrying a link sequence shows as plain text', async () => {
+  const { app } = fake({
+    phase: 'recovery',
+    recovery: {
+      kind: 'conflict',
+      paths: ['global/one.md', `global/${forgedLink('..:1', 'forged')}.md`],
+      diff: '+mine in global/one.md',
+      root: '/state/conversations/c/memory',
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the conflict view', () => ui.text().includes('global/forged'));
+    assert.ok(
+      ui
+        .frame()
+        .includes('vscode://file/state/conversations/c/memory/global/one.md'),
+    );
+    assert.ok(!ui.frame().includes('vscode://file/state/conversations/c:1'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('the pending view ignores k', async () => {
   const { app, calls } = fake({
     phase: 'recovery',
@@ -547,9 +571,10 @@ await test('a note page links its relative Markdown targets beside the note once
 });
 
 await test('a note file name carrying a link sequence shows as plain text in the picker and on its page', async () => {
-  const { seed, coordinator } = await memoryApp();
+  const { root, seed, coordinator } = await memoryApp();
+  // a file name holds no slash, so a forged target can only be a local path
   await writeFile(
-    join(seed.root, 'global', `${forgedLink('x-evil:payload', 'forged')}.md`),
+    join(seed.root, 'global', `${forgedLink('..:1', 'forged')}.md`),
     'Forged note.',
   );
   await seed.commit('chore(memory): save forged note');
@@ -558,13 +583,21 @@ await test('a note file name carrying a link sequence shows as plain text in the
   try {
     await delay(60);
     await openMemory(ui, 'global/forged');
-    assert.ok(!ui.frame().includes('\u001b]8;;x-evil'));
+    assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
+    ui.stdin.write('\u001b');
+    await until('the chat', () => !ui.text().includes('global/forged'));
+    // a worktree at main links the picker's rows
+    await coordinator.editMemory('global/other.md');
+    const forged = `vscode://file${join(root, 'state', 'conversations', coordinator.snapshot.conversation!.id)}:1\u0007`;
+    await openMemory(ui, 'global/forged');
+    assert.ok(ui.frame().includes('vscode://file'));
+    assert.ok(!ui.frame().includes(forged));
     await delay(30);
     ui.stdin.write('Forged note');
     await delay(30);
     ui.stdin.write('\r');
     await until('the note page', () => ui.text().includes('e edit'));
-    assert.ok(!ui.frame().includes('\u001b]8;;x-evil'));
+    assert.ok(!ui.frame().includes(forged));
   } finally {
     ui.unmount();
     await coordinator.close();
