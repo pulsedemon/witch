@@ -111,6 +111,15 @@ await test('a Codex that exits while idle posts the exit as a notice', async () 
   }
 });
 
+await test('closing a Codex session posts no exit notice', async () => {
+  const notices: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'notice') notices.push(event);
+  });
+  await close(session, cwd);
+  assert.deepEqual(notices, []);
+});
+
 await test('a Codex that exits during a model change fails the change without a notice', async () => {
   const notices: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {
