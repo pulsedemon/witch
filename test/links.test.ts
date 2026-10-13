@@ -54,7 +54,16 @@ await test('a #L location links as a line and column, and a heading fragment dro
       '\u001b]8;;vscode://file/work/docs/rules.md\u0007',
     ),
   );
-  assert.ok(!markdown('[Top](#goal)', '/work').includes('\u001b]8;;vscode'));
+  assert.ok(
+    markdown('[Src](src/a.ts#L10C2)', '/work').includes(
+      '\u001b]8;;vscode://file/work/src/a.ts:10:2\u0007',
+    ),
+  );
+  for (const anchor of ['#goal', '#L10'])
+    assert.ok(
+      !markdown(`[Top](${anchor})`, '/work').includes('\u001b]8;;vscode'),
+      anchor,
+    );
 });
 
 await test('Markdown labels and links in code blocks remain clickable', () => {

@@ -60,11 +60,11 @@ export function markdownLink(
   cwd: string,
 ): string {
   if (!/^[a-z][a-z\d+.-]*:/i.test(target)) {
-    // a heading anchor is no part of the file; only a `#L12` location is kept
+    // a heading anchor is no part of the file; only a `#L12` location after a file is kept
     const hash = target.indexOf('#');
-    if (hash !== -1 && !/^#L\d+(?:C\d+)?$/.test(target.slice(hash)))
+    if (hash === 0) return text;
+    if (hash > 0 && !/^#L\d+(?:C\d+)?$/.test(target.slice(hash)))
       target = target.slice(0, hash);
-    if (!target) return text;
     try {
       target = decodeURIComponent(target);
     } catch {
