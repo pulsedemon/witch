@@ -54,13 +54,11 @@ async function conversation() {
   const workspace = memory.workspace(files.directory, id);
   await workspace.ensureWorktree();
   const scope = await workspace.scope(cwd);
-  return { coordinator, cwd, id, files, workspace, scope };
+  return { coordinator, id, files, workspace, scope };
 }
 
 await test('a deleted note remains discoverable and can be restored through its history picker', async () => {
-  const { coordinator, cwd, id, files, workspace, scope } =
-    await conversation();
-  await files.append({ id: 'n', kind: 'notice', text: 'Earlier', cwd });
+  const { coordinator, id, files, workspace, scope } = await conversation();
   const reference = join(workspace.root, scope.project, 'decisions.md');
   await writeFile(reference, 'Accepted project decision.');
   await workspace.commit('save reference');
