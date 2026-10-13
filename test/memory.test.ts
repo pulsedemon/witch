@@ -233,7 +233,7 @@ await test('pending notes show in the recovery diff, block the next turn and sta
 await test('a .gitignore inside memory hides no note from the recovery diff, discard, publishing or the symlink check', async () => {
   const { memory, open } = await fixture();
   const { workspace, scope } = await open('a');
-  const ignore = join(scope.global, '.gitignore');
+  const ignore = join(workspace.root, '.gitignore');
   const hidden = join(scope.global, 'hidden.md');
   await writeFile(ignore, '*\n');
   await writeFile(hidden, 'Hidden fact.');
