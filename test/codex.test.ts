@@ -524,6 +524,8 @@ await test('a model choice that changes no native setting returns and shows the 
       'the native effort',
     );
     assert.equal(session.info.effort, 'low');
+    await within(session.selectModel('model-a', null), 2000, 'a null effort');
+    assert.equal(session.info.effort, undefined);
   } finally {
     await close(session, cwd);
   }
