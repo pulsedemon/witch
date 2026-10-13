@@ -28,6 +28,7 @@ import { markdown } from './markdown.js';
 import { hyperlink, linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
+import { Activity } from './activity.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
 import { StatusLine } from './status-line.js';
 import { accent, colors, piped } from './theme.js';
@@ -168,6 +169,7 @@ export function App({
   // the header and phase rows above, the status line's two below
   const bodyHeight = height - 4 - errorRows.length;
   const composerPhase = !['starting', 'closing', 'error'].includes(state.phase);
+  const working = ['starting', 'running', 'switching'].includes(state.phase);
   const entries = [
     ...commands.map(({ id, label, aliases }) => ({
       name: id,
@@ -213,7 +215,7 @@ export function App({
   );
   const transcriptHeight = Math.max(
     2,
-    bodyHeight - composerRows - 3 - listRows,
+    bodyHeight - composerRows - 3 - listRows - (working ? 1 : 0),
   );
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
   const scrollTop =
@@ -809,6 +811,7 @@ export function App({
                 )}
           </Text>
         </Box>
+        {working && <Activity />}
         <Box
           borderStyle="bold"
           borderColor={toolFocus ? 'gray' : accent}
@@ -903,12 +906,7 @@ export function App({
           repository={repositoryStatus}
         />
       </Box>
-      {sidebar && (
-        <Sidebar
-          height={height}
-          spinning={['starting', 'running', 'switching'].includes(state.phase)}
-        />
-      )}
+      {sidebar && <Sidebar height={height} spinning={working} />}
     </Box>
   );
 }

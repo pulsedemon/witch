@@ -1415,6 +1415,28 @@ await test("the status line shows the model's label, the effort the agent runs, 
   }
 });
 
+await test('while the agent works, a row above the composer names a verb and counts the seconds, and it leaves at idle', async () => {
+  const { app, coordinator } = fake({ phase: 'running' });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const row = () => {
+    const lines = ui.text().split('\n');
+    const composer = lines.findIndex((line) =>
+      line.trimStart().startsWith('┏'),
+    );
+    return lines[composer - 1]?.trim() ?? '';
+  };
+  const activity =
+    /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (CONJURING|SCRYING|BREWING|DIVINING|INCANTING|SUMMONING|HEXING|TRANSMUTING) \| (\d+)S \| ESC TO INTERRUPT$/;
+  try {
+    await until('the activity row', () => activity.exec(row())?.[2] === '0');
+    await until('a second later', () => activity.exec(row())?.[2] === '1');
+    coordinator.publish({ phase: 'idle' });
+    await until('the row gone', () => !ui.text().includes('ESC TO INTERRUPT'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a typed /agent returns to live output', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
