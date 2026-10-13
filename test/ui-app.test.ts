@@ -734,7 +734,7 @@ await test('two questions answered in one read each get their own option', async
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await delay(600);
-    ui.stdin.write(`1${ENTER}2${ENTER}`);
+    ui.stdin.write(`1${ENTER}${DOWN}${ENTER}`);
     await until('the response', () => calls.length > 0);
     assert.deepEqual(calls, [
       [
