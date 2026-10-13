@@ -120,6 +120,20 @@ await test('a reading anchor keeps its position within a wrapped line after resi
   assert.equal(layout.render([item], 160, expanded).rowOf(anchor), 45);
 });
 
+await test('an anchor on a line that no longer renders falls back to its item start', () => {
+  const item: DisplayItem = {
+    id: 'log',
+    kind: 'tool',
+    title: 'Log',
+    text: 'a\nb\nc',
+    cwd: '/work',
+    done: true,
+  };
+  const layout = new TranscriptLayout();
+  const anchor = layout.render([item], 80, new Set(['log'])).anchorAt(2)!;
+  assert.equal(layout.render([item], 80, new Set()).rowOf(anchor), 0);
+});
+
 await test('a reading anchor includes spaces trimmed while wrapping a title', () => {
   const item: DisplayItem = {
     id: 'log',
