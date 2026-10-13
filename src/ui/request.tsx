@@ -17,7 +17,11 @@ interface Props {
   respond(response: UserResponse): void;
 }
 
-const approvalOptions = ['Allow once', 'Decline', 'Cancel turn'];
+const approvals = [
+  { label: 'Allow once', decision: 'accept' },
+  { label: 'Decline', decision: 'decline' },
+  { label: 'Cancel turn', decision: 'cancel' },
+] as const;
 
 export function Request({ request, width, height, cwd, respond }: Props) {
   const [selection, selectionRef, setSelection] = useLiveState(0);
@@ -33,7 +37,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     return () => clearTimeout(timer);
   }, []);
   const question = request.questions?.[questionIndex];
-  const options = question?.options ?? approvalOptions;
+  const options = question?.options ?? approvals.map(({ label }) => label);
   const bodyHeight = Math.max(2, height - 7);
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
@@ -56,8 +60,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       if (key.pageUp) setScroll(Math.max(0, current - bodyHeight));
       if (key.pageDown) setScroll(Math.min(last, current + bodyHeight));
       const count = (
-        request.questions?.[questionIndexRef.current]?.options ??
-        approvalOptions
+        request.questions?.[questionIndexRef.current]?.options ?? approvals
       ).length;
       if (key.upArrow) setSelection(Math.max(0, selectionRef.current - 1));
       if (key.downArrow)
@@ -66,11 +69,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
         if (input === 'y') respond({ decision: 'accept' });
         if (input === 'n') respond({ decision: 'decline' });
         if (key.return)
-          respond({
-            decision: (['accept', 'decline', 'cancel'] as const)[
-              selectionRef.current
-            ]!,
-          });
+          respond({ decision: approvals[selectionRef.current]!.decision });
       }
     },
     { isActive: ready },
