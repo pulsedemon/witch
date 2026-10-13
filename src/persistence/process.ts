@@ -28,7 +28,13 @@ export async function stopPreviousProcess(
 ): Promise<void> {
   const current = await identifyProcess(recorded.pid);
   if (!current || current.started !== recorded.started) return;
-  process.kill(recorded.pid, 'SIGTERM');
+  try {
+    process.kill(recorded.pid, 'SIGTERM');
+  } catch (error) {
+    // it can exit between the check above and the signal
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+    throw error;
+  }
   for (let attempt = 0; attempt < 50; attempt++) {
     await delay(100);
     const remaining = await identifyProcess(recorded.pid);

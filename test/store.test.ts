@@ -154,6 +154,29 @@ await test('a claim that cannot stop the recorded process releases its lock', as
   }
 });
 
+await test('a claim succeeds when the recorded process exits before its signal', async (t) => {
+  const store = await StateStore.open(
+    await mkdtemp(join(tmpdir(), 'witch-exited-claim-')),
+  );
+  const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
+  try {
+    const files = await store.create(conversation('exited'));
+    await files.save({
+      ...files.record,
+      process: await identifyProcess(child.pid!),
+    });
+    await files.close();
+    t.mock.method(process, 'kill', () => {
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    });
+    const claimed = await store.claim('exited');
+    assert.equal(claimed.record.process, undefined);
+    await claimed.close();
+  } finally {
+    child.kill('SIGKILL');
+  }
+});
+
 await test('a claim leaves running a process that reuses the recorded pid', async () => {
   const store = await StateStore.open(
     await mkdtemp(join(tmpdir(), 'witch-reused-pid-')),
