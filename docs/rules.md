@@ -28,7 +28,7 @@ Claude result alone does not establish idle; completion must follow native lifec
 
 Use an alternate-screen header and status row, a scrolling transcript, and a multiline composer that grows with its text up to half the screen. Sessions/models use pickers; memory has a list and preview. Keys and commands are defined by the `/help` text in [app.tsx](../src/ui/app.tsx).
 
-Follow output only at the bottom. Keep typing responsive with long expanded tool results, preserve scroll on view changes and resize, batch streamed display changes and reuse completed rendering. Web links use OSC 8 and the default browser. File references use encoded VS Code URLs with optional line/column, resolved against their originating cwd. Preserve links in Markdown, bare text, tool output, wrapping and clipping.
+Follow output only at the bottom. Keep typing responsive with long expanded tool results, preserve scroll on view changes and resize, batch streamed display changes and reuse completed rendering. Capture the mouse: the wheel scrolls and a click opens the link under it, while Shift+drag keeps native selection and mouse reporting ends on exit. Web links use OSC 8 and the default browser. File references use encoded VS Code URLs with optional line/column, resolved against their originating cwd. Preserve links in Markdown, bare text, tool output, wrapping and clipping.
 
 Persist native IDs and display history. Each instance has one conversation open, and its coordinator exclusively owns that state. Refuse a conversation another instance holds; recover after a dead owner and reconcile native execution. Never automatically replay a prompt.
 

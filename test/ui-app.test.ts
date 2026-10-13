@@ -21,6 +21,7 @@ import type { Snapshot } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
+import { MouseInput } from '../src/ui/mouse.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 
@@ -66,7 +67,8 @@ function show(element: ReactElement, columns = 100, rows = 40) {
   const instance = render(element, {
     stdout: stdout as unknown as NodeJS.WriteStream,
     stderr: stdout as unknown as NodeJS.WriteStream,
-    stdin: stdin as unknown as NodeJS.ReadStream,
+    // as the CLI reads input, so keys and mouse reports share one stream
+    stdin: new MouseInput(stdin) as unknown as NodeJS.ReadStream,
     debug: true,
     exitOnCtrlC: false,
     patchConsole: false,
@@ -1235,6 +1237,93 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
       const all = rows();
       return all[all.indexOf('Approval required') + 1] === 'd29';
     });
+  } finally {
+    ui.unmount();
+  }
+});
+
+const wheelUp = '\u001b[<64;10;10M';
+const wheelDown = '\u001b[<65;10;10M';
+
+await test('the wheel scrolls the transcript a row a step, and back at the bottom follows output again', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  try {
+    await until('the transcript', () => first() > 0);
+    const bottom = first();
+    ui.stdin.write(wheelUp.repeat(3));
+    await until('three rows up', () => first() === bottom - 3);
+    assert.ok(ui.text().includes('Reading earlier output'));
+    ui.stdin.write(wheelDown.repeat(3));
+    await until(
+      'live output',
+      () => !ui.text().includes('Reading earlier output'),
+    );
+    assert.equal(first(), bottom);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('the wheel scrolls a page and a request by rows', async () => {
+  const { app, coordinator } = fake({});
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    16,
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('/help');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the help page', () => ui.text().includes('/new  New'));
+    ui.stdin.write(wheelDown.repeat(2));
+    await until(
+      'two rows down',
+      () => !ui.text().includes('/sessions') && ui.text().includes('/agent'),
+    );
+    ui.stdin.write(wheelUp);
+    await until('a row up', () => ui.text().includes('/sessions'));
+    assert.ok(!ui.text().includes('/new  New'));
+    ui.stdin.write('\u001b');
+    coordinator.publish({
+      phase: 'running',
+      requests: [
+        {
+          ...approval,
+          detail: Array.from({ length: 200 }, (_, n) => `d${n + 1}`).join('\n'),
+        },
+      ],
+    });
+    await until('the request', () => ui.text().includes('d1\n'));
+    // the detail starts on line 4, so five rows down show d3 first
+    ui.stdin.write(wheelDown.repeat(5));
+    await until('five rows down', () => {
+      const rows = ui
+        .text()
+        .split('\n')
+        .map((row) => row.trim());
+      return rows[rows.indexOf('Approval required') + 1] === 'd3';
+    });
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a click and a wheel step between keys leave the draft as typed', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`xq\u001b[<0;3;4M\u001b[<0;3;4m${wheelUp}zw`);
+    await until('the draft', () => ui.text().includes('xqzw'));
   } finally {
     ui.unmount();
   }

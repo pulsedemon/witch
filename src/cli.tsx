@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -9,6 +10,9 @@ import { Coordinator } from './core/coordinator.js';
 import { Memory } from './memory/memory.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
+import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
+import type { Click } from './ui/mouse.js';
+import { Screen, recorded } from './ui/screen.js';
 
 const defaultState = join(homedir(), '.witch');
 const usage = `Usage: witch [options] [prompt...]
@@ -76,6 +80,16 @@ if (!store) {
       },
     );
   };
+  const screen = new Screen(process.stdout);
+  const stdin = new MouseInput(process.stdin);
+  stdin.on('click', ({ column, row }: Click) => {
+    const link = screen.linkAt(column, row);
+    // Witch draws only these links; a bare path would make open launch a file
+    if (link && /^(?:https?|vscode):\/\//i.test(link))
+      execFile('/usr/bin/open', [link], (error) => {
+        if (error) coordinator.report(error);
+      });
+  });
   const application = render(
     <App
       coordinator={coordinator}
@@ -83,6 +97,8 @@ if (!store) {
       initialPrompt={prompt || undefined}
     />,
     {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: recorded(process.stdout, screen),
       alternateScreen: true,
       exitOnCtrlC: false,
       kittyKeyboard: {
@@ -90,6 +106,9 @@ if (!store) {
       },
     },
   );
+  process.stdout.write(captureMouse);
+  // runs on every exit, including a second Ctrl+C's process.exit and a crash
+  process.once('exit', () => process.stdout.write(releaseMouse));
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   void coordinator

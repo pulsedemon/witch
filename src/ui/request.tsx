@@ -8,6 +8,7 @@ import type { UserRequest, UserResponse } from '../agents/types.js';
 import { Input } from './input.js';
 import { linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
+import { useWheel } from './mouse.js';
 
 interface Props {
   request: UserRequest;
@@ -48,6 +49,13 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   }).split('\n');
   const last = Math.max(0, lines.length - bodyHeight);
   const top = Math.min(scroll, last);
+  /** steps from the shown top, so a move past either end is felt at once. */
+  const scrollBy = (rows: number) =>
+    setScroll(
+      Math.max(0, Math.min(last, Math.min(scrollRef.current, last) + rows)),
+    );
+  // scrolling answers nothing, so the wheel works before keys do
+  useWheel(scrollBy);
 
   useInput(
     (input, key) => {
@@ -56,9 +64,8 @@ export function Request({ request, width, height, cwd, respond }: Props) {
         respond({ decision: 'decline' });
         return;
       }
-      const current = Math.min(scrollRef.current, last);
-      if (key.pageUp) setScroll(Math.max(0, current - bodyHeight));
-      if (key.pageDown) setScroll(Math.min(last, current + bodyHeight));
+      if (key.pageUp) scrollBy(-bodyHeight);
+      if (key.pageDown) scrollBy(bodyHeight);
       const count = (
         request.questions?.[questionIndexRef.current]?.options ?? approvals
       ).length;
@@ -167,7 +174,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
                 ? 'Type an answer or option numbers separated by commas.'
                 : 'Type an answer or option number.'
               : request.url
-                ? 'Cmd+click the URL, then press Enter when finished.'
+                ? 'Click the URL, then press Enter when finished.'
                 : 'Enter a JSON object with the requested fields.'}
           </Text>
           <Input

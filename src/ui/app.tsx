@@ -26,6 +26,7 @@ import type { ScrollAnchor } from './transcript-layout.js';
 import { colors, markdown } from './markdown.js';
 import { hyperlink, linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
+import { useWheel } from './mouse.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
@@ -393,7 +394,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nCmd+click web links to open your browser.\nCmd+click file paths to open VS Code at their line and column.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nShift+drag selects text.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'exit':
@@ -541,7 +542,11 @@ export function App({
   );
   const pageLast = Math.max(0, pageLines.length - pageRows);
   const pageTop = Math.min(pageScroll, pageLast);
-  /** steps from the shown top, so a key past either end moves the page at once. */
+  /** steps from the shown top, so a move past either end is felt at once. */
+  const scrollPageBy = (rows: number) =>
+    setPageScroll((value) =>
+      Math.max(0, Math.min(pageLast, Math.min(value, pageLast) + rows)),
+    );
   const scrollPage = (key: Key) => {
     const rows = key.pageDown
       ? pageRows
@@ -552,11 +557,14 @@ export function App({
           : key.upArrow
             ? -1
             : 0;
-    if (rows)
-      setPageScroll((value) =>
-        Math.max(0, Math.min(pageLast, Math.min(value, pageLast) + rows)),
-      );
+    if (rows) scrollPageBy(rows);
   };
+  // a request scrolls itself, and a picker follows its selection
+  useWheel((rows) => {
+    if (request) return;
+    if (state.phase === 'recovery' || view.kind === 'page') scrollPageBy(rows);
+    else if (view.kind === 'chat') scrollBy(rows);
+  });
 
   useInput((input, key) => {
     if (key.eventType === 'release') return;
