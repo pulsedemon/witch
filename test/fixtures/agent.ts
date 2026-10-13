@@ -97,13 +97,11 @@ export class FixtureAgent implements AgentAdapter {
         {
           id: `${this.id}-model`,
           label: `${this.id}-model`,
-          description: '',
           efforts: [],
         },
         {
           id: `${this.id}-big`,
           label: `${this.id}-big`,
-          description: '',
           efforts: ['high'],
         },
       ],

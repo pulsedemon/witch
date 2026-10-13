@@ -31,7 +31,6 @@ const modelPage = z.object({
     z.object({
       id: z.string(),
       displayName: z.string(),
-      description: z.string(),
       supportedReasoningEfforts: z.array(
         z.object({ reasoningEffort: z.string() }),
       ),
@@ -189,7 +188,6 @@ class CodexSession implements AgentSession {
         ...page.data.map((model) => ({
           id: model.id,
           label: model.displayName,
-          description: model.description,
           efforts: model.supportedReasoningEfforts.map(
             (effort) => effort.reasoningEffort,
           ),

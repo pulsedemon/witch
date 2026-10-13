@@ -244,7 +244,6 @@ class ClaudeSession implements AgentSession {
     return models.map((model) => ({
       id: model.value,
       label: model.displayName,
-      description: model.description,
       efforts: model.supportedEffortLevels ?? [],
     }));
   }

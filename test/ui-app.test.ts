@@ -725,9 +725,7 @@ await test('two questions answered in one read each get their own option', async
 
 await test('/model with Keep current effort selects the model without an effort', async () => {
   const { app, calls } = fake({
-    models: [
-      { id: 'm', label: 'Model M', description: '', efforts: ['low', 'high'] },
-    ],
+    models: [{ id: 'm', label: 'Model M', efforts: ['low', 'high'] }],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -759,7 +757,6 @@ await test('a model id carrying a link sequence shows as plain text in the effor
       {
         id: forgedLink('x-evil:payload', 'm'),
         label: 'Model M',
-        description: '',
         efforts: ['low', 'high'],
       },
     ],
@@ -791,7 +788,6 @@ for (const typed of ['gpt-5.1', 'gpt-6'])
       models: ['gpt-5.1-codex', 'gpt-5.1'].map((id) => ({
         id,
         label: id,
-        description: '',
         efforts: [],
       })),
     });
@@ -818,7 +814,6 @@ await test('a long picker shows as many choices as its rows hold', async () => {
     models: Array.from({ length: 40 }, (_, n) => ({
       id: `model-${n + 1}`,
       label: `model-${n + 1}`,
-      description: '',
       efforts: [],
     })),
   });
