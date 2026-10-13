@@ -57,6 +57,8 @@ export class FixtureAgent implements AgentAdapter {
   failInterrupt = false;
   interruptNext = false;
   gate?: TurnGate;
+  /** what a session reports as its usage when it connects. */
+  connectUsage?: Usage;
   /** what a completed turn reports as its session's usage. */
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
@@ -86,7 +88,7 @@ export class FixtureAgent implements AgentAdapter {
     await options.onProcess(sleeper.pid);
     let closed = false;
     let turn: PromiseWithResolvers<TurnResult> | undefined;
-    let usage: Usage = {};
+    let usage: Usage = this.connectUsage ?? {};
     const session: AgentSession = {
       get info() {
         return info;

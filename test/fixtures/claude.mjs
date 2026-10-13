@@ -1,4 +1,4 @@
-import { setInterval, clearInterval } from 'node:timers';
+import { setInterval, clearInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
@@ -124,6 +124,8 @@ const finish = () => {
   } else {
     state('idle');
     if (mode === 'exit-when-idle') exitBeforeGrandchild(1);
+    // a background task's result, with no turn open
+    if (lastPrompt === 'background result') setTimeout(() => result(), 20);
   }
 };
 for await (const line of lines) {

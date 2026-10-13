@@ -128,6 +128,28 @@ await test('a fresh conversation receives committed memory without a handoff', a
   }
 });
 
+await test("a session's usage at connect reaches the snapshot, a closed session's later usage does not, and a failed handoff clears it", async () => {
+  const { coordinator, a } = await fixture(undefined, (a, b) => {
+    a.connectUsage = { cost: 1 };
+    b.connectUsage = { cost: 2 };
+  });
+  try {
+    assert.deepEqual(coordinator.snapshot.usage, { cost: 1 });
+    await coordinator.switchAgent('b');
+    assert.deepEqual(coordinator.snapshot.usage, { cost: 2 });
+    a.sessions[0]!.options.onEvent({ type: 'usage', usage: { cost: 9 } });
+    assert.deepEqual(coordinator.snapshot.usage, { cost: 2 });
+    a.failConnect = true;
+    await assert.rejects(
+      coordinator.switchAgent('a'),
+      /Destination unavailable/,
+    );
+    assert.deepEqual(coordinator.snapshot.usage, {});
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test("the live session's usage reaches the snapshot, and a new conversation starts with none and its own open time even when its agent fails to connect", async () => {
   const { coordinator, a, b } = await fixture();
   try {

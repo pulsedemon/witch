@@ -185,6 +185,64 @@ await test('a failed git read leaves Git out, and a failed gh read leaves the pu
     t.mock.timers.tick(5000);
     await delay(20);
     assert.equal(reads, 2);
+    repository = false;
+    t.mock.timers.tick(5000);
+    await delay(20);
+    assert.equal(watch.snapshot?.branch, undefined);
+  } finally {
+    watch.close();
+  }
+});
+
+await test('a read still running skips the next ticks, and a pull request read for a branch left meanwhile is dropped', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+  let branch = 'main';
+  const git: PromiseWithResolvers<{ stdout: string }>[] = [];
+  const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
+  const watch = new RepositoryWatch('/work', (command) => {
+    const read = Promise.withResolvers<{ stdout: string }>();
+    (command === 'gh' ? gh : git).push(read);
+    return read.promise;
+  });
+  try {
+    t.mock.timers.tick(5000);
+    t.mock.timers.tick(5000);
+    await delay(20);
+    assert.equal(git.length, 1);
+    git[0]!.resolve({ stdout: `# branch.head ${branch}\n` });
+    await delay(20);
+    assert.equal(watch.snapshot?.branch, 'main');
+    assert.equal(gh.length, 1);
+    branch = 'feat/x';
+    for (let tick = 0; tick < 3; tick++) {
+      t.mock.timers.tick(5000);
+      await delay(20);
+      git.at(-1)!.resolve({ stdout: `# branch.head ${branch}\n` });
+      await delay(20);
+    }
+    assert.equal(watch.snapshot?.branch, 'feat/x');
+    assert.equal(gh.length, 1);
+    gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
+    await delay(20);
+    assert.equal(watch.snapshot?.pullRequest, undefined);
+  } finally {
+    watch.close();
+  }
+});
+
+await test('a detached head reads no pull request', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+  const commands: string[] = [];
+  const watch = new RepositoryWatch('/work', async (command) => {
+    commands.push(command);
+    return { stdout: '# branch.head (detached)\n' };
+  });
+  try {
+    await delay(20);
+    t.mock.timers.tick(5000);
+    await delay(20);
+    assert.equal(watch.snapshot?.branch, 'HEAD');
+    assert.deepEqual(commands, ['git', 'git']);
   } finally {
     watch.close();
   }

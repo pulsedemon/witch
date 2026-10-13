@@ -109,7 +109,8 @@ type Run = (
 
 /**
  * the Git status of `cwd` for the status line, read every 5 seconds, with its branch's pull request read in the
- * background every 90 seconds and whenever the branch changes. The last value shows until a read replaces it.
+ * background every 90 seconds and whenever the branch changes. Each read shows until the next; a failed one leaves
+ * its field out.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
@@ -117,6 +118,7 @@ export class RepositoryWatch {
   private readonly timer: ReturnType<typeof setInterval>;
   private pullRequest?: { branch: string; at: number; value?: PullRequest };
   private fetching = false;
+  private refreshing = false;
 
   constructor(
     private readonly cwd: string,
@@ -137,6 +139,9 @@ export class RepositoryWatch {
   }
 
   private async refresh(): Promise<void> {
+    // a status read can outlast the interval, and a slower, older read would publish over a newer one
+    if (this.refreshing) return;
+    this.refreshing = true;
     let repository: Repository | undefined;
     try {
       // optional locks would contend with the user's own Git commands
@@ -148,6 +153,8 @@ export class RepositoryWatch {
       repository = parseStatus(stdout);
     } catch {
       // not a repository, or Git is busy; the status line leaves Git out
+    } finally {
+      this.refreshing = false;
     }
     const known = this.pullRequest;
     if (repository && known?.branch === repository.branch)

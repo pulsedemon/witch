@@ -182,15 +182,18 @@ for await (const line of lines) {
         });
       tokens('native-thread', 64000);
       tokens('subagent-thread', 200000);
-      const diff = (body) =>
+      const diff = (body, turnId = 'turn-1', threadId = 'native-thread') =>
         notify('turn/diff/updated', {
-          threadId: 'native-thread',
-          turnId: 'turn-1',
+          threadId,
+          turnId,
           diff: `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n${body}`,
         });
       diff('+one\n');
       // the turn's diff grows, and a content line can start like a header
       diff(' kept\n-old\n+one\n+++ added\n');
+      // a later turn adds to the total, another thread's turn does not
+      diff('+two\n', 'turn-2');
+      diff('+three\n+four\n-five\n', 'subagent-turn', 'subagent-thread');
       const limits = (limitId, primary) =>
         notify('account/rateLimits/updated', {
           rateLimits: { limitId, primary, secondary: null },

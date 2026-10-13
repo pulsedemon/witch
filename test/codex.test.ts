@@ -603,7 +603,7 @@ await test('native secret questions and MCP form answers reach their protocol co
   }
 });
 
-await test('reports context, lines, limits merged from sparse updates and the cost estimate, leaving out other threads and limits', async () => {
+await test("reports context, lines summed over the thread's turns, limits merged from sparse updates and the cost estimate, leaving out other threads and limits", async () => {
   const reported: Usage[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'usage') reported.push(event.usage);
@@ -621,7 +621,7 @@ await test('reports context, lines, limits merged from sparse updates and the co
     assert.deepEqual(session.usage, {
       // 64000 of a 256000-token window
       context: 25,
-      lines: { added: 2, removed: 1 },
+      lines: { added: 3, removed: 1 },
       limits: [
         { window: '5H', percent: 15, resetsAt: 2000000100 },
         { window: '7D', percent: 40, resetsAt: 2000500000 },

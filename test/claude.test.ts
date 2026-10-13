@@ -598,6 +598,17 @@ await test('reports the cost from each result, and context, the 5H and 7D limits
   }
 });
 
+await test('a result that arrives with no turn open still reports the cost', async () => {
+  const { session } = await fixture();
+  try {
+    assert.equal((await session.send('background result')).status, 'completed');
+    assert.equal(session.usage.cost, 0.25);
+    await eventually('the background result', () => session.usage.cost === 0.5);
+  } finally {
+    await session.close();
+  }
+});
+
 await test('reports the effort Claude Code says it will send', async () => {
   const { session } = await fixture(() => {}, 'init-effort');
   try {
