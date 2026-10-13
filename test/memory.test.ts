@@ -112,7 +112,7 @@ await test('parallel initialization seeds one repository and leaves a stray buil
   assert.deepEqual(await readdir(stray, { recursive: true }), before);
 });
 
-await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend, hidden untracked files and log.follow', async () => {
+await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend, hidden untracked files, log.follow and an external diff', async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-memory-identity-'));
   const template = join(root, 'template');
   await mkdir(template);
@@ -151,12 +151,14 @@ await test('memory works under user Git configuration with no identity, an empty
        await note(mine, 'global/preference.md', 'New preference.');
        await mine.commit('my preference');
        if ((await mine.publish()) !== 'conflict') throw new Error('expected a conflict');
+       await mine.conflict();
        await mine.keepMine();
        await mine.publish();
        console.log(await memory.read('refs/heads/main', 'global/preference.md'));
        await rename(join(mine.root, 'global/mine.md'), join(mine.root, 'global/renamed.md'));
        await mine.commit('rename mine');
        await note(mine, 'global/renamed.md', 'Renamed.');
+       await mine.diff();
        await mine.commit('edit renamed');
        await mine.publish();
        const history = await memory.history('refs/heads/main', 'global/renamed.md');
@@ -168,7 +170,7 @@ await test('memory works under user Git configuration with no identity, an empty
         ...process.env,
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_COUNT: '4',
+        GIT_CONFIG_COUNT: '5',
         GIT_CONFIG_KEY_0: 'user.useConfigOnly',
         GIT_CONFIG_VALUE_0: 'true',
         GIT_CONFIG_KEY_1: 'rebase.backend',
@@ -177,6 +179,8 @@ await test('memory works under user Git configuration with no identity, an empty
         GIT_CONFIG_VALUE_2: 'no',
         GIT_CONFIG_KEY_3: 'log.follow',
         GIT_CONFIG_VALUE_3: 'true',
+        GIT_CONFIG_KEY_4: 'diff.external',
+        GIT_CONFIG_VALUE_4: '/usr/bin/false',
         GIT_TEMPLATE_DIR: template,
         GIT_AUTHOR_NAME: undefined,
         GIT_AUTHOR_EMAIL: undefined,
