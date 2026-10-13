@@ -7,7 +7,7 @@ import {
 } from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
 import type { Key } from 'ink';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator } from '../core/coordinator.js';
@@ -511,7 +511,15 @@ export function App({
           recovery?.root ?? cwd,
         )
       : view.kind === 'page'
-        ? markdown(view.text, cwd)
+        ? markdown(
+            view.text,
+            cwd,
+            view.note === undefined
+              ? cwd
+              : view.link
+                ? dirname(view.link)
+                : null,
+          )
         : '';
   const pageLines = wrapAnsi(pageText, width - 2, {
     hard: true,

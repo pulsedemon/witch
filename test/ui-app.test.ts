@@ -505,6 +505,50 @@ await test('e on a note page edits that note, and the + entry edits project esse
   }
 });
 
+await test('a note page links its relative Markdown targets beside the note once its worktree holds the revision', async () => {
+  const { root, seed, coordinator } = await memoryApp();
+  await writeFile(join(seed.root, 'global', 'index.md'), '- [Other](other.md)');
+  await seed.commit('chore(memory): add index');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  const open = async () => {
+    ui.stdin.write('/memory');
+    await delay(30);
+    ui.stdin.write('\r');
+    // the edit's notice already names index.md
+    await until('the memory picker', () =>
+      ui.text().includes('Edit project essentials'),
+    );
+    await delay(30);
+    ui.stdin.write('index.md');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => ui.text().includes('e edit'));
+  };
+  try {
+    await delay(60);
+    await open();
+    assert.ok(!ui.frame().includes('other.md'));
+    ui.stdin.write('\u001b');
+    await until('the chat', () => !ui.text().includes('e edit'));
+    await coordinator.editMemory('global/index.md');
+    await open();
+    const worktree = join(
+      root,
+      'state',
+      'conversations',
+      coordinator.snapshot.conversation!.id,
+      'memory',
+    );
+    assert.ok(
+      ui.frame().includes(`vscode://file${worktree}/global/other.md\u0007`),
+    );
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
 await test('a note file name carrying a link sequence shows as plain text in the picker and on its page', async () => {
   const { seed, coordinator } = await memoryApp();
   await writeFile(

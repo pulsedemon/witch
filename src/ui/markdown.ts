@@ -6,8 +6,17 @@ import { markdownLink, linkify, plain } from './links.js';
 
 export const colors = new Chalk({ level: 1 });
 
-export function markdown(text: string, cwd: string): string {
+/** relative link and image targets resolve against `hrefs`, and stay text when it is null. */
+export function markdown(
+  text: string,
+  cwd: string,
+  hrefs: string | null = cwd,
+): string {
   const renderer = new Renderer();
+  const link = (label: string, href: string) =>
+    hrefs === null && !/^[a-z][a-z\d+.-]*:/i.test(href)
+      ? label
+      : markdownLink(label, href, hrefs ?? cwd);
   renderer.text = (token) =>
     'tokens' in token && token.tokens
       ? renderer.parser.parseInline(token.tokens)
@@ -33,9 +42,9 @@ export function markdown(text: string, cwd: string): string {
   };
   renderer.code = ({ text }) => `${linkify(text, cwd)}\n\n`;
   renderer.link = ({ href, tokens }) =>
-    markdownLink(stripAnsi(renderer.parser.parseInline(tokens)), href, cwd);
+    link(stripAnsi(renderer.parser.parseInline(tokens)), href);
   renderer.image = ({ href, text }) =>
-    markdownLink(`[${plain(text || 'Image')}]`, href, cwd);
+    link(`[${plain(text || 'Image')}]`, href);
   renderer.br = () => '\n';
   renderer.hr = () => '────────\n';
   renderer.html = ({ text }) => linkify(text, cwd);

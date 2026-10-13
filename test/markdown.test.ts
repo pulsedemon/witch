@@ -12,6 +12,22 @@ await test('nested lists and task lists render indented with each checkbox inlin
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
 
+await test('relative link targets resolve against their own base or stay text without one, while web links and bare paths keep theirs', () => {
+  const text = '[Ports](ports.md) [Web](https://example.com/x) docs/rules.md';
+  const links = (output: string, targets: string[]) =>
+    targets.every((target) => output.includes(`\u001b]8;;${target}\u0007`));
+  const kept = ['https://example.com/x', 'vscode://file/work/docs/rules.md'];
+  assert.ok(
+    links(markdown(text, '/work', '/memory/global'), [
+      'vscode://file/memory/global/ports.md',
+      ...kept,
+    ]),
+  );
+  const unlinked = markdown(text, '/work', null);
+  assert.ok(links(unlinked, kept));
+  assert.ok(!unlinked.includes('ports.md'));
+});
+
 await test('image alt text renders as plain text, so it cannot carry a link of its own', () => {
   const forged =
     '\u001b\\]8;;https://evil.example/share\u0007src/app.ts:12\u001b\\]8;;\u0007';
