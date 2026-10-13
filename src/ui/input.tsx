@@ -9,6 +9,23 @@ import { editInput, initialInput } from './input-buffer.js';
 import type { Edit, InputBuffer } from './input-buffer.js';
 import { useLiveState } from './live-state.js';
 
+// wrapping at Infinity still expands tabs and applies NFC, which the cursor column depends on
+const visible = (value: string, secret = false) =>
+  wrapAnsi(
+    stripAnsi(secret ? value.replace(/[^\n]/gu, '•') : value),
+    Infinity,
+    { trim: false },
+  );
+
+/** `display` wrapped to `width`, with a cell after the last character for the cursor. */
+const wrap = (display: string, width: number) =>
+  wrapAnsi(`${display} `, width, { hard: true, trim: false }).split('\n');
+
+/** the rows an input holding `value` fills at `width`. */
+export function inputRows(value: string, width: number): number {
+  return wrap(visible(value), width).length;
+}
+
 export interface InputHandle {
   /** replaces the buffer at once, so later keys of the same read edit the new text. */
   set(buffer: InputBuffer): void;
@@ -49,19 +66,9 @@ export function Input({
   const reference = useRef<DOMElement>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number }>();
   const { setCursorPosition } = useCursor();
-  // wrapping at Infinity still expands tabs and applies NFC, which the cursor column depends on
-  const visible = (value: string) =>
-    wrapAnsi(
-      stripAnsi(secret ? value.replace(/[^\n]/gu, '•') : value),
-      Infinity,
-      { trim: false },
-    );
-  const display = visible(state.value);
-  const cursor = visible(state.value.slice(0, state.cursor)).length;
-  const wrapped = wrapAnsi(`${display} `, width, {
-    hard: true,
-    trim: false,
-  }).split('\n');
+  const display = visible(state.value, secret);
+  const cursor = visible(state.value.slice(0, state.cursor), secret).length;
+  const wrapped = wrap(display, width);
   let consumed = 0;
   let row = 0;
   let column = 0;

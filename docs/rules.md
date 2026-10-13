@@ -26,7 +26,7 @@ Claude result alone does not establish idle; completion must follow native lifec
 
 ## Terminal UI and persistence
 
-Use an alternate-screen header, scrolling transcript, fixed multiline composer and status footer. Sessions/models use pickers; memory has a list and preview. Keys and commands are defined by the `/help` text in [app.tsx](../src/ui/app.tsx).
+Use an alternate-screen header and status row, a scrolling transcript, and a multiline composer that grows with its text up to half the screen. Sessions/models use pickers; memory has a list and preview. Keys and commands are defined by the `/help` text in [app.tsx](../src/ui/app.tsx).
 
 Follow output only at the bottom. Keep typing responsive with long expanded tool results, preserve scroll on view changes and resize, batch streamed display changes and reuse completed rendering. Web links use OSC 8 and the default browser. File references use encoded VS Code URLs with optional line/column, resolved against their originating cwd. Preserve links in Markdown, bare text, tool output, wrapping and clipping.
 

@@ -11,7 +11,7 @@ import { basename, dirname, join } from 'node:path';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator } from '../core/coordinator.js';
-import { Input } from './input.js';
+import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
 import type { InputBuffer } from './input-buffer.js';
 import {
@@ -148,7 +148,7 @@ export function App({
           `+${errorLines.length - errorLimit + 1} more rows`,
         ]
       : errorLines;
-  const bodyHeight = height - 3 - errorRows.length;
+  const bodyHeight = height - 2 - errorRows.length;
   const composerPhase = !['starting', 'closing', 'error'].includes(state.phase);
   const entries = [
     ...commands.map(({ id, label, aliases }) => ({
@@ -184,9 +184,19 @@ export function App({
   const listSelected = list ? selectedIn(list) : 0;
   const listRows = list
     ? Math.min(8, list.items.length, Math.max(1, bodyHeight - 7))
-    : 1;
+    : toolFocus
+      ? 1
+      : 0;
   const listFirst = Math.max(0, listSelected - listRows + 1);
-  const transcriptHeight = Math.max(2, bodyHeight - 6 - listRows);
+  // the composer grows with its text until it would take half the body
+  const composerRows = Math.min(
+    Math.max(1, Math.floor(bodyHeight / 2)),
+    inputRows(buffer.value, width - 6),
+  );
+  const transcriptHeight = Math.max(
+    2,
+    bodyHeight - composerRows - 3 - listRows,
+  );
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
   const scrollTop =
     top === null ? maxTop : Math.min(transcript.rowOf(top), maxTop);
@@ -758,13 +768,13 @@ export function App({
         <Box
           borderStyle="round"
           borderColor={toolFocus ? 'gray' : 'cyan'}
-          height={5}
+          height={composerRows + 2}
           paddingX={1}
         >
           <Input
             key={`${state.conversation?.id ?? 'initial'}/${composerKey}`}
             width={width - 6}
-            height={3}
+            height={composerRows}
             active={!toolFocus && composerPhase}
             ref={composer}
             initialValue={drafts[state.conversation?.id ?? ''] ?? ''}
@@ -795,11 +805,12 @@ export function App({
               ))}
           </Box>
         ) : (
-          <Text dimColor>
-            {toolFocus
-              ? '↑/↓ tools · Enter expand · Tab compose · End live output'
-              : 'Enter send · Shift+Enter newline · Ctrl+P commands · PgUp/PgDn scroll'}
-          </Text>
+          toolFocus && (
+            <Text dimColor>
+              ↑/↓ tools · Enter expand · Tab compose · End live output · Esc
+              leave tools
+            </Text>
+          )
         )}
       </Box>
     );
@@ -831,20 +842,6 @@ export function App({
           <Text color="red">{errorRows.join('\n')}</Text>
         </Box>
       )}
-      <Box height={1}>
-        <Text dimColor>
-          Cmd+click links
-          {request
-            ? ''
-            : view.kind !== 'chat'
-              ? ' · Esc back'
-              : toolFocus
-                ? ' · Esc leave tools'
-                : list
-                  ? ' · Esc close list'
-                  : ' · Esc interrupt'}
-        </Text>
-      </Box>
     </Box>
   );
 }

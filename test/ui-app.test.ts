@@ -958,8 +958,8 @@ await test('a long picker shows as many choices as its rows hold', async () => {
       .text()
       .split('\n')
       .filter((row) => row.trim().startsWith('model-'));
-    // 24 rows less the header, status, title, filter, hint, footer and the row every view leaves free
-    assert.equal(shown.length, 17);
+    // 24 rows less the header, status, title, filter, hint and the row every view leaves free
+    assert.equal(shown.length, 18);
   } finally {
     ui.unmount();
   }
@@ -1206,8 +1206,8 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~\u001b[5~');
-    // 302 lines in a 30-row transcript start at row 272; two pages up is 212
-    await until('two pages up', () => rows()[2] === 'row 212');
+    // 302 lines in a 34-row transcript start at row 268; two pages up is 200
+    await until('two pages up', () => rows()[2] === 'row 200');
     assert.ok(ui.text().includes('Reading earlier output'));
     ui.stdin.write('\u001b[6~\u001b[6~');
     await until(
@@ -1225,15 +1225,15 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
     });
     await delay(600);
     ui.stdin.write('\u001b[6~\u001b[6~');
-    // the detail starts on line 4, and two 30-row pages down show line 61
+    // the detail starts on line 4, and two 31-row pages down show line 63
     await until('two pages down', () => {
       const all = rows();
-      return all[all.indexOf('Approval required') + 1] === 'd58';
+      return all[all.indexOf('Approval required') + 1] === 'd60';
     });
     ui.stdin.write('\u001b[5~');
     await until('a page up', () => {
       const all = rows();
-      return all[all.indexOf('Approval required') + 1] === 'd28';
+      return all[all.indexOf('Approval required') + 1] === 'd29';
     });
   } finally {
     ui.unmount();
@@ -1277,12 +1277,13 @@ await test('Down with tools focused and no tools keeps the reading position, and
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~');
-    await until('a page up', () => top() === 'row 242');
+    await until('a page up', () => top() === 'row 234');
     ui.stdin.write(`\t${DOWN}`);
     await delay(60);
-    assert.equal(top(), 'row 242');
+    assert.equal(top(), 'row 234');
     ui.stdin.write('\u001b[F');
-    await until('live output', () => top() === 'row 272');
+    // the tools hint takes a transcript row
+    await until('live output', () => top() === 'row 269');
   } finally {
     ui.unmount();
   }
@@ -1296,7 +1297,7 @@ await test('Escape while tools are focused during a turn leaves focus without in
     ui.stdin.write('\t');
     await until('tool focus', () => ui.text().includes('Esc leave tools'));
     ui.stdin.write('\u001b');
-    await until('the composer', () => ui.text().includes('Esc interrupt'));
+    await until('the composer', () => !ui.text().includes('Esc leave tools'));
     assert.ok(!calls.some(([call]) => call === 'interrupt'));
   } finally {
     ui.unmount();
@@ -1521,20 +1522,20 @@ await test('Tab completes a skill and the arguments typed in the same read follo
 
 await test('Escape closes the list during a turn, a new token reopens it, and Escape then interrupts', async () => {
   const { ui, calls } = await launched({ skills, phase: 'running' });
-  const footer = () => ui.text().trimEnd().split('\n').at(-1) ?? '';
+  const open = () => ui.text().includes('/x-one First skill');
   try {
     ui.stdin.write('/x');
-    await until('the list', () => footer().includes('Esc close list'));
+    await until('the list', open);
     ui.stdin.write('\u001b');
-    await until('the closed list', () => footer().includes('Esc interrupt'));
+    await until('the closed list', () => !open());
     ui.stdin.write('-');
-    await until('the reopened list', () => footer().includes('Esc close list'));
+    await until('the reopened list', open);
     // back on the dismissed token, the list stays open
     ui.stdin.write('\u007f');
     await until('the shorter token', () => ui.text().includes('│ /x '));
-    assert.match(footer(), /Esc close list/);
+    assert.ok(open());
     ui.stdin.write('\u001b');
-    await until('the closed list', () => footer().includes('Esc interrupt'));
+    await until('the closed list', () => !open());
     assert.deepEqual(calls, []);
     ui.stdin.write('\u001b');
     await until('the interrupt', () => calls.length > 0);
@@ -1642,7 +1643,33 @@ await test('Ctrl+P over an open list gives the picker its keys', async () => {
   }
 });
 
-await test('an open list of 8 or more keeps the newest transcript row and the footer in view', async () => {
+await test('the composer grows with its text up to half the body and shrinks after a send', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const composerRows = () => {
+    const lines = ui.text().split('\n');
+    const top = lines.findIndex((line) => line.trimStart().startsWith('╭'));
+    const bottom = lines.findIndex((line) => line.trimStart().startsWith('╰'));
+    return bottom - top - 1;
+  };
+  try {
+    await delay(60);
+    assert.equal(composerRows(), 1);
+    // 94 columns hold 200 characters and the cursor in 3 rows
+    ui.stdin.write('x'.repeat(200));
+    await until('a grown composer', () => composerRows() === 3);
+    // 2200 would take 24 rows, and half of the 38-row body is 19
+    ui.stdin.write('x'.repeat(2000));
+    await until('a capped composer', () => composerRows() === 19);
+    ui.stdin.write(ENTER);
+    await until('the send', () => calls.length > 0);
+    await until('an empty composer', () => composerRows() === 1);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('an open list of 8 or more keeps the newest transcript row and its own last row in view', async () => {
   const items = Array.from({ length: 60 }, (_, index) => ({
     id: `n${index}`,
     kind: 'notice' as const,
@@ -1660,7 +1687,7 @@ await test('an open list of 8 or more keeps the newest transcript row and the fo
     const text = ui.text();
     assert.ok(text.includes('row 59'));
     assert.ok(text.includes('/x-7') && !text.includes('/x-8'));
-    assert.match(text.trimEnd(), /Esc close list$/);
+    assert.match(text.trimEnd(), /\/x-7 Skill 7$/);
   } finally {
     ui.unmount();
   }
