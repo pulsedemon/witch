@@ -1020,29 +1020,6 @@ await test('discard mine after a conflict between two coordinators keeps the oth
   }
 });
 
-await test('the launch sweep publishes an unpublished commit whose project directory is gone', async () => {
-  const context = await fixture();
-  const { root, memory } = context;
-  await context.coordinator.close();
-  const gone = await stranded(
-    context,
-    { 'global/stranded.md': 'Stranded.' },
-    join(root, 'deleted-project'),
-  );
-  await gone.files.close();
-  const fresh = join(root, 'fresh');
-  await mkdir(fresh);
-  const coordinator = new Coordinator(context.store, memory, [
-    { adapter: context.a, executable: 'a' },
-  ]);
-  try {
-    await coordinator.initialize(fresh);
-    assert.equal(await memory.read(main, 'global/stranded.md'), 'Stranded.');
-  } finally {
-    await coordinator.close();
-  }
-});
-
 await test('the launch sweep publishes what it can and reports the rest in one message', async () => {
   const context = await fixture();
   const { root, memory, store } = context;
@@ -1054,7 +1031,11 @@ await test('the launch sweep publishes what it can and reports the rest in one m
   );
   await conflict.files.close();
   await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
-  const unpublished = await stranded(context, { 'global/two.md': 'Two.' });
+  const unpublished = await stranded(
+    context,
+    { 'global/two.md': 'Two.' },
+    join(root, 'deleted-project'),
+  );
   await unpublished.files.close();
   const dirty = await stranded(context, {});
   dirty.files.record.activity = activity();
