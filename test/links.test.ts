@@ -85,13 +85,24 @@ await test('Markdown labels and links in code blocks remain clickable', () => {
     assert.ok(rendered.includes(target));
 });
 
-await test('long URLs and preexisting terminal hyperlinks keep their targets', () => {
+await test('long URLs and preexisting terminal hyperlinks keep their targets, and a file URL opens in VS Code', () => {
   const url = `https://example.com/search?q=${'x'.repeat(1000)}`;
   assert.ok(linkify(url, '/work').includes(`\u001b]8;;${url}\u0007`));
   const explicit =
     '\u001b]8;;https://example.com\u0007Friendly label\u001b]8;;\u0007';
   assert.ok(linkify(explicit, '/work').includes('https://example.com'));
   assert.equal(stripAnsi(linkify(explicit, '/work')), 'Friendly label');
+  for (const [target, url] of [
+    ['file:///work/My%20File.ts', 'vscode://file/work/My%20File.ts'],
+    ['vscode://file/work/a.ts', 'vscode://file/work/a.ts'],
+  ])
+    assert.ok(
+      linkify(
+        `\u001b]8;;${target}\u0007label\u001b]8;;\u0007`,
+        '/other',
+      ).includes(`\u001b]8;;${url}\u0007`),
+      target,
+    );
 });
 
 await test('quoted and Markdown file links preserve spaces without linking command names', () => {
