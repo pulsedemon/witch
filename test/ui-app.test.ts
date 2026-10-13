@@ -225,6 +225,8 @@ await test('a recovery that appears while typing ignores keys for its first 500 
     await until('the pending view', () =>
       ui.text().includes('a accept · d discard'),
     );
+    // a key in the instant the view appears beats even a 0 ms guard
+    await delay(150);
     ui.stdin.write('d');
     await delay(100);
     assert.deepEqual(calls, []);
@@ -1213,6 +1215,8 @@ await test('a new request ignores keys for its first 500 ms', async () => {
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await until('the request', () => ui.text().includes('Approval required'));
+    // a key in the instant the request appears beats even a 0 ms guard
+    await delay(150);
     ui.stdin.write('y');
     await delay(100);
     assert.deepEqual(calls, []);
@@ -1240,6 +1244,7 @@ await test('a new request ignores keys for its first 500 ms', async () => {
   );
   try {
     await until('the question', () => asked.text().includes('Pick?'));
+    await delay(150);
     asked.stdin.write(ENTER);
     await delay(100);
     assert.deepEqual(question.calls, []);
