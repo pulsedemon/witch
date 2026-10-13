@@ -7,7 +7,7 @@ import {
   tokenKey,
 } from '../src/ui/completion.js';
 
-await test('a command token is the whole draft, up to its first whitespace', () => {
+await test('a command token is a whole draft with no whitespace', () => {
   assert.deepEqual(activeToken('/mo', 3), { kind: 'command', query: 'mo' });
   assert.deepEqual(activeToken('/', 1), { kind: 'command', query: '' });
   assert.equal(activeToken('/model x', 8), undefined);
