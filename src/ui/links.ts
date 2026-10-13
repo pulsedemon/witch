@@ -62,7 +62,7 @@ export function markdownLink(
   if (!/^[a-z][a-z\d+.-]*:/i.test(target)) {
     // a heading anchor is no part of the file; only a `#L12` location after a file is kept
     const hash = target.indexOf('#');
-    if (hash === 0) return text;
+    if (!target || hash === 0) return text;
     if (hash > 0 && !/^#L\d+(?:C\d+)?$/.test(target.slice(hash)))
       target = target.slice(0, hash);
     try {

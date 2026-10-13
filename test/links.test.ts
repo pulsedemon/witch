@@ -43,7 +43,7 @@ await test('a prefixed or absolute path followed by a colon links without it, ke
     );
 });
 
-await test('a #L location links as a line and column, and a heading fragment drops from a Markdown target', () => {
+await test('a #L location links as a line and column, a heading fragment drops, and a Markdown target with no file stays text', () => {
   assert.ok(
     linkify('`src/a.ts#L10C2`', '/work').includes(
       '\u001b]8;;vscode://file/work/src/a.ts:10:2\u0007',
@@ -59,10 +59,10 @@ await test('a #L location links as a line and column, and a heading fragment dro
       '\u001b]8;;vscode://file/work/src/a.ts:10:2\u0007',
     ),
   );
-  for (const anchor of ['#goal', '#L10'])
+  for (const target of ['', '#goal', '#L10'])
     assert.ok(
-      !markdown(`[Top](${anchor})`, '/work').includes('\u001b]8;;vscode'),
-      anchor,
+      !markdown(`[Top](${target})`, '/work').includes('\u001b]8;;vscode'),
+      target,
     );
 });
 
