@@ -109,13 +109,12 @@ export function App({
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   // a send resolves after later renders, so it reads the live drafts
-  const draftsRef = useRef(drafts);
-  const setDraft = (id: string, value: string) => {
-    draftsRef.current = { ...draftsRef.current, [id]: value };
-    setDrafts(draftsRef.current);
-  };
+  const [drafts, draftsRef, setDrafts] = useLiveState<Record<string, string>>(
+    {},
+  );
+  const setDraft = (id: string, value: string) =>
+    setDrafts((previous) => ({ ...previous, [id]: value }));
   // Input reads its initial value only when it mounts
   const [composerKey, setComposerKey] = useState(0);
   const composer = useRef<InputHandle>(null);
