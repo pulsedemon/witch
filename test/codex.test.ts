@@ -387,7 +387,10 @@ for (const [prompt, error] of [
 }
 
 await test('an unparseable native request gets an error reply and the turn continues', async () => {
-  const { session, cwd } = await fixture();
+  const notices: string[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'notice') notices.push(event.text);
+  });
   try {
     assert.equal(
       (await within(session.send('bad-request'), 2000, 'bad request turn'))
@@ -398,15 +401,19 @@ await test('an unparseable native request gets an error reply and the turn conti
       await readFile(join(cwd, 'error-90.json'), 'utf8'),
       /requestUserInput/,
     );
+    assert.match(
+      notices.join('\n'),
+      /could not read Codex's item\/tool\/requestUserInput request/,
+    );
   } finally {
     await close(session, cwd);
   }
 });
 
 await test('an unsupported native request gets an error reply and the turn continues', async () => {
-  const requests: AgentEvent[] = [];
+  const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {
-    if (event.type === 'request') requests.push(event);
+    if (event.type === 'request' || event.type === 'notice') events.push(event);
   });
   try {
     assert.equal(
@@ -418,7 +425,12 @@ await test('an unsupported native request gets an error reply and the turn conti
       await readFile(join(cwd, 'error-92.json'), 'utf8'),
       /Unsupported native request: item\/unknown\/request/,
     );
-    assert.deepEqual(requests, []);
+    assert.deepEqual(events, [
+      {
+        type: 'notice',
+        text: 'Unsupported native request: item/unknown/request',
+      },
+    ]);
   } finally {
     await close(session, cwd);
   }
