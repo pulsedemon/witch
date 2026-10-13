@@ -748,33 +748,37 @@ await test('two questions answered in one read each get their own option', async
   }
 });
 
-await test('/model with Keep current effort selects the model without an effort', async () => {
-  const { app, calls } = fake({
-    models: [{ id: 'm', label: 'Model M', efforts: ['low', 'high'] }],
+for (const [choice, keys, effort, outcome] of [
+  ['Keep current effort', ENTER, undefined, 'without an effort'],
+  ['a listed effort', `high${ENTER}`, 'high', 'with that effort'],
+] as const)
+  await test(`/model with ${choice} selects the model ${outcome}`, async () => {
+    const { app, calls } = fake({
+      models: [{ id: 'm', label: 'Model M', efforts: ['low', 'high'] }],
+    });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write('/model');
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the model picker', () => ui.text().includes('Model M'));
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the effort picker', () =>
+        ui.text().includes('Keep current effort'),
+      );
+      await delay(30);
+      ui.stdin.write(keys);
+      await until('the selection', () => calls.length === 2);
+      assert.deepEqual(calls, [
+        ['refreshModels'],
+        ['selectModel', 'm', effort],
+      ]);
+    } finally {
+      ui.unmount();
+    }
   });
-  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  try {
-    await delay(60);
-    ui.stdin.write('/model');
-    await delay(30);
-    ui.stdin.write(ENTER);
-    await until('the model picker', () => ui.text().includes('Model M'));
-    await delay(30);
-    ui.stdin.write(ENTER);
-    await until('the effort picker', () =>
-      ui.text().includes('Keep current effort'),
-    );
-    await delay(30);
-    ui.stdin.write(ENTER);
-    await until('the selection', () => calls.length === 2);
-    assert.deepEqual(calls, [
-      ['refreshModels'],
-      ['selectModel', 'm', undefined],
-    ]);
-  } finally {
-    ui.unmount();
-  }
-});
 
 await test('a model id carrying a link sequence shows as plain text in the effort picker title', async () => {
   const { app } = fake({
