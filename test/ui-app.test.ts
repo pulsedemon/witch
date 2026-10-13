@@ -696,9 +696,11 @@ const approval = {
   detail: '{}',
 };
 
-for (const [name, keys] of [
-  ['Down and Enter in one read decline', DOWN + ENTER],
-  ['n declines', 'n'],
+for (const [name, keys, decision] of [
+  ['Enter accepts', ENTER, 'accept'],
+  ['Down and Enter in one read decline', DOWN + ENTER, 'decline'],
+  ['Down, Down and Enter cancel', DOWN + DOWN + ENTER, 'cancel'],
+  ['n declines', 'n', 'decline'],
 ] as const)
   await test(`${name} an approval`, async () => {
     const { app, calls } = fake({ phase: 'running', requests: [approval] });
@@ -707,7 +709,7 @@ for (const [name, keys] of [
       await delay(600);
       ui.stdin.write(keys);
       await until('the response', () => calls.length > 0);
-      assert.deepEqual(calls, [['respond', 'r1', { decision: 'decline' }]]);
+      assert.deepEqual(calls, [['respond', 'r1', { decision }]]);
     } finally {
       ui.unmount();
     }
