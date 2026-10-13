@@ -63,6 +63,14 @@ await test('what no agent or repository reported yet takes the script defaults, 
   ]);
 });
 
+await test('a conversation opened since the clock was last read shows 0M, not a negative time', () => {
+  const [first] = statusLines(
+    { usage: {}, cwd: '/w', openedAt: now + 300 },
+    now,
+  );
+  assert.equal(stripAnsi(first), '? | DEFAULT | $0.00 | 0M');
+});
+
 await test('limits turn yellow at 70% and red at 90%, a past reset shows no time, and the bar warms from 40%', () => {
   const [first] = statusLines(
     {
@@ -77,7 +85,10 @@ await test('limits turn yellow at 70% and red at 90%, a past reset shows no time
     },
     now,
   );
-  assert.ok(first.includes('5H 69%'), first);
+  assert.equal(
+    stripAnsi(first),
+    '? | DEFAULT | $0.00 | 0M | 5H 69% 7D 70% 30D 90%',
+  );
   assert.ok(first.includes('7D \u001b[33m70%\u001b[39m'), first);
   assert.ok(first.includes('30D \u001b[31m90%\u001b[39m'), first);
   const bar = (context: number) =>
@@ -89,30 +100,30 @@ await test('limits turn yellow at 70% and red at 90%, a past reset shows no time
 });
 
 await test('a merged pull request says so in magenta, a closed one plainly, and failing or pending checks get their marks', () => {
-  const pr = (
+  const line = (
     state: 'OPEN' | 'MERGED' | 'CLOSED',
     checks?: 'failing' | 'pending',
   ) =>
-    stripAnsi(
-      statusLines(
-        {
-          usage: {},
-          cwd: '/w',
-          repository: {
-            branch: 'main',
-            ahead: 0,
-            behind: 0,
-            staged: 0,
-            modified: 0,
-            conflicts: 0,
-            untracked: 0,
-            pullRequest: { number: 3, url: 'https://x.test/3', state, checks },
-          },
+    statusLines(
+      {
+        usage: {},
+        cwd: '/w',
+        repository: {
+          branch: 'main',
+          ahead: 0,
+          behind: 0,
+          staged: 0,
+          modified: 0,
+          conflicts: 0,
+          untracked: 0,
+          pullRequest: { number: 3, url: 'https://x.test/3', state, checks },
         },
-        now,
-      )[1],
-    );
+      },
+      now,
+    )[1];
+  const pr = (...args: Parameters<typeof line>) => stripAnsi(line(...args));
   assert.ok(pr('MERGED').includes('| main | PR#3 MERGED |'));
+  assert.ok(line('MERGED').includes('\u001b[35mMERGED\u001b[39m'));
   assert.ok(pr('CLOSED').includes('| PR#3 CLOSED |'));
   assert.ok(pr('OPEN', 'failing').includes('| PR#3 ✗ |'));
   assert.ok(pr('OPEN', 'pending').includes('| PR#3 … |'));

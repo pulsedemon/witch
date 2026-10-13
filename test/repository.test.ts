@@ -157,3 +157,35 @@ await test('the watch reads the pull request once per branch, again when the bra
     watch.close();
   }
 });
+
+await test('a failed git read leaves Git out, and a failed gh read leaves the pull request out until the next read 90 seconds on', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+  let repository = false;
+  let reads = 0;
+  const watch = new RepositoryWatch('/work', async (command) => {
+    if (command === 'gh') {
+      reads++;
+      throw new Error('no pull requests found for branch "main"');
+    }
+    if (!repository) throw new Error('fatal: not a git repository');
+    return { stdout: '# branch.head main\n' };
+  });
+  try {
+    await delay(20);
+    assert.equal(watch.snapshot?.branch, undefined);
+    repository = true;
+    t.mock.timers.tick(5000);
+    await delay(20);
+    assert.equal(watch.snapshot?.branch, 'main');
+    assert.equal(watch.snapshot?.pullRequest, undefined);
+    assert.equal(reads, 1);
+    t.mock.timers.tick(85_000);
+    await delay(20);
+    assert.equal(reads, 1);
+    t.mock.timers.tick(5000);
+    await delay(20);
+    assert.equal(reads, 2);
+  } finally {
+    watch.close();
+  }
+});

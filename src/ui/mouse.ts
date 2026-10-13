@@ -84,14 +84,13 @@ export class MouseInput extends EventEmitter {
   }
 }
 
-/** runs `handler` for each wheel step while `active`. Outside a MouseInput the wheel never turns. */
-export function useWheel(handler: (rows: number) => void, active = true): void {
+/** runs `handler` for each wheel step. Outside a MouseInput the wheel never turns. */
+export function useWheel(handler: (rows: number) => void): void {
   const { stdin } = useStdin();
   useEffect(() => {
-    if (!active) return;
     stdin.on('wheel', handler);
     return () => {
       stdin.off('wheel', handler);
     };
-  }, [stdin, handler, active]);
+  }, [stdin, handler]);
 }

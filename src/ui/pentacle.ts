@@ -22,9 +22,9 @@ export interface Run {
 type Point = [number, number, number];
 
 /** points around the unit circle from the top, clockwise. */
-function around(count: number, offset = 0): [number, number][] {
+function around(count: number): [number, number][] {
   return Array.from({ length: count }, (_, index) => {
-    const turn = ((index + offset) / count) * 2 * Math.PI;
+    const turn = (index / count) * 2 * Math.PI;
     return [Math.sin(turn), Math.cos(turn)];
   });
 }

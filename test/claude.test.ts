@@ -586,6 +586,13 @@ await test('reports the cost from each result, and context, the 5H and 7D limits
       ],
     });
     assert.deepEqual(reported.at(-1), session.usage);
+    // each result carries the session's total so far
+    assert.equal((await session.send('again')).status, 'completed');
+    await eventually(
+      'the usage after the second turn',
+      () => session.usage.lines?.added === 8,
+    );
+    assert.equal(session.usage.cost, 0.5);
   } finally {
     await session.close();
   }
