@@ -3,13 +3,13 @@ import { test } from 'node:test';
 import { editInput, initialInput } from '../src/ui/input-buffer.js';
 import type { Edit } from '../src/ui/input-buffer.js';
 
-await test('an insert stores CRLF line endings as newlines', () => {
+await test('an insert stores CRLF and lone CR line endings as newlines', () => {
   assert.deepEqual(
     editInput(
       { value: 'ab', cursor: 1 },
-      { type: 'insert', text: 'first\r\nsecond' },
+      { type: 'insert', text: 'first\r\nsecond\rthird' },
     ),
-    { value: 'afirst\nsecondb', cursor: 13 },
+    { value: 'afirst\nsecond\nthirdb', cursor: 19 },
   );
 });
 
