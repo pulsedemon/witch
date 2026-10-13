@@ -16,7 +16,7 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import { exists, main, printable } from '../memory/memory.js';
+import { exists, main } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import { LockedElsewhere } from '../persistence/store.js';
@@ -42,6 +42,11 @@ function skillCall(
   const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
   if (!match || !skills.some(({ name }) => name === match[1])) return;
   return { name: match[1]!, args: match[2]!.trim() };
+}
+
+/** a note name for a notice, which renders as Markdown. an escaped bracket can't open a Markdown link, and it splits an OSC 8 introducer, whose ESC linkify then drops. */
+function noteName(path: string): string {
+  return path.replace(/[\\[\]]/g, '\\$&');
 }
 
 /** an error that only a restart clears. */
@@ -449,7 +454,7 @@ export class Coordinator {
       const note =
         path ??
         `${(await this.memory.scopePaths(this.current().cwd)).project}/MEMORY.md`;
-      this.notice(`Memory edit: ${printable(note)}`, this.workspace!.root);
+      this.notice(`Memory edit: ${noteName(note)}`, this.workspace!.root);
       await this.beginActivity('memory-edit');
       const file = await this.workspace!.prepareNote(note);
       this.editorCancellation = new AbortController();
@@ -468,7 +473,7 @@ export class Coordinator {
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
       this.notice(
-        `Memory restore: ${printable(path)} at ${revision.slice(0, 8)}`,
+        `Memory restore: ${noteName(path)} at ${revision.slice(0, 8)}`,
         this.workspace!.root,
       );
       await this.beginActivity('memory-edit');

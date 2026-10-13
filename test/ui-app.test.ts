@@ -585,9 +585,13 @@ await test('a note page links its relative Markdown targets beside the note once
 
 await test('a note file name carrying a link sequence shows as plain text in the picker, on its page and in its notices', async () => {
   const { root, seed, coordinator } = await memoryApp();
-  // a file name holds no slash, so a forged target can only be a local path
+  // a file name holds no slash, so a forged target can only be a local path. notices render Markdown, so the name forges Markdown links too
   await writeFile(
-    join(seed.root, 'global', `${forgedLink('..:1', 'forged')}.md`),
+    join(
+      seed.root,
+      'global',
+      `${forgedLink('..:1', 'forged')}[Forged note](..:1)\\[Forged note\\](..:1).md`,
+    ),
     'Forged note.',
   );
   await seed.commit('chore(memory): save forged note');

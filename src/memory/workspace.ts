@@ -2,8 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { exists, main, notePath, printable } from './memory.js';
+import { exists, main, notePath } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
+
+/** a note name is agent-written; without control characters it can't carry a terminal escape, such as an OSC 8 link, into the preview. */
+function printable(path: string): string {
+  return path.replace(/\p{Cc}/gu, '');
+}
 
 /** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
