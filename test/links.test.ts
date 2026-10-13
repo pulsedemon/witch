@@ -50,6 +50,11 @@ await test('a #L location links as a line and column, a heading fragment drops, 
     ),
   );
   assert.ok(
+    linkify('see server.py#L4C2', '/work').includes(
+      '\u001b]8;;vscode://file/work/server.py:4:2\u0007',
+    ),
+  );
+  assert.ok(
     markdown('[Rules](docs/rules.md#shared-memory)', '/work').includes(
       '\u001b]8;;vscode://file/work/docs/rules.md\u0007',
     ),
