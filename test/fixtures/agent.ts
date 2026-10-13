@@ -69,7 +69,6 @@ export class FixtureAgent implements AgentAdapter {
     let info: SessionInfo = {
       id: options.resume ?? randomUUID(),
       agent: this.id,
-      cwd: options.cwd,
       model: `${this.id}-model`,
       permissionMode: 'default',
       hasHistory: true,

@@ -21,7 +21,6 @@ const object = z.record(z.string(), z.unknown());
 const nativeSession = z.object({
   thread: z.object({ id: z.string() }),
   model: z.string(),
-  cwd: z.string(),
   approvalPolicy: z.unknown(),
   approvalsReviewer: z.string().optional(),
   reasoningEffort: z.string().nullish(),
@@ -120,7 +119,6 @@ class CodexSession implements AgentSession {
     this.info = {
       id: options.resume ?? '',
       agent: 'codex',
-      cwd: options.cwd,
       model: options.model ?? '',
       permissionMode: '',
       hasHistory: !!options.resume,
@@ -366,7 +364,6 @@ class CodexSession implements AgentSession {
       ...this.info,
       id: data.thread.id,
       model: data.model,
-      cwd: data.cwd,
       permissionMode: `${policy}${data.approvalsReviewer ? ` / ${data.approvalsReviewer}` : ''}`,
     };
     this.options.onEvent({ type: 'info', info: this.info });
@@ -450,7 +447,7 @@ class CodexSession implements AgentSession {
                   ? ''
                   : JSON.stringify(item, null, 2),
             done: message.method === 'item/completed',
-            cwd: typeof item.cwd === 'string' ? item.cwd : this.info.cwd,
+            cwd: typeof item.cwd === 'string' ? item.cwd : undefined,
           });
         }
         break;

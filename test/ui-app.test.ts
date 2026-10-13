@@ -1036,7 +1036,6 @@ await test('the header shows the stored model until the session reports one, and
       native: {
         id: 's',
         agent: 'a',
-        cwd: '/work',
         model: 'live-model',
         permissionMode: 'on-request',
         hasHistory: true,
@@ -1063,7 +1062,6 @@ await test('a project name, model and permission mode carrying a link sequence s
     native: {
       id: 's',
       agent: 'a',
-      cwd: '/work',
       model: forged('model'),
       permissionMode: forged('mode'),
       hasHistory: true,

@@ -20,7 +20,6 @@ export interface SkillCall {
 export interface SessionInfo {
   id: string;
   agent: string;
-  cwd: string;
   model: string;
   permissionMode: string;
   hasHistory: boolean;

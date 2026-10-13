@@ -117,7 +117,6 @@ class ClaudeSession implements AgentSession {
     this.info = {
       id: options.resume ?? randomUUID(),
       agent: 'claude',
-      cwd: options.cwd,
       model: options.model ?? '',
       permissionMode: '',
       hasHistory: !!options.resume,
@@ -378,7 +377,6 @@ class ClaudeSession implements AgentSession {
           id: message.session_id,
           model: message.model,
           permissionMode: message.permissionMode,
-          cwd: message.cwd,
           hasHistory: true,
         };
         this.options.onEvent({ type: 'info', info: this.info });
@@ -432,7 +430,6 @@ class ClaudeSession implements AgentSession {
             title: block.name,
             text: JSON.stringify(block.input, null, 2),
             done: false,
-            cwd: this.info.cwd,
           });
       }
     } else if (
@@ -457,7 +454,6 @@ class ClaudeSession implements AgentSession {
                     )
                     .join('\n'),
             done: true,
-            cwd: this.info.cwd,
           });
       }
     } else if (message.type === 'result' && this.turn) {
