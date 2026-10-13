@@ -588,9 +588,19 @@ await test('a note file name carrying a link sequence shows as plain text in the
     await until('the chat', () => !ui.text().includes('global/forged'));
     // a worktree at main links the picker's rows
     await coordinator.editMemory('global/other.md');
-    const forged = `vscode://file${join(root, 'state', 'conversations', coordinator.snapshot.conversation!.id)}:1\u0007`;
+    const conversation = join(
+      root,
+      'state',
+      'conversations',
+      coordinator.snapshot.conversation!.id,
+    );
+    const forged = `vscode://file${conversation}:1\u0007`;
     await openMemory(ui, 'global/forged');
-    assert.ok(ui.frame().includes('vscode://file'));
+    assert.ok(
+      ui
+        .frame()
+        .includes(`vscode://file${conversation}/memory/global/other.md\u0007`),
+    );
     assert.ok(!ui.frame().includes(forged));
     await delay(30);
     ui.stdin.write('Forged note');
