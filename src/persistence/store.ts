@@ -189,7 +189,7 @@ export class ConversationStore {
         }
         this.historyFile = file;
       }
-      await this.historyFile.write(line);
+      await this.historyFile.writeFile(line);
     });
   }
 
