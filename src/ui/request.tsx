@@ -9,6 +9,7 @@ import { Input } from './input.js';
 import { linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
+import { piped } from './theme.js';
 
 interface Props {
   request: UserRequest;
@@ -162,8 +163,14 @@ export function Request({ request, width, height, cwd, respond }: Props) {
               .join('   ')}
           </Text>
           <Text dimColor>
-            ↑/↓ choose · Enter confirm · y allow · n decline · Esc decline ·
-            Ctrl+C stop turn
+            {piped([
+              '↑/↓ CHOOSE',
+              'ENTER CONFIRM',
+              'y ALLOW',
+              'n DECLINE',
+              'ESC DECLINE',
+              'CTRL+C STOP TURN',
+            ])}
           </Text>
         </Box>
       ) : (
@@ -187,7 +194,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
             placeholder={question ? 'Your answer' : '{}'}
             onSubmit={submit}
           />
-          <Text dimColor>Esc decline · Ctrl+C stop turn</Text>
+          <Text dimColor>{piped(['ESC DECLINE', 'CTRL+C STOP TURN'])}</Text>
         </Box>
       )}
       {error && <Text color="red">{error}</Text>}

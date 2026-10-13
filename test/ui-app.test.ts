@@ -172,7 +172,7 @@ await test('the conflict view resolves with k and d, ignores a, and links notes 
     await until('the conflict view', () =>
       ui
         .text()
-        .includes('k keep mine (your side of each conflicting change wins)'),
+        .includes('k KEEP MINE (YOUR SIDE OF EACH CONFLICTING CHANGE WINS)'),
     );
     assert.ok(
       ui
@@ -240,7 +240,7 @@ await test('the pending view ignores k', async () => {
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await until('the pending view', () =>
-      ui.text().includes('a accept · d discard'),
+      ui.text().includes('a ACCEPT | d DISCARD'),
     );
     await delay(600);
     for (const key of ['k', 'a']) {
@@ -262,7 +262,7 @@ await test('a recovery that appears while typing ignores keys for its first 500 
       recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
     });
     await until('the pending view', () =>
-      ui.text().includes('a accept · d discard'),
+      ui.text().includes('a ACCEPT | d DISCARD'),
     );
     // a key in the instant the view appears beats even a 0 ms guard
     await delay(150);
@@ -278,7 +278,7 @@ await test('a recovery that appears while typing ignores keys for its first 500 
     await delay(700);
     await discardOnce(1);
     coordinator.publish({ phase: 'running' });
-    await until('the composer', () => !ui.text().includes('d discard'));
+    await until('the composer', () => !ui.text().includes('d DISCARD'));
     await discardOnce(2);
     assert.deepEqual(calls, [
       ['recoverMemory', 'discard'],
@@ -445,7 +445,7 @@ await test('memory without a worktree shows no links, builds no worktree, and ke
     await delay(30);
     ui.stdin.write('\r');
     await until('the note page', () =>
-      ui.text().includes('e edit · h history'),
+      ui.text().includes('e EDIT | h HISTORY'),
     );
     assert.ok(!row('global/MEMORY.md').includes('\u001b]8;'));
     ui.stdin.write('h');
@@ -528,7 +528,7 @@ await test('e on a note page edits that note, and the + entry edits project esse
     ui.stdin.write('other.md');
     await delay(30);
     ui.stdin.write('\r');
-    await until('the note page', () => ui.text().includes('e edit'));
+    await until('the note page', () => ui.text().includes('e EDIT'));
     ui.stdin.write('e');
     await until('the edit', () => edited.length === 1);
     assert.match(edited[0]!, /\/global\/other\.md$/);
@@ -559,14 +559,14 @@ await test('a note page links its relative Markdown targets beside the note once
     ui.stdin.write('index.md');
     await delay(30);
     ui.stdin.write('\r');
-    await until('the note page', () => ui.text().includes('e edit'));
+    await until('the note page', () => ui.text().includes('e EDIT'));
   };
   try {
     await delay(60);
     await open();
     assert.ok(!ui.frame().includes('other.md'));
     ui.stdin.write('\u001b');
-    await until('the chat', () => !ui.text().includes('e edit'));
+    await until('the chat', () => !ui.text().includes('e EDIT'));
     await coordinator.editMemory('global/index.md');
     await open();
     const worktree = join(
@@ -604,7 +604,7 @@ await test('a note file name carrying a link sequence shows as plain text in the
     ui.stdin.write('Forged note');
     await delay(30);
     ui.stdin.write('\r');
-    await until('the note page', () => ui.text().includes('e edit'));
+    await until('the note page', () => ui.text().includes('e EDIT'));
   };
   try {
     await delay(60);
@@ -717,7 +717,7 @@ for (const [name, update, focusTools] of [
       await delay(60);
       if (focusTools) {
         ui.stdin.write('\t');
-        await until('tool focus', () => ui.text().includes('Esc leave tools'));
+        await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
       }
       coordinator.publish(update as Partial<Snapshot>);
       if (update.phase === 'recovery') {
@@ -725,7 +725,7 @@ for (const [name, update, focusTools] of [
         coordinator.publish({ phase: 'idle', recovery: undefined });
       }
       await until('the seeded composer', () =>
-        ui.text().includes('│ say hello'),
+        ui.text().includes('┃ say hello'),
       );
       await delay(60);
       assert.deepEqual(
@@ -758,15 +758,15 @@ await test('a prompt the agent never got comes back into an empty composer and l
       if (retyped) {
         await delay(30);
         ui.stdin.write('newer');
-        await until('the new draft', () => ui.text().includes('│ newer'));
+        await until('the new draft', () => ui.text().includes('┃ newer'));
       }
       delivery.resolve(false);
       await delay(60);
       if (retyped) {
-        assert.ok(ui.text().includes('│ newer'));
-        assert.ok(!ui.text().includes('│ hello'));
+        assert.ok(ui.text().includes('┃ newer'));
+        assert.ok(!ui.text().includes('┃ hello'));
       } else
-        await until('the restored prompt', () => ui.text().includes('│ hello'));
+        await until('the restored prompt', () => ui.text().includes('┃ hello'));
     } finally {
       ui.unmount();
     }
@@ -1098,7 +1098,7 @@ await test('Enter during a turn keeps the draft and sends nothing', async () => 
         'Wait for this operation to finish, or press Escape to interrupt.',
       ],
     ]);
-    assert.ok(ui.text().includes('│ hello'));
+    assert.ok(ui.text().includes('┃ hello'));
   } finally {
     ui.unmount();
   }
@@ -1118,7 +1118,7 @@ await test('the header shows the stored model until the session reports one, and
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const row = (index: number) => ui.text().split('\n')[index] ?? '';
   try {
-    await until('the stored model', () => row(0).includes('stored-model'));
+    await until('the stored model', () => row(0).includes('STORED-MODEL'));
     coordinator.publish({
       native: {
         id: 's',
@@ -1128,8 +1128,8 @@ await test('the header shows the stored model until the session reports one, and
         hasHistory: true,
       },
     });
-    await until('the live model', () => row(0).includes('live-model'));
-    assert.match(row(1), /^idle · on-request/);
+    await until('the live model', () => row(0).includes('LIVE-MODEL'));
+    assert.match(row(1), /^IDLE \| ON-REQUEST/);
   } finally {
     ui.unmount();
   }
@@ -1156,8 +1156,8 @@ await test('a project name, model and permission mode carrying a link sequence s
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
-    await until('the header', () => ui.text().includes('model'));
-    assert.match(ui.text(), /project\]8;;x-evil:payloadproject\]8;; {2}· {2}a/);
+    await until('the header', () => ui.text().includes('MODEL'));
+    assert.match(ui.text(), /project\]8;;x-evil:payloadproject\]8;; \| A/);
     assert.ok(
       !ui.frame().includes('\u001b]8;;x-evil'),
       JSON.stringify(ui.frame()),
@@ -1210,11 +1210,11 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
     ui.stdin.write('\u001b[5~\u001b[5~');
     // 302 lines in a 34-row transcript start at row 268; two pages up is 200
     await until('two pages up', () => rows()[2] === 'row 200');
-    assert.ok(ui.text().includes('Reading earlier output'));
+    assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
     ui.stdin.write('\u001b[6~\u001b[6~');
     await until(
       'live output',
-      () => !ui.text().includes('Reading earlier output'),
+      () => !ui.text().includes('READING EARLIER OUTPUT'),
     );
     coordinator.publish({
       phase: 'running',
@@ -1259,11 +1259,11 @@ await test('the wheel scrolls the transcript a row a step, and back at the botto
     const bottom = first();
     ui.stdin.write(wheelUp.repeat(3));
     await until('three rows up', () => first() === bottom - 3);
-    assert.ok(ui.text().includes('Reading earlier output'));
+    assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
     ui.stdin.write(wheelDown.repeat(3));
     await until(
       'live output',
-      () => !ui.text().includes('Reading earlier output'),
+      () => !ui.text().includes('READING EARLIER OUTPUT'),
     );
     assert.equal(first(), bottom);
   } finally {
@@ -1329,6 +1329,37 @@ await test('a click and a wheel step between keys leave the draft as typed', asy
   }
 });
 
+await test('the pentacle shows only beside an 80-cell main column, turns while the agent works and rests face on when idle', async () => {
+  const braille = (text: string) => text.match(/[⠁-⣿]/g)?.join('');
+  const narrow = show(
+    createElement(App, { coordinator: fake({}).app, onExit: () => {} }),
+    104,
+  );
+  try {
+    await delay(60);
+    assert.equal(braille(narrow.text()), undefined);
+  } finally {
+    narrow.unmount();
+  }
+  const { app, coordinator } = fake({});
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  try {
+    await until('the pentacle', () => !!braille(ui.text()));
+    const rest = braille(ui.text());
+    coordinator.publish({ phase: 'running' });
+    await until('a turn', () => braille(ui.text()) !== rest);
+    coordinator.publish({ phase: 'idle' });
+    await until('the rest', () => braille(ui.text()) === rest);
+    await delay(200);
+    assert.equal(braille(ui.text()), rest);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a typed /agent returns to live output', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
@@ -1341,13 +1372,13 @@ await test('a typed /agent returns to live output', async () => {
     await delay(60);
     ui.stdin.write('\u001b[5~');
     await until('earlier output', () =>
-      ui.text().includes('Reading earlier output'),
+      ui.text().includes('READING EARLIER OUTPUT'),
     );
     ui.stdin.write('/agent b');
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the switch', () => calls.length > 0);
-    await until('live output', () => !ui.text().includes('Reading earlier'));
+    await until('live output', () => !ui.text().includes('READING EARLIER'));
     assert.deepEqual(calls, [['switchAgent', 'b']]);
   } finally {
     ui.unmount();
@@ -1384,9 +1415,9 @@ await test('Escape while tools are focused during a turn leaves focus without in
   try {
     await delay(60);
     ui.stdin.write('\t');
-    await until('tool focus', () => ui.text().includes('Esc leave tools'));
+    await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
     ui.stdin.write('\u001b');
-    await until('the composer', () => !ui.text().includes('Esc leave tools'));
+    await until('the composer', () => !ui.text().includes('ESC LEAVE TOOLS'));
     assert.ok(!calls.some(([call]) => call === 'interrupt'));
   } finally {
     ui.unmount();
@@ -1538,7 +1569,7 @@ await test('Ctrl+C while closing quits instead of interrupting again', async () 
   try {
     await delay(60);
     coordinator.publish({ phase: 'closing' });
-    await until('the closing frame', () => ui.text().includes('closing'));
+    await until('the closing frame', () => ui.text().includes('CLOSING'));
     ui.stdin.write('\u0003');
     await delay(60);
     assert.equal(exits, 1);
@@ -1621,7 +1652,7 @@ await test('Escape closes the list during a turn, a new token reopens it, and Es
     await until('the reopened list', open);
     // back on the dismissed token, the list stays open
     ui.stdin.write('\u007f');
-    await until('the shorter token', () => ui.text().includes('│ /x '));
+    await until('the shorter token', () => ui.text().includes('┃ /x '));
     assert.ok(open());
     ui.stdin.write('\u001b');
     await until('the closed list', () => !open());
@@ -1641,7 +1672,7 @@ await test('Tab inserts a file into the middle of a draft', async () => {
     await until('the file list', () => ui.text().includes('@src/app.ts'));
     ui.stdin.write(TAB);
     await until('the inserted path', () =>
-      ui.text().includes('│ see @src/app.ts now'),
+      ui.text().includes('┃ see @src/app.ts now'),
     );
     assert.deepEqual(calls, []);
   } finally {
@@ -1656,7 +1687,7 @@ await test('Enter inserts a file without sending', async () => {
     await until('the file list', () => ui.text().includes('@src/app.ts'));
     ui.stdin.write(ENTER);
     await until('the inserted path', () =>
-      ui.text().includes('│ see @src/app.ts'),
+      ui.text().includes('┃ see @src/app.ts'),
     );
     await delay(60);
     assert.deepEqual(calls, []);
@@ -1680,10 +1711,10 @@ await test('Up chooses in an open list without moving the cursor, and moves it o
     await delay(30);
     ui.stdin.write(TAB);
     await until('the first file at the token', () =>
-      ui.text().includes('│ see @src/app.ts'),
+      ui.text().includes('┃ see @src/app.ts'),
     );
     ui.stdin.write(` ${UP}Z`);
-    await until('typing on the first line', () => ui.text().includes('│ abcZ'));
+    await until('typing on the first line', () => ui.text().includes('┃ abcZ'));
   } finally {
     ui.unmount();
   }
@@ -1702,7 +1733,7 @@ await test('tool focus hides a remounted draft list, which shows once focus retu
     open('c');
     await until('the empty draft', () => !ui.text().includes('/x-one'));
     ui.stdin.write(TAB);
-    await until('tool focus', () => ui.text().includes('Esc leave tools'));
+    await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
     open('d');
     await delay(100);
     assert.ok(!ui.text().includes('/x-one'));
@@ -1737,8 +1768,8 @@ await test('the composer grows with its text up to half the body and shrinks aft
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const composerRows = () => {
     const lines = ui.text().split('\n');
-    const top = lines.findIndex((line) => line.trimStart().startsWith('╭'));
-    const bottom = lines.findIndex((line) => line.trimStart().startsWith('╰'));
+    const top = lines.findIndex((line) => line.trimStart().startsWith('┏'));
+    const bottom = lines.findIndex((line) => line.trimStart().startsWith('┗'));
     return bottom - top - 1;
   };
   try {

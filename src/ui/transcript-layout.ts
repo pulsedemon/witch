@@ -1,7 +1,8 @@
 import wrapAnsi from 'wrap-ansi';
 import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
-import { colors, markdown } from './markdown.js';
+import { markdown } from './markdown.js';
+import { accent, colors } from './theme.js';
 import { linkify } from './links.js';
 
 export interface ScrollAnchor {
@@ -86,11 +87,11 @@ function build(item: DisplayItem, width: number, expanded: boolean): Block {
   const tool = item.kind === 'tool';
   const title =
     item.kind === 'user'
-      ? colors.cyan('You')
+      ? colors.hex(accent).bold('You')
       : item.kind === 'assistant'
-        ? colors.green(item.title ?? 'Assistant')
+        ? colors.whiteBright.bold(item.title ?? 'Assistant')
         : tool
-          ? colors.yellow(
+          ? colors.dim(
               `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkify(item.title ?? 'Tool', item.cwd)}`,
             )
           : colors.dim('Notice');

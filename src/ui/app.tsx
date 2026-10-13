@@ -23,10 +23,12 @@ import {
 import { Request } from './request.js';
 import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
-import { colors, markdown } from './markdown.js';
+import { markdown } from './markdown.js';
 import { hyperlink, linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
+import { Sidebar, sidebarWidth } from './sidebar.js';
+import { accent, colors, piped } from './theme.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
@@ -99,7 +101,10 @@ export function App({
   );
   const state = useSyncExternalStore(subscription, () => coordinator.snapshot);
   const size = useWindowSize();
-  const width = Math.max(30, size.columns);
+  const columns = Math.max(30, size.columns);
+  // the sidebar shows only beside a main column of 80 cells
+  const sidebar = columns - sidebarWidth >= 80;
+  const width = sidebar ? columns - sidebarWidth : columns;
   const height = Math.max(12, size.rows);
   const cwd = state.conversation?.cwd ?? process.cwd();
   const [view, setView] = useState<View>({ kind: 'chat' });
@@ -654,7 +659,15 @@ export function App({
     }
   });
 
-  const header = `${hyperlink(plain(basename(cwd)), cwd, cwd)}  ·  ${state.conversation?.agent ?? 'Starting'}  ·  ${plain(state.native?.model || state.conversation?.sessions[state.conversation.agent]?.model || 'Native default')}`;
+  const header = piped([
+    hyperlink(plain(basename(cwd)), cwd, cwd),
+    (state.conversation?.agent ?? 'Starting').toUpperCase(),
+    plain(
+      state.native?.model ||
+        state.conversation?.sessions[state.conversation.agent]?.model ||
+        'Native default',
+    ).toUpperCase(),
+  ]);
   let body;
   if (request)
     body = (
@@ -684,10 +697,16 @@ export function App({
           <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
         </Box>
         <Text bold>
-          {conflict
-            ? 'k keep mine (your side of each conflicting change wins) · d discard mine'
-            : 'a accept · d discard'}{' '}
-          · ↑/↓ scroll · Ctrl+C quit
+          {piped([
+            ...(conflict
+              ? [
+                  'k KEEP MINE (YOUR SIDE OF EACH CONFLICTING CHANGE WINS)',
+                  'd DISCARD MINE',
+                ]
+              : ['a ACCEPT', 'd DISCARD']),
+            '↑/↓ SCROLL',
+            'CTRL+C QUIT',
+          ])}
         </Text>
       </Box>
     );
@@ -728,7 +747,9 @@ export function App({
             return true;
           }}
         />
-        <Text dimColor>↑/↓ choose · Enter select · Esc back</Text>
+        <Text dimColor>
+          {piped(['↑/↓ CHOOSE', 'ENTER SELECT', 'ESC BACK'])}
+        </Text>
       </Box>
     );
   } else if (view.kind === 'page') {
@@ -741,7 +762,11 @@ export function App({
           <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
         </Box>
         <Text dimColor>
-          {view.note ? 'e edit · h history · ' : ''}↑/↓ scroll · Esc back
+          {piped([
+            ...(view.note ? ['e EDIT', 'h HISTORY'] : []),
+            '↑/↓ SCROLL',
+            'ESC BACK',
+          ])}
         </Text>
       </Box>
     );
@@ -774,8 +799,8 @@ export function App({
           </Text>
         </Box>
         <Box
-          borderStyle="round"
-          borderColor={toolFocus ? 'gray' : 'cyan'}
+          borderStyle="bold"
+          borderColor={toolFocus ? 'gray' : accent}
           height={composerRows + 2}
           paddingX={1}
         >
@@ -815,8 +840,13 @@ export function App({
         ) : (
           toolFocus && (
             <Text dimColor>
-              ↑/↓ tools · Enter expand · Tab compose · End live output · Esc
-              leave tools
+              {piped([
+                '↑/↓ TOOLS',
+                'ENTER EXPAND',
+                'TAB COMPOSE',
+                'END LIVE OUTPUT',
+                'ESC LEAVE TOOLS',
+              ])}
             </Text>
           )
         )}
@@ -824,31 +854,41 @@ export function App({
     );
   }
   return (
-    <Box flexDirection="column" width={width} height={height}>
-      <Box height={1} overflow="hidden">
-        <Text bold>{header}</Text>
-      </Box>
-      <Box height={1}>
-        <Text dimColor>
-          {state.phase}
-          {state.native?.permissionMode
-            ? ` · ${plain(state.native.permissionMode)}`
-            : ''}
-          {top !== null && view.kind === 'chat'
-            ? ' · Reading earlier output'
-            : ''}
-          {state.phase === 'editing'
-            ? ' · Close the VS Code file to finish'
-            : ''}
-        </Text>
-      </Box>
-      <Box flexDirection="column" paddingX={1}>
-        {body}
-      </Box>
-      {errorRows.length > 0 && (
-        <Box height={errorRows.length} paddingX={1} overflow="hidden">
-          <Text color="red">{errorRows.join('\n')}</Text>
+    <Box width={columns} height={height}>
+      <Box flexDirection="column" width={width} height={height}>
+        <Box height={1} overflow="hidden">
+          <Text bold>{header}</Text>
         </Box>
+        <Box height={1}>
+          <Text dimColor>
+            {piped([
+              state.phase.toUpperCase(),
+              ...(state.native?.permissionMode
+                ? [plain(state.native.permissionMode).toUpperCase()]
+                : []),
+              ...(top !== null && view.kind === 'chat'
+                ? ['READING EARLIER OUTPUT']
+                : []),
+              ...(state.phase === 'editing'
+                ? ['CLOSE THE VS CODE FILE TO FINISH']
+                : []),
+            ])}
+          </Text>
+        </Box>
+        <Box flexDirection="column" paddingX={1}>
+          {body}
+        </Box>
+        {errorRows.length > 0 && (
+          <Box height={errorRows.length} paddingX={1} overflow="hidden">
+            <Text color="red">{errorRows.join('\n')}</Text>
+          </Box>
+        )}
+      </Box>
+      {sidebar && (
+        <Sidebar
+          height={height}
+          spinning={['starting', 'running', 'switching'].includes(state.phase)}
+        />
       )}
     </Box>
   );

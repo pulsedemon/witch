@@ -1,10 +1,8 @@
 import { Marked, Renderer } from 'marked';
 import type { Token } from 'marked';
-import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
 import { markdownLink, linkify, plain } from './links.js';
-
-export const colors = new Chalk({ level: 1 });
+import { accent, colors } from './theme.js';
 
 /** relative link and image targets resolve against `hrefs`, and stay text when it is null. */
 export function markdown(
@@ -34,7 +32,7 @@ export function markdown(
   renderer.codespan = ({ text }) => {
     // the backticks let a path with spaces link whole; a URL can swallow the closing one, so anything else links bare
     const quoted = linkify(`\`${text}\``, cwd);
-    return colors.cyan(
+    return colors.hex(accent)(
       quoted.startsWith('`\u001b]8;') && quoted.endsWith('`')
         ? quoted.slice(1, -1)
         : linkify(text, cwd),
