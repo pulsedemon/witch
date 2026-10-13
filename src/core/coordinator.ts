@@ -32,6 +32,7 @@ import type {
 } from './state.js';
 
 const execute = promisify(execFile);
+const untitled = 'New conversation';
 
 /** splits `/name args` as Claude Code does: the name ends at the first whitespace. */
 function skillCall(
@@ -604,7 +605,7 @@ export class Coordinator {
     // no await from here to the send, so a Ctrl+C before it never reaches the agent
     if (this.cancelled || session.closed)
       return { status: 'interrupted', text: '' };
-    if (kind === 'turn' && conversation.title === 'New conversation')
+    if (kind === 'turn' && conversation.title === untitled)
       conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
     this.display({
       id: randomUUID(),
@@ -846,7 +847,7 @@ export class Coordinator {
     const stored = source?.agent === agent ? source.sessions[agent] : undefined;
     return {
       id: randomUUID(),
-      title: 'New conversation',
+      title: untitled,
       cwd,
       agent,
       sessions: stored?.requestedModel
