@@ -12,12 +12,16 @@ await test('nested lists and task lists render indented with each checkbox inlin
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
 
-await test('relative link targets resolve against their own base or stay text without one, while web links and bare paths keep theirs', () => {
+await test('relative link targets resolve against their own base or stay text without one, while web links, absolute targets and bare paths keep theirs', () => {
   const text =
-    '[Ports](ports.md) [Line](ports.md:3) [Web](https://example.com/x) docs/rules.md';
+    '[Ports](ports.md) [Line](ports.md:3) [Abs](/work/abs.md) [Web](https://example.com/x) docs/rules.md';
   const links = (output: string, targets: string[]) =>
     targets.every((target) => output.includes(`\u001b]8;;${target}\u0007`));
-  const kept = ['https://example.com/x', 'vscode://file/work/docs/rules.md'];
+  const kept = [
+    'vscode://file/work/abs.md',
+    'https://example.com/x',
+    'vscode://file/work/docs/rules.md',
+  ];
   assert.ok(
     links(markdown(text, '/work', '/memory/global'), [
       'vscode://file/memory/global/ports.md',

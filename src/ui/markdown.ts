@@ -6,7 +6,7 @@ import { markdownLink, linkify, plain } from './links.js';
 
 export const colors = new Chalk({ level: 1 });
 
-/** scheme-less link and image targets resolve against `hrefs`, and stay text when it is null. */
+/** relative link and image targets resolve against `hrefs`, and stay text when it is null. */
 export function markdown(
   text: string,
   cwd: string,
@@ -14,7 +14,7 @@ export function markdown(
 ): string {
   const renderer = new Renderer();
   const link = (label: string, href: string) =>
-    hrefs === null && !/^[a-z][a-z\d+.-]*:(?!\d)/i.test(href)
+    hrefs === null && !/^(?:[a-z][a-z\d+.-]*:(?!\d)|\/|~\/)/i.test(href)
       ? label
       : markdownLink(label, href, hrefs ?? cwd);
   renderer.text = (token) =>
