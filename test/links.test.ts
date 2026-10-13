@@ -121,6 +121,11 @@ await test('bare source references take precedence over fuzzy domains while expl
   assert.ok(linkify('example.com', '/work').includes('http://example.com'));
 });
 
+await test('a dotted word or a name with an unlisted extension and no directory stays text', () => {
+  const prose = 'Use e.g. or i.e. with foo.bar.';
+  assert.equal(linkify(prose, '/work'), prose);
+});
+
 await test('malformed file URLs remain readable without breaking a persisted transcript', () => {
   assert.equal(
     stripAnsi(markdown('[Open report](file:///tmp/100%.txt)', '/work')),

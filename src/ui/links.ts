@@ -10,6 +10,9 @@ const controls = /(?![\n\t\r])\p{Cc}/u;
 // a bare name starts only at the start of a run of name characters, which keeps long runs of dashes or dots linear
 const files =
   /(?<![\w/])(?:["'`]((?:\.{0,2}\/|~\/|[\w@.-]+\/)[^\n"'`]+)["'`]|(?:\.{1,2}\/|~\/|\/[\w.@-]+\/)[^\s<>"'`[\]():]+(?::\d+(?::\d+)?)?)|(?<![\w/@.-])(?:[\w@.-]+\/)*\.?[\w@-]+(?:\.[\w@-]+)*\.[a-zA-Z][a-zA-Z\d]{0,12}(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?/gu;
+// a name with no directory links only with one of these extensions, so `e.g.` and `foo.bar` stay text
+const sourceFile =
+  /\.(?:[cm]?[jt]sx?|py|sh|md|rs|go|rb|pl|cc|c|h|java|cs|swift|txt|json|toml|ya?ml|csv|xml|ini|env|lock|html|css|sql|log)(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?$/i;
 
 export function linkTarget(target: string, cwd: string): string {
   if (/^https?:\/\//i.test(target)) return target;
@@ -50,6 +53,7 @@ function fileLinks(text: string, cwd: string): string {
   return text.replace(files, (match: string, quoted: string | undefined) => {
     if (quoted) return match[0] + hyperlink(quoted, quoted, cwd) + match.at(-1);
     const path = match.replace(/[.,;!?]+$/, '');
+    if (!path.includes('/') && !sourceFile.test(path)) return match;
     return hyperlink(path, path, cwd) + match.slice(path.length);
   });
 }
@@ -79,11 +83,7 @@ function bareLinks(text: string, cwd: string): string {
   let offset = 0;
   const sourceFiles = [...text.matchAll(files)].filter(
     (match) =>
-      !!match[1] ||
-      match[0].includes('/') ||
-      /\.(?:[cm]?[jt]sx?|py|sh|md|rs|go|rb|pl|cc|c|h|java|cs|swift|txt|json|toml|ya?ml|csv|xml|ini|env|lock|html|css|sql|log)(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?$/i.test(
-        match[0],
-      ),
+      !!match[1] || match[0].includes('/') || sourceFile.test(match[0]),
   );
   let fileIndex = 0;
   for (const match of urls.match(text) ?? []) {
