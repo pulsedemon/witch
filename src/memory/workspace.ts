@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { exists, main, notePath } from './memory.js';
+import { exists, main, notePath, printable } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
 /** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
@@ -168,7 +168,7 @@ export class Workspace {
     const additions = await Promise.all(
       untracked.map(
         async (file) =>
-          `New file: ${file}\n${await this.checkedPath(file).then(
+          `New file: ${printable(file)}\n${await this.checkedPath(file).then(
             (path) => readFile(path, 'utf8'),
             (error: unknown) => String(error),
           )}`,
@@ -316,7 +316,7 @@ export class Workspace {
       const directory = index < parts.length || kind === 'directory';
       if (directory ? !stat.isDirectory() : !stat.isFile())
         throw new Error(
-          `Memory path must be a regular ${directory ? 'directory' : 'file'}: ${current}`,
+          `Memory path must be a regular ${directory ? 'directory' : 'file'}: ${printable(current)}`,
         );
     }
     return join(this.root, ...parts);

@@ -86,6 +86,11 @@ export function notePath(path: string): string {
   return file;
 }
 
+/** a note name is agent-written; without control characters it can't carry an escape or link into a message. */
+export function printable(path: string): string {
+  return path.replace(/\p{Cc}/gu, '');
+}
+
 export class Memory {
   constructor(
     readonly root: string,
@@ -244,7 +249,7 @@ export class Memory {
       .map((entry) => {
         if (!/^100(644|755) blob /.test(entry))
           throw new Error(
-            `Memory notes must be regular files: ${entry.slice(entry.indexOf('\t') + 1)}`,
+            `Memory notes must be regular files: ${printable(entry.slice(entry.indexOf('\t') + 1))}`,
           );
         return entry.slice(entry.indexOf('\t') + 1);
       });
@@ -260,7 +265,7 @@ export class Memory {
       file,
     ]);
     if (!/^100(644|755) blob /.test(entry))
-      throw new Error(`Memory notes must be regular files: ${file}`);
+      throw new Error(`Memory notes must be regular files: ${printable(file)}`);
     return this.git(this.root, ['show', `${revision}:${file}`]);
   }
 

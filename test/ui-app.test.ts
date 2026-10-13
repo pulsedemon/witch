@@ -570,7 +570,7 @@ await test('a note page links its relative Markdown targets beside the note once
   }
 });
 
-await test('a note file name carrying a link sequence shows as plain text in the picker and on its page', async () => {
+await test('a note file name carrying a link sequence shows as plain text in the picker, on its page and in its notices', async () => {
   const { root, seed, coordinator } = await memoryApp();
   // a file name holds no slash, so a forged target can only be a local path
   await writeFile(
@@ -580,6 +580,13 @@ await test('a note file name carrying a link sequence shows as plain text in the
   await seed.commit('chore(memory): save forged note');
   await seed.publish();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  const choose = async () => {
+    await delay(30);
+    ui.stdin.write('Forged note');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => ui.text().includes('e edit'));
+  };
   try {
     await delay(60);
     await openMemory(ui, 'global/forged');
@@ -602,13 +609,27 @@ await test('a note file name carrying a link sequence shows as plain text in the
         .includes(`vscode://file${conversation}/memory/global/other.md\u0007`),
     );
     assert.ok(!ui.frame().includes(forged));
-    await delay(30);
-    ui.stdin.write('Forged note');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the note page', () => ui.text().includes('e edit'));
+    await choose();
     assert.ok(!ui.frame().includes(forged));
     assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
+    ui.stdin.write('e');
+    await until(
+      'the edit notice',
+      () => ui.text().split('Memory edit:').length === 3,
+    );
+    assert.ok(!ui.frame().includes(forged));
+    await openMemory(ui, 'global/forged');
+    await choose();
+    ui.stdin.write('h');
+    await until('the history picker', () =>
+      ui.text().includes('Restore a memory version'),
+    );
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the restore notice', () =>
+      ui.text().includes('Memory restore:'),
+    );
+    assert.ok(!ui.frame().includes(forged));
   } finally {
     ui.unmount();
     await coordinator.close();

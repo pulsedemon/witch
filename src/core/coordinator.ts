@@ -16,7 +16,7 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import { exists, main } from '../memory/memory.js';
+import { exists, main, printable } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import { LockedElsewhere } from '../persistence/store.js';
@@ -449,7 +449,7 @@ export class Coordinator {
       const note =
         path ??
         `${(await this.memory.scopePaths(this.current().cwd)).project}/MEMORY.md`;
-      this.notice(`Memory edit: ${note}`, this.workspace!.root);
+      this.notice(`Memory edit: ${printable(note)}`, this.workspace!.root);
       await this.beginActivity('memory-edit');
       const file = await this.workspace!.prepareNote(note);
       this.editorCancellation = new AbortController();
@@ -468,7 +468,7 @@ export class Coordinator {
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
       this.notice(
-        `Memory restore: ${path} at ${revision.slice(0, 8)}`,
+        `Memory restore: ${printable(path)} at ${revision.slice(0, 8)}`,
         this.workspace!.root,
       );
       await this.beginActivity('memory-edit');
