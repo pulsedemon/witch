@@ -13,6 +13,7 @@ import type {
   Skill,
   SkillCall,
   TurnResult,
+  Usage,
   UserRequest,
   UserResponse,
 } from './types.js';
@@ -55,6 +56,26 @@ const skillList = z.object({
     }),
   ),
 });
+const tokenUsage = z.object({
+  threadId: z.string(),
+  tokenUsage: z.object({
+    last: z.object({ totalTokens: z.number() }),
+    modelContextWindow: z.number().nullable(),
+  }),
+});
+const rateWindow = z
+  .object({
+    usedPercent: z.number(),
+    windowDurationMins: z.number().nullable(),
+    resetsAt: z.number().nullable(),
+  })
+  .nullish();
+const rateLimits = z.object({
+  limitId: z.string().nullish(),
+  primary: rateWindow,
+  secondary: rateWindow,
+});
+type RateWindow = NonNullable<z.infer<typeof rateWindow>>;
 const questionList = z.array(
   z.object({
     id: z.string(),
@@ -63,6 +84,27 @@ const questionList = z.array(
     options: z.array(z.object({ label: z.string() })).nullable(),
   }),
 );
+
+/** lines a unified diff adds and removes; only lines inside a hunk count, so file headers stay out. */
+function diffLines(diff: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  let hunk = false;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('@@')) hunk = true;
+    else if (line.startsWith('diff ')) hunk = false;
+    else if (hunk && line.startsWith('+')) added++;
+    else if (hunk && line.startsWith('-')) removed++;
+  }
+  return { added, removed };
+}
+
+/** `5H` for 300 minutes, `7D` for 10080. */
+function windowName(minutes: number): string {
+  return minutes % 1440 === 0
+    ? `${minutes / 1440}D`
+    : `${Math.round(minutes / 60)}H`;
+}
 
 type Launch = (
   executable: string,
@@ -95,6 +137,7 @@ export class CodexAdapter implements AgentAdapter {
 
 class CodexSession implements AgentSession {
   info: SessionInfo;
+  usage: Usage = {};
   closed = false;
   private turn?: {
     started: ReturnType<typeof Promise.withResolvers<string>>;
@@ -111,6 +154,15 @@ class CodexSession implements AgentSession {
   private readonly malformed = new Set<string>();
   /** each listed skill's SKILL.md, which a skill input names. */
   private readonly skillPaths = new Map<string, string>();
+  /** each turn's latest diff count, since a turn's diff grows as it edits. */
+  private readonly turnLines = new Map<
+    string,
+    { added: number; removed: number }
+  >();
+  /** the account limit the windows belong to, and its windows by slot, which a sparse update merges into. */
+  private limitId?: string;
+  private readonly windows: { primary?: RateWindow; secondary?: RateWindow } =
+    {};
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -173,6 +225,8 @@ class CodexSession implements AgentSession {
       ),
     );
     this.connected = true;
+    void this.readLimits();
+    void this.readCost();
   }
 
   async models(): Promise<Model[]> {
@@ -364,6 +418,7 @@ class CodexSession implements AgentSession {
       ...this.info,
       id: data.thread.id,
       model: data.model,
+      nativeEffort: this.native.effort,
       permissionMode: `${policy}${data.approvalsReviewer ? ` / ${data.approvalsReviewer}` : ''}`,
     };
     this.options.onEvent({ type: 'info', info: this.info });
@@ -397,7 +452,11 @@ class CodexSession implements AgentSession {
           model: z.string().parse(settings.model),
           effort: z.string().nullish().parse(settings.effort) ?? undefined,
         };
-        this.info = { ...this.info, model: this.native.model };
+        this.info = {
+          ...this.info,
+          model: this.native.model,
+          nativeEffort: this.native.effort,
+        };
         this.options.onEvent({ type: 'info', info: this.info });
         this.settings?.resolve();
         break;
@@ -462,7 +521,37 @@ class CodexSession implements AgentSession {
           append: true,
         });
         break;
+      case 'thread/tokenUsage/updated': {
+        const { threadId, tokenUsage: usage } = tokenUsage.parse(data);
+        if (threadId === this.info.id && usage.modelContextWindow)
+          this.report({
+            context: (usage.last.totalTokens / usage.modelContextWindow) * 100,
+          });
+        break;
+      }
+      case 'turn/diff/updated': {
+        const turn = z
+          .object({
+            threadId: z.string(),
+            turnId: z.string(),
+            diff: z.string(),
+          })
+          .parse(data);
+        if (turn.threadId !== this.info.id) break;
+        this.turnLines.set(turn.turnId, diffLines(turn.diff));
+        const lines = { added: 0, removed: 0 };
+        for (const { added, removed } of this.turnLines.values()) {
+          lines.added += added;
+          lines.removed += removed;
+        }
+        this.report({ lines });
+        break;
+      }
+      case 'account/rateLimits/updated':
+        this.mergeLimits(rateLimits.parse(object.parse(data.rateLimits)));
+        break;
       case 'turn/completed': {
+        if (!this.closing) void this.readCost();
         const turn = object.parse(data.turn);
         const status = z.string().parse(turn.status);
         const error =
@@ -562,6 +651,71 @@ class CodexSession implements AgentSession {
     )
       return { ...request, kind: 'approval' };
     return undefined;
+  }
+
+  private report(update: Usage): void {
+    this.usage = { ...this.usage, ...update };
+    this.options.onEvent({ type: 'usage', usage: this.usage });
+  }
+
+  /** the status line leaves out what Codex can't report, such as limits on an API key. */
+  private async readLimits(): Promise<void> {
+    try {
+      const response = object.parse(
+        await this.rpc.request('account/rateLimits/read', {
+          excludeResetCreditDetails: true,
+        }),
+      );
+      this.mergeLimits(rateLimits.parse(response.rateLimits));
+    } catch {
+      // limits stay unreported
+    }
+  }
+
+  /** an estimate, absent when Codex has no billing route for the thread. */
+  private async readCost(): Promise<void> {
+    try {
+      const response = z
+        .object({
+          threadUsage: z
+            .object({ estimatedUsageUsdMicros: z.number().nullable() })
+            .nullish(),
+        })
+        .parse(
+          await this.rpc.request('account/usage/read', {
+            threadId: this.info.id,
+          }),
+        );
+      const micros = response.threadUsage?.estimatedUsageUsdMicros;
+      if (micros != null) this.report({ cost: micros / 1_000_000 });
+    } catch {
+      // the cost stays unreported
+    }
+  }
+
+  /** an update for another limit is left out, and a window it leaves null keeps its last value. */
+  private mergeLimits(update: z.infer<typeof rateLimits>): void {
+    if (update.limitId) {
+      if (this.limitId && update.limitId !== this.limitId) return;
+      this.limitId = update.limitId;
+    }
+    if (update.primary) this.windows.primary = update.primary;
+    if (update.secondary) this.windows.secondary = update.secondary;
+    // a window of unknown length has no name to show
+    const windows = [this.windows.primary, this.windows.secondary].flatMap(
+      (window) =>
+        window?.windowDurationMins == null
+          ? []
+          : [{ ...window, minutes: window.windowDurationMins }],
+    );
+    windows.sort((a, b) => a.minutes - b.minutes);
+    this.report({
+      limits: windows.map(({ minutes, usedPercent, resetsAt }) => ({
+        window: windowName(minutes),
+        percent: usedPercent,
+        ...(resetsAt != null ? { resetsAt } : {}),
+      })),
+    });
   }
 
   private finish(status: TurnResult['status'], error?: string): void {

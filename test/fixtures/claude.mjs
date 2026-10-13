@@ -77,7 +77,9 @@ const toolResult = (id, content, parent = null) =>
       content: [{ type: 'tool_result', tool_use_id: id, content }],
     },
   });
-const result = (fields = {}) =>
+let results = 0;
+const result = (fields = {}) => {
+  results++;
   send({
     type: 'result',
     subtype: 'success',
@@ -91,9 +93,11 @@ const result = (fields = {}) =>
     usage: {},
     modelUsage: {},
     permission_denials: [],
-    total_cost_usd: 0,
+    // the session's running total
+    total_cost_usd: results * 0.25,
     ...fields,
   });
+};
 /** exits once a grandchild sharing stderr is running; it writes a line about 65 ms later. */
 const exitBeforeGrandchild = (code) => {
   const grandchild = spawn(
@@ -181,6 +185,27 @@ for await (const line of lines) {
         ],
       };
     }
+    if (request.subtype === 'get_context_usage')
+      response = { percentage: 12.5 };
+    if (request.subtype === 'get_usage')
+      response = {
+        session: {
+          total_cost_usd: 0,
+          total_api_duration_ms: 0,
+          total_duration_ms: 0,
+          total_lines_added: 4 * results,
+          total_lines_removed: results,
+          model_usage: {},
+        },
+        subscription_type: 'max',
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: { utilization: 23.5, resets_at: '2033-05-18T03:33:20Z' },
+          seven_day: { utilization: 61, resets_at: null },
+          seven_day_opus: { utilization: 99, resets_at: null },
+        },
+        behaviors: null,
+      };
     if (request.subtype === 'set_model') model = request.model;
     if (request.subtype === 'apply_flag_settings') {
       writeFileSync(
@@ -230,6 +255,7 @@ for await (const line of lines) {
       plugins: [],
       uuid: randomUUID(),
       claude_code_version: '2.1.296',
+      ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
     state('running');
     if (lastPrompt === 'approval')

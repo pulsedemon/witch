@@ -11,6 +11,7 @@ import { basename, dirname, join } from 'node:path';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator } from '../core/coordinator.js';
+import type { RepositoryWatch } from '../core/repository.js';
 import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
 import type { InputBuffer } from './input-buffer.js';
@@ -28,6 +29,7 @@ import { hyperlink, linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
+import { StatusLine } from './status-line.js';
 import { accent, colors, piped } from './theme.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
@@ -73,12 +75,17 @@ type View =
       note?: string;
     };
 
+const unwatched = () => () => {};
+
 export function App({
   coordinator,
+  repository,
   onExit,
   initialPrompt,
 }: {
   coordinator: Coordinator;
+  /** the project's Git status for the status line, which leaves Git out without it. */
+  repository?: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>;
   onExit(): void;
   /** sent once the load ends idle with nothing reported and tools unfocused, otherwise left as the draft. */
   initialPrompt?: string;
@@ -100,6 +107,10 @@ export function App({
     [coordinator],
   );
   const state = useSyncExternalStore(subscription, () => coordinator.snapshot);
+  const repositoryStatus = useSyncExternalStore(
+    repository?.subscribe ?? unwatched,
+    () => repository?.snapshot,
+  );
   const size = useWindowSize();
   const columns = Math.max(30, size.columns);
   // the sidebar shows only beside a main column of 80 cells
@@ -154,7 +165,8 @@ export function App({
           `+${errorLines.length - errorLimit + 1} more rows`,
         ]
       : errorLines;
-  const bodyHeight = height - 2 - errorRows.length;
+  // the header and phase rows above, the status line's two below
+  const bodyHeight = height - 4 - errorRows.length;
   const composerPhase = !['starting', 'closing', 'error'].includes(state.phase);
   const entries = [
     ...commands.map(({ id, label, aliases }) => ({
@@ -659,14 +671,13 @@ export function App({
     }
   });
 
+  const model =
+    state.native?.model ||
+    state.conversation?.sessions[state.conversation.agent]?.model;
   const header = piped([
     hyperlink(plain(basename(cwd)), cwd, cwd),
     (state.conversation?.agent ?? 'Starting').toUpperCase(),
-    plain(
-      state.native?.model ||
-        state.conversation?.sessions[state.conversation.agent]?.model ||
-        'Native default',
-    ).toUpperCase(),
+    plain(model || 'Native default').toUpperCase(),
   ]);
   let body;
   if (request)
@@ -883,6 +894,14 @@ export function App({
             <Text color="red">{errorRows.join('\n')}</Text>
           </Box>
         )}
+        <StatusLine
+          model={state.models.find(({ id }) => id === model)?.label ?? model}
+          effort={state.native?.effort ?? state.native?.nativeEffort}
+          usage={state.usage}
+          openedAt={state.openedAt}
+          cwd={cwd}
+          repository={repositoryStatus}
+        />
       </Box>
       {sidebar && (
         <Sidebar

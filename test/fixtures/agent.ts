@@ -11,6 +11,7 @@ import type {
   Skill,
   SkillCall,
   TurnResult,
+  Usage,
   UserResponse,
 } from '../../src/agents/types.js';
 
@@ -56,6 +57,8 @@ export class FixtureAgent implements AgentAdapter {
   failInterrupt = false;
   interruptNext = false;
   gate?: TurnGate;
+  /** what a completed turn reports as its session's usage. */
+  turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
 
@@ -83,9 +86,13 @@ export class FixtureAgent implements AgentAdapter {
     await options.onProcess(sleeper.pid);
     let closed = false;
     let turn: PromiseWithResolvers<TurnResult> | undefined;
+    let usage: Usage = {};
     const session: AgentSession = {
       get info() {
         return info;
+      },
+      get usage() {
+        return usage;
       },
       get closed() {
         return closed;
@@ -170,6 +177,10 @@ export class FixtureAgent implements AgentAdapter {
             ? `${this.id}: finish the migration`
             : 'Done.';
           options.onEvent({ type: 'text', id: randomUUID(), text });
+          if (this.turnUsage) {
+            usage = this.turnUsage;
+            options.onEvent({ type: 'usage', usage });
+          }
           result = { status: 'completed', text };
         }
         this.gate?.finish(result);

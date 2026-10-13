@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
-import type { AgentEvent, AgentSession } from '../src/agents/types.js';
+import type { AgentEvent, AgentSession, Usage } from '../src/agents/types.js';
 import { within } from './fixtures/within.js';
 
 const codex = fileURLToPath(new URL('fixtures/codex.mjs', import.meta.url));
@@ -598,6 +598,49 @@ await test('native secret questions and MCP form answers reach their protocol co
       JSON.parse(await readFile(join(cwd, 'response-89.json'), 'utf8')),
       { action: 'accept', content: { label: 'violet' }, _meta: null },
     );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test('reports context, lines, limits merged from sparse updates and the cost estimate, leaving out other threads and limits', async () => {
+  const reported: Usage[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'usage') reported.push(event.usage);
+  });
+  try {
+    for (let attempt = 0; !session.usage.limits && attempt < 400; attempt++)
+      await delay(5);
+    assert.equal((await session.send('usage')).status, 'completed');
+    for (
+      let attempt = 0;
+      session.usage.cost !== 1.5 && attempt < 400;
+      attempt++
+    )
+      await delay(5);
+    assert.deepEqual(session.usage, {
+      // 64000 of a 256000-token window
+      context: 25,
+      lines: { added: 2, removed: 1 },
+      limits: [
+        { window: '5H', percent: 15, resetsAt: 2000000100 },
+        { window: '7D', percent: 40, resetsAt: 2000500000 },
+      ],
+      cost: 1.5,
+    });
+    assert.deepEqual(reported.at(-1), session.usage);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test('reports the effort Codex runs, its own default first and then the one a settings update makes', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    assert.equal(session.info.nativeEffort, 'low');
+    assert.equal(session.info.effort, undefined);
+    await session.selectModel('model-b', 'high');
+    assert.equal(session.info.nativeEffort, 'high');
   } finally {
     await close(session, cwd);
   }

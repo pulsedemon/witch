@@ -11,6 +11,7 @@ import { ClaudeAdapter } from '../src/agents/claude.js';
 import type {
   AgentEvent,
   SessionOptions,
+  Usage,
   UserRequest,
 } from '../src/agents/types.js';
 import { within } from './fixtures/within.js';
@@ -551,5 +552,54 @@ await test('a process report that rejects fails the connect without an unhandled
     assert.deepEqual(unhandled, []);
   } finally {
     process.off('unhandledRejection', record);
+  }
+});
+
+/** polls until `check` passes, since usage arrives after the turn that caused it. */
+async function eventually(what: string, check: () => boolean) {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`${what} never came`);
+}
+
+await test('reports the cost from each result, and context, the 5H and 7D limits and lines once the session is idle', async () => {
+  const reported: Usage[] = [];
+  const { session } = await fixture((event) => {
+    if (event.type === 'usage') reported.push(event.usage);
+  });
+  try {
+    await eventually('the usage at connect', () => !!session.usage.limits);
+    assert.equal((await session.send('hello')).status, 'completed');
+    await eventually(
+      'the usage after the turn',
+      () => session.usage.lines?.added === 4,
+    );
+    assert.deepEqual(session.usage, {
+      cost: 0.25,
+      context: 12.5,
+      lines: { added: 4, removed: 1 },
+      limits: [
+        { window: '5H', percent: 23.5, resetsAt: 2000000000 },
+        { window: '7D', percent: 61 },
+      ],
+    });
+    assert.deepEqual(reported.at(-1), session.usage);
+  } finally {
+    await session.close();
+  }
+});
+
+await test('reports the effort Claude Code says it will send', async () => {
+  const { session } = await fixture(() => {}, 'init-effort');
+  try {
+    assert.equal(session.info.nativeEffort, undefined);
+    await session.send('hello');
+    assert.equal(session.info.nativeEffort, 'max');
+    await session.selectModel('claude-a', 'low');
+    assert.equal(session.info.nativeEffort, 'low');
+  } finally {
+    await session.close();
   }
 });

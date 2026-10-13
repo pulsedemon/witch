@@ -24,6 +24,7 @@ import type {
   Skill,
   SkillCall,
   TurnResult,
+  Usage,
   UserRequest,
   UserResponse,
 } from './types.js';
@@ -37,6 +38,23 @@ const launch: Launch = (options) =>
     stdio: 'pipe',
   });
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+const limitWindow = z
+  .object({
+    utilization: z.number().nullable(),
+    resets_at: z.string().nullable(),
+  })
+  .nullish();
+/** the experimental usage report may change shape, so only what parses is shown. */
+const usageReport = z.object({
+  session: z.object({
+    total_lines_added: z.number(),
+    total_lines_removed: z.number(),
+  }),
+  // percentages of 0 to 100
+  rate_limits: z
+    .object({ five_hour: limitWindow, seven_day: limitWindow })
+    .nullable(),
+});
 const questions = z.object({
   questions: z.array(
     z.object({
@@ -89,6 +107,7 @@ function skillsOf(commands: SlashCommand[]): Skill[] {
 
 class ClaudeSession implements AgentSession {
   info: SessionInfo;
+  usage: Usage = {};
   closed = false;
   private readonly input = new InputQueue<SDKUserMessage>();
   private readonly query: Query;
@@ -232,6 +251,7 @@ class ClaudeSession implements AgentSession {
     }
     this.connected = true;
     await this.registered;
+    void this.readUsage();
   }
 
   async models(refresh = false): Promise<Model[]> {
@@ -263,7 +283,9 @@ class ClaudeSession implements AgentSession {
     this.info = {
       ...this.info,
       model,
-      effort: level === undefined ? this.info.effort : (level ?? undefined),
+      ...(level !== undefined
+        ? { effort: level ?? undefined, nativeEffort: level ?? undefined }
+        : {}),
     };
     this.options.onEvent({ type: 'info', info: this.info });
   }
@@ -378,6 +400,11 @@ class ClaudeSession implements AgentSession {
           model: message.model,
           permissionMode: message.permissionMode,
           hasHistory: true,
+          // null when no effort will be sent, and absent on CLIs that don't report it
+          nativeEffort:
+            message.effort === undefined
+              ? this.info.nativeEffort
+              : (message.effort ?? undefined),
         };
         this.options.onEvent({ type: 'info', info: this.info });
       } else if (message.subtype === 'commands_changed') {
@@ -392,6 +419,7 @@ class ClaudeSession implements AgentSession {
         this.turn?.result
       ) {
         this.finish(this.turn, this.turn.result);
+        void this.readUsage();
       }
     } else if (
       message.type === 'stream_event' &&
@@ -456,7 +484,10 @@ class ClaudeSession implements AgentSession {
             done: true,
           });
       }
-    } else if (message.type === 'result' && this.turn) {
+    } else if (message.type === 'result') {
+      // the session's running total, which a resumed session continues
+      this.report({ cost: message.total_cost_usd });
+      if (!this.turn) return;
       const success = message.subtype === 'success' && !message.is_error;
       this.turn.result = {
         status: this.turn.interrupted
@@ -478,6 +509,57 @@ class ClaudeSession implements AgentSession {
           : {}),
       };
     }
+  }
+
+  private report(update: Usage): void {
+    this.usage = { ...this.usage, ...update };
+    this.options.onEvent({ type: 'usage', usage: this.usage });
+  }
+
+  /** context from the CLI's estimate, and limits and lines from the usage report Claude Code's `/usage` reads. */
+  private async readUsage(): Promise<void> {
+    const [context, report] = await Promise.allSettled([
+      this.query.getContextUsage({ detail: 'summary' }),
+      this.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+        skipBehaviors: true,
+      }),
+    ]);
+    const update: Usage = {};
+    const percentage =
+      context.status === 'fulfilled'
+        ? z.number().safeParse(context.value.percentage)
+        : undefined;
+    if (percentage?.success) update.context = percentage.data;
+    const usage =
+      report.status === 'fulfilled'
+        ? usageReport.safeParse(report.value)
+        : undefined;
+    if (usage?.success) {
+      const { session, rate_limits: limits } = usage.data;
+      update.lines = {
+        added: session.total_lines_added,
+        removed: session.total_lines_removed,
+      };
+      update.limits = (
+        [
+          ['5H', limits?.five_hour],
+          ['7D', limits?.seven_day],
+        ] as const
+      ).flatMap(([name, limit]) =>
+        limit?.utilization == null
+          ? []
+          : [
+              {
+                window: name,
+                percent: limit.utilization,
+                ...(limit.resets_at
+                  ? { resetsAt: Date.parse(limit.resets_at) / 1000 }
+                  : {}),
+              },
+            ],
+      );
+    }
+    if (!this.closed && Object.keys(update).length) this.report(update);
   }
 
   /** ends the turn a stopped CLI leaves, once its stderr is complete. */

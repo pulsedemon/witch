@@ -33,6 +33,12 @@ const held = async () => {
   while (!existsSync(file('release'))) await delay(5);
 };
 let skillAdded = false;
+let usageMicros = 0;
+const window = (usedPercent, windowDurationMins, resetsAt) => ({
+  usedPercent,
+  windowDurationMins,
+  resetsAt,
+});
 const skill = (name, fields) => ({
   name,
   path: `/skills/${name}/SKILL.md`,
@@ -103,6 +109,22 @@ for await (const line of lines) {
       ],
     });
   }
+  if (request.method === 'account/rateLimits/read')
+    reply({
+      rateLimits: {
+        limitId: 'codex',
+        primary: window(12, 300, 2000000000),
+        secondary: window(40, 10080, 2000500000),
+      },
+    });
+  if (request.method === 'account/usage/read')
+    reply({
+      summary: {},
+      threadUsage: {
+        threadId: request.params.threadId,
+        estimatedUsageUsdMicros: usageMicros,
+      },
+    });
   if (request.method === 'thread/resume')
     send({
       id: request.id,
@@ -144,6 +166,38 @@ for await (const line of lines) {
     if (prompt === 'add skill') {
       skillAdded = true;
       notify('skills/changed', {});
+      finish('completed');
+      continue;
+    }
+    if (prompt === 'usage') {
+      const tokens = (threadId, totalTokens) =>
+        notify('thread/tokenUsage/updated', {
+          threadId,
+          turnId: 'turn-1',
+          tokenUsage: {
+            total: { totalTokens: 900000 },
+            last: { totalTokens },
+            modelContextWindow: 256000,
+          },
+        });
+      tokens('native-thread', 64000);
+      tokens('subagent-thread', 200000);
+      const diff = (body) =>
+        notify('turn/diff/updated', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          diff: `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n${body}`,
+        });
+      diff('+one\n');
+      // the turn's diff grows, and a content line can start like a header
+      diff(' kept\n-old\n+one\n+++ added\n');
+      const limits = (limitId, primary) =>
+        notify('account/rateLimits/updated', {
+          rateLimits: { limitId, primary, secondary: null },
+        });
+      limits('codex', window(15, 300, 2000000100));
+      limits('other', window(99, 300, 2000000100));
+      usageMicros = 1500000;
       finish('completed');
       continue;
     }

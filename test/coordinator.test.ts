@@ -128,6 +128,22 @@ await test('a fresh conversation receives committed memory without a handoff', a
   }
 });
 
+await test("the live session's usage reaches the snapshot, and a new conversation starts with none and its own open time even when its agent fails to connect", async () => {
+  const { coordinator, a, b } = await fixture();
+  try {
+    a.turnUsage = { cost: 0.5, context: 10 };
+    await coordinator.send('hello');
+    assert.deepEqual(coordinator.snapshot.usage, { cost: 0.5, context: 10 });
+    b.failConnect = true;
+    const before = Date.now();
+    await coordinator.newConversation('b').catch(() => {});
+    assert.deepEqual(coordinator.snapshot.usage, {});
+    assert.ok(coordinator.snapshot.openedAt! >= before);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('unfinished memory blocks execution until recovery preserves the original attribution', async () => {
   const { coordinator, memory, a, workspace, note } = await fixture();
   try {

@@ -116,6 +116,7 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       requests: [],
       models: [],
       skills: [],
+      usage: {},
       agents: [],
       conversation: {
         id: 'c',
@@ -960,8 +961,8 @@ await test('a long picker shows as many choices as its rows hold', async () => {
       .text()
       .split('\n')
       .filter((row) => row.trim().startsWith('model-'));
-    // 24 rows less the header, status, title, filter, hint and the row every view leaves free
-    assert.equal(shown.length, 18);
+    // 24 rows less the header, status, title, filter, hint, the row every view leaves free and the status line's two
+    assert.equal(shown.length, 16);
   } finally {
     ui.unmount();
   }
@@ -1208,8 +1209,8 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~\u001b[5~');
-    // 302 lines in a 34-row transcript start at row 268; two pages up is 200
-    await until('two pages up', () => rows()[2] === 'row 200');
+    // 302 lines in a 32-row transcript start at row 270; two pages up is 206
+    await until('two pages up', () => rows()[2] === 'row 206');
     assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
     ui.stdin.write('\u001b[6~\u001b[6~');
     await until(
@@ -1227,15 +1228,15 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
     });
     await delay(600);
     ui.stdin.write('\u001b[6~\u001b[6~');
-    // the detail starts on line 4, and two 31-row pages down show line 63
+    // the detail starts on line 4, and two 29-row pages down show line 59
     await until('two pages down', () => {
       const all = rows();
-      return all[all.indexOf('Approval required') + 1] === 'd60';
+      return all[all.indexOf('Approval required') + 1] === 'd56';
     });
     ui.stdin.write('\u001b[5~');
     await until('a page up', () => {
       const all = rows();
-      return all[all.indexOf('Approval required') + 1] === 'd29';
+      return all[all.indexOf('Approval required') + 1] === 'd27';
     });
   } finally {
     ui.unmount();
@@ -1360,6 +1361,60 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
   }
 });
 
+await test("the status line shows the model's label, the effort the agent runs, its usage and the repository as it changes", async () => {
+  const { app } = fake({
+    native: {
+      id: 's',
+      agent: 'a',
+      model: 'gpt-x-2026',
+      permissionMode: 'default',
+      hasHistory: true,
+      nativeEffort: 'medium',
+    },
+    models: [{ id: 'gpt-x-2026', label: 'GPT-X', efforts: [] }],
+    usage: { cost: 0.5, context: 30, lines: { added: 2, removed: 1 } },
+    openedAt: Date.now(),
+  });
+  const listeners = new Set<() => void>();
+  const repository = {
+    snapshot: {
+      branch: 'main',
+      ahead: 1,
+      behind: 0,
+      staged: 0,
+      modified: 0,
+      conflicts: 0,
+      untracked: 0,
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const ui = show(
+    createElement(App, { coordinator: app, repository, onExit: () => {} }),
+  );
+  const status = () =>
+    ui
+      .text()
+      .trimEnd()
+      .split('\n')
+      .slice(-2)
+      .map((row) => row.trim());
+  try {
+    await until('the status line', () => status()[0]!.startsWith('GPT-X'));
+    assert.deepEqual(status(), [
+      'GPT-X | MEDIUM | $0.50 | 0M',
+      'CTX 30% ███░░░░░░░ | work | main ↑1 | 2+/1-',
+    ]);
+    repository.snapshot = { ...repository.snapshot, branch: 'feat/y' };
+    for (const listener of listeners) listener();
+    await until('the new branch', () => status()[1]!.includes('feat/y ↑1'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a typed /agent returns to live output', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
@@ -1397,13 +1452,13 @@ await test('Down with tools focused and no tools keeps the reading position, and
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~');
-    await until('a page up', () => top() === 'row 234');
+    await until('a page up', () => top() === 'row 238');
     ui.stdin.write(`\t${DOWN}`);
     await delay(60);
-    assert.equal(top(), 'row 234');
+    assert.equal(top(), 'row 238');
     ui.stdin.write('\u001b[F');
     // the tools hint takes a transcript row
-    await until('live output', () => top() === 'row 269');
+    await until('live output', () => top() === 'row 271');
   } finally {
     ui.unmount();
   }
@@ -1778,9 +1833,9 @@ await test('the composer grows with its text up to half the body and shrinks aft
     // 94 columns hold 200 characters and the cursor in 3 rows
     ui.stdin.write('x'.repeat(200));
     await until('a grown composer', () => composerRows() === 3);
-    // 2200 would take 24 rows, and half of the 38-row body is 19
+    // 2200 would take 24 rows, and half of the 36-row body is 18
     ui.stdin.write('x'.repeat(2000));
-    await until('a capped composer', () => composerRows() === 19);
+    await until('a capped composer', () => composerRows() === 18);
     ui.stdin.write(ENTER);
     await until('the send', () => calls.length > 0);
     await until('an empty composer', () => composerRows() === 1);
@@ -1807,7 +1862,8 @@ await test('an open list of 8 or more keeps the newest transcript row and its ow
     const text = ui.text();
     assert.ok(text.includes('row 59'));
     assert.ok(text.includes('/x-7') && !text.includes('/x-8'));
-    assert.match(text.trimEnd(), /\/x-7 Skill 7$/);
+    // above the row the body leaves free and the status line's two
+    assert.match(text.trimEnd().split('\n').at(-4)!, /\/x-7 Skill 7$/);
   } finally {
     ui.unmount();
   }

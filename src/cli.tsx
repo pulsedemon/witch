@@ -7,6 +7,7 @@ import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { errorMessage } from './agents/stderr.js';
 import { Coordinator } from './core/coordinator.js';
+import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
@@ -80,6 +81,7 @@ if (!store) {
       },
     );
   };
+  const repository = new RepositoryWatch(process.cwd());
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
   stdin.on('click', ({ column, row }: Click) => {
@@ -93,6 +95,7 @@ if (!store) {
   const application = render(
     <App
       coordinator={coordinator}
+      repository={repository}
       onExit={shutdown}
       initialPrompt={prompt || undefined}
     />,
@@ -116,6 +119,7 @@ if (!store) {
     // initialize shows its own failure
     .catch(() => {});
   await application.waitUntilExit();
+  repository.close();
   process.removeListener('SIGTERM', shutdown);
   process.removeListener('SIGINT', shutdown);
 }

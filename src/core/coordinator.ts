@@ -13,6 +13,7 @@ import type {
   Skill,
   SkillCall,
   TurnResult,
+  Usage,
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
@@ -90,6 +91,10 @@ export interface Snapshot {
   skills: readonly Skill[];
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
+  /** the live session's usage; a session that never reported keeps it empty. */
+  usage: Usage;
+  /** when this instance opened the conversation, in epoch milliseconds. */
+  openedAt?: number;
   recovery?: Recovery;
   error?: string;
 }
@@ -135,6 +140,7 @@ export class Coordinator {
       requests: [],
       models: [],
       skills: [],
+      usage: {},
       agents: agents.map(({ adapter, executable }) => ({
         id: adapter.id,
         label: adapter.label,
@@ -298,6 +304,8 @@ export class Coordinator {
       items,
       models: [],
       native: undefined,
+      usage: {},
+      openedAt: Date.now(),
     });
     if (failure !== undefined) this.report(failure);
   }
@@ -566,7 +574,11 @@ export class Coordinator {
         await this.disconnect();
       }
       await this.save();
-      this.publish({ conversation, native: this.session?.info });
+      this.publish({
+        conversation,
+        native: this.session?.info,
+        usage: this.session?.usage ?? {},
+      });
       throw error;
     }
   }
@@ -725,6 +737,7 @@ export class Coordinator {
     }
     this.publish({
       native: session.info,
+      usage: session.usage,
       models: await session.models(),
       skills,
     });
@@ -763,6 +776,8 @@ export class Coordinator {
       this.notice(event.text);
     } else if (event.type === 'skills') {
       if (this.live(agent)) this.publish({ skills: event.skills });
+    } else if (event.type === 'usage') {
+      if (this.live(agent)) this.publish({ usage: event.usage });
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       this.display(

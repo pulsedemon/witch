@@ -25,6 +25,28 @@ export interface SessionInfo {
   hasHistory: boolean;
   /** the requested effort in force; undefined when none was requested. */
   effort?: string;
+  /** the effort the agent reports in force, its own default included. */
+  nativeEffort?: string;
+}
+
+/** a session's usage as its agent reports it; each part is absent until reported. */
+export interface Usage {
+  /** percent of the context window in use. */
+  context?: number;
+  /** the session's estimated cost in US dollars. */
+  cost?: number;
+  /** the account's usage limits, shortest window first. */
+  limits?: Limit[];
+  /** lines the session's edits added and removed. */
+  lines?: { added: number; removed: number };
+}
+
+export interface Limit {
+  /** the window's length, such as `5H` or `7D`. */
+  window: string;
+  percent: number;
+  /** in epoch seconds. */
+  resetsAt?: number;
 }
 
 export interface Question {
@@ -65,6 +87,7 @@ export type AgentEvent =
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
   | { type: 'info'; info: SessionInfo }
+  | { type: 'usage'; usage: Usage }
   /** the native skill list changed; it replaces the one `skills()` gave. */
   | { type: 'skills'; skills: Skill[] }
   | { type: 'notice'; text: string };
@@ -77,6 +100,7 @@ export interface TurnResult {
 
 export interface AgentSession {
   readonly info: SessionInfo;
+  readonly usage: Usage;
   readonly closed: boolean;
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
