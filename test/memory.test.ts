@@ -24,10 +24,6 @@ import { hookedGit, passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 
 const execute = promisify(execFile);
-/** a note name carrying a terminal link, which no message may repeat */
-const linked = (name: string) => `\u001b]8;;..:1\u0007${name}\u001b]8;;\u0007`;
-const refusal = (pattern: RegExp) => (error: Error) =>
-  pattern.test(error.message) && !/\p{Cc}/u.test(error.message);
 const lines = (changes: Record<number, string> = {}) =>
   [1, 2, 3, 4, 5].map((line) => changes[line] ?? `line ${line}`).join('\n') +
   '\n';
@@ -376,7 +372,7 @@ await test('commit, restore, note preparation and the note list refuse symlinked
   for (const parent of [false, true]) {
     const { memory, open, project, root } = await fixture();
     const { workspace, scope } = await open('a');
-    const path = join(scope.project, `${linked('note')}.md`);
+    const path = join(scope.project, 'note.md');
     await writeFile(path, 'Saved preference.');
     await workspace.commit('save note');
     const revision = await workspace.revision();
@@ -408,7 +404,7 @@ await test('commit, restore, note preparation and the note list refuse symlinked
         await workspace.revision(),
         await memory.scopePaths(project),
       ),
-      refusal(/regular files/),
+      /regular files/,
     );
     await assert.rejects(
       workspace.restore(path, revision),
@@ -426,7 +422,7 @@ await test('commit, restore, note preparation and the note list refuse symlinked
       await workspace.commit('replace link with note');
       await assert.rejects(
         workspace.restore(path, linkedRevision),
-        refusal(/regular files/),
+        /regular files/,
       );
       assert.equal(await readFile(path, 'utf8'), 'Regular note again.');
     }
@@ -439,14 +435,16 @@ await test('pending symlinks cannot be accepted or read through a recovery previ
   const before = await workspace.revision();
   const target = join(root, 'private.txt');
   await writeFile(target, 'External private content.');
-  await symlink(target, join(scope.project, `${linked('reference')}.md`));
-  await assert.rejects(
-    workspace.commit('accept link'),
-    refusal(/regular file/),
+  // the preview must not repeat a link carried in the name
+  await symlink(
+    target,
+    join(scope.project, '\u001b]8;;..:1\u0007reference\u001b]8;;\u0007.md'),
   );
+  await assert.rejects(workspace.commit('accept link'), /regular file/);
   assert.equal(await workspace.revision(), before);
   const diff = await workspace.diff();
   assert.match(diff, /New file: .*reference/);
+  assert.match(diff, /regular file: .*reference/);
   assert.ok(!diff.includes('\u001b'));
   assert.doesNotMatch(diff, /External private content/);
   await workspace.discardPending();

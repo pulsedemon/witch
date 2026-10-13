@@ -170,7 +170,7 @@ export class Workspace {
         async (file) =>
           `New file: ${printable(file)}\n${await this.checkedPath(file).then(
             (path) => readFile(path, 'utf8'),
-            (error: unknown) => String(error),
+            (error: unknown) => printable(String(error)),
           )}`,
       ),
     );
@@ -316,7 +316,7 @@ export class Workspace {
       const directory = index < parts.length || kind === 'directory';
       if (directory ? !stat.isDirectory() : !stat.isFile())
         throw new Error(
-          `Memory path must be a regular ${directory ? 'directory' : 'file'}: ${printable(current)}`,
+          `Memory path must be a regular ${directory ? 'directory' : 'file'}: ${current}`,
         );
     }
     return join(this.root, ...parts);

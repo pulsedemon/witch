@@ -217,6 +217,19 @@ await test('a conflicting note name carrying a link sequence shows as plain text
   }
 });
 
+await test('an error naming a note drops a link forged in the name', async () => {
+  const { app } = fake({
+    error: `Memory notes must be regular files: global/${forgedLink('..:1', 'forged')}.md`,
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the error', () => ui.text().includes('regular files'));
+    assert.ok(!ui.frame().includes('vscode://file/:1'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('the pending view ignores k', async () => {
   const { app, calls } = fake({
     phase: 'recovery',

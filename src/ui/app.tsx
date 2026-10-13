@@ -134,8 +134,9 @@ export function App({
     [layout, state.items, width, expanded],
   );
   const errorLimit = Math.max(1, Math.floor(height / 3));
+  // an error can quote an agent-written note name
   const errorLines = state.error
-    ? wrapAnsi(linkify(state.error, cwd), width - 2, {
+    ? wrapAnsi(linkify(plain(state.error), cwd), width - 2, {
         hard: true,
         trim: false,
       }).split('\n')
