@@ -598,6 +598,7 @@ await test('a note file name carrying a link sequence shows as plain text in the
     ui.stdin.write('\r');
     await until('the note page', () => ui.text().includes('e edit'));
     assert.ok(!ui.frame().includes(forged));
+    assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
   } finally {
     ui.unmount();
     await coordinator.close();
