@@ -16,12 +16,17 @@ export function linkTarget(target: string, cwd: string): string {
   if (target.startsWith('vscode://file/')) return target;
   if (target.startsWith('file://'))
     target = decodeURIComponent(new URL(target).pathname);
-  const location = /:(\d+)(?::(\d+))?$/.exec(target);
+  // Codex writes a location as `#L12C4` as well as `:12:4`
+  const location =
+    /:(\d+)(?::(\d+))?$/.exec(target) ?? /#L(\d+)(?:C(\d+))?$/.exec(target);
   const file = location ? target.slice(0, location.index) : target;
   const path = file.startsWith('~/')
     ? resolve(homedir(), file.slice(2))
     : resolve(cwd, file);
-  return `vscode://file${path.split('/').map(encodeURIComponent).join('/')}${location?.[0] ?? ''}`;
+  const suffix = location
+    ? `:${location[1]}${location[2] ? `:${location[2]}` : ''}`
+    : '';
+  return `vscode://file${path.split('/').map(encodeURIComponent).join('/')}${suffix}`;
 }
 
 export function hyperlink(text: string, target: string, cwd: string): string {
@@ -55,6 +60,11 @@ export function markdownLink(
   cwd: string,
 ): string {
   if (!/^[a-z][a-z\d+.-]*:/i.test(target)) {
+    // a heading anchor is no part of the file; only a `#L12` location is kept
+    const hash = target.indexOf('#');
+    if (hash !== -1 && !/^#L\d+(?:C\d+)?$/.test(target.slice(hash)))
+      target = target.slice(0, hash);
+    if (!target) return text;
     try {
       target = decodeURIComponent(target);
     } catch {

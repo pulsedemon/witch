@@ -43,6 +43,20 @@ await test('a prefixed or absolute path followed by a colon links without it, ke
     );
 });
 
+await test('a #L location links as a line and column, and a heading fragment drops from a Markdown target', () => {
+  assert.ok(
+    linkify('`src/a.ts#L10C2`', '/work').includes(
+      '\u001b]8;;vscode://file/work/src/a.ts:10:2\u0007',
+    ),
+  );
+  assert.ok(
+    markdown('[Rules](docs/rules.md#shared-memory)', '/work').includes(
+      '\u001b]8;;vscode://file/work/docs/rules.md\u0007',
+    ),
+  );
+  assert.ok(!markdown('[Top](#goal)', '/work').includes('\u001b]8;;vscode'));
+});
+
 await test('Markdown labels and links in code blocks remain clickable', () => {
   const rendered = markdown(
     '[Documentation](https://example.com/docs)\n\n```text\nhttps://example.com/log\nsrc/main.ts:42\n```',
