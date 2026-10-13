@@ -1911,19 +1911,21 @@ await test('agent events reach the transcript with their own replace, append and
   const { coordinator, a, project } = await fixture();
   try {
     const { options } = a.sessions.at(-1)!;
+    const shown = () =>
+      coordinator.snapshot.items.map(({ text, cwd }) => [text, cwd]);
     options.onEvent({ type: 'text', id: 'm', text: 'Hel' });
     options.onEvent({ type: 'text', id: 'm', text: 'lo' });
+    assert.deepEqual(shown(), [['Hello', project]]);
     options.onEvent({ type: 'text', id: 'm', text: 'Hello!', replace: true });
     const tool = { type: 'tool', id: 't', title: 'ls' } as const;
     options.onEvent({ ...tool, text: 'a', done: false, cwd: '/elsewhere' });
-    options.onEvent({ ...tool, text: 'b', done: true, append: true });
-    assert.deepEqual(
-      coordinator.snapshot.items.map(({ text, cwd }) => [text, cwd]),
-      [
-        ['Hello!', project],
-        ['ab', '/elsewhere'],
-      ],
-    );
+    options.onEvent({ ...tool, text: 'b', done: false, append: true });
+    assert.deepEqual(shown()[1], ['ab', '/elsewhere']);
+    options.onEvent({ ...tool, text: 'out', done: true, cwd: '/elsewhere' });
+    assert.deepEqual(shown(), [
+      ['Hello!', project],
+      ['out', '/elsewhere'],
+    ]);
   } finally {
     await coordinator.close();
   }

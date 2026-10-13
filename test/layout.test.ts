@@ -129,9 +129,18 @@ await test('an anchor on a line that no longer renders falls back to its item st
     cwd: '/work',
     done: true,
   };
+  const notice: DisplayItem = {
+    id: 'notice',
+    kind: 'notice',
+    text: 'one\ntwo',
+    cwd: '/work',
+  };
   const layout = new TranscriptLayout();
-  const anchor = layout.render([item], 80, new Set(['log'])).anchorAt(2)!;
-  assert.equal(layout.render([item], 80, new Set()).rowOf(anchor), 0);
+  const expanded = layout.render([notice, item], 80, new Set(['log']));
+  const anchor = expanded.anchorAt(expanded.starts.get('log')! + 2)!;
+  const collapsed = layout.render([notice, item], 80, new Set());
+  assert.ok(collapsed.starts.get('log')! > 0);
+  assert.equal(collapsed.rowOf(anchor), collapsed.starts.get('log'));
 });
 
 await test('a reading anchor includes spaces trimmed while wrapping a title', () => {
@@ -284,6 +293,21 @@ for (const [name, frames] of [
     [
       { items: [tool(early)], width: 40, expanded: ['tool'] },
       { items: [tool('replaced output')], width: 40, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'an append to a last line that wraps',
+    [
+      {
+        items: [tool('first\nprogress 0123456789abcdef')],
+        width: 12,
+        expanded: ['tool'],
+      },
+      {
+        items: [tool('first\nprogress 0123456789abcdefghij')],
+        width: 12,
+        expanded: ['tool'],
+      },
     ],
   ],
   [

@@ -517,6 +517,9 @@ await test('a null effort stops requesting one', async () => {
     await session.selectModel('model-a', 'high');
     await session.selectModel('model-b', null);
     assert.equal(session.info.effort, undefined);
+    assert.equal((await session.send('tool')).status, 'completed');
+    const prompt = JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8'));
+    assert.equal(prompt.params.effort, undefined);
   } finally {
     await close(session, cwd);
   }

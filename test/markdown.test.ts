@@ -34,17 +34,21 @@ await test('relative link targets resolve against their own base or stay text wi
   assert.ok(!unlinked.includes('ports.md'));
 });
 
-await test('image alt text and HTML render as plain text, so neither can carry a link of its own', () => {
+await test('image alt text renders as plain text, and HTML gets the link checks other text gets', () => {
   const forged =
     '\u001b\\]8;;https://evil.example/share\u0007src/app.ts:12\u001b\\]8;;\u0007';
   const output = markdown(
-    `Fixed in ![${forged}](x)\n\n<div>\u001b]8;;smb://evil.example/share\u0007name\u001b]8;;\u0007</div>`,
+    `Fixed in ![${forged}](x)\n\n<div>\u001b]8;;smb://evil.example/share\u0007name\u001b]8;;\u0007 \u001b]8;;https://example.com/log\u0007log\u001b]8;;\u0007</div>`,
     '/work',
   );
   assert.ok(!output.includes('evil.example'), JSON.stringify(output));
+  assert.ok(
+    output.includes('\u001b]8;;https://example.com/log\u0007'),
+    JSON.stringify(output),
+  );
   assert.equal(
     stripAnsi(output),
-    'Fixed in [src/app.ts:12]\n\n<div>name</div>',
+    'Fixed in [src/app.ts:12]\n\n<div>name log</div>',
   );
 });
 

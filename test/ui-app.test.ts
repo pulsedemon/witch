@@ -178,7 +178,8 @@ await test('the conflict view resolves with k and d, ignores a, and links notes 
         .includes('vscode://file/state/conversations/c/memory/global/one.md'),
     );
     assert.ok(!ui.frame().includes('memory.git'));
-    await delay(500);
+    // past the 500 ms recovery guard, so the view's kind, not the guard, ignores the key
+    await delay(600);
     for (const key of ['a', 'k', 'd']) {
       ui.stdin.write(key);
       await delay(30);
@@ -202,7 +203,7 @@ await test('the pending view ignores k', async () => {
     await until('the pending view', () =>
       ui.text().includes('a accept · d discard'),
     );
-    await delay(500);
+    await delay(600);
     for (const key of ['k', 'a']) {
       ui.stdin.write(key);
       await delay(30);
@@ -216,8 +217,7 @@ await test('the pending view ignores k', async () => {
 await test('a recovery that appears while typing ignores keys for its first 500 ms', async () => {
   const { app, coordinator, calls } = fake({ phase: 'running' });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  try {
-    await delay(60);
+  const discardOnce = async (count: number) => {
     coordinator.publish({
       phase: 'recovery',
       recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
@@ -229,11 +229,22 @@ await test('a recovery that appears while typing ignores keys for its first 500 
     await delay(150);
     ui.stdin.write('d');
     await delay(100);
-    assert.deepEqual(calls, []);
+    assert.equal(calls.length, count - 1);
     await delay(500);
     ui.stdin.write('d');
-    await until('the discard', () => calls.length > 0);
-    assert.deepEqual(calls, [['recoverMemory', 'discard']]);
+    await until('the discard', () => calls.length === count);
+  };
+  try {
+    // past 500 ms from mount, so a guard counted from mount has already lifted
+    await delay(700);
+    await discardOnce(1);
+    coordinator.publish({ phase: 'running' });
+    await until('the composer', () => !ui.text().includes('d discard'));
+    await discardOnce(2);
+    assert.deepEqual(calls, [
+      ['recoverMemory', 'discard'],
+      ['recoverMemory', 'discard'],
+    ]);
   } finally {
     ui.unmount();
   }
@@ -1211,7 +1222,10 @@ await test('Escape while tools are focused during a turn leaves focus without in
 });
 
 await test('a new request ignores keys for its first 500 ms', async () => {
-  const { app, calls } = fake({ phase: 'running', requests: [approval] });
+  const { app, coordinator, calls } = fake({
+    phase: 'running',
+    requests: [approval],
+  });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await until('the request', () => ui.text().includes('Approval required'));
@@ -1223,6 +1237,13 @@ await test('a new request ignores keys for its first 500 ms', async () => {
     await delay(500);
     ui.stdin.write('y');
     await until('the accept', () => calls.length > 0);
+    coordinator.publish({
+      requests: [{ ...approval, id: 'r2', title: 'rm -rf dist' }],
+    });
+    await until('the next request', () => ui.text().includes('rm -rf dist'));
+    await delay(150);
+    ui.stdin.write('y');
+    await delay(100);
     assert.deepEqual(calls, [['respond', 'r1', { decision: 'accept' }]]);
   } finally {
     ui.unmount();
@@ -1473,19 +1494,22 @@ await test('Enter inserts a file without sending', async () => {
 });
 
 await test('Up chooses in an open list without moving the cursor, and moves it once a space closes the list', async () => {
-  const { ui } = await launched({}, ['src/app.ts']);
+  const { ui } = await launched({}, ['src/app.ts', 'src/apx.ts']);
   try {
     ui.stdin.write('abc');
     await delay(30);
     ui.stdin.write(SHIFT_ENTER);
     await delay(30);
     ui.stdin.write('see @sr');
-    await until('the file list', () => ui.text().includes('@src/app.ts'));
+    await until('the file list', () => ui.text().includes('@src/apx.ts'));
+    ui.stdin.write(DOWN);
+    await delay(30);
     ui.stdin.write(UP);
     await delay(30);
-    ui.stdin.write('c');
-    await until('typing at the token', () => ui.text().includes('│ see @src'));
-    assert.ok(!ui.text().includes('abcc'));
+    ui.stdin.write(TAB);
+    await until('the first file at the token', () =>
+      ui.text().includes('│ see @src/app.ts'),
+    );
     ui.stdin.write(` ${UP}Z`);
     await until('typing on the first line', () => ui.text().includes('│ abcZ'));
   } finally {
