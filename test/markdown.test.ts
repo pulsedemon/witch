@@ -34,12 +34,18 @@ await test('relative link targets resolve against their own base or stay text wi
   assert.ok(!unlinked.includes('ports.md'));
 });
 
-await test('image alt text renders as plain text, so it cannot carry a link of its own', () => {
+await test('image alt text and HTML render as plain text, so neither can carry a link of its own', () => {
   const forged =
     '\u001b\\]8;;https://evil.example/share\u0007src/app.ts:12\u001b\\]8;;\u0007';
-  const output = markdown(`Fixed in ![${forged}](x)`, '/work');
+  const output = markdown(
+    `Fixed in ![${forged}](x)\n\n<div>\u001b]8;;smb://evil.example/share\u0007name\u001b]8;;\u0007</div>`,
+    '/work',
+  );
   assert.ok(!output.includes('evil.example'), JSON.stringify(output));
-  assert.equal(stripAnsi(output), 'Fixed in [src/app.ts:12]');
+  assert.equal(
+    stripAnsi(output),
+    'Fixed in [src/app.ts:12]\n\n<div>name</div>',
+  );
 });
 
 await test('a URL in inline code links to itself, alone, after a command or after a quoted path', () => {
