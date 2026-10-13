@@ -143,7 +143,7 @@ export class StateStore {
   }
 
   private directory(id: string): string {
-    return join(this.root, 'conversations', encodeURIComponent(id));
+    return join(this.root, 'conversations', id);
   }
 }
 
