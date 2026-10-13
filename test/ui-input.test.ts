@@ -138,6 +138,25 @@ await test('the visible terminal cursor reaches the current insertion point with
       await delay(30);
       assert.deepEqual(submitted, [text]);
     }
+    ui.rerender(
+      createElement(Input, {
+        key: 'lines',
+        width: 30,
+        height: 3,
+        active: true,
+        onSubmit: () => true,
+      }),
+    );
+    await delay(30);
+    // Up from the end of `cd` lands before the newline that ends `ab`
+    stdin.write('\u001b[200~ab\ncd\u001b[201~\u001b[A');
+    await delay(30);
+    await ui.waitUntilRenderFlush();
+    const moves = [
+      // eslint-disable-next-line no-control-regex
+      ...stdout.output.matchAll(/\[(\d+)A\u001b\[(\d+)G/g),
+    ];
+    assert.deepEqual(moves.at(-1)?.slice(1), ['3', '3']);
   } finally {
     ui.unmount();
   }
