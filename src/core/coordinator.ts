@@ -336,11 +336,11 @@ export class Coordinator {
     });
   }
 
-  projectFiles(): Promise<string[]> {
+  async projectFiles(): Promise<string[]> {
     return listFiles(this.current().cwd);
   }
 
-  conversations(): Promise<Conversation[]> {
+  async conversations(): Promise<Conversation[]> {
     return this.store.conversations(this.current().cwd);
   }
 

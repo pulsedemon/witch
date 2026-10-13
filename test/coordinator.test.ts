@@ -224,7 +224,7 @@ await test('recovery has one owner and shutdown waits for its accepted commit', 
   assert.match(await memory.read(main, await note()), /4567/);
 });
 
-await test('startup failures leave an exit-capable error state', async () => {
+await test('startup failures leave an exit-capable error state whose lookups reject rather than throw', async () => {
   const { coordinator: original, root, memory, a } = await fixture();
   await original.close();
   const coordinator = new Coordinator(
@@ -235,6 +235,8 @@ await test('startup failures leave an exit-capable error state', async () => {
   try {
     await assert.rejects(coordinator.initialize(join(root, 'missing')));
     assert.equal(coordinator.snapshot.phase, 'error');
+    await assert.rejects(coordinator.conversations(), /No active conversation/);
+    await assert.rejects(coordinator.projectFiles(), /No active conversation/);
   } finally {
     await coordinator.close();
   }
