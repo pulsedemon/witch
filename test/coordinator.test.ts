@@ -370,6 +370,33 @@ await test('editing a previously committed symlink never opens its external targ
   }
 });
 
+await test('memory edit and restore notices resolve their note against the memory worktree', async () => {
+  const { coordinator, memory, workspace, note } = await fixture(
+    async (path) => {
+      await writeFile(path, 'Use port 9001.');
+    },
+  );
+  try {
+    await coordinator.editMemory();
+    const revision = await memory.resolve(main);
+    await coordinator.restoreMemory(await note(), revision);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter((item) => item.kind === 'notice')
+        .map(({ text, cwd }) => [text, cwd]),
+      [
+        [`Memory edit: ${await note()}`, workspace().root],
+        [
+          `Memory restore: ${await note()} at ${revision.slice(0, 8)}`,
+          workspace().root,
+        ],
+      ],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 for (const action of ['interrupt', 'close'] as const) {
   await test(
     `${action} cancels an open memory editor and preserves pending-write provenance`,
@@ -604,16 +631,17 @@ await test("the launch sweep clears a clean conversation's stale activity", asyn
   );
 });
 
-await test('an unreadable state file is named in the launch report and skipped', async () => {
+await test('an unreadable state file is named by its full path in the launch report and skipped', async () => {
   const { launch, directory } = await sweepFixture();
   await mkdir(directory('broken'));
   await writeFile(join(directory('broken'), 'state.json'), '{"id":');
   const coordinator = await launch();
   try {
     assert.equal(coordinator.snapshot.phase, 'idle');
-    assert.match(
-      coordinator.snapshot.error ?? '',
-      /conversations\/broken\/state\.json/,
+    assert.ok(
+      coordinator.snapshot.error?.includes(
+        `- ${join(directory('broken'), 'state.json')} can't be read`,
+      ),
     );
   } finally {
     await coordinator.close();

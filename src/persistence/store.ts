@@ -58,7 +58,7 @@ async function readRecord(directory: string): Promise<ConversationRecord> {
 }
 
 interface UnreadableRecord {
-  id: string;
+  file: string;
   error: string;
 }
 
@@ -81,7 +81,10 @@ export class StateStore {
         records.push(await readRecord(this.directory(id)));
       } catch (error) {
         if (!missing(error))
-          unreadable.push({ id, error: errorMessage(error) });
+          unreadable.push({
+            file: join(this.directory(id), 'state.json'),
+            error: errorMessage(error),
+          });
       }
     }
     return { records, unreadable };

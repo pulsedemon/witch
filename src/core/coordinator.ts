@@ -207,8 +207,7 @@ export class Coordinator {
         .map(([branch]) => branch!.slice('conversations/'.length)),
     );
     const lines = unreadable.map(
-      ({ id, error }) =>
-        `- conversations/${id}/state.json can't be read: ${error}`,
+      ({ file, error }) => `- ${file} can't be read: ${error}`,
     );
     const listed = new Set(records.map(({ id }) => id));
     for (const id of ahead)
@@ -451,7 +450,7 @@ export class Coordinator {
       const note =
         path ??
         `${(await this.memory.scopePaths(this.current().cwd)).project}/MEMORY.md`;
-      this.notice(`Memory edit: ${note}`);
+      this.notice(`Memory edit: ${note}`, this.workspace!.root);
       await this.beginActivity('memory-edit');
       const file = await this.workspace!.prepareNote(note);
       this.editorCancellation = new AbortController();
@@ -469,7 +468,10 @@ export class Coordinator {
 
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
-      this.notice(`Memory restore: ${path} at ${revision.slice(0, 8)}`);
+      this.notice(
+        `Memory restore: ${path} at ${revision.slice(0, 8)}`,
+        this.workspace!.root,
+      );
       await this.beginActivity('memory-edit');
       await this.workspace!.restore(path, revision);
       delete this.current().activity;
@@ -806,13 +808,9 @@ export class Coordinator {
     this.persist(this.files!.append(update));
   }
 
-  private notice(text: string): void {
-    this.display({
-      id: randomUUID(),
-      kind: 'notice',
-      text,
-      cwd: this.current().cwd,
-    });
+  /** `cwd` resolves the paths the notice names, so a memory note links into the worktree. */
+  private notice(text: string, cwd = this.current().cwd): void {
+    this.display({ id: randomUUID(), kind: 'notice', text, cwd });
   }
 
   private save(): Promise<void> {
