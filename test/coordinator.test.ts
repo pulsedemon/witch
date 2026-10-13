@@ -1959,7 +1959,7 @@ await test('a native skills change replaces the list, unless its session has clo
   }
 });
 
-await test('a resolved request leaves the queue, cancelling one interrupts the turn, and the settled turn leaves none', async () => {
+await test('answers reach the agent and only a cancel interrupts the turn, a resolved request leaves the queue, and the settled turn leaves none', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   try {
@@ -1975,9 +1975,20 @@ await test('a resolved request leaves the queue, cancelling one interrupts the t
     }));
     options.onEvent({ type: 'request', request: first! });
     options.onEvent({ type: 'request', request: second! });
+    let ended = false;
+    void gate.result.then(() => {
+      ended = true;
+    });
+    await coordinator.respond('r1', { decision: 'accept' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(ended, false);
     options.onEvent({ type: 'request-resolved', id: 'r1' });
     assert.deepEqual(coordinator.snapshot.requests, [second]);
     await coordinator.respond('r2', { decision: 'cancel' });
+    assert.deepEqual(a.responses, [
+      ['r1', { decision: 'accept' }],
+      ['r2', { decision: 'cancel' }],
+    ]);
     assert.equal(
       (await within(gate.result, 2000, 'the turn result')).status,
       'interrupted',

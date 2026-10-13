@@ -11,6 +11,7 @@ import type {
   Skill,
   SkillCall,
   TurnResult,
+  UserResponse,
 } from '../../src/agents/types.js';
 
 /** holds gated turns until `open()`, which releases the current turn and every later one. */
@@ -47,6 +48,7 @@ export class FixtureAgent implements AgentAdapter {
   failSkills = false;
   readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
   readonly selections: [string, string | null | undefined][] = [];
+  readonly responses: [string, UserResponse][] = [];
   failConnect = false;
   /** an effort connect and selectModel reject, as Claude Code rejects one outside its levels. */
   invalidEffort?: string;
@@ -114,7 +116,9 @@ export class FixtureAgent implements AgentAdapter {
           effort: effort === undefined ? info.effort : (effort ?? undefined),
         };
       },
-      respond: () => {},
+      respond: (id, response) => {
+        this.responses.push([id, response]);
+      },
       interrupt: async () => {
         if (this.failInterrupt) throw new Error('Interrupt failed');
         turn?.resolve({ status: 'interrupted', text: '' });
