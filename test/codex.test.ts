@@ -588,7 +588,7 @@ await test('a model choice that changes no native setting returns and shows the 
   }
 });
 
-await test("a spawned thread's tool items give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, a thread with no turn here is ignored, and a restart starts without the last run's activity, count and report", async () => {
+await test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -626,6 +626,8 @@ await test("a spawned thread's tool items give its familiar's latest activity, w
         },
         // a restart is a new run, without the last one's activity, count and report
         { ...worker, run: 'worker-thread-turn-2' },
+        // and a late item and end from the turn before it are ignored
+        { ...worker, run: 'worker-thread-turn-3' },
       ],
     );
   } finally {

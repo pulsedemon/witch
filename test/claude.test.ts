@@ -557,16 +557,23 @@ await test("a Claude familiar's tool calls give its latest activity, with a path
         reader,
         {
           ...reader,
+          activity: undefined,
+          tools: 0,
+          report: 'Reading the tests.',
+        },
+        {
+          ...reader,
           activity: 'Read  ./a.test.ts',
           tools: 1,
-          report: undefined,
+          report: 'Reading the tests.',
         },
         {
           ...reader,
           activity: 'Bash  Run tests  $ pnpm test',
           tools: 2,
-          report: undefined,
+          report: 'Reading the tests.',
         },
+        // a later message's text replaces the report
         {
           ...reader,
           activity: 'Bash  Run tests  $ pnpm test',

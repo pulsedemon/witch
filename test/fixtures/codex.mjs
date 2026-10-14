@@ -237,6 +237,18 @@ for await (const line of lines) {
         threadId: 'worker-thread',
         turn: { id: 'worker-thread-turn', status: 'inProgress' },
       });
+      // its prompt and its thinking are no tool calls
+      item('item/started', 'worker-thread', {
+        type: 'userMessage',
+        id: 'w-0',
+        content: [],
+      });
+      item('item/started', 'worker-thread', {
+        type: 'reasoning',
+        id: 'w-r',
+        summary: [],
+        content: [],
+      });
       const command = {
         type: 'commandExecution',
         id: 'w-1',
@@ -263,6 +275,20 @@ for await (const line of lines) {
       notify('turn/started', {
         threadId: 'worker-thread',
         turn: { id: 'worker-thread-turn-2', status: 'inProgress' },
+      });
+      // and starts again before that turn's last item and end arrive
+      notify('turn/started', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn-3', status: 'inProgress' },
+      });
+      notify('item/started', {
+        threadId: 'worker-thread',
+        turnId: 'worker-thread-turn-2',
+        item: { ...command, id: 'w-4' },
+      });
+      notify('turn/completed', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn-2', status: 'completed' },
       });
       finish('completed');
       continue;

@@ -797,6 +797,10 @@ export class Coordinator {
   private async disconnect(): Promise<void> {
     const session = this.session;
     this.session = undefined;
+    // closing the session stops its familiars, and their own stops would no longer reach receive()
+    for (const subagent of this.snapshot.subagents)
+      if (subagent.status === 'running')
+        this.familiar(this.current(), { ...subagent, status: 'stopped' });
     this.publish({ skills: [], subagents: [] });
     await session?.close();
     if (!this.record) return;
@@ -829,59 +833,7 @@ export class Coordinator {
     } else if (event.type === 'usage') {
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent') {
-      const { subagent } = event;
-      const previous = this.snapshot.subagents.find(
-        ({ id }) => id === subagent.id,
-      );
-      // only a start lists a familiar, so a late update cannot restore one a turn dropped
-      if (!this.live(agent) || (!previous && subagent.status !== 'running'))
-        return;
-      const running = subagent.status === 'running';
-      // a new run can start before the last one's end arrives, so a start under another run is a restart
-      const started =
-        running &&
-        (previous?.status !== 'running' || previous.run !== subagent.run);
-      const ended = !running && previous?.status === 'running';
-      const now = Date.now();
-      const rows = started
-        ? { start: randomUUID() }
-        : { ...previous!.rows, ...(ended ? { end: randomUUID() } : {}) };
-      this.publish({
-        subagents: withSubagent(this.snapshot.subagents, {
-          ...subagent,
-          startedAt: started ? now : previous!.startedAt,
-          ...(running ? {} : { endedAt: ended ? now : previous!.endedAt }),
-          rows,
-        }),
-      });
-      // the transcript keeps each familiar's run after a turn drops it from the sidebar
-      const row = (id: string, title: string[], text = '') =>
-        this.display({
-          id,
-          kind: 'tool',
-          title: title.filter(Boolean).join('  '),
-          text,
-          done: true,
-          cwd: conversation.cwd,
-        });
-      // a name or kind can arrive after the rows, as a Codex thread's does, and retitles them in place
-      const renamed =
-        !started &&
-        (subagent.name !== previous!.name || subagent.kind !== previous!.kind);
-      if (started || renamed)
-        row(rows.start, ['Familiar started', subagent.name, subagent.kind]);
-      if (rows.end && (ended || renamed))
-        row(
-          rows.end,
-          [
-            `Familiar ${subagent.status}`,
-            subagent.name,
-            subagent.tools
-              ? `${subagent.tools} tool${subagent.tools === 1 ? '' : 's'}`
-              : '',
-          ],
-          ended ? (subagent.report ?? '') : '',
-        );
+      if (this.live(agent)) this.familiar(conversation, event.subagent);
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       this.display(
@@ -906,6 +858,60 @@ export class Coordinator {
             },
       );
     }
+  }
+
+  /** lists a familiar's update and writes its run's start and end rows, which the transcript keeps after a turn drops the familiar. */
+  private familiar(conversation: ConversationRecord, subagent: Subagent): void {
+    const previous = this.snapshot.subagents.find(
+      ({ id }) => id === subagent.id,
+    );
+    // only a start lists a familiar, so a late update cannot restore one a turn dropped
+    if (!previous && subagent.status !== 'running') return;
+    const running = subagent.status === 'running';
+    // a new run can start before the last one's end arrives, so a start under another run is a restart
+    const started =
+      running &&
+      (previous?.status !== 'running' || previous.run !== subagent.run);
+    const ended = !running && previous?.status === 'running';
+    const now = Date.now();
+    const rows = started
+      ? { start: randomUUID() }
+      : { ...previous!.rows, ...(ended ? { end: randomUUID() } : {}) };
+    this.publish({
+      subagents: withSubagent(this.snapshot.subagents, {
+        ...subagent,
+        startedAt: started ? now : previous!.startedAt,
+        ...(running ? {} : { endedAt: ended ? now : previous!.endedAt }),
+        rows,
+      }),
+    });
+    const row = (id: string, title: string[], text = '') =>
+      this.display({
+        id,
+        kind: 'tool',
+        title: title.filter(Boolean).join('  '),
+        text,
+        done: true,
+        cwd: conversation.cwd,
+      });
+    // a name or kind can arrive after the rows, as a Codex thread's does, and retitles them in place
+    const renamed =
+      !started &&
+      (subagent.name !== previous!.name || subagent.kind !== previous!.kind);
+    if (started || renamed)
+      row(rows.start, ['Familiar started', subagent.name, subagent.kind]);
+    if (rows.end && (ended || renamed))
+      row(
+        rows.end,
+        [
+          `Familiar ${subagent.status}`,
+          subagent.name,
+          subagent.tools
+            ? `${subagent.tools} tool${subagent.tools === 1 ? '' : 's'}`
+            : '',
+        ],
+        ended ? (subagent.report ?? '') : '',
+      );
   }
 
   private saveInfo(

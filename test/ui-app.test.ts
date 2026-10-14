@@ -1466,6 +1466,36 @@ await test('the sidebar lists familiars depth first under the familiar that star
   }
 });
 
+await test("a running familiar's time ticks once a second, also when it starts after the sidebar shows", async () => {
+  const { app, coordinator } = fake({});
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  const seconds = () =>
+    Number(/^ {2}(\d+)S \|/.exec(sidebarRows(ui.text())[2] ?? '')?.[1]);
+  try {
+    await until('the pentacle', () => /[⠁-⣿]/.test(ui.text()));
+    coordinator.publish({
+      subagents: [
+        {
+          id: 'a',
+          name: 'map code',
+          kind: '',
+          status: 'running',
+          startedAt: Date.now() - 5000,
+          rows: { start: 'row' },
+        },
+      ],
+    });
+    await until('the familiar', () => ui.text().includes('FAMILIARS'));
+    const first = seconds();
+    await until('a tick', () => seconds() > first);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('familiars that overflow the sidebar show the last whole familiars in tree order under a count of the rest, above the whole pentacle', async () => {
   const { app } = fake({
     // the newest, 6, started under the oldest, so tree order puts it second
@@ -1487,7 +1517,7 @@ await test('familiars that overflow the sidebar show the last whole familiars in
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
     const rows = sidebarRows(ui.text());
-    // seven rows above the pentacle: the heading, the count and two familiars of three rows each
+    // eight rows above the pentacle: the heading, the count and two familiars of three rows each
     assert.deepEqual(
       [rows[0], rows[1], rows[2], rows[5]],
       ['FAMILIARS', '+4 MORE', '● TASK 4', '● TASK 5'],

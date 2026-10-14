@@ -390,6 +390,7 @@ for await (const line of lines) {
         session_id,
       });
       const tool = (id, name, input) => ({ type: 'tool_use', id, name, input });
+      assistant('Reading the tests.', undefined, 'agent-tool', 'reader');
       assistant(
         '',
         [tool('r-1', 'Read', { file_path: join(process.cwd(), 'a.test.ts') })],

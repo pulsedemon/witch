@@ -269,6 +269,34 @@ await test("a familiar's start and end each add a transcript row, the end with i
   }
 });
 
+await test('a familiar still running when its session closes ends stopped, with its tool count and report', async () => {
+  const { coordinator, a } = await fixture();
+  const rows = () =>
+    coordinator.snapshot.items
+      .filter(({ title }) => title?.startsWith('Familiar'))
+      .map(({ title, text }) => [title, text]);
+  try {
+    a.sessions[0]!.options.onEvent({
+      type: 'subagent',
+      subagent: {
+        id: 'w',
+        name: 'Map code',
+        kind: 'Explore',
+        status: 'running',
+        tools: 2,
+        report: 'Halfway.',
+      },
+    });
+    await coordinator.switchAgent('b');
+    assert.deepEqual(rows(), [
+      ['Familiar started  Map code  Explore', ''],
+      ['Familiar stopped  Map code  2 tools', 'Halfway.'],
+    ]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test("a familiar's name and kind arriving after its rows retitle them in place, as a Codex thread's do", async () => {
   const { coordinator, a } = await fixture();
   const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>

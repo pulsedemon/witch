@@ -515,13 +515,16 @@ class CodexSession implements AgentSession {
       : undefined;
   }
 
+  /** a thread's next turn can start before its last turn's items and end arrive, which then belong to no run. */
   private subagentNotification(message: RpcMessage, threadId: string): void {
     const subagent = this.subagents.get(threadId);
     if (
       subagent &&
       (message.method === 'item/started' || message.method === 'item/completed')
     ) {
-      const item = object.parse(object.parse(message.params).item);
+      const params = object.parse(message.params);
+      if (subagent.run !== undefined && params.turnId !== subagent.run) return;
+      const item = object.parse(params.item);
       const type = z.string().parse(item.type);
       if (type === 'agentMessage') {
         if (
@@ -567,10 +570,12 @@ class CodexSession implements AgentSession {
     }
     if (message.method === 'turn/completed') {
       const { turn } = z
-        .object({ turn: z.object({ status: z.string() }) })
+        .object({ turn: z.object({ id: z.string(), status: z.string() }) })
         .parse(message.params);
+      const current = this.subagents.get(threadId)!;
+      if (current.run !== undefined && turn.id !== current.run) return;
       this.subagent({
-        ...this.subagents.get(threadId)!,
+        ...current,
         status:
           turn.status === 'completed'
             ? 'completed'
