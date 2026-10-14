@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { errorMessage } from './stderr.js';
-import { toolTitle } from './tool-title.js';
+import { shortPath, toolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -131,7 +131,9 @@ function itemTitle(
   if (type === 'fileChange')
     return [
       type,
-      ...changedFiles.parse(item.changes).map(({ path }) => path),
+      ...changedFiles
+        .parse(item.changes)
+        .map(({ path }) => shortPath(path, cwd)),
     ].join('  ');
   const call = type === 'mcpToolCall' ? mcpCall.safeParse(item) : undefined;
   if (call?.success)

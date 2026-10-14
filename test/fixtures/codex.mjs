@@ -426,7 +426,11 @@ for await (const line of lines) {
           type: 'fileChange',
           id: 'patch-1',
           changes: [
-            { path: 'a.md', kind: { type: 'update' }, diff: '' },
+            {
+              path: join(process.cwd(), 'a.md'),
+              kind: { type: 'update' },
+              diff: '',
+            },
             { path: 'b.md', kind: { type: 'add' }, diff: '' },
           ],
           status: 'completed',
@@ -443,6 +447,20 @@ for await (const line of lines) {
               { type: 'image', data: 'iVBORw==', mimeType: 'image/png' },
             ],
           },
+        },
+        {
+          type: 'mcpToolCall',
+          id: 'mcp-2',
+          server: 'files',
+          tool: 'read',
+          arguments: { path: join(process.cwd(), 'c.txt') },
+        },
+        {
+          type: 'dynamicToolCall',
+          id: 'dynamic-1',
+          tool: 'read',
+          arguments: { path: join(process.cwd(), 'd.txt') },
+          status: 'completed',
         },
         { type: 'imageView', id: 'view-1', path: '/shots/a.png' },
       ])
