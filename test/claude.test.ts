@@ -496,11 +496,18 @@ await test("Claude tool use and its result update one tool, a text result shows 
   }
 });
 
-await test("Claude's subagent tasks report their parent and how they finished, and its shell and ambient tasks are not subagents", async () => {
+await test("Claude's subagent tasks report their parent and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late notification is ignored", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
     assert.equal((await session.send('familiars')).status, 'completed');
+    const resumed = {
+      id: 'resumed',
+      parent: undefined,
+      name: 'Fix lint',
+      kind: '',
+      status: 'running',
+    };
     assert.deepEqual(
       events.flatMap((event) =>
         event.type === 'subagent' ? [event.subagent] : [],
@@ -520,6 +527,9 @@ await test("Claude's subagent tasks report their parent and how they finished, a
           kind: '',
           status: 'running',
         },
+        // one per run
+        resumed,
+        resumed,
         {
           id: 'inner',
           parent: 'outer',

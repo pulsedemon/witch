@@ -262,6 +262,8 @@ for await (const line of lines) {
       turn('turn/completed', 'grandchild-thread', 'interrupted');
       turn('turn/started', 'failed-thread', 'inProgress');
       turn('turn/completed', 'failed-thread', 'failed');
+      turn('turn/started', 'done-thread', 'inProgress');
+      turn('turn/completed', 'done-thread', 'completed');
       turn('turn/completed', 'child-thread', 'completed');
       // the finished child is sent more input
       turn('turn/started', 'child-thread', 'inProgress');

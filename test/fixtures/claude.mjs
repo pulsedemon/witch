@@ -390,6 +390,20 @@ for await (const line of lines) {
         skip_transcript: true,
         ambient: true,
       });
+      for (const run_id of ['1', '2'])
+        task('task_started', {
+          task_id: 'resumed',
+          run_id,
+          description: 'Fix lint',
+          task_type: 'local_agent',
+        });
+      task('task_notification', {
+        task_id: 'resumed',
+        run_id: '1',
+        status: 'completed',
+        output_file: '',
+        summary: '',
+      });
       for (const [task_id, status] of [
         ['inner', 'completed'],
         ['shell', 'completed'],

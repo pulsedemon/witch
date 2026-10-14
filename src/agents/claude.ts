@@ -123,6 +123,8 @@ class ClaudeSession implements AgentSession {
   private currentMessage = '';
   private turn?: Turn;
   private readonly subagents = new Map<string, Subagent>();
+  /** each subagent task's latest run, since a resumed task keeps its id. */
+  private readonly runs = new Map<string, string>();
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
 
@@ -427,6 +429,7 @@ class ClaudeSession implements AgentSession {
         message.task_type === 'local_agent' &&
         !message.ambient
       ) {
+        if (message.run_id) this.runs.set(message.task_id, message.run_id);
         this.subagent({
           id: message.task_id,
           parent: message.parent_task_id,
@@ -436,7 +439,10 @@ class ClaudeSession implements AgentSession {
         });
       } else if (message.subtype === 'task_notification') {
         const subagent = this.subagents.get(message.task_id);
-        if (subagent) this.subagent({ ...subagent, status: message.status });
+        const run = this.runs.get(message.task_id);
+        // run ids sort in the order the runs opened, so an earlier run's notification is late
+        if (subagent && !(message.run_id && run && message.run_id < run))
+          this.subagent({ ...subagent, status: message.status });
       }
     } else if (
       message.type === 'stream_event' &&

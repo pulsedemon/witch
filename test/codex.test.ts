@@ -594,8 +594,9 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
           kind: '',
           status: 'stopped',
         },
-        // the reads of these two fail, so they keep the defaults
+        // the reads of these fail, so they keep the defaults
         { id: 'failed-thread', name: 'agent', kind: '', status: 'failed' },
+        { id: 'done-thread', name: 'agent', kind: '', status: 'completed' },
         { id: 'stray-thread', name: 'agent', kind: '', status: 'running' },
       ],
     );
