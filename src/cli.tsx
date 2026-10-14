@@ -111,8 +111,8 @@ if (!store) {
   process.stdout.write(captureMouse);
   // runs on every exit, including a second Ctrl+C's process.exit and a crash
   process.once('exit', () => process.stdout.write(releaseMouse));
-  process.once('SIGTERM', shutdown);
-  process.once('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
   void coordinator
     .initialize(process.cwd(), { continue: values.continue })
     // initialize shows its own failure
