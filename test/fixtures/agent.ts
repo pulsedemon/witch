@@ -61,6 +61,8 @@ export class FixtureAgent implements AgentAdapter {
   connectUsage?: Usage;
   /** a usage event the session sends while it lists its models. */
   modelsUsage?: Usage;
+  /** skills the session changes to while it lists its models, as an event and in what `skills()` returns. */
+  modelsSkills?: Skill[];
   /** what a completed turn reports as its session's usage. */
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
@@ -106,6 +108,10 @@ export class FixtureAgent implements AgentAdapter {
         return this.skills;
       },
       models: async () => {
+        if (this.modelsSkills) {
+          this.skills = this.modelsSkills;
+          options.onEvent({ type: 'skills', skills: this.skills });
+        }
         if (this.modelsUsage) {
           usage = this.modelsUsage;
           options.onEvent({ type: 'usage', usage });

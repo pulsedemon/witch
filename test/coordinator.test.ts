@@ -151,6 +151,21 @@ await test("a session's usage at connect and while it lists its models reaches t
   }
 });
 
+await test('a skills change while a session lists its models reaches the snapshot', async () => {
+  const { coordinator } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'older', description: '' }];
+    a.modelsSkills = [{ name: 'newer', description: '' }];
+  });
+  try {
+    assert.deepEqual(
+      coordinator.snapshot.skills.map((skill) => skill.name),
+      ['newer'],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test("the live session's usage reaches the snapshot, and a new conversation starts with none and its own open time even when its agent fails to connect", async () => {
   const { coordinator, a, b } = await fixture();
   try {

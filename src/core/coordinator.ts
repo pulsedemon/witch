@@ -729,13 +729,14 @@ export class Coordinator {
     this.session = session;
     this.saveInfo(conversation, agent, session.info);
     await this.save();
+    const models = await session.models();
+    // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
     let skills: Skill[] = [];
     try {
       skills = await session.skills();
     } catch (error) {
       this.report(error);
     }
-    const models = await session.models();
     this.publish({
       native: session.info,
       usage: session.usage,

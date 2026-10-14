@@ -177,7 +177,7 @@ export class Workspace {
     return [tracked, ...additions].filter(Boolean).join('\n\n');
   }
 
-  /** the paths `main` and this branch disagree on, including content conflicts, and this branch's changes. */
+  /** the paths that conflict with `main`, content conflicts included, and this branch's changes. */
   async conflict(): Promise<{ paths: string[]; diff: string }> {
     const latest = (await this.git(['rev-parse', main])).trim();
     const merged = await this.memory.run(
