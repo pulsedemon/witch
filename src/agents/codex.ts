@@ -119,6 +119,7 @@ const imageContent = z.object({
   mimeType: z.string(),
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
+const turnId = z.object({ turn: z.object({ id: z.string() }) });
 
 /** an item's name and what it acts on; a command shows as itself. */
 function itemTitle(
@@ -554,12 +555,14 @@ class CodexSession implements AgentSession {
         name: 'agent',
         kind: '',
       };
+      const run = turnId.safeParse(message.params).data?.turn.id;
       this.subagent({
         id,
         ...(parent === undefined ? {} : { parent }),
         name,
         kind,
         status: 'running',
+        ...(run ? { run } : {}),
       });
     }
     if (message.method === 'turn/completed') {

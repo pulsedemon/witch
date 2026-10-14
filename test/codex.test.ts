@@ -601,6 +601,7 @@ await test("a spawned thread's tool items give its familiar's latest activity, w
       name: 'agent',
       kind: '',
       status: 'running',
+      run: 'worker-thread-turn',
     };
     assert.deepEqual(
       events.flatMap((event) =>
@@ -624,7 +625,7 @@ await test("a spawned thread's tool items give its familiar's latest activity, w
           status: 'completed',
         },
         // a restart is a new run, without the last one's activity, count and report
-        worker,
+        { ...worker, run: 'worker-thread-turn-2' },
       ],
     );
   } finally {
@@ -632,7 +633,7 @@ await test("a spawned thread's tool items give its familiar's latest activity, w
   }
 });
 
-await test("a spawned thread's turns show it as a subagent under its parent, and its text, settings and completion stay out of the parent's turn", async () => {
+await test("a spawned thread's turns show it as a subagent under its parent with the turn as its run, and its text, settings and completion stay out of the parent's turn", async () => {
   const events: AgentEvent[] = [];
   const named = Promise.withResolvers<void>();
   const { session, cwd } = await fixture((event) => {
@@ -663,6 +664,7 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
           name: 'Euclid',
           kind: 'explorer',
           status: 'running',
+          run: 'child-thread-turn',
         },
         {
           id: 'grandchild-thread',
@@ -670,10 +672,24 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
           name: 'Hypatia',
           kind: '',
           status: 'stopped',
+          run: 'grandchild-thread-turn',
         },
         // the reads of these fail, so they keep the defaults
-        { id: 'failed-thread', name: 'agent', kind: '', status: 'failed' },
-        { id: 'done-thread', name: 'agent', kind: '', status: 'completed' },
+        {
+          id: 'failed-thread',
+          name: 'agent',
+          kind: '',
+          status: 'failed',
+          run: 'failed-thread-turn',
+        },
+        {
+          id: 'done-thread',
+          name: 'agent',
+          kind: '',
+          status: 'completed',
+          run: 'done-thread-turn',
+        },
+        // its completion names no turn, so no run
         { id: 'stray-thread', name: 'agent', kind: '', status: 'running' },
       ],
     );

@@ -547,6 +547,7 @@ await test("a Claude familiar's tool calls give its latest activity, with a path
       name: 'Read tests',
       kind: '',
       status: 'running',
+      run: undefined,
     };
     assert.deepEqual(
       events.flatMap((event) =>
@@ -593,7 +594,7 @@ await test("a Claude familiar's tool calls give its latest activity, with a path
   }
 });
 
-await test("Claude's subagent tasks report their parent and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
+await test("Claude's subagent tasks report their parent, run and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -604,6 +605,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
       name: 'Fix lint',
       kind: '',
       status: 'running',
+      run: '2',
     };
     assert.deepEqual(
       events.flatMap((event) =>
@@ -616,6 +618,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Map the code',
           kind: 'Explore',
           status: 'running',
+          run: undefined,
         },
         {
           id: 'inner',
@@ -623,9 +626,10 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Read tests',
           kind: '',
           status: 'running',
+          run: undefined,
         },
         // one per run
-        resumed,
+        { ...resumed, run: '1' },
         resumed,
         { ...resumed, status: 'completed' },
         {
@@ -634,6 +638,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Read tests',
           kind: '',
           status: 'completed',
+          run: undefined,
         },
         {
           id: 'outer',
@@ -641,6 +646,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Map the code',
           kind: 'Explore',
           status: 'failed',
+          run: undefined,
         },
       ],
     );

@@ -835,7 +835,10 @@ export class Coordinator {
       if (!this.live(agent) || (!previous && subagent.status !== 'running'))
         return;
       const running = subagent.status === 'running';
-      const started = running && previous?.status !== 'running';
+      // a new run can start before the last one's end arrives, so a start under another run is a restart
+      const started =
+        running &&
+        (previous?.status !== 'running' || previous.run !== subagent.run);
       const ended = !running && previous?.status === 'running';
       const now = Date.now();
       this.publish({

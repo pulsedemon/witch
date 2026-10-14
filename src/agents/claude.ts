@@ -442,6 +442,7 @@ class ClaudeSession implements AgentSession {
           name: message.description,
           kind: message.subagent_type ?? '',
           status: 'running',
+          run: message.run_id,
         });
       } else if (message.subtype === 'task_notification') {
         const subagent = this.subagents.get(message.task_id);

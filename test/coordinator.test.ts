@@ -203,7 +203,7 @@ await test("the live session's subagents update in place, a turn drops the finis
   }
 });
 
-await test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start to its end, and a restart starts a new run", async (t) => {
+await test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start to its end, and a restart starts a new run, even one under a new run id while the last still shows as running", async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const { coordinator, a } = await fixture();
   const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>
@@ -253,6 +253,17 @@ await test("a familiar's start and end each add a transcript row, the end with i
       ['Familiar started  Map code  Explore', '', true],
       ['Familiar stopped  Map code  1 tool', '', true],
     ]);
+
+    // a resumed run can start before the last run's end arrives
+    emit('running', { run: '1' });
+    t.mock.timers.tick(1000);
+    emit('running', { run: '2' });
+    emit('running', { run: '2', tools: 1 });
+    assert.deepEqual(rows().slice(4), [
+      ['Familiar started  Map code  Explore', '', true],
+      ['Familiar started  Map code  Explore', '', true],
+    ]);
+    assert.deepEqual(times(), [[8000, undefined]]);
   } finally {
     await coordinator.close();
   }
