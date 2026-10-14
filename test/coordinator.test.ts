@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
+import type { Subagent } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory, main } from '../src/memory/memory.js';
@@ -158,6 +159,17 @@ await test("the live session's subagents update in place, a turn drops the finis
     status: 'running' | 'completed',
     parent?: string,
   ) => ({ id, parent, name: `Task ${id}`, kind: 'Explore', status });
+  // times have their own test
+  const listed = () =>
+    coordinator.snapshot.subagents.map(
+      ({ id, parent, name, kind, status }) => ({
+        id,
+        parent,
+        name,
+        kind,
+        status,
+      }),
+    );
   try {
     const emit = (
       session: (typeof a.sessions)[number],
@@ -170,28 +182,77 @@ await test("the live session's subagents update in place, a turn drops the finis
     emit(a.sessions[0]!, 'outer', 'running');
     emit(a.sessions[0]!, 'inner', 'running', 'outer');
     emit(a.sessions[0]!, 'outer', 'completed');
-    assert.deepEqual(coordinator.snapshot.subagents, [
+    assert.deepEqual(listed(), [
       subagent('outer', 'completed'),
       subagent('inner', 'running', 'outer'),
     ]);
     await coordinator.send('hello');
-    assert.deepEqual(coordinator.snapshot.subagents, [
-      subagent('inner', 'running', 'outer'),
-    ]);
+    assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
     emit(a.sessions[0]!, 'outer', 'completed');
-    assert.deepEqual(coordinator.snapshot.subagents, [
-      subagent('inner', 'running', 'outer'),
-    ]);
+    assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
     await coordinator.switchAgent('b');
-    assert.deepEqual(coordinator.snapshot.subagents, []);
+    assert.deepEqual(listed(), []);
     emit(a.sessions[0]!, 'late', 'running');
-    assert.deepEqual(coordinator.snapshot.subagents, []);
+    assert.deepEqual(listed(), []);
     emit(b.sessions[0]!, 'other', 'running');
-    assert.deepEqual(coordinator.snapshot.subagents, [
-      subagent('other', 'running'),
-    ]);
+    assert.deepEqual(listed(), [subagent('other', 'running')]);
     await coordinator.newConversation('b');
-    assert.deepEqual(coordinator.snapshot.subagents, []);
+    assert.deepEqual(listed(), []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start to its end, and a restart starts a new run", async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+  const { coordinator, a } = await fixture();
+  const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>
+    a.sessions[0]!.options.onEvent({
+      type: 'subagent',
+      subagent: {
+        id: 'w',
+        name: 'Map code',
+        kind: 'Explore',
+        status,
+        ...fields,
+      },
+    });
+  const rows = () =>
+    coordinator.snapshot.items
+      .filter((item) => item.kind === 'tool')
+      .map(({ title, text, done }) => [title, text, done]);
+  const times = () =>
+    coordinator.snapshot.subagents.map(({ startedAt, endedAt }) => [
+      startedAt,
+      endedAt,
+    ]);
+  try {
+    emit('running');
+    t.mock.timers.tick(2000);
+    emit('running', { activity: 'Read  a.ts', tools: 1 });
+    assert.deepEqual(rows(), [
+      ['Familiar started  Map code  Explore', '', true],
+    ]);
+    assert.deepEqual(times(), [[1000, undefined]]);
+
+    t.mock.timers.tick(2000);
+    emit('completed', { tools: 3, report: 'All good.' });
+    t.mock.timers.tick(1000);
+    // a later update to a finished familiar, such as its name arriving
+    emit('completed', { tools: 3, report: 'All good.' });
+    assert.deepEqual(rows().slice(1), [
+      ['Familiar completed  Map code  3 tools', 'All good.', true],
+    ]);
+    assert.deepEqual(times(), [[1000, 5000]]);
+
+    t.mock.timers.tick(1000);
+    emit('running');
+    assert.deepEqual(times(), [[7000, undefined]]);
+    emit('stopped', { tools: 1 });
+    assert.deepEqual(rows().slice(2), [
+      ['Familiar started  Map code  Explore', '', true],
+      ['Familiar stopped  Map code  1 tool', '', true],
+    ]);
   } finally {
     await coordinator.close();
   }

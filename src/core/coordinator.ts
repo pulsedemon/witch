@@ -46,11 +46,17 @@ function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
+/** a listed subagent and when Witch saw it start and end, in epoch milliseconds. */
+export interface TimedSubagent extends Subagent {
+  startedAt: number;
+  endedAt?: number;
+}
+
 /** replaces the subagent with the same id in place, so the list keeps start order. */
 function withSubagent(
-  subagents: readonly Subagent[],
-  subagent: Subagent,
-): Subagent[] {
+  subagents: readonly TimedSubagent[],
+  subagent: TimedSubagent,
+): TimedSubagent[] {
   const index = subagents.findIndex(({ id }) => id === subagent.id);
   return index < 0 ? [...subagents, subagent] : subagents.with(index, subagent);
 }
@@ -100,7 +106,7 @@ export interface Snapshot {
   /** the live session's skills, empty while none is connected. */
   skills: readonly Skill[];
   /** the live session's subagents in start order; a turn drops the finished ones. */
-  subagents: readonly Subagent[];
+  subagents: readonly TimedSubagent[];
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
   /** the live session's usage; a session that never reported keeps it empty. */
@@ -822,14 +828,41 @@ export class Coordinator {
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent') {
       const { subagent } = event;
+      const previous = this.snapshot.subagents.find(
+        ({ id }) => id === subagent.id,
+      );
       // only a start lists a familiar, so a late update cannot restore one a turn dropped
-      if (
-        this.live(agent) &&
-        (subagent.status === 'running' ||
-          this.snapshot.subagents.some(({ id }) => id === subagent.id))
-      )
-        this.publish({
-          subagents: withSubagent(this.snapshot.subagents, subagent),
+      if (!this.live(agent) || (!previous && subagent.status !== 'running'))
+        return;
+      const running = subagent.status === 'running';
+      const started = running && previous?.status !== 'running';
+      const ended = !running && previous?.status === 'running';
+      const now = Date.now();
+      this.publish({
+        subagents: withSubagent(this.snapshot.subagents, {
+          ...subagent,
+          startedAt: started ? now : previous!.startedAt,
+          ...(running ? {} : { endedAt: ended ? now : previous!.endedAt }),
+        }),
+      });
+      // the transcript keeps each familiar's run after a turn drops it from the sidebar
+      const tools = subagent.tools
+        ? `${subagent.tools} tool${subagent.tools === 1 ? '' : 's'}`
+        : '';
+      if (started || ended)
+        this.display({
+          id: randomUUID(),
+          kind: 'tool',
+          title: [
+            `Familiar ${started ? 'started' : subagent.status}`,
+            subagent.name,
+            started ? subagent.kind : tools,
+          ]
+            .filter(Boolean)
+            .join('  '),
+          text: ended ? (subagent.report ?? '') : '',
+          done: true,
+          cwd: conversation.cwd,
         });
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;

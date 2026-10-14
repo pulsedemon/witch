@@ -1378,17 +1378,38 @@ const sidebarRows = (text: string) =>
 await test('the sidebar lists familiars depth first under the familiar that started them, with an unlisted parent shown as a root, and no heading once none are left', async () => {
   const { app, coordinator } = fake({
     subagents: [
-      { id: 'a', name: 'map code', kind: 'Explore', status: 'running' },
-      { id: 'b', name: 'fix bug', kind: '', status: 'failed' },
+      {
+        id: 'a',
+        name: 'map code',
+        kind: 'Explore',
+        status: 'running',
+        startedAt: 0,
+      },
+      { id: 'b', name: 'fix bug', kind: '', status: 'failed', startedAt: 0 },
       {
         id: 'c',
         parent: 'a',
         name: 'read tests',
         kind: '',
         status: 'completed',
+        startedAt: 0,
       },
-      { id: 'd', parent: 'c', name: 'run ls', kind: '', status: 'stopped' },
-      { id: 'e', parent: 'gone', name: 'orphan', kind: '', status: 'running' },
+      {
+        id: 'd',
+        parent: 'c',
+        name: 'run ls',
+        kind: '',
+        status: 'stopped',
+        startedAt: 0,
+      },
+      {
+        id: 'e',
+        parent: 'gone',
+        name: 'orphan',
+        kind: '',
+        status: 'running',
+        startedAt: 0,
+      },
     ],
   });
   const ui = show(
@@ -1421,6 +1442,7 @@ await test('familiars that overflow the sidebar show the last rows in tree order
       name: `task ${index}`,
       kind: '',
       status: 'running' as const,
+      startedAt: 0,
     })),
   });
   const ui = show(
