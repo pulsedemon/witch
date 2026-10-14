@@ -343,6 +343,16 @@ for await (const line of lines) {
       finish('completed');
       continue;
     }
+    if (prompt === 'familiar-restart') {
+      // the familiars, named by now, are sent more input
+      for (const threadId of ['child-thread', 'grandchild-thread'])
+        notify('turn/started', {
+          threadId,
+          turn: { id: `${threadId}-turn-2`, status: 'inProgress' },
+        });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'malformed') {
       for (let count = 0; count < 2; count++)
         notify('item/agentMessage/delta', { itemId: 7, delta: 'bad' });

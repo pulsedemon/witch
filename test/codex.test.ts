@@ -642,7 +642,7 @@ await test("a spawned thread's tool items, not its prompt or thinking, give its 
   }
 });
 
-await test("a spawned thread's turns show it as a subagent under its parent with the turn as its run, and its text, settings and completion stay out of the parent's turn", async () => {
+await test("a spawned thread's turns show it as a subagent under its parent with the turn as its run, its text, settings and completion stay out of the parent's turn, and a restart keeps its parent, name and kind", async () => {
   const events: AgentEvent[] = [];
   const named = Promise.withResolvers<void>();
   const { session, cwd } = await fixture((event) => {
@@ -719,6 +719,35 @@ await test("a spawned thread's turns show it as a subagent under its parent with
         'resolved 95',
         "Witch could not read Codex's turn/completed notification",
         'Parent text.',
+      ],
+    );
+    const read = events.length;
+    assert.equal(
+      (await within(session.send('familiar-restart'), 3000, 'restart')).status,
+      'completed',
+    );
+    assert.deepEqual(
+      events
+        .slice(read)
+        .flatMap((event) =>
+          event.type === 'subagent' ? [event.subagent] : [],
+        ),
+      [
+        {
+          id: 'child-thread',
+          name: 'Euclid',
+          kind: 'explorer',
+          status: 'running',
+          run: 'child-thread-turn-2',
+        },
+        {
+          id: 'grandchild-thread',
+          parent: 'child-thread',
+          name: 'Hypatia',
+          kind: '',
+          status: 'running',
+          run: 'grandchild-thread-turn-2',
+        },
       ],
     );
   } finally {
