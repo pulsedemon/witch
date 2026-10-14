@@ -94,6 +94,8 @@ export type AgentEvent =
       done: boolean;
       cwd?: string;
       append?: boolean;
+      /** image paths or `data:` URLs the tool returned, kept out of `text`. */
+      images?: string[];
     }
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }

@@ -3,6 +3,8 @@ import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
 import { markdown } from './markdown.js';
 import { accent, colors } from './theme.js';
+import type { Graphics } from './images.js';
+import { imagePaths } from './images.js';
 import { linkify } from './links.js';
 
 export interface ScrollAnchor {
@@ -83,7 +85,12 @@ function tailOf(
   return { row, line, start };
 }
 
-function build(item: DisplayItem, width: number, expanded: boolean): Block {
+function build(
+  item: DisplayItem,
+  width: number,
+  expanded: boolean,
+  graphics: Graphics | undefined,
+): Block {
   const tool = item.kind === 'tool';
   const title =
     item.kind === 'user'
@@ -101,19 +108,38 @@ function build(item: DisplayItem, width: number, expanded: boolean): Block {
       : tool
         ? linkify(item.text, item.cwd)
         : markdown(item.text, item.cwd);
+  // a tool's images show with its output; a message shows the images it names
+  const sources =
+    item.kind === 'user'
+      ? imagePaths(item.text)
+      : tool && expanded
+        ? (item.images ?? [])
+        : [];
+  const images = graphics
+    ? sources.flatMap((source) => graphics.rows(source, item.cwd, width))
+    : [];
   const head = section(title, width, true, 0);
   // concat, since spreading a long log into push() exceeds the argument limit
   const rendered = body ? section(body, width, false, head.next) : undefined;
-  const lines = head.lines.concat(rendered?.lines ?? [], '');
-  const anchors = head.anchors.concat(rendered?.anchors ?? [], {
-    line: rendered?.next ?? head.next,
-    offset: 0,
-  });
+  const next = rendered?.next ?? head.next;
+  const lines = head.lines.concat(rendered?.lines ?? [], images, '');
+  const anchors = head.anchors.concat(
+    rendered?.anchors ?? [],
+    // each image row and the closing blank anchor as lines of their own
+    Array.from({ length: images.length + 1 }, (_, index) => ({
+      line: next + index,
+      offset: 0,
+    })),
+  );
   return {
     item,
     lines,
     anchors,
-    tail: tool && body ? tailOf(item, anchors, head.lines.length) : undefined,
+    // output grows above the images, so a block with images is rebuilt whole
+    tail:
+      tool && body && !images.length
+        ? tailOf(item, anchors, head.lines.length)
+        : undefined,
   };
 }
 
@@ -162,6 +188,9 @@ export class TranscriptLayout {
   private cache = new Map<string, Map<boolean, Block>>();
   private width = 0;
 
+  /** without `graphics`, images stay out of the transcript. */
+  constructor(private readonly graphics?: Graphics) {}
+
   render(
     items: readonly DisplayItem[],
     width: number,
@@ -183,7 +212,7 @@ export class TranscriptLayout {
         previous?.item === item
           ? previous
           : ((previous && extend(previous, item, width)) ??
-            build(item, width, open));
+            build(item, width, open, this.graphics));
       variants.set(open, block);
       cache.set(item.id, variants);
       starts.set(item.id, lines.length);

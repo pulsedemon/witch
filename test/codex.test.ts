@@ -462,6 +462,32 @@ await test("a command streams its output into one tool that completes once in th
   }
 });
 
+await test("Codex items are titled by what they act on, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    assert.equal((await session.send('tool-items')).status, 'completed');
+    assert.deepEqual(
+      tools.map(({ id, title, images }) => [id, title, images]),
+      [
+        ['patch-1', 'fileChange  a.md  b.md', undefined],
+        [
+          'mcp-1',
+          'browser.screenshot  https://example.com',
+          ['data:image/png;base64,iVBORw=='],
+        ],
+        ['view-1', 'imageView  /shots/a.png', ['/shots/a.png']],
+      ],
+    );
+    assert.match(tools[1]!.text, /Captured\./);
+    assert.doesNotMatch(tools[1]!.text, /iVBORw/);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a Codex that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(

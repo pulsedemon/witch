@@ -426,7 +426,23 @@ export class Coordinator {
   }
 
   async respond(id: string, response: UserResponse): Promise<void> {
+    const questions = this.snapshot.requests.find(
+      (request) => request.id === id,
+    )?.questions;
     this.session?.respond(id, response);
+    // the request view closes on answering, so the transcript keeps what was asked and chosen
+    if (questions && response.decision === 'accept')
+      this.display({
+        id: randomUUID(),
+        kind: 'user',
+        text: questions
+          .map(
+            ({ id, title, secret }) =>
+              `**${title}**\n→ ${secret ? '(hidden)' : (response.answers?.[id] ?? []).join(', ')}`,
+          )
+          .join('\n\n'),
+        cwd: this.current().cwd,
+      });
     if (response.decision === 'cancel') await this.interrupt();
   }
 
@@ -835,6 +851,7 @@ export class Coordinator {
               replace: !event.append,
               done: event.done,
               cwd: event.cwd ?? conversation.cwd,
+              ...(event.images ? { images: event.images } : {}),
             },
       );
     }

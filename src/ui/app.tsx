@@ -22,6 +22,7 @@ import {
   tokenKey,
 } from './completion.js';
 import { Request } from './request.js';
+import type { Graphics } from './images.js';
 import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
 import { markdown } from './markdown.js';
@@ -83,10 +84,13 @@ export function App({
   repository,
   onExit,
   initialPrompt,
+  graphics,
 }: {
   coordinator: Coordinator;
   /** the project's Git status for the status line, which leaves Git out without it. */
   repository?: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>;
+  /** draws images in the transcript, which leaves them out without it. */
+  graphics?: Graphics;
   onExit(): void;
   /** sent once the load ends idle with nothing reported and tools unfocused, otherwise left as the draft. */
   initialPrompt?: string;
@@ -146,7 +150,7 @@ export function App({
   );
   const [files, setFiles] = useState<string[]>([]);
   const pendingPrompt = useRef(initialPrompt);
-  const [layout] = useState(() => new TranscriptLayout());
+  const [layout] = useState(() => new TranscriptLayout(graphics));
   const transcript = useMemo(
     () => layout.render(state.items, width - 2, expanded),
     [layout, state.items, width, expanded],

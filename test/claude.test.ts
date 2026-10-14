@@ -466,7 +466,7 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   }
 });
 
-await test("Claude tool use and its result update one tool, a text result shows as text, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
+await test("Claude tool use and its result update one tool titled by what it acts on, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -474,12 +474,38 @@ await test("Claude tool use and its result update one tool, a text result shows 
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')
-        .map(({ id, title, text, done }) => [id, title, text, done]),
+        .map(({ id, title, text, done, images }) => [
+          id,
+          title,
+          text,
+          done,
+          images,
+        ]),
       [
-        ['tool-1', 'Bash', '{\n  "command": "ls"\n}', false],
-        ['tool-1', '', 'a.md', true],
-        ['tool-2', 'Agent', '{\n  "prompt": "look"\n}', false],
-        ['tool-2', '', 'Found a.md.\nRead one file.', true],
+        [
+          'tool-1',
+          'Bash  List notes  $ ls …',
+          '{\n  "command": "ls\\nwc -l a.md",\n  "description": "List notes"\n}',
+          false,
+          undefined,
+        ],
+        ['tool-1', '', 'a.md', true, undefined],
+        [
+          'tool-2',
+          'Agent  Find notes',
+          '{\n  "description": "Find notes",\n  "prompt": "look"\n}',
+          false,
+          undefined,
+        ],
+        ['tool-2', '', 'Found a.md.\nRead one file.', true, undefined],
+        [
+          'tool-3',
+          'Read  shot.png',
+          '{\n  "file_path": "shot.png"\n}',
+          false,
+          undefined,
+        ],
+        ['tool-3', '', '', true, ['data:image/png;base64,iVBORw==']],
       ],
     );
     const texts = events.filter((event) => event.type === 'text');

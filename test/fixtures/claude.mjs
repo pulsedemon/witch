@@ -331,7 +331,7 @@ for await (const line of lines) {
           type: 'tool_use',
           id: 'tool-1',
           name: 'Bash',
-          input: { command: 'ls' },
+          input: { command: 'ls\nwc -l a.md', description: 'List notes' },
         },
       ]);
       toolResult('tool-1', 'a.md');
@@ -340,7 +340,7 @@ for await (const line of lines) {
           type: 'tool_use',
           id: 'tool-2',
           name: 'Agent',
-          input: { prompt: 'look' },
+          input: { description: 'Find notes', prompt: 'look' },
         },
       ]);
       assistant('Subagent text.', undefined, 'tool-2');
@@ -353,6 +353,20 @@ for await (const line of lines) {
       toolResult('tool-2', [
         { type: 'text', text: 'Found a.md.' },
         { type: 'text', text: 'Read one file.' },
+      ]);
+      assistant('', [
+        {
+          type: 'tool_use',
+          id: 'tool-3',
+          name: 'Read',
+          input: { file_path: 'shot.png' },
+        },
+      ]);
+      toolResult('tool-3', [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: 'iVBORw==' },
+        },
       ]);
       assistant('Done.');
       finish();

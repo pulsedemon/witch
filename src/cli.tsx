@@ -11,6 +11,7 @@ import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
+import { Graphics } from './ui/images.js';
 import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
 import type { Click } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
@@ -64,18 +65,25 @@ if (!store) {
     new Memory(join(store.root, 'memory.git')),
     await installedAgents(),
   );
+  // straight to the terminal, since the link screen would read image data as printed text
+  const graphics = new Graphics((data) => process.stdout.write(data));
+  /** frees the images while the alternate screen that holds them is still active. */
+  const unmount = () => {
+    graphics.release();
+    application.unmount();
+  };
   let shuttingDown = false;
   const shutdown = () => {
     // a second request quits without waiting for a stuck agent
     if (shuttingDown) {
-      application.unmount();
+      unmount();
       process.exit(130);
     }
     shuttingDown = true;
     void coordinator.close().then(
-      () => application.unmount(),
+      () => unmount(),
       (error: unknown) => {
-        application.unmount();
+        unmount();
         process.stderr.write(`witch: ${errorMessage(error)}\n`);
         process.exitCode = 1;
       },
@@ -97,6 +105,7 @@ if (!store) {
       repository={repository}
       onExit={shutdown}
       initialPrompt={prompt || undefined}
+      graphics={graphics}
     />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,
