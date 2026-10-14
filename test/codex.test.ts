@@ -585,7 +585,7 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
           parent: undefined,
           name: 'Euclid',
           kind: 'explorer',
-          status: 'completed',
+          status: 'running',
         },
         {
           id: 'grandchild-thread',
@@ -594,7 +594,8 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
           kind: '',
           status: 'stopped',
         },
-        // its read fails, so it keeps the defaults
+        // the reads of these two fail, so they keep the defaults
+        { id: 'failed-thread', name: 'agent', kind: '', status: 'failed' },
         { id: 'stray-thread', name: 'agent', kind: '', status: 'running' },
       ],
     );

@@ -441,7 +441,7 @@ class CodexSession implements AgentSession {
       // a subagent's notification settles nothing of this thread's
       if (!child && message.method === 'turn/completed')
         this.finish('failed', text);
-      else if (!child && message.method === 'thread/settings/updated')
+      else if (message.method === 'thread/settings/updated')
         this.settings?.reject(new Error(text));
       if (this.malformed.has(message.method!)) return;
       this.malformed.add(message.method!);

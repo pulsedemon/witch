@@ -260,7 +260,11 @@ for await (const line of lines) {
       });
       turn('turn/started', 'grandchild-thread', 'inProgress');
       turn('turn/completed', 'grandchild-thread', 'interrupted');
+      turn('turn/started', 'failed-thread', 'inProgress');
+      turn('turn/completed', 'failed-thread', 'failed');
       turn('turn/completed', 'child-thread', 'completed');
+      // the finished child is sent more input
+      turn('turn/started', 'child-thread', 'inProgress');
       notify('turn/completed', { threadId: 'stray-thread', turn: null });
       notify('item/agentMessage/delta', {
         threadId: 'native-thread',
