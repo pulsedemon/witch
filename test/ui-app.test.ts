@@ -735,6 +735,31 @@ for (const [name, update, focusTools] of [
   });
 }
 
+await test('an initial prompt that comes back to the composer goes ahead of a draft typed while connecting', async () => {
+  const { app, coordinator } = fake({ phase: 'starting' });
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      initialPrompt: 'say hello',
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('typed');
+    await until('the draft', () => ui.text().includes('┃ typed'));
+    coordinator.publish({
+      phase: 'idle',
+      error: 'These conversations need attention.',
+    });
+    await until('the seeded composer', () => ui.text().includes('┃ say hello'));
+    const text = ui.text();
+    assert.ok(text.indexOf('┃ say hello') < text.indexOf('┃ typed'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('queued prompts left at idle come back ahead of the draft, also while a view covers the composer', async () => {
   for (const covered of [false, true]) {
     const { app, coordinator, calls } = fake({ phase: 'running' });
@@ -1024,6 +1049,27 @@ await test('the composer takes no typing while a switch shows the conversation i
   }
 });
 
+await test('the composer takes typing again once a switch fails', async () => {
+  const { coordinator, app, calls } = fake({});
+  coordinator.newConversation = async (...args: unknown[]) => {
+    calls.push(['newConversation', ...args]);
+    throw new Error('Prompts are still queued for this conversation');
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/new b');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    ui.stdin.write('hello');
+    await until('typing', () => ui.text().includes('┃ hello'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 /** opens the command picker and waits for it. */
 async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
@@ -1172,6 +1218,22 @@ await test('queued prompts show above the activity row with a hint, and ↑ on t
       rows.every((row, index) => row >= 0 && row > (rows[index - 1] ?? -1)),
       ui.text(),
     );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('↑ with nothing queued leaves the draft as typed', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('abc');
+    await delay(30);
+    ui.stdin.write(UP);
+    await delay(60);
+    assert.deepEqual(calls, []);
+    assert.ok(ui.text().includes('┃ abc'));
   } finally {
     ui.unmount();
   }

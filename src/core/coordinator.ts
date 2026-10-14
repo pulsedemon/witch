@@ -46,6 +46,11 @@ function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
+/** a slash command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, and Claude Code would run any other as its own. */
+function slashCommand(prompt: string): boolean {
+  return prompt.trimStart().startsWith('/');
+}
+
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
   startedAt: number;
@@ -147,6 +152,7 @@ export class Coordinator {
   private cancelled = false;
   private closed = false;
   private draining = false;
+  private admitting: Promise<unknown> = Promise.resolve();
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
 
@@ -297,6 +303,9 @@ export class Coordinator {
   private async openConversation(
     target: { id: string } | { create: Conversation },
   ): Promise<void> {
+    // a queued prompt belongs to the conversation it was sent in
+    if (this.snapshot.queue.length)
+      throw new Error('Prompts are still queued for this conversation');
     const files =
       'id' in target
         ? await this.store.claim(target.id)
@@ -340,9 +349,14 @@ export class Coordinator {
     if (!prompt.trim()) return;
     // only a restart leaves the error phase, so nothing would run what waits
     if (this.snapshot.phase === 'error') throw new Error(this.snapshot.error);
-    if (await this.steer(prompt)) return;
-    this.publish({ queue: [...this.snapshot.queue, prompt] });
-    await this.drain();
+    // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
+    const admitted = this.admitting.then(async () => {
+      if (await this.steer(prompt)) return true;
+      this.publish({ queue: [...this.snapshot.queue, prompt] });
+      return false;
+    });
+    this.admitting = admitted.catch(() => {});
+    if (!(await admitted)) await this.drain();
   }
 
   /** takes back every queued prompt, oldest first, to edit. */
@@ -352,16 +366,13 @@ export class Coordinator {
     return queue;
   }
 
-  /**
-   * a prompt behind queued ones or sent after an interrupt waits in the queue, and so does a slash
-   * command: a spell runs only as a turn, and Claude Code would run any other as its own command.
-   */
+  /** a slash command, and a prompt behind queued ones or sent after an interrupt, wait in the queue. */
   private async steer(prompt: string): Promise<boolean> {
     if (
       this.snapshot.phase !== 'running' ||
       this.cancelled ||
       this.snapshot.queue.length ||
-      prompt.trimStart().startsWith('/') ||
+      slashCommand(prompt) ||
       !(await this.session?.steer(prompt))
     )
       return false;
@@ -379,19 +390,17 @@ export class Coordinator {
     this.drain().catch((error: unknown) => this.report(error));
   }
 
-  /** runs the queue while idle: a spell alone, otherwise every prompt before the next spell, a line each. */
+  /** runs the queue while idle: a slash command alone, otherwise every prompt before the next one, a line each. */
   private async drain(): Promise<void> {
     if (this.draining) return;
     this.draining = true;
     try {
       while (this.snapshot.phase === 'idle' && this.snapshot.queue.length) {
         const queue = this.snapshot.queue;
-        const spell = queue.findIndex((prompt) =>
-          skillCall(prompt, this.snapshot.skills),
-        );
+        const command = queue.findIndex(slashCommand);
         const batch = queue.slice(
           0,
-          spell === 0 ? 1 : spell < 0 ? queue.length : spell,
+          command === 0 ? 1 : command < 0 ? queue.length : command,
         );
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;

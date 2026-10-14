@@ -101,9 +101,12 @@ async function steer(): Promise<void> {
   const running = send(
     'Run the shell command `sleep 5`, then reply in one sentence. Do not change files.',
     marker,
-  ).finally(() => {
+  );
+  const settle = () => {
     done = true;
-  });
+  };
+  // handled at once, so a turn that fails while this waits throws at the await below and the run still closes
+  void running.then(settle, settle);
   while (
     !done &&
     !coordinator.snapshot.items

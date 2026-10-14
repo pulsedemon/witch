@@ -138,8 +138,6 @@ export function App({
   const setDraft = (id: string, value: string) =>
     setDrafts((previous) => ({ ...previous, [id]: value }));
   const [leaving, setLeaving] = useState<string>();
-  // Input reads its initial value only when it mounts
-  const [composerKey, setComposerKey] = useState(0);
   const composer = useRef<InputHandle>(null);
   const [buffer, bufferRef, setBuffer] = useLiveState<InputBuffer>({
     value: '',
@@ -454,16 +452,18 @@ export function App({
     return true;
   };
 
+  /** puts text back ahead of the draft, with the cursor at its end. */
+  const prepend = (text: string) => {
+    const id = state.conversation?.id ?? '';
+    const draft = draftsRef.current[id];
+    const value = draft ? `${text}\n${draft}` : text;
+    if (composer.current) composer.current.set({ value, cursor: text.length });
+    else setDraft(id, value);
+  };
   /** puts the queue back ahead of the draft, as Claude Code's ↑ does. */
   const unqueue = () => {
     if (!coordinator.snapshot.queue.length) return false;
-    const queued = coordinator.unqueue().join('\n');
-    const id = state.conversation?.id ?? '';
-    const draft = draftsRef.current[id];
-    const value = draft ? `${queued}\n${draft}` : queued;
-    if (composer.current)
-      composer.current.set({ value, cursor: queued.length });
-    else setDraft(id, value);
+    prepend(coordinator.unqueue().join('\n'));
     return true;
   };
 
@@ -533,10 +533,8 @@ export function App({
     const prompt = pendingPrompt.current;
     if (prompt === undefined || state.phase === 'starting') return;
     pendingPrompt.current = undefined;
-    if (state.phase !== 'idle' || state.error || !submit(prompt)) {
-      setDraft(state.conversation?.id ?? '', prompt);
-      setComposerKey((key) => key + 1);
-    }
+    if (state.phase !== 'idle' || state.error || !submit(prompt))
+      prepend(prompt);
   }, [state.phase]);
   // a queued turn that never reached the agent comes back to edit
   useEffect(() => {
@@ -850,7 +848,8 @@ export function App({
           paddingX={1}
         >
           <Input
-            key={`${state.conversation?.id ?? 'initial'}/${composerKey}`}
+            // Input reads its initial value only when it mounts
+            key={state.conversation?.id ?? 'initial'}
             width={width - 6}
             height={composerRows}
             active={!toolFocus && composerPhase}
