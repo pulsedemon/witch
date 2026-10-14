@@ -1375,91 +1375,87 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
 const sidebarRows = (text: string) =>
   text.split('\n').map((line) => line.slice(82).trimEnd());
 
-await test('the sidebar lists familiars depth first under the familiar that started them, each with its time, tool count and latest tool call, with an unlisted parent shown as a root, and no heading once none are left', async () => {
+await test('the sidebar lists only running familiars, depth first under the familiar that started them, each with its time, tool count and latest tool call, one whose parent is not listed as a root, and no heading once none are running', async () => {
   const now = Date.now();
-  const { app, coordinator } = fake({
-    subagents: [
-      {
-        id: 'a',
-        name: 'map code',
-        kind: 'Explore',
-        status: 'running',
-        startedAt: now,
-        rows: { start: 'row' },
-        activity: 'Read  src/a.ts',
-        tools: 2,
-      },
-      {
-        id: 'b',
-        name: 'fix bug',
-        kind: '',
-        status: 'failed',
-        startedAt: 0,
-        rows: { start: 'row' },
-        endedAt: 125_000,
-      },
-      {
-        id: 'c',
-        parent: 'a',
-        name: 'read tests',
-        kind: '',
-        status: 'completed',
-        startedAt: 0,
-        rows: { start: 'row' },
-        endedAt: 9_000,
-        activity: 'Bash  $ ls',
-        tools: 1,
-      },
-      {
-        id: 'd',
-        parent: 'c',
-        name: 'run ls',
-        kind: '',
-        status: 'stopped',
-        startedAt: 0,
-        rows: { start: 'row' },
-        endedAt: 1_000,
-      },
-      {
-        id: 'e',
-        parent: 'gone',
-        name: 'orphan',
-        kind: '',
-        status: 'running',
-        startedAt: now,
-        rows: { start: 'row' },
-      },
-    ],
-  });
+  const subagents: Snapshot['subagents'] = [
+    {
+      id: 'a',
+      name: 'map code',
+      kind: 'Explore',
+      status: 'running',
+      startedAt: now,
+      rows: { start: 'row' },
+      activity: 'Read  src/a.ts',
+      tools: 2,
+    },
+    {
+      id: 'b',
+      name: 'fix bug',
+      kind: '',
+      status: 'failed',
+      startedAt: 0,
+      rows: { start: 'row' },
+    },
+    {
+      id: 'c',
+      parent: 'a',
+      name: 'read tests',
+      kind: '',
+      status: 'running',
+      startedAt: now,
+      rows: { start: 'row' },
+      activity: 'Bash  $ ls',
+      tools: 1,
+    },
+    {
+      id: 'd',
+      parent: 'c',
+      name: 'run ls',
+      kind: '',
+      status: 'stopped',
+      startedAt: 0,
+      rows: { start: 'row' },
+    },
+    {
+      id: 'e',
+      parent: 'b',
+      name: 'orphan',
+      kind: '',
+      status: 'running',
+      startedAt: now,
+      rows: { start: 'row' },
+    },
+  ];
+  const { app, coordinator } = fake({ subagents });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
     105,
   );
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
-    const rows = sidebarRows(ui.text()).slice(0, 16);
+    const rows = sidebarRows(ui.text()).slice(0, 10);
     // a running familiar's time ticks, so its row is matched rather than compared
     assert.match(rows[2]!, /^ {2}\dS \| 2 TOOLS$/);
-    assert.match(rows[14]!, /^ {2}\dS \| 0 TOOLS$/);
+    assert.match(rows[5]!, /^ {4}\dS \| 1 TOOL$/);
+    assert.match(rows[8]!, /^ {2}\dS \| 0 TOOLS$/);
     assert.deepEqual(rows, [
       'FAMILIARS',
       '● MAP CODE Explore',
       rows[2],
       '  Read src/a.ts',
-      '  ✓ READ TESTS',
-      '    9S | 1 TOOL',
+      '  ● READ TESTS',
+      rows[5],
       '    Bash $ ls',
-      '    ■ RUN LS',
-      '      1S | 0 TOOLS',
-      '',
-      '✗ FIX BUG',
-      '  2M05S | 0 TOOLS',
-      '',
       '● ORPHAN',
-      rows[14],
+      rows[8],
       '',
     ]);
-    coordinator.publish({ subagents: [] });
+    coordinator.publish({
+      subagents: subagents.map((subagent) => ({
+        ...subagent,
+        status: 'completed',
+      })),
+    });
     await until('no familiars', () => !ui.text().includes('FAMILIARS'));
   } finally {
     ui.unmount();
