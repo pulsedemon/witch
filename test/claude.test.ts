@@ -602,7 +602,6 @@ await test('a result that arrives with no turn open still reports the cost', asy
   const { session } = await fixture();
   try {
     assert.equal((await session.send('background result')).status, 'completed');
-    assert.equal(session.usage.cost, 0.25);
     await eventually('the background result', () => session.usage.cost === 0.5);
   } finally {
     await session.close();

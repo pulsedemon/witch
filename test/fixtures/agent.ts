@@ -59,6 +59,8 @@ export class FixtureAgent implements AgentAdapter {
   gate?: TurnGate;
   /** what a session reports as its usage when it connects. */
   connectUsage?: Usage;
+  /** a usage event the session sends while it lists its models. */
+  modelsUsage?: Usage;
   /** what a completed turn reports as its session's usage. */
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
@@ -103,18 +105,24 @@ export class FixtureAgent implements AgentAdapter {
         if (this.failSkills) throw new Error('Skills unavailable');
         return this.skills;
       },
-      models: async () => [
-        {
-          id: `${this.id}-model`,
-          label: `${this.id}-model`,
-          efforts: [],
-        },
-        {
-          id: `${this.id}-big`,
-          label: `${this.id}-big`,
-          efforts: ['high'],
-        },
-      ],
+      models: async () => {
+        if (this.modelsUsage) {
+          usage = this.modelsUsage;
+          options.onEvent({ type: 'usage', usage });
+        }
+        return [
+          {
+            id: `${this.id}-model`,
+            label: `${this.id}-model`,
+            efforts: [],
+          },
+          {
+            id: `${this.id}-big`,
+            label: `${this.id}-big`,
+            efforts: ['high'],
+          },
+        ];
+      },
       selectModel: async (model, effort) => {
         if (effort && effort === this.invalidEffort)
           throw new Error('Invalid effort');

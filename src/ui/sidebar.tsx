@@ -20,7 +20,7 @@ export function Sidebar({
 }) {
   const [angle, setAngle] = useState(restAngle);
   useEffect(() => {
-    // wherever work stopped it, the pentacle rests face on, since edge on it reads as a line
+    // wherever work stopped it, the pentacle returns to its rest angle, since edge on it reads as a line
     if (!spinning) {
       setAngle(restAngle);
       return;

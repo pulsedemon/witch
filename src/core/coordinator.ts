@@ -735,10 +735,11 @@ export class Coordinator {
     } catch (error) {
       this.report(error);
     }
+    const models = await session.models();
     this.publish({
       native: session.info,
       usage: session.usage,
-      models: await session.models(),
+      models,
       skills,
     });
     return session;
