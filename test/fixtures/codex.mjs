@@ -22,11 +22,14 @@ const session = () => ({
   approvalsReviewer: 'user',
   reasoningEffort: effort,
 });
-const finish = (status, error = null) =>
+let active = false;
+const finish = (status, error = null) => {
+  active = false;
   notify('turn/completed', {
     threadId: 'native-thread',
     turn: { id: 'turn-1', status, error },
   });
+};
 // a held event waits for the test's release file after its reply is out
 const held = async () => {
   writeFileSync(file('replied'), 'yes');
@@ -175,6 +178,7 @@ for await (const line of lines) {
   if (request.method === 'turn/start') {
     const prompt = request.params.input[0].text;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
+    active = true;
     reply({ turn: { id: 'turn-1' } });
     if (prompt === 'hold') continue;
     if (prompt === 'exit when idle') {
@@ -613,6 +617,17 @@ for await (const line of lines) {
       JSON.stringify(request.error),
     );
     finish('completed');
+  }
+  // Codex refuses a turn that has ended, which a prompt of `refused` stands in for
+  if (request.method === 'turn/steer') {
+    writeFileSync(file('steer.json'), JSON.stringify(request));
+    if (active && request.params.input[0].text !== 'refused')
+      reply({ turnId: request.params.expectedTurnId });
+    else
+      send({
+        id: request.id,
+        error: { code: -32600, message: 'no active turn to steer' },
+      });
   }
   if (request.method === 'turn/interrupt') {
     reply({});

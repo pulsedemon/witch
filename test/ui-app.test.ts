@@ -24,6 +24,7 @@ import { App } from '../src/ui/app.js';
 import { MouseInput } from '../src/ui/mouse.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
+import { until } from './fixtures/within.js';
 
 /** a terminal of a fixed size; without rows, Ink reads the real terminal. Not a TTY, so every write is a whole frame. */
 class Terminal extends EventEmitter {
@@ -81,17 +82,6 @@ function show(element: ReactElement, columns = 100, rows = 40) {
   };
 }
 
-async function until(
-  what: string,
-  predicate: () => boolean | Promise<boolean>,
-) {
-  for (let attempt = 0; attempt < 150; attempt++) {
-    if (await predicate()) return;
-    await delay(20);
-  }
-  assert.fail(`timed out waiting for ${what}`);
-}
-
 /** a link sequence whole, which strip-ansi removes, then split by codes whose removal joins it back up */
 function forgedLink(target: string, text: string) {
   return (
@@ -113,6 +103,7 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     snapshot: {
       phase: 'idle',
       items: [],
+      queue: [],
       requests: [],
       models: [],
       skills: [],
@@ -138,9 +129,12 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       coordinator.snapshot = { ...coordinator.snapshot, ...update };
       for (const listener of listeners) listener();
     },
-    send: async (text: string) => {
-      calls.push(['send', text]);
-      return true;
+    send: record('send'),
+    unqueue: () => {
+      calls.push(['unqueue']);
+      const { queue } = coordinator.snapshot;
+      coordinator.publish({ queue: [] });
+      return [...queue];
     },
     interrupt: record('interrupt'),
     respond: record('respond'),
@@ -741,35 +735,42 @@ for (const [name, update, focusTools] of [
   });
 }
 
-await test('a prompt the agent never got comes back into an empty composer and leaves a new draft alone', async () => {
-  for (const retyped of [false, true]) {
-    const { app, coordinator, calls } = fake({});
-    const delivery = Promise.withResolvers<boolean>();
-    Object.assign(coordinator, {
-      send: (text: string) => {
-        calls.push(['send', text]);
-        return delivery.promise;
-      },
+await test('queued prompts left at idle come back ahead of the draft, also while a view covers the composer', async () => {
+  for (const covered of [false, true]) {
+    const { app, coordinator, calls } = fake({ phase: 'running' });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write('newer');
+      await until('the draft', () => ui.text().includes('┃ newer'));
+      if (covered) {
+        ui.stdin.write('\u0010');
+        await until('the picker', () => ui.text().includes('Commands'));
+      }
+      coordinator.publish({ phase: 'idle', queue: ['hello'] });
+      await until('the queue taken back', () => calls.length > 0);
+      if (covered) ui.stdin.write('\u001b');
+      await until('the queued prompt', () => ui.text().includes('┃ hello'));
+      assert.ok(ui.text().indexOf('┃ hello') < ui.text().indexOf('┃ newer'));
+      assert.deepEqual(calls, [['unqueue']]);
+    } finally {
+      ui.unmount();
+    }
+  }
+});
+
+await test('the composer takes typing while an open conversation connects, and none before the load opens one', async () => {
+  for (const open of [true, false]) {
+    const { app } = fake({
+      phase: 'starting',
+      ...(open ? {} : { conversation: undefined }),
     });
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
       await delay(60);
       ui.stdin.write('hello');
-      await delay(30);
-      ui.stdin.write('\r');
-      await until('the send', () => calls.length === 1);
-      if (retyped) {
-        await delay(30);
-        ui.stdin.write('newer');
-        await until('the new draft', () => ui.text().includes('┃ newer'));
-      }
-      delivery.resolve(false);
       await delay(60);
-      if (retyped) {
-        assert.ok(ui.text().includes('┃ newer'));
-        assert.ok(!ui.text().includes('┃ hello'));
-      } else
-        await until('the restored prompt', () => ui.text().includes('┃ hello'));
+      assert.equal(ui.text().includes('┃ hello'), open);
     } finally {
       ui.unmount();
     }
@@ -1086,7 +1087,7 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
   }
 });
 
-await test('Enter during a turn keeps the draft and sends nothing', async () => {
+await test('Enter during a turn sends the draft and empties the composer', async () => {
   const { app, calls } = fake({ phase: 'running' });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -1094,14 +1095,50 @@ await test('Enter during a turn keeps the draft and sends nothing', async () => 
     ui.stdin.write('hello');
     await delay(30);
     ui.stdin.write(ENTER);
-    await until('the report', () => calls.length > 0);
-    assert.deepEqual(calls, [
-      [
-        'report',
-        'Wait for this operation to finish, or press Escape to interrupt.',
-      ],
-    ]);
-    assert.ok(ui.text().includes('┃ hello'));
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', 'hello']]);
+    await until('the empty composer', () =>
+      ui.text().includes('┃ Ask the agent'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('queued prompts show above the activity row with a hint, and ↑ on the first line takes them back ahead of the draft, where ↑ on a later line moves the cursor', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    queue: ['one', 'two\nlines'],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the queue', () => ui.text().includes('❯ two lines'));
+    const lines = ui.text().split('\n');
+    const activity = lines.findIndex((line) =>
+      line.includes('ESC TO INTERRUPT'),
+    );
+    assert.deepEqual(
+      lines.slice(activity - 2, activity).map((line) => line.trim()),
+      ['❯ one', '❯ two lines'],
+    );
+    assert.ok(ui.text().includes('┃ Press ↑ to edit queued messages'));
+    ui.stdin.write('first');
+    ui.stdin.write(SHIFT_ENTER);
+    ui.stdin.write('second');
+    await until('the draft', () => ui.text().includes('┃ second'));
+    ui.stdin.write(UP);
+    await delay(60);
+    assert.deepEqual(calls, []);
+    ui.stdin.write(UP);
+    await until('the queue taken back', () => !ui.text().includes('❯ one'));
+    assert.deepEqual(calls, [['unqueue']]);
+    const rows = ['┃ one', '┃ two', '┃ lines', '┃ first', '┃ second'].map(
+      (row) => ui.text().indexOf(row),
+    );
+    assert.ok(
+      rows.every((row, index) => row >= 0 && row > (rows[index - 1] ?? -1)),
+      ui.text(),
+    );
   } finally {
     ui.unmount();
   }

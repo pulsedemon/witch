@@ -118,6 +118,8 @@ export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';
   text: string;
   error?: string;
+  /** prompts steered into the turn that the agent will never read. */
+  unread?: string[];
 }
 
 export interface AgentSession {
@@ -129,6 +131,11 @@ export interface AgentSession {
   skills(): Promise<Skill[]>;
   /** `skill` runs that native skill with the prompt as its context. */
   send(prompt: string, skill?: SkillCall): Promise<TurnResult>;
+  /**
+   * adds the prompt to the turn in flight, which the agent reads at its next
+   * tool step or before the turn ends; false when no turn can take it.
+   */
+  steer(prompt: string): Promise<boolean>;
   /** an omitted effort keeps the one in force; `null` resets it where the native agent can. */
   selectModel(model: string, effort?: string | null): Promise<void>;
   respond(id: string, response: UserResponse): void;

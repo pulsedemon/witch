@@ -14,6 +14,8 @@ const session_id = randomUUID();
 let initialization = 0;
 let model = 'claude-a';
 let lastPrompt = '';
+/** the uuids of prompts sent during a steerable turn. */
+const steered = [];
 const state = (state) =>
   send({
     type: 'system',
@@ -230,6 +232,8 @@ for await (const line of lines) {
     }
     if (request.subtype === 'interrupt') {
       if (lastPrompt === 'still queued') response = { still_queued: ['q-1'] };
+      else if (lastPrompt === 'steerable' && steered.length)
+        response = { still_queued: steered };
       else {
         result();
         state('idle');
@@ -244,6 +248,19 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    // the CLI folds a prompt sent during a turn into it, here until one says to wrap up
+    if (lastPrompt === 'steerable') {
+      steered.push(message.uuid);
+      appendFileSync(
+        join(process.cwd(), 'steered.jsonl'),
+        `${JSON.stringify(message.message.content)}\n`,
+      );
+      if (message.message.content === 'wrap up') {
+        lastPrompt = '';
+        finish();
+      }
+      continue;
+    }
     lastPrompt = message.message.content;
     writeFileSync(
       join(process.cwd(), 'content.json'),
@@ -495,7 +512,7 @@ for await (const line of lines) {
           summary: '',
         });
       finish();
-    } else if (['wait', 'still queued'].includes(lastPrompt))
+    } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {
       assistant('Working.');

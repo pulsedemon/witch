@@ -102,6 +102,8 @@ export interface Snapshot {
   phase: Phase;
   conversation?: Conversation;
   items: readonly DisplayItem[];
+  /** prompts sent while busy that no turn has taken yet, oldest first. */
+  queue: readonly string[];
   requests: readonly UserRequest[];
   models: readonly Model[];
   /** the live session's skills, empty while none is connected. */
@@ -144,6 +146,7 @@ export class Coordinator {
   private task?: Promise<unknown>;
   private cancelled = false;
   private closed = false;
+  private draining = false;
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
 
@@ -156,6 +159,7 @@ export class Coordinator {
     this.snapshot = {
       phase: 'starting',
       items: [],
+      queue: [],
       requests: [],
       models: [],
       skills: [],
@@ -186,6 +190,7 @@ export class Coordinator {
       throw this.enterError(error, await this.needsRestart(error));
     } finally {
       this.task = undefined;
+      this.drainAfter();
     }
   }
 
@@ -330,20 +335,81 @@ export class Coordinator {
     if (failure !== undefined) this.report(failure);
   }
 
-  /** resolves whether the prompt reached the agent; a failure before that is reported. */
-  async send(prompt: string): Promise<boolean> {
-    if (!prompt.trim()) return true;
-    let delivered = false;
-    await this.operate('running', async () => {
-      try {
-        await this.performTurn(prompt, 'turn', () => {
-          delivered = true;
-        });
-      } catch (error) {
-        this.report(error);
-      }
+  /** steers the turn in flight, or queues the prompt for a turn of its own; a queued turn that never reaches the agent leaves its prompts queued. */
+  async send(prompt: string): Promise<void> {
+    if (!prompt.trim()) return;
+    // only a restart leaves the error phase, so nothing would run what waits
+    if (this.snapshot.phase === 'error') throw new Error(this.snapshot.error);
+    if (await this.steer(prompt)) return;
+    this.publish({ queue: [...this.snapshot.queue, prompt] });
+    await this.drain();
+  }
+
+  /** takes back every queued prompt, oldest first, to edit. */
+  unqueue(): string[] {
+    const queue = [...this.snapshot.queue];
+    this.publish({ queue: [] });
+    return queue;
+  }
+
+  /** a spell, and a prompt behind queued ones, wait for a turn of their own. */
+  private async steer(prompt: string): Promise<boolean> {
+    if (
+      this.snapshot.phase !== 'running' ||
+      this.snapshot.queue.length ||
+      skillCall(prompt, this.snapshot.skills) ||
+      !(await this.session?.steer(prompt))
+    )
+      return false;
+    this.display({
+      id: randomUUID(),
+      kind: 'user',
+      text: prompt,
+      cwd: this.current().cwd,
     });
-    return delivered;
+    return true;
+  }
+
+  /** runs what was sent during an operation once it ends; a failed turn publishes its own error. */
+  private drainAfter(): void {
+    this.drain().catch(() => {});
+  }
+
+  /** runs the queue while idle: a spell alone, otherwise every prompt before the next spell, a line each. */
+  private async drain(): Promise<void> {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      while (this.snapshot.phase === 'idle' && this.snapshot.queue.length) {
+        const queue = this.snapshot.queue;
+        const spell = queue.findIndex((prompt) =>
+          skillCall(prompt, this.snapshot.skills),
+        );
+        const batch = queue.slice(
+          0,
+          spell === 0 ? 1 : spell < 0 ? queue.length : spell,
+        );
+        this.publish({ queue: queue.slice(batch.length) });
+        let delivered = false;
+        try {
+          await this.operate('running', async () => {
+            try {
+              await this.performTurn(batch.join('\n'), 'turn', () => {
+                delivered = true;
+              });
+            } catch (error) {
+              this.report(error);
+            }
+          });
+        } finally {
+          if (!delivered)
+            this.publish({ queue: [...batch, ...this.snapshot.queue] });
+        }
+        if (!delivered) return;
+      }
+    } finally {
+      this.draining = false;
+    }
   }
 
   /** without an agent, continues on this conversation's agent, model and effort. */
@@ -682,6 +748,8 @@ export class Coordinator {
     } catch (error) {
       result = { status: 'failed', text: '', error: errorMessage(error) };
     }
+    if (result.unread?.length)
+      this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
     await this.files!.flush();
     if (result.status === 'completed') {
       await workspace.commit(
@@ -1089,6 +1157,7 @@ export class Coordinator {
       await this.task;
     } finally {
       this.task = undefined;
+      this.drainAfter();
     }
   }
 

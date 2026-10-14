@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { installedAgents } from '../src/agents/registry.js';
 import { Coordinator } from '../src/core/coordinator.js';
@@ -61,9 +62,10 @@ async function send(prompt: string, expected?: string): Promise<string> {
     void coordinator.interrupt();
   }, 180_000);
   try {
-    assert.equal(
-      await coordinator.send(prompt),
-      true,
+    await coordinator.send(prompt);
+    assert.deepEqual(
+      coordinator.snapshot.queue,
+      [],
       coordinator.snapshot.error,
     );
     assert.equal(
@@ -91,6 +93,31 @@ async function send(prompt: string, expected?: string): Promise<string> {
   }
 }
 
+/** a prompt sent while the agent runs a tool must reach that turn, not wait for the next. */
+async function steer(): Promise<void> {
+  const marker = `steer-${randomUUID().slice(0, 8)}`;
+  const before = coordinator.snapshot.items.length;
+  let done = false;
+  const running = send(
+    'Run the shell command `sleep 5`, then reply in one sentence. Do not change files.',
+    marker,
+  ).finally(() => {
+    done = true;
+  });
+  while (
+    !done &&
+    !coordinator.snapshot.items
+      .slice(before)
+      .some(({ kind }) => kind === 'tool')
+  )
+    await delay(100);
+  await coordinator.send(`Also include ${marker} in your final reply.`);
+  // a prompt the turn refused would wait in the queue, and one sent after it would run as its own turn
+  assert.equal(coordinator.snapshot.phase, 'running');
+  assert.deepEqual(coordinator.snapshot.queue, []);
+  await running;
+}
+
 let coordinator = await open(project);
 console.log(`Live artifacts: ${root}`);
 try {
@@ -99,6 +126,7 @@ try {
     'What is the native instruction marker? Reply with only the marker. Do not change files.',
     nativeRule,
   );
+  await steer();
   const projectFact = `cedar-${randomUUID().slice(0, 8)}`;
   await send(
     `Remember that this project's acceptance phrase is ${projectFact}. Save it in project shared-memory MEMORY.md, using the memory path supplied above. Do not put it in project files or global memory. Reply saved after writing.`,
@@ -114,6 +142,7 @@ try {
     'What is the native instruction marker? Reply with only the marker. Do not change files.',
     nativeRule,
   );
+  await steer();
   const globalFact = `violet-${randomUUID().slice(0, 8)}`;
   await send(
     `Remember my global acceptance preference: my preferred test label is ${globalFact}. Save it in the global shared-memory MEMORY.md path supplied above, not the project directory. Reply saved after writing.`,
@@ -166,7 +195,7 @@ try {
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
   assert.equal(coordinator.snapshot.recovery, undefined);
   console.log(
-    'PASS: native instructions, fresh memory both ways, project isolation, coding handoff, return-to-agent and restart.',
+    'PASS: native instructions, steering, fresh memory both ways, project isolation, coding handoff, return-to-agent and restart.',
   );
 } finally {
   await coordinator.close();

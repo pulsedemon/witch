@@ -172,7 +172,9 @@ export function App({
       : errorLines;
   // the header and phase rows above, the status line's two below
   const bodyHeight = height - 4 - errorRows.length;
-  const composerPhase = !['starting', 'closing', 'error'].includes(state.phase);
+  // a draft belongs to its conversation, so typing waits for the load to open one
+  const composerPhase =
+    !!state.conversation && !['closing', 'error'].includes(state.phase);
   const working = ['starting', 'running', 'switching'].includes(state.phase);
   const entries = [
     ...commands.map(({ id, label, aliases }) => ({
@@ -217,10 +219,10 @@ export function App({
     Math.max(1, Math.floor(bodyHeight / 2)),
     inputRows(buffer.value, width - 6),
   );
-  const transcriptHeight = Math.max(
-    2,
-    bodyHeight - composerRows - 3 - listRows - (working ? 1 : 0),
-  );
+  const freeRows = bodyHeight - composerRows - 3 - listRows - (working ? 1 : 0);
+  // the transcript keeps two rows
+  const queueRows = Math.max(0, Math.min(state.queue.length, freeRows - 2));
+  const transcriptHeight = Math.max(2, freeRows - queueRows);
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
   const scrollTop =
     top === null ? maxTop : Math.min(transcript.rowOf(top), maxTop);
@@ -417,7 +419,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nShift+drag selects text.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nShift+drag selects text.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'exit':
@@ -439,23 +441,21 @@ export function App({
       command(found.id, match[2]);
       return true;
     }
-    if (coordinator.snapshot.phase !== 'idle') {
-      coordinator.report(
-        'Wait for this operation to finish, or press Escape to interrupt.',
-      );
-      return false;
-    }
     setTop(null);
-    const id = coordinator.snapshot.conversation?.id ?? '';
-    // a prompt the agent never got comes back, unless a new draft took its place
-    void coordinator.send(text).then(
-      (delivered) => {
-        if (delivered || draftsRef.current[id]) return;
-        setDraft(id, text);
-        setComposerKey((key) => key + 1);
-      },
-      (error: unknown) => coordinator.report(error),
-    );
+    run(coordinator.send(text));
+    return true;
+  };
+
+  /** puts the queue back ahead of the draft, as Claude Code's ↑ does. */
+  const unqueue = () => {
+    if (!coordinator.snapshot.queue.length) return false;
+    const queued = coordinator.unqueue().join('\n');
+    const id = state.conversation?.id ?? '';
+    const draft = draftsRef.current[id];
+    const value = draft ? `${queued}\n${draft}` : queued;
+    if (composer.current)
+      composer.current.set({ value, cursor: queued.length });
+    else setDraft(id, value);
     return true;
   };
 
@@ -500,6 +500,12 @@ export function App({
     );
     return true;
   };
+  /** ↑ on the first line takes the queue back instead of moving the cursor. */
+  const arrow = (direction: 'up' | 'down', current: InputBuffer) =>
+    moveInList(direction, current) ||
+    (direction === 'up' &&
+      !current.value.slice(0, current.cursor).includes('\n') &&
+      unqueue());
   /** Enter runs the selected command or skill, and inserts a file without sending. */
   const submitComposer = (text: string) => {
     const open = listFor(bufferRef.current);
@@ -524,6 +530,10 @@ export function App({
       setComposerKey((key) => key + 1);
     }
   }, [state.phase]);
+  // a queued turn that never reached the agent comes back to edit
+  useEffect(() => {
+    if (state.phase === 'idle' && state.queue.length) unqueue();
+  }, [state.phase, state.queue]);
   // keys meant for the composer must not answer a recovery that just appeared
   const [recoveryReady, setRecoveryReady] = useState(false);
   useEffect(() => {
@@ -815,6 +825,15 @@ export function App({
                 )}
           </Text>
         </Box>
+        {queueRows > 0 && (
+          <Box height={queueRows} flexDirection="column" overflow="hidden">
+            {state.queue.map((prompt, index) => (
+              <Text key={index} dimColor wrap="truncate-end">
+                {`❯ ${plain(prompt).replace(/\s+/g, ' ')}`}
+              </Text>
+            ))}
+          </Box>
+        )}
         {working && <Activity />}
         <Box
           borderStyle="bold"
@@ -829,9 +848,12 @@ export function App({
             active={!toolFocus && composerPhase}
             ref={composer}
             initialValue={drafts[state.conversation?.id ?? ''] ?? ''}
+            placeholder={
+              state.queue.length ? 'Press ↑ to edit queued messages' : undefined
+            }
             onChange={changeComposer}
             onSubmit={submitComposer}
-            onArrow={moveInList}
+            onArrow={arrow}
           />
         </Box>
         {list ? (

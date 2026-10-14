@@ -44,6 +44,10 @@ export class FixtureAgent implements AgentAdapter {
   readonly label: string;
   readonly inputs: { session: string; prompt: string; skill?: SkillCall }[] =
     [];
+  /** prompts steered into a turn in flight. */
+  readonly steers: string[] = [];
+  /** an interrupt reports the turn's steered prompts unread, as Claude Code does for those it still holds. */
+  unreadOnInterrupt = false;
   /** what each session's `skills()` returns. */
   skills: Skill[] = [];
   failSkills = false;
@@ -94,6 +98,7 @@ export class FixtureAgent implements AgentAdapter {
     await options.onProcess(sleeper.pid);
     let closed = false;
     let turn: PromiseWithResolvers<TurnResult> | undefined;
+    let steered: string[] = [];
     let usage: Usage = this.connectUsage ?? {};
     const session: AgentSession = {
       get info() {
@@ -148,9 +153,19 @@ export class FixtureAgent implements AgentAdapter {
       respond: (id, response) => {
         this.responses.push([id, response]);
       },
+      steer: async (prompt) => {
+        if (!turn || closed) return false;
+        this.steers.push(prompt);
+        steered.push(prompt);
+        return true;
+      },
       interrupt: async () => {
         if (this.failInterrupt) throw new Error('Interrupt failed');
-        turn?.resolve({ status: 'interrupted', text: '' });
+        turn?.resolve({
+          status: 'interrupted',
+          text: '',
+          ...(this.unreadOnInterrupt ? { unread: steered } : {}),
+        });
       },
       close: async () => {
         closed = true;
@@ -191,6 +206,7 @@ export class FixtureAgent implements AgentAdapter {
           return { status: 'interrupted', text: '' };
         }
         turn = Promise.withResolvers<TurnResult>();
+        steered = [];
         const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
         turn = undefined;
         let result = held;
