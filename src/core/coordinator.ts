@@ -805,9 +805,15 @@ export class Coordinator {
     } else if (event.type === 'usage') {
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent') {
-      if (this.live(agent))
+      const { subagent } = event;
+      // only a start lists a familiar, so a late update cannot restore one a turn dropped
+      if (
+        this.live(agent) &&
+        (subagent.status === 'running' ||
+          this.snapshot.subagents.some(({ id }) => id === subagent.id))
+      )
         this.publish({
-          subagents: withSubagent(this.snapshot.subagents, event.subagent),
+          subagents: withSubagent(this.snapshot.subagents, subagent),
         });
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;

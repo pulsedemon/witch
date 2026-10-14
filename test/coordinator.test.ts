@@ -178,6 +178,10 @@ await test("the live session's subagents update in place, a turn drops the finis
     assert.deepEqual(coordinator.snapshot.subagents, [
       subagent('inner', 'running', 'outer'),
     ]);
+    emit(a.sessions[0]!, 'outer', 'completed');
+    assert.deepEqual(coordinator.snapshot.subagents, [
+      subagent('inner', 'running', 'outer'),
+    ]);
     await coordinator.switchAgent('b');
     assert.deepEqual(coordinator.snapshot.subagents, []);
     emit(a.sessions[0]!, 'late', 'running');
