@@ -396,9 +396,8 @@ class CodexSession implements AgentSession {
 
   /** Codex keeps a steered prompt in the thread even when the turn is then interrupted. */
   async steer(prompt: string): Promise<boolean> {
-    const turn = this.turn;
-    const id = await turn?.started.promise;
-    if (!id || this.turn !== turn) return false;
+    const id = await this.turn?.started.promise;
+    if (!id) return false;
     try {
       await this.rpc.request('turn/steer', {
         threadId: this.info.id,
@@ -407,7 +406,7 @@ class CodexSession implements AgentSession {
       });
       return true;
     } catch {
-      // Codex refuses a turn that has just ended, which leaves the prompt to the next turn
+      // any refusal leaves the prompt to the next turn, the expected one being a turn that has just ended
       return false;
     }
   }

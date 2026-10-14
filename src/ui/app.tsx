@@ -131,12 +131,13 @@ export function App({
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // a send resolves after later renders, so it reads the live drafts
+  // keys in one read arrive before a render, so ↑ reads the live drafts
   const [drafts, draftsRef, setDrafts] = useLiveState<Record<string, string>>(
     {},
   );
   const setDraft = (id: string, value: string) =>
     setDrafts((previous) => ({ ...previous, [id]: value }));
+  const [leaving, setLeaving] = useState<string>();
   // Input reads its initial value only when it mounts
   const [composerKey, setComposerKey] = useState(0);
   const composer = useRef<InputHandle>(null);
@@ -172,9 +173,11 @@ export function App({
       : errorLines;
   // the header and phase rows above, the status line's two below
   const bodyHeight = height - 4 - errorRows.length;
-  // a draft belongs to its conversation, so typing waits for the load to open one
+  // a draft belongs to its conversation, so typing waits for the load or a switch to open one
   const composerPhase =
-    !!state.conversation && !['closing', 'error'].includes(state.phase);
+    !!state.conversation &&
+    state.conversation.id !== leaving &&
+    !['closing', 'error'].includes(state.phase);
   const working = ['starting', 'running', 'switching'].includes(state.phase);
   const entries = [
     ...commands.map(({ id, label, aliases }) => ({
@@ -263,6 +266,11 @@ export function App({
 
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => coordinator.report(error));
+  };
+  /** a switch shows the conversation it leaves until the next one opens, and a prompt sent from it would run in the next one. */
+  const leave = (operation: Promise<void>) => {
+    setLeaving(state.conversation?.id);
+    run(operation.finally(() => setLeaving(undefined)));
   };
   const picker = (
     title: string,
@@ -357,7 +365,7 @@ export function App({
     setView({ kind: 'chat' });
     switch (name) {
       case 'new':
-        run(coordinator.newConversation(argument || undefined));
+        leave(coordinator.newConversation(argument || undefined));
         break;
       case 'sessions':
         run(
@@ -372,7 +380,7 @@ export function App({
               (id) => {
                 setView({ kind: 'chat' });
                 setTop(null);
-                run(coordinator.selectConversation(id));
+                leave(coordinator.selectConversation(id));
               },
             ),
           ),
@@ -827,7 +835,7 @@ export function App({
         </Box>
         {queueRows > 0 && (
           <Box height={queueRows} flexDirection="column" overflow="hidden">
-            {state.queue.map((prompt, index) => (
+            {state.queue.slice(0, queueRows).map((prompt, index) => (
               <Text key={index} dimColor wrap="truncate-end">
                 {`❯ ${plain(prompt).replace(/\s+/g, ' ')}`}
               </Text>

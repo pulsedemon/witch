@@ -48,6 +48,8 @@ export class FixtureAgent implements AgentAdapter {
   readonly steers: string[] = [];
   /** an interrupt reports the turn's steered prompts unread, as Claude Code does for those it still holds. */
   unreadOnInterrupt = false;
+  /** the turn in flight refuses steered prompts, as Codex refuses one for a turn that has just ended. */
+  refuseSteer = false;
   /** what each session's `skills()` returns. */
   skills: Skill[] = [];
   failSkills = false;
@@ -154,7 +156,7 @@ export class FixtureAgent implements AgentAdapter {
         this.responses.push([id, response]);
       },
       steer: async (prompt) => {
-        if (!turn || closed) return false;
+        if (!turn || closed || this.refuseSteer) return false;
         this.steers.push(prompt);
         steered.push(prompt);
         return true;

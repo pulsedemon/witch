@@ -415,6 +415,26 @@ await test('a prompt steered into a turn reaches Claude Code, and none is taken 
   }
 });
 
+await test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
+  const { seen, onEvent } = working();
+  const { session } = await fixture(onEvent);
+  try {
+    const turn = session.send('steerable');
+    await within(seen, 2000, 'first output');
+    const interrupting = session.interrupt();
+    assert.equal(await session.steer('after the interrupt'), false);
+    await within(interrupting, 2000, 'interrupt');
+    assert.equal((await turn).status, 'interrupted');
+    const next = session.send('wait');
+    const closing = session.close();
+    assert.equal(await session.steer('after the close'), false);
+    await within(closing, 2000, 'close');
+    assert.equal((await next).status, 'failed');
+  } finally {
+    await session.close();
+  }
+});
+
 await test('an interrupt that leaves steered prompts queued closes the session and reports them unread', async () => {
   const { seen, onEvent } = working();
   const { session, child, cwd } = await fixture(onEvent);

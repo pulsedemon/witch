@@ -303,6 +303,7 @@ await test('a prompt steered into a turn goes to Codex for that turn, and one Co
   const { session, cwd } = await fixture();
   try {
     assert.equal(await session.steer('too early'), false);
+    await assert.rejects(access(join(cwd, 'steer.json')));
     const turn = session.send('hold');
     await appears(join(cwd, 'prompt.json'));
     assert.equal(await session.steer('also this'), true);

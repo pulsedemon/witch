@@ -2192,6 +2192,58 @@ await test('steered prompts an interrupt leaves unread go as the next turn', asy
   }
 });
 
+for (const [name, prompt, prepare] of [
+  [
+    'a prompt the turn refuses',
+    'Later',
+    async (_coordinator: Coordinator, a: FixtureAgent) => {
+      a.refuseSteer = true;
+    },
+  ],
+  [
+    'a prompt sent after an interrupt',
+    'Later',
+    async (coordinator: Coordinator, a: FixtureAgent) => {
+      // the turn runs on after the interrupt, as a Codex turn does until Codex completes it
+      a.failInterrupt = true;
+      await assert.rejects(coordinator.interrupt(), /Interrupt failed/);
+      a.failInterrupt = false;
+    },
+  ],
+  ['an unlisted slash command', '/clear', async () => {}],
+] as const)
+  await test(`${name} waits in the queue, unseen until it goes as the next turn`, async () => {
+    const { coordinator, a } = await fixture();
+    const gate = new TurnGate();
+    try {
+      a.gate = gate;
+      const sending = coordinator.send('Start');
+      await within(gate.entered, 2000, 'the gated turn');
+      await prepare(coordinator, a);
+      await coordinator.send(prompt);
+      assert.deepEqual(a.steers, []);
+      assert.deepEqual(coordinator.snapshot.queue, [prompt]);
+      assert.ok(
+        !coordinator.snapshot.items.some(({ text }) => text === prompt),
+      );
+      gate.open();
+      await within(sending, 2000, 'the queued turn');
+      assert.deepEqual(
+        a.inputs.map((input) => [
+          input.prompt.split('User request:\n')[1],
+          input.skill,
+        ]),
+        [
+          ['Start', undefined],
+          [prompt, undefined],
+        ],
+      );
+    } finally {
+      gate.open();
+      await coordinator.close();
+    }
+  });
+
 await test("a model list that fails at connect is reported, and the session's skills and usage still reach the snapshot", async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];

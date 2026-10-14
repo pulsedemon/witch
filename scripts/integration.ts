@@ -112,7 +112,7 @@ async function steer(): Promise<void> {
   )
     await delay(100);
   await coordinator.send(`Also include ${marker} in your final reply.`);
-  // a prompt the turn refused would wait in the queue, and one sent after it would run as its own turn
+  // a prompt the turn refused would wait in the queue, and one sent after the turn ended would run as its own turn
   assert.equal(coordinator.snapshot.phase, 'running');
   assert.deepEqual(coordinator.snapshot.queue, []);
   await running;

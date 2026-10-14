@@ -102,7 +102,7 @@ export interface Snapshot {
   phase: Phase;
   conversation?: Conversation;
   items: readonly DisplayItem[];
-  /** prompts sent while busy that no turn has taken yet, oldest first. */
+  /** prompts waiting for a turn, oldest first. */
   queue: readonly string[];
   requests: readonly UserRequest[];
   models: readonly Model[];
@@ -335,7 +335,7 @@ export class Coordinator {
     if (failure !== undefined) this.report(failure);
   }
 
-  /** steers the turn in flight, or queues the prompt for a turn of its own; a queued turn that never reaches the agent leaves its prompts queued. */
+  /** steers the turn in flight, or queues the prompt for a later turn; a queued turn that never reaches the agent leaves its prompts queued. */
   async send(prompt: string): Promise<void> {
     if (!prompt.trim()) return;
     // only a restart leaves the error phase, so nothing would run what waits
@@ -352,12 +352,16 @@ export class Coordinator {
     return queue;
   }
 
-  /** a spell, and a prompt behind queued ones, wait for a turn of their own. */
+  /**
+   * a prompt behind queued ones or sent after an interrupt waits in the queue, and so does a slash
+   * command: a spell runs only as a turn, and Claude Code would run any other as its own command.
+   */
   private async steer(prompt: string): Promise<boolean> {
     if (
       this.snapshot.phase !== 'running' ||
+      this.cancelled ||
       this.snapshot.queue.length ||
-      skillCall(prompt, this.snapshot.skills) ||
+      prompt.trimStart().startsWith('/') ||
       !(await this.session?.steer(prompt))
     )
       return false;
@@ -370,9 +374,9 @@ export class Coordinator {
     return true;
   }
 
-  /** runs what was sent during an operation once it ends; a failed turn publishes its own error. */
+  /** runs what was sent during an operation once it ends. */
   private drainAfter(): void {
-    this.drain().catch(() => {});
+    this.drain().catch((error: unknown) => this.report(error));
   }
 
   /** runs the queue while idle: a spell alone, otherwise every prompt before the next spell, a line each. */

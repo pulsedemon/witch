@@ -991,6 +991,39 @@ for (const [typed, call] of [
     }
   });
 
+await test('the composer takes no typing while a switch shows the conversation it leaves, and takes it once the next one opens', async () => {
+  const { coordinator, app, calls } = fake({});
+  const switching = Promise.withResolvers<void>();
+  coordinator.newConversation = async (...args: unknown[]) => {
+    calls.push(['newConversation', ...args]);
+    coordinator.publish({ phase: 'starting' });
+    await switching.promise;
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/new b');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    ui.stdin.write('hello');
+    await delay(60);
+    assert.ok(!ui.text().includes('┃ hello'));
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+    });
+    await delay(60);
+    ui.stdin.write('there');
+    await until('typing in the next conversation', () =>
+      ui.text().includes('┃ there'),
+    );
+  } finally {
+    switching.resolve();
+    ui.unmount();
+  }
+});
+
 /** opens the command picker and waits for it. */
 async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
