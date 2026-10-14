@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -11,6 +17,8 @@ const diacritics = [
 ].map((code) => String.fromCodePoint(code));
 const placeholder = '\u{10EEEE}';
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+// read whole during a render, so a larger file would stall it
+const largestFile = 64 * 1024 * 1024;
 const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 // a quoted path, or a run where a backslash escapes a space; macOS screenshot names hold an unescaped U+202F
 const pathToken = /"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^ \t\r\n\\"'])+)/g;
@@ -88,9 +96,14 @@ export class Graphics {
     let width: number;
     let height: number;
     try {
-      data = key.startsWith('data:')
-        ? Buffer.from(key.slice(key.indexOf(',') + 1), 'base64')
-        : readFileSync(key);
+      if (key.startsWith('data:'))
+        data = Buffer.from(key.slice(key.indexOf(',') + 1), 'base64');
+      else {
+        // a FIFO or device named like an image would block the render that reads it
+        const file = statSync(key);
+        if (!file.isFile() || file.size > largestFile) return undefined;
+        data = readFileSync(key);
+      }
       // the terminal decodes only PNG
       if (!data.subarray(0, 4).equals(pngSignature)) data = toPng(data);
       // a truncated file throws here rather than in a render

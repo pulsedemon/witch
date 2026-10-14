@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdtemp, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -79,4 +80,26 @@ await test('a GIF is sent converted to PNG, an unreadable path shows and sends n
 
   graphics.release();
   assert.deepEqual(writes, ['\u001b_Ga=d,d=I,i=1,q=2\u001b\\']);
+});
+
+await test('a FIFO or a file over 64 MiB named like an image shows and reads nothing, so it cannot stall a render', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'witch-images-'));
+  const source = join(directory, 'source.png');
+  await writeFile(source, png(16, 16));
+  const fifo = join(directory, 'fifo.png');
+  execFileSync('/usr/bin/mkfifo', [fifo]);
+  // a writer that would hand a reader a real image, so reading the FIFO would draw it
+  const writer = spawn('/bin/cp', [source, fifo]);
+  const large = join(directory, 'large.png');
+  await writeFile(large, png(16, 16));
+  await truncate(large, 64 * 1024 * 1024 + 1);
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  try {
+    assert.deepEqual(graphics.rows(fifo, '/', 80), []);
+    assert.deepEqual(graphics.rows(large, '/', 80), []);
+    assert.deepEqual(writes, []);
+  } finally {
+    writer.kill();
+  }
 });
