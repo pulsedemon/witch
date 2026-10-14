@@ -632,6 +632,11 @@ await test("a spawned thread's tool items, not its prompt or thinking, give its 
         { ...worker, run: 'worker-thread-turn-3' },
       ],
     );
+    // and what is ignored posts no notice either
+    assert.deepEqual(
+      events.filter(({ type }) => type === 'notice'),
+      [],
+    );
   } finally {
     await close(session, cwd);
   }
