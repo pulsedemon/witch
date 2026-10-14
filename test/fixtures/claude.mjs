@@ -359,7 +359,7 @@ for await (const line of lines) {
           type: 'tool_use',
           id: 'tool-3',
           name: 'Read',
-          input: { file_path: 'shot.png' },
+          input: { file_path: join(process.cwd(), 'shot.png') },
         },
       ]);
       toolResult('tool-3', [

@@ -121,7 +121,11 @@ const imageContent = z.object({
 const mcpResult = z.object({ content: z.array(z.unknown()) });
 
 /** an item's name and what it acts on; a command shows as itself. */
-function itemTitle(type: string, item: Record<string, unknown>): string {
+function itemTitle(
+  type: string,
+  item: Record<string, unknown>,
+  cwd: string,
+): string {
   if (typeof item.command === 'string') return item.command;
   if (type === 'fileChange')
     return [
@@ -133,10 +137,11 @@ function itemTitle(type: string, item: Record<string, unknown>): string {
     return toolTitle(
       `${call.data.server}.${call.data.tool}`,
       call.data.arguments,
+      cwd,
     );
   if (typeof item.tool === 'string')
-    return toolTitle(item.tool, item.arguments ?? item);
-  return toolTitle(type, item);
+    return toolTitle(item.tool, item.arguments ?? item, cwd);
+  return toolTitle(type, item, cwd);
 }
 
 /** a viewed image file, or the images an MCP tool returned. */
@@ -627,7 +632,7 @@ class CodexSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id,
-            title: itemTitle(type, item),
+            title: itemTitle(type, item, this.options.cwd),
             text:
               typeof item.aggregatedOutput === 'string'
                 ? item.aggregatedOutput

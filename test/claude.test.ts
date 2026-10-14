@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, writeFile, access } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -19,7 +25,8 @@ import { within } from './fixtures/within.js';
 const claude = fileURLToPath(new URL('fixtures/claude.mjs', import.meta.url));
 
 async function launcher(mode?: string) {
-  const cwd = await mkdtemp(join(tmpdir(), 'witch-claude-'));
+  // the real path, which the fixture's process.cwd() reports
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'witch-claude-')));
   const children: ChildProcessWithoutNullStreams[] = [];
   const args: string[][] = [];
   const adapter = new ClaudeAdapter((options) => {
@@ -466,9 +473,9 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   }
 });
 
-await test("Claude tool use and its result update one tool titled by what it acts on, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
+await test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
-  const { session } = await fixture((event) => events.push(event));
+  const { session, cwd } = await fixture((event) => events.push(event));
   try {
     assert.equal((await session.send('tools')).status, 'completed');
     assert.deepEqual(
@@ -500,8 +507,9 @@ await test("Claude tool use and its result update one tool titled by what it act
         ['tool-2', '', 'Found a.md.\nRead one file.', true, undefined],
         [
           'tool-3',
+          // a path under the session's directory shows relative to it
           'Read  shot.png',
-          '{\n  "file_path": "shot.png"\n}',
+          JSON.stringify({ file_path: join(cwd, 'shot.png') }, null, 2),
           false,
           undefined,
         ],

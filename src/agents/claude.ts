@@ -478,7 +478,7 @@ class ClaudeSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id: block.id,
-            title: toolTitle(block.name, block.input),
+            title: toolTitle(block.name, block.input, this.options.cwd),
             text: JSON.stringify(block.input, null, 2),
             done: false,
           });
