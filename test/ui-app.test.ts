@@ -1279,6 +1279,25 @@ await test('queued prompts show above the activity row with a hint, and ↑ on t
   }
 });
 
+await test('a queue longer than the free rows shows its first prompts and keeps the composer in view', async () => {
+  const { app } = fake({
+    phase: 'running',
+    queue: Array.from({ length: 60 }, (_, index) => `prompt ${index}`),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    20,
+  );
+  try {
+    await until('the queue', () => ui.text().includes('❯ prompt 0'));
+    assert.ok(ui.text().includes('┃ Press ↑ to edit queued messages'));
+    assert.ok(!ui.text().includes('❯ prompt 59'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('↑ in an open list moves its selection and leaves the queue', async () => {
   const { app, calls } = fake({ phase: 'running', queue: ['one'] });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));

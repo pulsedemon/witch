@@ -223,6 +223,14 @@ export function App({
   const freeRows = bodyHeight - composerRows - 3 - listRows - (working ? 1 : 0);
   // the transcript keeps two rows
   const queueRows = Math.max(0, Math.min(state.queue.length, freeRows - 2));
+  // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
+  const queued = useMemo(
+    () =>
+      state.queue.map((prompt) =>
+        plain(prompt).replace(/\s+/g, ' ').slice(0, width),
+      ),
+    [state.queue, width],
+  );
   const transcriptHeight = Math.max(2, freeRows - queueRows);
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
   const scrollTop =
@@ -836,9 +844,9 @@ export function App({
         </Box>
         {queueRows > 0 && (
           <Box height={queueRows} flexDirection="column" overflow="hidden">
-            {state.queue.slice(0, queueRows).map((prompt, index) => (
+            {queued.slice(0, queueRows).map((prompt, index) => (
               <Text key={index} dimColor wrap="truncate-end">
-                {`❯ ${plain(prompt).replace(/\s+/g, ' ')}`}
+                {`❯ ${prompt}`}
               </Text>
             ))}
           </Box>

@@ -435,7 +435,7 @@ await test('no prompt is steered into a turn once it is interrupted or its sessi
   }
 });
 
-await test('an interrupt that leaves steered prompts queued closes the session and reports them unread', async () => {
+await test('an interrupt that leaves steered prompts queued closes the session and reports only those unread', async () => {
   const { seen, onEvent } = working();
   const { session, child, cwd } = await fixture(onEvent);
   try {
@@ -443,9 +443,10 @@ await test('an interrupt that leaves steered prompts queued closes the session a
     const turn = session.send('steerable');
     await within(seen, 2000, 'first output');
     assert.equal(await session.steer('also this'), true);
-    await until('the CLI to hold it', () =>
-      access(join(cwd, 'steered.jsonl')).then(
-        () => true,
+    assert.equal(await session.steer('and this'), true);
+    await until('the CLI to hold both', () =>
+      readFile(join(cwd, 'steered.jsonl'), 'utf8').then(
+        (text) => text.trim().split('\n').length === 2,
         () => false,
       ),
     );
@@ -454,7 +455,7 @@ await test('an interrupt that leaves steered prompts queued closes the session a
     assert.deepEqual(await turn, {
       status: 'interrupted',
       text: 'Working.',
-      unread: ['also this'],
+      unread: ['and this'],
     });
     await within(exited, 1000, 'CLI exit');
   } finally {

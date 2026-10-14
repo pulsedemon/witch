@@ -232,8 +232,9 @@ for await (const line of lines) {
     }
     if (request.subtype === 'interrupt') {
       if (lastPrompt === 'still queued') response = { still_queued: ['q-1'] };
-      else if (lastPrompt === 'steerable' && steered.length)
-        response = { still_queued: steered };
+      // the first steered prompt was folded in at a tool step, so the CLI still holds the rest
+      else if (lastPrompt === 'steerable' && steered.length > 1)
+        response = { still_queued: steered.slice(1) };
       else {
         result();
         state('idle');
