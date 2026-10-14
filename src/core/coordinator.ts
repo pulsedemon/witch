@@ -12,6 +12,7 @@ import type {
   SessionInfo,
   Skill,
   SkillCall,
+  Subagent,
   TurnResult,
   Usage,
   UserRequest,
@@ -43,6 +44,15 @@ function skillCall(
   const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
   if (!match || !skills.some(({ name }) => name === match[1])) return;
   return { name: match[1]!, args: match[2]!.trim() };
+}
+
+/** replaces the subagent with the same id in place, so the list keeps start order. */
+function withSubagent(
+  subagents: readonly Subagent[],
+  subagent: Subagent,
+): Subagent[] {
+  const index = subagents.findIndex(({ id }) => id === subagent.id);
+  return index < 0 ? [...subagents, subagent] : subagents.with(index, subagent);
 }
 
 /** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
@@ -89,6 +99,8 @@ export interface Snapshot {
   models: readonly Model[];
   /** the live session's skills, empty while none is connected. */
   skills: readonly Skill[];
+  /** the live session's subagents in start order; a turn drops the finished ones. */
+  subagents: readonly Subagent[];
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
   /** the live session's usage; a session that never reported keeps it empty. */
@@ -140,6 +152,7 @@ export class Coordinator {
       requests: [],
       models: [],
       skills: [],
+      subagents: [],
       usage: {},
       agents: agents.map(({ adapter, executable }) => ({
         id: adapter.id,
@@ -591,6 +604,11 @@ export class Coordinator {
     const conversation = this.current();
     const { activity, scope } = await this.beginActivity(kind);
     const session = await this.connect();
+    this.publish({
+      subagents: this.snapshot.subagents.filter(
+        ({ status }) => status === 'running',
+      ),
+    });
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
     const snapshot =
@@ -755,7 +773,7 @@ export class Coordinator {
   private async disconnect(): Promise<void> {
     const session = this.session;
     this.session = undefined;
-    this.publish({ skills: [] });
+    this.publish({ skills: [], subagents: [] });
     await session?.close();
     if (!this.record) return;
     delete this.record.process;
@@ -786,6 +804,17 @@ export class Coordinator {
       if (this.live(agent)) this.publish({ skills: event.skills });
     } else if (event.type === 'usage') {
       if (this.live(agent)) this.publish({ usage: event.usage });
+    } else if (event.type === 'subagent') {
+      const { subagent } = event;
+      // only a start lists a familiar, so a late update cannot restore one a turn dropped
+      if (
+        this.live(agent) &&
+        (subagent.status === 'running' ||
+          this.snapshot.subagents.some(({ id }) => id === subagent.id))
+      )
+        this.publish({
+          subagents: withSubagent(this.snapshot.subagents, subagent),
+        });
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       this.display(

@@ -12,6 +12,7 @@ import type {
   SessionOptions,
   Skill,
   SkillCall,
+  Subagent,
   TurnResult,
   Usage,
   UserRequest,
@@ -57,7 +58,6 @@ const skillList = z.object({
   ),
 });
 const tokenUsage = z.object({
-  threadId: z.string(),
   tokenUsage: z.object({
     last: z.object({ totalTokens: z.number() }),
     modelContextWindow: z.number().nullable(),
@@ -152,6 +152,8 @@ class CodexSession implements AgentSession {
   /** the thread's settings as Codex last reported them, which `model/rerouted` leaves alone. */
   private native: { model: string; effort?: string } = { model: '' };
   private readonly malformed = new Set<string>();
+  /** spawned threads by id. */
+  private readonly subagents = new Map<string, Subagent>();
   /** each listed skill's SKILL.md, which a skill input names. */
   private readonly skillPaths = new Map<string, string>();
   /** each turn's latest diff count, since a turn's diff grows as it edits. */
@@ -430,17 +432,97 @@ class CodexSession implements AgentSession {
       this.requestInput(message);
       return;
     }
+    const child = this.childThread(message);
     try {
-      this.notification(message);
+      if (child) this.subagentNotification(message, child);
+      else this.notification(message);
     } catch (error) {
       const text = `Witch could not read Codex's ${message.method} notification: ${errorMessage(error)}`;
-      if (message.method === 'turn/completed') this.finish('failed', text);
+      // a subagent's notification settles nothing of this thread's
+      if (!child && message.method === 'turn/completed')
+        this.finish('failed', text);
       else if (message.method === 'thread/settings/updated')
         this.settings?.reject(new Error(text));
       if (this.malformed.has(message.method!)) return;
       this.malformed.add(message.method!);
       this.options.onEvent({ type: 'notice', text });
     }
+  }
+
+  /** Codex sends a spawned thread's notifications to every connection, under that thread's id. */
+  private childThread(message: RpcMessage): string | undefined {
+    // a subagent's approval is asked here, so its resolution is too
+    if (!this.connected || message.method === 'serverRequest/resolved') return;
+    const { params } = message;
+    const threadId =
+      typeof params === 'object' && params !== null && 'threadId' in params
+        ? params.threadId
+        : undefined;
+    return typeof threadId === 'string' && threadId !== this.info.id
+      ? threadId
+      : undefined;
+  }
+
+  private subagentNotification(message: RpcMessage, threadId: string): void {
+    if (
+      message.method !== 'turn/started' &&
+      message.method !== 'turn/completed'
+    )
+      return;
+    let subagent = this.subagents.get(threadId);
+    if (!subagent) {
+      // shown before a completion parses, so a malformed one still lists the thread
+      subagent = { id: threadId, name: 'agent', kind: '', status: 'running' };
+      this.subagent(subagent);
+      void this.readSubagent(threadId);
+    } else if (message.method === 'turn/started')
+      this.subagent({ ...subagent, status: 'running' });
+    if (message.method === 'turn/completed') {
+      const { turn } = z
+        .object({ turn: z.object({ status: z.string() }) })
+        .parse(message.params);
+      this.subagent({
+        ...this.subagents.get(threadId)!,
+        status:
+          turn.status === 'completed'
+            ? 'completed'
+            : turn.status === 'interrupted'
+              ? 'stopped'
+              : 'failed',
+      });
+    }
+  }
+
+  /** a spawned thread's parent, nickname and role, which no notification carries. */
+  private async readSubagent(threadId: string): Promise<void> {
+    try {
+      const { thread } = z
+        .object({
+          thread: z.object({
+            parentThreadId: z.string().nullable(),
+            agentNickname: z.string().nullable(),
+            agentRole: z.string().nullable(),
+          }),
+        })
+        .parse(await this.rpc.request('thread/read', { threadId }));
+      if (this.closing) return;
+      this.subagent({
+        ...this.subagents.get(threadId)!,
+        parent:
+          thread.parentThreadId === this.info.id
+            ? undefined
+            : (thread.parentThreadId ?? undefined),
+        name: thread.agentNickname || 'agent',
+        kind: thread.agentRole ?? '',
+      });
+    } catch {
+      // the subagent keeps its defaults
+    }
+  }
+
+  private subagent(subagent: Subagent): void {
+    this.subagents.set(subagent.id, subagent);
+    this.options.onEvent({ type: 'subagent', subagent });
   }
 
   private notification(message: RpcMessage): void {
@@ -522,8 +604,8 @@ class CodexSession implements AgentSession {
         });
         break;
       case 'thread/tokenUsage/updated': {
-        const { threadId, tokenUsage: usage } = tokenUsage.parse(data);
-        if (threadId === this.info.id && usage.modelContextWindow)
+        const { tokenUsage: usage } = tokenUsage.parse(data);
+        if (usage.modelContextWindow)
           this.report({
             context: (usage.last.totalTokens / usage.modelContextWindow) * 100,
           });
@@ -531,13 +613,8 @@ class CodexSession implements AgentSession {
       }
       case 'turn/diff/updated': {
         const turn = z
-          .object({
-            threadId: z.string(),
-            turnId: z.string(),
-            diff: z.string(),
-          })
+          .object({ turnId: z.string(), diff: z.string() })
           .parse(data);
-        if (turn.threadId !== this.info.id) break;
         this.turnLines.set(turn.turnId, diffLines(turn.diff));
         const lines = { added: 0, removed: 0 };
         for (const { added, removed } of this.turnLines.values()) {

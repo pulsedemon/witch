@@ -116,6 +116,7 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       requests: [],
       models: [],
       skills: [],
+      subagents: [],
       usage: {},
       agents: [],
       conversation: {
@@ -1365,6 +1366,82 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
     await until('the rest', () => inSidebar(ui.text()) === rest);
     await delay(200);
     assert.equal(inSidebar(ui.text()), rest);
+  } finally {
+    ui.unmount();
+  }
+});
+
+/** the sidebar's text, right of its border and padding, row by row. */
+const sidebarRows = (text: string) =>
+  text.split('\n').map((line) => line.slice(82).trimEnd());
+
+await test('the sidebar lists familiars depth first under the familiar that started them, with an unlisted parent shown as a root, and no heading once none are left', async () => {
+  const { app, coordinator } = fake({
+    subagents: [
+      { id: 'a', name: 'map code', kind: 'Explore', status: 'running' },
+      { id: 'b', name: 'fix bug', kind: '', status: 'failed' },
+      {
+        id: 'c',
+        parent: 'a',
+        name: 'read tests',
+        kind: '',
+        status: 'completed',
+      },
+      { id: 'd', parent: 'c', name: 'run ls', kind: '', status: 'stopped' },
+      { id: 'e', parent: 'gone', name: 'orphan', kind: '', status: 'running' },
+    ],
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  try {
+    await until('the familiars', () => ui.text().includes('FAMILIARS'));
+    assert.deepEqual(sidebarRows(ui.text()).slice(0, 6), [
+      'FAMILIARS',
+      '● MAP CODE Explore',
+      '  ✓ READ TESTS',
+      '    ■ RUN LS',
+      '✗ FIX BUG',
+      '● ORPHAN',
+    ]);
+    coordinator.publish({ subagents: [] });
+    await until('no familiars', () => !ui.text().includes('FAMILIARS'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('familiars that overflow the sidebar show the last rows in tree order under a count of the rest, above the whole pentacle', async () => {
+  const { app } = fake({
+    // the newest, 6, started under the oldest, so tree order puts it second
+    subagents: [1, 2, 3, 4, 5, 6].map((index) => ({
+      id: `${index}`,
+      parent: index === 6 ? '1' : undefined,
+      name: `task ${index}`,
+      kind: '',
+      status: 'running' as const,
+    })),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+    16,
+  );
+  try {
+    await until('the familiars', () => ui.text().includes('FAMILIARS'));
+    const rows = sidebarRows(ui.text());
+    assert.deepEqual(rows.slice(0, 5), [
+      'FAMILIARS',
+      '+3 MORE',
+      '● TASK 3',
+      '● TASK 4',
+      '● TASK 5',
+    ]);
+    assert.ok(
+      rows.slice(5, 16).every((row) => /[⠁-⣿]/.test(row)),
+      rows.join('\n'),
+    );
   } finally {
     ui.unmount();
   }

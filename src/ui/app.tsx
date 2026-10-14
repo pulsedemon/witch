@@ -906,7 +906,13 @@ export function App({
           repository={repositoryStatus}
         />
       </Box>
-      {sidebar && <Sidebar height={height} spinning={working} />}
+      {sidebar && (
+        <Sidebar
+          height={height}
+          spinning={working}
+          subagents={state.subagents}
+        />
+      )}
     </Box>
   );
 }

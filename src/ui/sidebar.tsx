@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
+import type { Subagent } from '../agents/types.js';
+import { plain } from './links.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim } from './theme.js';
 
@@ -9,14 +11,43 @@ const rows = 11;
 export const sidebarWidth = columns + 3;
 /** turned a little, so the pentacle shows its depth at rest. */
 const restAngle = 0.45;
+const markers: Record<Subagent['status'], string> = {
+  running: '●',
+  completed: '✓',
+  stopped: '■',
+  failed: '✗',
+};
 
-/** the right sidebar, with the pentacle at its foot, turning while `spinning`. */
+/** depth first, each subagent under the one that started it; one whose parent isn't listed is a root. */
+function lineage(
+  subagents: readonly Subagent[],
+): { subagent: Subagent; depth: number }[] {
+  const ids = new Set(subagents.map(({ id }) => id));
+  const lines: { subagent: Subagent; depth: number }[] = [];
+  const visit = (parent: string | undefined, depth: number) => {
+    for (const subagent of subagents) {
+      const listed =
+        subagent.parent !== undefined && ids.has(subagent.parent)
+          ? subagent.parent
+          : undefined;
+      if (listed !== parent) continue;
+      lines.push({ subagent, depth });
+      visit(subagent.id, depth + 1);
+    }
+  };
+  visit(undefined, 0);
+  return lines;
+}
+
+/** the right sidebar: the agent's subagents, which Witch calls familiars, and the pentacle at its foot, turning while `spinning`. */
 export function Sidebar({
   height,
   spinning,
+  subagents,
 }: {
   height: number;
   spinning: boolean;
+  subagents: readonly Subagent[];
 }) {
   const [angle, setAngle] = useState(restAngle);
   useEffect(() => {
@@ -29,6 +60,14 @@ export function Sidebar({
     return () => clearInterval(timer);
   }, [spinning]);
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
+  const familiars = lineage(subagents);
+  // the rows above the pentacle, less the heading; the last rows in tree order show and a count stands in for the rest
+  const room = height - rows - 1;
+  const shown =
+    familiars.length > room
+      ? familiars.slice(familiars.length - Math.max(room - 1, 0))
+      : familiars;
+  const hidden = familiars.length - shown.length;
   return (
     <Box
       flexDirection="column"
@@ -43,6 +82,36 @@ export function Sidebar({
       borderBottom={false}
       paddingX={1}
     >
+      {familiars.length > 0 && room > 0 && (
+        <Box flexDirection="column" flexGrow={1} overflow="hidden">
+          <Text color={accent}>FAMILIARS</Text>
+          {hidden > 0 && <Text dimColor>+{hidden} MORE</Text>}
+          {shown.map(({ subagent, depth }) => (
+            <Text
+              key={subagent.id}
+              wrap="truncate-end"
+              dimColor={
+                subagent.status === 'completed' || subagent.status === 'stopped'
+              }
+            >
+              {'  '.repeat(depth)}
+              <Text
+                color={
+                  subagent.status === 'running'
+                    ? accent
+                    : subagent.status === 'failed'
+                      ? 'red'
+                      : undefined
+                }
+              >
+                {markers[subagent.status]}
+              </Text>{' '}
+              {plain(subagent.name).replace(/\s+/g, ' ').toUpperCase()}
+              {subagent.kind && <Text dimColor> {plain(subagent.kind)}</Text>}
+            </Text>
+          ))}
+        </Box>
+      )}
       {lines.map((runs, row) => (
         <Text key={row}>
           {runs.map((run, index) => (

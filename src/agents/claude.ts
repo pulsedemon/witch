@@ -23,6 +23,7 @@ import type {
   SessionOptions,
   Skill,
   SkillCall,
+  Subagent,
   TurnResult,
   Usage,
   UserRequest,
@@ -121,6 +122,9 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
+  private readonly subagents = new Map<string, Subagent>();
+  /** each subagent task's latest run, since a resumed task keeps its id. */
+  private readonly runs = new Map<string, string>();
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
 
@@ -419,6 +423,25 @@ class ClaudeSession implements AgentSession {
       ) {
         this.finish(this.turn, this.turn.result);
         void this.readUsage();
+      } else if (
+        // ambient tasks are housekeeping, such as forked-skill workers
+        message.subtype === 'task_started' &&
+        message.task_type === 'local_agent' &&
+        !message.ambient &&
+        !this.late(message)
+      ) {
+        if (message.run_id) this.runs.set(message.task_id, message.run_id);
+        this.subagent({
+          id: message.task_id,
+          parent: message.parent_task_id,
+          name: message.description,
+          kind: message.subagent_type ?? '',
+          status: 'running',
+        });
+      } else if (message.subtype === 'task_notification') {
+        const subagent = this.subagents.get(message.task_id);
+        if (subagent && !this.late(message))
+          this.subagent({ ...subagent, status: message.status });
       }
     } else if (
       message.type === 'stream_event' &&
@@ -508,6 +531,17 @@ class ClaudeSession implements AgentSession {
           : {}),
       };
     }
+  }
+
+  private subagent(subagent: Subagent): void {
+    this.subagents.set(subagent.id, subagent);
+    this.options.onEvent({ type: 'subagent', subagent });
+  }
+
+  /** run ids sort in the order the runs opened, so a frame naming an earlier run is late. */
+  private late({ task_id, run_id }: { task_id: string; run_id?: string }) {
+    const run = this.runs.get(task_id);
+    return Boolean(run_id && run && run_id < run);
   }
 
   private report(update: Usage): void {
