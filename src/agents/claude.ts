@@ -126,6 +126,8 @@ class ClaudeSession implements AgentSession {
   private readonly subagents = new Map<string, Subagent>();
   /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
+  /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
+  private readonly reportMessages = new Map<string, string>();
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
 
@@ -493,7 +495,14 @@ class ClaudeSession implements AgentSession {
         if (block.type === 'tool_use') {
           activity = toolTitle(block.name, block.input, this.options.cwd);
           tools++;
-        } else if (block.type === 'text') report = block.text;
+        } else if (block.type === 'text') {
+          report =
+            report &&
+            this.reportMessages.get(subagent.id) === message.message.id
+              ? `${report}\n${block.text}`
+              : block.text;
+          this.reportMessages.set(subagent.id, message.message.id);
+        }
       if (tools !== (subagent.tools ?? 0) || report !== subagent.report)
         this.subagent({ ...subagent, activity, tools, report });
     } else if (

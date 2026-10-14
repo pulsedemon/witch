@@ -530,7 +530,7 @@ await test("Claude tool use and its result update one tool titled by what it act
   }
 });
 
-await test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last text is its report, and an unlisted agent's frames are ignored", async () => {
+await test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -572,11 +572,18 @@ await test("a Claude familiar's tool calls give its latest activity, with a path
           tools: 2,
           report: 'All tests pass.',
         },
+        // the report's second block arrives as its own frame of the same message
         {
           ...reader,
           activity: 'Bash  Run tests  $ pnpm test',
           tools: 2,
-          report: 'All tests pass.',
+          report: 'All tests pass.\nSee a.test.ts.',
+        },
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: 'All tests pass.\nSee a.test.ts.',
           status: 'completed',
         },
       ],

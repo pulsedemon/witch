@@ -30,14 +30,17 @@ const streamEvent = (event, parent) =>
     parent_tool_use_id: parent,
     event,
   });
-/** streams a text reply as a delta before its full message, as partial messages do; `agent` marks a familiar's frame. */
+/**
+ * streams a text reply as a delta before its full message, as partial messages do; `agent` marks a familiar's
+ * frame, and frames that share `id` are blocks of one message.
+ */
 const assistant = (
   text,
   content = [{ type: 'text', text }],
   parent = null,
   agent = undefined,
+  id = randomUUID(),
 ) => {
-  const id = randomUUID();
   if (text) {
     streamEvent({ type: 'message_start', message: { id } }, parent);
     streamEvent(
@@ -404,7 +407,9 @@ for await (const line of lines) {
         'agent-tool',
         'reader',
       );
-      assistant('All tests pass.', undefined, 'agent-tool', 'reader');
+      const report = randomUUID();
+      assistant('All tests pass.', undefined, 'agent-tool', 'reader', report);
+      assistant('See a.test.ts.', undefined, 'agent-tool', 'reader', report);
       // an agent Witch never listed, such as an ambient worker
       assistant(
         '',
