@@ -638,6 +638,7 @@ await test('a note file name carrying a link sequence shows as plain text in the
       () => ui.text().split('Memory edit:').length === 3,
     );
     assert.ok(!ui.frame().includes(forged));
+    await until('idle', () => coordinator.snapshot.phase === 'idle');
     await openMemory(ui, 'global/forged');
     await choose();
     ui.stdin.write('h');

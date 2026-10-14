@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createElement } from 'react';
+import { act, createElement, type ReactElement } from 'react';
 import { render } from 'ink-testing-library';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -9,9 +9,44 @@ import { render as renderTerminal, Box } from 'ink';
 import { PassThrough, Writable } from 'node:stream';
 import type { UserResponse } from '../src/agents/types.js';
 
+// act returns once React has committed and run effects, so a key never races a handler still attaching
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
+async function mount(element: ReactElement) {
+  let ui!: ReturnType<typeof render>;
+  await act(async () => {
+    ui = render(element);
+  });
+  return ui;
+}
+
+/** writes keys inside act. the yield lets a stream stdin emit them before act returns */
+const press = (stdin: { write: (data: string) => unknown }, data: string) =>
+  act(async () => {
+    stdin.write(data);
+    await delay(0);
+  });
+
+/** Ink holds a lone Escape for 20 ms in case a sequence follows. a later, longer timer fires after it */
+const escape = (stdin: { write: (data: string) => unknown }) =>
+  act(async () => {
+    stdin.write('\u001b');
+    await delay(30);
+  });
+
+const unmount = (ui: { unmount: () => void }) =>
+  act(async () => {
+    ui.unmount();
+  });
+
+/** passes the 500 ms in which a new request ignores keys */
+const ready = () => act(() => delay(600));
+
 await test('the terminal composer keeps a bracketed paste unsent until Enter', async () => {
   const sent: string[] = [];
-  const ui = render(
+  const ui = await mount(
     createElement(Input, {
       width: 60,
       height: 4,
@@ -23,17 +58,14 @@ await test('the terminal composer keeps a bracketed paste unsent until Enter', a
     }),
   );
   try {
-    await delay(20);
-    ui.stdin.write('\u001b[200~first\nsecond\u001b[201~');
-    await delay(20);
+    await press(ui.stdin, '\u001b[200~first\nsecond\u001b[201~');
     assert.deepEqual(sent, []);
     assert.match(ui.lastFrame() ?? '', /first/);
     assert.match(ui.lastFrame() ?? '', /second/);
-    ui.stdin.write('\r');
-    await delay(20);
+    await press(ui.stdin, '\r');
     assert.deepEqual(sent, ['first\nsecond']);
   } finally {
-    ui.unmount();
+    await unmount(ui);
   }
 });
 
@@ -66,26 +98,34 @@ await test('the visible terminal cursor reaches the current insertion point with
   }
   const stdin = new InputStream();
   const stdout = new OutputStream();
-  const ui = renderTerminal(
-    createElement(
-      Box,
-      { paddingLeft: 2 },
-      createElement(Input, {
-        width: 30,
-        height: 3,
-        active: true,
-        onSubmit: () => true,
-      }),
-    ),
-    { stdin, stdout, stderr: stdout, interactive: true, patchConsole: false },
-  );
-  try {
-    await delay(30);
-    stdin.write('abc');
-    await delay(40);
+  let ui!: ReturnType<typeof renderTerminal>;
+  await act(async () => {
+    ui = renderTerminal(
+      createElement(
+        Box,
+        { paddingLeft: 2 },
+        createElement(Input, {
+          width: 30,
+          height: 3,
+          active: true,
+          onSubmit: () => true,
+        }),
+      ),
+      { stdin, stdout, stderr: stdout, interactive: true, patchConsole: false },
+    );
+  });
+  const rerender = (element: ReactElement) =>
+    act(async () => {
+      ui.rerender(element);
+    });
+  const column = async () => {
     await ui.waitUntilRenderFlush();
-    assert.equal([...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1], '6');
-    ui.rerender(
+    return [...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1];
+  };
+  try {
+    await press(stdin, 'abc');
+    assert.equal(await column(), '6');
+    await rerender(
       createElement(Input, {
         width: 10,
         height: 3,
@@ -93,21 +133,17 @@ await test('the visible terminal cursor reaches the current insertion point with
         onSubmit: () => true,
       }),
     );
-    await delay(30);
-    stdin.write('a abcdefghi');
-    await delay(30);
-    stdin.write('\u001b[D'.repeat(6));
-    await delay(30);
-    await ui.waitUntilRenderFlush();
-    assert.equal([...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1], '4');
+    await press(stdin, 'a abcdefghi');
+    await press(stdin, '\u001b[D'.repeat(6));
+    assert.equal(await column(), '4');
     assert.ok(stdout.output.includes('\u001b[2A\u001b[4G'));
-    for (const [text, width, column, leftColumn] of [
+    for (const [text, width, end, left] of [
       ['a\tb', 30, '10', '9'],
-      ['e\u0301ab', 30, '4', '3'],
-      ['e\u0301abcd', 5, '1', '5'],
+      ['éab', 30, '4', '3'],
+      ['éabcd', 5, '1', '5'],
     ] as const) {
       const submitted: string[] = [];
-      ui.rerender(
+      await rerender(
         createElement(Input, {
           key: text,
           width,
@@ -119,26 +155,14 @@ await test('the visible terminal cursor reaches the current insertion point with
           },
         }),
       );
-      await delay(30);
-      stdin.write(`\u001b[200~${text}\u001b[201~`);
-      await delay(30);
-      await ui.waitUntilRenderFlush();
-      assert.equal(
-        [...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1],
-        column,
-      );
-      stdin.write('\u001b[D');
-      await delay(30);
-      await ui.waitUntilRenderFlush();
-      assert.equal(
-        [...stdout.output.matchAll(/\[(\d+)G/g)].at(-1)?.[1],
-        leftColumn,
-      );
-      stdin.write('\r');
-      await delay(30);
+      await press(stdin, `\u001b[200~${text}\u001b[201~`);
+      assert.equal(await column(), end);
+      await press(stdin, '\u001b[D');
+      assert.equal(await column(), left);
+      await press(stdin, '\r');
       assert.deepEqual(submitted, [text]);
     }
-    ui.rerender(
+    await rerender(
       createElement(Input, {
         key: 'lines',
         width: 30,
@@ -147,10 +171,8 @@ await test('the visible terminal cursor reaches the current insertion point with
         onSubmit: () => true,
       }),
     );
-    await delay(30);
     // Up from the end of `cd` lands before the newline that ends `ab`
-    stdin.write('\u001b[200~ab\ncd\u001b[201~\u001b[A');
-    await delay(30);
+    await press(stdin, '\u001b[200~ab\ncd\u001b[201~\u001b[A');
     await ui.waitUntilRenderFlush();
     const moves = [
       // eslint-disable-next-line no-control-regex
@@ -158,13 +180,13 @@ await test('the visible terminal cursor reaches the current insertion point with
     ];
     assert.deepEqual(moves.at(-1)?.slice(1), ['3', '3']);
   } finally {
-    ui.unmount();
+    await unmount(ui);
   }
 });
 
 await test('native secret questions mask the display and preserve commas in a single answer, and a multiple answer splits', async () => {
   const answers: unknown[] = [];
-  const ui = render(
+  const ui = await mount(
     createElement(Request, {
       width: 60,
       height: 20,
@@ -188,18 +210,13 @@ await test('native secret questions mask the display and preserve commas in a si
     }),
   );
   try {
-    // past the 500 ms in which a new request ignores keys
-    await delay(600);
-    ui.stdin.write('\u001b[200~red, green\u001b[201~');
-    await delay(30);
+    await ready();
+    await press(ui.stdin, '\u001b[200~red, green\u001b[201~');
     assert.ok(!ui.frames.some((frame) => frame.includes('red, green')));
     assert.ok(ui.lastFrame()?.includes('•••'));
-    ui.stdin.write('\r');
-    await delay(30);
-    ui.stdin.write('1, 3');
-    await delay(30);
-    ui.stdin.write('\r');
-    await delay(30);
+    await press(ui.stdin, '\r');
+    await press(ui.stdin, '1, 3');
+    await press(ui.stdin, '\r');
     assert.deepEqual(answers, [
       {
         decision: 'accept',
@@ -207,7 +224,7 @@ await test('native secret questions mask the display and preserve commas in a si
       },
     ]);
   } finally {
-    ui.unmount();
+    await unmount(ui);
   }
 });
 
@@ -252,7 +269,7 @@ await test('MCP form submissions validate required fields, types and constraints
   ] as const;
   for (const [text, error] of cases) {
     const sent: UserResponse[] = [];
-    const ui = render(
+    const ui = await mount(
       createElement(Request, {
         width: 100,
         height: 25,
@@ -268,33 +285,28 @@ await test('MCP form submissions validate required fields, types and constraints
       }),
     );
     try {
-      await delay(600);
-      if (text) ui.stdin.write(`\u001b[200~${text}\u001b[201~`);
-      await delay(30);
-      ui.stdin.write('\r');
-      await delay(40);
+      await ready();
+      if (text) await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
+      await press(ui.stdin, '\r');
       assert.deepEqual(sent, []);
       assert.match(ui.lastFrame() ?? '', error);
       if (!text) {
-        ui.stdin.write(`\u001b[200~${JSON.stringify(valid)}\u001b[201~`);
-        await delay(30);
-        ui.stdin.write('\r');
-        await delay(40);
+        await press(ui.stdin, `\u001b[200~${JSON.stringify(valid)}\u001b[201~`);
+        await press(ui.stdin, '\r');
         assert.deepEqual(sent, [{ decision: 'accept', content: valid }]);
       } else {
-        ui.stdin.write('\u001b');
-        await delay(30);
+        await escape(ui.stdin);
         assert.deepEqual(sent, [{ decision: 'decline' }]);
       }
     } finally {
-      ui.unmount();
+      await unmount(ui);
     }
   }
 });
 
 await test('an MCP form whose schema names draft-07 validates the answer', async () => {
   const sent: UserResponse[] = [];
-  const ui = render(
+  const ui = await mount(
     createElement(Request, {
       width: 100,
       height: 25,
@@ -315,23 +327,23 @@ await test('an MCP form whose schema names draft-07 validates the answer', async
     }),
   );
   try {
-    await delay(600);
-    ui.stdin.write('\r');
-    await delay(40);
+    await ready();
+    await press(ui.stdin, '\r');
     assert.deepEqual(sent, []);
     assert.match(ui.lastFrame() ?? '', /required property 'name'/);
-    ui.stdin.write(`\u001b[200~${JSON.stringify({ name: 'Ada' })}\u001b[201~`);
-    await delay(30);
-    ui.stdin.write('\r');
-    await delay(40);
+    await press(
+      ui.stdin,
+      `\u001b[200~${JSON.stringify({ name: 'Ada' })}\u001b[201~`,
+    );
+    await press(ui.stdin, '\r');
     assert.deepEqual(sent, [{ decision: 'accept', content: { name: 'Ada' } }]);
   } finally {
-    ui.unmount();
+    await unmount(ui);
   }
 });
 
 await test('a validation error quoting a schema property name cannot carry a link of its own', async () => {
-  const ui = render(
+  const ui = await mount(
     createElement(Request, {
       width: 100,
       height: 25,
@@ -353,9 +365,8 @@ await test('a validation error quoting a schema property name cannot carry a lin
     }),
   );
   try {
-    await delay(600);
-    ui.stdin.write('\r');
-    await delay(40);
+    await ready();
+    await press(ui.stdin, '\r');
     // the body shows the schema as JSON, where the URL is visible text and links as such
     const error = (ui.lastFrame() ?? '')
       .split('\n')
@@ -363,13 +374,13 @@ await test('a validation error quoting a schema property name cannot carry a lin
     assert.match(error ?? '', /required property 'name/);
     assert.ok(!error?.includes('\u001b]8;;'), JSON.stringify(error));
   } finally {
-    ui.unmount();
+    await unmount(ui);
   }
 });
 
 await test('browser elicitation confirms without JSON form content', async () => {
   const sent: UserResponse[] = [];
-  const ui = render(
+  const ui = await mount(
     createElement(Request, {
       width: 80,
       height: 20,
@@ -385,11 +396,10 @@ await test('browser elicitation confirms without JSON form content', async () =>
     }),
   );
   try {
-    await delay(600);
-    ui.stdin.write('\r');
-    await delay(30);
+    await ready();
+    await press(ui.stdin, '\r');
     assert.deepEqual(sent, [{ decision: 'accept', content: undefined }]);
   } finally {
-    ui.unmount();
+    await unmount(ui);
   }
 });
