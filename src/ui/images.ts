@@ -56,7 +56,11 @@ export class Graphics {
     const key = source.startsWith('data:')
       ? source
       : resolve(cwd, source.replace(/^~(?=\/)/, homedir()));
-    if (!this.images.has(key)) this.images.set(key, this.load(key));
+    if (!this.images.has(key)) {
+      const loaded = this.load(key);
+      // a file can be written after a message names it, so only a data URL's failure is kept
+      if (loaded || key.startsWith('data:')) this.images.set(key, loaded);
+    }
     const image = this.images.get(key);
     if (!image || columns < 1) return [];
     // a cell is about twice as tall as wide, and a small image keeps about 8 pixels a column

@@ -103,3 +103,11 @@ await test('a FIFO or a file over 64 MiB named like an image shows and reads not
     writer.kill();
   }
 });
+
+await test('a path that failed to load is tried again, so an image written after a message names it still shows', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'witch-images-'));
+  const graphics = new Graphics(() => {});
+  assert.deepEqual(graphics.rows('shot.png', directory, 80), []);
+  await writeFile(join(directory, 'shot.png'), png(160, 80));
+  assert.equal(graphics.rows('shot.png', directory, 80).length, 5);
+});
