@@ -162,6 +162,8 @@ class ClaudeSession implements AgentSession {
         settingSources: ['user', 'project', 'local'],
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
+        // a familiar's last message is its report, which the sidebar and transcript show
+        forwardSubagentText: true,
         env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
@@ -483,6 +485,17 @@ class ClaudeSession implements AgentSession {
             done: false,
           });
       }
+    } else if (message.type === 'assistant' && message.agent_id) {
+      const subagent = this.subagents.get(message.agent_id);
+      if (!subagent) return;
+      let { activity, tools = 0, report } = subagent;
+      for (const block of message.message.content)
+        if (block.type === 'tool_use') {
+          activity = toolTitle(block.name, block.input, this.options.cwd);
+          tools++;
+        } else if (block.type === 'text') report = block.text;
+      if (tools !== (subagent.tools ?? 0) || report !== subagent.report)
+        this.subagent({ ...subagent, activity, tools, report });
     } else if (
       message.type === 'user' &&
       message.parent_tool_use_id === null &&

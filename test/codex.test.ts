@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, access, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -26,7 +32,8 @@ async function fixture(
     signal?: AbortSignal;
   } = {},
 ) {
-  const cwd = await mkdtemp(join(tmpdir(), 'witch-codex-'));
+  // the real path, which the fixture's process.cwd() reports
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'witch-codex-')));
   const adapter = new CodexAdapter((_, directory, signal) =>
     spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
       cwd: directory,
@@ -576,6 +583,43 @@ await test('a model choice that changes no native setting returns and shows the 
     assert.equal(session.info.effort, 'low');
     await within(session.selectModel('model-a', null), 2000, 'a null effort');
     assert.equal(session.info.effort, undefined);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test("a spawned thread's tool items give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, and a thread with no turn here is ignored", async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    assert.equal(
+      (await within(session.send('familiar-work'), 3000, 'turn')).status,
+      'completed',
+    );
+    const worker = {
+      id: 'worker-thread',
+      name: 'agent',
+      kind: '',
+      status: 'running',
+    };
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'subagent' ? [event.subagent] : [],
+      ),
+      [
+        worker,
+        { ...worker, activity: 'pnpm test', tools: 1 },
+        { ...worker, activity: 'imageView  a.png', tools: 2 },
+        { ...worker, activity: 'imageView  a.png', tools: 2, report: 'Done.' },
+        {
+          ...worker,
+          activity: 'imageView  a.png',
+          tools: 2,
+          report: 'Done.',
+          status: 'completed',
+        },
+      ],
+    );
   } finally {
     await close(session, cwd);
   }

@@ -530,6 +530,62 @@ await test("Claude tool use and its result update one tool titled by what it act
   }
 });
 
+await test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last text is its report, and an unlisted agent's frames are ignored", async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    // without it Claude Code sends a familiar's tool calls but not its text
+    assert.equal(
+      JSON.parse(await readFile(join(cwd, 'initialize.json'), 'utf8'))
+        .forwardSubagentText,
+      true,
+    );
+    assert.equal((await session.send('familiar-work')).status, 'completed');
+    const reader = {
+      id: 'reader',
+      parent: undefined,
+      name: 'Read tests',
+      kind: '',
+      status: 'running',
+    };
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'subagent' ? [event.subagent] : [],
+      ),
+      [
+        reader,
+        {
+          ...reader,
+          activity: 'Read  a.test.ts',
+          tools: 1,
+          report: undefined,
+        },
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: undefined,
+        },
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: 'All tests pass.',
+        },
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: 'All tests pass.',
+          status: 'completed',
+        },
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
 await test("Claude's subagent tasks report their parent and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));

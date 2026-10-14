@@ -226,6 +226,42 @@ for await (const line of lines) {
       finish('completed');
       continue;
     }
+    if (prompt === 'familiar-work') {
+      const item = (method, threadId, fields) =>
+        notify(method, {
+          threadId,
+          turnId: `${threadId}-turn`,
+          item: fields,
+        });
+      notify('turn/started', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn', status: 'inProgress' },
+      });
+      const command = {
+        type: 'commandExecution',
+        id: 'w-1',
+        command: 'pnpm test',
+        cwd: process.cwd(),
+      };
+      item('item/started', 'worker-thread', command);
+      item('item/completed', 'worker-thread', command);
+      item('item/started', 'worker-thread', {
+        type: 'imageView',
+        id: 'w-2',
+        path: join(process.cwd(), 'a.png'),
+      });
+      const message = { type: 'agentMessage', id: 'w-3', text: '' };
+      item('item/started', 'worker-thread', message);
+      item('item/completed', 'worker-thread', { ...message, text: 'Done.' });
+      // a thread that never started a turn here is no familiar
+      item('item/started', 'ghost-thread', { ...command, id: 'g-1' });
+      notify('turn/completed', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn', status: 'completed' },
+      });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'familiars') {
       const turn = (method, threadId, status) =>
         notify(method, { threadId, turn: { id: `${threadId}-turn`, status } });

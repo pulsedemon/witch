@@ -30,8 +30,13 @@ const streamEvent = (event, parent) =>
     parent_tool_use_id: parent,
     event,
   });
-/** streams a text reply as a delta before its full message, as partial messages do. */
-const assistant = (text, content = [{ type: 'text', text }], parent = null) => {
+/** streams a text reply as a delta before its full message, as partial messages do; `agent` marks a familiar's frame. */
+const assistant = (
+  text,
+  content = [{ type: 'text', text }],
+  parent = null,
+  agent = undefined,
+) => {
   const id = randomUUID();
   if (text) {
     streamEvent({ type: 'message_start', message: { id } }, parent);
@@ -49,6 +54,7 @@ const assistant = (text, content = [{ type: 'text', text }], parent = null) => {
     uuid: randomUUID(),
     session_id,
     parent_tool_use_id: parent,
+    ...(agent ? { agent_id: agent } : {}),
     message: {
       id,
       type: 'message',
@@ -369,6 +375,53 @@ for await (const line of lines) {
         },
       ]);
       assistant('Done.');
+      finish();
+    } else if (lastPrompt === 'familiar-work') {
+      send({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'reader',
+        description: 'Read tests',
+        task_type: 'local_agent',
+        uuid: randomUUID(),
+        session_id,
+      });
+      const tool = (id, name, input) => ({ type: 'tool_use', id, name, input });
+      assistant(
+        '',
+        [tool('r-1', 'Read', { file_path: join(process.cwd(), 'a.test.ts') })],
+        'agent-tool',
+        'reader',
+      );
+      assistant(
+        '',
+        [
+          tool('r-2', 'Bash', {
+            command: 'pnpm test',
+            description: 'Run tests',
+          }),
+        ],
+        'agent-tool',
+        'reader',
+      );
+      assistant('All tests pass.', undefined, 'agent-tool', 'reader');
+      // an agent Witch never listed, such as an ambient worker
+      assistant(
+        '',
+        [tool('g-1', 'Read', { file_path: 'x' })],
+        'other-tool',
+        'ghost',
+      );
+      send({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'reader',
+        status: 'completed',
+        output_file: '',
+        summary: 'Agent "Read tests" finished',
+        uuid: randomUUID(),
+        session_id,
+      });
       finish();
     } else if (lastPrompt === 'familiars') {
       const task = (subtype, fields) =>

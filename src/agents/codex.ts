@@ -515,12 +515,35 @@ class CodexSession implements AgentSession {
   }
 
   private subagentNotification(message: RpcMessage, threadId: string): void {
+    let subagent = this.subagents.get(threadId);
+    if (
+      subagent &&
+      (message.method === 'item/started' || message.method === 'item/completed')
+    ) {
+      const item = object.parse(object.parse(message.params).item);
+      const type = z.string().parse(item.type);
+      if (type === 'agentMessage') {
+        if (
+          message.method === 'item/completed' &&
+          typeof item.text === 'string'
+        )
+          this.subagent({ ...subagent, report: item.text });
+      } else if (
+        message.method === 'item/started' &&
+        !['userMessage', 'reasoning'].includes(type)
+      )
+        this.subagent({
+          ...subagent,
+          activity: itemTitle(type, item, this.options.cwd),
+          tools: (subagent.tools ?? 0) + 1,
+        });
+      return;
+    }
     if (
       message.method !== 'turn/started' &&
       message.method !== 'turn/completed'
     )
       return;
-    let subagent = this.subagents.get(threadId);
     if (!subagent) {
       // shown before a completion parses, so a malformed one still lists the thread
       subagent = { id: threadId, name: 'agent', kind: '', status: 'running' };
