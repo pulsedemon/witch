@@ -46,10 +46,12 @@ function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
-/** a listed subagent and when Witch saw it start and end, in epoch milliseconds. */
+/** a listed subagent, when Witch saw its run start and end in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
   startedAt: number;
   endedAt?: number;
+  /** the ids of its run's start and end rows. */
+  rows: { start: string; end?: string };
 }
 
 /** replaces the subagent with the same id in place, so the list keeps start order. */
@@ -841,32 +843,45 @@ export class Coordinator {
         (previous?.status !== 'running' || previous.run !== subagent.run);
       const ended = !running && previous?.status === 'running';
       const now = Date.now();
+      const rows = started
+        ? { start: randomUUID() }
+        : { ...previous!.rows, ...(ended ? { end: randomUUID() } : {}) };
       this.publish({
         subagents: withSubagent(this.snapshot.subagents, {
           ...subagent,
           startedAt: started ? now : previous!.startedAt,
           ...(running ? {} : { endedAt: ended ? now : previous!.endedAt }),
+          rows,
         }),
       });
       // the transcript keeps each familiar's run after a turn drops it from the sidebar
-      const tools = subagent.tools
-        ? `${subagent.tools} tool${subagent.tools === 1 ? '' : 's'}`
-        : '';
-      if (started || ended)
+      const row = (id: string, title: string[], text = '') =>
         this.display({
-          id: randomUUID(),
+          id,
           kind: 'tool',
-          title: [
-            `Familiar ${started ? 'started' : subagent.status}`,
-            subagent.name,
-            started ? subagent.kind : tools,
-          ]
-            .filter(Boolean)
-            .join('  '),
-          text: ended ? (subagent.report ?? '') : '',
+          title: title.filter(Boolean).join('  '),
+          text,
           done: true,
           cwd: conversation.cwd,
         });
+      // a name or kind can arrive after the rows, as a Codex thread's does, and retitles them in place
+      const renamed =
+        !started &&
+        (subagent.name !== previous!.name || subagent.kind !== previous!.kind);
+      if (started || renamed)
+        row(rows.start, ['Familiar started', subagent.name, subagent.kind]);
+      if (rows.end && (ended || renamed))
+        row(
+          rows.end,
+          [
+            `Familiar ${subagent.status}`,
+            subagent.name,
+            subagent.tools
+              ? `${subagent.tools} tool${subagent.tools === 1 ? '' : 's'}`
+              : '',
+          ],
+          ended ? (subagent.report ?? '') : '',
+        );
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       this.display(

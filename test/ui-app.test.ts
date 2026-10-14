@@ -1385,6 +1385,7 @@ await test('the sidebar lists familiars depth first under the familiar that star
         kind: 'Explore',
         status: 'running',
         startedAt: now,
+        rows: { start: 'row' },
         activity: 'Read  src/a.ts',
         tools: 2,
       },
@@ -1394,6 +1395,7 @@ await test('the sidebar lists familiars depth first under the familiar that star
         kind: '',
         status: 'failed',
         startedAt: 0,
+        rows: { start: 'row' },
         endedAt: 125_000,
       },
       {
@@ -1403,6 +1405,7 @@ await test('the sidebar lists familiars depth first under the familiar that star
         kind: '',
         status: 'completed',
         startedAt: 0,
+        rows: { start: 'row' },
         endedAt: 9_000,
         activity: 'Bash  $ ls',
         tools: 1,
@@ -1414,6 +1417,7 @@ await test('the sidebar lists familiars depth first under the familiar that star
         kind: '',
         status: 'stopped',
         startedAt: 0,
+        rows: { start: 'row' },
         endedAt: 1_000,
       },
       {
@@ -1423,6 +1427,7 @@ await test('the sidebar lists familiars depth first under the familiar that star
         kind: '',
         status: 'running',
         startedAt: now,
+        rows: { start: 'row' },
       },
     ],
   });
@@ -1471,6 +1476,7 @@ await test('familiars that overflow the sidebar show the last whole familiars in
       kind: '',
       status: 'running' as const,
       startedAt: Date.now(),
+      rows: { start: 'row' },
     })),
   });
   const ui = show(

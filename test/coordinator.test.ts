@@ -269,6 +269,39 @@ await test("a familiar's start and end each add a transcript row, the end with i
   }
 });
 
+await test("a familiar's name and kind arriving after its rows retitle them in place, as a Codex thread's do", async () => {
+  const { coordinator, a } = await fixture();
+  const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>
+    a.sessions[0]!.options.onEvent({
+      type: 'subagent',
+      subagent: { id: 't', name: 'agent', kind: '', status, ...fields },
+    });
+  const rows = () =>
+    coordinator.snapshot.items
+      .filter((item) => item.kind === 'tool')
+      .map(({ title, text }) => [title, text]);
+  try {
+    emit('running');
+    emit('running', { name: 'Euclid', kind: 'explorer' });
+    assert.deepEqual(rows(), [['Familiar started  Euclid  explorer', '']]);
+
+    emit('running', { run: 'next' });
+    emit('completed', { run: 'next', tools: 2, report: 'Found it.' });
+    emit('completed', {
+      run: 'next',
+      tools: 2,
+      report: 'Found it.',
+      name: 'Hypatia',
+    });
+    assert.deepEqual(rows().slice(1), [
+      ['Familiar started  Hypatia', ''],
+      ['Familiar completed  Hypatia  2 tools', 'Found it.'],
+    ]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a skills change while a session lists its models reaches the snapshot', async () => {
   const { coordinator } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'older', description: '' }];
