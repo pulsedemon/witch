@@ -2180,6 +2180,53 @@ await test('answers reach the agent and only a cancel interrupts the turn, a res
   }
 });
 
+await test('an answered question stays in the transcript as the reply with each question and its answers, a secret answer hidden, and a declined question adds nothing', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const { options } = a.sessions.at(-1)!;
+    const question = (id: string) => ({
+      id,
+      kind: 'question' as const,
+      title: id,
+      detail: '',
+      questions: [
+        {
+          id: 'colors',
+          title: 'Colors?',
+          options: ['red', 'green', 'blue'],
+          multiple: true,
+        },
+        { id: 'token', title: 'Token?', options: [], secret: true },
+      ],
+    });
+    const replies = () =>
+      coordinator.snapshot.items
+        .filter((item) => item.kind === 'user')
+        .map((item) => item.text);
+    options.onEvent({ type: 'request', request: question('q1') });
+    await coordinator.respond('q1', {
+      decision: 'accept',
+      answers: { colors: ['red', 'blue'], token: ['s3cret'] },
+    });
+    assert.deepEqual(replies(), [
+      'Start',
+      '**Colors?**\n→ red, blue\n\n**Token?**\n→ (hidden)',
+    ]);
+    options.onEvent({ type: 'request', request: question('q2') });
+    await coordinator.respond('q2', { decision: 'decline' });
+    assert.equal(replies().length, 2);
+    gate.open();
+    await sending;
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 const chosen = (agent: string, model: string, effort?: string) => ({
   [agent]: {
     id: `${agent}-native`,
