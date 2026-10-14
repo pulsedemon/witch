@@ -25,10 +25,12 @@ export class Screen {
   constructor(private readonly size: { columns: number; rows: number }) {}
 
   write(data: string): void {
-    // Ink redraws the whole screen after a resize
-    if (this.size.columns !== this.columns || this.size.rows !== this.rows) {
-      this.columns = this.size.columns;
-      this.rows = this.size.rows;
+    // a tty that reports no size gets Ink's 80x24 default; Ink redraws the whole screen after a resize
+    const columns = this.size.columns || 80;
+    const rows = this.size.rows || 24;
+    if (columns !== this.columns || rows !== this.rows) {
+      this.columns = columns;
+      this.rows = rows;
       this.cells = Array.from({ length: this.rows }, () => this.row());
       this.x = Math.min(this.x, this.columns - 1);
       this.y = Math.min(this.y, this.rows - 1);

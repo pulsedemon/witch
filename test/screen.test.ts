@@ -91,6 +91,20 @@ await test('wide characters before a link move it right, and a line that fills t
   assert.equal(screen.linkAt(1, 2), undefined);
 });
 
+await test('a resize starts a new grid of the new size, and a terminal that reports no size gets 80 by 24', () => {
+  const size = { columns: 4, rows: 2 };
+  const screen = new Screen(size);
+  screen.write(link('ab', docs));
+  size.columns = 10;
+  size.rows = 4;
+  screen.write(`\u001b[4;8H${link('c', docs)}`);
+  assert.equal(screen.linkAt(7, 3), docs);
+  assert.equal(screen.linkAt(0, 0), undefined);
+  const sizeless = new Screen({ columns: 0, rows: 0 });
+  sizeless.write(`\u001b[24;80H${link('d', docs)}`);
+  assert.equal(sizeless.linkAt(79, 23), docs);
+});
+
 await test('a link sequence split across writes still opens', () => {
   const screen = new Screen({ columns: 10, rows: 2 });
   screen.write(`ab\u001b]8;;${docs.slice(0, 10)}`);
