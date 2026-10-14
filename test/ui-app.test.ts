@@ -1412,10 +1412,12 @@ await test('the sidebar lists familiars depth first under the familiar that star
   }
 });
 
-await test('familiars that overflow the sidebar show the newest rows under a count of the rest, above the whole pentacle', async () => {
+await test('familiars that overflow the sidebar show the last rows in tree order under a count of the rest, above the whole pentacle', async () => {
   const { app } = fake({
+    // the newest, 6, started under the oldest, so tree order puts it second
     subagents: [1, 2, 3, 4, 5, 6].map((index) => ({
       id: `${index}`,
+      parent: index === 6 ? '1' : undefined,
       name: `task ${index}`,
       kind: '',
       status: 'running' as const,
@@ -1432,9 +1434,9 @@ await test('familiars that overflow the sidebar show the newest rows under a cou
     assert.deepEqual(rows.slice(0, 5), [
       'FAMILIARS',
       '+3 MORE',
+      '● TASK 3',
       '● TASK 4',
       '● TASK 5',
-      '● TASK 6',
     ]);
     assert.ok(
       rows.slice(5, 16).every((row) => /[⠁-⣿]/.test(row)),

@@ -39,7 +39,7 @@ function lineage(
   return lines;
 }
 
-/** the right sidebar: the agent's subagents, which it calls familiars, and the pentacle at its foot, turning while `spinning`. */
+/** the right sidebar: the agent's subagents, which Witch calls familiars, and the pentacle at its foot, turning while `spinning`. */
 export function Sidebar({
   height,
   spinning,
@@ -61,7 +61,7 @@ export function Sidebar({
   }, [spinning]);
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
   const familiars = lineage(subagents);
-  // the rows above the pentacle, less the heading; the newest rows show and a count stands in for the rest
+  // the rows above the pentacle, less the heading; the last rows in tree order show and a count stands in for the rest
   const room = height - rows - 1;
   const shown =
     familiars.length > room
