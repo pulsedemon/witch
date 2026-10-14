@@ -760,8 +760,12 @@ await test('an initial prompt that comes back to the composer goes ahead of a dr
   }
 });
 
-await test('queued prompts left at idle come back ahead of the draft, also while a view covers the composer', async () => {
-  for (const covered of [false, true]) {
+await test('queued prompts left at idle or in an error come back ahead of the draft, also while a view covers the composer', async () => {
+  for (const [phase, covered] of [
+    ['idle', false],
+    ['idle', true],
+    ['error', false],
+  ] as const) {
     const { app, coordinator, calls } = fake({ phase: 'running' });
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
@@ -772,7 +776,11 @@ await test('queued prompts left at idle come back ahead of the draft, also while
         ui.stdin.write('\u0010');
         await until('the picker', () => ui.text().includes('Commands'));
       }
-      coordinator.publish({ phase: 'idle', queue: ['hello'] });
+      coordinator.publish({
+        phase,
+        queue: ['hello'],
+        ...(phase === 'error' ? { error: 'Restart Witch.' } : {}),
+      });
       await until('the queue taken back', () => calls.length > 0);
       if (covered) ui.stdin.write('\u001b');
       await until('the queued prompt', () => ui.text().includes('┃ hello'));
@@ -1016,11 +1024,13 @@ for (const [typed, call] of [
     }
   });
 
-await test('the composer takes no typing while a switch shows the conversation it leaves, and takes it once the next one opens', async () => {
+await test('the composer takes no typing while a switch shows the conversation it leaves, also after a second switch is refused, and takes it once the next one opens', async () => {
   const { coordinator, app, calls } = fake({});
   const switching = Promise.withResolvers<void>();
   coordinator.newConversation = async (...args: unknown[]) => {
     calls.push(['newConversation', ...args]);
+    if (coordinator.snapshot.phase !== 'idle')
+      throw new Error('Stop the current operation first');
     coordinator.publish({ phase: 'starting' });
     await switching.promise;
   };
@@ -1035,6 +1045,15 @@ await test('the composer takes no typing while a switch shows the conversation i
     ui.stdin.write('hello');
     await delay(60);
     assert.ok(!ui.text().includes('┃ hello'));
+    await commands(ui);
+    ui.stdin.write(`new${ENTER}`);
+    await until('the refused switch', () =>
+      calls.some(([call]) => call === 'report'),
+    );
+    await delay(60);
+    ui.stdin.write('again');
+    await delay(60);
+    assert.ok(!ui.text().includes('┃ again'));
     coordinator.publish({
       conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
     });

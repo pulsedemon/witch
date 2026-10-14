@@ -105,7 +105,7 @@ async function steer(): Promise<void> {
   const settle = () => {
     done = true;
   };
-  // handled at once, so a turn that fails while this waits throws at the await below and the run still closes
+  // handled at once, so a turn that fails while this waits cannot end the run before it closes
   void running.then(settle, settle);
   while (
     !done &&
@@ -114,6 +114,8 @@ async function steer(): Promise<void> {
       .some(({ kind }) => kind === 'tool')
   )
     await delay(100);
+  // a turn that ended first throws its own failure
+  if (done) await running;
   await coordinator.send(`Also include ${marker} in your final reply.`);
   // a prompt the turn refused would wait in the queue, and one sent after the turn ended would run as its own turn
   assert.equal(coordinator.snapshot.phase, 'running');

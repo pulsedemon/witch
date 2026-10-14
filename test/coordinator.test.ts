@@ -2211,7 +2211,7 @@ for (const [name, prompt, prepare] of [
       a.failInterrupt = false;
     },
   ],
-  ['an unlisted slash command', '/clear', async () => {}],
+  ['an unlisted slash command', '  /clear', async () => {}],
 ] as const)
   await test(`${name} waits in the queue, unseen until it goes as the next turn`, async () => {
     const { coordinator, a } = await fixture();
@@ -2245,11 +2245,12 @@ for (const [name, prompt, prepare] of [
     }
   });
 
-/** each queued turn's prompt and spell, past the turns already counted. */
-const turns = (a: FixtureAgent, from = 0) =>
-  a.inputs
-    .slice(from)
-    .map(({ prompt, skill }) => [prompt.split('User request:\n')[1], skill]);
+/** each turn's prompt and spell, in the order the agent got them. */
+const turns = (a: FixtureAgent) =>
+  a.inputs.map(({ prompt, skill }) => [
+    prompt.split('User request:\n')[1],
+    skill,
+  ]);
 
 await test('prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
@@ -2270,6 +2271,36 @@ await test('prompts queued ahead of a spell go as one turn, then the spell alone
       ['One\nTwo', undefined],
       ['/review now', { name: 'review', args: 'now' }],
       ['Three', undefined],
+    ]);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('a report after a queued turn stays on screen, and the prompts after it wait', async () => {
+  const { coordinator, a, hook } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    a.refuseSteer = true;
+    hook.current = async (command, run) => {
+      if (command[0] !== 'update-ref') return run();
+      hook.current = passThrough;
+      return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+    };
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    await coordinator.send('remember-port');
+    await coordinator.send('/clear');
+    gate.open();
+    await within(sending, 2000, 'the queued turns');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
+    assert.deepEqual(coordinator.snapshot.queue, ['/clear']);
+    assert.deepEqual(turns(a), [
+      ['Start', undefined],
+      ['remember-port', undefined],
     ]);
   } finally {
     gate.open();
@@ -2375,7 +2406,7 @@ await test('a prompt sent while the launch connects goes once the load ends', as
   }
 });
 
-await test('a conversation switch is refused while prompts are queued, and they go in the conversation they were sent in', async () => {
+await test('a conversation switch is refused while prompts are queued, which wait with their report showing', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.failConnect = true;
   });
@@ -2384,9 +2415,11 @@ await test('a conversation switch is refused while prompts are queued, and they 
     const { id } = coordinator.snapshot.conversation!;
     a.failConnect = false;
     await assert.rejects(coordinator.newConversation(), /still queued/);
-    await until('the queued prompt', () => a.inputs.length === 1);
+    await delay(60);
     assert.equal(coordinator.snapshot.conversation!.id, id);
-    assert.match(a.inputs[0]!.prompt, /User request:\nStart$/);
+    assert.match(coordinator.snapshot.error ?? '', /still queued/);
+    assert.deepEqual(coordinator.snapshot.queue, ['Start']);
+    assert.deepEqual(a.inputs, []);
   } finally {
     await coordinator.close();
   }

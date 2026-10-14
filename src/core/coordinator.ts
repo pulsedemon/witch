@@ -385,8 +385,9 @@ export class Coordinator {
     return true;
   }
 
-  /** runs what was sent during an operation once it ends. */
+  /** runs what was sent during an operation once it ends, unless that would clear a report before it shows. */
   private drainAfter(): void {
+    if (this.snapshot.error) return;
     this.drain().catch((error: unknown) => this.report(error));
   }
 
@@ -418,7 +419,8 @@ export class Coordinator {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
         }
-        if (!delivered) return;
+        // a report stays on screen, and the composer takes back what is left
+        if (!delivered || this.snapshot.error) return;
       }
     } finally {
       this.draining = false;

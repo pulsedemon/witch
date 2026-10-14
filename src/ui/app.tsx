@@ -266,9 +266,11 @@ export function App({
     void operation.catch((error: unknown) => coordinator.report(error));
   };
   /** a switch shows the conversation it leaves until the next one opens, and a prompt sent from it would run in the next one. */
-  const leave = (operation: Promise<void>) => {
+  const leave = (operation: () => Promise<void>) => {
+    // one refused for a switch in flight must not reopen the composer
+    if (coordinator.snapshot.phase !== 'idle') return run(operation());
     setLeaving(state.conversation?.id);
-    run(operation.finally(() => setLeaving(undefined)));
+    run(operation().finally(() => setLeaving(undefined)));
   };
   const picker = (
     title: string,
@@ -363,7 +365,7 @@ export function App({
     setView({ kind: 'chat' });
     switch (name) {
       case 'new':
-        leave(coordinator.newConversation(argument || undefined));
+        leave(() => coordinator.newConversation(argument || undefined));
         break;
       case 'sessions':
         run(
@@ -378,7 +380,7 @@ export function App({
               (id) => {
                 setView({ kind: 'chat' });
                 setTop(null);
-                leave(coordinator.selectConversation(id));
+                leave(() => coordinator.selectConversation(id));
               },
             ),
           ),
@@ -452,7 +454,7 @@ export function App({
     return true;
   };
 
-  /** puts text back ahead of the draft, with the cursor at its end. */
+  /** puts text back ahead of the draft, with the cursor after the text. */
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
     const draft = draftsRef.current[id];
@@ -536,9 +538,10 @@ export function App({
     if (state.phase !== 'idle' || state.error || !submit(prompt))
       prepend(prompt);
   }, [state.phase]);
-  // a queued turn that never reached the agent comes back to edit
+  // a queued turn that never reached the agent comes back to edit, or to copy once nothing will run it
   useEffect(() => {
-    if (state.phase === 'idle' && state.queue.length) unqueue();
+    if (['idle', 'error'].includes(state.phase) && state.queue.length)
+      unqueue();
   }, [state.phase, state.queue]);
   // keys meant for the composer must not answer a recovery that just appeared
   const [recoveryReady, setRecoveryReady] = useState(false);
