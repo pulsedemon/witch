@@ -507,8 +507,8 @@ await test("Claude tool use and its result update one tool titled by what it act
         ['tool-2', '', 'Found a.md.\nRead one file.', true, undefined],
         [
           'tool-3',
-          // a path under the session's directory shows relative to it
-          'Read  shot.png',
+          // a path under the session's directory shows relative to it, after ./ so a bare name links
+          'Read  ./shot.png',
           JSON.stringify({ file_path: join(cwd, 'shot.png') }, null, 2),
           false,
           undefined,
@@ -556,7 +556,7 @@ await test("a Claude familiar's tool calls give its latest activity, with a path
         reader,
         {
           ...reader,
-          activity: 'Read  a.test.ts',
+          activity: 'Read  ./a.test.ts',
           tools: 1,
           report: undefined,
         },

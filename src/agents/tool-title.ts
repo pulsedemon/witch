@@ -18,7 +18,7 @@ function firstLine(text: string): string {
 
 /**
  * a tool's name, what it acts on, then any shell command, so a collapsed row says what the call does. a path
- * under `cwd` shows relative to it to keep rows short; links resolve it against `cwd`.
+ * under `cwd` shows relative to it to keep rows short, after `./` so a bare or extensionless name still links.
  */
 export function toolTitle(name: string, input: unknown, cwd: string): string {
   if (!input || typeof input !== 'object') return name;
@@ -29,7 +29,9 @@ export function toolTitle(name: string, input: unknown, cwd: string): string {
   const command = text(fields.command);
   return [
     name,
-    subject?.startsWith(`${cwd}/`) ? subject.slice(cwd.length + 1) : subject,
+    subject?.startsWith(`${cwd}/`)
+      ? `./${subject.slice(cwd.length + 1)}`
+      : subject,
     command && `$ ${command}`,
   ]
     .filter(Boolean)

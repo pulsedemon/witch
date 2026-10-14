@@ -609,11 +609,16 @@ await test("a spawned thread's tool items give its familiar's latest activity, w
       [
         worker,
         { ...worker, activity: 'pnpm test', tools: 1 },
-        { ...worker, activity: 'imageView  a.png', tools: 2 },
-        { ...worker, activity: 'imageView  a.png', tools: 2, report: 'Done.' },
+        { ...worker, activity: 'imageView  ./a.png', tools: 2 },
         {
           ...worker,
-          activity: 'imageView  a.png',
+          activity: 'imageView  ./a.png',
+          tools: 2,
+          report: 'Done.',
+        },
+        {
+          ...worker,
+          activity: 'imageView  ./a.png',
           tools: 2,
           report: 'Done.',
           status: 'completed',
