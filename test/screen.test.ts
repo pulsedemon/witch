@@ -101,7 +101,8 @@ await test('a resize starts a new grid of the new size, and a terminal that repo
   assert.equal(screen.linkAt(7, 3), docs);
   assert.equal(screen.linkAt(0, 0), undefined);
   const sizeless = new Screen({ columns: 0, rows: 0 });
-  sizeless.write(`\u001b[24;80H${link('d', docs)}`);
+  // a cursor move past the grid stops at its last cell
+  sizeless.write(`\u001b[99;99H${link('d', docs)}`);
   assert.equal(sizeless.linkAt(79, 23), docs);
 });
 

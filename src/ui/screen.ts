@@ -25,7 +25,7 @@ export class Screen {
   constructor(private readonly size: { columns: number; rows: number }) {}
 
   write(data: string): void {
-    // a tty that reports no size gets Ink's 80x24 default; Ink redraws the whole screen after a resize
+    // a tty that reports no size is drawn at 80x24, Ink's last fallback; Ink redraws the whole screen after a resize
     const columns = this.size.columns || 80;
     const rows = this.size.rows || 24;
     if (columns !== this.columns || rows !== this.rows) {
