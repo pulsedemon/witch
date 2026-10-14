@@ -14,7 +14,7 @@ const verbs = [
 ];
 const frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
-function elapsed(milliseconds: number): string {
+export function elapsed(milliseconds: number): string {
   const seconds = Math.floor(milliseconds / 1000);
   return seconds < 60
     ? `${seconds}S`

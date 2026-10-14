@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, writeFile, access } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -19,7 +25,8 @@ import { within } from './fixtures/within.js';
 const claude = fileURLToPath(new URL('fixtures/claude.mjs', import.meta.url));
 
 async function launcher(mode?: string) {
-  const cwd = await mkdtemp(join(tmpdir(), 'witch-claude-'));
+  // the real path, which the fixture's process.cwd() reports
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'witch-claude-')));
   const children: ChildProcessWithoutNullStreams[] = [];
   const args: string[][] = [];
   const adapter = new ClaudeAdapter((options) => {
@@ -466,9 +473,9 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   }
 });
 
-await test("Claude tool use and its result update one tool titled by what it acts on, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
+await test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
-  const { session } = await fixture((event) => events.push(event));
+  const { session, cwd } = await fixture((event) => events.push(event));
   try {
     assert.equal((await session.send('tools')).status, 'completed');
     assert.deepEqual(
@@ -500,8 +507,9 @@ await test("Claude tool use and its result update one tool titled by what it act
         ['tool-2', '', 'Found a.md.\nRead one file.', true, undefined],
         [
           'tool-3',
-          'Read  shot.png',
-          '{\n  "file_path": "shot.png"\n}',
+          // a path under the session's directory shows relative to it, after ./ so a bare name links
+          'Read  ./shot.png',
+          JSON.stringify({ file_path: join(cwd, 'shot.png') }, null, 2),
           false,
           undefined,
         ],
@@ -522,7 +530,78 @@ await test("Claude tool use and its result update one tool titled by what it act
   }
 });
 
-await test("Claude's subagent tasks report their parent and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
+await test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    // without it Claude Code sends a familiar's tool calls but not its text
+    assert.equal(
+      JSON.parse(await readFile(join(cwd, 'initialize.json'), 'utf8'))
+        .forwardSubagentText,
+      true,
+    );
+    assert.equal((await session.send('familiar-work')).status, 'completed');
+    const reader = {
+      id: 'reader',
+      parent: undefined,
+      name: 'Read tests',
+      kind: '',
+      status: 'running',
+      run: undefined,
+    };
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'subagent' ? [event.subagent] : [],
+      ),
+      [
+        reader,
+        {
+          ...reader,
+          activity: undefined,
+          tools: 0,
+          report: 'Reading the tests.',
+        },
+        {
+          ...reader,
+          activity: 'Read  ./a.test.ts',
+          tools: 1,
+          report: 'Reading the tests.',
+        },
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: 'Reading the tests.',
+        },
+        // a later message's text replaces the report
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: 'All tests pass.',
+        },
+        // the report's second block arrives as its own frame of the same message
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: 'All tests pass.\nSee a.test.ts.',
+        },
+        {
+          ...reader,
+          activity: 'Bash  Run tests  $ pnpm test',
+          tools: 2,
+          report: 'All tests pass.\nSee a.test.ts.',
+          status: 'completed',
+        },
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+await test("Claude's subagent tasks report their parent, run and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -533,6 +612,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
       name: 'Fix lint',
       kind: '',
       status: 'running',
+      run: '2',
     };
     assert.deepEqual(
       events.flatMap((event) =>
@@ -545,6 +625,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Map the code',
           kind: 'Explore',
           status: 'running',
+          run: undefined,
         },
         {
           id: 'inner',
@@ -552,9 +633,10 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Read tests',
           kind: '',
           status: 'running',
+          run: undefined,
         },
         // one per run
-        resumed,
+        { ...resumed, run: '1' },
         resumed,
         { ...resumed, status: 'completed' },
         {
@@ -563,6 +645,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Read tests',
           kind: '',
           status: 'completed',
+          run: undefined,
         },
         {
           id: 'outer',
@@ -570,6 +653,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
           name: 'Map the code',
           kind: 'Explore',
           status: 'failed',
+          run: undefined,
         },
       ],
     );

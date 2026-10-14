@@ -1375,20 +1375,60 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
 const sidebarRows = (text: string) =>
   text.split('\n').map((line) => line.slice(82).trimEnd());
 
-await test('the sidebar lists familiars depth first under the familiar that started them, with an unlisted parent shown as a root, and no heading once none are left', async () => {
+await test('the sidebar lists familiars depth first under the familiar that started them, each with its time, tool count and latest tool call, with an unlisted parent shown as a root, and no heading once none are left', async () => {
+  const now = Date.now();
   const { app, coordinator } = fake({
     subagents: [
-      { id: 'a', name: 'map code', kind: 'Explore', status: 'running' },
-      { id: 'b', name: 'fix bug', kind: '', status: 'failed' },
+      {
+        id: 'a',
+        name: 'map code',
+        kind: 'Explore',
+        status: 'running',
+        startedAt: now,
+        rows: { start: 'row' },
+        activity: 'Read  src/a.ts',
+        tools: 2,
+      },
+      {
+        id: 'b',
+        name: 'fix bug',
+        kind: '',
+        status: 'failed',
+        startedAt: 0,
+        rows: { start: 'row' },
+        endedAt: 125_000,
+      },
       {
         id: 'c',
         parent: 'a',
         name: 'read tests',
         kind: '',
         status: 'completed',
+        startedAt: 0,
+        rows: { start: 'row' },
+        endedAt: 9_000,
+        activity: 'Bash  $ ls',
+        tools: 1,
       },
-      { id: 'd', parent: 'c', name: 'run ls', kind: '', status: 'stopped' },
-      { id: 'e', parent: 'gone', name: 'orphan', kind: '', status: 'running' },
+      {
+        id: 'd',
+        parent: 'c',
+        name: 'run ls',
+        kind: '',
+        status: 'stopped',
+        startedAt: 0,
+        rows: { start: 'row' },
+        endedAt: 1_000,
+      },
+      {
+        id: 'e',
+        parent: 'gone',
+        name: 'orphan',
+        kind: '',
+        status: 'running',
+        startedAt: now,
+        rows: { start: 'row' },
+      },
     ],
   });
   const ui = show(
@@ -1397,13 +1437,27 @@ await test('the sidebar lists familiars depth first under the familiar that star
   );
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
-    assert.deepEqual(sidebarRows(ui.text()).slice(0, 6), [
+    const rows = sidebarRows(ui.text()).slice(0, 16);
+    // a running familiar's time ticks, so its row is matched rather than compared
+    assert.match(rows[2]!, /^ {2}\dS \| 2 TOOLS$/);
+    assert.match(rows[14]!, /^ {2}\dS \| 0 TOOLS$/);
+    assert.deepEqual(rows, [
       'FAMILIARS',
       '● MAP CODE Explore',
+      rows[2],
+      '  Read src/a.ts',
       '  ✓ READ TESTS',
+      '    9S | 1 TOOL',
+      '    Bash $ ls',
       '    ■ RUN LS',
+      '      1S | 0 TOOLS',
+      '',
       '✗ FIX BUG',
+      '  2M05S | 0 TOOLS',
+      '',
       '● ORPHAN',
+      rows[14],
+      '',
     ]);
     coordinator.publish({ subagents: [] });
     await until('no familiars', () => !ui.text().includes('FAMILIARS'));
@@ -1412,7 +1466,37 @@ await test('the sidebar lists familiars depth first under the familiar that star
   }
 });
 
-await test('familiars that overflow the sidebar show the last rows in tree order under a count of the rest, above the whole pentacle', async () => {
+await test("a running familiar's time ticks once a second, also when it starts after the sidebar shows", async () => {
+  const { app, coordinator } = fake({});
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  const seconds = () =>
+    Number(/^ {2}(\d+)S \|/.exec(sidebarRows(ui.text())[2] ?? '')?.[1]);
+  try {
+    await until('the pentacle', () => /[⠁-⣿]/.test(ui.text()));
+    coordinator.publish({
+      subagents: [
+        {
+          id: 'a',
+          name: 'map code',
+          kind: '',
+          status: 'running',
+          startedAt: Date.now() - 5000,
+          rows: { start: 'row' },
+        },
+      ],
+    });
+    await until('the familiar', () => ui.text().includes('FAMILIARS'));
+    const first = seconds();
+    await until('a tick', () => seconds() > first);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('familiars that overflow the sidebar show the last whole familiars in tree order under a count of the rest, above the whole pentacle', async () => {
   const { app } = fake({
     // the newest, 6, started under the oldest, so tree order puts it second
     subagents: [1, 2, 3, 4, 5, 6].map((index) => ({
@@ -1421,25 +1505,25 @@ await test('familiars that overflow the sidebar show the last rows in tree order
       name: `task ${index}`,
       kind: '',
       status: 'running' as const,
+      startedAt: Date.now(),
+      rows: { start: 'row' },
     })),
   });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
     105,
-    16,
+    19,
   );
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
     const rows = sidebarRows(ui.text());
-    assert.deepEqual(rows.slice(0, 5), [
-      'FAMILIARS',
-      '+3 MORE',
-      '● TASK 3',
-      '● TASK 4',
-      '● TASK 5',
-    ]);
+    // eight rows above the pentacle: the heading, the count and two familiars of three rows each
+    assert.deepEqual(
+      [rows[0], rows[1], rows[2], rows[5]],
+      ['FAMILIARS', '+4 MORE', '● TASK 4', '● TASK 5'],
+    );
     assert.ok(
-      rows.slice(5, 16).every((row) => /[⠁-⣿]/.test(row)),
+      rows.slice(8, 19).every((row) => /[⠁-⣿]/.test(row)),
       rows.join('\n'),
     );
   } finally {

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, access, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -26,7 +32,8 @@ async function fixture(
     signal?: AbortSignal;
   } = {},
 ) {
-  const cwd = await mkdtemp(join(tmpdir(), 'witch-codex-'));
+  // the real path, which the fixture's process.cwd() reports
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'witch-codex-')));
   const adapter = new CodexAdapter((_, directory, signal) =>
     spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
       cwd: directory,
@@ -462,7 +469,7 @@ await test("a command streams its output into one tool that completes once in th
   }
 });
 
-await test("Codex items are titled by what they act on, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
+await test("Codex items are titled by what they act on, with a path under the session's directory shown relative, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -472,12 +479,14 @@ await test("Codex items are titled by what they act on, and a viewed image and a
     assert.deepEqual(
       tools.map(({ id, title, images }) => [id, title, images]),
       [
-        ['patch-1', 'fileChange  a.md  b.md', undefined],
+        ['patch-1', 'fileChange  ./a.md  b.md', undefined],
         [
           'mcp-1',
           'browser.screenshot  https://example.com',
           ['data:image/png;base64,iVBORw=='],
         ],
+        ['mcp-2', 'files.read  ./c.txt', undefined],
+        ['dynamic-1', 'read  ./d.txt', undefined],
         ['view-1', 'imageView  /shots/a.png', ['/shots/a.png']],
       ],
     );
@@ -581,7 +590,59 @@ await test('a model choice that changes no native setting returns and shows the 
   }
 });
 
-await test("a spawned thread's turns show it as a subagent under its parent, and its text, settings and completion stay out of the parent's turn", async () => {
+await test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    assert.equal(
+      (await within(session.send('familiar-work'), 3000, 'turn')).status,
+      'completed',
+    );
+    const worker = {
+      id: 'worker-thread',
+      name: 'agent',
+      kind: '',
+      status: 'running',
+      run: 'worker-thread-turn',
+    };
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'subagent' ? [event.subagent] : [],
+      ),
+      [
+        worker,
+        { ...worker, activity: 'pnpm test', tools: 1 },
+        { ...worker, activity: 'imageView  ./a.png', tools: 2 },
+        {
+          ...worker,
+          activity: 'imageView  ./a.png',
+          tools: 2,
+          report: 'Done.',
+        },
+        {
+          ...worker,
+          activity: 'imageView  ./a.png',
+          tools: 2,
+          report: 'Done.',
+          status: 'completed',
+        },
+        // a restart is a new run, without the last one's activity, count and report
+        { ...worker, run: 'worker-thread-turn-2' },
+        // and a late item and end from the turn before it are ignored
+        { ...worker, run: 'worker-thread-turn-3' },
+      ],
+    );
+    // and what is ignored posts no notice either
+    assert.deepEqual(
+      events.filter(({ type }) => type === 'notice'),
+      [],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test("a spawned thread's turns show it as a subagent under its parent with the turn as its run, its text, settings and completion stay out of the parent's turn, and a restart keeps its parent, name and kind", async () => {
   const events: AgentEvent[] = [];
   const named = Promise.withResolvers<void>();
   const { session, cwd } = await fixture((event) => {
@@ -612,6 +673,7 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
           name: 'Euclid',
           kind: 'explorer',
           status: 'running',
+          run: 'child-thread-turn',
         },
         {
           id: 'grandchild-thread',
@@ -619,10 +681,24 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
           name: 'Hypatia',
           kind: '',
           status: 'stopped',
+          run: 'grandchild-thread-turn',
         },
         // the reads of these fail, so they keep the defaults
-        { id: 'failed-thread', name: 'agent', kind: '', status: 'failed' },
-        { id: 'done-thread', name: 'agent', kind: '', status: 'completed' },
+        {
+          id: 'failed-thread',
+          name: 'agent',
+          kind: '',
+          status: 'failed',
+          run: 'failed-thread-turn',
+        },
+        {
+          id: 'done-thread',
+          name: 'agent',
+          kind: '',
+          status: 'completed',
+          run: 'done-thread-turn',
+        },
+        // its completion names no turn, so no run
         { id: 'stray-thread', name: 'agent', kind: '', status: 'running' },
       ],
     );
@@ -643,6 +719,35 @@ await test("a spawned thread's turns show it as a subagent under its parent, and
         'resolved 95',
         "Witch could not read Codex's turn/completed notification",
         'Parent text.',
+      ],
+    );
+    const read = events.length;
+    assert.equal(
+      (await within(session.send('familiar-restart'), 3000, 'restart')).status,
+      'completed',
+    );
+    assert.deepEqual(
+      events
+        .slice(read)
+        .flatMap((event) =>
+          event.type === 'subagent' ? [event.subagent] : [],
+        ),
+      [
+        {
+          id: 'child-thread',
+          name: 'Euclid',
+          kind: 'explorer',
+          status: 'running',
+          run: 'child-thread-turn-2',
+        },
+        {
+          id: 'grandchild-thread',
+          parent: 'child-thread',
+          name: 'Hypatia',
+          kind: '',
+          status: 'running',
+          run: 'grandchild-thread-turn-2',
+        },
       ],
     );
   } finally {

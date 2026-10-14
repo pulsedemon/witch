@@ -126,6 +126,8 @@ class ClaudeSession implements AgentSession {
   private readonly subagents = new Map<string, Subagent>();
   /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
+  /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
+  private readonly reportMessages = new Map<string, string>();
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
 
@@ -162,6 +164,8 @@ class ClaudeSession implements AgentSession {
         settingSources: ['user', 'project', 'local'],
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
+        // a familiar's last message is its report, which the sidebar and transcript show
+        forwardSubagentText: true,
         env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
@@ -438,6 +442,7 @@ class ClaudeSession implements AgentSession {
           name: message.description,
           kind: message.subagent_type ?? '',
           status: 'running',
+          run: message.run_id,
         });
       } else if (message.subtype === 'task_notification') {
         const subagent = this.subagents.get(message.task_id);
@@ -478,11 +483,29 @@ class ClaudeSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id: block.id,
-            title: toolTitle(block.name, block.input),
+            title: toolTitle(block.name, block.input, this.options.cwd),
             text: JSON.stringify(block.input, null, 2),
             done: false,
           });
       }
+    } else if (message.type === 'assistant' && message.agent_id) {
+      const subagent = this.subagents.get(message.agent_id);
+      if (!subagent) return;
+      let { activity, tools = 0, report } = subagent;
+      for (const block of message.message.content)
+        if (block.type === 'tool_use') {
+          activity = toolTitle(block.name, block.input, this.options.cwd);
+          tools++;
+        } else if (block.type === 'text') {
+          report =
+            report &&
+            this.reportMessages.get(subagent.id) === message.message.id
+              ? `${report}\n${block.text}`
+              : block.text;
+          this.reportMessages.set(subagent.id, message.message.id);
+        }
+      if (tools !== (subagent.tools ?? 0) || report !== subagent.report)
+        this.subagent({ ...subagent, activity, tools, report });
     } else if (
       message.type === 'user' &&
       message.parent_tool_use_id === null &&

@@ -226,6 +226,73 @@ for await (const line of lines) {
       finish('completed');
       continue;
     }
+    if (prompt === 'familiar-work') {
+      const item = (method, threadId, fields) =>
+        notify(method, {
+          threadId,
+          turnId: `${threadId}-turn`,
+          item: fields,
+        });
+      notify('turn/started', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn', status: 'inProgress' },
+      });
+      // its prompt and its thinking are no tool calls
+      item('item/started', 'worker-thread', {
+        type: 'userMessage',
+        id: 'w-0',
+        content: [],
+      });
+      item('item/started', 'worker-thread', {
+        type: 'reasoning',
+        id: 'w-r',
+        summary: [],
+        content: [],
+      });
+      const command = {
+        type: 'commandExecution',
+        id: 'w-1',
+        command: 'pnpm test',
+        cwd: process.cwd(),
+      };
+      item('item/started', 'worker-thread', command);
+      item('item/completed', 'worker-thread', command);
+      item('item/started', 'worker-thread', {
+        type: 'imageView',
+        id: 'w-2',
+        path: join(process.cwd(), 'a.png'),
+      });
+      const message = { type: 'agentMessage', id: 'w-3', text: '' };
+      item('item/started', 'worker-thread', message);
+      item('item/completed', 'worker-thread', { ...message, text: 'Done.' });
+      // a thread that never started a turn here is no familiar
+      item('item/started', 'ghost-thread', { ...command, id: 'g-1' });
+      notify('turn/completed', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn', status: 'completed' },
+      });
+      // the finished thread is sent more input
+      notify('turn/started', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn-2', status: 'inProgress' },
+      });
+      // and starts again before that turn's last item and end arrive
+      notify('turn/started', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn-3', status: 'inProgress' },
+      });
+      notify('item/started', {
+        threadId: 'worker-thread',
+        turnId: 'worker-thread-turn-2',
+        item: { ...command, id: 'w-4' },
+      });
+      notify('turn/completed', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn-2', status: 'completed' },
+      });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'familiars') {
       const turn = (method, threadId, status) =>
         notify(method, { threadId, turn: { id: `${threadId}-turn`, status } });
@@ -273,6 +340,16 @@ for await (const line of lines) {
         itemId: 'message-1',
         delta: 'Parent text.',
       });
+      finish('completed');
+      continue;
+    }
+    if (prompt === 'familiar-restart') {
+      // the familiars, named by now, are sent more input
+      for (const threadId of ['child-thread', 'grandchild-thread'])
+        notify('turn/started', {
+          threadId,
+          turn: { id: `${threadId}-turn-2`, status: 'inProgress' },
+        });
       finish('completed');
       continue;
     }
@@ -359,7 +436,11 @@ for await (const line of lines) {
           type: 'fileChange',
           id: 'patch-1',
           changes: [
-            { path: 'a.md', kind: { type: 'update' }, diff: '' },
+            {
+              path: join(process.cwd(), 'a.md'),
+              kind: { type: 'update' },
+              diff: '',
+            },
             { path: 'b.md', kind: { type: 'add' }, diff: '' },
           ],
           status: 'completed',
@@ -376,6 +457,20 @@ for await (const line of lines) {
               { type: 'image', data: 'iVBORw==', mimeType: 'image/png' },
             ],
           },
+        },
+        {
+          type: 'mcpToolCall',
+          id: 'mcp-2',
+          server: 'files',
+          tool: 'read',
+          arguments: { path: join(process.cwd(), 'c.txt') },
+        },
+        {
+          type: 'dynamicToolCall',
+          id: 'dynamic-1',
+          tool: 'read',
+          arguments: { path: join(process.cwd(), 'd.txt') },
+          status: 'completed',
         },
         { type: 'imageView', id: 'view-1', path: '/shots/a.png' },
       ])

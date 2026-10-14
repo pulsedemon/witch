@@ -58,6 +58,14 @@ export interface Subagent {
   /** its native type or role, empty when the agent reports none. */
   kind: string;
   status: 'running' | 'completed' | 'failed' | 'stopped';
+  /** the run this state belongs to; a running start under another run is a restart. */
+  run?: string;
+  /** its latest tool call, titled as the transcript titles one. */
+  activity?: string;
+  /** the tool calls it has made. */
+  tools?: number;
+  /** its latest message, which is its report once it ends. */
+  report?: string;
 }
 
 export interface Question {

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { errorMessage } from './stderr.js';
-import { toolTitle } from './tool-title.js';
+import { shortPath, toolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -119,24 +119,32 @@ const imageContent = z.object({
   mimeType: z.string(),
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
+const turnId = z.object({ turn: z.object({ id: z.string() }) });
 
 /** an item's name and what it acts on; a command shows as itself. */
-function itemTitle(type: string, item: Record<string, unknown>): string {
+function itemTitle(
+  type: string,
+  item: Record<string, unknown>,
+  cwd: string,
+): string {
   if (typeof item.command === 'string') return item.command;
   if (type === 'fileChange')
     return [
       type,
-      ...changedFiles.parse(item.changes).map(({ path }) => path),
+      ...changedFiles
+        .parse(item.changes)
+        .map(({ path }) => shortPath(path, cwd)),
     ].join('  ');
   const call = type === 'mcpToolCall' ? mcpCall.safeParse(item) : undefined;
   if (call?.success)
     return toolTitle(
       `${call.data.server}.${call.data.tool}`,
       call.data.arguments,
+      cwd,
     );
   if (typeof item.tool === 'string')
-    return toolTitle(item.tool, item.arguments ?? item);
-  return toolTitle(type, item);
+    return toolTitle(item.tool, item.arguments ?? item, cwd);
+  return toolTitle(type, item, cwd);
 }
 
 /** a viewed image file, or the images an MCP tool returned. */
@@ -509,26 +517,67 @@ class CodexSession implements AgentSession {
       : undefined;
   }
 
+  /** a thread's next turn can start before its last turn's items and end arrive, which then belong to no run. */
   private subagentNotification(message: RpcMessage, threadId: string): void {
+    const subagent = this.subagents.get(threadId);
+    if (
+      subagent &&
+      (message.method === 'item/started' || message.method === 'item/completed')
+    ) {
+      const params = object.parse(message.params);
+      if (subagent.run !== undefined && params.turnId !== subagent.run) return;
+      const item = object.parse(params.item);
+      const type = z.string().parse(item.type);
+      if (type === 'agentMessage') {
+        if (
+          message.method === 'item/completed' &&
+          typeof item.text === 'string'
+        )
+          this.subagent({ ...subagent, report: item.text });
+      } else if (
+        message.method === 'item/started' &&
+        !['userMessage', 'reasoning'].includes(type)
+      )
+        this.subagent({
+          ...subagent,
+          activity: itemTitle(type, item, this.options.cwd),
+          tools: (subagent.tools ?? 0) + 1,
+        });
+      return;
+    }
     if (
       message.method !== 'turn/started' &&
       message.method !== 'turn/completed'
     )
       return;
-    let subagent = this.subagents.get(threadId);
-    if (!subagent) {
-      // shown before a completion parses, so a malformed one still lists the thread
-      subagent = { id: threadId, name: 'agent', kind: '', status: 'running' };
-      this.subagent(subagent);
-      void this.readSubagent(threadId);
-    } else if (message.method === 'turn/started')
-      this.subagent({ ...subagent, status: 'running' });
+    // shown before a completion parses, so a malformed one still lists the thread
+    if (!subagent || message.method === 'turn/started') {
+      if (!subagent) void this.readSubagent(threadId);
+      // a new turn is a new run, so it starts without the last one's activity, tool count and report
+      const { id, parent, name, kind } = subagent ?? {
+        id: threadId,
+        parent: undefined,
+        name: 'agent',
+        kind: '',
+      };
+      const run = turnId.safeParse(message.params).data?.turn.id;
+      this.subagent({
+        id,
+        ...(parent === undefined ? {} : { parent }),
+        name,
+        kind,
+        status: 'running',
+        ...(run ? { run } : {}),
+      });
+    }
     if (message.method === 'turn/completed') {
       const { turn } = z
-        .object({ turn: z.object({ status: z.string() }) })
+        .object({ turn: z.object({ id: z.string(), status: z.string() }) })
         .parse(message.params);
+      const current = this.subagents.get(threadId)!;
+      if (current.run !== undefined && turn.id !== current.run) return;
       this.subagent({
-        ...this.subagents.get(threadId)!,
+        ...current,
         status:
           turn.status === 'completed'
             ? 'completed'
@@ -627,7 +676,7 @@ class CodexSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id,
-            title: itemTitle(type, item),
+            title: itemTitle(type, item, this.options.cwd),
             text:
               typeof item.aggregatedOutput === 'string'
                 ? item.aggregatedOutput
