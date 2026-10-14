@@ -515,7 +515,7 @@ class CodexSession implements AgentSession {
   }
 
   private subagentNotification(message: RpcMessage, threadId: string): void {
-    let subagent = this.subagents.get(threadId);
+    const subagent = this.subagents.get(threadId);
     if (
       subagent &&
       (message.method === 'item/started' || message.method === 'item/completed')
@@ -544,13 +544,24 @@ class CodexSession implements AgentSession {
       message.method !== 'turn/completed'
     )
       return;
-    if (!subagent) {
-      // shown before a completion parses, so a malformed one still lists the thread
-      subagent = { id: threadId, name: 'agent', kind: '', status: 'running' };
-      this.subagent(subagent);
-      void this.readSubagent(threadId);
-    } else if (message.method === 'turn/started')
-      this.subagent({ ...subagent, status: 'running' });
+    // shown before a completion parses, so a malformed one still lists the thread
+    if (!subagent || message.method === 'turn/started') {
+      if (!subagent) void this.readSubagent(threadId);
+      // a new turn is a new run, so it starts without the last one's activity, tool count and report
+      const { id, parent, name, kind } = subagent ?? {
+        id: threadId,
+        parent: undefined,
+        name: 'agent',
+        kind: '',
+      };
+      this.subagent({
+        id,
+        ...(parent === undefined ? {} : { parent }),
+        name,
+        kind,
+        status: 'running',
+      });
+    }
     if (message.method === 'turn/completed') {
       const { turn } = z
         .object({ turn: z.object({ status: z.string() }) })

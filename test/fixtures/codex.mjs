@@ -259,6 +259,11 @@ for await (const line of lines) {
         threadId: 'worker-thread',
         turn: { id: 'worker-thread-turn', status: 'completed' },
       });
+      // the finished thread is sent more input
+      notify('turn/started', {
+        threadId: 'worker-thread',
+        turn: { id: 'worker-thread-turn-2', status: 'inProgress' },
+      });
       finish('completed');
       continue;
     }
