@@ -1,0 +1,1935 @@
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
+import { render } from 'ink';
+import type { ReactElement } from 'react';
+import { createElement } from 'react';
+import stripAnsi from 'strip-ansi';
+import { Coordinator } from '../src/core/coordinator.js';
+import type { Snapshot } from '../src/core/coordinator.js';
+import { Memory } from '../src/memory/memory.js';
+import { StateStore } from '../src/persistence/store.js';
+import { App } from '../src/ui/app.js';
+import { MouseInput } from '../src/ui/mouse.js';
+import { FixtureAgent } from './fixtures/agent.js';
+import { hookedGit, passThrough } from './fixtures/git.js';
+
+/** a terminal of a fixed size; without rows, Ink reads the real terminal. Not a TTY, so every write is a whole frame. */
+class Terminal extends EventEmitter {
+  readonly frames: string[] = [];
+  constructor(
+    readonly columns: number,
+    readonly rows: number,
+  ) {
+    super();
+  }
+  write = (frame: string) => {
+    this.frames.push(frame);
+    return true;
+  };
+}
+
+class Keys extends EventEmitter {
+  readonly isTTY = true;
+  private data: string | null = null;
+  write(data: string) {
+    this.data = data;
+    this.emit('readable');
+    this.emit('data', data);
+  }
+  read = () => {
+    const data = this.data;
+    this.data = null;
+    return data;
+  };
+  setEncoding() {}
+  setRawMode() {}
+  resume() {}
+  pause() {}
+  ref() {}
+  unref() {}
+}
+
+function show(element: ReactElement, columns = 100, rows = 40) {
+  const stdout = new Terminal(columns, rows);
+  const stdin = new Keys();
+  const instance = render(element, {
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stderr: stdout as unknown as NodeJS.WriteStream,
+    // as the CLI reads input, so keys and mouse reports share one stream
+    stdin: new MouseInput(stdin) as unknown as NodeJS.ReadStream,
+    debug: true,
+    exitOnCtrlC: false,
+    patchConsole: false,
+  });
+  return {
+    stdin,
+    frame: () => stdout.frames.at(-1) ?? '',
+    text: () => stripAnsi(stdout.frames.at(-1) ?? ''),
+    unmount: () => instance.unmount(),
+  };
+}
+
+async function until(
+  what: string,
+  predicate: () => boolean | Promise<boolean>,
+) {
+  for (let attempt = 0; attempt < 150; attempt++) {
+    if (await predicate()) return;
+    await delay(20);
+  }
+  assert.fail(`timed out waiting for ${what}`);
+}
+
+/** a link sequence whole, which strip-ansi removes, then split by codes whose removal joins it back up */
+function forgedLink(target: string, text: string) {
+  return (
+    `\u001b]8;;${target}\u0007${text}\u001b]8;;\u0007` +
+    `\u001b\u001b[31m]8;;${target}\u0007${text}\u001b\u001b[0m]8;;\u0007`
+  );
+}
+
+/** a coordinator stand-in that publishes snapshots and records the calls the app makes. */
+function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
+  const listeners = new Set<() => void>();
+  const calls: unknown[][] = [];
+  const record =
+    (name: string) =>
+    async (...args: unknown[]) => {
+      calls.push([name, ...args]);
+    };
+  const coordinator = {
+    snapshot: {
+      phase: 'idle',
+      items: [],
+      requests: [],
+      models: [],
+      skills: [],
+      usage: {},
+      agents: [],
+      conversation: {
+        id: 'c',
+        title: 't',
+        cwd: '/work',
+        agent: 'a',
+        sessions: {},
+        createdAt: '',
+      },
+      ...snapshot,
+    } as Snapshot,
+    memory: { root: '/state/memory.git' },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    publish(update: Partial<Snapshot>) {
+      coordinator.snapshot = { ...coordinator.snapshot, ...update };
+      for (const listener of listeners) listener();
+    },
+    send: async (text: string) => {
+      calls.push(['send', text]);
+      return true;
+    },
+    interrupt: record('interrupt'),
+    respond: record('respond'),
+    recoverMemory: record('recoverMemory'),
+    newConversation: record('newConversation'),
+    selectConversation: record('selectConversation'),
+    refreshModels: record('refreshModels'),
+    selectModel: record('selectModel'),
+    switchAgent: record('switchAgent'),
+    report: (error: unknown) => calls.push(['report', String(error)]),
+    conversations: async () => [
+      { id: 'c2', title: 'Other', agent: 'a', cwd: '/work' },
+    ],
+    projectFiles: async () => files,
+  };
+  return { coordinator, calls, app: coordinator as unknown as Coordinator };
+}
+
+await test('the conflict view resolves with k and d, ignores a, and links notes into the worktree', async () => {
+  const { app, calls } = fake({
+    phase: 'recovery',
+    recovery: {
+      kind: 'conflict',
+      paths: ['global/one.md'],
+      diff: '+mine in global/one.md',
+      root: '/state/conversations/c/memory',
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the conflict view', () =>
+      ui
+        .text()
+        .includes('k KEEP MINE (YOUR SIDE OF EACH CONFLICTING CHANGE WINS)'),
+    );
+    assert.ok(
+      ui
+        .frame()
+        .includes('vscode://file/state/conversations/c/memory/global/one.md'),
+    );
+    assert.ok(!ui.frame().includes('memory.git'));
+    // past the 500 ms recovery guard, so the view's kind, not the guard, ignores the key
+    await delay(600);
+    for (const key of ['a', 'k', 'd']) {
+      ui.stdin.write(key);
+      await delay(30);
+    }
+    assert.deepEqual(calls, [
+      ['recoverMemory', 'keep'],
+      ['recoverMemory', 'discard'],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a conflicting note name carrying a link sequence shows as plain text', async () => {
+  const { app } = fake({
+    phase: 'recovery',
+    recovery: {
+      kind: 'conflict',
+      paths: ['global/one.md', `global/${forgedLink('..:1', 'forged')}.md`],
+      diff: '+mine in global/one.md',
+      root: '/state/conversations/c/memory',
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the conflict view', () => ui.text().includes('global/forged'));
+    assert.ok(
+      ui
+        .frame()
+        .includes('vscode://file/state/conversations/c/memory/global/one.md'),
+    );
+    assert.ok(!ui.frame().includes('vscode://file/state/conversations/c:1'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('an error naming a note drops a link forged in the name', async () => {
+  const { app } = fake({
+    error: `Memory notes must be regular files: global/${forgedLink('..:1', 'forged')}.md`,
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the error', () => ui.text().includes('regular files'));
+    assert.ok(!ui.frame().includes('vscode://file/:1'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('the pending view ignores k', async () => {
+  const { app, calls } = fake({
+    phase: 'recovery',
+    recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the pending view', () =>
+      ui.text().includes('a ACCEPT | d DISCARD'),
+    );
+    await delay(600);
+    for (const key of ['k', 'a']) {
+      ui.stdin.write(key);
+      await delay(30);
+    }
+    assert.deepEqual(calls, [['recoverMemory', 'accept']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a recovery that appears while typing ignores keys for its first 500 ms', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'running' });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const discardOnce = async (count: number) => {
+    coordinator.publish({
+      phase: 'recovery',
+      recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
+    });
+    await until('the pending view', () =>
+      ui.text().includes('a ACCEPT | d DISCARD'),
+    );
+    // a key in the instant the view appears beats even a 0 ms guard
+    await delay(150);
+    ui.stdin.write('d');
+    await delay(100);
+    assert.equal(calls.length, count - 1);
+    await delay(500);
+    ui.stdin.write('d');
+    await until('the discard', () => calls.length === count);
+  };
+  try {
+    // past 500 ms from mount, so a guard counted from mount has already lifted
+    await delay(700);
+    await discardOnce(1);
+    coordinator.publish({ phase: 'running' });
+    await until('the composer', () => !ui.text().includes('d DISCARD'));
+    await discardOnce(2);
+    assert.deepEqual(calls, [
+      ['recoverMemory', 'discard'],
+      ['recoverMemory', 'discard'],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('PageDown in the recovery view starts at the first row it hid', async () => {
+  const { app } = fake({
+    phase: 'recovery',
+    recovery: {
+      kind: 'pending',
+      paths: [],
+      diff: Array.from({ length: 60 }, (_, n) => `+row ${n + 1}`).join('\n'),
+      root: '/m',
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    24,
+  );
+  const shown = () =>
+    [...ui.text().matchAll(/row (\d+)/g)].map((match) => Number(match[1]));
+  try {
+    await until('the pending diff', () => shown()[0] === 1);
+    const rows = shown().length;
+    ui.stdin.write('\u001b[6~');
+    await until('the second page', () => shown()[0] !== 1);
+    assert.equal(shown()[0], rows + 1);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('an error shows in the recovery view', async () => {
+  const { app } = fake({
+    phase: 'recovery',
+    recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
+    error: 'The publish failed for a reason.',
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the error', () =>
+      ui.text().includes('The publish failed for a reason.'),
+    );
+    assert.ok(ui.text().includes('Unfinished memory changes'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a launch report shows every line, and a taller message ends with a row count', async () => {
+  const titles = [1, 2, 3].map((n) => `${n}`.repeat(80));
+  const report = `These conversations need attention. Open each from /sessions in its directory:\n${titles
+    .map((title) => `- ${title} in /work/project: unfinished memory changes`)
+    .join('\n')}`;
+  const { app, coordinator } = fake({ error: report });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    40,
+  );
+  try {
+    await until('the report', () =>
+      ui.text().includes('Open each from /sessions'),
+    );
+    for (const title of titles) assert.ok(ui.text().includes(title), title);
+    coordinator.publish({
+      error: Array.from({ length: 20 }, (_, n) => `row ${n + 1}`).join('\n'),
+    });
+    await until('the long message', () => ui.text().includes('more rows'));
+    const rows = ui
+      .text()
+      .split('\n')
+      .map((row) => row.trim());
+    assert.ok(rows.includes('row 12'));
+    assert.ok(!rows.includes('row 13'));
+    assert.ok(rows.includes('+8 more rows'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+async function memoryApp(
+  editFile: (
+    file: string,
+    signal: AbortSignal,
+  ) => Promise<void> = async () => {},
+) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-ui-app-')));
+  const cwd = join(root, 'project');
+  await mkdir(cwd);
+  const hook = { current: passThrough };
+  const memory = new Memory(join(root, 'state', 'memory.git'), hookedGit(hook));
+  await memory.initialize();
+  const directory = join(root, 'state', 'conversations', 'seed');
+  await mkdir(directory, { recursive: true });
+  const seed = memory.workspace(directory, 'seed');
+  await seed.ensureWorktree();
+  await writeFile(join(seed.root, 'global', 'other.md'), 'Another note.');
+  await seed.commit('chore(memory): save seed notes');
+  await seed.publish();
+  const coordinator = new Coordinator(
+    await StateStore.open(join(root, 'state')),
+    memory,
+    // uninstalled, so opening the conversation builds no worktree
+    [{ adapter: new FixtureAgent('a') }],
+    editFile,
+  );
+  await coordinator.initialize(cwd);
+  return { root, hook, seed, coordinator };
+}
+
+/** types /memory and waits for its picker to show `text`. */
+async function openMemory(ui: ReturnType<typeof show>, text: string) {
+  ui.stdin.write('/memory');
+  await delay(30);
+  ui.stdin.write('\r');
+  await until('the memory picker', () => ui.text().includes(text));
+}
+
+await test('/memory reads one commit even when main moves during the action', async () => {
+  const { hook, seed, coordinator } = await memoryApp();
+  hook.current = async (command, run) => {
+    const result = await run();
+    if (command[0] === 'log' && command.includes('--name-only')) {
+      hook.current = passThrough;
+      await rm(join(seed.root, 'global', 'other.md'));
+      await seed.commit('chore(memory): delete other');
+      await seed.publish();
+    }
+    return result;
+  };
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openMemory(ui, 'global/other.md');
+    // only the launch's connect report, no error from reading memory
+    assert.match(coordinator.snapshot.error ?? '', /^a is not installed\./);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('memory without a worktree shows no links, builds no worktree, and keeps history', async () => {
+  const { root, coordinator } = await memoryApp();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  const row = (text: string) =>
+    ui
+      .frame()
+      .split('\n')
+      .find((line) => stripAnsi(line).includes(text)) ?? '';
+  try {
+    await delay(60);
+    await openMemory(ui, 'global/MEMORY.md');
+    assert.ok(!row('global/MEMORY.md').includes('\u001b]8;'));
+    await delay(30);
+    ui.stdin.write('global/mem');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () =>
+      ui.text().includes('e EDIT | h HISTORY'),
+    );
+    assert.ok(!row('global/MEMORY.md').includes('\u001b]8;'));
+    ui.stdin.write('h');
+    await until('the history picker', () =>
+      ui.text().includes('Restore a memory version'),
+    );
+    await assert.rejects(
+      access(
+        join(
+          root,
+          'state',
+          'conversations',
+          coordinator.snapshot.conversation!.id,
+          'memory',
+        ),
+      ),
+    );
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('a note page scrolls by rows and full pages and stops at its last row', async () => {
+  const { seed, coordinator } = await memoryApp();
+  await writeFile(
+    join(seed.root, 'global', 'long.md'),
+    Array.from({ length: 60 }, (_, row) => `- row ${row + 1}\n`).join(''),
+  );
+  await seed.commit('chore(memory): save long note');
+  await seed.publish();
+  const ui = show(
+    createElement(App, { coordinator, onExit: () => {} }),
+    100,
+    24,
+  );
+  const shown = () =>
+    [...ui.text().matchAll(/row (\d+)/g)].map((match) => Number(match[1]));
+  const pageDown = '\u001b[6~';
+  try {
+    await delay(60);
+    await openMemory(ui, 'long.md');
+    await delay(30);
+    ui.stdin.write('long.md');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => shown()[0] === 1);
+    const rows = shown().length;
+    ui.stdin.write(pageDown);
+    await until('the second page', () => shown()[0] !== 1);
+    assert.equal(shown()[0], rows + 1);
+    for (let page = 0; page < 60 / rows + 1; page++) {
+      await delay(30);
+      ui.stdin.write(pageDown);
+    }
+    await until('the last row', () => shown().at(-1) === 60);
+    await delay(30);
+    ui.stdin.write('\u001b[A');
+    await until('one row up', () => shown().at(-1) === 59);
+    ui.stdin.write('\u001b[B');
+    await until('one row down', () => shown().at(-1) === 60);
+    ui.stdin.write('\u001b[5~');
+    await until('a page up', () => shown()[0] === 61 - 2 * rows);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('e on a note page edits that note, and the + entry edits project essentials', async () => {
+  const edited: string[] = [];
+  const { coordinator } = await memoryApp(async (file) => {
+    edited.push(file);
+  });
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openMemory(ui, 'other.md');
+    await delay(30);
+    ui.stdin.write('other.md');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => ui.text().includes('e EDIT'));
+    ui.stdin.write('e');
+    await until('the edit', () => edited.length === 1);
+    assert.match(edited[0]!, /\/global\/other\.md$/);
+    await until('idle', () => coordinator.snapshot.phase === 'idle');
+    // the edit's notice already names other.md
+    await openMemory(ui, 'Edit project essentials');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the second edit', () => edited.length === 2);
+    assert.match(edited[1]!, /\/MEMORY\.md$/);
+    assert.doesNotMatch(edited[1]!, /\/global\//);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('a note page links its relative Markdown targets beside the note once its worktree holds the revision', async () => {
+  const { root, seed, coordinator } = await memoryApp();
+  await writeFile(join(seed.root, 'global', 'index.md'), '- [Other](other.md)');
+  await seed.commit('chore(memory): add index');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  const open = async () => {
+    // the edit's notice already names index.md
+    await openMemory(ui, 'Edit project essentials');
+    await delay(30);
+    ui.stdin.write('index.md');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => ui.text().includes('e EDIT'));
+  };
+  try {
+    await delay(60);
+    await open();
+    assert.ok(!ui.frame().includes('other.md'));
+    ui.stdin.write('\u001b');
+    await until('the chat', () => !ui.text().includes('e EDIT'));
+    await coordinator.editMemory('global/index.md');
+    await open();
+    const worktree = join(
+      root,
+      'state',
+      'conversations',
+      coordinator.snapshot.conversation!.id,
+      'memory',
+    );
+    assert.ok(
+      ui.frame().includes(`vscode://file${worktree}/global/other.md\u0007`),
+    );
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('a note file name carrying a link sequence shows as plain text in the picker, on its page and in its notices', async () => {
+  const { root, seed, coordinator } = await memoryApp();
+  // a file name holds no slash, so a forged target can only be a local path. notices render Markdown, so the name forges Markdown links too
+  await writeFile(
+    join(
+      seed.root,
+      'global',
+      `${forgedLink('..:1', 'forged')}[Forged note](..:1)\\[Forged note\\](..:1).md`,
+    ),
+    'Forged note.',
+  );
+  await seed.commit('chore(memory): save forged note');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  const choose = async () => {
+    await delay(30);
+    ui.stdin.write('Forged note');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the note page', () => ui.text().includes('e EDIT'));
+  };
+  try {
+    await delay(60);
+    await openMemory(ui, 'global/forged');
+    assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
+    ui.stdin.write('\u001b');
+    await until('the chat', () => !ui.text().includes('global/forged'));
+    // a worktree at main links the picker's rows
+    await coordinator.editMemory('global/other.md');
+    const conversation = join(
+      root,
+      'state',
+      'conversations',
+      coordinator.snapshot.conversation!.id,
+    );
+    const forged = `vscode://file${conversation}:1\u0007`;
+    await openMemory(ui, 'global/forged');
+    assert.ok(
+      ui
+        .frame()
+        .includes(`vscode://file${conversation}/memory/global/other.md\u0007`),
+    );
+    assert.ok(!ui.frame().includes(forged));
+    await choose();
+    assert.ok(!ui.frame().includes(forged));
+    assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
+    ui.stdin.write('e');
+    await until(
+      'the edit notice',
+      () => ui.text().split('Memory edit:').length === 3,
+    );
+    assert.ok(!ui.frame().includes(forged));
+    await until('idle', () => coordinator.snapshot.phase === 'idle');
+    await openMemory(ui, 'global/forged');
+    await choose();
+    ui.stdin.write('h');
+    await until('the history picker', () =>
+      ui.text().includes('Restore a memory version'),
+    );
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the restore notice', () =>
+      ui.text().includes('Memory restore:'),
+    );
+    assert.ok(!ui.frame().includes(forged));
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('an initial prompt is sent once when the load ends idle with nothing reported', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'starting' });
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      initialPrompt: 'say hello',
+    }),
+  );
+  try {
+    await delay(60);
+    coordinator.publish({ phase: 'idle' });
+    await until('the send', () => calls.some(([name]) => name === 'send'));
+    assert.ok(ui.text().includes('Ask the agent, or type /help'));
+    assert.ok(!ui.text().includes('say hello'));
+    coordinator.publish({ phase: 'running' });
+    await delay(60);
+    coordinator.publish({ phase: 'idle' });
+    await delay(60);
+    assert.deepEqual(
+      calls.filter(([name]) => name === 'send'),
+      [['send', 'say hello']],
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+for (const [name, update, focusTools] of [
+  [
+    'recovery',
+    {
+      phase: 'recovery',
+      recovery: { kind: 'pending', paths: [], diff: 'x', root: '/m' },
+    },
+    false,
+  ],
+  [
+    'a launch report',
+    { phase: 'idle', error: 'These conversations need attention.' },
+    false,
+  ],
+  [
+    'a failed open',
+    { phase: 'error', error: 'Open failed.', conversation: undefined },
+    false,
+  ],
+  ['a load that ends with tools focused', { phase: 'idle' }, true],
+] as const) {
+  await test(`an initial prompt stays in the composer after ${name}`, async () => {
+    const { app, coordinator, calls } = fake({ phase: 'starting' });
+    const ui = show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {},
+        initialPrompt: 'say hello',
+      }),
+    );
+    try {
+      await delay(60);
+      if (focusTools) {
+        ui.stdin.write('\t');
+        await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
+      }
+      coordinator.publish(update as Partial<Snapshot>);
+      if (update.phase === 'recovery') {
+        await delay(60);
+        coordinator.publish({ phase: 'idle', recovery: undefined });
+      }
+      await until('the seeded composer', () =>
+        ui.text().includes('┃ say hello'),
+      );
+      await delay(60);
+      assert.deepEqual(
+        calls.filter(([call]) => call === 'send'),
+        [],
+      );
+    } finally {
+      ui.unmount();
+    }
+  });
+}
+
+await test('a prompt the agent never got comes back into an empty composer and leaves a new draft alone', async () => {
+  for (const retyped of [false, true]) {
+    const { app, coordinator, calls } = fake({});
+    const delivery = Promise.withResolvers<boolean>();
+    Object.assign(coordinator, {
+      send: (text: string) => {
+        calls.push(['send', text]);
+        return delivery.promise;
+      },
+    });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write('hello');
+      await delay(30);
+      ui.stdin.write('\r');
+      await until('the send', () => calls.length === 1);
+      if (retyped) {
+        await delay(30);
+        ui.stdin.write('newer');
+        await until('the new draft', () => ui.text().includes('┃ newer'));
+      }
+      delivery.resolve(false);
+      await delay(60);
+      if (retyped) {
+        assert.ok(ui.text().includes('┃ newer'));
+        assert.ok(!ui.text().includes('┃ hello'));
+      } else
+        await until('the restored prompt', () => ui.text().includes('┃ hello'));
+    } finally {
+      ui.unmount();
+    }
+  }
+});
+
+const ENTER = '\u001b[13u';
+const SHIFT_ENTER = '\u001b[13;2u';
+const DOWN = '\u001b[B';
+const UP = '\u001b[A';
+const LEFT = '\u001b[D';
+const TAB = '\u001b[9u';
+const tools = (prefix: string) =>
+  [1, 2].map((n) => ({
+    id: `${prefix}-tool-${n}`,
+    kind: 'tool' as const,
+    title: `${prefix} tool ${n}`,
+    text: `${prefix} output ${n}`,
+    cwd: '/work',
+    done: true,
+  }));
+const approval = {
+  id: 'r1',
+  kind: 'approval' as const,
+  title: 'rm -rf build',
+  detail: '{}',
+};
+
+for (const [name, keys, decision] of [
+  ['Enter accepts', ENTER, 'accept'],
+  ['Down and Enter in one read decline', DOWN + ENTER, 'decline'],
+  ['Down, Down and Enter cancel', DOWN + DOWN + ENTER, 'cancel'],
+  ['n declines', 'n', 'decline'],
+] as const)
+  await test(`${name} an approval`, async () => {
+    const { app, calls } = fake({ phase: 'running', requests: [approval] });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(600);
+      ui.stdin.write(keys);
+      await until('the response', () => calls.length > 0);
+      assert.deepEqual(calls, [['respond', 'r1', { decision }]]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+await test('two questions answered in one read each get their own option', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Questions',
+        detail: '',
+        questions: [
+          { id: 'first', title: 'First?', options: ['a1', 'b1'] },
+          { id: 'second', title: 'Second?', options: ['a2', 'b2'] },
+        ],
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(600);
+    ui.stdin.write(`1${ENTER}${DOWN}${ENTER}`);
+    await until('the response', () => calls.length > 0);
+    assert.deepEqual(calls, [
+      [
+        'respond',
+        'q',
+        { decision: 'accept', answers: { first: ['a1'], second: ['b2'] } },
+      ],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+for (const [choice, keys, effort, outcome] of [
+  ['Keep current effort', ENTER, undefined, 'without an effort'],
+  ['a listed effort', `high${ENTER}`, 'high', 'with that effort'],
+] as const)
+  await test(`/model with ${choice} selects the model ${outcome}`, async () => {
+    const { app, calls } = fake({
+      models: [{ id: 'm', label: 'Model M', efforts: ['low', 'high'] }],
+    });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write('/model');
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the model picker', () => ui.text().includes('Model M'));
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the effort picker', () =>
+        ui.text().includes('Keep current effort'),
+      );
+      await delay(30);
+      ui.stdin.write(keys);
+      await until('the selection', () => calls.length === 2);
+      assert.deepEqual(calls, [
+        ['refreshModels'],
+        ['selectModel', 'm', effort],
+      ]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+await test('a model id carrying a link sequence shows as plain text in the effort picker title', async () => {
+  const { app } = fake({
+    models: [
+      {
+        id: forgedLink('x-evil:payload', 'm'),
+        label: 'Model M',
+        efforts: ['low', 'high'],
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/model');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the model picker', () => ui.text().includes('Model M'));
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the effort picker', () =>
+      ui.text().includes('Reasoning for m'),
+    );
+    assert.ok(
+      !ui.frame().includes('\u001b]8;;x-evil'),
+      JSON.stringify(ui.frame()),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+for (const typed of ['gpt-5.1', 'gpt-6'])
+  await test(`typing ${typed} in the model picker selects exactly it`, async () => {
+    const { app, calls } = fake({
+      models: ['gpt-5.1-codex', 'gpt-5.1'].map((id) => ({
+        id,
+        label: id,
+        efforts: [],
+      })),
+    });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write('/model');
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the model picker', () =>
+        ui.text().includes('gpt-5.1-codex'),
+      );
+      await delay(30);
+      ui.stdin.write(`${typed}${ENTER}`);
+      await until('the selection', () => calls.length === 2);
+      assert.deepEqual(calls, [['refreshModels'], ['selectModel', typed]]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+await test('a long picker shows as many choices as its rows hold', async () => {
+  const { app } = fake({
+    models: Array.from({ length: 40 }, (_, n) => ({
+      id: `model-${n + 1}`,
+      label: `model-${n + 1}`,
+      efforts: [],
+    })),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    24,
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('/model');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the model picker', () => ui.text().includes('Models ·'));
+    const shown = ui
+      .text()
+      .split('\n')
+      .filter((row) => row.trim().startsWith('model-'));
+    // 24 rows less the header, status, title, filter, hint, the row every view leaves free and the status line's two
+    assert.equal(shown.length, 16);
+  } finally {
+    ui.unmount();
+  }
+});
+
+for (const [typed, call] of [
+  ['/model m high', ['selectModel', 'm', 'high']],
+  ['/agent b', ['switchAgent', 'b']],
+  ['/new b', ['newConversation', 'b']],
+] as const)
+  await test(`${typed} passes its arguments`, async () => {
+    const { app, calls } = fake({});
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write(typed);
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the call', () => calls.length > 0);
+      assert.deepEqual(calls, [call]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+/** opens the command picker and waits for it. */
+async function commands(ui: ReturnType<typeof show>) {
+  ui.stdin.write('\u0010');
+  await until('the command picker', () => ui.text().includes('Commands'));
+  await delay(30);
+}
+
+for (const [name, keys] of [
+  ['Down and Enter', DOWN + ENTER],
+  ['a filter and Enter', `sess${ENTER}`],
+  ['a filter, Down past it and Enter', `sess${DOWN}${ENTER}`],
+] as const)
+  await test(`${name} in one read pick the selected command`, async () => {
+    const { app, calls } = fake({});
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      await commands(ui);
+      ui.stdin.write(keys);
+      await until('the conversations picker', () =>
+        ui.text().includes('Other · a'),
+      );
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('the selection', () => calls.length > 0);
+      assert.deepEqual(calls, [['selectConversation', 'c2']]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+await test('a filter resets the picker selection within the same read', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`${DOWN}conv${ENTER}`);
+    await until('the new conversation', () =>
+      calls.some(([call]) => call === 'newConversation'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('reopening the picker resets its selection', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(DOWN);
+    await delay(30);
+    ui.stdin.write('\u001b');
+    await until('the chat view', () => !ui.text().includes('Commands'));
+    await commands(ui);
+    ui.stdin.write(ENTER);
+    await until('the new conversation', () =>
+      calls.some(([call]) => call === 'newConversation'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
+  const { app, calls } = fake({ items: tools('first') });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('hello');
+    await delay(30);
+    ui.stdin.write(`\t${DOWN}${ENTER}`);
+    await until('the expanded tool', () =>
+      ui.text().includes('first output 2'),
+    );
+    assert.ok(!ui.text().includes('first output 1'));
+    const row = (text: string) =>
+      ui
+        .frame()
+        .split('\n')
+        .find((line) => line.includes(text)) ?? '';
+    assert.ok(row('first tool 2').includes('\x1b[7m'));
+    assert.ok(!row('first tool 1').includes('\x1b[7m'));
+    ui.stdin.write(ENTER);
+    await until(
+      'the collapsed tool',
+      () => !ui.text().includes('first output 2'),
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Enter during a turn keeps the draft and sends nothing', async () => {
+  const { app, calls } = fake({ phase: 'running' });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('hello');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the report', () => calls.length > 0);
+    assert.deepEqual(calls, [
+      [
+        'report',
+        'Wait for this operation to finish, or press Escape to interrupt.',
+      ],
+    ]);
+    assert.ok(ui.text().includes('┃ hello'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('the header shows the stored model until the session reports one, and the status its permission mode', async () => {
+  const { app, coordinator } = fake({
+    conversation: {
+      id: 'c',
+      title: 't',
+      cwd: '/work',
+      agent: 'a',
+      sessions: { a: { id: '', model: 'stored-model', hasHistory: false } },
+      createdAt: '',
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const row = (index: number) => ui.text().split('\n')[index] ?? '';
+  try {
+    await until('the stored model', () => row(0).includes('STORED-MODEL'));
+    coordinator.publish({
+      native: {
+        id: 's',
+        agent: 'a',
+        model: 'live-model',
+        permissionMode: 'on-request',
+        hasHistory: true,
+      },
+    });
+    await until('the live model', () => row(0).includes('LIVE-MODEL'));
+    assert.match(row(1), /^IDLE \| ON-REQUEST/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a project name, model and permission mode carrying a link sequence show as plain text in the header', async () => {
+  const forged = (name: string) => forgedLink('x-evil:payload', name);
+  const { app } = fake({
+    conversation: {
+      id: 'c',
+      title: 't',
+      cwd: `/work/${forged('project')}`,
+      agent: 'a',
+      sessions: {},
+      createdAt: '',
+    },
+    native: {
+      id: 's',
+      agent: 'a',
+      model: forged('model'),
+      permissionMode: forged('mode'),
+      hasHistory: true,
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the header', () => ui.text().includes('MODEL'));
+    assert.match(ui.text(), /project\]8;;x-evil:payloadproject\]8;; \| A/);
+    assert.ok(
+      !ui.frame().includes('\u001b]8;;x-evil'),
+      JSON.stringify(ui.frame()),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a conversation switch resets the tool selection within the next read', async () => {
+  const { app, coordinator } = fake({ items: tools('first') });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`\t${DOWN}`);
+    await delay(30);
+    ui.stdin.write('\u001b');
+    await delay(30);
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+      items: tools('second'),
+    });
+    await until('the new conversation', () =>
+      ui.text().includes('second tool 1'),
+    );
+    ui.stdin.write(`\t${ENTER}`);
+    await until('the expanded tool', () =>
+      ui.text().includes('second output 1'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('two page keys in one read scroll two pages, PageDown back to the bottom follows output again, and PageUp scrolls a request back', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app, coordinator } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const rows = () =>
+    ui
+      .text()
+      .split('\n')
+      .map((row) => row.trim());
+  try {
+    await delay(60);
+    ui.stdin.write('\u001b[5~\u001b[5~');
+    // 302 lines in a 32-row transcript start at row 270; two pages up is 206
+    await until('two pages up', () => rows()[2] === 'row 206');
+    assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
+    ui.stdin.write('\u001b[6~\u001b[6~');
+    await until(
+      'live output',
+      () => !ui.text().includes('READING EARLIER OUTPUT'),
+    );
+    coordinator.publish({
+      phase: 'running',
+      requests: [
+        {
+          ...approval,
+          detail: Array.from({ length: 200 }, (_, n) => `d${n + 1}`).join('\n'),
+        },
+      ],
+    });
+    await delay(600);
+    ui.stdin.write('\u001b[6~\u001b[6~');
+    // the detail starts on line 4, and two 29-row pages down show line 59
+    await until('two pages down', () => {
+      const all = rows();
+      return all[all.indexOf('Approval required') + 1] === 'd56';
+    });
+    ui.stdin.write('\u001b[5~');
+    await until('a page up', () => {
+      const all = rows();
+      return all[all.indexOf('Approval required') + 1] === 'd27';
+    });
+  } finally {
+    ui.unmount();
+  }
+});
+
+const wheelUp = '\u001b[<64;10;10M';
+const wheelDown = '\u001b[<65;10;10M';
+
+await test('the wheel scrolls the transcript a row a step, and back at the bottom follows output again', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  try {
+    await until('the transcript', () => first() > 0);
+    const bottom = first();
+    ui.stdin.write(wheelUp.repeat(3));
+    await until('three rows up', () => first() === bottom - 3);
+    assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
+    ui.stdin.write(wheelDown.repeat(3));
+    await until(
+      'live output',
+      () => !ui.text().includes('READING EARLIER OUTPUT'),
+    );
+    assert.equal(first(), bottom);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('the wheel scrolls a page and a request by rows', async () => {
+  const { app, coordinator } = fake({});
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    16,
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('/help');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the help page', () => ui.text().includes('/new  New'));
+    ui.stdin.write(wheelDown.repeat(2));
+    await until(
+      'two rows down',
+      () => !ui.text().includes('/sessions') && ui.text().includes('/agent'),
+    );
+    ui.stdin.write(wheelUp);
+    await until('a row up', () => ui.text().includes('/sessions'));
+    assert.ok(!ui.text().includes('/new  New'));
+    ui.stdin.write('\u001b');
+    coordinator.publish({
+      phase: 'running',
+      requests: [
+        {
+          ...approval,
+          detail: Array.from({ length: 200 }, (_, n) => `d${n + 1}`).join('\n'),
+        },
+      ],
+    });
+    await until('the request', () => ui.text().includes('d1\n'));
+    // the detail starts on line 4, so five rows down show d3 first
+    ui.stdin.write(wheelDown.repeat(5));
+    await until('five rows down', () => {
+      const rows = ui
+        .text()
+        .split('\n')
+        .map((row) => row.trim());
+      return rows[rows.indexOf('Approval required') + 1] === 'd3';
+    });
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a click and a wheel step between keys leave the draft as typed', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`xq\u001b[<0;3;4M\u001b[<0;3;4m${wheelUp}zw`);
+    await until('the draft', () => ui.text().includes('xqzw'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('the pentacle shows only beside an 80-cell main column, turns while the agent works and returns to its rest angle when idle', async () => {
+  const braille = (text: string) => text.match(/[⠁-⣿]/g)?.join('');
+  // the working row's spinner is braille too, so only the sidebar's cells count
+  const inSidebar = (text: string) =>
+    braille(
+      text
+        .split('\n')
+        .map((line) => line.slice(80))
+        .join('\n'),
+    );
+  const narrow = show(
+    createElement(App, { coordinator: fake({}).app, onExit: () => {} }),
+    104,
+  );
+  try {
+    await delay(60);
+    assert.equal(braille(narrow.text()), undefined);
+  } finally {
+    narrow.unmount();
+  }
+  const { app, coordinator } = fake({});
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  try {
+    await until('the pentacle', () => !!inSidebar(ui.text()));
+    const rest = inSidebar(ui.text());
+    coordinator.publish({ phase: 'running' });
+    await until('a turn', () => inSidebar(ui.text()) !== rest);
+    coordinator.publish({ phase: 'idle' });
+    await until('the rest', () => inSidebar(ui.text()) === rest);
+    await delay(200);
+    assert.equal(inSidebar(ui.text()), rest);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test("the status line shows the model's label, the effort the agent runs, its usage and the repository as it changes", async () => {
+  const { app } = fake({
+    native: {
+      id: 's',
+      agent: 'a',
+      model: 'gpt-x-2026',
+      permissionMode: 'default',
+      hasHistory: true,
+      nativeEffort: 'medium',
+    },
+    models: [{ id: 'gpt-x-2026', label: 'GPT-X', efforts: [] }],
+    usage: { cost: 0.5, context: 30, lines: { added: 2, removed: 1 } },
+    openedAt: Date.now(),
+  });
+  const listeners = new Set<() => void>();
+  const repository = {
+    snapshot: {
+      branch: 'main',
+      ahead: 1,
+      behind: 0,
+      staged: 0,
+      modified: 0,
+      conflicts: 0,
+      untracked: 0,
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const ui = show(
+    createElement(App, { coordinator: app, repository, onExit: () => {} }),
+  );
+  const status = () =>
+    ui
+      .text()
+      .trimEnd()
+      .split('\n')
+      .slice(-2)
+      .map((row) => row.trim());
+  try {
+    await until('the status line', () => status()[0]!.startsWith('GPT-X'));
+    assert.deepEqual(status(), [
+      'GPT-X | MEDIUM | $0.50 | 0M',
+      'CTX 30% ███░░░░░░░ | work | main ↑1 | 2+/1-',
+    ]);
+    repository.snapshot = { ...repository.snapshot, branch: 'feat/y' };
+    for (const listener of listeners) listener();
+    await until('the new branch', () => status()[1]!.includes('feat/y ↑1'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('while the agent works, a row above the composer names a verb and counts the seconds, and it leaves at idle', async () => {
+  const { app, coordinator } = fake({ phase: 'running' });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const row = () => {
+    const lines = ui.text().split('\n');
+    const composer = lines.findIndex((line) =>
+      line.trimStart().startsWith('┏'),
+    );
+    return lines[composer - 1]?.trim() ?? '';
+  };
+  const activity =
+    /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (CONJURING|SCRYING|BREWING|DIVINING|INCANTING|SUMMONING|HEXING|TRANSMUTING) \| (\d+)S \| ESC TO INTERRUPT$/;
+  try {
+    await until('the activity row', () => activity.exec(row())?.[2] === '0');
+    await until('a second later', () => activity.exec(row())?.[2] === '1');
+    coordinator.publish({ phase: 'idle' });
+    await until('the row gone', () => !ui.text().includes('ESC TO INTERRUPT'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a typed /agent returns to live output', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app, calls } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('\u001b[5~');
+    await until('earlier output', () =>
+      ui.text().includes('READING EARLIER OUTPUT'),
+    );
+    ui.stdin.write('/agent b');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await until('live output', () => !ui.text().includes('READING EARLIER'));
+    assert.deepEqual(calls, [['switchAgent', 'b']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Down with tools focused and no tools keeps the reading position, and End returns to live output', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const top = () => ui.text().split('\n')[2]?.trim();
+  try {
+    await delay(60);
+    ui.stdin.write('\u001b[5~');
+    await until('a page up', () => top() === 'row 238');
+    ui.stdin.write(`\t${DOWN}`);
+    await delay(60);
+    assert.equal(top(), 'row 238');
+    ui.stdin.write('\u001b[F');
+    // the tools hint takes a transcript row
+    await until('live output', () => top() === 'row 271');
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Escape while tools are focused during a turn leaves focus without interrupting', async () => {
+  const { app, calls } = fake({ phase: 'running', items: tools('first') });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('\t');
+    await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
+    ui.stdin.write('\u001b');
+    await until('the composer', () => !ui.text().includes('ESC LEAVE TOOLS'));
+    assert.ok(!calls.some(([call]) => call === 'interrupt'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a new request ignores keys for its first 500 ms', async () => {
+  const { app, coordinator, calls } = fake({
+    phase: 'running',
+    requests: [approval],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the request', () => ui.text().includes('Approval required'));
+    // a key in the instant the request appears beats even a 0 ms guard
+    await delay(150);
+    ui.stdin.write('y');
+    await delay(100);
+    assert.deepEqual(calls, []);
+    await delay(500);
+    ui.stdin.write('y');
+    await until('the accept', () => calls.length > 0);
+    coordinator.publish({
+      requests: [{ ...approval, id: 'r2', title: 'rm -rf dist' }],
+    });
+    await until('the next request', () => ui.text().includes('rm -rf dist'));
+    await delay(150);
+    ui.stdin.write('y');
+    await delay(100);
+    assert.deepEqual(calls, [['respond', 'r1', { decision: 'accept' }]]);
+  } finally {
+    ui.unmount();
+  }
+  const question = fake({
+    phase: 'running',
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Question',
+        detail: '',
+        questions: [{ id: 'one', title: 'Pick?', options: ['only'] }],
+      },
+    ],
+  });
+  const asked = show(
+    createElement(App, { coordinator: question.app, onExit: () => {} }),
+  );
+  try {
+    await until('the question', () => asked.text().includes('Pick?'));
+    await delay(150);
+    asked.stdin.write(ENTER);
+    await delay(100);
+    assert.deepEqual(question.calls, []);
+  } finally {
+    asked.unmount();
+  }
+});
+
+await test('Escape declines a question and the turn continues', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Question',
+        detail: '',
+        questions: [{ id: 'one', title: 'Pick?', options: ['only'] }],
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(600);
+    ui.stdin.write('\u001b');
+    await until('the decline', () => calls.length > 0);
+    assert.deepEqual(calls, [['respond', 'q', { decision: 'decline' }]]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+// /ex runs from the list; a trailing space opens no list, so /quit resolves as an alias in submit
+for (const typed of ['/ex', '/quit '])
+  await test(`${typed.trim()} exits without sending a prompt`, async () => {
+    const { app, calls } = fake({});
+    let exits = 0;
+    const ui = show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {
+          exits++;
+        },
+      }),
+    );
+    try {
+      await delay(60);
+      ui.stdin.write(typed);
+      await delay(30);
+      ui.stdin.write('\r');
+      await until('the exit', () => exits === 1);
+      assert.deepEqual(calls, []);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+for (const [phase, outcome, exits, interrupts] of [
+  ['idle', 'exits', 1, 0],
+  ['running', 'interrupts', 0, 1],
+] as const)
+  await test(`Ctrl+C while ${phase} ${outcome}`, async () => {
+    const { app, calls } = fake({ phase });
+    let exited = 0;
+    const ui = show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {
+          exited++;
+        },
+      }),
+    );
+    try {
+      await delay(60);
+      ui.stdin.write('\u0003');
+      await delay(60);
+      assert.equal(exited, exits);
+      assert.equal(
+        calls.filter(([call]) => call === 'interrupt').length,
+        interrupts,
+      );
+    } finally {
+      ui.unmount();
+    }
+  });
+
+await test('Ctrl+C while closing quits instead of interrupting again', async () => {
+  const { app, coordinator, calls } = fake({});
+  let exits = 0;
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {
+        exits++;
+      },
+    }),
+  );
+  try {
+    await delay(60);
+    coordinator.publish({ phase: 'closing' });
+    await until('the closing frame', () => ui.text().includes('CLOSING'));
+    ui.stdin.write('\u0003');
+    await delay(60);
+    assert.equal(exits, 1);
+    assert.ok(!calls.some(([call]) => call === 'interrupt'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+const skills = [
+  { name: 'x-one', description: 'First skill' },
+  { name: 'x-two', description: 'Second skill' },
+];
+
+/** mounts while starting and then goes to `phase`, so App's key listener comes before the composer's as in the real app. */
+async function launched(snapshot: Partial<Snapshot>, files?: string[]) {
+  const context = fake({ ...snapshot, phase: 'starting' }, files);
+  const ui = show(
+    createElement(App, { coordinator: context.app, onExit: () => {} }),
+  );
+  await delay(60);
+  context.coordinator.publish({ phase: snapshot.phase ?? 'idle' });
+  await delay(60);
+  return { ...context, ui };
+}
+
+await test('Down and Enter in one read run the second matching skill', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/x${DOWN}${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/x-two']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('typing after Down in the same read resets the selection', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/${DOWN}x${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/x-one']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a slash command nothing matches is sent as typed', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/zzz${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/zzz']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Tab completes a skill and the arguments typed in the same read follow it', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write(`/x-o${TAB}arg${ENTER}`);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '/x-one arg']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Escape closes the list during a turn, a new token reopens it, and Escape then interrupts', async () => {
+  const { ui, calls } = await launched({ skills, phase: 'running' });
+  const open = () => ui.text().includes('/x-one First skill');
+  try {
+    ui.stdin.write('/x');
+    await until('the list', open);
+    ui.stdin.write('\u001b');
+    await until('the closed list', () => !open());
+    ui.stdin.write('-');
+    await until('the reopened list', open);
+    // back on the dismissed token, the list stays open
+    ui.stdin.write('\u007f');
+    await until('the shorter token', () => ui.text().includes('┃ /x '));
+    assert.ok(open());
+    ui.stdin.write('\u001b');
+    await until('the closed list', () => !open());
+    assert.deepEqual(calls, []);
+    ui.stdin.write('\u001b');
+    await until('the interrupt', () => calls.length > 0);
+    assert.deepEqual(calls, [['interrupt']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Tab inserts a file into the middle of a draft', async () => {
+  const { ui, calls } = await launched({}, ['src/app.ts', 'lib/x.ts']);
+  try {
+    ui.stdin.write(`see @sr now${LEFT.repeat(4)}`);
+    await until('the file list', () => ui.text().includes('@src/app.ts'));
+    ui.stdin.write(TAB);
+    await until('the inserted path', () =>
+      ui.text().includes('┃ see @src/app.ts now'),
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Enter inserts a file without sending', async () => {
+  const { ui, calls } = await launched({}, ['src/app.ts']);
+  try {
+    ui.stdin.write('see @sr');
+    await until('the file list', () => ui.text().includes('@src/app.ts'));
+    ui.stdin.write(ENTER);
+    await until('the inserted path', () =>
+      ui.text().includes('┃ see @src/app.ts'),
+    );
+    await delay(60);
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Up chooses in an open list without moving the cursor, and moves it once a space closes the list', async () => {
+  const { ui } = await launched({}, ['src/app.ts', 'src/apx.ts']);
+  try {
+    ui.stdin.write('abc');
+    await delay(30);
+    ui.stdin.write(SHIFT_ENTER);
+    await delay(30);
+    ui.stdin.write('see @sr');
+    await until('the file list', () => ui.text().includes('@src/apx.ts'));
+    ui.stdin.write(DOWN);
+    await delay(30);
+    ui.stdin.write(UP);
+    await delay(30);
+    ui.stdin.write(TAB);
+    await until('the first file at the token', () =>
+      ui.text().includes('┃ see @src/app.ts'),
+    );
+    ui.stdin.write(` ${UP}Z`);
+    await until('typing on the first line', () => ui.text().includes('┃ abcZ'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('tool focus hides a remounted draft list, which shows once focus returns', async () => {
+  const { ui, coordinator } = await launched({ skills });
+  const conversation = coordinator.snapshot.conversation!;
+  const open = (id: string) =>
+    coordinator.publish({ conversation: { ...conversation, id } });
+  try {
+    open('d');
+    await delay(60);
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-one'));
+    open('c');
+    await until('the empty draft', () => !ui.text().includes('/x-one'));
+    ui.stdin.write(TAB);
+    await until('tool focus', () => ui.text().includes('ESC LEAVE TOOLS'));
+    open('d');
+    await delay(100);
+    assert.ok(!ui.text().includes('/x-one'));
+    ui.stdin.write(TAB);
+    await until('the list again', () => ui.text().includes('/x-one'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Ctrl+P over an open list gives the picker its keys', async () => {
+  const { ui, calls } = await launched({ skills });
+  try {
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-one'));
+    await commands(ui);
+    ui.stdin.write('\u001b');
+    await until('the list again', () => ui.text().includes('/x-one'));
+    await commands(ui);
+    ui.stdin.write(`${DOWN}${ENTER}`);
+    await until('the conversations picker', () =>
+      ui.text().includes('Conversations'),
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('the composer grows with its text up to half the body and shrinks after a send', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const composerRows = () => {
+    const lines = ui.text().split('\n');
+    const top = lines.findIndex((line) => line.trimStart().startsWith('┏'));
+    const bottom = lines.findIndex((line) => line.trimStart().startsWith('┗'));
+    return bottom - top - 1;
+  };
+  try {
+    await delay(60);
+    assert.equal(composerRows(), 1);
+    // 94 columns hold 200 characters and the cursor in 3 rows
+    ui.stdin.write('x'.repeat(200));
+    await until('a grown composer', () => composerRows() === 3);
+    // 2200 would take 24 rows, and half of the 36-row body is 18
+    ui.stdin.write('x'.repeat(2000));
+    await until('a capped composer', () => composerRows() === 18);
+    ui.stdin.write(ENTER);
+    await until('the send', () => calls.length > 0);
+    await until('an empty composer', () => composerRows() === 1);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('an open list of 8 or more keeps the newest transcript row and its own last row in view', async () => {
+  const items = Array.from({ length: 60 }, (_, index) => ({
+    id: `n${index}`,
+    kind: 'notice' as const,
+    text: `row ${index}`,
+    cwd: '/work',
+  }));
+  const many = Array.from({ length: 10 }, (_, index) => ({
+    name: `x-${index}`,
+    description: `Skill ${index}`,
+  }));
+  const { ui } = await launched({ items, skills: many });
+  try {
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-0'));
+    const text = ui.text();
+    assert.ok(text.includes('row 59'));
+    assert.ok(text.includes('/x-7') && !text.includes('/x-8'));
+    // above the row the body leaves free and the status line's two
+    assert.match(text.trimEnd().split('\n').at(-4)!, /\/x-7 Skill 7$/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a skill named like a Witch command is left out, since the command runs instead', async () => {
+  const { ui } = await launched({
+    skills: [{ name: 'help', description: 'Native help' }],
+  });
+  try {
+    ui.stdin.write('/he');
+    await until('the list', () => ui.text().includes('/help Keyboard help'));
+    assert.ok(!ui.text().includes('Native help'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('list rows drop a link forged in a skill description or a file name', async () => {
+  const forged = (text: string) => forgedLink('https://evil.example', text);
+  const skill = await launched({
+    skills: [{ name: 'x-evil', description: `see ${forged('docs')}` }],
+  });
+  const file = await launched({}, [`a${forged('b')}.txt`]);
+  try {
+    skill.ui.stdin.write('/x');
+    await until('the skill list', () =>
+      skill.ui.text().includes('/x-evil see docs'),
+    );
+    assert.ok(!skill.ui.frame().includes('\u001b]8;;https://evil.example'));
+    file.ui.stdin.write('@a');
+    await until('the file list', () => file.ui.text().includes('.txt'));
+    assert.ok(!file.ui.frame().includes('\u001b]8;;https://evil.example'));
+  } finally {
+    skill.ui.unmount();
+    file.ui.unmount();
+  }
+});
