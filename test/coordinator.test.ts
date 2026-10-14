@@ -1926,6 +1926,26 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
   }
 });
 
+await test("a model list that fails at connect is reported, and the session's skills and usage still reach the snapshot", async () => {
+  const { coordinator, a } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'review', description: 'Review changes' }];
+    a.connectUsage = { cost: 5 };
+    a.failModels = true;
+  });
+  try {
+    assert.equal(coordinator.snapshot.error, 'model/list failed');
+    assert.deepEqual(
+      coordinator.snapshot.skills.map((skill) => skill.name),
+      ['review'],
+    );
+    assert.deepEqual(coordinator.snapshot.usage, { cost: 5 });
+    await coordinator.send('/review now');
+    assert.deepEqual(a.inputs.at(-1)!.skill, { name: 'review', args: 'now' });
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a native session that replaces the stored one gets the memory snapshot again', async () => {
   const { coordinator, a } = await fixture();
   try {

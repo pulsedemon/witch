@@ -729,7 +729,13 @@ export class Coordinator {
     this.session = session;
     this.saveInfo(conversation, agent, session.info);
     await this.save();
-    const models = await session.models();
+    // a failed list is reported, and the session's skills and usage still publish
+    let models: Model[] = [];
+    try {
+      models = await session.models();
+    } catch (error) {
+      this.report(error);
+    }
     // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
     let skills: Skill[] = [];
     try {

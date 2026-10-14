@@ -51,6 +51,8 @@ export class FixtureAgent implements AgentAdapter {
   readonly selections: [string, string | null | undefined][] = [];
   readonly responses: [string, UserResponse][] = [];
   failConnect = false;
+  /** the next `models()` rejects, as a failed Codex `model/list` does. */
+  failModels = false;
   /** an effort connect and selectModel reject, as Claude Code rejects one outside its levels. */
   invalidEffort?: string;
   failClose = false;
@@ -108,6 +110,10 @@ export class FixtureAgent implements AgentAdapter {
         return this.skills;
       },
       models: async () => {
+        if (this.failModels) {
+          this.failModels = false;
+          throw new Error('model/list failed');
+        }
         if (this.modelsSkills) {
           this.skills = this.modelsSkills;
           options.onEvent({ type: 'skills', skills: this.skills });
