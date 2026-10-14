@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { errorMessage } from './stderr.js';
+import { toolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -104,6 +105,32 @@ function windowName(minutes: number): string {
   return minutes % 1440 === 0
     ? `${minutes / 1440}D`
     : `${Math.round(minutes / 60)}H`;
+}
+
+const changedFiles = z.array(z.object({ path: z.string() })).catch([]);
+const mcpCall = z.object({
+  server: z.string(),
+  tool: z.string(),
+  arguments: z.unknown(),
+});
+
+/** an item's name and what it acts on; a command shows as itself. */
+function itemTitle(type: string, item: Record<string, unknown>): string {
+  if (typeof item.command === 'string') return item.command;
+  if (type === 'fileChange')
+    return [
+      type,
+      ...changedFiles.parse(item.changes).map(({ path }) => path),
+    ].join('  ');
+  const call = type === 'mcpToolCall' ? mcpCall.safeParse(item) : undefined;
+  if (call?.success)
+    return toolTitle(
+      `${call.data.server}.${call.data.tool}`,
+      call.data.arguments,
+    );
+  if (typeof item.tool === 'string')
+    return toolTitle(item.tool, item.arguments ?? item);
+  return toolTitle(type, item);
 }
 
 type Launch = (
@@ -580,7 +607,7 @@ class CodexSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id,
-            title: typeof item.command === 'string' ? item.command : type,
+            title: itemTitle(type, item),
             text:
               typeof item.aggregatedOutput === 'string'
                 ? item.aggregatedOutput

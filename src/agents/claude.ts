@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
+import { toolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -477,7 +478,7 @@ class ClaudeSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id: block.id,
-            title: block.name,
+            title: toolTitle(block.name, block.input),
             text: JSON.stringify(block.input, null, 2),
             done: false,
           });

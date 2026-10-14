@@ -353,6 +353,36 @@ for await (const line of lines) {
       finish('completed');
       continue;
     }
+    if (prompt === 'tool-items') {
+      for (const item of [
+        {
+          type: 'fileChange',
+          id: 'patch-1',
+          changes: [
+            { path: 'a.md', kind: { type: 'update' }, diff: '' },
+            { path: 'b.md', kind: { type: 'add' }, diff: '' },
+          ],
+          status: 'completed',
+        },
+        {
+          type: 'mcpToolCall',
+          id: 'mcp-1',
+          server: 'browser',
+          tool: 'screenshot',
+          arguments: { url: 'https://example.com' },
+          result: {
+            content: [
+              { type: 'text', text: 'Captured.' },
+              { type: 'image', data: 'iVBORw==', mimeType: 'image/png' },
+            ],
+          },
+        },
+        { type: 'imageView', id: 'view-1', path: '/shots/a.png' },
+      ])
+        notify('item/completed', { item });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'unknown-request') {
       send({ id: 92, method: 'item/unknown/request', params: {} });
       continue;

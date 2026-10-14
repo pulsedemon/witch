@@ -462,6 +462,26 @@ await test("a command streams its output into one tool that completes once in th
   }
 });
 
+await test('Codex items are titled by what they act on', async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    assert.equal((await session.send('tool-items')).status, 'completed');
+    assert.deepEqual(
+      tools.map(({ id, title }) => [id, title]),
+      [
+        ['patch-1', 'fileChange  a.md  b.md'],
+        ['mcp-1', 'browser.screenshot  https://example.com'],
+        ['view-1', 'imageView  /shots/a.png'],
+      ],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a Codex that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(
