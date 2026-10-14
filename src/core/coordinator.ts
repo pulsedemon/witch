@@ -851,6 +851,7 @@ export class Coordinator {
               replace: !event.append,
               done: event.done,
               cwd: event.cwd ?? conversation.cwd,
+              ...(event.images ? { images: event.images } : {}),
             },
       );
     }

@@ -354,6 +354,20 @@ for await (const line of lines) {
         { type: 'text', text: 'Found a.md.' },
         { type: 'text', text: 'Read one file.' },
       ]);
+      assistant('', [
+        {
+          type: 'tool_use',
+          id: 'tool-3',
+          name: 'Read',
+          input: { file_path: 'shot.png' },
+        },
+      ]);
+      toolResult('tool-3', [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: 'iVBORw==' },
+        },
+      ]);
       assistant('Done.');
       finish();
     } else if (lastPrompt === 'familiars') {

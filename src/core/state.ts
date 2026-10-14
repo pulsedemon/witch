@@ -47,6 +47,7 @@ export const displayUpdateSchema = z.object({
   title: z.string().optional(),
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
+  images: z.array(z.string()).optional(),
   // when Witch received the update; history from before it was recorded has none
   at: z.string().optional(),
 });

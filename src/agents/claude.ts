@@ -489,23 +489,31 @@ class ClaudeSession implements AgentSession {
       Array.isArray(message.message.content)
     ) {
       for (const block of message.message.content) {
-        if (block.type === 'tool_result')
-          this.options.onEvent({
-            type: 'tool',
-            id: block.tool_use_id,
-            title: '',
-            text:
-              typeof block.content === 'string'
-                ? block.content
-                : (block.content ?? [])
-                    .map((part) =>
-                      part.type === 'text'
-                        ? part.text
-                        : JSON.stringify(part, null, 2),
-                    )
-                    .join('\n'),
-            done: true,
-          });
+        if (block.type !== 'tool_result') continue;
+        const parts =
+          typeof block.content === 'string'
+            ? [{ type: 'text' as const, text: block.content }]
+            : (block.content ?? []);
+        const images: string[] = [];
+        const texts = parts.flatMap((part) => {
+          if (part.type === 'image' && part.source.type === 'base64') {
+            images.push(
+              `data:${part.source.media_type};base64,${part.source.data}`,
+            );
+            return [];
+          }
+          return [
+            part.type === 'text' ? part.text : JSON.stringify(part, null, 2),
+          ];
+        });
+        this.options.onEvent({
+          type: 'tool',
+          id: block.tool_use_id,
+          title: '',
+          text: texts.join('\n'),
+          done: true,
+          ...(images.length ? { images } : {}),
+        });
       }
     } else if (message.type === 'result') {
       // the session's running total, which a resumed session continues
