@@ -46,10 +46,9 @@ function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
-/** a listed subagent, when Witch saw its run start and end in epoch milliseconds, and the run's transcript rows. */
+/** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
   startedAt: number;
-  endedAt?: number;
   /** the ids of its run's start and end rows. */
   rows: { start: string; end?: string };
 }
@@ -873,15 +872,13 @@ export class Coordinator {
       running &&
       (previous?.status !== 'running' || previous.run !== subagent.run);
     const ended = !running && previous?.status === 'running';
-    const now = Date.now();
     const rows = started
       ? { start: randomUUID() }
       : { ...previous!.rows, ...(ended ? { end: randomUUID() } : {}) };
     this.publish({
       subagents: withSubagent(this.snapshot.subagents, {
         ...subagent,
-        startedAt: started ? now : previous!.startedAt,
-        ...(running ? {} : { endedAt: ended ? now : previous!.endedAt }),
+        startedAt: started ? Date.now() : previous!.startedAt,
         rows,
       }),
     });

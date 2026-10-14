@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
-import type { Subagent } from '../agents/types.js';
 import type { TimedSubagent } from '../core/coordinator.js';
 import { elapsed } from './activity.js';
 import { plain } from './links.js';
@@ -15,12 +14,6 @@ export const sidebarWidth = columns + 3;
 const restAngle = 0.45;
 /** a familiar's name, its time and tool count, and its latest tool call. */
 const familiarRows = 3;
-const markers: Record<Subagent['status'], string> = {
-  running: '●',
-  completed: '✓',
-  stopped: '■',
-  failed: '✗',
-};
 
 /** depth first, each subagent under the one that started it; one whose parent isn't listed is a root. */
 function lineage(
@@ -43,7 +36,7 @@ function lineage(
   return lines;
 }
 
-/** the right sidebar: the agent's subagents, which Witch calls familiars, and the pentacle at its foot, turning while `spinning`. */
+/** the right sidebar: the agent's running subagents, which Witch calls familiars, and the pentacle at its foot, turning while `spinning`. */
 export function Sidebar({
   height,
   spinning,
@@ -55,7 +48,10 @@ export function Sidebar({
 }) {
   const [angle, setAngle] = useState(restAngle);
   const [now, setNow] = useState(Date.now);
-  const running = subagents.some(({ status }) => status === 'running');
+  const familiars = lineage(
+    subagents.filter(({ status }) => status === 'running'),
+  );
+  const running = familiars.length > 0;
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -71,7 +67,6 @@ export function Sidebar({
     return () => clearInterval(timer);
   }, [spinning]);
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
-  const familiars = lineage(subagents);
   // the rows above the pentacle, less the heading; the last familiars in tree order show and a count stands in for the rest
   const room = height - rows - 1;
   const shown =
@@ -95,31 +90,15 @@ export function Sidebar({
       borderBottom={false}
       paddingX={1}
     >
-      {familiars.length > 0 && room > 0 && (
+      {running && room > 0 && (
         <Box flexDirection="column" flexGrow={1} overflow="hidden">
           <Text color={accent}>FAMILIARS</Text>
           {hidden > 0 && <Text dimColor>+{hidden} MORE</Text>}
           {shown.map(({ subagent, depth }) => (
             <Box key={subagent.id} flexDirection="column">
-              <Text
-                wrap="truncate-end"
-                dimColor={
-                  subagent.status === 'completed' ||
-                  subagent.status === 'stopped'
-                }
-              >
+              <Text wrap="truncate-end">
                 {'  '.repeat(depth)}
-                <Text
-                  color={
-                    subagent.status === 'running'
-                      ? accent
-                      : subagent.status === 'failed'
-                        ? 'red'
-                        : undefined
-                  }
-                >
-                  {markers[subagent.status]}
-                </Text>{' '}
+                <Text color={accent}>●</Text>{' '}
                 {plain(subagent.name).replace(/\s+/g, ' ').toUpperCase()}
                 {subagent.kind && <Text dimColor> {plain(subagent.kind)}</Text>}
               </Text>
@@ -127,9 +106,7 @@ export function Sidebar({
                 {'  '.repeat(depth + 1)}
                 {piped([
                   // one that started since the last tick shows 0S, not -1S
-                  elapsed(
-                    Math.max(0, (subagent.endedAt ?? now) - subagent.startedAt),
-                  ),
+                  elapsed(Math.max(0, now - subagent.startedAt)),
                   `${subagent.tools ?? 0} TOOL${subagent.tools === 1 ? '' : 'S'}`,
                 ])}
               </Text>

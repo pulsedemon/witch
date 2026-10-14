@@ -203,7 +203,7 @@ await test("the live session's subagents update in place, a turn drops the finis
   }
 });
 
-await test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start to its end, and a restart starts a new run, even one under a new run id while the last still shows as running", async (t) => {
+await test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start, and a restart starts a new run, even one under a new run id while the last still shows as running", async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const { coordinator, a } = await fixture();
   const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>
@@ -221,11 +221,8 @@ await test("a familiar's start and end each add a transcript row, the end with i
     coordinator.snapshot.items
       .filter((item) => item.kind === 'tool')
       .map(({ title, text, done }) => [title, text, done]);
-  const times = () =>
-    coordinator.snapshot.subagents.map(({ startedAt, endedAt }) => [
-      startedAt,
-      endedAt,
-    ]);
+  const starts = () =>
+    coordinator.snapshot.subagents.map(({ startedAt }) => startedAt);
   try {
     emit('running');
     t.mock.timers.tick(2000);
@@ -233,7 +230,7 @@ await test("a familiar's start and end each add a transcript row, the end with i
     assert.deepEqual(rows(), [
       ['Familiar started  Map code  Explore', '', true],
     ]);
-    assert.deepEqual(times(), [[1000, undefined]]);
+    assert.deepEqual(starts(), [1000]);
 
     t.mock.timers.tick(2000);
     emit('completed', { tools: 3, report: 'All good.' });
@@ -243,11 +240,10 @@ await test("a familiar's start and end each add a transcript row, the end with i
     assert.deepEqual(rows().slice(1), [
       ['Familiar completed  Map code  3 tools', 'All good.', true],
     ]);
-    assert.deepEqual(times(), [[1000, 5000]]);
 
     t.mock.timers.tick(1000);
     emit('running');
-    assert.deepEqual(times(), [[7000, undefined]]);
+    assert.deepEqual(starts(), [7000]);
     emit('stopped', { tools: 1 });
     assert.deepEqual(rows().slice(2), [
       ['Familiar started  Map code  Explore', '', true],
@@ -263,7 +259,7 @@ await test("a familiar's start and end each add a transcript row, the end with i
       ['Familiar started  Map code  Explore', '', true],
       ['Familiar started  Map code  Explore', '', true],
     ]);
-    assert.deepEqual(times(), [[8000, undefined]]);
+    assert.deepEqual(starts(), [8000]);
   } finally {
     await coordinator.close();
   }
