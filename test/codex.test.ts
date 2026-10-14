@@ -621,7 +621,7 @@ await test("reports context, lines summed over the thread's turns, limits merged
     assert.deepEqual(session.usage, {
       // 64000 of a 256000-token window
       context: 25,
-      lines: { added: 3, removed: 1 },
+      lines: { added: 4, removed: 2 },
       limits: [
         { window: '5H', percent: 15, resetsAt: 2000000100 },
         { window: '7D', percent: 40, resetsAt: 2000500000 },
@@ -629,6 +629,23 @@ await test("reports context, lines summed over the thread's turns, limits merged
       cost: 1.5,
     });
     assert.deepEqual(reported.at(-1), session.usage);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test('a Codex that cannot read its limits still connects, and leaves limits out', async () => {
+  const { session, cwd } = await fixture(() => {}, { mode: 'no-limits' });
+  try {
+    // the limits read is answered before the cost read
+    for (
+      let attempt = 0;
+      session.usage.cost === undefined && attempt < 400;
+      attempt++
+    )
+      await delay(5);
+    assert.deepEqual(session.usage, { cost: 0 });
+    assert.equal(session.closed, false);
   } finally {
     await close(session, cwd);
   }

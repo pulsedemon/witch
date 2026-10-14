@@ -59,7 +59,6 @@ const questions = z.object({
   questions: z.array(
     z.object({
       question: z.string(),
-      header: z.string().optional(),
       multiSelect: z.boolean().optional(),
       options: z.array(z.object({ label: z.string() })).optional(),
     }),
@@ -267,7 +266,7 @@ class ClaudeSession implements AgentSession {
     }));
   }
 
-  /** the CLI keeps this cache current with `commands_changed` pushes, so reading it sends nothing. */
+  /** the SDK keeps this cache current from the CLI's `commands_changed` pushes, so reading it sends nothing. */
   async skills(): Promise<Skill[]> {
     return skillsOf(await this.query.supportedCommands());
   }
