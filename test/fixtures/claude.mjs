@@ -390,20 +390,25 @@ for await (const line of lines) {
         skip_transcript: true,
         ambient: true,
       });
-      for (const run_id of ['1', '2'])
+      // run 1's start and notification arrive after run 2's start
+      for (const run_id of ['1', '2', '1'])
         task('task_started', {
           task_id: 'resumed',
           run_id,
           description: 'Fix lint',
           task_type: 'local_agent',
         });
-      task('task_notification', {
-        task_id: 'resumed',
-        run_id: '1',
-        status: 'completed',
-        output_file: '',
-        summary: '',
-      });
+      for (const [run_id, status] of [
+        ['1', 'stopped'],
+        ['2', 'completed'],
+      ])
+        task('task_notification', {
+          task_id: 'resumed',
+          run_id,
+          status,
+          output_file: '',
+          summary: '',
+        });
       for (const [task_id, status] of [
         ['inner', 'completed'],
         ['shell', 'completed'],

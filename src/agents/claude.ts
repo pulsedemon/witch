@@ -427,7 +427,8 @@ class ClaudeSession implements AgentSession {
         // ambient tasks are housekeeping, such as forked-skill workers
         message.subtype === 'task_started' &&
         message.task_type === 'local_agent' &&
-        !message.ambient
+        !message.ambient &&
+        !this.late(message)
       ) {
         if (message.run_id) this.runs.set(message.task_id, message.run_id);
         this.subagent({
@@ -439,9 +440,7 @@ class ClaudeSession implements AgentSession {
         });
       } else if (message.subtype === 'task_notification') {
         const subagent = this.subagents.get(message.task_id);
-        const run = this.runs.get(message.task_id);
-        // run ids sort in the order the runs opened, so an earlier run's notification is late
-        if (subagent && !(message.run_id && run && message.run_id < run))
+        if (subagent && !this.late(message))
           this.subagent({ ...subagent, status: message.status });
       }
     } else if (
@@ -537,6 +536,12 @@ class ClaudeSession implements AgentSession {
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
     this.options.onEvent({ type: 'subagent', subagent });
+  }
+
+  /** run ids sort in the order the runs opened, so a frame naming an earlier run is late. */
+  private late({ task_id, run_id }: { task_id: string; run_id?: string }) {
+    const run = this.runs.get(task_id);
+    return Boolean(run_id && run && run_id < run);
   }
 
   private report(update: Usage): void {

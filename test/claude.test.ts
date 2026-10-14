@@ -496,7 +496,7 @@ await test("Claude tool use and its result update one tool, a text result shows 
   }
 });
 
-await test("Claude's subagent tasks report their parent and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late notification is ignored", async () => {
+await test("Claude's subagent tasks report their parent and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -530,6 +530,7 @@ await test("Claude's subagent tasks report their parent and how they finished, i
         // one per run
         resumed,
         resumed,
+        { ...resumed, status: 'completed' },
         {
           id: 'inner',
           parent: 'outer',
