@@ -152,6 +152,7 @@ export class Coordinator {
   private cancelled = false;
   private closed = false;
   private draining = false;
+  private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
@@ -303,45 +304,50 @@ export class Coordinator {
   private async openConversation(
     target: { id: string } | { create: Conversation },
   ): Promise<void> {
-    // a queued prompt belongs to the conversation it was sent in
+    // a queued prompt belongs to the conversation it was sent in, so none is taken until the next one opens
     if (this.snapshot.queue.length)
       throw new Error('Prompts are still queued for this conversation');
-    const files =
-      'id' in target
-        ? await this.store.claim(target.id)
-        : await this.store.create(target.create);
-    const workspace = this.memory.workspace(files.directory, files.record.id);
-    let items;
+    this.opening = true;
     try {
-      items = await files.items();
-      if (await workspace.branchExists()) await workspace.ensureWorktree();
-    } catch (error) {
-      await files.close().catch(() => {});
-      throw error;
-    }
-    let failure: unknown;
-    try {
-      await this.disconnect();
-    } catch (error) {
-      failure = error;
-    } finally {
-      await this.files?.close().catch((error: unknown) => {
-        failure ??= error;
+      const files =
+        'id' in target
+          ? await this.store.claim(target.id)
+          : await this.store.create(target.create);
+      const workspace = this.memory.workspace(files.directory, files.record.id);
+      let items;
+      try {
+        items = await files.items();
+        if (await workspace.branchExists()) await workspace.ensureWorktree();
+      } catch (error) {
+        await files.close().catch(() => {});
+        throw error;
+      }
+      let failure: unknown;
+      try {
+        await this.disconnect();
+      } catch (error) {
+        failure = error;
+      } finally {
+        await this.files?.close().catch((error: unknown) => {
+          failure ??= error;
+        });
+      }
+      this.files = files;
+      this.record = files.record;
+      this.workspace = workspace;
+      if (!this.record.handoff?.activated) delete this.record.handoff;
+      this.publish({
+        conversation: this.record,
+        items,
+        models: [],
+        native: undefined,
+        usage: {},
+        openedAt: Date.now(),
       });
+      if (failure !== undefined) this.report(failure);
+    } finally {
+      this.opening = false;
     }
-    this.files = files;
-    this.record = files.record;
-    this.workspace = workspace;
-    if (!this.record.handoff?.activated) delete this.record.handoff;
-    this.publish({
-      conversation: this.record,
-      items,
-      models: [],
-      native: undefined,
-      usage: {},
-      openedAt: Date.now(),
-    });
-    if (failure !== undefined) this.report(failure);
   }
 
   /** steers the turn in flight, or queues the prompt for a later turn; a queued turn that never reaches the agent leaves its prompts queued. */
@@ -349,6 +355,7 @@ export class Coordinator {
     if (!prompt.trim()) return;
     // only a restart leaves the error phase, so nothing would run what waits
     if (this.snapshot.phase === 'error') throw new Error(this.snapshot.error);
+    if (this.opening) throw new Error('Wait for the next conversation to open');
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting.then(async () => {
       if (await this.steer(prompt)) return true;

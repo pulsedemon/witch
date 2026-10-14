@@ -454,7 +454,7 @@ export function App({
     return true;
   };
 
-  /** puts text back ahead of the draft, with the cursor after the text. */
+  /** puts text back ahead of the draft, with the cursor after the text while the composer shows. */
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
     const draft = draftsRef.current[id];

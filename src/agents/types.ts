@@ -118,7 +118,7 @@ export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';
   text: string;
   error?: string;
-  /** prompts steered into the turn that the agent will never read. */
+  /** prompts steered into the turn that the agent reports, when interrupted, it will never read. */
   unread?: string[];
 }
 

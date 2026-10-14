@@ -2406,6 +2406,20 @@ await test('a prompt sent while the launch connects goes once the load ends', as
   }
 });
 
+await test('a prompt sent while a switch opens the next conversation is refused, so it never runs there', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    const switching = coordinator.newConversation();
+    await assert.rejects(coordinator.send('Leak'), /next conversation/);
+    await switching;
+    await delay(60);
+    assert.deepEqual(a.inputs, []);
+    assert.deepEqual(coordinator.snapshot.queue, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a conversation switch is refused while prompts are queued, which wait with their report showing', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.failConnect = true;

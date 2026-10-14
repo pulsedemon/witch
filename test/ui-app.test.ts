@@ -1120,6 +1120,43 @@ for (const [name, keys] of [
     }
   });
 
+await test('a conversation picked in /sessions keeps the composer from typing until it opens', async () => {
+  const { coordinator, app, calls } = fake({});
+  const switching = Promise.withResolvers<void>();
+  coordinator.selectConversation = async (...args: unknown[]) => {
+    calls.push(['selectConversation', ...args]);
+    coordinator.publish({ phase: 'starting' });
+    await switching.promise;
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`sess${ENTER}`);
+    await until('the conversations picker', () =>
+      ui.text().includes('Other · a'),
+    );
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    ui.stdin.write('hello');
+    await delay(60);
+    assert.ok(!ui.text().includes('┃ hello'));
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+    });
+    await delay(60);
+    ui.stdin.write('there');
+    await until('typing in the next conversation', () =>
+      ui.text().includes('┃ there'),
+    );
+  } finally {
+    switching.resolve();
+    ui.unmount();
+  }
+});
+
 await test('a filter resets the picker selection within the same read', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
@@ -1237,6 +1274,22 @@ await test('queued prompts show above the activity row with a hint, and ↑ on t
       rows.every((row, index) => row >= 0 && row > (rows[index - 1] ?? -1)),
       ui.text(),
     );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('↑ in an open list moves its selection and leaves the queue', async () => {
+  const { app, calls } = fake({ phase: 'running', queue: ['one'] });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the queue', () => ui.text().includes('❯ one'));
+    ui.stdin.write('/');
+    await delay(60);
+    ui.stdin.write(UP);
+    await delay(60);
+    assert.deepEqual(calls, []);
+    assert.ok(ui.text().includes('❯ one'));
   } finally {
     ui.unmount();
   }
