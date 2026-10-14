@@ -23,6 +23,7 @@ import type {
   SessionOptions,
   Skill,
   SkillCall,
+  Subagent,
   TurnResult,
   Usage,
   UserRequest,
@@ -121,6 +122,7 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
+  private readonly subagents = new Map<string, Subagent>();
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
 
@@ -419,6 +421,22 @@ class ClaudeSession implements AgentSession {
       ) {
         this.finish(this.turn, this.turn.result);
         void this.readUsage();
+      } else if (
+        // ambient tasks are housekeeping, such as forked-skill workers
+        message.subtype === 'task_started' &&
+        message.task_type === 'local_agent' &&
+        !message.ambient
+      ) {
+        this.subagent({
+          id: message.task_id,
+          parent: message.parent_task_id,
+          name: message.description,
+          kind: message.subagent_type ?? '',
+          status: 'running',
+        });
+      } else if (message.subtype === 'task_notification') {
+        const subagent = this.subagents.get(message.task_id);
+        if (subagent) this.subagent({ ...subagent, status: message.status });
       }
     } else if (
       message.type === 'stream_event' &&
@@ -508,6 +526,11 @@ class ClaudeSession implements AgentSession {
           : {}),
       };
     }
+  }
+
+  private subagent(subagent: Subagent): void {
+    this.subagents.set(subagent.id, subagent);
+    this.options.onEvent({ type: 'subagent', subagent });
   }
 
   private report(update: Usage): void {

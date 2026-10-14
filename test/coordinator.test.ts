@@ -151,6 +151,48 @@ await test("a session's usage at connect and while it lists its models reaches t
   }
 });
 
+await test("the live session's subagents update in place, a turn drops the finished ones, and a handoff, a closed session or a new conversation leaves none", async () => {
+  const { coordinator, a, b } = await fixture();
+  const subagent = (
+    id: string,
+    status: 'running' | 'completed',
+    parent?: string,
+  ) => ({ id, parent, name: `Task ${id}`, kind: 'Explore', status });
+  try {
+    const emit = (
+      session: (typeof a.sessions)[number],
+      ...[id, status, parent]: Parameters<typeof subagent>
+    ) =>
+      session.options.onEvent({
+        type: 'subagent',
+        subagent: subagent(id, status, parent),
+      });
+    emit(a.sessions[0]!, 'outer', 'running');
+    emit(a.sessions[0]!, 'inner', 'running', 'outer');
+    emit(a.sessions[0]!, 'outer', 'completed');
+    assert.deepEqual(coordinator.snapshot.subagents, [
+      subagent('outer', 'completed'),
+      subagent('inner', 'running', 'outer'),
+    ]);
+    await coordinator.send('hello');
+    assert.deepEqual(coordinator.snapshot.subagents, [
+      subagent('inner', 'running', 'outer'),
+    ]);
+    await coordinator.switchAgent('b');
+    assert.deepEqual(coordinator.snapshot.subagents, []);
+    emit(a.sessions[0]!, 'late', 'running');
+    assert.deepEqual(coordinator.snapshot.subagents, []);
+    emit(b.sessions[0]!, 'other', 'running');
+    assert.deepEqual(coordinator.snapshot.subagents, [
+      subagent('other', 'running'),
+    ]);
+    await coordinator.newConversation('b');
+    assert.deepEqual(coordinator.snapshot.subagents, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a skills change while a session lists its models reaches the snapshot', async () => {
   const { coordinator } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'older', description: '' }];

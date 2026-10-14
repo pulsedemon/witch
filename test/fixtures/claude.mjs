@@ -356,6 +356,53 @@ for await (const line of lines) {
       ]);
       assistant('Done.');
       finish();
+    } else if (lastPrompt === 'familiars') {
+      const task = (subtype, fields) =>
+        send({
+          type: 'system',
+          subtype,
+          ...fields,
+          uuid: randomUUID(),
+          session_id,
+        });
+      task('task_started', {
+        task_id: 'outer',
+        description: 'Map the code',
+        subagent_type: 'Explore',
+        task_type: 'local_agent',
+      });
+      task('task_started', {
+        task_id: 'inner',
+        description: 'Read tests',
+        parent_task_id: 'outer',
+        task_type: 'local_agent',
+      });
+      task('task_started', {
+        task_id: 'shell',
+        description: 'ls',
+        task_type: 'local_bash',
+      });
+      task('task_started', {
+        task_id: 'worker',
+        description: '/spell',
+        subagent_type: 'general-purpose',
+        task_type: 'local_agent',
+        skip_transcript: true,
+        ambient: true,
+      });
+      for (const [task_id, status] of [
+        ['inner', 'completed'],
+        ['shell', 'completed'],
+        ['worker', 'completed'],
+        ['outer', 'failed'],
+      ])
+        task('task_notification', {
+          task_id,
+          status,
+          output_file: '',
+          summary: '',
+        });
+      finish();
     } else if (['wait', 'still queued'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {

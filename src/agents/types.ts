@@ -49,6 +49,17 @@ export interface Limit {
   resetsAt?: number;
 }
 
+/** a subagent the native agent started; a later event with the same id replaces it. */
+export interface Subagent {
+  id: string;
+  /** the subagent that started this one; absent when the main agent did. */
+  parent?: string;
+  name: string;
+  /** its native type or role, empty when the agent reports none. */
+  kind: string;
+  status: 'running' | 'completed' | 'failed' | 'stopped';
+}
+
 export interface Question {
   id: string;
   title: string;
@@ -90,6 +101,7 @@ export type AgentEvent =
   | { type: 'usage'; usage: Usage }
   /** the native skill list changed; it replaces the one `skills()` gave. */
   | { type: 'skills'; skills: Skill[] }
+  | { type: 'subagent'; subagent: Subagent }
   | { type: 'notice'; text: string };
 
 export interface TurnResult {

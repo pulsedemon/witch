@@ -158,6 +158,20 @@ for await (const line of lines) {
           model === 'bad-settings' ? { model: 5 } : { model, effort },
       });
   }
+  if (request.method === 'thread/read') {
+    const threads = {
+      'child-thread': ['native-thread', 'Euclid', 'explorer'],
+      'grandchild-thread': ['child-thread', 'Hypatia', null],
+    };
+    const thread = threads[request.params.threadId];
+    if (thread) {
+      const [parentThreadId, agentNickname, agentRole] = thread;
+      reply({
+        thread: { parentThreadId, agentNickname, agentRole, preview: '' },
+      });
+    } else
+      send({ id: request.id, error: { code: -32600, message: 'no thread' } });
+  }
   if (request.method === 'turn/start') {
     const prompt = request.params.input[0].text;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
@@ -209,6 +223,50 @@ for await (const line of lines) {
       limits('codex', window(15, 300, 2000000100));
       limits('other', window(99, 300, 2000000100));
       usageMicros = 1500000;
+      finish('completed');
+      continue;
+    }
+    if (prompt === 'familiars') {
+      const turn = (method, threadId, status) =>
+        notify(method, { threadId, turn: { id: `${threadId}-turn`, status } });
+      send({
+        id: 95,
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: 'child-thread',
+          turnId: 'child-thread-turn',
+          itemId: 'child-tool',
+          command: 'ls',
+          cwd: process.cwd(),
+        },
+      });
+      notify('serverRequest/resolved', {
+        threadId: 'child-thread',
+        requestId: 95,
+      });
+      turn('turn/started', 'child-thread', 'inProgress');
+      notify('item/agentMessage/delta', {
+        threadId: 'child-thread',
+        turnId: 'child-thread-turn',
+        itemId: 'child-message',
+        delta: 'Child text.',
+      });
+      notify('model/rerouted', {
+        threadId: 'child-thread',
+        turnId: 'child-thread-turn',
+        fromModel: model,
+        toModel: 'model-child',
+        reason: 'highRiskCyberActivity',
+      });
+      turn('turn/started', 'grandchild-thread', 'inProgress');
+      turn('turn/completed', 'grandchild-thread', 'interrupted');
+      turn('turn/completed', 'child-thread', 'completed');
+      notify('turn/completed', { threadId: 'stray-thread', turn: null });
+      notify('item/agentMessage/delta', {
+        threadId: 'native-thread',
+        itemId: 'message-1',
+        delta: 'Parent text.',
+      });
       finish('completed');
       continue;
     }

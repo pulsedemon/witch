@@ -555,6 +555,73 @@ await test('a model choice that changes no native setting returns and shows the 
   }
 });
 
+await test("a spawned thread's turns show it as a subagent under its parent, and its text, settings and completion stay out of the parent's turn", async () => {
+  const events: AgentEvent[] = [];
+  const named = Promise.withResolvers<void>();
+  const { session, cwd } = await fixture((event) => {
+    events.push(event);
+    if (event.type === 'subagent' && event.subagent.name === 'Hypatia')
+      named.resolve();
+  });
+  try {
+    const result = await within(session.send('familiars'), 3000, 'turn');
+    assert.deepEqual(
+      [result.status, result.text, session.info.model],
+      ['completed', 'Parent text.', 'model-a'],
+    );
+    await within(named.promise, 3000, 'thread reads');
+    const subagents = new Map(
+      events.flatMap((event) =>
+        event.type === 'subagent'
+          ? [[event.subagent.id, event.subagent] as const]
+          : [],
+      ),
+    );
+    assert.deepEqual(
+      [...subagents.values()],
+      [
+        {
+          id: 'child-thread',
+          parent: undefined,
+          name: 'Euclid',
+          kind: 'explorer',
+          status: 'completed',
+        },
+        {
+          id: 'grandchild-thread',
+          parent: 'child-thread',
+          name: 'Hypatia',
+          kind: '',
+          status: 'stopped',
+        },
+        // its read fails, so it keeps the defaults
+        { id: 'stray-thread', name: 'agent', kind: '', status: 'running' },
+      ],
+    );
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'text'
+          ? [event.text]
+          : event.type === 'request'
+            ? [`request ${event.request.id}`]
+            : event.type === 'request-resolved'
+              ? [`resolved ${event.id}`]
+              : event.type === 'notice'
+                ? [event.text.split(': ')[0]]
+                : [],
+      ),
+      [
+        'request 95',
+        'resolved 95',
+        "Witch could not read Codex's turn/completed notification",
+        'Parent text.',
+      ],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a reroute shows the model in use, and choosing the thread model again returns', async () => {
   const { session, cwd } = await fixture();
   try {
