@@ -306,12 +306,13 @@ await test('a job lists with its command intact under any locale', async () => {
   }
 });
 
-await test('a process started before the 10th of a month is described', () => {
+await test('a start date parses whether or not ps pads its day', () => {
   assert.deepEqual(
     parseDetails([
       '  501   501   0.0 Fri Oct  9 22:34:18 2026     sleep 60',
+      '  502   502   0.0 Thu Oct 15 18:50:27 2026     sleep 61',
     ]).map(({ startedAt }) => startedAt),
-    [Date.UTC(2026, 9, 9, 22, 34, 18)],
+    [Date.UTC(2026, 9, 9, 22, 34, 18), Date.UTC(2026, 9, 15, 18, 50, 27)],
   );
 });
 
