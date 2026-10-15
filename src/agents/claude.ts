@@ -90,6 +90,8 @@ interface Turn {
   result?: TurnResult;
   interrupted: boolean;
   messages: Map<string, string>;
+  /** prompts steered into the turn, by the uuid each was sent with. */
+  steered: Map<string, string>;
 }
 
 /** everything but Claude Code's own commands, including unmarked rows a built-in shadows, since `/name` runs the built-in. */
@@ -305,28 +307,31 @@ class ClaudeSession implements AgentSession {
       finished: Promise.withResolvers<TurnResult>(),
       interrupted: false,
       messages: new Map<string, string>(),
+      steered: new Map<string, string>(),
     };
     this.turn = turn;
-    this.input.push({
-      type: 'user',
-      uuid: randomUUID(),
-      session_id: this.info.id,
-      message: {
-        role: 'user',
-        // the CLI dispatches a command only from the last text block, and the rest become its context
-        content: skill
-          ? [
-              { type: 'text', text: prompt },
-              {
-                type: 'text',
-                text: `/${skill.name}${skill.args ? ` ${skill.args}` : ''}`,
-              },
-            ]
-          : prompt,
-      },
-      parent_tool_use_id: null,
-    });
+    this.push(
+      // the CLI dispatches a command only from the last text block, and the rest become its context
+      skill
+        ? [
+            { type: 'text', text: prompt },
+            {
+              type: 'text',
+              text: `/${skill.name}${skill.args ? ` ${skill.args}` : ''}`,
+            },
+          ]
+        : prompt,
+    );
     return turn.finished.promise;
+  }
+
+  /** Claude Code queues the prompt and folds it in after the next tool step, or runs it before going idle. */
+  async steer(prompt: string): Promise<boolean> {
+    const turn = this.turn;
+    // one that arrives after the result could run after native idle, outside any turn
+    if (this.closed || !turn || turn.result || turn.interrupted) return false;
+    turn.steered.set(this.push(prompt), prompt);
+    return true;
   }
 
   respond(id: string, response: UserResponse): void {
@@ -346,11 +351,15 @@ class ClaudeSession implements AgentSession {
       await turn.finished.promise;
       return;
     }
+    // the CLI would run what it still holds after this turn, outside any turn
     if (receipt?.still_queued?.length) {
       this.closed = true;
       this.finish(turn, {
         status: 'interrupted',
         text: [...turn.messages.values()].join('\n\n'),
+        unread: receipt.still_queued.flatMap(
+          (uuid) => turn.steered.get(uuid) ?? [],
+        ),
       });
       this.query.close();
     }
@@ -365,6 +374,19 @@ class ClaudeSession implements AgentSession {
     await this.child?.closed;
     this.options.signal?.removeEventListener('abort', this.cancelConnection);
     await this.options.onProcess(undefined);
+  }
+
+  /** returns the uuid the message went with. */
+  private push(content: SDKUserMessage['message']['content']): string {
+    const uuid = randomUUID();
+    this.input.push({
+      type: 'user',
+      uuid,
+      session_id: this.info.id,
+      message: { role: 'user', content },
+      parent_tool_use_id: null,
+    });
+    return uuid;
   }
 
   private async ask(

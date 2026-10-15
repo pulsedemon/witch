@@ -299,6 +299,31 @@ await test('a skill send names the first listed path, and a plain send names non
   }
 });
 
+await test('a prompt steered into a turn goes to Codex for that turn, and one Codex refuses or with no turn open is left to the next turn', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    assert.equal(await session.steer('too early'), false);
+    await assert.rejects(access(join(cwd, 'steer.json')));
+    const turn = session.send('hold');
+    await appears(join(cwd, 'prompt.json'));
+    assert.equal(await session.steer('also this'), true);
+    const request = JSON.parse(
+      await readFile(join(cwd, 'steer.json'), 'utf8'),
+    ) as { params: unknown };
+    assert.deepEqual(request.params, {
+      threadId: 'native-thread',
+      expectedTurnId: 'turn-1',
+      input: [{ type: 'text', text: 'also this', text_elements: [] }],
+    });
+    assert.equal(await session.steer('refused'), false);
+    await writeFile(join(cwd, 'release'), 'yes');
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.equal((await turn).status, 'interrupted');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('interrupt waits for the native turn to complete', async () => {
   const { session, cwd } = await fixture();
   try {

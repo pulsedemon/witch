@@ -46,6 +46,11 @@ function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
+/** a slash command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, and Claude Code would run any other as its own. */
+function slashCommand(prompt: string): boolean {
+  return prompt.trimStart().startsWith('/');
+}
+
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
   startedAt: number;
@@ -102,6 +107,8 @@ export interface Snapshot {
   phase: Phase;
   conversation?: Conversation;
   items: readonly DisplayItem[];
+  /** prompts waiting for a turn, oldest first. */
+  queue: readonly string[];
   requests: readonly UserRequest[];
   models: readonly Model[];
   /** the live session's skills, empty while none is connected. */
@@ -143,7 +150,12 @@ export class Coordinator {
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
+  /** a turn in the current operation failed, which stops the queue as a report does. */
+  private turnFailed = false;
   private closed = false;
+  private draining = false;
+  private opening = false;
+  private admitting: Promise<unknown> = Promise.resolve();
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
 
@@ -156,6 +168,7 @@ export class Coordinator {
     this.snapshot = {
       phase: 'starting',
       items: [],
+      queue: [],
       requests: [],
       models: [],
       skills: [],
@@ -186,6 +199,7 @@ export class Coordinator {
       throw this.enterError(error, await this.needsRestart(error));
     } finally {
       this.task = undefined;
+      this.drainAfter();
     }
   }
 
@@ -292,58 +306,142 @@ export class Coordinator {
   private async openConversation(
     target: { id: string } | { create: Conversation },
   ): Promise<void> {
-    const files =
-      'id' in target
-        ? await this.store.claim(target.id)
-        : await this.store.create(target.create);
-    const workspace = this.memory.workspace(files.directory, files.record.id);
-    let items;
+    this.opening = true;
     try {
-      items = await files.items();
-      if (await workspace.branchExists()) await workspace.ensureWorktree();
-    } catch (error) {
-      await files.close().catch(() => {});
-      throw error;
-    }
-    let failure: unknown;
-    try {
-      await this.disconnect();
-    } catch (error) {
-      failure = error;
-    } finally {
-      await this.files?.close().catch((error: unknown) => {
-        failure ??= error;
+      // a queued prompt belongs to the conversation it was sent in, so none is taken until the next one opens,
+      // including one sent just before the switch whose admission is still pending
+      await this.admitting;
+      if (this.snapshot.queue.length)
+        throw new Error('Prompts are still queued for this conversation');
+      const files =
+        'id' in target
+          ? await this.store.claim(target.id)
+          : await this.store.create(target.create);
+      const workspace = this.memory.workspace(files.directory, files.record.id);
+      let items;
+      try {
+        items = await files.items();
+        if (await workspace.branchExists()) await workspace.ensureWorktree();
+      } catch (error) {
+        await files.close().catch(() => {});
+        throw error;
+      }
+      let failure: unknown;
+      try {
+        await this.disconnect();
+      } catch (error) {
+        failure = error;
+      } finally {
+        await this.files?.close().catch((error: unknown) => {
+          failure ??= error;
+        });
+      }
+      this.files = files;
+      this.record = files.record;
+      this.workspace = workspace;
+      if (!this.record.handoff?.activated) delete this.record.handoff;
+      this.publish({
+        conversation: this.record,
+        items,
+        models: [],
+        native: undefined,
+        usage: {},
+        openedAt: Date.now(),
       });
+      if (failure !== undefined) this.report(failure);
+    } finally {
+      this.opening = false;
     }
-    this.files = files;
-    this.record = files.record;
-    this.workspace = workspace;
-    if (!this.record.handoff?.activated) delete this.record.handoff;
-    this.publish({
-      conversation: this.record,
-      items,
-      models: [],
-      native: undefined,
-      usage: {},
-      openedAt: Date.now(),
-    });
-    if (failure !== undefined) this.report(failure);
   }
 
-  /** resolves whether the prompt reached the agent; a failure before that is reported. */
-  async send(prompt: string): Promise<boolean> {
-    if (!prompt.trim()) return true;
-    let delivered = false;
-    await this.operate('running', async () => {
-      try {
-        await this.performTurn(prompt, 'turn', () => {
-          delivered = true;
-        });
-      } catch (error) {
-        this.report(error);
-      }
+  /** steers the turn in flight, or queues the prompt for a later turn; a queued turn that never reaches the agent leaves its prompts queued. */
+  async send(prompt: string): Promise<void> {
+    if (!prompt.trim()) return;
+    // only a restart leaves the error phase, so nothing would run what waits
+    if (this.snapshot.phase === 'error') throw new Error(this.snapshot.error);
+    if (this.opening) throw new Error('Wait for the next conversation to open');
+    // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
+    const during = this.snapshot.phase !== 'idle';
+    // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
+    const admitted = this.admitting.then(async () => {
+      if (await this.steer(prompt)) return true;
+      this.publish({ queue: [...this.snapshot.queue, prompt] });
+      return false;
     });
-    return delivered;
+    this.admitting = admitted.catch(() => {});
+    if (!(await admitted) && !(during && this.halted())) await this.drain();
+  }
+
+  /** takes back every queued prompt, oldest first, to edit. */
+  unqueue(): string[] {
+    const queue = [...this.snapshot.queue];
+    this.publish({ queue: [] });
+    return queue;
+  }
+
+  /** a slash command, and a prompt behind queued ones or sent after an interrupt, wait in the queue. */
+  private async steer(prompt: string): Promise<boolean> {
+    if (
+      this.snapshot.phase !== 'running' ||
+      this.cancelled ||
+      this.snapshot.queue.length ||
+      slashCommand(prompt) ||
+      !(await this.session?.steer(prompt))
+    )
+      return false;
+    this.display({
+      id: randomUUID(),
+      kind: 'user',
+      text: prompt,
+      cwd: this.current().cwd,
+    });
+    return true;
+  }
+
+  /** runs what was sent during an operation once it ends, unless that would run over a report or failed turn. */
+  private drainAfter(): void {
+    if (this.halted()) return;
+    this.drain().catch((error: unknown) => this.report(error));
+  }
+
+  /** a report or failed turn stays on screen, and the composer takes back what is queued; after an interrupt it runs. */
+  private halted(): boolean {
+    return !!this.snapshot.error || this.turnFailed;
+  }
+
+  /** runs the queue while idle: a slash command alone, otherwise every prompt before the next one, a line each. */
+  private async drain(): Promise<void> {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      while (this.snapshot.phase === 'idle' && this.snapshot.queue.length) {
+        const queue = this.snapshot.queue;
+        const command = queue.findIndex(slashCommand);
+        const batch = queue.slice(
+          0,
+          command === 0 ? 1 : command < 0 ? queue.length : command,
+        );
+        this.publish({ queue: queue.slice(batch.length) });
+        let delivered = false;
+        try {
+          await this.operate('running', async () => {
+            try {
+              await this.performTurn(batch.join('\n'), 'turn', () => {
+                delivered = true;
+              });
+            } catch (error) {
+              this.report(error);
+            }
+          });
+        } finally {
+          if (!delivered)
+            this.publish({ queue: [...batch, ...this.snapshot.queue] });
+        }
+        if (!delivered || this.halted()) return;
+      }
+    } finally {
+      this.draining = false;
+    }
   }
 
   /** without an agent, continues on this conversation's agent, model and effort. */
@@ -682,6 +780,8 @@ export class Coordinator {
     } catch (error) {
       result = { status: 'failed', text: '', error: errorMessage(error) };
     }
+    if (result.unread?.length)
+      this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
     await this.files!.flush();
     if (result.status === 'completed') {
       await workspace.commit(
@@ -693,6 +793,7 @@ export class Coordinator {
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {
       this.notice(result.error ?? 'Turn interrupted');
+      if (result.status === 'failed') this.turnFailed = true;
       if (!(await workspace.isDirty())) delete conversation.activity;
     }
     await this.save();
@@ -1069,6 +1170,7 @@ export class Coordinator {
             : 'Stop the current operation first',
       );
     this.cancelled = false;
+    this.turnFailed = false;
     this.publish({ phase, error: undefined });
     this.task = (async () => {
       let failure: unknown;
@@ -1089,6 +1191,7 @@ export class Coordinator {
       await this.task;
     } finally {
       this.task = undefined;
+      this.drainAfter();
     }
   }
 
