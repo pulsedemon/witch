@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { JobWatch } from '../src/core/jobs.js';
+import { JobWatch, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
 
 /** lists until `ready` holds, failing after five seconds. */
@@ -174,6 +174,14 @@ await test("a later group given a tracked group's id is not a job", async () => 
     sleep.kill('SIGKILL');
     jobs.close();
   }
+});
+
+await test('a process given the pid of one that exited has another identity', () => {
+  const [exited, later] = parseProcesses([
+    '  501     1   501 Ss   Thu Oct 15 18:50:27 2026',
+    '  501     1   501 Ss   Thu Oct 15 19:02:03 2026',
+  ]);
+  assert.notEqual(later?.identity, exited?.identity);
 });
 
 await test("a job listed while a read gives its id to the agent's next command can't stop that command", async () => {

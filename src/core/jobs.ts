@@ -52,23 +52,27 @@ async function ps(args: string[]): Promise<string[]> {
   return stdout.split('\n').filter(Boolean);
 }
 
-/** leaves zombies out, so a job whose processes have all exited drops. */
+/** reads `ps -o pid=,ppid=,pgid=,stat=,lstart=` lines, leaving zombies out so a job whose processes have all exited drops. */
+export function parseProcesses(lines: string[]): Row[] {
+  return lines.flatMap((line) => {
+    const [pid, ppid, pgid, stat, ...started] = line.trim().split(/\s+/);
+    return stat!.startsWith('Z')
+      ? []
+      : [
+          {
+            pid: Number(pid),
+            ppid: Number(ppid),
+            pgid: Number(pgid),
+            leadsSession: stat!.includes('s'),
+            identity: `${pid} ${started.join(' ')}`,
+          },
+        ];
+  });
+}
+
 async function processTable(): Promise<Row[]> {
-  return (await ps(['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart='])).flatMap(
-    (line) => {
-      const [pid, ppid, pgid, stat, ...started] = line.trim().split(/\s+/);
-      return stat!.startsWith('Z')
-        ? []
-        : [
-            {
-              pid: Number(pid),
-              ppid: Number(ppid),
-              pgid: Number(pgid),
-              leadsSession: stat!.includes('s'),
-              identity: `${pid} ${started.join(' ')}`,
-            },
-          ];
-    },
+  return parseProcesses(
+    await ps(['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=']),
   );
 }
 
