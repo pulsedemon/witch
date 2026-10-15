@@ -10,7 +10,7 @@ import type { Key } from 'ink';
 import { basename, dirname, join } from 'node:path';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
-import type { Coordinator } from '../core/coordinator.js';
+import type { Coordinator, Snapshot } from '../core/coordinator.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
@@ -137,7 +137,9 @@ export function App({
   );
   const setDraft = (id: string, value: string) =>
     setDrafts((previous) => ({ ...previous, [id]: value }));
-  const [leaving, setLeaving] = useState<string>();
+  const [leaving, leavingRef, setLeaving] = useLiveState<string | undefined>(
+    undefined,
+  );
   const composer = useRef<InputHandle>(null);
   const [buffer, bufferRef, setBuffer] = useLiveState<InputBuffer>({
     value: '',
@@ -171,11 +173,12 @@ export function App({
       : errorLines;
   // the header and phase rows above, the status line's two below
   const bodyHeight = height - 4 - errorRows.length;
-  // a draft belongs to its conversation, so typing waits for the load or a switch to open one
-  const composerPhase =
-    !!state.conversation &&
-    state.conversation.id !== leaving &&
-    !['closing', 'error'].includes(state.phase);
+  /** a draft belongs to its conversation, so typing waits for the load or a switch to open one. */
+  const composerOpen = (snapshot: Snapshot, leaving: string | undefined) =>
+    !!snapshot.conversation &&
+    snapshot.conversation.id !== leaving &&
+    !['closing', 'error'].includes(snapshot.phase);
+  const composerPhase = composerOpen(state, leaving);
   const working = ['starting', 'running', 'switching'].includes(state.phase);
   const entries = [
     ...commands.map(({ id, label, aliases }) => ({
@@ -445,8 +448,13 @@ export function App({
   };
 
   const submit = (text: string): boolean => {
-    // Enter while tools are focused expands a tool, even in the same read as Tab
-    if (toolFocusRef.current) return false;
+    // Enter while tools are focused expands a tool, and one the composer would refuse keeps the draft, even in the
+    // same read as the Tab or switch before it
+    if (
+      toolFocusRef.current ||
+      !composerOpen(coordinator.snapshot, leavingRef.current)
+    )
+      return false;
     const match = /^\/(\S+)(?:\s+(.*))?$/.exec(text.trim());
     const found =
       match &&

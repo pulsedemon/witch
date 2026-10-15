@@ -1068,6 +1068,37 @@ await test('the composer takes no typing while a switch shows the conversation i
   }
 });
 
+await test('a prompt sent in the same read as a switch stays in the draft of the conversation it was typed in', async () => {
+  const { coordinator, app, calls } = fake({});
+  const switching = Promise.withResolvers<void>();
+  coordinator.newConversation = async (...args: unknown[]) => {
+    calls.push(['newConversation', ...args]);
+    coordinator.publish({ phase: 'starting' });
+    await switching.promise;
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`/new b${ENTER}hello${ENTER}`);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    assert.deepEqual(calls, [['newConversation', 'b']]);
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+      phase: 'idle',
+    });
+    switching.resolve();
+    await until('the next conversation', () => !ui.text().includes('┃ hello'));
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c' },
+    });
+    await until('the kept draft', () => ui.text().includes('┃ hello'));
+  } finally {
+    switching.resolve();
+    ui.unmount();
+  }
+});
+
 await test('the composer takes typing again once a switch fails', async () => {
   const { coordinator, app, calls } = fake({});
   coordinator.newConversation = async (...args: unknown[]) => {
