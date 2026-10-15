@@ -35,10 +35,19 @@ interface Detail {
   command: string;
 }
 
-/** `ps` with C's dates and decimals, which Date and Number parse, and the user's own character set for commands. */
+/**
+ * `ps` with C's dates in UTC and C's decimals, which Date and Number parse whatever the time zone. LC_ALL goes, since
+ * it overrides both; LC_ALL=C instead would escape non-ASCII in commands.
+ */
 async function ps(args: string[]): Promise<string[]> {
   const { stdout } = await execute('/bin/ps', args, {
-    env: { ...process.env, LC_ALL: undefined, LC_TIME: 'C', LC_NUMERIC: 'C' },
+    env: {
+      ...process.env,
+      LC_ALL: undefined,
+      LC_TIME: 'C',
+      LC_NUMERIC: 'C',
+      TZ: 'UTC',
+    },
   });
   return stdout.split('\n').filter(Boolean);
 }
@@ -70,7 +79,6 @@ async function describe(pids: number[]): Promise<Detail[]> {
   let lines: string[];
   try {
     lines = await ps([
-      '-ww',
       '-p',
       pids.join(','),
       '-o',
@@ -90,7 +98,7 @@ async function describe(pids: number[]): Promise<Detail[]> {
             pid: Number(match[1]),
             pgid: Number(match[2]),
             cpu: Number(match[3]),
-            startedAt: new Date(match[4]!).getTime(),
+            startedAt: new Date(`${match[4]!} UTC`).getTime(),
             command: match[5]!,
           },
         ]
@@ -106,7 +114,7 @@ async function describe(pids: number[]): Promise<Detail[]> {
  */
 export class JobWatch {
   /** each tracked group's generation. */
-  private groups = new Map<number, number>();
+  private groups: ReadonlyMap<number, number> = new Map();
   private generation = 0;
   /** the tracked groups' processes as of the last read, by identity, with the group each was in. */
   private members = new Map<string, number>();
