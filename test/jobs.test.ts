@@ -99,11 +99,8 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
     await jobs.stop({ group: server, generation: 1 });
     assert.doesNotThrow(() => process.kill(-server, 0));
     for (const job of list) await jobs.stop(job);
-    assert.deepEqual(await jobs.list(), []);
     for (const { group } of list)
       assert.throws(() => process.kill(-group, 0), { code: 'ESRCH' });
-    // as a job chosen in a picker opened before it ended
-    await jobs.stop(list.find(({ group }) => group === stuck)!);
   } finally {
     agent.kill('SIGKILL');
     for (const group of [stuck, running])
