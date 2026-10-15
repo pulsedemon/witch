@@ -1287,27 +1287,22 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
     await delay(60);
     await commands(ui);
     ui.stdin.write(`jobs${ENTER}`);
+    // the row is cut to the picker's 98 cells with an ellipsis, and the 61 cells before the command's x's leave room for 36
     await until('the jobs picker', () =>
       ui
         .text()
         .includes(
-          '100% CPU · 1200M00S · node --import tsx test/screen.test.ts x',
+          `100% CPU · 1200M00S · node --import tsx test/screen.test.ts ${'x'.repeat(36)}…`,
         ),
     );
-    // the row is cut to the picker's 98 cells with an ellipsis, and the 61 cells before the command's x's leave room for 36
-    assert.ok(ui.text().includes(`test/screen.test.ts ${'x'.repeat(36)}…`));
     ui.resize(40);
-    await delay(30);
-    const lines = ui.text().split('\n');
-    const rows = lines
-      .slice(
-        lines.findIndex((line) => line.includes('choose one to stop')) + 1,
-        lines.findIndex((line) => line.includes('Filter, then Enter')),
-      )
-      .filter((row) => row.trim());
-    assert.deepEqual(
-      rows.map((row) => /node|sleep/.exec(row)?.[0]),
-      ['node', 'sleep'],
+    // narrowing the terminal cuts it again, to the 38 cells left
+    await until('the narrowed picker', () =>
+      ui
+        .text()
+        .includes(
+          'choose one to stop\n  100% CPU · 1200M00S · node --import …',
+        ),
     );
     ui.stdin.write(DOWN);
     await delay(30);
