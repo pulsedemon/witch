@@ -74,9 +74,9 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
     await delay(500);
     process.kill(stuck, 'SIGKILL');
     while (!gone(stuck)) await delay(20);
-    // the running command's busy process starts two seconds after the others
+    // the running command's two busy processes start two seconds after the others, and only both together pass 120
     const list = await listed(jobs, (found) =>
-      found.some(({ group, cpu }) => group === running && cpu > 50),
+      found.some(({ group, cpu }) => group === running && cpu > 120),
     );
     const commands = new Map(
       list.map(({ group, command }) => [group, command]),
@@ -89,8 +89,8 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
       'sleep 60.5',
       'sleep 61.5',
     ]);
-    // about the busy process's one core
-    assert.ok(list.find(({ group }) => group === running)!.cpu < 150);
+    // about the busy processes' two cores
+    assert.ok(list.find(({ group }) => group === running)!.cpu < 250);
     for (const { startedAt } of list) {
       // lstart has whole seconds
       assert.ok(startedAt >= spawnedAt - 1000);
