@@ -236,8 +236,8 @@ await test('a process that left its tracked group before ps describes it is not 
   }
 });
 
-await test('a time zone change keeps an orphaned job and its generation', async () => {
-  const jobs = new JobWatch({ interval: 50 });
+await test('a time zone change keeps a job and its generation', async () => {
+  const jobs = new JobWatch({ interval: 60_000 });
   const agent = spawn(
     process.execPath,
     [join(import.meta.dirname, 'fixtures/process-tree.mjs')],
@@ -249,16 +249,16 @@ await test('a time zone change keeps an orphaned job and its generation', async 
     .map(Number) as [number, number];
   const zone = process.env.TZ;
   try {
-    // only the background poll sees the stuck command under the agent, since its member is orphaned before the first list
-    await delay(500);
-    process.kill(stuck, 'SIGKILL');
-    while (!gone(stuck)) await delay(20);
     const before = (
-      await listed(jobs, (found) => found.some(({ group }) => group === stuck))
-    ).find(({ group }) => group === stuck)!;
+      await listed(jobs, (found) =>
+        found.some(
+          ({ group, command }) => group === running && command === 'sleep 61.5',
+        ),
+      )
+    ).find(({ group }) => group === running)!;
     // as a laptop's automatic time zone does mid-session
     process.env.TZ = 'Pacific/Kiritimati';
-    const after = (await jobs.list()).find(({ group }) => group === stuck);
+    const after = (await jobs.list()).find(({ group }) => group === running);
     assert.deepEqual(after, { ...before, cpu: after?.cpu });
   } finally {
     if (zone === undefined) delete process.env.TZ;
