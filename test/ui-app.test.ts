@@ -1328,18 +1328,25 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
   }
 });
 
-await test('/jobs without jobs says none are running', async () => {
-  const { app } = fake({});
-  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  try {
-    await delay(60);
-    await commands(ui);
-    ui.stdin.write(`jobs${ENTER}`);
-    await until('the empty picker', () =>
-      ui.text().includes('No jobs are running'),
+await test('/jobs without jobs or with none listed says none are running', async () => {
+  for (const jobs of [
+    undefined,
+    { list: async () => [], stop: async () => {} },
+  ]) {
+    const { app } = fake({});
+    const ui = show(
+      createElement(App, { coordinator: app, jobs, onExit: () => {} }),
     );
-  } finally {
-    ui.unmount();
+    try {
+      await delay(60);
+      await commands(ui);
+      ui.stdin.write(`jobs${ENTER}`);
+      await until('the empty picker', () =>
+        ui.text().includes('No jobs are running'),
+      );
+    } finally {
+      ui.unmount();
+    }
   }
 });
 
