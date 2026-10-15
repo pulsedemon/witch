@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JobWatch } from '../src/core/jobs.js';
-import type { Job } from '../src/core/jobs.js';
+import type { Job, Row } from '../src/core/jobs.js';
 
 /** lists until `ready` holds, failing after five seconds. */
 async function listed(
@@ -109,6 +109,53 @@ await test("a group started by a process its command's shell left behind is a jo
     } catch {
       // already empty
     }
+    jobs.close();
+  }
+});
+
+await test("a later group given a tracked group's id is not a job", async () => {
+  const sleep = spawn('/bin/sleep', ['64.5'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const group = sleep.pid!;
+  // above macOS's highest pid, so ps never describes it
+  const agent = 100_000;
+  let rows: Row[] = [
+    {
+      pid: agent,
+      ppid: process.pid,
+      pgid: agent,
+      leadsSession: false,
+      identity: `${agent} a`,
+    },
+    {
+      pid: group,
+      ppid: agent,
+      pgid: group,
+      leadsSession: true,
+      identity: `${group} a`,
+    },
+  ];
+  const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
+  try {
+    assert.deepEqual(
+      (await jobs.list()).map((job) => job.group),
+      [group],
+    );
+    // the command's group ended and a process outside the agents' commands was given its id
+    rows = [
+      {
+        pid: group,
+        ppid: 1,
+        pgid: group,
+        leadsSession: true,
+        identity: `${group} b`,
+      },
+    ];
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    sleep.kill('SIGKILL');
     jobs.close();
   }
 });

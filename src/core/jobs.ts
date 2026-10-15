@@ -16,11 +16,13 @@ export interface Job {
   startedAt: number;
 }
 
-interface Row {
+export interface Row {
   pid: number;
   ppid: number;
   pgid: number;
   leadsSession: boolean;
+  /** the pid and start time, which tell a process from a later one given its id. */
+  identity: string;
 }
 
 interface Detail {
@@ -41,19 +43,22 @@ async function ps(args: string[]): Promise<string[]> {
 
 /** leaves zombies out, so a job whose processes have all exited drops. */
 async function processTable(): Promise<Row[]> {
-  return (await ps(['-A', '-o', 'pid=,ppid=,pgid=,stat='])).flatMap((line) => {
-    const [pid, ppid, pgid, stat] = line.trim().split(/\s+/);
-    return stat!.startsWith('Z')
-      ? []
-      : [
-          {
-            pid: Number(pid),
-            ppid: Number(ppid),
-            pgid: Number(pgid),
-            leadsSession: stat!.includes('s'),
-          },
-        ];
-  });
+  return (await ps(['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart='])).flatMap(
+    (line) => {
+      const [pid, ppid, pgid, stat, ...started] = line.trim().split(/\s+/);
+      return stat!.startsWith('Z')
+        ? []
+        : [
+            {
+              pid: Number(pid),
+              ppid: Number(ppid),
+              pgid: Number(pgid),
+              leadsSession: stat!.includes('s'),
+              identity: `${pid} ${started.join(' ')}`,
+            },
+          ];
+    },
+  );
 }
 
 const detail =
@@ -93,11 +98,13 @@ async function describe(pids: number[]): Promise<Detail[]> {
 
 /**
  * the process groups of the agents' commands, which both agents start as session leaders, and of any group a
- * process inside one moves to. a group stays listed while any process remains in it, so a command orphaned to
- * launchd still shows; one orphaned before the next poll never does.
+ * process inside one moves to. a group stays listed while a process it held at the last read remains, so a command
+ * orphaned to launchd still shows and a later group given its id does not; one orphaned before the next poll never
+ * does.
  */
 export class JobWatch {
-  private readonly groups = new Set<number>();
+  /** each tracked group's processes as of the last read, by identity. */
+  private groups = new Map<number, Set<string>>();
   private readonly timer: ReturnType<typeof setInterval>;
   private polling?: Promise<Row[]>;
 
@@ -106,6 +113,8 @@ export class JobWatch {
       interval?: number;
       /** how long a job has to exit on SIGTERM before SIGKILL. */
       grace?: number;
+      /** reads the process table, from `ps` without it. */
+      processes?: () => Promise<Row[]>;
     } = {},
   ) {
     // a failed read leaves the groups as they were, and the next tick reads again
@@ -181,10 +190,12 @@ export class JobWatch {
     return this.polling;
   }
 
-  /** records the commands' groups and drops the ones no process remains in. */
+  /** records the commands' groups and drops the ones no process it held remains in. */
   private async read(): Promise<Row[]> {
-    const rows = await processTable();
+    const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
+    const held = ({ pgid, identity }: Row) =>
+      !!this.groups.get(pgid)?.has(identity);
     // Witch's children include the agents, whose commands lead sessions and whose MCP servers do not; a server's own
     // detached helpers sit a level deeper and are never reached
     const pending = [
@@ -192,16 +203,16 @@ export class JobWatch {
         (children.get(pid) ?? []).filter(({ leadsSession }) => leadsSession),
       ),
       // a command's process orphaned to launchd is reached through its group, so what it starts later is too
-      ...rows.filter(({ ppid, pgid }) => ppid === 1 && this.groups.has(pgid)),
+      ...rows.filter((row) => row.ppid === 1 && held(row)),
     ];
+    const groups = new Set(rows.filter(held).map(({ pgid }) => pgid));
     while (pending.length) {
       const row = pending.pop()!;
-      this.groups.add(row.pgid);
+      groups.add(row.pgid);
       pending.push(...(children.get(row.pid) ?? []));
     }
-    const present = new Set(rows.map(({ pgid }) => pgid));
-    for (const group of this.groups)
-      if (!present.has(group)) this.groups.delete(group);
+    this.groups = new Map([...groups].map((group) => [group, new Set()]));
+    for (const row of rows) this.groups.get(row.pgid)?.add(row.identity);
     return rows;
   }
 }
