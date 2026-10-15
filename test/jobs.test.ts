@@ -258,6 +258,40 @@ await test("a job listed while a read gives its id to the agent's next command c
   }
 });
 
+await test('a job listed during a slower read keeps its generation', async () => {
+  let reads = 0;
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => {
+      // the first read is slow and saw the table before the agent's next command started
+      if (!reads++) {
+        await delay(100);
+        return commandRows(4242, '4242 a');
+      }
+      return [...commandRows(4242, '4242 a'), commandRows(4343, '4343 a')[1]!];
+    },
+    describe: async (pids) =>
+      pids.map((pid) => ({
+        pid,
+        pgid: pid,
+        cpu: 0,
+        startedAt: 0,
+        command: '',
+      })),
+  });
+  try {
+    const overlapping = (await Promise.all([jobs.list(), jobs.list()])).flat();
+    const later = await jobs.list();
+    for (const job of overlapping)
+      assert.equal(
+        later.find(({ group }) => group === job.group)?.generation,
+        job.generation,
+      );
+  } finally {
+    jobs.close();
+  }
+});
+
 await test('a process that left its tracked group before ps describes it is not a job', async () => {
   const [leader, moved] = ['67.5', '68.5'].map((seconds) =>
     spawn('/bin/sleep', [seconds], { detached: true, stdio: 'ignore' }),
