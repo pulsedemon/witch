@@ -274,6 +274,35 @@ await test('a time zone change keeps a job and its generation', async () => {
   }
 });
 
+await test('a job lists with its command intact under any locale', async () => {
+  const sleep = spawn('/bin/sleep', ['69.5'], {
+    argv0: 'slëep',
+    detached: true,
+    stdio: 'ignore',
+  });
+  const group = sleep.pid!;
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => commandRows(group, `${group} a`),
+  });
+  const locale = { LC_ALL: process.env.LC_ALL, LANG: process.env.LANG };
+  // German writes lstart's names and %cpu's decimal its own way. LC_ALL reaches ps unless it's removed, and LANG
+  // fills in the categories left unset
+  process.env.LC_ALL = process.env.LANG = 'de_DE.UTF-8';
+  try {
+    assert.deepEqual(
+      (await jobs.list()).map((job) => job.command),
+      ['slëep 69.5'],
+    );
+  } finally {
+    for (const [name, value] of Object.entries(locale))
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
 await test('a failed background read keeps the jobs it had', async () => {
   const sleep = spawn('/bin/sleep', ['71.5'], {
     detached: true,
