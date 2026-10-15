@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -353,5 +356,37 @@ await test('a job whose processes exit after a read lists as nothing and stops w
     await jobs.stop(job!);
   } finally {
     jobs.close();
+  }
+});
+
+await test('stop sends SIGTERM before SIGKILL', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'witch-jobs-'));
+  const shell = spawn(
+    '/bin/sh',
+    ['-c', 'trap "touch term; exit" TERM; touch ready; sleep 73.5 & wait'],
+    { cwd, detached: true, stdio: 'ignore' },
+  );
+  const group = shell.pid!;
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () =>
+      shell.exitCode === null && shell.signalCode === null
+        ? commandRows(group, `${group} a`)
+        : [agentRow],
+  });
+  try {
+    // a signal before the trap is set would kill the shell outright
+    while (!existsSync(join(cwd, 'ready'))) await delay(20);
+    const [job] = await jobs.list();
+    await jobs.stop(job!);
+    assert.ok(existsSync(join(cwd, 'term')));
+  } finally {
+    try {
+      process.kill(-group, 'SIGKILL');
+    } catch {
+      // stopped by the test
+    }
+    jobs.close();
+    await rm(cwd, { recursive: true, force: true });
   }
 });
