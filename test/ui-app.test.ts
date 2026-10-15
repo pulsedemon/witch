@@ -18,6 +18,7 @@ import { createElement } from 'react';
 import stripAnsi from 'strip-ansi';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Snapshot } from '../src/core/coordinator.js';
+import type { JobWatch } from '../src/core/jobs.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
@@ -1257,7 +1258,7 @@ await test('reopening the picker resets its selection', async () => {
 
 await test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group, reporting a stop that fails', async () => {
   const { app, calls } = fake({});
-  const jobs = {
+  const jobs: Pick<JobWatch, 'list' | 'stop'> = {
     list: async () => [
       {
         group: 4242,
@@ -1274,13 +1275,7 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
         startedAt: Date.now(),
       },
     ],
-    stop: async ({
-      group,
-      generation,
-    }: {
-      group: number;
-      generation: number;
-    }) => {
+    stop: async ({ group, generation }) => {
       calls.push(['stop', group, generation]);
       throw new Error(`Job ${group} has not stopped.`);
     },
