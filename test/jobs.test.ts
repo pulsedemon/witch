@@ -146,6 +146,53 @@ await test("a group that a process its command's shell left behind starts or mov
   }
 });
 
+await test("a group that a process below its command's leader moves to is a job", async () => {
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => [
+      ...commandRows(4242, '4242 a'),
+      {
+        pid: 4243,
+        ppid: 4242,
+        pgid: 4242,
+        leadsSession: false,
+        identity: '4243 a',
+      },
+      {
+        pid: 4244,
+        ppid: 4243,
+        pgid: 4244,
+        leadsSession: false,
+        identity: '4244 a',
+      },
+    ],
+    describe: async () => [
+      {
+        pid: 4242,
+        pgid: 4242,
+        cpu: 0,
+        startedAt: 0,
+        command: 'sh -c pnpm dev',
+      },
+      {
+        pid: 4244,
+        pgid: 4244,
+        cpu: 0,
+        startedAt: 0,
+        command: 'esbuild --service',
+      },
+    ],
+  });
+  try {
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [4242, 4244],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
 await test("a later group given a tracked group's id is not a job", async () => {
   const sleep = spawn('/bin/sleep', ['64.5'], {
     detached: true,
