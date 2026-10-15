@@ -59,8 +59,6 @@ interface Choice {
   label: string;
   search?: string;
   cwd?: string;
-  /** cuts the label to one row at the current width instead of wrapping it. */
-  truncate?: boolean;
 }
 type View =
   | { kind: 'chat' }
@@ -451,7 +449,6 @@ export function App({
               found.map((job) => ({
                 id: String(job.group),
                 label: `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
-                truncate: true,
               })),
               (id) => {
                 setView({ kind: 'chat' });
@@ -809,7 +806,7 @@ export function App({
             <Text
               key={choice.id}
               inverse={first + index === selected}
-              wrap={choice.truncate ? 'truncate-end' : 'wrap'}
+              wrap="truncate-end"
             >
               {choice.cwd
                 ? linkify(` ${plain(choice.label)} `, choice.cwd)
