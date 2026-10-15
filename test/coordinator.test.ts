@@ -2444,6 +2444,39 @@ await test('a failed turn leaves what was queued behind it for the composer inst
   }
 });
 
+await test('a prompt whose steer is refused after a failed turn has ended stays for the composer, and one sent at idle still runs', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    a.failNext = true;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const refusal = Promise.withResolvers<void>();
+    a.sessions.at(-1)!.session.steer = async () => {
+      await refusal.promise;
+      return false;
+    };
+    const steering = coordinator.send('Follow up');
+    gate.open();
+    await sending;
+    refusal.resolve();
+    await steering;
+    await delay(60);
+    assert.deepEqual(coordinator.snapshot.queue, ['Follow up']);
+    assert.equal(a.inputs.length, 1);
+    coordinator.unqueue();
+    await coordinator.send('Retry');
+    assert.deepEqual(
+      a.inputs.map(({ prompt }) => prompt.split('User request:\n')[1]),
+      ['Start', 'Retry'],
+    );
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 await test('a failed handoff continuation leaves what was queued during the switch for the composer', async () => {
   const { coordinator, b } = await fixture();
   const gate = new TurnGate();

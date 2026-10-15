@@ -360,6 +360,8 @@ export class Coordinator {
     // only a restart leaves the error phase, so nothing would run what waits
     if (this.snapshot.phase === 'error') throw new Error(this.snapshot.error);
     if (this.opening) throw new Error('Wait for the next conversation to open');
+    // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
+    const during = this.snapshot.phase !== 'idle';
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting.then(async () => {
       if (await this.steer(prompt)) return true;
@@ -367,7 +369,7 @@ export class Coordinator {
       return false;
     });
     this.admitting = admitted.catch(() => {});
-    if (!(await admitted)) await this.drain();
+    if (!(await admitted) && !(during && this.halted())) await this.drain();
   }
 
   /** takes back every queued prompt, oldest first, to edit. */
@@ -398,8 +400,13 @@ export class Coordinator {
 
   /** runs what was sent during an operation once it ends, unless that would run over a report or failed turn. */
   private drainAfter(): void {
-    if (this.snapshot.error || this.turnFailed) return;
+    if (this.halted()) return;
     this.drain().catch((error: unknown) => this.report(error));
+  }
+
+  /** a report or failed turn stays on screen, and the composer takes back what is queued; after an interrupt it runs. */
+  private halted(): boolean {
+    return !!this.snapshot.error || this.turnFailed;
   }
 
   /** runs the queue while idle: a slash command alone, otherwise every prompt before the next one, a line each. */
@@ -430,8 +437,7 @@ export class Coordinator {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
         }
-        // a report or failed turn stays on screen, and the composer takes back what is left; after an interrupt it runs
-        if (!delivered || this.turnFailed || this.snapshot.error) return;
+        if (!delivered || this.halted()) return;
       }
     } finally {
       this.draining = false;
