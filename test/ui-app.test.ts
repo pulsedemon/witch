@@ -1255,7 +1255,7 @@ await test('reopening the picker resets its selection', async () => {
   }
 });
 
-await test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group', async () => {
+await test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group, reporting a stop that fails', async () => {
   const { app, calls } = fake({});
   const jobs = {
     list: async () => [
@@ -1282,6 +1282,7 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
       generation: number;
     }) => {
       calls.push(['stop', group, generation]);
+      throw new Error(`Job ${group} has not stopped.`);
     },
   };
   const ui = show(
@@ -1317,8 +1318,11 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
     ui.stdin.write(DOWN);
     await delay(30);
     ui.stdin.write(ENTER);
-    await until('the stop', () => calls.length > 0);
-    assert.deepEqual(calls, [['stop', 4343, 9]]);
+    await until('the report', () => calls.length > 1);
+    assert.deepEqual(calls, [
+      ['stop', 4343, 9],
+      ['report', 'Error: Job 4343 has not stopped.'],
+    ]);
   } finally {
     ui.unmount();
   }
