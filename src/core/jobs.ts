@@ -10,7 +10,7 @@ export interface Job {
   group: number;
   /** tells this group from a later one that reuses its id; `stop` checks it. */
   generation: number;
-  /** the command line of its oldest process other than the leader, since the leader is usually the agent's wrapper shell, or the leader's when it runs alone. */
+  /** the command line of its oldest process other than the leader, or the leader's when it runs alone. the leader is usually the agent's wrapper shell. */
   command: string;
   /** its processes' summed CPU use, in percent of one core. */
   cpu: number;
