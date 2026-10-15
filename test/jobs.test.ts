@@ -33,7 +33,7 @@ function gone(pid: number): boolean {
   }
 }
 
-/** an agent whose pid is above macOS's highest, so ps never describes it. */
+/** an agent whose pid is above macOS's highest, since a command with the agent's pid would be its own parent and never end a read. */
 const agentRow: Row = {
   pid: 100_000,
   ppid: process.pid,
