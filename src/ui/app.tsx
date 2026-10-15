@@ -797,17 +797,19 @@ export function App({
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>{plain(view.title)}</Text>
         <Box height={count} flexDirection="column" overflow="hidden">
-          {choices.slice(first, first + count).map((choice, index) => (
-            <Text
-              key={choice.id}
-              inverse={first + index === selected}
-              wrap="truncate-end"
-            >
-              {choice.cwd
-                ? linkify(` ${plain(choice.label)} `, choice.cwd)
-                : ` ${plain(choice.label)} `}
-            </Text>
-          ))}
+          {choices.slice(first, first + count).map((choice, index) => {
+            // truncate-end cuts each line on its own, and a note name can hold a line break
+            const label = ` ${plain(choice.label).replace(/\s+/g, ' ')} `;
+            return (
+              <Text
+                key={choice.id}
+                inverse={first + index === selected}
+                wrap="truncate-end"
+              >
+                {choice.cwd ? linkify(label, choice.cwd) : label}
+              </Text>
+            );
+          })}
         </Box>
         <Input
           key={view.title}

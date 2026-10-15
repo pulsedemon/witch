@@ -430,6 +430,21 @@ await test('/memory reads one commit even when main moves during the action', as
   }
 });
 
+await test('/memory shows a note whose name holds a line break on one row', async () => {
+  const { seed, coordinator } = await memoryApp();
+  await writeFile(join(seed.root, 'global', 'first\nsecond.md'), 'A note.');
+  await seed.commit('chore(memory): save a note');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openMemory(ui, 'global/first second.md');
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
 await test('memory without a worktree shows no links, builds no worktree, and keeps history', async () => {
   const { root, coordinator } = await memoryApp();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
