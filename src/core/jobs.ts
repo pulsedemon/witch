@@ -187,9 +187,13 @@ export class JobWatch {
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
     // Witch's children include the agents, whose commands lead sessions and whose MCP servers do not; a server's own
     // detached helpers sit a level deeper and are never reached
-    const pending = (children.get(process.pid) ?? []).flatMap(({ pid }) =>
-      (children.get(pid) ?? []).filter(({ leadsSession }) => leadsSession),
-    );
+    const pending = [
+      ...(children.get(process.pid) ?? []).flatMap(({ pid }) =>
+        (children.get(pid) ?? []).filter(({ leadsSession }) => leadsSession),
+      ),
+      // a command's process orphaned to launchd is reached through its group, so what it starts later is too
+      ...rows.filter(({ ppid, pgid }) => ppid === 1 && this.groups.has(pgid)),
+    ];
     while (pending.length) {
       const row = pending.pop()!;
       this.groups.add(row.pgid);

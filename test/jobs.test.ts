@@ -83,3 +83,32 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
     jobs.close();
   }
 });
+
+await test("a group started by a process its command's shell left behind is a job", async () => {
+  const jobs = new JobWatch({ interval: 50 });
+  const agent = spawn(
+    process.execPath,
+    [join(import.meta.dirname, 'fixtures/orphan-group.mjs')],
+    { stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  const command = Number(String((await once(agent.stdout, 'data'))[0]).trim());
+  try {
+    const list = await listed(jobs, (found) => found.length >= 2);
+    // the group started after the shell exited, so only its orphaned parent leads to it
+    assert.ok(gone(command));
+    assert.deepEqual(
+      list.filter(({ group }) => group !== command).map((job) => job.command),
+      [
+        'perl -e setpgrp(0, 0); sleep 1 while getppid() != 1 witch-jobs-fixture',
+      ],
+    );
+  } finally {
+    agent.kill('SIGKILL');
+    try {
+      process.kill(-command, 'SIGKILL');
+    } catch {
+      // already empty
+    }
+    jobs.close();
+  }
+});
