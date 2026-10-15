@@ -30,10 +30,14 @@ import { until } from './fixtures/within.js';
 class Terminal extends EventEmitter {
   readonly frames: string[] = [];
   constructor(
-    readonly columns: number,
+    public columns: number,
     readonly rows: number,
   ) {
     super();
+  }
+  resize(columns: number) {
+    this.columns = columns;
+    this.emit('resize');
   }
   write = (frame: string) => {
     this.frames.push(frame);
@@ -78,6 +82,7 @@ function show(element: ReactElement, columns = 100, rows = 40) {
     stdin,
     frame: () => stdout.frames.at(-1) ?? '',
     text: () => stripAnsi(stdout.frames.at(-1) ?? ''),
+    resize: (columns: number) => stdout.resize(columns),
     unmount: () => instance.unmount(),
   };
 }
@@ -1279,13 +1284,54 @@ await test('/jobs lists each job on one row with its CPU, age and command, and s
           '100% CPU · 1200M00S · node --import tsx test/screen.test.ts x',
         ),
     );
-    // the row is cut to 96 of the 100 cells, and the 60 before the command's x's leave room for 36
+    // the row is cut to the picker's 98 cells with an ellipsis, and the 61 before the command's x's leave room for 36
     assert.ok(ui.text().includes('x'.repeat(36)));
     assert.ok(!ui.text().includes('x'.repeat(37)));
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the stop', () => calls.length > 0);
     assert.deepEqual(calls, [['stop', 4242]]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('/jobs keeps each job on one row after the terminal narrows', async () => {
+  const { app } = fake({});
+  const jobs = {
+    list: async () =>
+      [1, 2, 3, 4, 5, 6].map((job) => ({
+        group: 4240 + job,
+        command: `job${job} ${'x'.repeat(200)}`,
+        cpu: 1,
+        startedAt: Date.now(),
+      })),
+    stop: async () => {},
+  };
+  // eight rows for choices, fewer than the six jobs would take wrapped
+  const ui = show(
+    createElement(App, { coordinator: app, jobs, onExit: () => {} }),
+    100,
+    16,
+  );
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`jobs${ENTER}`);
+    await until('the jobs picker', () => ui.text().includes('job6'));
+    ui.resize(40);
+    await delay(30);
+    const lines = ui.text().split('\n');
+    const rows = lines
+      .slice(
+        lines.findIndex((line) => line.includes('choose one to stop')) + 1,
+        lines.findIndex((line) => line.includes('Filter, then Enter')),
+      )
+      .filter((row) => row.trim());
+    assert.deepEqual(
+      rows.map((row) => /job\d/.exec(row)?.[0]),
+      ['job1', 'job2', 'job3', 'job4', 'job5', 'job6'],
+    );
   } finally {
     ui.unmount();
   }

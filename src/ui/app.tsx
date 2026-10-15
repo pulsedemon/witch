@@ -59,6 +59,8 @@ interface Choice {
   label: string;
   search?: string;
   cwd?: string;
+  /** cuts the label to one row at the current width instead of wrapping it. */
+  truncate?: boolean;
 }
 type View =
   | { kind: 'chat' }
@@ -448,12 +450,8 @@ export function App({
                 : 'No jobs are running',
               found.map((job) => ({
                 id: String(job.group),
-                // one row each, cut by cells since a command can outrun the column
-                label: wrapAnsi(
-                  `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
-                  width - 4,
-                  { hard: true, wordWrap: false, trim: false },
-                ).split('\n')[0]!,
+                label: `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
+                truncate: true,
               })),
               (id) => {
                 setView({ kind: 'chat' });
@@ -806,7 +804,11 @@ export function App({
         <Text bold>{plain(view.title)}</Text>
         <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => (
-            <Text key={choice.id} inverse={first + index === selected}>
+            <Text
+              key={choice.id}
+              inverse={first + index === selected}
+              wrap={choice.truncate ? 'truncate-end' : 'wrap'}
+            >
               {choice.cwd
                 ? linkify(` ${plain(choice.label)} `, choice.cwd)
                 : ` ${plain(choice.label)} `}
