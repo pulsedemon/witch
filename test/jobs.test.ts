@@ -306,6 +306,34 @@ await test('a job lists with its command intact under any locale', async () => {
   }
 });
 
+await test("a job's CPU is the sum of its processes'", async () => {
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => [
+      ...commandRows(4242, '4242 a'),
+      {
+        pid: 4243,
+        ppid: 4242,
+        pgid: 4242,
+        leadsSession: false,
+        identity: '4243 a',
+      },
+    ],
+    describe: async () => [
+      { pid: 4242, pgid: 4242, cpu: 30, startedAt: 0, command: 'make -j2' },
+      { pid: 4243, pgid: 4242, cpu: 40, startedAt: 0, command: 'cc a.c' },
+    ],
+  });
+  try {
+    assert.deepEqual(
+      (await jobs.list()).map(({ cpu }) => cpu),
+      [70],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
 await test('a start date parses whether or not ps pads its day', () => {
   assert.deepEqual(
     parseDetails([

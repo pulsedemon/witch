@@ -137,6 +137,8 @@ export class JobWatch {
       grace?: number;
       /** reads the process table, from `ps` without it. */
       processes?: () => Promise<Row[]>;
+      /** describes the tracked processes for `list`, from `ps` without it. */
+      describe?: (pids: number[]) => Promise<Detail[]>;
     } = {},
   ) {
     // a failed read leaves the groups as they were, and the next tick reads again
@@ -158,9 +160,9 @@ export class JobWatch {
     const groups = this.groups;
     if (!tracked.length) return [];
     // ps reports a process's group as it is by then, which can be one the read never tracked
-    const details = (await describe(tracked.map(({ pid }) => pid))).filter(
-      ({ pgid }) => groups.has(pgid),
-    );
+    const details = (
+      await (this.options.describe ?? describe)(tracked.map(({ pid }) => pid))
+    ).filter(({ pgid }) => groups.has(pgid));
     return [...Map.groupBy(details, ({ pgid }) => pgid)]
       .map(([group, members]) => {
         const byStart = members.toSorted((a, b) => a.startedAt - b.startedAt);
