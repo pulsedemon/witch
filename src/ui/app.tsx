@@ -92,7 +92,7 @@ export function App({
   /** draws images in the transcript, which leaves them out without it. */
   graphics?: Graphics;
   onExit(): void;
-  /** sent once the load ends idle with nothing reported and tools unfocused, otherwise left as the draft. */
+  /** sent once the load ends idle with nothing reported and tools unfocused, or ahead of a prompt sent while it connects; otherwise left as the draft. */
   initialPrompt?: string;
 }) {
   const subscription = useMemo(
@@ -466,6 +466,10 @@ export function App({
       return true;
     }
     setTop(null);
+    // a prompt sent while the load connects would otherwise run ahead of the one Witch started with
+    const initial = pendingPrompt.current;
+    pendingPrompt.current = undefined;
+    if (initial !== undefined) submit(initial);
     run(coordinator.send(text));
     return true;
   };

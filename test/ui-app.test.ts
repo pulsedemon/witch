@@ -680,6 +680,33 @@ await test('an initial prompt is sent once when the load ends idle with nothing 
   }
 });
 
+await test('a prompt sent while the load connects goes after the initial prompt, which stays out of the draft', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'starting' });
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      initialPrompt: 'say hello',
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('and then this');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the sends', () => calls.length > 1);
+    coordinator.publish({ phase: 'running' });
+    await delay(60);
+    assert.deepEqual(calls, [
+      ['send', 'say hello'],
+      ['send', 'and then this'],
+    ]);
+    assert.ok(!ui.text().includes('say hello'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const [name, update, focusTools] of [
   [
     'recovery',
