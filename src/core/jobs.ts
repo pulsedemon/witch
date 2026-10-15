@@ -137,17 +137,23 @@ export class JobWatch {
   /** the tracked jobs as of a fresh read, oldest first. */
   async list(): Promise<Job[]> {
     const rows = await this.poll();
+    // a read replaces the map, so this keeps the generations these rows had while ps describes them
+    const groups = this.groups;
     const pids = rows
-      .filter(({ pgid }) => this.groups.has(pgid))
+      .filter(({ pgid }) => groups.has(pgid))
       .map(({ pid }) => pid);
     if (!pids.length) return [];
-    return [...Map.groupBy(await describe(pids), ({ pgid }) => pgid)]
+    // ps reports a process's group as it is by then, which can be one the read never tracked
+    const details = (await describe(pids)).filter(({ pgid }) =>
+      groups.has(pgid),
+    );
+    return [...Map.groupBy(details, ({ pgid }) => pgid)]
       .map(([group, members]) => {
         const byStart = members.toSorted((a, b) => a.startedAt - b.startedAt);
         const named = byStart.find(({ pid }) => pid !== group) ?? byStart[0]!;
         return {
           group,
-          generation: this.groups.get(group)!,
+          generation: groups.get(group)!,
           command: named.command,
           cpu: members.reduce((total, { cpu }) => total + cpu, 0),
           startedAt: byStart[0]!.startedAt,

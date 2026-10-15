@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -197,6 +198,88 @@ await test('stop leaves alone a later agent command given the id of the job it w
     assert.doesNotThrow(() => process.kill(-group, 0));
   } finally {
     sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
+await test("a job listed while a read gives its id to the agent's next command can't stop that command", async () => {
+  const sleep = spawn('/bin/sleep', ['66.5'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const group = sleep.pid!;
+  // above macOS's highest pid, so ps never describes it
+  const agent = 100_000;
+  const command = (identity: string): Row[] => [
+    {
+      pid: agent,
+      ppid: process.pid,
+      pgid: agent,
+      leadsSession: false,
+      identity: `${agent} a`,
+    },
+    { pid: group, ppid: agent, pgid: group, leadsSession: true, identity },
+  ];
+  let rows = command(`${group} a`);
+  const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
+  try {
+    const listing = jobs.list();
+    // the listing has read and waits on ps for the details
+    await new Promise(setImmediate);
+    rows = command(`${group} b`);
+    assert.deepEqual(
+      (await jobs.list()).map((later) => later.group),
+      [group],
+    );
+    const [job] = await listing;
+    assert.equal(job?.group, group);
+    await jobs.stop(job);
+    assert.doesNotThrow(() => process.kill(-group, 0));
+  } finally {
+    sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
+await test('a process that left its tracked group before ps describes it is not a job', async () => {
+  const [leader, moved] = ['67.5', '68.5'].map((seconds) =>
+    spawn('/bin/sleep', [seconds], { detached: true, stdio: 'ignore' }),
+  ) as [ChildProcess, ChildProcess];
+  // above macOS's highest pid, so ps never describes it
+  const agent = 100_000;
+  // the read saw the second in the leader's group, which it has since left for a session of its own
+  const rows: Row[] = [
+    {
+      pid: agent,
+      ppid: process.pid,
+      pgid: agent,
+      leadsSession: false,
+      identity: `${agent} a`,
+    },
+    {
+      pid: leader.pid!,
+      ppid: agent,
+      pgid: leader.pid!,
+      leadsSession: true,
+      identity: `${leader.pid} a`,
+    },
+    {
+      pid: moved.pid!,
+      ppid: leader.pid!,
+      pgid: leader.pid!,
+      leadsSession: false,
+      identity: `${moved.pid} a`,
+    },
+  ];
+  const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
+  try {
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [leader.pid],
+    );
+  } finally {
+    leader.kill('SIGKILL');
+    moved.kill('SIGKILL');
     jobs.close();
   }
 });
