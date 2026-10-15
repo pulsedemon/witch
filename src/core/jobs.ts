@@ -8,9 +8,9 @@ const execute = promisify(execFile);
 export interface Job {
   /** the group's id, which `stop` signals. */
   group: number;
-  /** tells this group from a later one given its id, which `stop` checks. */
+  /** tells this group from a later one that reuses its id; `stop` checks it. */
   generation: number;
-  /** the command line of its earliest-started process other than the leader, usually the agent's wrapper shell, or of the leader when it runs alone. */
+  /** the command line of its oldest process other than the leader, since the leader is usually the agent's wrapper shell, or the leader's when it runs alone. */
   command: string;
   /** its processes' summed CPU use, in percent of one core. */
   cpu: number;
@@ -23,7 +23,7 @@ export interface Row {
   ppid: number;
   pgid: number;
   leadsSession: boolean;
-  /** the pid and start time, which tell a process from a later one given its id. */
+  /** the pid and start time, which tell a process from a later one that reuses its pid. */
   identity: string;
 }
 
@@ -108,9 +108,8 @@ async function describe(pids: number[]): Promise<Detail[]> {
 
 /**
  * the process groups of the agents' commands, which both agents start as session leaders, and of any group a
- * process inside one moves to. a group stays listed while a process it held at the last read remains, so a command
- * orphaned to launchd still shows and a later group given its id does not; one orphaned before the next poll never
- * does.
+ * process inside one moves to. a group keeps its generation while a process from the last read remains in it, so a
+ * command orphaned to launchd still shows; one orphaned before any read sees it never does.
  */
 export class JobWatch {
   /** each tracked group's generation. */
@@ -123,8 +122,9 @@ export class JobWatch {
 
   constructor(
     private readonly options: {
+      /** how often the process table is read, in milliseconds. */
       interval?: number;
-      /** how long a job has to exit on SIGTERM before SIGKILL. */
+      /** how long a job has to exit on SIGTERM before SIGKILL, in milliseconds. */
       grace?: number;
       /** reads the process table, from `ps` without it. */
       processes?: () => Promise<Row[]>;
@@ -145,7 +145,7 @@ export class JobWatch {
   /** the tracked jobs as of a fresh read, oldest first. */
   async list(): Promise<Job[]> {
     const rows = await this.poll();
-    // a read replaces the map, so this keeps the generations these rows had while ps describes them
+    // a read during describe replaces the map, so this keeps the generations of the read these rows came from
     const groups = this.groups;
     const pids = rows
       .filter(({ pgid }) => groups.has(pgid))
@@ -171,8 +171,8 @@ export class JobWatch {
   }
 
   /**
-   * sends the group SIGTERM, then SIGKILL once `grace` passes, since a process stuck in a loop never runs the
-   * handlers it registered. returns once no process remains in the group.
+   * sends the group SIGTERM, then SIGKILL once `grace` passes, since a Node process stuck in a loop never runs the
+   * handlers it registered. returns once the listed generation is gone, and rejects if it outlasts SIGKILL by a second.
    */
   async stop(job: Pick<Job, 'group' | 'generation'>): Promise<void> {
     const steps = [
@@ -184,7 +184,7 @@ export class JobWatch {
       try {
         process.kill(-job.group, signal);
       } catch (error) {
-        // the group can empty, or hold only zombies, which refuse signals, between the read and the signal
+        // the group can empty between the read and the signal, and a group of only zombies refuses signals
         if (!(await this.running(job))) return;
         throw error;
       }
@@ -196,7 +196,7 @@ export class JobWatch {
     throw new Error(`Job ${job.group} has not stopped.`);
   }
 
-  /** only the listed generation of a tracked group with a running process is ever signalled. */
+  /** checked before each signal, so a group that ended, or a later one that reuses its id, is left alone. */
   private async running({
     group,
     generation,
@@ -213,12 +213,12 @@ export class JobWatch {
     return this.polling;
   }
 
-  /** records the commands' groups and drops the ones no process it held remains in. */
   private async read(): Promise<Row[]> {
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
     // Witch's children include the agents, whose commands lead sessions and whose MCP servers do not; a server's own
-    // detached helpers sit a level deeper and are never reached
+    // detached helpers sit a level deeper and are never reached. VS Code's launcher, which memory editing runs, starts
+    // `open` the same way, so it shows as a job until it exits
     const pending = [
       ...(children.get(process.pid) ?? []).flatMap(({ pid }) =>
         (children.get(pid) ?? []).filter(({ leadsSession }) => leadsSession),

@@ -1,5 +1,5 @@
-// an agent under Witch: its commands lead their own sessions, as both agents start them, and its MCP server leads
-// its own group without one, as Codex starts it, with a detached helper. prints the two commands' group ids and the
+// an agent under Witch. its commands lead their own sessions, as both agents start them. its MCP server leads its own
+// group without a session, as Codex starts it, and has a detached helper. prints the two commands' group ids and the
 // server's.
 import { spawn } from 'node:child_process';
 import process from 'node:process';
