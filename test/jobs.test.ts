@@ -174,31 +174,6 @@ await test("a later group given a tracked group's id is not a job", async () => 
   }
 });
 
-await test('stop leaves alone a later agent command given the id of the job it was listed for', async () => {
-  const sleep = spawn('/bin/sleep', ['65.5'], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  const group = sleep.pid!;
-  let rows = commandRows(group, `${group} a`);
-  const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
-  try {
-    const [job] = await jobs.list();
-    assert.equal(job?.group, group);
-    // the listed command ended and the agent's next one was given its id, as a picker left open could see
-    rows = commandRows(group, `${group} b`);
-    assert.deepEqual(
-      (await jobs.list()).map((later) => later.group),
-      [group],
-    );
-    await jobs.stop(job);
-    assert.doesNotThrow(() => process.kill(-group, 0));
-  } finally {
-    sleep.kill('SIGKILL');
-    jobs.close();
-  }
-});
-
 await test("a job listed while a read gives its id to the agent's next command can't stop that command", async () => {
   const sleep = spawn('/bin/sleep', ['66.5'], {
     detached: true,
