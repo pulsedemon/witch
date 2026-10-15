@@ -2420,6 +2420,22 @@ await test('a prompt sent while a switch opens the next conversation is refused,
   }
 });
 
+await test('a prompt sent just before a switch stays queued for its conversation, so the switch is refused', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    const { id } = coordinator.snapshot.conversation!;
+    const sending = coordinator.send('Stay');
+    await assert.rejects(coordinator.newConversation(), /still queued/);
+    await sending;
+    await delay(60);
+    assert.equal(coordinator.snapshot.conversation!.id, id);
+    assert.deepEqual(coordinator.snapshot.queue, ['Stay']);
+    assert.deepEqual(a.inputs, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a conversation switch is refused while prompts are queued, which wait with their report showing', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.failConnect = true;

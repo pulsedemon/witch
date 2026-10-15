@@ -304,11 +304,13 @@ export class Coordinator {
   private async openConversation(
     target: { id: string } | { create: Conversation },
   ): Promise<void> {
-    // a queued prompt belongs to the conversation it was sent in, so none is taken until the next one opens
-    if (this.snapshot.queue.length)
-      throw new Error('Prompts are still queued for this conversation');
     this.opening = true;
     try {
+      // a queued prompt belongs to the conversation it was sent in, so none is taken until the next one opens,
+      // including one sent just before the switch whose admission is still pending
+      await this.admitting;
+      if (this.snapshot.queue.length)
+        throw new Error('Prompts are still queued for this conversation');
       const files =
         'id' in target
           ? await this.store.claim(target.id)
