@@ -36,8 +36,8 @@ interface Detail {
 }
 
 /**
- * `ps` with C's dates in UTC and C's decimals, which Date and Number parse whatever the time zone. LC_ALL goes, since
- * it overrides both; LC_ALL=C instead would escape non-ASCII in commands.
+ * `ps` with C's dates and decimals, which Date and Number parse, and dates in UTC so a time zone change keeps every
+ * identity. LC_ALL goes, since it overrides both; LC_ALL=C instead would escape non-ASCII in commands.
  */
 async function ps(args: string[]): Promise<string[]> {
   const { stdout } = await execute('/bin/ps', args, {
