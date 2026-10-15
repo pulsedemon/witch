@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { JobWatch, parseProcesses } from '../src/core/jobs.js';
+import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
 
 /** lists until `ready` holds, failing after five seconds. */
@@ -304,6 +304,15 @@ await test('a job lists with its command intact under any locale', async () => {
     sleep.kill('SIGKILL');
     jobs.close();
   }
+});
+
+await test('a process started before the 10th of a month is described', () => {
+  assert.deepEqual(
+    parseDetails([
+      '  501   501   0.0 Fri Oct  9 22:34:18 2026     sleep 60',
+    ]).map(({ startedAt }) => startedAt),
+    [Date.UTC(2026, 9, 9, 22, 34, 18)],
+  );
 });
 
 await test('a failed background read keeps the jobs it had', async () => {

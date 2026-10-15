@@ -79,6 +79,24 @@ async function processTable(): Promise<Row[]> {
 const detail =
   /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\w+ \w+ +\d+ [\d:]+ \d+)\s+(.*)$/;
 
+/** reads `ps -o pid=,pgid=,%cpu=,lstart=,command=` lines with dates in UTC. */
+export function parseDetails(lines: string[]): Detail[] {
+  return lines.flatMap((line) => {
+    const match = detail.exec(line);
+    return match
+      ? [
+          {
+            pid: Number(match[1]),
+            pgid: Number(match[2]),
+            cpu: Number(match[3]),
+            startedAt: new Date(`${match[4]!} UTC`).getTime(),
+            command: match[5]!,
+          },
+        ]
+      : [];
+  });
+}
+
 async function describe(pids: number[]): Promise<Detail[]> {
   let lines: string[];
   try {
@@ -94,20 +112,7 @@ async function describe(pids: number[]): Promise<Detail[]> {
       return [];
     throw error;
   }
-  return lines.flatMap((line) => {
-    const match = detail.exec(line);
-    return match
-      ? [
-          {
-            pid: Number(match[1]),
-            pgid: Number(match[2]),
-            cpu: Number(match[3]),
-            startedAt: new Date(`${match[4]!} UTC`).getTime(),
-            command: match[5]!,
-          },
-        ]
-      : [];
-  });
+  return parseDetails(lines);
 }
 
 /**
