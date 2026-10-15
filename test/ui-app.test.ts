@@ -1266,6 +1266,13 @@ await test('/jobs lists each job on one row with its CPU, age and command, and s
         cpu: 99.6,
         startedAt: Date.now() - 72_000_000,
       },
+      {
+        group: 4343,
+        generation: 9,
+        command: 'sleep 600',
+        cpu: 0,
+        startedAt: Date.now(),
+      },
     ],
     stop: async ({
       group,
@@ -1291,13 +1298,15 @@ await test('/jobs lists each job on one row with its CPU, age and command, and s
           '100% CPU · 1200M00S · node --import tsx test/screen.test.ts x',
         ),
     );
-    // the row is cut to the picker's 98 cells with an ellipsis, and the 61 before the command's x's leave room for 36
+    // the row is cut to the picker's 98 cells with an ellipsis, and the 61 cells before the command's x's leave room for 36
     assert.ok(ui.text().includes('x'.repeat(36)));
     assert.ok(!ui.text().includes('x'.repeat(37)));
     await delay(30);
+    ui.stdin.write(DOWN);
+    await delay(30);
     ui.stdin.write(ENTER);
     await until('the stop', () => calls.length > 0);
-    assert.deepEqual(calls, [['stop', 4242, 7]]);
+    assert.deepEqual(calls, [['stop', 4343, 9]]);
   } finally {
     ui.unmount();
   }
