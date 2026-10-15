@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
+import { until } from './fixtures/within.js';
 
 /** lists until `ready` holds, failing after five seconds. */
 async function listed(
@@ -446,7 +447,8 @@ await test('a failed background read keeps the jobs it had', async () => {
   try {
     const before = await jobs.list();
     rows = undefined;
-    while (failures < 2) await delay(20);
+    // the timer reads again after a failed read
+    await until('a second failed read', () => failures > 1);
     // the agent exited, leaving its command to launchd
     rows = [
       {
