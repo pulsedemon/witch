@@ -1255,7 +1255,7 @@ await test('reopening the picker resets its selection', async () => {
   }
 });
 
-await test('/jobs lists each job on one row with its CPU, age and command, and stops the chosen group', async () => {
+await test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group', async () => {
   const { app, calls } = fake({});
   const jobs = {
     list: async () => [
@@ -1301,41 +1301,6 @@ await test('/jobs lists each job on one row with its CPU, age and command, and s
     // the row is cut to the picker's 98 cells with an ellipsis, and the 61 cells before the command's x's leave room for 36
     assert.ok(ui.text().includes('x'.repeat(36)));
     assert.ok(!ui.text().includes('x'.repeat(37)));
-    await delay(30);
-    ui.stdin.write(DOWN);
-    await delay(30);
-    ui.stdin.write(ENTER);
-    await until('the stop', () => calls.length > 0);
-    assert.deepEqual(calls, [['stop', 4343, 9]]);
-  } finally {
-    ui.unmount();
-  }
-});
-
-await test('/jobs keeps each job on one row after the terminal narrows', async () => {
-  const { app } = fake({});
-  const jobs = {
-    list: async () =>
-      [1, 2, 3, 4, 5, 6].map((job) => ({
-        group: 4240 + job,
-        generation: job,
-        command: `job${job} ${'x'.repeat(200)}`,
-        cpu: 1,
-        startedAt: Date.now(),
-      })),
-    stop: async () => {},
-  };
-  // eight rows for choices, fewer than the six jobs would take wrapped
-  const ui = show(
-    createElement(App, { coordinator: app, jobs, onExit: () => {} }),
-    100,
-    16,
-  );
-  try {
-    await delay(60);
-    await commands(ui);
-    ui.stdin.write(`jobs${ENTER}`);
-    await until('the jobs picker', () => ui.text().includes('job6'));
     ui.resize(40);
     await delay(30);
     const lines = ui.text().split('\n');
@@ -1346,9 +1311,14 @@ await test('/jobs keeps each job on one row after the terminal narrows', async (
       )
       .filter((row) => row.trim());
     assert.deepEqual(
-      rows.map((row) => /job\d/.exec(row)?.[0]),
-      ['job1', 'job2', 'job3', 'job4', 'job5', 'job6'],
+      rows.map((row) => /node|sleep/.exec(row)?.[0]),
+      ['node', 'sleep'],
     );
+    ui.stdin.write(DOWN);
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the stop', () => calls.length > 0);
+    assert.deepEqual(calls, [['stop', 4343, 9]]);
   } finally {
     ui.unmount();
   }
