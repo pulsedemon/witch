@@ -111,7 +111,7 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
   }
 });
 
-await test("a group that a process its command's shell left behind starts or moves to is a job", async () => {
+await test("a group that a process its command's shell left behind starts or moves to is a job that stops", async () => {
   const jobs = new JobWatch({ interval: 50 });
   const agent = spawn(
     process.execPath,
@@ -133,6 +133,8 @@ await test("a group that a process its command's shell left behind starts or mov
         `perl -e sleep 1; setpgrp(0, 0); sleep 1 while kill 0, ${agent.pid} witch-jobs-fixture`,
       ],
     );
+    for (const job of list) await jobs.stop(job);
+    assert.deepEqual(await jobs.list(), []);
   } finally {
     agent.kill('SIGKILL');
     try {
