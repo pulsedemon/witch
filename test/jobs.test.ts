@@ -125,14 +125,12 @@ await test("a group that a process its command's shell left behind starts or mov
     const list = await listed(jobs, (found) => found.length >= 3);
     // the groups formed after the shell exited, so only the processes it left lead to them
     assert.ok(gone(command));
+    // the subshell starts its perl a second after the other, so it lists last
     assert.deepEqual(
-      list
-        .filter(({ group }) => group !== command)
-        .map((job) => job.command)
-        .sort(),
+      list.filter(({ group }) => group !== command).map((job) => job.command),
       [
-        'perl -e setpgrp(0, 0); sleep 1 while getppid() != 1 witch-jobs-fixture',
         `perl -e sleep 1; setpgrp(0, 0); sleep 1 while kill 0, ${agent.pid} witch-jobs-fixture`,
+        'perl -e setpgrp(0, 0); sleep 1 while getppid() != 1 witch-jobs-fixture',
       ],
     );
     for (const job of list) await jobs.stop(job);
