@@ -2444,6 +2444,29 @@ await test('a failed turn leaves what was queued behind it for the composer inst
   }
 });
 
+await test('a failed handoff continuation leaves what was queued during the switch for the composer', async () => {
+  const { coordinator, b } = await fixture();
+  const gate = new TurnGate();
+  try {
+    await coordinator.send('Start');
+    b.gate = gate;
+    b.failNext = true;
+    const switching = coordinator.switchAgent('b');
+    await within(gate.entered, 2000, 'the continuation');
+    await coordinator.send('/review');
+    gate.open();
+    await switching;
+    await delay(60);
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(coordinator.snapshot.queue, ['/review']);
+    assert.equal(b.inputs.length, 1);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 await test('a prompt sent just before a switch stays queued for its conversation, so the switch is refused', async () => {
   const { coordinator, a } = await fixture();
   try {

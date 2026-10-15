@@ -150,6 +150,8 @@ export class Coordinator {
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
+  /** a turn in the current operation failed, which stops the queue as a report does. */
+  private turnFailed = false;
   private closed = false;
   private draining = false;
   private opening = false;
@@ -394,9 +396,9 @@ export class Coordinator {
     return true;
   }
 
-  /** runs what was sent during an operation once it ends, unless that would clear a report before it shows. */
+  /** runs what was sent during an operation once it ends, unless that would run over a report or failed turn. */
   private drainAfter(): void {
-    if (this.snapshot.error) return;
+    if (this.snapshot.error || this.turnFailed) return;
     this.drain().catch((error: unknown) => this.report(error));
   }
 
@@ -414,18 +416,12 @@ export class Coordinator {
         );
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
-        let failed = false;
         try {
           await this.operate('running', async () => {
             try {
-              const result = await this.performTurn(
-                batch.join('\n'),
-                'turn',
-                () => {
-                  delivered = true;
-                },
-              );
-              failed = result.status === 'failed';
+              await this.performTurn(batch.join('\n'), 'turn', () => {
+                delivered = true;
+              });
             } catch (error) {
               this.report(error);
             }
@@ -435,7 +431,7 @@ export class Coordinator {
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
         }
         // a report or failed turn stays on screen, and the composer takes back what is left; after an interrupt it runs
-        if (!delivered || failed || this.snapshot.error) return;
+        if (!delivered || this.turnFailed || this.snapshot.error) return;
       }
     } finally {
       this.draining = false;
@@ -791,6 +787,7 @@ export class Coordinator {
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {
       this.notice(result.error ?? 'Turn interrupted');
+      if (result.status === 'failed') this.turnFailed = true;
       if (!(await workspace.isDirty())) delete conversation.activity;
     }
     await this.save();
@@ -1167,6 +1164,7 @@ export class Coordinator {
             : 'Stop the current operation first',
       );
     this.cancelled = false;
+    this.turnFailed = false;
     this.publish({ phase, error: undefined });
     this.task = (async () => {
       let failure: unknown;
