@@ -1056,6 +1056,47 @@ await test('reopening the picker resets its selection', async () => {
   }
 });
 
+await test('/jobs lists each job on one row with its CPU, age and command, and stops the chosen group', async () => {
+  const { app, calls } = fake({});
+  const jobs = {
+    list: async () => [
+      {
+        group: 4242,
+        command: `node --import tsx test/screen.test.ts ${'x'.repeat(200)}`,
+        cpu: 99.6,
+        startedAt: Date.now() - 72_000_000,
+      },
+    ],
+    stop: async (group: number) => {
+      calls.push(['stop', group]);
+    },
+  };
+  const ui = show(
+    createElement(App, { coordinator: app, jobs, onExit: () => {} }),
+  );
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`jobs${ENTER}`);
+    await until('the jobs picker', () =>
+      ui
+        .text()
+        .includes(
+          '100% CPU · 1200M00S · node --import tsx test/screen.test.ts x',
+        ),
+    );
+    // the row is cut to 96 of the 100 cells, and the 60 before the command's x's leave room for 36
+    assert.ok(ui.text().includes('x'.repeat(36)));
+    assert.ok(!ui.text().includes('x'.repeat(37)));
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the stop', () => calls.length > 0);
+    assert.deepEqual(calls, [['stop', 4242]]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));

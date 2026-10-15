@@ -8,7 +8,7 @@ Use TypeScript, pnpm, React and Ink in one package. Use strict types, direct imp
 
 ## Ownership
 
-- UI renders coordinator state and submits typed actions. It owns focus, scrolling and hyperlink rendering, not processes or Git. The status line's Git and pull request fields come from `RepositoryWatch` in [repository.ts](../src/core/repository.ts).
+- UI renders coordinator state and submits typed actions. It owns focus, scrolling and hyperlink rendering, not processes or Git. The status line's Git and pull request fields come from `RepositoryWatch` in [repository.ts](../src/core/repository.ts). `/jobs` lists and stops the process groups the agents' commands start, which `JobWatch` in [jobs.ts](../src/core/jobs.ts) tracks.
 - Coordinator owns logical conversations, native session mappings, turn lifecycle and durable handoffs.
 - Adapters own native protocols, processes, permission requests and capabilities.
 - Memory owns scoped files, accepted revisions, Git commits, publishing and interrupted-write recovery.
