@@ -414,12 +414,18 @@ export class Coordinator {
         );
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
+        let failed = false;
         try {
           await this.operate('running', async () => {
             try {
-              await this.performTurn(batch.join('\n'), 'turn', () => {
-                delivered = true;
-              });
+              const result = await this.performTurn(
+                batch.join('\n'),
+                'turn',
+                () => {
+                  delivered = true;
+                },
+              );
+              failed = result.status === 'failed';
             } catch (error) {
               this.report(error);
             }
@@ -428,8 +434,8 @@ export class Coordinator {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
         }
-        // a report stays on screen, and the composer takes back what is left
-        if (!delivered || this.snapshot.error) return;
+        // a report or failed turn stays on screen, and the composer takes back what is left; after an interrupt it runs
+        if (!delivered || failed || this.snapshot.error) return;
       }
     } finally {
       this.draining = false;

@@ -2420,6 +2420,30 @@ await test('a prompt sent while a switch opens the next conversation is refused,
   }
 });
 
+await test('a failed turn leaves what was queued behind it for the composer instead of running it', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    a.failNext = true;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    await coordinator.send('/review');
+    gate.open();
+    await sending;
+    await delay(60);
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(coordinator.snapshot.queue, ['/review']);
+    assert.deepEqual(
+      a.inputs.map(({ prompt }) => prompt.split('User request:\n')[1]),
+      ['Start'],
+    );
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 await test('a prompt sent just before a switch stays queued for its conversation, so the switch is refused', async () => {
   const { coordinator, a } = await fixture();
   try {

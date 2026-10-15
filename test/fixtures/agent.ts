@@ -64,6 +64,8 @@ export class FixtureAgent implements AgentAdapter {
   failClose = false;
   failInterrupt = false;
   interruptNext = false;
+  /** the next turn fails once its gate opens, as a native error ends one. */
+  failNext = false;
   gate?: TurnGate;
   /** what a session reports as its usage when it connects. */
   connectUsage?: Usage;
@@ -212,6 +214,10 @@ export class FixtureAgent implements AgentAdapter {
         const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
         turn = undefined;
         let result = held;
+        if (!result && this.failNext) {
+          this.failNext = false;
+          result = { status: 'failed', text: '', error: 'Overloaded' };
+        }
         if (!result) {
           const text = prompt.includes('handoff summary')
             ? `${this.id}: finish the migration`
