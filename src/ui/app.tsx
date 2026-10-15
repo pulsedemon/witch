@@ -455,7 +455,9 @@ export function App({
               })),
               (id) => {
                 setView({ kind: 'chat' });
-                run(jobs!.stop(Number(id)));
+                run(
+                  jobs!.stop(found.find(({ group }) => String(group) === id)!),
+                );
               },
             );
           })(),

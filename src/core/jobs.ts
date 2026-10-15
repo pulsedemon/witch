@@ -8,6 +8,8 @@ const execute = promisify(execFile);
 export interface Job {
   /** the group's id, which `stop` signals. */
   group: number;
+  /** tells this group from a later one given its id, which `stop` checks. */
+  generation: number;
   /** the command line of its earliest-started process other than the leader, usually the agent's wrapper shell, or of the leader when it runs alone. */
   command: string;
   /** its processes' summed CPU use, in percent of one core. */
@@ -103,7 +105,9 @@ async function describe(pids: number[]): Promise<Detail[]> {
  * does.
  */
 export class JobWatch {
-  private groups = new Set<number>();
+  /** each tracked group's generation. */
+  private groups = new Map<number, number>();
+  private generation = 0;
   /** the tracked groups' processes as of the last read, by identity, with the group each was in. */
   private members = new Map<string, number>();
   private readonly timer: ReturnType<typeof setInterval>;
@@ -143,6 +147,7 @@ export class JobWatch {
         const named = byStart.find(({ pid }) => pid !== group) ?? byStart[0]!;
         return {
           group,
+          generation: this.groups.get(group)!,
           command: named.command,
           cpu: members.reduce((total, { cpu }) => total + cpu, 0),
           startedAt: byStart[0]!.startedAt,
@@ -155,32 +160,35 @@ export class JobWatch {
    * sends the group SIGTERM, then SIGKILL once `grace` passes, since a process stuck in a loop never runs the
    * handlers it registered. returns once no process remains in the group.
    */
-  async stop(group: number): Promise<void> {
+  async stop(job: Pick<Job, 'group' | 'generation'>): Promise<void> {
     const steps = [
       ['SIGTERM', this.options.grace ?? 2000],
       ['SIGKILL', 1000],
     ] as const;
     for (const [signal, wait] of steps) {
-      if (!(await this.running(group))) return;
+      if (!(await this.running(job))) return;
       try {
-        process.kill(-group, signal);
+        process.kill(-job.group, signal);
       } catch (error) {
         // the group can empty, or hold only zombies, which refuse signals, between the read and the signal
-        if (!(await this.running(group))) return;
+        if (!(await this.running(job))) return;
         throw error;
       }
       for (const end = Date.now() + wait; Date.now() < end;) {
         await delay(100);
-        if (!(await this.running(group))) return;
+        if (!(await this.running(job))) return;
       }
     }
-    throw new Error(`Job ${group} has not stopped.`);
+    throw new Error(`Job ${job.group} has not stopped.`);
   }
 
-  /** only a tracked group with a running process is ever signalled. */
-  private async running(group: number): Promise<boolean> {
+  /** only the listed generation of a tracked group with a running process is ever signalled. */
+  private async running({
+    group,
+    generation,
+  }: Pick<Job, 'group' | 'generation'>): Promise<boolean> {
     await this.poll();
-    return this.groups.has(group);
+    return this.groups.get(group) === generation;
   }
 
   /** a read already in flight is shared, since overlapping reads would race on the groups. */
@@ -206,17 +214,24 @@ export class JobWatch {
         ({ ppid, identity }) => ppid === 1 && this.members.has(identity),
       ),
     ];
-    const groups = new Set(
+    const held = new Set(
       rows
         .filter(({ pgid, identity }) => this.members.get(identity) === pgid)
         .map(({ pgid }) => pgid),
     );
+    const groups = new Set(held);
     while (pending.length) {
       const row = pending.pop()!;
       groups.add(row.pgid);
       pending.push(...(children.get(row.pid) ?? []));
     }
-    this.groups = groups;
+    // a group none of whose processes carry over is a new one, even under an id tracked before
+    this.groups = new Map(
+      [...groups].map((group) => [
+        group,
+        held.has(group) ? this.groups.get(group)! : ++this.generation,
+      ]),
+    );
     this.members = new Map(
       rows
         .filter(({ pgid }) => groups.has(pgid))

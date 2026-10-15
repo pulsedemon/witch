@@ -64,14 +64,14 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
       assert.ok(startedAt >= spawnedAt - 1000);
       assert.ok(startedAt <= Date.now());
     }
-    await jobs.stop(server);
+    await jobs.stop({ group: server, generation: 1 });
     assert.doesNotThrow(() => process.kill(-server, 0));
-    for (const { group } of list) await jobs.stop(group);
+    for (const job of list) await jobs.stop(job);
     assert.deepEqual(await jobs.list(), []);
     for (const { group } of list)
       assert.throws(() => process.kill(-group, 0), { code: 'ESRCH' });
     // as a job chosen in a picker opened before it ended
-    await jobs.stop(stuck);
+    await jobs.stop(list.find(({ group }) => group === stuck)!);
   } finally {
     agent.kill('SIGKILL');
     for (const group of [stuck, running])
@@ -158,6 +158,43 @@ await test("a later group given a tracked group's id is not a job", async () => 
       },
     ];
     assert.deepEqual(await jobs.list(), []);
+  } finally {
+    sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
+await test('stop leaves alone a later agent command given the id of the job it was listed for', async () => {
+  const sleep = spawn('/bin/sleep', ['65.5'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const group = sleep.pid!;
+  // above macOS's highest pid, so ps never describes it
+  const agent = 100_000;
+  const command = (identity: string): Row[] => [
+    {
+      pid: agent,
+      ppid: process.pid,
+      pgid: agent,
+      leadsSession: false,
+      identity: `${agent} a`,
+    },
+    { pid: group, ppid: agent, pgid: group, leadsSession: true, identity },
+  ];
+  let rows = command(`${group} a`);
+  const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
+  try {
+    const [job] = await jobs.list();
+    assert.equal(job?.group, group);
+    // the listed command ended and the agent's next one was given its id, as a picker left open could see
+    rows = command(`${group} b`);
+    assert.deepEqual(
+      (await jobs.list()).map((later) => later.group),
+      [group],
+    );
+    await jobs.stop(job);
+    assert.doesNotThrow(() => process.kill(-group, 0));
   } finally {
     sleep.kill('SIGKILL');
     jobs.close();

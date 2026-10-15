@@ -1261,13 +1261,20 @@ await test('/jobs lists each job on one row with its CPU, age and command, and s
     list: async () => [
       {
         group: 4242,
+        generation: 7,
         command: `node --import tsx test/screen.test.ts ${'x'.repeat(200)}`,
         cpu: 99.6,
         startedAt: Date.now() - 72_000_000,
       },
     ],
-    stop: async (group: number) => {
-      calls.push(['stop', group]);
+    stop: async ({
+      group,
+      generation,
+    }: {
+      group: number;
+      generation: number;
+    }) => {
+      calls.push(['stop', group, generation]);
     },
   };
   const ui = show(
@@ -1290,7 +1297,7 @@ await test('/jobs lists each job on one row with its CPU, age and command, and s
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the stop', () => calls.length > 0);
-    assert.deepEqual(calls, [['stop', 4242]]);
+    assert.deepEqual(calls, [['stop', 4242, 7]]);
   } finally {
     ui.unmount();
   }
@@ -1302,6 +1309,7 @@ await test('/jobs keeps each job on one row after the terminal narrows', async (
     list: async () =>
       [1, 2, 3, 4, 5, 6].map((job) => ({
         group: 4240 + job,
+        generation: job,
         command: `job${job} ${'x'.repeat(200)}`,
         cpu: 1,
         startedAt: Date.now(),
