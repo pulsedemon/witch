@@ -1314,6 +1314,25 @@ await test('↑ in an open list moves its selection and leaves the queue', async
   }
 });
 
+await test('Tab and ↑ in one read move through tools and leave the queue', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    items: tools('first'),
+    queue: ['one'],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the queue', () => ui.text().includes('❯ one'));
+    ui.stdin.write(`\t${UP}`);
+    await until('the focused tools', () => ui.text().includes('TAB COMPOSE'));
+    await delay(60);
+    assert.deepEqual(calls, []);
+    assert.ok(ui.text().includes('❯ one'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('↑ with nothing queued leaves the draft as typed', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));

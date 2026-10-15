@@ -520,6 +520,8 @@ export function App({
   };
   /** ↑ on the first line takes the queue back instead of moving the cursor. */
   const arrow = (direction: 'up' | 'down', current: InputBuffer) =>
+    // arrows while tools are focused move through tools, even in the same read as Tab
+    toolFocusRef.current ||
     moveInList(direction, current) ||
     (direction === 'up' &&
       !current.value.slice(0, current.cursor).includes('\n') &&
