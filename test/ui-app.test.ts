@@ -1353,6 +1353,26 @@ await test('/jobs without jobs or with none listed says none are running', async
   }
 });
 
+await test('/jobs reports a list that fails', async () => {
+  const { app, calls } = fake({});
+  const jobs = {
+    list: () => Promise.reject(new Error('ps failed')),
+    stop: async () => {},
+  };
+  const ui = show(
+    createElement(App, { coordinator: app, jobs, onExit: () => {} }),
+  );
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`jobs${ENTER}`);
+    await until('the report', () => calls.length > 0);
+    assert.deepEqual(calls, [['report', 'Error: ps failed']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
