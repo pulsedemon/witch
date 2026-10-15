@@ -216,9 +216,9 @@ export class JobWatch {
   private async read(): Promise<Row[]> {
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
-    // Witch's children include the agents, whose commands lead sessions and whose MCP servers do not; a server's own
-    // detached helpers sit a level deeper and are never reached. VS Code's launcher, which memory editing runs, starts
-    // `open` the same way, so it shows as a job until it exits
+    // the agents' commands lead sessions and their MCP servers don't. a server's detached helpers sit a level deeper
+    // and are never reached, nor is any command of a Codex from npm, whose Node launcher runs app-server as its child.
+    // VS Code's launcher for memory editing starts `open` as a session leader, so it shows as a job until it exits
     const pending = [
       ...(children.get(process.pid) ?? []).flatMap(({ pid }) =>
         (children.get(pid) ?? []).filter(({ leadsSession }) => leadsSession),
