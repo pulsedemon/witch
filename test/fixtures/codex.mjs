@@ -614,6 +614,17 @@ for await (const line of lines) {
     );
     finish('completed');
   }
+  // Codex refuses a turn that has ended, which a prompt of `refused` stands in for
+  if (request.method === 'turn/steer') {
+    writeFileSync(file('steer.json'), JSON.stringify(request));
+    if (request.params.input[0].text !== 'refused')
+      reply({ turnId: request.params.expectedTurnId });
+    else
+      send({
+        id: request.id,
+        error: { code: -32600, message: 'no active turn to steer' },
+      });
+  }
   if (request.method === 'turn/interrupt') {
     reply({});
     await held();

@@ -24,6 +24,7 @@ import { App } from '../src/ui/app.js';
 import { MouseInput } from '../src/ui/mouse.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
+import { until } from './fixtures/within.js';
 
 /** a terminal of a fixed size; without rows, Ink reads the real terminal. Not a TTY, so every write is a whole frame. */
 class Terminal extends EventEmitter {
@@ -81,17 +82,6 @@ function show(element: ReactElement, columns = 100, rows = 40) {
   };
 }
 
-async function until(
-  what: string,
-  predicate: () => boolean | Promise<boolean>,
-) {
-  for (let attempt = 0; attempt < 150; attempt++) {
-    if (await predicate()) return;
-    await delay(20);
-  }
-  assert.fail(`timed out waiting for ${what}`);
-}
-
 /** a link sequence whole, which strip-ansi removes, then split by codes whose removal joins it back up */
 function forgedLink(target: string, text: string) {
   return (
@@ -113,6 +103,7 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     snapshot: {
       phase: 'idle',
       items: [],
+      queue: [],
       requests: [],
       models: [],
       skills: [],
@@ -138,9 +129,12 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       coordinator.snapshot = { ...coordinator.snapshot, ...update };
       for (const listener of listeners) listener();
     },
-    send: async (text: string) => {
-      calls.push(['send', text]);
-      return true;
+    send: record('send'),
+    unqueue: () => {
+      calls.push(['unqueue']);
+      const { queue } = coordinator.snapshot;
+      coordinator.publish({ queue: [] });
+      return [...queue];
     },
     interrupt: record('interrupt'),
     respond: record('respond'),
@@ -686,6 +680,33 @@ await test('an initial prompt is sent once when the load ends idle with nothing 
   }
 });
 
+await test('a prompt sent while the load connects goes after the initial prompt, which stays out of the draft', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'starting' });
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      initialPrompt: 'say hello',
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('and then this');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the sends', () => calls.length > 1);
+    coordinator.publish({ phase: 'running' });
+    await delay(60);
+    assert.deepEqual(calls, [
+      ['send', 'say hello'],
+      ['send', 'and then this'],
+    ]);
+    assert.ok(!ui.text().includes('say hello'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const [name, update, focusTools] of [
   [
     'recovery',
@@ -741,35 +762,75 @@ for (const [name, update, focusTools] of [
   });
 }
 
-await test('a prompt the agent never got comes back into an empty composer and leaves a new draft alone', async () => {
-  for (const retyped of [false, true]) {
-    const { app, coordinator, calls } = fake({});
-    const delivery = Promise.withResolvers<boolean>();
-    Object.assign(coordinator, {
-      send: (text: string) => {
-        calls.push(['send', text]);
-        return delivery.promise;
-      },
+await test('an initial prompt that comes back to the composer goes ahead of a draft typed while connecting', async () => {
+  const { app, coordinator } = fake({ phase: 'starting' });
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      initialPrompt: 'say hello',
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('typed');
+    await until('the draft', () => ui.text().includes('┃ typed'));
+    coordinator.publish({
+      phase: 'idle',
+      error: 'These conversations need attention.',
+    });
+    await until('the seeded composer', () => ui.text().includes('┃ say hello'));
+    const text = ui.text();
+    assert.ok(text.indexOf('┃ say hello') < text.indexOf('┃ typed'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('queued prompts left at idle or in an error come back ahead of the draft, also while a view covers the composer', async () => {
+  for (const [phase, covered] of [
+    ['idle', false],
+    ['idle', true],
+    ['error', false],
+  ] as const) {
+    const { app, coordinator, calls } = fake({ phase: 'running' });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      ui.stdin.write('newer');
+      await until('the draft', () => ui.text().includes('┃ newer'));
+      if (covered) {
+        ui.stdin.write('\u0010');
+        await until('the picker', () => ui.text().includes('Commands'));
+      }
+      coordinator.publish({
+        phase,
+        queue: ['hello'],
+        ...(phase === 'error' ? { error: 'Restart Witch.' } : {}),
+      });
+      await until('the queue taken back', () => calls.length > 0);
+      if (covered) ui.stdin.write('\u001b');
+      await until('the queued prompt', () => ui.text().includes('┃ hello'));
+      assert.ok(ui.text().indexOf('┃ hello') < ui.text().indexOf('┃ newer'));
+      assert.deepEqual(calls, [['unqueue']]);
+    } finally {
+      ui.unmount();
+    }
+  }
+});
+
+await test('the composer takes typing while an open conversation connects, and none before the load opens one', async () => {
+  for (const open of [true, false]) {
+    const { app } = fake({
+      phase: 'starting',
+      ...(open ? {} : { conversation: undefined }),
     });
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
       await delay(60);
       ui.stdin.write('hello');
-      await delay(30);
-      ui.stdin.write('\r');
-      await until('the send', () => calls.length === 1);
-      if (retyped) {
-        await delay(30);
-        ui.stdin.write('newer');
-        await until('the new draft', () => ui.text().includes('┃ newer'));
-      }
-      delivery.resolve(false);
       await delay(60);
-      if (retyped) {
-        assert.ok(ui.text().includes('┃ newer'));
-        assert.ok(!ui.text().includes('┃ hello'));
-      } else
-        await until('the restored prompt', () => ui.text().includes('┃ hello'));
+      assert.equal(ui.text().includes('┃ hello'), open);
     } finally {
       ui.unmount();
     }
@@ -990,6 +1051,102 @@ for (const [typed, call] of [
     }
   });
 
+await test('the composer takes no typing while a switch shows the conversation it leaves, also after a second switch is refused, and takes it once the next one opens', async () => {
+  const { coordinator, app, calls } = fake({});
+  const switching = Promise.withResolvers<void>();
+  coordinator.newConversation = async (...args: unknown[]) => {
+    calls.push(['newConversation', ...args]);
+    if (coordinator.snapshot.phase !== 'idle')
+      throw new Error('Stop the current operation first');
+    coordinator.publish({ phase: 'starting' });
+    await switching.promise;
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/new b');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    ui.stdin.write('hello');
+    await delay(60);
+    assert.ok(!ui.text().includes('┃ hello'));
+    await commands(ui);
+    ui.stdin.write(`new${ENTER}`);
+    await until('the refused switch', () =>
+      calls.some(([call]) => call === 'report'),
+    );
+    await delay(60);
+    ui.stdin.write('again');
+    await delay(60);
+    assert.ok(!ui.text().includes('┃ again'));
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+    });
+    await delay(60);
+    ui.stdin.write('there');
+    await until('typing in the next conversation', () =>
+      ui.text().includes('┃ there'),
+    );
+  } finally {
+    switching.resolve();
+    ui.unmount();
+  }
+});
+
+await test('a prompt sent in the same read as a switch stays in the draft of the conversation it was typed in', async () => {
+  const { coordinator, app, calls } = fake({});
+  const switching = Promise.withResolvers<void>();
+  coordinator.newConversation = async (...args: unknown[]) => {
+    calls.push(['newConversation', ...args]);
+    coordinator.publish({ phase: 'starting' });
+    await switching.promise;
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`/new b${ENTER}hello${ENTER}`);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    assert.deepEqual(calls, [['newConversation', 'b']]);
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+      phase: 'idle',
+    });
+    switching.resolve();
+    await until('the next conversation', () => !ui.text().includes('┃ hello'));
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c' },
+    });
+    await until('the kept draft', () => ui.text().includes('┃ hello'));
+  } finally {
+    switching.resolve();
+    ui.unmount();
+  }
+});
+
+await test('the composer takes typing again once a switch fails', async () => {
+  const { coordinator, app, calls } = fake({});
+  coordinator.newConversation = async (...args: unknown[]) => {
+    calls.push(['newConversation', ...args]);
+    throw new Error('Prompts are still queued for this conversation');
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/new b');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    ui.stdin.write('hello');
+    await until('typing', () => ui.text().includes('┃ hello'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 /** opens the command picker and waits for it. */
 async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
@@ -1020,6 +1177,43 @@ for (const [name, keys] of [
       ui.unmount();
     }
   });
+
+await test('a conversation picked in /sessions keeps the composer from typing until it opens', async () => {
+  const { coordinator, app, calls } = fake({});
+  const switching = Promise.withResolvers<void>();
+  coordinator.selectConversation = async (...args: unknown[]) => {
+    calls.push(['selectConversation', ...args]);
+    coordinator.publish({ phase: 'starting' });
+    await switching.promise;
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`sess${ENTER}`);
+    await until('the conversations picker', () =>
+      ui.text().includes('Other · a'),
+    );
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the switch', () => calls.length > 0);
+    await delay(60);
+    ui.stdin.write('hello');
+    await delay(60);
+    assert.ok(!ui.text().includes('┃ hello'));
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
+    });
+    await delay(60);
+    ui.stdin.write('there');
+    await until('typing in the next conversation', () =>
+      ui.text().includes('┃ there'),
+    );
+  } finally {
+    switching.resolve();
+    ui.unmount();
+  }
+});
 
 await test('a filter resets the picker selection within the same read', async () => {
   const { app, calls } = fake({});
@@ -1127,7 +1321,7 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
   }
 });
 
-await test('Enter during a turn keeps the draft and sends nothing', async () => {
+await test('Enter during a turn sends the draft and empties the composer', async () => {
   const { app, calls } = fake({ phase: 'running' });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -1135,14 +1329,120 @@ await test('Enter during a turn keeps the draft and sends nothing', async () => 
     ui.stdin.write('hello');
     await delay(30);
     ui.stdin.write(ENTER);
-    await until('the report', () => calls.length > 0);
-    assert.deepEqual(calls, [
-      [
-        'report',
-        'Wait for this operation to finish, or press Escape to interrupt.',
-      ],
-    ]);
-    assert.ok(ui.text().includes('┃ hello'));
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', 'hello']]);
+    await until('the empty composer', () =>
+      ui.text().includes('┃ Ask the agent'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('queued prompts show above the activity row with a hint, and ↑ on the first line takes them back ahead of the draft, where ↑ on a later line moves the cursor', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    queue: ['one', 'two\nlines'],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the queue', () => ui.text().includes('❯ two lines'));
+    const lines = ui.text().split('\n');
+    const activity = lines.findIndex((line) =>
+      line.includes('ESC TO INTERRUPT'),
+    );
+    assert.deepEqual(
+      lines.slice(activity - 2, activity).map((line) => line.trim()),
+      ['❯ one', '❯ two lines'],
+    );
+    assert.ok(ui.text().includes('┃ Press ↑ to edit queued messages'));
+    ui.stdin.write('first');
+    ui.stdin.write(SHIFT_ENTER);
+    ui.stdin.write('second');
+    await until('the draft', () => ui.text().includes('┃ second'));
+    ui.stdin.write(UP);
+    await delay(60);
+    assert.deepEqual(calls, []);
+    ui.stdin.write(UP);
+    await until('the queue taken back', () => !ui.text().includes('❯ one'));
+    assert.deepEqual(calls, [['unqueue']]);
+    const rows = ['┃ one', '┃ two', '┃ lines', '┃ first', '┃ second'].map(
+      (row) => ui.text().indexOf(row),
+    );
+    assert.ok(
+      rows.every((row, index) => row >= 0 && row > (rows[index - 1] ?? -1)),
+      ui.text(),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a queue longer than the free rows shows its first prompts and keeps the composer in view', async () => {
+  const { app } = fake({
+    phase: 'running',
+    queue: Array.from({ length: 60 }, (_, index) => `prompt ${index}`),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    20,
+  );
+  try {
+    await until('the queue', () => ui.text().includes('❯ prompt 0'));
+    assert.ok(ui.text().includes('┃ Press ↑ to edit queued messages'));
+    assert.ok(!ui.text().includes('❯ prompt 59'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('↑ in an open list moves its selection and leaves the queue', async () => {
+  const { app, calls } = fake({ phase: 'running', queue: ['one'] });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the queue', () => ui.text().includes('❯ one'));
+    ui.stdin.write('/');
+    await delay(60);
+    ui.stdin.write(UP);
+    await delay(60);
+    assert.deepEqual(calls, []);
+    assert.ok(ui.text().includes('❯ one'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Tab and ↑ in one read move through tools and leave the queue', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    items: tools('first'),
+    queue: ['one'],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the queue', () => ui.text().includes('❯ one'));
+    ui.stdin.write(`\t${UP}`);
+    await until('the focused tools', () => ui.text().includes('TAB COMPOSE'));
+    await delay(60);
+    assert.deepEqual(calls, []);
+    assert.ok(ui.text().includes('❯ one'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('↑ with nothing queued leaves the draft as typed', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('abc');
+    await delay(30);
+    ui.stdin.write(UP);
+    await delay(60);
+    assert.deepEqual(calls, []);
+    assert.ok(ui.text().includes('┃ abc'));
   } finally {
     ui.unmount();
   }

@@ -20,7 +20,7 @@ import type {
   Usage,
   UserRequest,
 } from '../src/agents/types.js';
-import { within } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 const claude = fileURLToPath(new URL('fixtures/claude.mjs', import.meta.url));
 
@@ -369,7 +369,94 @@ await test('an interrupt that leaves the prompt queued closes the session', asyn
     await within(seen, 2000, 'first output');
     await within(session.interrupt(), 2000, 'interrupt');
     assert.equal(session.closed, true);
-    assert.deepEqual(await turn, { status: 'interrupted', text: 'Working.' });
+    assert.deepEqual(await turn, {
+      status: 'interrupted',
+      text: 'Working.',
+      unread: [],
+    });
+    await within(exited, 1000, 'CLI exit');
+  } finally {
+    await session.close();
+  }
+});
+
+await test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result', async () => {
+  const { seen, onEvent } = working();
+  // the fixture sends this text after the result, while the turn waits for native idle
+  const awaitingIdle = Promise.withResolvers<void>();
+  const { session, cwd } = await fixture((event) => {
+    onEvent(event);
+    if (event.type === 'text' && event.text === 'running')
+      awaitingIdle.resolve();
+  });
+  try {
+    assert.equal(await session.steer('too early'), false);
+    const turn = session.send('steerable');
+    await within(seen, 2000, 'first output');
+    assert.equal(await session.steer('also this'), true);
+    assert.equal(await session.steer('wrap up'), true);
+    assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+    assert.deepEqual(
+      (await readFile(join(cwd, 'steered.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as unknown),
+      ['also this', 'wrap up'],
+    );
+    const waiting = session.send('wait for idle');
+    await writeFile(join(cwd, 'allow-running'), 'yes');
+    await within(awaitingIdle.promise, 2000, 'the result');
+    assert.equal(await session.steer('too late'), false);
+    for (const state of ['requires_action', 'idle'])
+      await writeFile(join(cwd, `allow-${state}`), 'yes');
+    await within(waiting, 2000, 'idle');
+  } finally {
+    await session.close();
+  }
+});
+
+await test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
+  const { seen, onEvent } = working();
+  const { session } = await fixture(onEvent);
+  try {
+    const turn = session.send('steerable');
+    await within(seen, 2000, 'first output');
+    const interrupting = session.interrupt();
+    assert.equal(await session.steer('after the interrupt'), false);
+    await within(interrupting, 2000, 'interrupt');
+    assert.equal((await turn).status, 'interrupted');
+    const next = session.send('wait');
+    const closing = session.close();
+    assert.equal(await session.steer('after the close'), false);
+    await within(closing, 2000, 'close');
+    assert.equal((await next).status, 'failed');
+  } finally {
+    await session.close();
+  }
+});
+
+await test('an interrupt that leaves steered prompts queued closes the session and reports only those unread', async () => {
+  const { seen, onEvent } = working();
+  const { session, child, cwd } = await fixture(onEvent);
+  try {
+    const exited = once(child, 'exit');
+    const turn = session.send('steerable');
+    await within(seen, 2000, 'first output');
+    assert.equal(await session.steer('also this'), true);
+    assert.equal(await session.steer('and this'), true);
+    await until('the CLI to hold both', () =>
+      readFile(join(cwd, 'steered.jsonl'), 'utf8').then(
+        (text) => text.trim().split('\n').length === 2,
+        () => false,
+      ),
+    );
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.equal(session.closed, true);
+    assert.deepEqual(await turn, {
+      status: 'interrupted',
+      text: 'Working.',
+      unread: ['and this'],
+    });
     await within(exited, 1000, 'CLI exit');
   } finally {
     await session.close();

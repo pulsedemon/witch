@@ -1,3 +1,6 @@
+import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
+
 export async function within<T>(
   promise: Promise<T>,
   milliseconds: number,
@@ -17,4 +20,15 @@ export async function within<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function until(
+  what: string,
+  predicate: () => boolean | Promise<boolean>,
+) {
+  for (let attempt = 0; attempt < 150; attempt++) {
+    if (await predicate()) return;
+    await delay(20);
+  }
+  assert.fail(`timed out waiting for ${what}`);
 }

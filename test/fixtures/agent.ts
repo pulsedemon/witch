@@ -44,6 +44,12 @@ export class FixtureAgent implements AgentAdapter {
   readonly label: string;
   readonly inputs: { session: string; prompt: string; skill?: SkillCall }[] =
     [];
+  /** prompts steered into a turn in flight. */
+  readonly steers: string[] = [];
+  /** an interrupt reports the turn's steered prompts unread, as Claude Code does for those it still holds. */
+  unreadOnInterrupt = false;
+  /** the turn in flight refuses steered prompts, as Codex refuses one for a turn that has just ended. */
+  refuseSteer = false;
   /** what each session's `skills()` returns. */
   skills: Skill[] = [];
   failSkills = false;
@@ -58,6 +64,8 @@ export class FixtureAgent implements AgentAdapter {
   failClose = false;
   failInterrupt = false;
   interruptNext = false;
+  /** the next turn fails once its gate opens, as a native error ends one. */
+  failNext = false;
   gate?: TurnGate;
   /** what a session reports as its usage when it connects. */
   connectUsage?: Usage;
@@ -94,6 +102,7 @@ export class FixtureAgent implements AgentAdapter {
     await options.onProcess(sleeper.pid);
     let closed = false;
     let turn: PromiseWithResolvers<TurnResult> | undefined;
+    let steered: string[] = [];
     let usage: Usage = this.connectUsage ?? {};
     const session: AgentSession = {
       get info() {
@@ -148,9 +157,19 @@ export class FixtureAgent implements AgentAdapter {
       respond: (id, response) => {
         this.responses.push([id, response]);
       },
+      steer: async (prompt) => {
+        if (!turn || closed || this.refuseSteer) return false;
+        this.steers.push(prompt);
+        steered.push(prompt);
+        return true;
+      },
       interrupt: async () => {
         if (this.failInterrupt) throw new Error('Interrupt failed');
-        turn?.resolve({ status: 'interrupted', text: '' });
+        turn?.resolve({
+          status: 'interrupted',
+          text: '',
+          ...(this.unreadOnInterrupt ? { unread: steered } : {}),
+        });
       },
       close: async () => {
         closed = true;
@@ -191,9 +210,14 @@ export class FixtureAgent implements AgentAdapter {
           return { status: 'interrupted', text: '' };
         }
         turn = Promise.withResolvers<TurnResult>();
+        steered = [];
         const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
         turn = undefined;
         let result = held;
+        if (!result && this.failNext) {
+          this.failNext = false;
+          result = { status: 'failed', text: '', error: 'Overloaded' };
+        }
         if (!result) {
           const text = prompt.includes('handoff summary')
             ? `${this.id}: finish the migration`
