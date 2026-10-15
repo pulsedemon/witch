@@ -1328,6 +1328,21 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
   }
 });
 
+await test('/jobs without jobs says none are running', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`jobs${ENTER}`);
+    await until('the empty picker', () =>
+      ui.text().includes('No jobs are running'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
