@@ -356,6 +356,20 @@ export function App({
         ),
     );
   };
+  const showJobs = async () => {
+    const found = (await jobs?.list()) ?? [];
+    picker(
+      found.length ? 'Jobs · choose one to stop' : 'No jobs are running',
+      found.map((job) => ({
+        id: String(job.group),
+        label: `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
+      })),
+      (id) => {
+        setView({ kind: 'chat' });
+        run(jobs!.stop(found.find(({ group }) => String(group) === id)!));
+      },
+    );
+  };
   const selectModel = (id: string) => {
     const efforts =
       coordinator.snapshot.models.find((model) => model.id === id)?.efforts ??
@@ -439,26 +453,7 @@ export function App({
         run(showMemory());
         break;
       case 'jobs':
-        run(
-          (async () => {
-            const found = (await jobs?.list()) ?? [];
-            picker(
-              found.length
-                ? 'Jobs · choose one to stop'
-                : 'No jobs are running',
-              found.map((job) => ({
-                id: String(job.group),
-                label: `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
-              })),
-              (id) => {
-                setView({ kind: 'chat' });
-                run(
-                  jobs!.stop(found.find(({ group }) => String(group) === id)!),
-                );
-              },
-            );
-          })(),
-        );
+        run(showJobs());
         break;
       case 'help':
         setPageScroll(0);
