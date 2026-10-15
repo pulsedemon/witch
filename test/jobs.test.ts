@@ -30,6 +30,29 @@ function gone(pid: number): boolean {
   }
 }
 
+/** an agent whose pid is above macOS's highest, so ps never describes it. */
+const agentRow: Row = {
+  pid: 100_000,
+  ppid: process.pid,
+  pgid: 100_000,
+  leadsSession: false,
+  identity: '100000 a',
+};
+
+/** an agent's command led by `group`, as the process table shows it. */
+function commandRows(group: number, identity: string): Row[] {
+  return [
+    agentRow,
+    {
+      pid: group,
+      ppid: agentRow.pid,
+      pgid: group,
+      leadsSession: true,
+      identity,
+    },
+  ];
+}
+
 await test("jobs are the groups an agent's commands start, one stays listed after its leader exits, and stop kills a member that ignores SIGTERM and leaves other groups alone", async () => {
   const jobs = new JobWatch({ interval: 50, grace: 300 });
   const spawnedAt = Date.now();
@@ -124,24 +147,7 @@ await test("a later group given a tracked group's id is not a job", async () => 
     stdio: 'ignore',
   });
   const group = sleep.pid!;
-  // above macOS's highest pid, so ps never describes it
-  const agent = 100_000;
-  let rows: Row[] = [
-    {
-      pid: agent,
-      ppid: process.pid,
-      pgid: agent,
-      leadsSession: false,
-      identity: `${agent} a`,
-    },
-    {
-      pid: group,
-      ppid: agent,
-      pgid: group,
-      leadsSession: true,
-      identity: `${group} a`,
-    },
-  ];
+  let rows = commandRows(group, `${group} a`);
   const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
   try {
     assert.deepEqual(
@@ -171,25 +177,13 @@ await test('stop leaves alone a later agent command given the id of the job it w
     stdio: 'ignore',
   });
   const group = sleep.pid!;
-  // above macOS's highest pid, so ps never describes it
-  const agent = 100_000;
-  const command = (identity: string): Row[] => [
-    {
-      pid: agent,
-      ppid: process.pid,
-      pgid: agent,
-      leadsSession: false,
-      identity: `${agent} a`,
-    },
-    { pid: group, ppid: agent, pgid: group, leadsSession: true, identity },
-  ];
-  let rows = command(`${group} a`);
+  let rows = commandRows(group, `${group} a`);
   const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
   try {
     const [job] = await jobs.list();
     assert.equal(job?.group, group);
     // the listed command ended and the agent's next one was given its id, as a picker left open could see
-    rows = command(`${group} b`);
+    rows = commandRows(group, `${group} b`);
     assert.deepEqual(
       (await jobs.list()).map((later) => later.group),
       [group],
@@ -208,25 +202,13 @@ await test("a job listed while a read gives its id to the agent's next command c
     stdio: 'ignore',
   });
   const group = sleep.pid!;
-  // above macOS's highest pid, so ps never describes it
-  const agent = 100_000;
-  const command = (identity: string): Row[] => [
-    {
-      pid: agent,
-      ppid: process.pid,
-      pgid: agent,
-      leadsSession: false,
-      identity: `${agent} a`,
-    },
-    { pid: group, ppid: agent, pgid: group, leadsSession: true, identity },
-  ];
-  let rows = command(`${group} a`);
+  let rows = commandRows(group, `${group} a`);
   const jobs = new JobWatch({ interval: 60_000, processes: async () => rows });
   try {
     const listing = jobs.list();
     // the listing has read and waits on ps for the details
     await new Promise(setImmediate);
-    rows = command(`${group} b`);
+    rows = commandRows(group, `${group} b`);
     assert.deepEqual(
       (await jobs.list()).map((later) => later.group),
       [group],
@@ -245,24 +227,9 @@ await test('a process that left its tracked group before ps describes it is not 
   const [leader, moved] = ['67.5', '68.5'].map((seconds) =>
     spawn('/bin/sleep', [seconds], { detached: true, stdio: 'ignore' }),
   ) as [ChildProcess, ChildProcess];
-  // above macOS's highest pid, so ps never describes it
-  const agent = 100_000;
-  // the read saw the second in the leader's group, which it has since left for a session of its own
+  // the read saw the second sleep in the leader's group, which it has since left for a session of its own
   const rows: Row[] = [
-    {
-      pid: agent,
-      ppid: process.pid,
-      pgid: agent,
-      leadsSession: false,
-      identity: `${agent} a`,
-    },
-    {
-      pid: leader.pid!,
-      ppid: agent,
-      pgid: leader.pid!,
-      leadsSession: true,
-      identity: `${leader.pid} a`,
-    },
+    ...commandRows(leader.pid!, `${leader.pid} a`),
     {
       pid: moved.pid!,
       ppid: leader.pid!,
@@ -318,6 +285,73 @@ await test('a time zone change keeps an orphaned job and its generation', async 
       } catch {
         // already empty
       }
+    jobs.close();
+  }
+});
+
+await test('a failed background read keeps the jobs it had', async () => {
+  const sleep = spawn('/bin/sleep', ['71.5'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const group = sleep.pid!;
+  let rows: Row[] | undefined = commandRows(group, `${group} a`);
+  let failures = 0;
+  const jobs = new JobWatch({
+    interval: 20,
+    processes: async () => {
+      if (rows) return rows;
+      failures++;
+      throw new Error('ps failed');
+    },
+  });
+  // CPU use moves between reads
+  const withoutCpu = (list: Job[]) => list.map((job) => ({ ...job, cpu: 0 }));
+  try {
+    const before = await jobs.list();
+    rows = undefined;
+    while (failures < 2) await delay(20);
+    // the agent exited, leaving its command to launchd
+    rows = [
+      {
+        pid: group,
+        ppid: 1,
+        pgid: group,
+        leadsSession: true,
+        identity: `${group} a`,
+      },
+    ];
+    assert.deepEqual(withoutCpu(await jobs.list()), withoutCpu(before));
+  } finally {
+    sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
+await test('a job whose processes exit after a read lists as nothing and stops without an error', async () => {
+  const sleep = spawn('/bin/sleep', ['72.5'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const group = sleep.pid!;
+  // how many more reads still show the command, as one taken just before it exits does
+  let stale = Infinity;
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () =>
+      stale-- > 0 ? commandRows(group, `${group} a`) : [agentRow],
+  });
+  try {
+    const [job] = await jobs.list();
+    assert.equal(job?.group, group);
+    sleep.kill('SIGKILL');
+    await once(sleep, 'exit');
+    // ps describes none of the read's processes
+    assert.deepEqual(await jobs.list(), []);
+    // the signal finds the group empty, and the read after it no longer shows the command
+    stale = 1;
+    await jobs.stop(job!);
+  } finally {
     jobs.close();
   }
 });
