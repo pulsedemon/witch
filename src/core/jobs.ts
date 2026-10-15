@@ -144,16 +144,13 @@ export class JobWatch {
 
   /** the tracked jobs as of a fresh read, oldest first. */
   async list(): Promise<Job[]> {
-    const rows = await this.poll();
+    const tracked = await this.poll();
     // a read during describe replaces the map, so this keeps the generations of the read these rows came from
     const groups = this.groups;
-    const pids = rows
-      .filter(({ pgid }) => groups.has(pgid))
-      .map(({ pid }) => pid);
-    if (!pids.length) return [];
+    if (!tracked.length) return [];
     // ps reports a process's group as it is by then, which can be one the read never tracked
-    const details = (await describe(pids)).filter(({ pgid }) =>
-      groups.has(pgid),
+    const details = (await describe(tracked.map(({ pid }) => pid))).filter(
+      ({ pgid }) => groups.has(pgid),
     );
     return [...Map.groupBy(details, ({ pgid }) => pgid)]
       .map(([group, members]) => {
@@ -246,11 +243,10 @@ export class JobWatch {
         held.has(group) ? this.groups.get(group)! : ++this.generation,
       ]),
     );
+    const tracked = rows.filter(({ pgid }) => groups.has(pgid));
     this.members = new Map(
-      rows
-        .filter(({ pgid }) => groups.has(pgid))
-        .map(({ identity, pgid }) => [identity, pgid]),
+      tracked.map(({ identity, pgid }) => [identity, pgid]),
     );
-    return rows;
+    return tracked;
   }
 }
