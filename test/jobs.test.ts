@@ -359,6 +359,31 @@ await test('a job whose processes exit after a read lists as nothing and stops w
   }
 });
 
+await test('a job whose processes exited is gone before they are reaped', async () => {
+  const jobs = new JobWatch({ interval: 60_000 });
+  // an agent that never reaps its command
+  const agent = spawn(
+    '/usr/bin/perl',
+    [
+      '-e',
+      'use POSIX; $| = 1; my $pid = fork; if (!$pid) { setsid(); sleep 1 while getppid() != 1; exit } print "$pid\\n"; sleep 1 while getppid() != 1',
+      'witch-jobs-fixture',
+    ],
+    { stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  const command = Number(String((await once(agent.stdout, 'data'))[0]).trim());
+  try {
+    const [job] = await listed(jobs, (found) => found.length > 0);
+    assert.equal(job?.group, command);
+    process.kill(command, 'SIGKILL');
+    await listed(jobs, (found) => !found.length);
+    await jobs.stop(job!);
+  } finally {
+    agent.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
 await test('stop sends SIGTERM before SIGKILL', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'witch-jobs-'));
   const shell = spawn(
