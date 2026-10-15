@@ -27,7 +27,7 @@ import { FixtureAgent } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import { until } from './fixtures/within.js';
 
-/** a terminal of a fixed size; without rows, Ink reads the real terminal. Not a TTY, so every write is a whole frame. */
+/** a terminal of the given size until `resize` changes its columns; without rows, Ink reads the real terminal. not a TTY, so every write is a whole frame. */
 class Terminal extends EventEmitter {
   readonly frames: string[] = [];
   constructor(
