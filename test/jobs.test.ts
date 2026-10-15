@@ -84,7 +84,7 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
   }
 });
 
-await test("a group started by a process its command's shell left behind is a job", async () => {
+await test("a group that a process its command's shell left behind starts or moves to is a job", async () => {
   const jobs = new JobWatch({ interval: 50 });
   const agent = spawn(
     process.execPath,
@@ -93,13 +93,17 @@ await test("a group started by a process its command's shell left behind is a jo
   );
   const command = Number(String((await once(agent.stdout, 'data'))[0]).trim());
   try {
-    const list = await listed(jobs, (found) => found.length >= 2);
-    // the group started after the shell exited, so only its orphaned parent leads to it
+    const list = await listed(jobs, (found) => found.length >= 3);
+    // the groups formed after the shell exited, so only the processes it left lead to them
     assert.ok(gone(command));
     assert.deepEqual(
-      list.filter(({ group }) => group !== command).map((job) => job.command),
+      list
+        .filter(({ group }) => group !== command)
+        .map((job) => job.command)
+        .sort(),
       [
         'perl -e setpgrp(0, 0); sleep 1 while getppid() != 1 witch-jobs-fixture',
+        `perl -e sleep 1; setpgrp(0, 0); sleep 1 while kill 0, ${agent.pid} witch-jobs-fixture`,
       ],
     );
   } finally {

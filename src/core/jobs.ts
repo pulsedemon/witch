@@ -103,8 +103,9 @@ async function describe(pids: number[]): Promise<Detail[]> {
  * does.
  */
 export class JobWatch {
-  /** each tracked group's processes as of the last read, by identity. */
-  private groups = new Map<number, Set<string>>();
+  private groups = new Set<number>();
+  /** the tracked groups' processes as of the last read, by identity, with the group each was in. */
+  private members = new Map<string, number>();
   private readonly timer: ReturnType<typeof setInterval>;
   private polling?: Promise<Row[]>;
 
@@ -194,25 +195,33 @@ export class JobWatch {
   private async read(): Promise<Row[]> {
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
-    const held = ({ pgid, identity }: Row) =>
-      !!this.groups.get(pgid)?.has(identity);
     // Witch's children include the agents, whose commands lead sessions and whose MCP servers do not; a server's own
     // detached helpers sit a level deeper and are never reached
     const pending = [
       ...(children.get(process.pid) ?? []).flatMap(({ pid }) =>
         (children.get(pid) ?? []).filter(({ leadsSession }) => leadsSession),
       ),
-      // a command's process orphaned to launchd is reached through its group, so what it starts later is too
-      ...rows.filter((row) => row.ppid === 1 && held(row)),
+      // a command's process orphaned to launchd is reached by its identity, so a group it starts or moves to later is too
+      ...rows.filter(
+        ({ ppid, identity }) => ppid === 1 && this.members.has(identity),
+      ),
     ];
-    const groups = new Set(rows.filter(held).map(({ pgid }) => pgid));
+    const groups = new Set(
+      rows
+        .filter(({ pgid, identity }) => this.members.get(identity) === pgid)
+        .map(({ pgid }) => pgid),
+    );
     while (pending.length) {
       const row = pending.pop()!;
       groups.add(row.pgid);
       pending.push(...(children.get(row.pid) ?? []));
     }
-    this.groups = new Map([...groups].map((group) => [group, new Set()]));
-    for (const row of rows) this.groups.get(row.pgid)?.add(row.identity);
+    this.groups = groups;
+    this.members = new Map(
+      rows
+        .filter(({ pgid }) => groups.has(pgid))
+        .map(({ identity, pgid }) => [identity, pgid]),
+    );
     return rows;
   }
 }
