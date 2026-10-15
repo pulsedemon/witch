@@ -415,3 +415,33 @@ await test('stop sends SIGTERM before SIGKILL', async () => {
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+await test('stop rejects while reads still show a job it signalled', async () => {
+  // the echo comes after the trap, so SIGTERM can't arrive first
+  const sleep = spawn(
+    '/bin/sh',
+    ['-c', 'trap "" TERM; echo; exec sleep 74.5'],
+    {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    },
+  );
+  await once(sleep.stdout, 'data');
+  const group = sleep.pid!;
+  const jobs = new JobWatch({
+    interval: 60_000,
+    grace: 100,
+    processes: async () => commandRows(group, `${group} a`),
+  });
+  try {
+    const [job] = await jobs.list();
+    await assert.rejects(jobs.stop(job!), {
+      message: `Job ${group} has not stopped.`,
+    });
+    // SIGKILL ended the group, so the next signal fails
+    await assert.rejects(jobs.stop(job!), { code: 'ESRCH' });
+  } finally {
+    sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
