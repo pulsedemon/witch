@@ -1300,8 +1300,7 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
         ),
     );
     // the row is cut to the picker's 98 cells with an ellipsis, and the 61 cells before the command's x's leave room for 36
-    assert.ok(ui.text().includes('x'.repeat(36)));
-    assert.ok(!ui.text().includes('x'.repeat(37)));
+    assert.ok(ui.text().includes(`test/screen.test.ts ${'x'.repeat(36)}…`));
     ui.resize(40);
     await delay(30);
     const lines = ui.text().split('\n');
