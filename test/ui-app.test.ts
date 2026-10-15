@@ -1322,6 +1322,10 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
       ['stop', 4343, 9],
       ['report', 'Error: Job 4343 has not stopped.'],
     ]);
+    await until(
+      'the chat view',
+      () => !ui.text().includes('choose one to stop'),
+    );
   } finally {
     ui.unmount();
   }
