@@ -298,7 +298,7 @@ await test('clones of one origin share project memory under its name, whatever t
   };
   const ssh = await clone('work', 'git@github.com:owner/repo.git');
   assert.match(ssh, /^projects\/repo-[0-9a-f]{16}$/);
-  assert.equal(await clone('copy', 'https://github.com/owner/repo/'), ssh);
+  assert.equal(await clone('copy', 'HTTPS://github.com/owner/repo/'), ssh);
   assert.equal(
     await clone('mixed', 'ssh://git@GitHub.com:22/owner/repo.git'),
     ssh,
@@ -323,6 +323,10 @@ await test('clones of one origin share project memory under its name, whatever t
   assert.equal(
     await clone('absolute', 'git@example.org:/srv/repos/app.git'),
     await clone('absolute-url', 'ssh://git@example.org/srv/repos/app.git'),
+  );
+  assert.notEqual(
+    await clone('suffix-case', 'git@github.com:owner/repo.GIT'),
+    ssh,
   );
 });
 
