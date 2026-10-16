@@ -2262,7 +2262,7 @@ await test('a drag into the left margin or above a transcript at its top reaches
   }
 });
 
-await test('a drag back along a row selects from the pointer to the press, and one forward from mid-row draws from the press', async () => {
+await test('a drag back along a row selects from the pointer to the press, one forward from mid-row draws from the press, and a typed c or Cmd+V copies nothing', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
   });
