@@ -2283,6 +2283,11 @@ await test('a drag back along a row selects from the pointer to the press, and o
     ui.stdin.write(left('drag', 1, 3));
     ui.stdin.write(left('release', 1, 3));
     await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
+    // a typed c and Cmd+V leave the clipboard alone
+    ui.stdin.write('c');
+    ui.stdin.write('\u001b[118;9u');
+    await delay(60);
+    assert.deepEqual(copied, []);
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, ['alpha beta']);
