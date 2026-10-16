@@ -36,7 +36,7 @@ Persist native IDs and display history. Each instance has one conversation open,
 
 ## Shared memory
 
-Keep memory in a dedicated bare Git repository, separate from logs and handoff state, and give each conversation its own worktree on its own branch. Separate global and canonical-project scopes. Existing project docs remain authoritative. Agents use ordinary file tools and scoped native permissions; only the coordinator manages memory Git operations.
+Keep memory in a dedicated bare Git repository, separate from logs and handoff state, and give each conversation its own worktree on its own branch. Separate global and project scopes. A project is the repository its origin remote names, so every clone shares one; a directory without an origin is a project of its own. Existing project docs remain authoritative. Agents use ordinary file tools and scoped native permissions; only the coordinator manages memory Git operations.
 
 Each turn begins with clean memory and durable base-revision/origin metadata. Successful completion commits that turn's changes, with attribution and no empty commits. Accepted memory is `main`; a clean worktree publishes its commits by rebasing onto `main`. Interrupted, failed or uncommitted changes remain pending; block new execution until explicit accept/discard recovery. MEMORY.md, the index every agent keeps, merges both sides' lines. Any other change that conflicts with another conversation's enters conflict recovery, where keep mine resolves each conflicting change to this conversation's side and merges the rest, and discard mine resets to `main`. Never sweep another turn's pending changes into a later commit.
 

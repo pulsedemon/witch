@@ -33,6 +33,10 @@ export type GitRunner = (
   options: GitOptions,
 ) => Promise<GitResult>;
 
+// host and path of a URL or scp-style remote, so `git@github.com:a/b.git` and `https://github.com/a/b` match
+const remote =
+  /^(?:[a-z][\w+.-]*:\/\/)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/i;
+
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
 
@@ -176,16 +180,21 @@ export class Memory {
     return new Workspace(this, join(directory, 'memory'), id);
   }
 
-  /** the relative scope paths for a project directory; creates nothing. */
+  /** the relative scope paths for a project directory; creates nothing. every clone of a repository shares its origin's scope. */
   async scopePaths(directory: string): Promise<MemoryScope> {
     const cwd = await realpath(directory);
-    const toplevel = await this.runner(['rev-parse', '--show-toplevel'], {
-      cwd,
-    }).then(
-      (result) => (result.code === 0 ? result.stdout.trim() : cwd),
-      () => cwd,
-    );
-    const key = `${basename(toplevel)}-${createHash('sha256').update(toplevel).digest('hex').slice(0, 16)}`;
+    const read = (args: string[]) =>
+      this.runner(args, { cwd }).then(
+        (result) => (result.code === 0 ? result.stdout.trim() : undefined),
+        () => undefined,
+      );
+    const origin = await read(['remote', 'get-url', 'origin']);
+    const [, host, path] = (origin && remote.exec(origin)) || [];
+    const identity =
+      host && path
+        ? `${host}/${path}`
+        : origin || (await read(['rev-parse', '--show-toplevel'])) || cwd;
+    const key = `${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
     return { global: 'global', project: `projects/${key}` };
   }
 
