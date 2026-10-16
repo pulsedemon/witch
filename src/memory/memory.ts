@@ -34,10 +34,10 @@ export type GitRunner = (
 ) => Promise<GitResult>;
 
 // host and path of a URL or scp-style remote, so `git@github.com:a/b.git` and `https://github.com/a/b` match.
-// like git, it reads a remote with a slash before any colon as a local path.
+// like git, it reads a remote with a slash before any colon as a local path, a port only in a URL, and an scp host up to its colon.
 // a leading slash is dropped, since that match already pairs a home-relative scp path with a URL's absolute one
 const remote =
-  /^(?=[^/]*:)(?:[a-zA-Z][\w+.-]*:\/\/)?(?:[^@/]+@)?(\[[^\]]*\]|[^/:]+)(?::\d+)?[:/]\/*(.+?)(?:\.git)?\/?$/;
+  /^(?=[^/]*:)(?:[a-zA-Z][\w+.-]*:\/\/(?:[^/]*@)?(\[[^\]]*\]|[^/:@]+)(?::\d*)?\/|(?:[^/:]*@)?(\[[^\]]*\]|[^/:@]+):)\/*(.+?)(?:\.git)?\/?$/;
 
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
@@ -195,7 +195,8 @@ export class Memory {
       /^file:\/\/[^/]*/,
       '',
     );
-    const [, host, path] = (origin && remote.exec(origin)) || [];
+    const [, url, scp, path] = (origin && remote.exec(origin)) || [];
+    const host = url ?? scp;
     const identity = host
       ? `${host.toLowerCase()}/${path}`
       : // git resolves a relative origin against the top level
