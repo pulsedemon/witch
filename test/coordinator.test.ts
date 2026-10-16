@@ -510,6 +510,34 @@ await test('a reopened conversation skips the snapshot it was sent, unless its m
   assert.match(await reopen('Older'), /Accepted shared memory/);
 });
 
+await test("an interrupt that aborts a moved key's reconnect leaves the prompt queued without an error", async () => {
+  const { coordinator, a, project } = await fixture();
+  const git = (...args: string[]) =>
+    promisify(execFile)('git', ['-C', project, ...args]);
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    const connecting = Promise.withResolvers<void>();
+    a.beforeConnect = (options) =>
+      new Promise((_, reject) => {
+        connecting.resolve();
+        options.signal?.addEventListener('abort', () =>
+          reject(new Error('Connect aborted')),
+        );
+      });
+    const sending = coordinator.send('Moved');
+    await within(connecting.promise, 2000, 'the reconnect');
+    await coordinator.interrupt();
+    await within(sending, 2000, 'the send');
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.deepEqual(coordinator.snapshot.queue, ['Moved']);
+    assert.equal(a.inputs.length, 1);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('recovery has one owner and shutdown waits for its accepted commit', async () => {
   const { coordinator, memory, a, workspace, note } = await fixture();
   a.interruptNext = true;
