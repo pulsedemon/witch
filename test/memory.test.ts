@@ -286,6 +286,24 @@ await test('a subdirectory of a repository shares its project memory', async () 
   );
 });
 
+await test('clones of one origin share project memory under its name, whatever their directories and remote forms', async () => {
+  const { memory, root } = await fixture();
+  const clone = async (directory: string, origin: string) => {
+    const path = join(root, directory);
+    await mkdir(path);
+    await git(path, 'init', '--quiet');
+    await git(path, 'remote', 'add', 'origin', origin);
+    return (await memory.scopePaths(path)).project;
+  };
+  const ssh = await clone('work', 'git@github.com:owner/repo.git');
+  assert.match(ssh, /^projects\/repo-[0-9a-f]{16}$/);
+  assert.equal(await clone('copy', 'https://github.com/owner/repo'), ssh);
+  assert.notEqual(
+    await clone('other', 'https://github.com/owner/other.git'),
+    ssh,
+  );
+});
+
 await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
   const { memory, open, project } = await fixture();
   const { workspace, scope } = await open('a');
