@@ -1739,6 +1739,40 @@ await test('an initial prompt sent mid-browse leaves the browsed prompt in place
   }
 });
 
+await test('an initial prompt sent after browsing back to the draft is the first prompt ↑ shows', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'starting' });
+  const { store } = prompts(['newest', 'older']);
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      store,
+      onExit: () => {},
+      initialPrompt: 'say hello',
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write(UP);
+    await until('the newest prompt', () => ui.text().includes('┃ newest'));
+    ui.stdin.write(DOWN);
+    await until('the draft', () => ui.text().includes('┃ Ask the agent'));
+    coordinator.publish({ phase: 'idle' });
+    await until('the initial prompt sent', () =>
+      calls.some(([name]) => name === 'send'),
+    );
+    ui.stdin.write(UP);
+    await until('the initial prompt', () => ui.text().includes('┃ say hello'));
+    ui.stdin.write(UP);
+    await until('the newest prompt again', () =>
+      ui.text().includes('┃ newest'),
+    );
+    ui.stdin.write(UP);
+    await until('the older prompt', () => ui.text().includes('┃ older'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a recalled prompt opens no completion list until it is edited, even with the cursor in its file token, so ↑ goes on to older prompts', async () => {
   const { app } = fake({}, ['src/a.ts']);
   const { store } = prompts(['@src/a.ts\nnext', '/mo', 'older']);
