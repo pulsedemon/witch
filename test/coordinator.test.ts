@@ -465,6 +465,24 @@ await test("a turn after an origin moves the project key resumes the session wit
   }
 });
 
+await test('a turn back on a project key gets its snapshot after a failed turn on another key', async () => {
+  const { coordinator, a, project } = await fixture();
+  const git = (...args: string[]) =>
+    promisify(execFile)('git', ['-C', project, ...args]);
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    a.interruptNext = true;
+    await coordinator.send('Moved');
+    await git('remote', 'remove', 'origin');
+    await coordinator.send('Back');
+    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('recovery has one owner and shutdown waits for its accepted commit', async () => {
   const { coordinator, memory, a, workspace, note } = await fixture();
   a.interruptNext = true;
