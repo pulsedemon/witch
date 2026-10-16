@@ -13,6 +13,10 @@ await test('a highlight inverts the selected cells as plain text, keeps the styl
   );
 });
 
+await test('a highlight gives no cell to a character Ink drops, such as a soft hyphen', () => {
+  assert.equal(highlight('a\u00adb', 1, 2), `a${inverse('b')}`);
+});
+
 await test('a highlight past the text covers the empty cells it reaches', () => {
   assert.equal(highlight('ab', 1, 4), `a${inverse('b  ')}`);
   assert.equal(highlight('ab', 3, 5), `ab ${inverse('  ')}`);
