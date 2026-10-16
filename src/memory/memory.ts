@@ -228,16 +228,30 @@ export class Memory {
 
   /** the relative scope paths for a project directory; creates nothing. every clone of a repository shares its origin's scope. */
   async scopePaths(directory: string): Promise<MemoryScope> {
-    const cwd = await realpath(directory);
+    const { identity, top } = await this.reach(await realpath(directory));
+    const project = projectKey(identity);
+    const checkout = projectKey(top);
+    return {
+      global: 'global',
+      project,
+      ...(checkout === project ? {} : { checkout }),
+    };
+  }
+
+  /** the repository git reaches through a checkout's origin, and the checkout's top level. a local origin with an origin of its own is followed, so a clone of a clone shares its project. */
+  private async reach(
+    cwd: string,
+    seen = new Set<string>(),
+  ): Promise<{ identity: string; top: string }> {
     // only a missing origin (2) or work tree (128) falls back, so a git that fails can't move the key
     const read = async (args: string[]) => {
       const result = await this.run(cwd, args, { codes: [0, 2, 128] });
       return result.code === 0 ? result.stdout.trim() : undefined;
     };
-    // git reads a `file://` origin as the path after its host, with percent escapes decoded
+    // git reads a `file://` origin as the path after its host, with percent escapes but `%00` decoded
     const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
       /^file:\/\/[^/]*(.*)$/s,
-      (_, path: string) => path.replace(/(?:%[\da-f]{2})+/gi, decoded),
+      (_, path: string) => path.replace(/(?:%(?!00)[\da-f]{2})+/gi, decoded),
     );
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
     const host =
@@ -245,20 +259,15 @@ export class Memory {
         ? await sshHost(scp ?? url!)
         : url;
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
-    const project = projectKey(
-      host
-        ? `${host.toLowerCase()}/${path}`
-        : // git resolves a relative origin against the top level
-          await physical(
-            origin?.startsWith('/') ? origin : `${top}/${origin ?? ''}`,
-          ),
+    if (host) return { identity: `${host.toLowerCase()}/${path}`, top };
+    seen.add(top);
+    // git resolves a relative origin against the top level
+    const local = await physical(
+      origin?.startsWith('/') ? origin : `${top}/${origin ?? ''}`,
     );
-    const checkout = projectKey(top);
-    return {
-      global: 'global',
-      project,
-      ...(checkout === project ? {} : { checkout }),
-    };
+    if (!origin || seen.has(local) || !(await exists(local)))
+      return { identity: local, top };
+    return { identity: (await this.reach(local, seen)).identity, top };
   }
 
   async resolve(revision: string, cwd = this.root): Promise<string> {
