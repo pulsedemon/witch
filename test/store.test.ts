@@ -391,3 +391,12 @@ await test("prompts list this directory's newest first after a restart, keep lin
   ]);
   assert.deepEqual(await reopened.prompts('/b'), ['other']);
 });
+
+await test('prompts longer than a write chunk, stored at once, each read back whole', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'witch-prompts-'));
+  const store = await StateStore.open(root);
+  // appendFile writes 512 KiB at a time, and appends running at once split each other's longer records
+  const texts = ['a', 'b', 'c', 'd'].map((letter) => letter.repeat(2 ** 20));
+  await Promise.all(texts.map((text) => store.addPrompt('/a', text)));
+  assert.deepEqual((await store.prompts('/a')).sort(), texts);
+});
