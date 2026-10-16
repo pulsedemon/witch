@@ -193,11 +193,11 @@ export class Memory {
   /** the relative scope paths for a project directory; creates nothing. every clone of a repository shares its origin's scope. */
   async scopePaths(directory: string): Promise<MemoryScope> {
     const cwd = await realpath(directory);
-    const read = (args: string[]) =>
-      this.runner(args, { cwd }).then(
-        (result) => (result.code === 0 ? result.stdout.trim() : undefined),
-        () => undefined,
-      );
+    // only a missing origin (2) or work tree (128) falls back, so a git that fails can't move the key
+    const read = async (args: string[]) => {
+      const result = await this.run(cwd, args, { codes: [0, 2, 128] });
+      return result.code === 0 ? result.stdout.trim() : undefined;
+    };
     // git reads a `file://` origin as the path after its host
     const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
       /^file:\/\/[^/]*/,
