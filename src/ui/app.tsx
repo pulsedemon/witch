@@ -699,10 +699,9 @@ export function App({
     if (rows) scrollPageBy(rows);
   };
   usePointer((pointer, { column, row }) => {
-    if (pointer === 'press') {
-      setRange(undefined);
-      pressedAt.current = undefined;
-    }
+    // a press or release ends the drag even while another view covers the transcript
+    if (pointer !== 'drag') pressedAt.current = undefined;
+    if (pointer === 'press') setRange(undefined);
     if (!transcriptBox.current) return;
     const box = measureElement(transcriptBox.current);
     // reports in one read arrive before a render, so each starts where the last one scrolled
@@ -724,8 +723,7 @@ export function App({
     if (pointer === 'press') {
       if (offset >= 0 && offset < shown && column < box.x + width - 2)
         pressedAt.current = end;
-    } else if (pointer === 'release') pressedAt.current = undefined;
-    else if (pressedAt.current && end) {
+    } else if (pointer === 'drag' && pressedAt.current && end) {
       if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
       setRange({ from: pressedAt.current, to: end });
     }

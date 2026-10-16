@@ -2245,6 +2245,53 @@ await test('a drag back along a row selects from the pointer to the press, and o
   }
 });
 
+await test('a press or release anywhere ends a drag, so a drag report with no press of its own selects nothing', async () => {
+  const { app } = fake({
+    items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the message is on row 3, and the composer's text on row 15
+    await until('the message', () => ui.text().includes('alpha beta gamma'));
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 5, 3));
+    await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
+    ui.stdin.write('/help');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the help page', () => ui.text().includes('/new  New'));
+    ui.stdin.write(left('release', 5, 3));
+    ui.stdin.write('\u001b');
+    await until('the transcript', () => ui.frame().includes('\u001b[7malpha'));
+    // Ghostty keeps a Shift+press for itself but reports its motion once Shift lifts
+    ui.stdin.write(left('drag', 16, 3));
+    await delay(60);
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['alpha']);
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 5, 3));
+    ui.stdin.write(left('press', 5, 15));
+    ui.stdin.write(left('drag', 6, 15));
+    ui.stdin.write(left('release', 6, 15));
+    await delay(60);
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, ['alpha']);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('drag reports past the top in one read each scroll on from where the last one left the view', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
