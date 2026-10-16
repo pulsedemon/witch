@@ -15,7 +15,7 @@ const diacritics = [
   0x034a, 0x034b, 0x034c, 0x0350, 0x0351, 0x0352, 0x0357, 0x035b, 0x0363,
   0x0364, 0x0365, 0x0366, 0x0367, 0x0368, 0x0369,
 ].map((code) => String.fromCodePoint(code));
-const placeholder = '\u{10EEEE}';
+export const placeholder = '\u{10EEEE}';
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 // read whole during a render, so a larger file would stall it
 const largestFile = 64 * 1024 * 1024;

@@ -5,9 +5,10 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Box, Text, useInput, useWindowSize } from 'ink';
-import type { Key } from 'ink';
+import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
+import type { DOMElement, Key } from 'ink';
 import { basename, dirname, join } from 'node:path';
+import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
@@ -30,7 +31,9 @@ import type { ScrollAnchor } from './transcript-layout.js';
 import { markdown } from './markdown.js';
 import { hyperlink, linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
-import { useWheel } from './mouse.js';
+import { usePointer, useWheel } from './mouse.js';
+import { highlight, selectedText } from './selection.js';
+import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
 import { StatusLine } from './status-line.js';
@@ -82,6 +85,16 @@ type View =
 
 const unwatched = () => () => {};
 
+/** one end of a drag in the transcript: the row it is on, by its text, and the column. */
+interface RangeEnd {
+  anchor: ScrollAnchor;
+  column: number;
+  /** the width it was measured at; a width change drops the range, since a column from a wider one can lie past the edge. */
+  width: number;
+  /** its row as measured; output growing into the row, or its tool expanding or collapsing, changes it. */
+  text: string;
+}
+
 /** where ↑/↓ stand among earlier prompts, -1 being the draft, with the composer's text at each place they left. */
 const unbrowsed = () => ({ index: -1, texts: new Map<number, string>() });
 
@@ -93,6 +106,7 @@ export function App({
   graphics,
   jobs,
   store,
+  copy,
 }: {
   coordinator: Coordinator;
   /** the project's Git status for the status line, which leaves Git out without it. */
@@ -104,6 +118,8 @@ export function App({
   /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
   store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
   onExit(): void;
+  /** puts text on the clipboard, where Cmd+C sends the transcript's selection. */
+  copy?(text: string): void;
   /** sent once the load ends idle with nothing reported and tools unfocused, or ahead of a prompt sent while it connects; otherwise left as the draft. */
   initialPrompt?: string;
 }) {
@@ -139,7 +155,7 @@ export function App({
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
-  const [top, setTop] = useState<ScrollAnchor | null>(null);
+  const [top, topRef, setTop] = useLiveState<ScrollAnchor | null>(null);
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -171,6 +187,51 @@ export function App({
     () => layout.render(state.items, width - 2, expanded),
     [layout, state.items, width, expanded],
   );
+  // a drag's ends are anchored to their text, so they follow it when output above grows
+  const [range, rangeRef, setRange] = useLiveState<
+    { from: RangeEnd; to: RangeEnd } | undefined
+  >(undefined);
+  const pressedAt = useRef<RangeEnd>(undefined);
+  const transcriptBox = useRef<DOMElement>(null);
+  /** where an end is drawn: at the width it was measured at, in an item still shown, while its row reads as it did. */
+  const pointOf = (end: RangeEnd): Point | undefined => {
+    const row = transcript.rowOf(end.anchor);
+    return end.width === width &&
+      transcript.starts.has(end.anchor.item) &&
+      transcript.lines[row] === end.text
+      ? { row, column: end.column }
+      : undefined;
+  };
+  /** a range's ends in reading order, while both are drawn. */
+  const endsOf = (dragged: typeof range) => {
+    const from = dragged && pointOf(dragged.from);
+    const to = dragged && pointOf(dragged.to);
+    return from && to
+      ? ([from, to].sort((a, b) => a.row - b.row || a.column - b.column) as [
+          Point,
+          Point,
+        ])
+      : undefined;
+  };
+  const ends = endsOf(range);
+  // a range or a held press off its text drops, so it can't come back with the width or the tool
+  useEffect(() => {
+    if (range && !ends) setRange(undefined);
+    if (pressedAt.current && !pointOf(pressedAt.current))
+      pressedAt.current = undefined;
+  });
+  /** what joins a row to the one above: a line break, or for a wrapped row the spaces its wrap trimmed. */
+  const joint = (row: number) => {
+    const here = transcript.anchorAt(row);
+    const above = transcript.anchorAt(row - 1);
+    if (!here || !above || here.item !== above.item || here.line !== above.line)
+      return '\n';
+    // a row its wrap changed beyond trimming is not found in its line and has offset -1, so take the break as a space
+    if (here.offset < 0 || above.offset < 0) return ' ';
+    return ' '.repeat(
+      here.offset - above.offset - stripAnsi(transcript.lines[row - 1]!).length,
+    );
+  };
   const errorLimit = Math.max(1, Math.floor(height / 3));
   // an error can quote an agent-written note name
   const errorLines = state.error
@@ -260,18 +321,16 @@ export function App({
   );
   const transcriptHeight = Math.max(2, freeRows - queueRows);
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
-  const scrollTop =
-    top === null ? maxTop : Math.min(transcript.rowOf(top), maxTop);
+  /** the first row shown from `anchor`, or at the bottom without one. */
+  const topRow = (anchor: ScrollAnchor | null) =>
+    anchor === null ? maxTop : Math.min(transcript.rowOf(anchor), maxTop);
+  const scrollTop = topRow(top);
   const scrollTo = (row: number | null) =>
     setTop(row === null ? null : (transcript.anchorAt(row) ?? null));
   /** scrolls from the latest position, so two page keys in one read move two pages. */
   const scrollBy = (rows: number) =>
     setTop((previous) => {
-      const current =
-        previous === null
-          ? maxTop
-          : Math.min(transcript.rowOf(previous), maxTop);
-      const next = Math.min(maxTop, Math.max(0, current + rows));
+      const next = Math.min(maxTop, Math.max(0, topRow(previous) + rows));
       return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
     });
   const tools = state.items.filter((item) => item.kind === 'tool');
@@ -479,7 +538,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nShift+drag selects text.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'exit':
@@ -717,6 +776,36 @@ export function App({
             : 0;
     if (rows) scrollPageBy(rows);
   };
+  usePointer((pointer, { column, row }) => {
+    // a press or release ends the drag even while another view covers the transcript
+    if (pointer !== 'drag') pressedAt.current = undefined;
+    if (pointer === 'press') setRange(undefined);
+    if (!transcriptBox.current) return;
+    const box = measureElement(transcriptBox.current);
+    // reports in one read arrive before a render, so each starts where the last one scrolled
+    const first = topRow(topRef.current);
+    const shown = Math.min(transcriptHeight, transcript.lines.length - first);
+    // past the top or bottom, the row a drag scrolls in
+    const offset = Math.max(-1, Math.min(shown, row - box.y));
+    const at = Math.max(
+      0,
+      Math.min(transcript.lines.length - 1, first + offset),
+    );
+    const anchor = transcript.anchorAt(at);
+    const end = anchor && {
+      anchor,
+      column: Math.max(0, Math.min(width - 3, column - box.x)),
+      width,
+      text: transcript.lines[at]!,
+    };
+    if (pointer === 'press') {
+      if (offset >= 0 && offset < shown && column < box.x + width - 2)
+        pressedAt.current = end;
+    } else if (pressedAt.current && end) {
+      if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
+      setRange({ from: pressedAt.current, to: end });
+    }
+  });
   // a request scrolls itself, and a picker follows its selection
   useWheel((rows) => {
     if (request) return;
@@ -730,6 +819,16 @@ export function App({
       // a second Ctrl+C while closing quits without waiting for the agent
       if (busy && state.phase !== 'closing') run(coordinator.interrupt());
       else onExit();
+      return;
+    }
+    if (key.super && input === 'c') {
+      // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
+      const selected = endsOf(rangeRef.current);
+      const text =
+        transcriptBox.current &&
+        selected &&
+        selectedText(transcript.lines, ...selected, joint);
+      if (text?.trim()) copy?.(text);
       return;
     }
     if (request) return;
@@ -945,9 +1044,22 @@ export function App({
       visible[selectedToolRow - scrollTop] = colors.inverse(
         visible[selectedToolRow - scrollTop],
       );
+    if (ends) {
+      const [start, end] = ends;
+      for (
+        let row = Math.max(scrollTop, start.row);
+        row <= Math.min(end.row, scrollTop + visible.length - 1);
+        row++
+      )
+        visible[row - scrollTop] = highlight(
+          visible[row - scrollTop]!,
+          row === start.row ? start.column : 0,
+          row === end.row ? end.column + 1 : width - 2,
+        );
+    }
     body = (
       <Box flexDirection="column" height={bodyHeight}>
-        <Box height={transcriptHeight} overflow="hidden">
+        <Box ref={transcriptBox} height={transcriptHeight} overflow="hidden">
           <Text>
             {state.items.length
               ? visible.join('\n')

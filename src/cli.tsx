@@ -14,7 +14,7 @@ import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
 import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
-import type { Click } from './ui/mouse.js';
+import type { Cell, Pointer } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
 
 const defaultState = join(homedir(), '.witch');
@@ -94,10 +94,14 @@ if (!store) {
   const jobs = new JobWatch();
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
-  stdin.on('click', ({ column, row }: Click) => {
-    const link = screen.linkAt(column, row);
-    if (link)
-      execFile('/usr/bin/open', [link], (error) => {
+  // output can scroll another link under the pointer before the release, so a click opens the one it pressed
+  let pressed: string | undefined;
+  stdin.on('pointer', (pointer: Pointer, { column, row }: Cell) => {
+    if (pointer === 'press') pressed = screen.linkAt(column, row);
+  });
+  stdin.on('click', () => {
+    if (pressed)
+      execFile('/usr/bin/open', [pressed], (error) => {
         if (error) coordinator.report(error);
       });
   });
@@ -110,6 +114,13 @@ if (!store) {
       onExit={shutdown}
       initialPrompt={prompt || undefined}
       graphics={graphics}
+      copy={(text) => {
+        const child = execFile('/usr/bin/pbcopy', (error) => {
+          if (error) coordinator.report(error);
+        });
+        // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
+        child.stdin?.on('error', () => {}).end(text);
+      }}
     />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,

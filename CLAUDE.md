@@ -24,7 +24,7 @@ pnpm exec node --import tsx --test --test-name-pattern='invalid effort' test/cla
 - Adapters implement `AgentAdapter` from `src/agents/types.ts`, and native protocol types stay inside them. Claude uses `@anthropic-ai/claude-agent-sdk` pointed at the installed CLI. Codex speaks JSON-RPC to `codex app-server --stdio` through `src/agents/json-rpc.ts`.
 - The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/memory.ts` and `src/cli.tsx`, which places `memory.git`.
 
-macOS assumptions are deliberate: memory editing launches VS Code from `/Applications`, clicked links open with `/usr/bin/open`, images other than PNG convert with `/usr/bin/sips`, process identity reads `/bin/ps`, and conversation locks use `O_EXLOCK`.
+macOS assumptions are deliberate: memory editing launches VS Code from `/Applications`, clicked links open with `/usr/bin/open`, copied text goes to `/usr/bin/pbcopy`, images other than PNG convert with `/usr/bin/sips`, process identity reads `/bin/ps`, and conversation locks use `O_EXLOCK`.
 
 ## Tests
 
