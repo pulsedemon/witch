@@ -203,9 +203,9 @@ export function App({
       : undefined;
   };
   /** a range's ends in reading order, while both are drawn. */
-  const endsOf = (selection?: { from: RangeEnd; to: RangeEnd }) => {
-    const from = selection && pointOf(selection.from);
-    const to = selection && pointOf(selection.to);
+  const endsOf = (dragged: typeof range) => {
+    const from = dragged && pointOf(dragged.from);
+    const to = dragged && pointOf(dragged.to);
     return from && to
       ? ([from, to].sort((a, b) => a.row - b.row || a.column - b.column) as [
           Point,
