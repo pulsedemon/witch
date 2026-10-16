@@ -160,11 +160,6 @@ export class Workspace {
         break;
       }
     }
-    // the worktree was clean, so only the emptied directories remain
-    await rm(await this.checkedPath(checkout, 'directory'), {
-      recursive: true,
-      force: true,
-    });
     await this.commit(`chore(memory): move ${checkout} notes to ${project}`);
   }
 
