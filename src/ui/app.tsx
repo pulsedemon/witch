@@ -8,6 +8,7 @@ import {
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement, Key } from 'ink';
 import { basename, dirname, join } from 'node:path';
+import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
@@ -197,11 +198,15 @@ export function App({
           Point,
         ])
       : undefined;
-  /** whether a row is a wrapped part of the line above it. */
-  const wraps = (row: number) => {
+  /** what joins a row to the one above: a line break, or for a wrapped row the spaces its wrap trimmed. */
+  const joint = (row: number) => {
     const here = transcript.anchorAt(row);
     const above = transcript.anchorAt(row - 1);
-    return here?.item === above?.item && here?.line === above?.line;
+    if (!here || !above || here.item !== above.item || here.line !== above.line)
+      return '\n';
+    return ' '.repeat(
+      here.offset - above.offset - stripAnsi(transcript.lines[row - 1]!).length,
+    );
   };
   const errorLimit = Math.max(1, Math.floor(height / 3));
   // an error can quote an agent-written note name
@@ -732,7 +737,7 @@ export function App({
       return;
     }
     if (key.super && input === 'c') {
-      if (ends) copy?.(selectedText(transcript.lines, ...ends, wraps));
+      if (ends) copy?.(selectedText(transcript.lines, ...ends, joint));
       return;
     }
     if (request) return;

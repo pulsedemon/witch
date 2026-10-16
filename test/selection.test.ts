@@ -32,13 +32,13 @@ await test('selected text joins wrapped rows, breaks between lines, drops traili
     '',
     'codex',
   ];
-  const wraps = (row: number) => row === 2;
+  const joint = (row: number) => (row === 2 ? '' : '\n');
   assert.equal(
-    selectedText(lines, { row: 0, column: 0 }, { row: 5, column: 1 }, wraps),
+    selectedText(lines, { row: 0, column: 0 }, { row: 5, column: 1 }, joint),
     'You\nReply with only the word ok.\n\nco',
   );
   assert.equal(
-    selectedText(lines, { row: 1, column: 6 }, { row: 2, column: 7 }, wraps),
+    selectedText(lines, { row: 1, column: 6 }, { row: 2, column: 7 }, joint),
     'with only the word',
   );
 });

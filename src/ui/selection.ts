@@ -42,18 +42,18 @@ export function highlight(line: string, start: number, end: number): string {
   return `${styledCharsToString(before)}${gap}${colors.inverse(inside + blank)}${styledCharsToString(after)}`;
 }
 
-/** the plain text from `start` through `end`, with each row `wraps` says continues the one above joined onto it. */
+/** the plain text from `start` through `end`, each row after the first joined on by what `joint` gives for it. */
 export function selectedText(
   lines: readonly string[],
   start: Point,
   end: Point,
-  wraps: (row: number) => boolean,
+  joint: (row: number) => string,
 ): string {
   let text: string | undefined;
   for (let row = start.row; row <= end.row; row++) {
     const line = lines[row] ?? '';
     if (line.includes(placeholder)) continue;
-    text = text === undefined ? '' : wraps(row) ? text : `${text}\n`;
+    text = text === undefined ? '' : text + joint(row);
     text += cut(
       line,
       row === start.row ? start.column : 0,

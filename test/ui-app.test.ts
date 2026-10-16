@@ -1859,6 +1859,39 @@ await test('a drag past the transcript top scrolls it a row a move and selects t
   }
 });
 
+await test('copying a wrapped tool title keeps the space its wrap trimmed', async () => {
+  const title =
+    'echo alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';
+  const { app } = fake({
+    items: [
+      { id: 't', kind: 'tool', title, text: '', cwd: '/work', done: true },
+    ],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the title starts at row 2 and wraps onto row 3
+    await until('the wrapped title', () => ui.text().includes(' lambda'));
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 58, 3));
+    ui.stdin.write(left('release', 58, 3));
+    await until('the highlight', () => ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [`+ ✓ ${title}`]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a click and a wheel step between keys leave the draft as typed', async () => {
   const { app } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
