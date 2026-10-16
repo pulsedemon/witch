@@ -388,6 +388,21 @@ await test('a local origin names the repository git reaches through it: from the
   assert.equal(await key(later), missing);
 });
 
+await test('a git that fails reading the origin fails the project key instead of falling back to the path', async () => {
+  const { memory, hook, project } = await fixture();
+  await git(project, 'init', '--quiet');
+  hook.current = async (command, run) =>
+    command[0] === 'remote'
+      ? { stdout: '', stderr: 'fatal: unreadable config', code: 1 }
+      : run();
+  await assert.rejects(memory.scopePaths(project), /unreadable config/);
+  hook.current = async (command, run) => {
+    if (command[0] === 'remote') throw new Error('spawn git EAGAIN');
+    return run();
+  };
+  await assert.rejects(memory.scopePaths(project), /EAGAIN/);
+});
+
 await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
   const { memory, open, project } = await fixture();
   const { workspace, scope } = await open('a');
