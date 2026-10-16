@@ -110,6 +110,7 @@ if (!store) {
       coordinator={coordinator}
       repository={repository}
       jobs={jobs}
+      store={store}
       onExit={shutdown}
       initialPrompt={prompt || undefined}
       graphics={graphics}
