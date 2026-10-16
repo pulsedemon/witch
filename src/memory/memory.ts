@@ -8,7 +8,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { basename, dirname, join, posix } from 'node:path';
+import { basename, dirname, join, posix, resolve } from 'node:path';
 import { Workspace } from './workspace.js';
 
 export interface MemoryScope {
@@ -33,9 +33,10 @@ export type GitRunner = (
   options: GitOptions,
 ) => Promise<GitResult>;
 
-// host and path of a URL or scp-style remote, so `git@github.com:a/b.git` and `https://github.com/a/b` match
+// host and path of a URL or scp-style remote, so `git@github.com:a/b.git` and `https://github.com/a/b` match.
+// like git, it reads a remote with a slash before any colon as a local path
 const remote =
-  /^(?:[a-z][\w+.-]*:\/\/)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/i;
+  /^(?=[^/]*:)(?:[a-z][\w+.-]*:\/\/)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/i;
 
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
@@ -193,7 +194,11 @@ export class Memory {
     const identity =
       host && path
         ? `${host.toLowerCase()}/${path}`
-        : origin || (await read(['rev-parse', '--show-toplevel'])) || cwd;
+        : // git resolves a relative origin against the top level
+          resolve(
+            (await read(['rev-parse', '--show-toplevel'])) || cwd,
+            origin ?? '',
+          );
     const key = `${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
     return { global: 'global', project: `projects/${key}` };
   }
