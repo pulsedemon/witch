@@ -189,7 +189,11 @@ export class Memory {
         (result) => (result.code === 0 ? result.stdout.trim() : undefined),
         () => undefined,
       );
-    const origin = await read(['remote', 'get-url', 'origin']);
+    // git reads a `file://` origin as the path after its host
+    const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
+      /^file:\/\/[^/]*/,
+      '',
+    );
     const [, host, path] = (origin && remote.exec(origin)) || [];
     const identity = host
       ? `${host.toLowerCase()}/${path}`
