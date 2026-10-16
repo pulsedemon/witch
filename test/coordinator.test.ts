@@ -510,6 +510,29 @@ await test('a reopened conversation skips the snapshot it was sent, unless its m
   assert.match(await reopen('Older'), /Accepted shared memory/);
 });
 
+await test("opening Witch moves its checkout's path-key notes to the origin's project before a turn", async () => {
+  const { coordinator, store, memory, a, b, project, note } = await fixture();
+  await promisify(execFile)('git', ['-C', project, 'init', '--quiet']);
+  await coordinator.send('remember-port');
+  await coordinator.close();
+  await promisify(execFile)('git', [
+    ...['-C', project, 'remote', 'add', 'origin'],
+    'https://github.com/owner/repo.git',
+  ]);
+  const reopened = new Coordinator(
+    store,
+    memory,
+    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
+  );
+  try {
+    await reopened.initialize(project, { continue: true });
+    assert.equal(await memory.read(main, await note()), 'Use port 4567.');
+    assert.equal(a.inputs.length, 1);
+  } finally {
+    await reopened.close();
+  }
+});
+
 await test("an interrupt that aborts a moved key's reconnect leaves the prompt queued without an error", async () => {
   const { coordinator, a, project } = await fixture();
   const git = (...args: string[]) =>
