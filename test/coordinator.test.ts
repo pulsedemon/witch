@@ -465,7 +465,7 @@ await test("a turn after an origin moves the project key resumes the session wit
   }
 });
 
-await test('a turn back on a project key gets its snapshot after a failed turn on another key', async () => {
+await test('a turn back on a project key gets its snapshot after an interrupted turn on another key', async () => {
   const { coordinator, a, project } = await fixture();
   const git = (...args: string[]) =>
     promisify(execFile)('git', ['-C', project, ...args]);
@@ -481,6 +481,33 @@ await test('a turn back on a project key gets its snapshot after a failed turn o
   } finally {
     await coordinator.close();
   }
+});
+
+await test('a reopened conversation skips the snapshot it was sent, unless its marker was saved without a project', async () => {
+  const { coordinator, store, memory, a, b, root, project } = await fixture();
+  const reopen = async (prompt: string) => {
+    const reopened = new Coordinator(
+      store,
+      memory,
+      [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
+    );
+    try {
+      await reopened.initialize(project, { continue: true });
+      await reopened.send(prompt);
+    } finally {
+      await reopened.close();
+    }
+    return a.inputs.at(-1)!.prompt;
+  };
+  await coordinator.send('Start');
+  const id = coordinator.snapshot.conversation!.id;
+  await coordinator.close();
+  assert.doesNotMatch(await reopen('Same'), /Accepted shared memory/);
+  const file = join(root, 'state', 'conversations', id, 'state.json');
+  const saved = await readRecord(root, id);
+  delete saved.sessions.a!.deliveredProject;
+  await writeFile(file, JSON.stringify(saved));
+  assert.match(await reopen('Older'), /Accepted shared memory/);
 });
 
 await test('recovery has one owner and shutdown waits for its accepted commit', async () => {
