@@ -15,7 +15,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { Memory, main } from '../src/memory/memory.js';
@@ -417,53 +417,82 @@ await test('a local origin names the repository git reaches through it: from the
   assert.equal(await key(later), missing);
 });
 
-await test("a turn moves a checkout's path-key notes to its origin's project while that has none", async () => {
+await test("a turn merges a checkout's path-key notes into its origin's project", async () => {
   const { memory, open, root, project } = await fixture();
-  const begin = async (workspace: Workspace, cwd: string, note?: string) => {
+  const begin = async (
+    workspace: Workspace,
+    cwd: string,
+    notes: Record<string, string> = {},
+  ) => {
     const begun = await workspace.begin(cwd);
-    if (note)
-      await save(workspace, { [`${begun.scope.project}/MEMORY.md`]: note });
+    await save(
+      workspace,
+      Object.fromEntries(
+        Object.entries(notes).map(([note, text]) => [
+          `${begun.scope.project}/${note}`,
+          text,
+        ]),
+      ),
+    );
     await workspace.publish();
     return begun;
   };
-  const projects = async (revision: string) =>
+  const first = (await open('a')).workspace;
+  await git(project, 'init', '--quiet');
+  const path = (
+    await begin(first, project, {
+      'MEMORY.md': '# Project\n- shared\n- [deploy](deploy.md)\n',
+      'deploy.md': 'Deploy with A.\n',
+      'same.md': 'Same.\n',
+    })
+  ).scope.project;
+  const copy = join(root, 'copy');
+  await mkdir(copy);
+  await git(copy, 'init', '--quiet');
+  const second = (await open('b')).workspace;
+  const copyPath = (
+    await begin(second, copy, {
+      'MEMORY.md': '# Project\n- shared\n- [two](two.md)\n',
+      'deploy.md': 'Deploy with B.\n',
+      'same.md': 'Same.\n',
+      'two.md': 'Two.\n',
+    })
+  ).scope.project;
+  const origin = 'https://github.com/owner/repo.git';
+  await git(project, 'remote', 'add', 'origin', origin);
+  await git(copy, 'remote', 'add', 'origin', origin);
+  assert.equal((await begin(first, project)).scope.checkout, path);
+  const merged = await begin(second, copy);
+  const target = merged.scope.project;
+  const kept = `${target}/deploy (${basename(copyPath)}).md`;
+  assert.equal(
     (
       await memory.git(memory.root, [
         'ls-tree',
         '-r',
         '--name-only',
-        revision,
+        merged.revision,
         '--',
         'projects',
       ])
-    ).trim();
-  const first = (await open('a')).workspace;
-  await git(project, 'init', '--quiet');
-  const path = (await begin(first, project, 'Use port 4567.')).scope.project;
-  const copy = join(root, 'copy');
-  await mkdir(copy);
-  await git(copy, 'init', '--quiet');
-  const second = (await open('b')).workspace;
-  const copyPath = (await begin(second, copy, 'Use port 9001.')).scope.project;
-  const origin = 'https://github.com/owner/repo.git';
-  await git(project, 'remote', 'add', 'origin', origin);
-  const moved = await begin(first, project);
-  assert.equal(moved.scope.checkout, path);
-  assert.equal(
-    await projects(moved.revision),
-    `${copyPath}/MEMORY.md\n${moved.scope.project}/MEMORY.md`,
-  );
-  await git(copy, 'remote', 'add', 'origin', origin);
-  const kept = await begin(second, copy);
-  assert.equal(kept.scope.project, moved.scope.project);
-  assert.equal(
-    await memory.read(kept.revision, `${kept.scope.project}/MEMORY.md`),
-    'Use port 4567.',
+    ).trim(),
+    [
+      `${target}/MEMORY.md`,
+      kept,
+      `${target}/deploy.md`,
+      `${target}/same.md`,
+      `${target}/two.md`,
+    ].join('\n'),
   );
   assert.equal(
-    await memory.read(kept.revision, `${copyPath}/MEMORY.md`),
-    'Use port 9001.',
+    await memory.read(merged.revision, `${target}/MEMORY.md`),
+    '# Project\n- shared\n- [deploy](deploy.md)\n- [two](two.md)\n',
   );
+  assert.equal(
+    await memory.read(merged.revision, `${target}/deploy.md`),
+    'Deploy with A.\n',
+  );
+  assert.equal(await memory.read(merged.revision, kept), 'Deploy with B.\n');
 });
 
 await test('a git that fails reading the origin fails the project key instead of falling back to the path', async () => {
