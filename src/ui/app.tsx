@@ -204,6 +204,8 @@ export function App({
     const above = transcript.anchorAt(row - 1);
     if (!here || !above || here.item !== above.item || here.line !== above.line)
       return '\n';
+    // a row its wrap changed beyond trimming is not found in its line and has offset -1, so take the break as a space
+    if (here.offset < 0 || above.offset < 0) return ' ';
     return ' '.repeat(
       here.offset - above.offset - stripAnsi(transcript.lines[row - 1]!).length,
     );

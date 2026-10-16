@@ -1917,6 +1917,40 @@ await test('copying a wrapped tool title keeps the space its wrap trimmed', asyn
   }
 });
 
+await test('a wrapped title row the wrap changed beyond trimming joins the row above with a space', async () => {
+  // the wrap drops the space after the zero-width space, so the title's second row is not found in it
+  const title = `${'a'.repeat(53)} \u00a0\u200b y`;
+  const { app } = fake({
+    items: [
+      { id: 'u', kind: 'user', text: 'hello', cwd: '/work' },
+      { id: 't', kind: 'tool', title, text: '', cwd: '/work', done: true },
+    ],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the message is on row 3 and the title wraps from row 5 onto row 6
+    await until('the wrapped title', () => ui.text().includes('aaa'));
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 58, 6));
+    ui.stdin.write(left('release', 58, 6));
+    await until('the highlight', () => ui.frame().includes('\u001b[7mhello'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [`hello\n\n+ ✓ ${'a'.repeat(53)} y`]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a selection follows its text as output above it grows, and drops when its tool collapses or its item leaves', async () => {
   const items = (first: string) => [
     { id: 'u', kind: 'user' as const, text: first, cwd: '/work' },
