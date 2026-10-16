@@ -7,10 +7,19 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { exists, main, notePath, printable } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
+
+/** an index with each line of `added` it lacks appended, as MEMORY.md merges in a rebase. */
+function mergeLines(index: string, added: string): string {
+  const lines = new Set(index.split('\n'));
+  const missing = added
+    .split('\n')
+    .filter((line) => line.trim() && !lines.has(line));
+  return `${[index.trimEnd(), ...missing].join('\n')}\n`;
+}
 
 /** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
@@ -108,18 +117,43 @@ export class Workspace {
     return { revision: await this.revision(), scope };
   }
 
-  /** moves a checkout's path-key notes to its origin's project while that has none, as a commit of its own. */
+  /** merges a checkout's path-key notes into its origin's project, as a commit of its own. MEMORY.md gains the lines it lacks, and a note both hold keeps both versions. */
   private async adopt({ project, checkout }: MemoryScope): Promise<void> {
-    if (
-      !checkout ||
-      (await this.has('HEAD', project)) ||
-      !(await this.has('HEAD', checkout))
-    )
-      return;
-    const target = await this.checkedPath(project, 'directory');
-    // the worktree is clean, so this only removes the empty directory scope() made
-    await rm(target, { recursive: true, force: true });
-    await rename(await this.checkedPath(checkout, 'directory'), target);
+    if (!checkout || !(await this.has('HEAD', checkout))) return;
+    const files = await this.git(['ls-files', '-z', '--', checkout]);
+    for (const file of files.split('\0').filter(Boolean)) {
+      const source = await this.checkedPath(file);
+      const content = await readFile(source);
+      const { dir, name, ext } = posix.parse(posix.relative(checkout, file));
+      for (let copy = 0; ; copy++) {
+        // the checkout's version of a note the project also holds is named for the checkout
+        const suffix = copy
+          ? ` (${posix.basename(checkout)}${copy > 1 ? ` ${copy}` : ''})`
+          : '';
+        const target = await this.checkedPath(
+          posix.join(project, dir, `${name}${suffix}${ext}`),
+        );
+        if (!(await exists(target))) {
+          await mkdir(dirname(target), { recursive: true });
+          await rename(source, target);
+          break;
+        }
+        const held = await readFile(target);
+        if (!copy && `${name}${ext}` === 'MEMORY.md' && !dir)
+          await writeFile(
+            target,
+            mergeLines(held.toString(), content.toString()),
+          );
+        else if (!held.equals(content)) continue;
+        await rm(source);
+        break;
+      }
+    }
+    // the worktree was clean, so only the emptied directories remain
+    await rm(await this.checkedPath(checkout, 'directory'), {
+      recursive: true,
+      force: true,
+    });
     await this.commit(`chore(memory): move ${checkout} notes to ${project}`);
   }
 
