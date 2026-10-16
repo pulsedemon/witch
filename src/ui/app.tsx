@@ -181,7 +181,7 @@ export function App({
   const [range, setRange] = useState<{ from: RangeEnd; to: RangeEnd }>();
   const pressedAt = useRef<RangeEnd>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
-  /** where an end is drawn, while its row reads as it did when the end was measured. */
+  /** where an end is drawn: at the width it was measured at, in an item still shown, while its row reads as it did. */
   const pointOf = (end: RangeEnd): Point | undefined => {
     const row = transcript.rowOf(end.anchor);
     return end.width === width &&
