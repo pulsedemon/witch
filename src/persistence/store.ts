@@ -141,9 +141,9 @@ export class StateStore {
       .reverse();
   }
 
-  /** one append per prompt, which concurrent instances never split. */
+  /** one append per prompt, which concurrent instances never split; it starts with the line break, so a line a crash cut short ends before it. */
   async addPrompt(cwd: string, text: string): Promise<void> {
-    await appendFile(this.promptsPath(), `${JSON.stringify({ cwd, text })}\n`, {
+    await appendFile(this.promptsPath(), `\n${JSON.stringify({ cwd, text })}`, {
       mode: 0o600,
     });
   }
