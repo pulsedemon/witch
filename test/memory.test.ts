@@ -424,6 +424,9 @@ await test("a turn merges a checkout's path-key notes into its origin's project,
       'deploy.md': 'Deploy with A.\n',
       'notes/a.md': 'A note.\n',
       'same.md': 'Same.\n',
+      'dot.md': 'A.\n',
+      'angled.md': 'A.\n',
+      'p(1).md': 'A.\n',
     })
   ).scope.project;
   const copy = join(root, 'copy');
@@ -432,11 +435,14 @@ await test("a turn merges a checkout's path-key notes into its origin's project,
   const second = (await open('b')).workspace;
   await begin(second, copy, {
     'MEMORY.md':
-      '# Project\n- shared  \n- [deploy](deploy.md)\n- [two](two.md)\n- [two](two.md)\n',
+      '# Project\n- shared  \n- [deploy](deploy.md)\n- [two](two.md)\n- [two](two.md)\n- [dot](./dot.md)\n- [angled](<angled.md>)\n- [p](p(1).md)\n',
     'deploy.md': 'Deploy with B.\n',
     notes: 'A file named notes.\n',
     'same.md': 'Same.\n',
     'two.md': 'Two.\n',
+    'dot.md': 'B.\n',
+    'angled.md': 'B.\n',
+    'p(1).md': 'B.\n',
   });
   const origin = 'https://github.com/owner/repo.git';
   await git(project, 'remote', 'add', 'origin', origin);
@@ -459,9 +465,15 @@ await test("a turn merges a checkout's path-key notes into its origin's project,
     [
       '(copy)/notes',
       'MEMORY.md',
+      'angled (copy).md',
+      'angled.md',
       'deploy (copy).md',
       'deploy.md',
+      'dot (copy).md',
+      'dot.md',
       'notes/a.md',
+      'p(1) (copy).md',
+      'p(1).md',
       'same.md',
       'two.md',
     ]
@@ -470,7 +482,7 @@ await test("a turn merges a checkout's path-key notes into its origin's project,
   );
   assert.equal(
     await memory.read(merged.revision, `${target}/MEMORY.md`),
-    '# Project\n- [deploy](deploy.md)\n- shared  \n- [deploy](<deploy (copy).md>)\n- [two](two.md)\n',
+    '# Project\n- [deploy](deploy.md)\n- shared  \n- [deploy](<deploy (copy).md>)\n- [two](two.md)\n- [dot](<dot (copy).md>)\n- [angled](<angled (copy).md>)\n- [p](<p(1) (copy).md>)\n',
   );
   assert.equal(
     await memory.read(merged.revision, `${target}/deploy.md`),
