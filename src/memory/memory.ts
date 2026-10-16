@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   access,
@@ -10,7 +10,6 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
-import { promisify } from 'node:util';
 import { Workspace } from './workspace.js';
 
 export interface MemoryScope {
@@ -88,20 +87,6 @@ function projectKey(identity: string): string {
     name += char;
   }
   return `projects/${name}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
-}
-
-/** the host ssh reaches for a remote's: an alias in its config renames the host, but a hop to a subdomain, as `ssh.github.com` for `github.com`, keeps the service's name. */
-async function sshHost(host: string): Promise<string> {
-  // ssh expands the host into its config's `Match exec` commands, so only a plain name reaches it
-  if (!/^\w[\w.-]*$/.test(host)) return host;
-  // a broken or slow ssh config keys by the name as written rather than stopping every turn
-  const { stdout } = await promisify(execFile)('ssh', ['-G', '--', host], {
-    timeout: 5000,
-  }).catch(() => ({ stdout: '' }));
-  const reached = /^hostname (\S+)$/m.exec(stdout)?.[1]?.toLowerCase();
-  return !reached || reached.endsWith(`.${host.toLowerCase()}`)
-    ? host
-    : reached;
 }
 
 /** a run of percent escapes as text; one that isn't UTF-8 names no APFS path, so it stays escaped. */
@@ -259,10 +244,7 @@ export class Memory {
       (_, path: string) => path.replace(/(?:%(?!00)[\da-f]{2})+/gi, decoded),
     );
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
-    const host =
-      scp || (url && /^(?:git\+)?ssh(?:\+git)?:/i.test(origin!))
-        ? await sshHost(scp ?? url!)
-        : url;
+    const host = url ?? scp;
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
     if (host) return { identity: `${host.toLowerCase()}/${path}`, top };
     seen.add(cwd).add(top);
