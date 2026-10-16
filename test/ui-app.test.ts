@@ -1768,7 +1768,7 @@ const left = (
 ) =>
   `\u001b[<${kind === 'drag' ? 32 : 0};${column + 1};${row + 1}${kind === 'release' ? 'm' : 'M'}`;
 
-await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from the composer or the sidebar selects nothing', async () => {
+await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from above the transcript, the composer or the sidebar selects nothing', async () => {
   const words =
     'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
   const { app } = fake({
@@ -1785,11 +1785,15 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
     20,
   );
   try {
-    // the transcript starts at row 2 and column 1, the message wraps onto rows 3 and 4, and the composer's text is on row 15
+    // the transcript starts at row 2 and column 1 under the phase row, the message wraps onto rows 3 and 4, and the composer's text is on row 15
     await until('the wrapped message', () => ui.text().includes(' omicron pi'));
     // each write renders before the next, so Cmd+C reads what the mouse left selected
     for (const data of [
       left('press', 1, 3) + left('release', 1, 3),
+      left('press', 5, 1),
+      left('drag', 5, 3),
+      left('release', 5, 3),
+      CMD_C,
       left('press', 5, 15),
       left('drag', 5, 3),
       left('release', 5, 3),
@@ -1917,9 +1921,9 @@ await test('copying a wrapped tool title keeps the space its wrap trimmed', asyn
   }
 });
 
-await test('a wrapped title row the wrap changed beyond trimming joins the row above with a space', async () => {
+await test('a wrapped title row the wrap changed beyond trimming joins the rows beside it with a space', async () => {
   // the wrap drops the space after the zero-width space, so the title's second row is not found in it
-  const title = `${'a'.repeat(53)} \u00a0\u200b y`;
+  const title = `${'a'.repeat(53)} \u00a0\u200b ${'b'.repeat(55)} tail`;
   const { app } = fake({
     items: [
       { id: 'u', kind: 'user', text: 'hello', cwd: '/work' },
@@ -1937,15 +1941,17 @@ await test('a wrapped title row the wrap changed beyond trimming joins the row a
     20,
   );
   try {
-    // the message is on row 3 and the title wraps from row 5 onto row 6
-    await until('the wrapped title', () => ui.text().includes('aaa'));
+    // the message is on row 3 and the title wraps from row 5 onto rows 6 and 7
+    await until('the wrapped title', () => ui.text().includes('tail'));
     ui.stdin.write(left('press', 1, 3));
-    ui.stdin.write(left('drag', 58, 6));
-    ui.stdin.write(left('release', 58, 6));
+    ui.stdin.write(left('drag', 58, 7));
+    ui.stdin.write(left('release', 58, 7));
     await until('the highlight', () => ui.frame().includes('\u001b[7mhello'));
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
-    assert.deepEqual(copied, [`hello\n\n+ ✓ ${'a'.repeat(53)} y`]);
+    assert.deepEqual(copied, [
+      `hello\n\n+ ✓ ${'a'.repeat(53)} ${'b'.repeat(55)} tail`,
+    ]);
   } finally {
     ui.unmount();
   }
@@ -2112,6 +2118,35 @@ await test('a selection follows its text as output above it grows, and drops for
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.equal(copied.length, 2);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a drag back along a row selects from the pointer to the press', async () => {
+  const { app } = fake({
+    items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the message is on row 3, from column 1
+    await until('the message', () => ui.text().includes('alpha beta gamma'));
+    ui.stdin.write(left('press', 11, 3));
+    ui.stdin.write(left('drag', 1, 3));
+    ui.stdin.write(left('release', 1, 3));
+    await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['alpha beta']);
   } finally {
     ui.unmount();
   }
