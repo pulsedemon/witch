@@ -311,6 +311,15 @@ await test('clones of one origin share project memory under its name, whatever t
     await clone('host', 'https://gitlab.com/owner/repo.git'),
     ssh,
   );
+  const ipv6 = await clone('ipv6', 'git@[2001:db8::1]:owner/repo.git');
+  assert.equal(
+    await clone('ipv6-https', 'https://[2001:db8::1]/owner/repo.git'),
+    ipv6,
+  );
+  assert.equal(
+    await clone('ipv6-port', 'ssh://git@[2001:db8::1]:22/owner/repo.git'),
+    ipv6,
+  );
 });
 
 await test('a local origin names the repository git reaches through it, from the top level or by file URL', async () => {
