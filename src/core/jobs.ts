@@ -77,7 +77,7 @@ async function processTable(): Promise<Row[]> {
 }
 
 const detail =
-  /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\w+ \w+ +\d+ [\d:]+ \d+)\s+(.*)$/;
+  /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\w+ \w+ +\d+ [\d:]+ \d+)\s+(.*)$/s;
 
 /** reads `ps -o pid=,pgid=,%cpu=,lstart=,command=` lines with dates in UTC. */
 export function parseDetails(lines: string[]): Detail[] {

@@ -426,6 +426,15 @@ await test('a start date parses whether or not ps pads its day', () => {
   );
 });
 
+await test('a command holding a line separator is described', () => {
+  assert.deepEqual(
+    parseDetails([
+      '  501   501   0.0 Thu Oct 15 18:50:27 2026     node -e a b',
+    ]).map(({ command }) => command),
+    ['node -e a b'],
+  );
+});
+
 await test('a failed background read keeps the jobs it had', async () => {
   const sleep = spawn('/bin/sleep', ['71.5'], {
     detached: true,
