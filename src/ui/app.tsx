@@ -723,7 +723,7 @@ export function App({
     if (pointer === 'press') {
       if (offset >= 0 && offset < shown && column < box.x + width - 2)
         pressedAt.current = end;
-    } else if (pointer === 'drag' && pressedAt.current && end) {
+    } else if (pressedAt.current && end) {
       if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
       setRange({ from: pressedAt.current, to: end });
     }
