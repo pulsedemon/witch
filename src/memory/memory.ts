@@ -230,12 +230,21 @@ export class Memory {
     seen = new Set<string>(),
     ceiling?: string,
   ): Promise<{ identity: string; top: string }> {
-    // only a missing origin (2) or work tree (128) falls back, so a git that fails can't move the key
+    // only a missing origin, repository or work tree falls back, so a git that fails can't move the key.
+    // git exits 128 for those and for fatal errors such as a bad config, so its untranslated message tells them apart
     const read = async (args: string[]) => {
       const result = await this.run(cwd, args, {
         codes: [0, 2, 128],
-        ...(ceiling ? { env: { GIT_CEILING_DIRECTORIES: ceiling } } : {}),
+        env: {
+          LC_ALL: 'C',
+          ...(ceiling ? { GIT_CEILING_DIRECTORIES: ceiling } : {}),
+        },
       });
+      if (
+        result.code === 128 &&
+        !/not a git repository|must be run in a work tree/.test(result.stderr)
+      )
+        throw new Error(result.stderr.trim());
       return result.code === 0 ? result.stdout.trim() : undefined;
     };
     // git reads a `file://` origin as the path after its host, with percent escapes but `%00` decoded
