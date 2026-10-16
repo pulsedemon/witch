@@ -1704,19 +1704,31 @@ await test('prompts that come back mid-browse end browsing and go ahead of the d
   }
 });
 
-await test('a recalled command opens no list, so ↑ goes on to older prompts', async () => {
-  const { app } = fake({});
-  const { store } = prompts(['/model', 'older']);
+await test('a recalled prompt opens no completion list until it is edited, even with the cursor in its file token, so ↑ goes on to older prompts', async () => {
+  const { app } = fake({}, ['src/a.ts']);
+  const { store } = prompts(['@src/a.ts\nnext', '/mo', 'older']);
   const ui = show(
     createElement(App, { coordinator: app, store, onExit: () => {} }),
   );
   try {
     await delay(60);
     ui.stdin.write(UP);
-    await until('the command', () => ui.text().includes('┃ /model'));
+    await until('the prompt naming a file', () => ui.text().includes('┃ next'));
+    ui.stdin.write(UP);
+    await delay(60);
+    assert.doesNotMatch(ui.text(), /^ *@src\/a\.ts *$/m);
+    ui.stdin.write(UP);
+    await until('the command', () => ui.text().includes('┃ /mo'));
     assert.ok(!ui.text().includes('Choose model and reasoning'), ui.text());
     ui.stdin.write(UP);
     await until('the older prompt', () => ui.text().includes('┃ older'));
+    ui.stdin.write(DOWN);
+    await until('the command again', () => ui.text().includes('┃ /mo'));
+    ui.stdin.write('\u001b[F');
+    ui.stdin.write('d');
+    await until('the list once edited', () =>
+      ui.text().includes('Choose model and reasoning'),
+    );
   } finally {
     ui.unmount();
   }
