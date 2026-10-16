@@ -2102,7 +2102,7 @@ await test('a selection follows its text as output above it grows, and drops for
     );
   };
   try {
-    // the reply's text is on row 6, and the expanded tool's output on rows 9 to 11
+    // the message's title is on row 2, the reply's text on row 6, and the expanded tool's output on rows 9 to 11
     await until('the reply', () => ui.text().includes('selected words'));
     await select(1, 8, 6, 'selected');
     coordinator.publish({ items: items('first\nsecond\nthird') });
@@ -2130,9 +2130,10 @@ await test('a selection follows its text as output above it grows, and drops for
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.equal(copied.length, 2);
-    await select(1, 8, 6, 'selected');
+    // the new transcript starts with a title like the one selected, so only the item drops it
+    await select(1, 3, 2, 'You');
     coordinator.publish({
-      items: [{ id: 'b', kind: 'user', text: 'selected words', cwd: '/work' }],
+      items: [{ id: 'b', kind: 'user', text: 'first', cwd: '/work' }],
     });
     await until('the new transcript', () => !ui.text().includes('run'));
     assert.ok(!ui.frame().includes('\u001b[7m'));
