@@ -1775,15 +1775,17 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
     items: [{ id: 'u', kind: 'user', text: words, cwd: '/work' }],
   });
   const copied: string[] = [];
-  const ui = show(
-    createElement(App, {
-      coordinator: app,
-      onExit: () => {},
-      copy: (text: string) => copied.push(text),
-    }),
-    60,
-    20,
-  );
+  const mount = (columns: number) =>
+    show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {},
+        copy: (text: string) => copied.push(text),
+      }),
+      columns,
+      20,
+    );
+  const ui = mount(60);
   try {
     // the transcript starts at row 2 and column 1 under the phase row, the message wraps onto rows 3 and 4, and the composer's text is on row 15
     await until('the wrapped message', () => ui.text().includes(' omicron pi'));
@@ -1826,18 +1828,6 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
       'no highlight once resized',
       () => !ui.frame().includes('\u001b[7m'),
     );
-    // the sidebar takes the 25 columns from 95
-    for (const data of [
-      left('press', 110, 3),
-      left('drag', 5, 3),
-      left('release', 5, 3),
-      CMD_C,
-    ]) {
-      ui.stdin.write(data);
-      await delay(60);
-    }
-    assert.deepEqual(copied, [words]);
-    // a resize between the press and the drag measures the two ends at different widths
     ui.stdin.write(left('press', 50, 3));
     await delay(60);
     ui.resize(60);
@@ -1850,6 +1840,36 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
     assert.deepEqual(copied, [words]);
   } finally {
     ui.unmount();
+  }
+  // mounted at its width, so the first press runs on a handler measured at it
+  const wide = mount(120);
+  try {
+    // the sidebar takes the 25 columns from 95, and the message fits on row 3
+    await until('the message', () => wide.text().includes(' omicron pi'));
+    for (const data of [
+      left('press', 110, 3),
+      left('drag', 5, 3),
+      left('release', 5, 3),
+      CMD_C,
+    ]) {
+      wide.stdin.write(data);
+      await delay(60);
+    }
+    assert.deepEqual(copied, [words]);
+    // the title row reads the same at both widths, so only the width drops a selection past its text
+    wide.stdin.write(left('press', 1, 2));
+    wide.stdin.write(left('drag', 90, 2));
+    wide.stdin.write(left('release', 90, 2));
+    await until('the highlight on the title', () =>
+      wide.frame().includes('\u001b[7mYou'),
+    );
+    wide.resize(60);
+    await until('the narrow layout', () =>
+      wide.text().includes('\n lambda mu'),
+    );
+    assert.ok(!wide.frame().includes('\u001b[7m'));
+  } finally {
+    wide.unmount();
   }
 });
 
