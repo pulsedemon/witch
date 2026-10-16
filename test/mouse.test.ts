@@ -51,11 +51,15 @@ await test('mouse reports leave the input as wheel steps and left clicks, and th
   ]);
 });
 
-await test('only the release of a left press clicks, and only once', () => {
+await test('only the release of a left press on its own cell clicks, and only once', () => {
   const { source, clicks } = input();
   source.emit('data', '\u001b[<0;5;5M\u001b[<2;5;5m');
   assert.equal(clicks(), 0);
   source.emit('data', '\u001b[<0;5;5m\u001b[<0;5;5m');
+  assert.equal(clicks(), 1);
+  // a release Ghostty withheld, as it does one with Shift held, leaves the next release on another cell
+  source.emit('data', '\u001b[<0;5;5M\u001b[<0;5;9m');
+  source.emit('data', '\u001b[<0;5;5M\u001b[<0;9;5m');
   assert.equal(clicks(), 1);
 });
 
