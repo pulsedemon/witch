@@ -7,6 +7,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
@@ -298,9 +299,34 @@ await test('clones of one origin share project memory under its name, whatever t
   const ssh = await clone('work', 'git@github.com:owner/repo.git');
   assert.match(ssh, /^projects\/repo-[0-9a-f]{16}$/);
   assert.equal(await clone('copy', 'https://github.com/owner/repo'), ssh);
+  assert.equal(await clone('mixed', 'git@GitHub.com:owner/repo.git'), ssh);
   assert.notEqual(
     await clone('other', 'https://github.com/owner/other.git'),
     ssh,
+  );
+});
+
+await test('a relative origin names the repository it reaches from the top level', async () => {
+  const { memory, root } = await fixture();
+  const clone = async (directory: string, origin: string) => {
+    const path = join(root, directory);
+    await mkdir(join(path, 'src'), { recursive: true });
+    await git(path, 'init', '--quiet');
+    await git(path, 'remote', 'add', 'origin', origin);
+    return path;
+  };
+  const a = await clone('a/clone', '../upstream.git');
+  const key = (await memory.scopePaths(a)).project;
+  assert.equal((await memory.scopePaths(join(a, 'src'))).project, key);
+  assert.notEqual(
+    (await memory.scopePaths(await clone('b/clone', '../upstream.git')))
+      .project,
+    key,
+  );
+  const absolute = join(await realpath(root), 'a/upstream.git');
+  assert.equal(
+    (await memory.scopePaths(await clone('c', absolute))).project,
+    key,
   );
 });
 
