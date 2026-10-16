@@ -428,9 +428,9 @@ await test('a start date parses whether or not ps pads its day', () => {
 await test('a command holding a line separator is described', () => {
   assert.deepEqual(
     parseDetails([
-      '  501   501   0.0 Thu Oct 15 18:50:27 2026     node -e a b',
+      '  501   501   0.0 Thu Oct 15 18:50:27 2026     node -e a\u2028b',
     ]).map(({ command }) => command),
-    ['node -e a b'],
+    ['node -e a\u2028b'],
   );
 });
 
