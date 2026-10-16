@@ -203,13 +203,22 @@ export function App({
     })),
     ...state.skills.filter(({ name }) => !claimed.has(name)),
   ];
+  /** whether the composer holds the prompt ↑/↓ last showed, as shown. */
+  const recalled = (value: string) => {
+    const { index, texts } = recall.current;
+    return (
+      index !== -1 && value === (texts.get(index) ?? history.current[index])
+    );
+  };
   /** read at key time from the live buffer, since several keys can arrive in one read. */
   const listFor = ({ value, cursor }: InputBuffer): List | undefined => {
     if (
       view.kind !== 'chat' ||
       !composerPhase ||
       toolFocusRef.current ||
-      dismissedRef.current === tokenKey(value, cursor)
+      dismissedRef.current === tokenKey(value, cursor) ||
+      // a list would take ↑/↓ from browsing, even once the cursor moves into a recalled `@path`
+      recalled(value)
     )
       return;
     const token = activeToken(value, cursor);
@@ -542,8 +551,6 @@ export function App({
     // ↑ lands at the end and ↓ at the start, so the next press walks a multiline prompt's lines first
     const cursor = direction === 'up' ? value.length : 0;
     composer.current?.set({ value, cursor });
-    // a recalled command would open its list, which would take ↑/↓ from browsing
-    setDismissed(tokenKey(value, cursor));
     return true;
   };
 
