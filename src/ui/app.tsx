@@ -88,6 +88,10 @@ const unwatched = () => () => {};
 interface RangeEnd {
   anchor: ScrollAnchor;
   column: number;
+  /** the width its column was measured at; at another, rows rewrap and other text sits under it. */
+  width: number;
+  /** whether its item was expanded; expanding or collapsing a tool renumbers its lines. */
+  open: boolean;
 }
 
 export function App({
@@ -174,26 +178,22 @@ export function App({
     [layout, state.items, width, expanded],
   );
   // a drag's ends are anchored to their text, so they follow it when output grows
-  const [range, setRange] = useState<{
-    from: RangeEnd;
-    to: RangeEnd;
-    /** the width its columns were measured at; at another, rows rewrap and other text sits under them. */
-    width: number;
-  }>();
+  const [range, setRange] = useState<{ from: RangeEnd; to: RangeEnd }>();
   const pressedAt = useRef<RangeEnd>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
-  /** the selected range in reading order, while both its items are shown at its width. */
+  /** where an end is drawn, while its item is shown as it was when the end was measured. */
+  const pointOf = (end: RangeEnd): Point | undefined =>
+    end.width === width &&
+    end.open === expanded.has(end.anchor.item) &&
+    transcript.starts.has(end.anchor.item)
+      ? { row: transcript.rowOf(end.anchor), column: end.column }
+      : undefined;
+  const from = range && pointOf(range.from);
+  const to = range && pointOf(range.to);
+  /** the selected range in reading order. */
   const ends =
-    range?.width === width &&
-    [range.from, range.to].every(({ anchor }) =>
-      transcript.starts.has(anchor.item),
-    )
-      ? ([range.from, range.to]
-          .map(({ anchor, column }) => ({
-            row: transcript.rowOf(anchor),
-            column,
-          }))
-          .sort((a, b) => a.row - b.row || a.column - b.column) as [
+    from && to
+      ? ([from, to].sort((a, b) => a.row - b.row || a.column - b.column) as [
           Point,
           Point,
         ])
@@ -711,6 +711,8 @@ export function App({
     const end = anchor && {
       anchor,
       column: Math.max(0, Math.min(width - 3, column - box.x)),
+      width,
+      open: expanded.has(anchor.item),
     };
     if (pointer === 'press') {
       if (offset >= 0 && offset < shown && column < box.x + width - 2)
@@ -718,7 +720,7 @@ export function App({
     } else if (pointer === 'release') pressedAt.current = undefined;
     else if (pressedAt.current && end) {
       if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
-      setRange({ from: pressedAt.current, to: end, width });
+      setRange({ from: pressedAt.current, to: end });
     }
   });
   // a request scrolls itself, and a picker follows its selection

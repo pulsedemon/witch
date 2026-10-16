@@ -1833,6 +1833,17 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
       await delay(60);
     }
     assert.deepEqual(copied, [words]);
+    // a resize between the press and the drag measures the two ends at different widths
+    ui.stdin.write(left('press', 50, 3));
+    await delay(60);
+    ui.resize(60);
+    await until('the narrow layout', () => ui.text().includes(' omicron pi'));
+    for (const data of [left('drag', 5, 3), left('release', 5, 3), CMD_C]) {
+      ui.stdin.write(data);
+      await delay(60);
+    }
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+    assert.deepEqual(copied, [words]);
   } finally {
     ui.unmount();
   }
@@ -1901,6 +1912,77 @@ await test('copying a wrapped tool title keeps the space its wrap trimmed', asyn
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, [`+ ✓ ${title}`]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a selection follows its text as output above it grows, and drops when its tool collapses or its item leaves', async () => {
+  const items = (first: string) => [
+    { id: 'u', kind: 'user' as const, text: first, cwd: '/work' },
+    {
+      id: 'a',
+      kind: 'assistant' as const,
+      text: 'selected words',
+      cwd: '/work',
+    },
+    {
+      id: 't',
+      kind: 'tool' as const,
+      title: 'run',
+      text: 'line one\nline two\nline three',
+      cwd: '/work',
+      done: true,
+    },
+  ];
+  const { app, coordinator } = fake({ items: items('first') });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  const select = async (from: number, to: number, row: number) => {
+    ui.stdin.write(left('press', from, row));
+    ui.stdin.write(left('drag', to, row));
+    ui.stdin.write(left('release', to, row));
+    await delay(60);
+  };
+  try {
+    // the reply's text is on row 6, and the expanded tool's output on rows 9 to 11
+    await until('the reply', () => ui.text().includes('selected words'));
+    await select(1, 8, 6);
+    coordinator.publish({ items: items('first\nsecond\nthird') });
+    await until('the taller message', () => ui.text().includes('third'));
+    assert.ok(ui.frame().includes('\u001b[7mselected'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['selected']);
+    coordinator.publish({ items: items('first') });
+    ui.stdin.write(`\t${ENTER}`);
+    await until('the expanded tool', () => ui.text().includes('line two'));
+    await select(1, 8, 10);
+    ui.stdin.write(CMD_C);
+    await until('the second copy', () => copied.length > 1);
+    assert.deepEqual(copied.at(-1), 'line two');
+    ui.stdin.write(ENTER);
+    await until('the collapsed tool', () => !ui.text().includes('line two'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.equal(copied.length, 2);
+    await select(1, 8, 6);
+    coordinator.publish({
+      items: [{ id: 'b', kind: 'user', text: 'selected words', cwd: '/work' }],
+    });
+    await until('the new transcript', () => !ui.text().includes('run'));
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.equal(copied.length, 2);
   } finally {
     ui.unmount();
   }
