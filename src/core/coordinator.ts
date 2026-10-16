@@ -734,19 +734,19 @@ export class Coordinator {
     });
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
-    // a changed origin moves the key, and the session has seen none of the new project's notes
-    const previous =
-      reference.deliveredProject === scope.project
-        ? reference.deliveredRevision
-        : undefined;
+    // a moved key needs the new project's full snapshot, which supersedes the marked one even if this turn fails
+    if (reference.deliveredProject !== scope.project) {
+      delete reference.deliveredRevision;
+      reference.deliveredProject = scope.project;
+    }
     const snapshot =
-      previous === activity.baseRevision
+      reference.deliveredRevision === activity.baseRevision
         ? undefined
         : await this.memory.snapshot(
             activity.baseRevision,
             workspace.root,
             scope,
-            previous,
+            reference.deliveredRevision,
           );
     const handoff = conversation.handoff;
     const pendingHandoff =
@@ -794,10 +794,8 @@ export class Coordinator {
       await workspace.commit(
         `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
       );
-      Object.assign(conversation.sessions[activity.agent]!, {
-        deliveredRevision: activity.baseRevision,
-        deliveredProject: scope.project,
-      });
+      conversation.sessions[activity.agent]!.deliveredRevision =
+        activity.baseRevision;
       delete conversation.activity;
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {
