@@ -2210,6 +2210,58 @@ await test('a selection drops when output arrives under one of its ends', async 
   }
 });
 
+await test('a drag into the left margin or above a transcript at its top reaches the edge cell or row, and a press under a short transcript selects nothing', async () => {
+  const words =
+    'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
+  const { app } = fake({
+    items: [{ id: 'u', kind: 'user', text: words, cwd: '/work' }],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the title is on row 2, the message wraps onto rows 3 and 4 from column 1, and the blank row under it is row 5
+    await until('the wrapped message', () => ui.text().includes(' omicron pi'));
+    ui.stdin.write(left('press', 5, 3));
+    ui.stdin.write(left('drag', 0, 4));
+    ui.stdin.write(left('release', 0, 4));
+    await until('the highlight', () => ui.frame().includes('\u001b[7ma beta'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [
+      'a beta gamma delta epsilon zeta eta theta iota kappa l',
+    ]);
+    ui.stdin.write(left('press', 5, 4));
+    ui.stdin.write(left('drag', 8, 1));
+    ui.stdin.write(left('release', 8, 1));
+    await until('the highlight from the title', () =>
+      ui.frame().includes('\u001b[7malpha'),
+    );
+    ui.stdin.write(CMD_C);
+    await until('the second copy', () => copied.length > 1);
+    assert.equal(
+      copied[1],
+      '\nalpha beta gamma delta epsilon zeta eta theta iota kappa lambd',
+    );
+    ui.stdin.write(left('press', 5, 9));
+    ui.stdin.write(left('drag', 8, 3));
+    ui.stdin.write(left('release', 8, 3));
+    await delay(60);
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.equal(copied.length, 2);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a drag back along a row selects from the pointer to the press, and one forward from mid-row draws from the press', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
