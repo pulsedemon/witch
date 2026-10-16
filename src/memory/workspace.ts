@@ -117,6 +117,17 @@ export class Workspace {
     return { revision: await this.revision(), scope };
   }
 
+  /** begins outside a turn to take in the checkout's path-key notes, unless pending or unpublished memory waits for settling. */
+  async adoptCheckout(cwd: string): Promise<void> {
+    if (!(await this.exists()) || (await this.isDirty())) return;
+    const published = await this.memory.run(
+      this.root,
+      ['merge-base', '--is-ancestor', 'HEAD', main],
+      { codes: [0, 1] },
+    );
+    if (published.code === 0) await this.begin(cwd);
+  }
+
   /** merges a checkout's path-key notes into its origin's project, as a commit of its own. MEMORY.md gains the lines it lacks, and a note both hold keeps both versions. */
   private async adopt({ project, checkout }: MemoryScope): Promise<void> {
     if (!checkout || !(await this.has('HEAD', checkout))) return;

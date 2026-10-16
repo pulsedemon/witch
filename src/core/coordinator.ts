@@ -222,8 +222,13 @@ export class Coordinator {
     }
     // a failed connect leaves the conversation open, as a failed send does
     const failure = await this.connect().then(() => undefined, errorMessage);
+    // the checkout's path-key notes move as it opens, so /memory shows them before a turn
+    const adoption = await this.workspace!.adoptCheckout(cwd).then(
+      () => undefined,
+      errorMessage,
+    );
     await this.settle(
-      [report, failure].filter(Boolean).join('\n\n') || undefined,
+      [report, failure, adoption].filter(Boolean).join('\n\n') || undefined,
     );
   }
 
@@ -456,6 +461,7 @@ export class Coordinator {
         create: this.newRecord(source.cwd, chosen, source),
       });
       await this.connect();
+      await this.workspace!.adoptCheckout(source.cwd);
     });
   }
 
@@ -464,6 +470,7 @@ export class Coordinator {
     await this.operate('starting', async () => {
       await this.openConversation({ id });
       await this.connect();
+      await this.workspace!.adoptCheckout(this.current().cwd);
     });
   }
 
