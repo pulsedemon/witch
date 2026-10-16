@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import type { Click, Pointer } from '../src/ui/mouse.js';
-import { MouseInput } from '../src/ui/mouse.js';
+import { MouseInput, captureMouse, releaseMouse } from '../src/ui/mouse.js';
 
 class Source extends EventEmitter {
   raw: boolean[] = [];
@@ -84,4 +84,14 @@ await test('raw mode reaches the terminal', () => {
   mouse.setRawMode(true);
   mouse.setRawMode(false);
   assert.deepEqual(source.raw, [true, false]);
+});
+
+await test('capturing the mouse asks for motion while a button is held, in SGR coordinates, and releasing it ends every mode capture began', () => {
+  const modes = (sequence: string, end: 'h' | 'l') =>
+    [...sequence.matchAll(/\?(\d+)([hl])/g)]
+      .filter(([, , kind]) => kind === end)
+      .map(([, mode]) => mode)
+      .sort();
+  assert.deepEqual(modes(captureMouse, 'h'), ['1002', '1006']);
+  assert.deepEqual(modes(releaseMouse, 'l'), modes(captureMouse, 'h'));
 });
