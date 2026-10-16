@@ -1838,7 +1838,7 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
   }
 });
 
-await test('a drag past the transcript top scrolls it a row a move and selects the row it brings in', async () => {
+await test('a drag past the transcript top or bottom scrolls it a row a move, and past the top selects the row it brings in', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
   );
@@ -1865,6 +1865,9 @@ await test('a drag past the transcript top scrolls it a row a move and selects t
     ui.stdin.write(left('release', 1, 0) + CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, [`row ${bottom - 2}\nrow ${bottom - 1}\nr`]);
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 1, 39));
+    await until('a row down', () => first() === bottom - 1);
   } finally {
     ui.unmount();
   }
