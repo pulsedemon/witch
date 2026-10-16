@@ -113,7 +113,7 @@ if (!store) {
         const child = execFile('/usr/bin/pbcopy', (error) => {
           if (error) coordinator.report(error);
         });
-        // a pbcopy that exits early fails its write with EPIPE, which the callback already reports
+        // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
         child.stdin?.on('error', () => {}).end(text);
       }}
     />,
