@@ -392,11 +392,24 @@ await test("prompts list this directory's newest first after a restart, keep lin
   assert.deepEqual(await reopened.prompts('/b'), ['other']);
 });
 
-await test('prompts longer than a write chunk, stored at once, each read back whole', async () => {
+await test('prompts one instance adds at once are stored newest first', async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-prompts-'));
   const store = await StateStore.open(root);
-  // appendFile writes 512 KiB at a time, and appends running at once split each other's longer records
-  const texts = ['a', 'b', 'c', 'd'].map((letter) => letter.repeat(2 ** 20));
+  // long prompts take long enough to write that unordered appends land out of order in most runs
+  const texts = [...'abcdefgh'].map((letter) => letter.repeat(2 ** 20));
   await Promise.all(texts.map((text) => store.addPrompt('/a', text)));
-  assert.deepEqual((await store.prompts('/a')).sort(), texts);
+  assert.deepEqual(await store.prompts('/a'), texts.toReversed());
+});
+
+await test('prompts longer than a write chunk, stored by several instances at once, each read back whole', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'witch-prompts-'));
+  const stores = await Promise.all(
+    [1, 2, 3, 4].map(() => StateStore.open(root)),
+  );
+  // appendFile writes 512 KiB at a time, and appends running at once split each other's longer records
+  const texts = [...'abcd'].map((letter) => letter.repeat(2 ** 20));
+  await Promise.all(
+    texts.map((text, index) => stores[index]!.addPrompt('/a', text)),
+  );
+  assert.deepEqual((await stores[0]!.prompts('/a')).sort(), texts);
 });
