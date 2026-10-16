@@ -34,7 +34,7 @@ function input() {
 }
 
 await test('mouse reports leave the input as wheel steps and left clicks, and the keys around them read through', () => {
-  const { source, read, wheel, clicks } = input();
+  const { source, read, wheel, clicks, pointer } = input();
   // a wheel up, a left click around a right drag, Alt+wheel down and a Ctrl+left click
   source.emit(
     'data',
@@ -43,6 +43,12 @@ await test('mouse reports leave the input as wheel steps and left clicks, and th
   assert.deepEqual(read, ['abc']);
   assert.deepEqual(wheel, [-1, 1]);
   assert.equal(clicks(), 2);
+  assert.deepEqual(pointer, [
+    ['press', { column: 11, row: 2 }],
+    ['release', { column: 11, row: 2 }],
+    ['press', { column: 1, row: 8 }],
+    ['release', { column: 1, row: 8 }],
+  ]);
 });
 
 await test('only the release of a left press clicks, and only once', () => {
