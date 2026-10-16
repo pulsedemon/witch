@@ -8,8 +8,8 @@ const inverse = (text: string) => `\u001b[7m${text}\u001b[27m`;
 
 await test('a highlight inverts the selected cells as plain text, keeps the styles around it and counts wide characters as two', () => {
   assert.equal(
-    highlight(`${red('ab')}日本x`, 1, 4),
-    `${red('a')}${inverse('b日')}本x`,
+    highlight(`${red('ab')}日本${red('x')}`, 1, 4),
+    `${red('a')}${inverse('b日')}本${red('x')}`,
   );
 });
 
