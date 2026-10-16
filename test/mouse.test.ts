@@ -72,6 +72,13 @@ await test('a press dragged off its cell is a drag, not a click, even released w
   ]);
 });
 
+await test('a wheel step while the button is down keeps its release from clicking', () => {
+  const { source, wheel, clicks } = input();
+  source.emit('data', '\u001b[<0;5;5M\u001b[<65;5;5M\u001b[<0;5;5m');
+  assert.deepEqual(wheel, [1]);
+  assert.deepEqual(clicks, []);
+});
+
 await test('raw mode reaches the terminal', () => {
   const { source, mouse } = input();
   mouse.setRawMode(true);
