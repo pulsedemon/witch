@@ -1785,12 +1785,12 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
     20,
   );
   try {
-    // the transcript starts at row 2 and column 1, and the message wraps onto rows 3 and 4
+    // the transcript starts at row 2 and column 1, the message wraps onto rows 3 and 4, and the composer's text is on row 15
     await until('the wrapped message', () => ui.text().includes(' omicron pi'));
     // each write renders before the next, so Cmd+C reads what the mouse left selected
     for (const data of [
       left('press', 1, 3) + left('release', 1, 3),
-      left('press', 5, 17),
+      left('press', 5, 15),
       left('drag', 5, 3),
       left('release', 5, 3),
       CMD_C,
@@ -2010,6 +2010,35 @@ await test('a drag past the last transcript row or its right edge selects to the
   }
 });
 
+await test('a selection that runs past the bottom of the view stays drawn as the wheel scrolls', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  try {
+    await until('the transcript', () => first() > 0);
+    const bottom = first();
+    const last = ui
+      .text()
+      .split('\n')
+      .findLastIndex((row) => /row \d+/.test(row));
+    // the view ends with the blank row under the last row of text
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 5, last + 1));
+    ui.stdin.write(left('release', 5, last + 1));
+    await until('the highlight', () => ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(wheelUp);
+    await until('a row up', () => first() === bottom - 1);
+    assert.ok(ui.frame().includes(`\u001b[7mrow ${bottom}`));
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a selection follows its text as output above it grows, and drops when its tool collapses or its item leaves', async () => {
   const items = (first: string) => [
     { id: 'u', kind: 'user' as const, text: first, cwd: '/work' },
@@ -2076,6 +2105,23 @@ await test('a selection follows its text as output above it grows, and drops whe
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.equal(copied.length, 2);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a click on a page leaves it open', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/help');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the help page', () => ui.text().includes('/new  New'));
+    ui.stdin.write(left('press', 1, 3) + left('release', 1, 3));
+    await delay(60);
+    assert.ok(ui.text().includes('/new  New'));
   } finally {
     ui.unmount();
   }
