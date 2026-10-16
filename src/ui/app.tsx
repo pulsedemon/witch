@@ -148,7 +148,7 @@ export function App({
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
-  const [top, setTop] = useState<ScrollAnchor | null>(null);
+  const [top, topRef, setTop] = useLiveState<ScrollAnchor | null>(null);
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -290,18 +290,16 @@ export function App({
   );
   const transcriptHeight = Math.max(2, freeRows - queueRows);
   const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
-  const scrollTop =
-    top === null ? maxTop : Math.min(transcript.rowOf(top), maxTop);
+  /** the first row shown from `anchor`, or at the bottom without one. */
+  const topRow = (anchor: ScrollAnchor | null) =>
+    anchor === null ? maxTop : Math.min(transcript.rowOf(anchor), maxTop);
+  const scrollTop = topRow(top);
   const scrollTo = (row: number | null) =>
     setTop(row === null ? null : (transcript.anchorAt(row) ?? null));
   /** scrolls from the latest position, so two page keys in one read move two pages. */
   const scrollBy = (rows: number) =>
     setTop((previous) => {
-      const current =
-        previous === null
-          ? maxTop
-          : Math.min(transcript.rowOf(previous), maxTop);
-      const next = Math.min(maxTop, Math.max(0, current + rows));
+      const next = Math.min(maxTop, Math.max(0, topRow(previous) + rows));
       return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
     });
   const tools = state.items.filter((item) => item.kind === 'tool');
@@ -701,14 +699,13 @@ export function App({
     }
     if (!transcriptBox.current) return;
     const box = measureElement(transcriptBox.current);
-    const shown = Math.min(
-      transcriptHeight,
-      transcript.lines.length - scrollTop,
-    );
+    // reports in one read arrive before a render, so each starts where the last one scrolled
+    const first = topRow(topRef.current);
+    const shown = Math.min(transcriptHeight, transcript.lines.length - first);
     // past the top or bottom, the row a drag scrolls in
     const offset = Math.max(-1, Math.min(shown, row - box.y));
     const anchor = transcript.anchorAt(
-      Math.max(0, Math.min(transcript.lines.length - 1, scrollTop + offset)),
+      Math.max(0, Math.min(transcript.lines.length - 1, first + offset)),
     );
     const end = anchor && {
       anchor,

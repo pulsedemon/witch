@@ -2110,6 +2110,42 @@ await test('a selection follows its text as output above it grows, and drops whe
   }
 });
 
+await test('drag reports past the top in one read each scroll on from where the last one left the view', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+  );
+  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  try {
+    await until('the transcript', () => first() > 0);
+    const bottom = first();
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(
+      left('drag', 1, 0) + left('drag', 2, 0) + left('drag', 3, 0),
+    );
+    await until('three rows up', () => first() === bottom - 3);
+    ui.stdin.write(left('release', 3, 0));
+    await delay(60);
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [
+      `w ${bottom - 3}\nrow ${bottom - 2}\nrow ${bottom - 1}\nr`,
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a click on a page leaves it open', async () => {
   const { app } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
