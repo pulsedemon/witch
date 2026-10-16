@@ -2124,6 +2124,39 @@ await test('a selection follows its text as output above it grows, and drops for
   }
 });
 
+await test('a selection drops when output arrives under one of its ends', async () => {
+  const reply = (text: string) => ({
+    items: [{ id: 'a', kind: 'assistant' as const, text, cwd: '/work' }],
+  });
+  const { app, coordinator } = fake(reply('alpha\nbeta'));
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the reply's lines are on rows 3 and 4, and the blank row under them is the next line's first
+    await until('the reply', () => ui.text().includes('beta'));
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 30, 5));
+    ui.stdin.write(left('release', 30, 5));
+    await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
+    coordinator.publish(reply('alpha\nbeta\ngamma'));
+    await until('the longer reply', () => ui.text().includes('gamma'));
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a drag back along a row selects from the pointer to the press', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],

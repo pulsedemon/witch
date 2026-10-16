@@ -88,10 +88,10 @@ const unwatched = () => () => {};
 interface RangeEnd {
   anchor: ScrollAnchor;
   column: number;
-  /** the width its column was measured at; at another, rows rewrap and other text sits under it. */
+  /** the width it was measured at; a resize drops the range, since a column from a wider one can lie past the edge. */
   width: number;
-  /** whether its item was expanded; expanding or collapsing a tool renumbers its lines. */
-  open: boolean;
+  /** its row as measured; output growing into the row, or its tool expanding or collapsing, changes it. */
+  text: string;
 }
 
 export function App({
@@ -177,17 +177,19 @@ export function App({
     () => layout.render(state.items, width - 2, expanded),
     [layout, state.items, width, expanded],
   );
-  // a drag's ends are anchored to their text, so they follow it when output grows
+  // a drag's ends are anchored to their text, so they follow it when output above grows
   const [range, setRange] = useState<{ from: RangeEnd; to: RangeEnd }>();
   const pressedAt = useRef<RangeEnd>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
-  /** where an end is drawn, while its item is shown as it was when the end was measured. */
-  const pointOf = (end: RangeEnd): Point | undefined =>
-    end.width === width &&
-    end.open === expanded.has(end.anchor.item) &&
-    transcript.starts.has(end.anchor.item)
-      ? { row: transcript.rowOf(end.anchor), column: end.column }
+  /** where an end is drawn, while its row reads as it did when the end was measured. */
+  const pointOf = (end: RangeEnd): Point | undefined => {
+    const row = transcript.rowOf(end.anchor);
+    return end.width === width &&
+      transcript.starts.has(end.anchor.item) &&
+      transcript.lines[row] === end.text
+      ? { row, column: end.column }
       : undefined;
+  };
   const from = range && pointOf(range.from);
   const to = range && pointOf(range.to);
   /** the selected range in reading order. */
@@ -708,14 +710,16 @@ export function App({
     const shown = Math.min(transcriptHeight, transcript.lines.length - first);
     // past the top or bottom, the row a drag scrolls in
     const offset = Math.max(-1, Math.min(shown, row - box.y));
-    const anchor = transcript.anchorAt(
-      Math.max(0, Math.min(transcript.lines.length - 1, first + offset)),
+    const at = Math.max(
+      0,
+      Math.min(transcript.lines.length - 1, first + offset),
     );
+    const anchor = transcript.anchorAt(at);
     const end = anchor && {
       anchor,
       column: Math.max(0, Math.min(width - 3, column - box.x)),
       width,
-      open: expanded.has(anchor.item),
+      text: transcript.lines[at]!,
     };
     if (pointer === 'press') {
       if (offset >= 0 && offset < shown && column < box.x + width - 2)
