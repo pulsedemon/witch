@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   access,
@@ -9,6 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
+import { promisify } from 'node:util';
 import { Workspace } from './workspace.js';
 
 export interface MemoryScope {
@@ -80,6 +81,19 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
 
 const projectKey = (identity: string) =>
   `projects/${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
+
+/** the host ssh reaches for a remote's: an alias in its config renames the host, but a hop to a subdomain, as `ssh.github.com` for `github.com`, keeps the service's name. */
+async function sshHost(host: string): Promise<string> {
+  if (host.startsWith('[')) return host;
+  // a broken ssh config keys by the name as written rather than stopping every turn
+  const { stdout } = await promisify(execFile)('ssh', ['-G', '--', host]).catch(
+    () => ({ stdout: '' }),
+  );
+  const reached = /^hostname (\S+)$/m.exec(stdout)?.[1]?.toLowerCase();
+  return !reached || reached.endsWith(`.${host.toLowerCase()}`)
+    ? host
+    : reached;
+}
 
 /** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and a missing origin keeps its key. */
 async function physical(path: string): Promise<string> {
@@ -209,7 +223,10 @@ export class Memory {
       '',
     );
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
-    const host = url ?? scp;
+    const host =
+      scp || (url && /^(?:git\+)?ssh(?:\+git)?:/i.test(origin!))
+        ? await sshHost(scp ?? url!)
+        : url;
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
     const project = projectKey(
       host
