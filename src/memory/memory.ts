@@ -191,14 +191,13 @@ export class Memory {
       );
     const origin = await read(['remote', 'get-url', 'origin']);
     const [, host, path] = (origin && remote.exec(origin)) || [];
-    const identity =
-      host && path
-        ? `${host.toLowerCase()}/${path}`
-        : // git resolves a relative origin against the top level
-          resolve(
-            (await read(['rev-parse', '--show-toplevel'])) || cwd,
-            origin ?? '',
-          );
+    const identity = host
+      ? `${host.toLowerCase()}/${path}`
+      : // git resolves a relative origin against the top level
+        resolve(
+          (await read(['rev-parse', '--show-toplevel'])) || cwd,
+          origin ?? '',
+        );
     const key = `${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
     return { global: 'global', project: `projects/${key}` };
   }
