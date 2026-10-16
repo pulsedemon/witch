@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
-import type { Click, Pointer } from '../src/ui/mouse.js';
+import type { Cell, Pointer } from '../src/ui/mouse.js';
 import { MouseInput, captureMouse, releaseMouse } from '../src/ui/mouse.js';
 
 class Source extends EventEmitter {
@@ -20,14 +20,14 @@ function input() {
   const read: string[] = [];
   const wheel: number[] = [];
   let clicks = 0;
-  const pointer: [Pointer, Click][] = [];
+  const pointer: [Pointer, Cell][] = [];
   mouse.on('readable', () => {
     let text;
     while ((text = mouse.read()) !== null) read.push(text);
   });
   mouse.on('wheel', (rows: number) => wheel.push(rows));
   mouse.on('click', () => clicks++);
-  mouse.on('pointer', (kind: Pointer, cell: Click) =>
+  mouse.on('pointer', (kind: Pointer, cell: Cell) =>
     pointer.push([kind, cell]),
   );
   return { source, mouse, read, wheel, clicks: () => clicks, pointer };

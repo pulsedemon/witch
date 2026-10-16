@@ -11,7 +11,7 @@ const report = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/g;
 // eslint-disable-next-line no-control-regex
 const partial = /\u001b\[<[\d;]*$/;
 
-export interface Click {
+export interface Cell {
   /** zero-based cell. */
   column: number;
   row: number;
@@ -73,7 +73,7 @@ export class MouseInput extends EventEmitter {
     this.pending = partial.exec(data)?.[0] ?? '';
     data = data.slice(0, data.length - this.pending.length);
     const events: (
-      ['wheel', number] | ['pointer', Pointer, Click] | ['click']
+      ['wheel', number] | ['pointer', Pointer, Cell] | ['click']
     )[] = [];
     this.text += data.replace(
       report,
@@ -124,7 +124,7 @@ export function useWheel(handler: (rows: number) => void): void {
 
 /** runs `handler` for each left press, drag and release. Outside a MouseInput none arrive. */
 export function usePointer(
-  handler: (pointer: Pointer, cell: Click) => void,
+  handler: (pointer: Pointer, cell: Cell) => void,
 ): void {
   useMouse('pointer', handler);
 }

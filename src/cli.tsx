@@ -14,7 +14,7 @@ import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
 import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
-import type { Click, Pointer } from './ui/mouse.js';
+import type { Cell, Pointer } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
 
 const defaultState = join(homedir(), '.witch');
@@ -96,7 +96,7 @@ if (!store) {
   const stdin = new MouseInput(process.stdin);
   // output can scroll another link under the pointer before the release, so a click opens the one it pressed
   let pressed: string | undefined;
-  stdin.on('pointer', (pointer: Pointer, { column, row }: Click) => {
+  stdin.on('pointer', (pointer: Pointer, { column, row }: Cell) => {
     if (pointer === 'press') pressed = screen.linkAt(column, row);
   });
   stdin.on('click', () => {
