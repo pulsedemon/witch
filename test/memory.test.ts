@@ -24,6 +24,10 @@ import type { Workspace } from '../src/memory/workspace.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 
+// a developer's `url.<base>.insteadOf` would rewrite the origins these tests key
+process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+
 const execute = promisify(execFile);
 const lines = (changes: Record<number, string> = {}) =>
   [1, 2, 3, 4, 5].map((line) => changes[line] ?? `line ${line}`).join('\n') +
@@ -327,6 +331,18 @@ await test('clones of one origin share project memory under its name, whatever t
   assert.notEqual(
     await clone('suffix-case', 'git@github.com:owner/repo.GIT'),
     ssh,
+  );
+  assert.notEqual(
+    await clone('path-case', 'git@github.com:Owner/repo.git'),
+    ssh,
+  );
+  assert.equal(
+    await clone('numeric', 'git@github.com:7/repo.git'),
+    await clone('numeric-url', 'https://github.com/7/repo.git'),
+  );
+  assert.notEqual(
+    await clone('at-path', 'host:a@b/c'),
+    await clone('at-host', 'b:c'),
   );
 });
 
