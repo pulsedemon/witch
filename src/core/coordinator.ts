@@ -147,6 +147,8 @@ export class Coordinator {
   private files?: ConversationStore;
   private workspace?: Workspace;
   private session?: AgentSession;
+  /** the project memory the live session may write; native permissions are fixed at connect. */
+  private sessionProject?: string;
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
@@ -724,7 +726,7 @@ export class Coordinator {
   ): Promise<TurnResult> {
     const conversation = this.current();
     const { activity, scope } = await this.beginActivity(kind);
-    const session = await this.connect();
+    const session = await this.connect(conversation.agent, scope);
     this.publish({
       subagents: this.snapshot.subagents.filter(
         ({ status }) => status === 'running',
@@ -732,14 +734,19 @@ export class Coordinator {
     });
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
+    // a changed origin moves the key, and the session has seen none of the new project's notes
+    const previous =
+      reference.deliveredProject === scope.project
+        ? reference.deliveredRevision
+        : undefined;
     const snapshot =
-      reference.deliveredRevision === activity.baseRevision
+      previous === activity.baseRevision
         ? undefined
         : await this.memory.snapshot(
             activity.baseRevision,
             workspace.root,
             scope,
-            reference.deliveredRevision,
+            previous,
           );
     const handoff = conversation.handoff;
     const pendingHandoff =
@@ -787,8 +794,10 @@ export class Coordinator {
       await workspace.commit(
         `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
       );
-      conversation.sessions[activity.agent]!.deliveredRevision =
-        activity.baseRevision;
+      Object.assign(conversation.sessions[activity.agent]!, {
+        deliveredRevision: activity.baseRevision,
+        deliveredProject: scope.project,
+      });
       delete conversation.activity;
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {
@@ -830,16 +839,21 @@ export class Coordinator {
       : undefined;
   }
 
-  private async connect(agent = this.current().agent): Promise<AgentSession> {
+  /** reuses the live session unless `turnScope` names project memory it was never granted. */
+  private async connect(
+    agent = this.current().agent,
+    turnScope?: MemoryScope,
+  ): Promise<AgentSession> {
     const live = this.live(agent);
-    if (live) return live;
+    if (live && (!turnScope || turnScope.project === this.sessionProject))
+      return live;
     await this.disconnect();
     const conversation = this.current();
     const files = this.files!;
     const { adapter, executable } = this.registration(agent);
     const workspace = this.workspace!;
     await workspace.ensureWorktree();
-    const scope = await workspace.scope(conversation.cwd);
+    const scope = turnScope ?? (await workspace.scope(conversation.cwd));
     const stored = conversation.sessions[agent];
     this.connecting = new AbortController();
     let session: AgentSession;
@@ -869,6 +883,7 @@ export class Coordinator {
       this.connecting = undefined;
     }
     this.session = session;
+    this.sessionProject = scope.project;
     this.saveInfo(conversation, agent, session.info);
     await this.save();
     // a failed list is reported, and the session's skills and usage still publish
