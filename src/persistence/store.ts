@@ -1,14 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import {
-  appendFile,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  rename,
-  stat,
-} from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -141,11 +133,15 @@ export class StateStore {
       .reverse();
   }
 
-  /** one append per prompt, which concurrent instances never split; it starts with the line break, so a line a crash cut short ends before it. */
+  /** starts with the line break, so a line a crash cut short ends before it. */
   async addPrompt(cwd: string, text: string): Promise<void> {
-    await appendFile(this.promptsPath(), `\n${JSON.stringify({ cwd, text })}`, {
-      mode: 0o600,
-    });
+    const file = await open(this.promptsPath(), 'a', 0o600);
+    try {
+      // one write call, which other instances' appends never split; appendFile writes 512 KiB at a time
+      await file.write(Buffer.from(`\n${JSON.stringify({ cwd, text })}`));
+    } finally {
+      await file.close();
+    }
   }
 
   /** locks before writing `state.json`, so `records()` never lists an unlocked new conversation. */
