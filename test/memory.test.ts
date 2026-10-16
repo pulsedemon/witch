@@ -399,6 +399,10 @@ await test('a local origin names the repository git reaches through it: from the
   const absolute = join(root, 'a/upstream.git');
   assert.equal(await key(await clone('d', `file://${absolute}`)), upstream);
   assert.equal(await key(await clone('e', `file://host${absolute}`)), upstream);
+  assert.equal(
+    await key(await clone('j', `file://${join(root, 'a/up%73tream.git')}`)),
+    upstream,
+  );
   assert.notEqual(
     await key(await clone('f', `file://${join(root, 'a/upstream')}`)),
     upstream,
