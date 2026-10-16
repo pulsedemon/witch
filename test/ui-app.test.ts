@@ -1768,7 +1768,7 @@ const left = (
 ) =>
   `\u001b[<${kind === 'drag' ? 32 : 0};${column + 1};${row + 1}${kind === 'release' ? 'm' : 'M'}`;
 
-await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from the composer selects nothing', async () => {
+await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from the composer or the sidebar selects nothing', async () => {
   const words =
     'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
   const { app } = fake({
@@ -1822,6 +1822,17 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
       'no highlight once resized',
       () => !ui.frame().includes('\u001b[7m'),
     );
+    // the sidebar takes the 25 columns from 95
+    for (const data of [
+      left('press', 110, 3),
+      left('drag', 5, 3),
+      left('release', 5, 3),
+      CMD_C,
+    ]) {
+      ui.stdin.write(data);
+      await delay(60);
+    }
+    assert.deepEqual(copied, [words]);
   } finally {
     ui.unmount();
   }
