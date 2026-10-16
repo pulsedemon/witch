@@ -564,7 +564,18 @@ await test('a clone of a checkout shares the project its origin names, and an or
   const checkout = join(root, 'checkout');
   await mkdir(join(checkout, 'sub'), { recursive: true });
   await git(checkout, 'init', '--quiet');
-  await git(checkout, 'commit', '--quiet', '--allow-empty', '-m', 'c');
+  await git(
+    checkout,
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@localhost',
+    'commit',
+    '--quiet',
+    '--allow-empty',
+    '-m',
+    'c',
+  );
   await git(checkout, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
   await git(root, 'clone', '--quiet', checkout, 'clone');
   const upstream = await scope(checkout);
