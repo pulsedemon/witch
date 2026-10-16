@@ -91,11 +91,12 @@ function projectKey(identity: string): string {
 
 /** the host ssh reaches for a remote's: an alias in its config renames the host, but a hop to a subdomain, as `ssh.github.com` for `github.com`, keeps the service's name. */
 async function sshHost(host: string): Promise<string> {
-  if (host.startsWith('[')) return host;
-  // a broken ssh config keys by the name as written rather than stopping every turn
-  const { stdout } = await promisify(execFile)('ssh', ['-G', '--', host]).catch(
-    () => ({ stdout: '' }),
-  );
+  // ssh expands the host into its config's `Match exec` commands, so only a plain name reaches it
+  if (!/^\w[\w.-]*$/.test(host)) return host;
+  // a broken or slow ssh config keys by the name as written rather than stopping every turn
+  const { stdout } = await promisify(execFile)('ssh', ['-G', '--', host], {
+    timeout: 5000,
+  }).catch(() => ({ stdout: '' }));
   const reached = /^hostname (\S+)$/m.exec(stdout)?.[1]?.toLowerCase();
   return !reached || reached.endsWith(`.${host.toLowerCase()}`)
     ? host
