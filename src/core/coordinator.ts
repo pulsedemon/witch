@@ -726,7 +726,14 @@ export class Coordinator {
   ): Promise<TurnResult> {
     const conversation = this.current();
     const { activity, scope } = await this.beginActivity(kind);
-    const session = await this.connect(conversation.agent, scope);
+    // a Ctrl+C that aborts a reconnect interrupts the turn, as one after it does
+    const session = await this.connect(conversation.agent, scope).catch(
+      (error: unknown) => {
+        if (this.cancelled) return undefined;
+        throw error;
+      },
+    );
+    if (!session) return { status: 'interrupted', text: '' };
     this.publish({
       subagents: this.snapshot.subagents.filter(
         ({ status }) => status === 'running',
