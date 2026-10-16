@@ -13,6 +13,7 @@ import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
 import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
+import type { StateStore } from '../persistence/store.js';
 import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
 import type { InputBuffer } from './input-buffer.js';
@@ -81,6 +82,9 @@ type View =
 
 const unwatched = () => () => {};
 
+/** where ↑/↓ stand among earlier prompts, -1 being the draft, with the composer's text at each place they left. */
+const unbrowsed = () => ({ index: -1, texts: new Map<number, string>() });
+
 export function App({
   coordinator,
   repository,
@@ -88,6 +92,7 @@ export function App({
   initialPrompt,
   graphics,
   jobs,
+  store,
 }: {
   coordinator: Coordinator;
   /** the project's Git status for the status line, which leaves Git out without it. */
@@ -96,6 +101,8 @@ export function App({
   graphics?: Graphics;
   /** the agents' jobs, which /jobs lists and stops; it lists none without them. */
   jobs?: Pick<JobWatch, 'list' | 'stop'>;
+  /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
+  store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
   onExit(): void;
   /** sent once the load ends idle with nothing reported and tools unfocused, or ahead of a prompt sent while it connects; otherwise left as the draft. */
   initialPrompt?: string;
@@ -146,6 +153,9 @@ export function App({
     undefined,
   );
   const composer = useRef<InputHandle>(null);
+  // this directory's prompts, newest first
+  const history = useRef<string[]>([]);
+  const recall = useRef(unbrowsed());
   const [buffer, bufferRef, setBuffer] = useLiveState<InputBuffer>({
     value: '',
     cursor: 0,
@@ -460,13 +470,20 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nShift+drag selects text.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nShift+drag selects text.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'exit':
         onExit();
         break;
     }
+  };
+
+  /** keeps a submitted prompt for ↑, unless it is blank or repeats the newest. */
+  const remember = (text: string) => {
+    if (!text.trim() || text === history.current[0]) return;
+    history.current = [text, ...history.current];
+    if (store) run(store.addPrompt(cwd, text));
   };
 
   const submit = (text: string): boolean => {
@@ -484,6 +501,7 @@ export function App({
         ({ id, aliases }) => id === match[1] || aliases?.includes(match[1]!),
       );
     if (found) {
+      remember(text);
       command(found.id, match[2]);
       return true;
     }
@@ -492,14 +510,17 @@ export function App({
     const initial = pendingPrompt.current;
     pendingPrompt.current = undefined;
     if (initial !== undefined) submit(initial);
+    remember(text);
     run(coordinator.send(text));
     return true;
   };
 
-  /** puts text back ahead of the draft, with the cursor after the text while the composer shows. */
+  /** puts text back ahead of the draft, with the cursor after the text while the composer shows; it ends browsing, so the draft is the one typed before it. */
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
-    const draft = draftsRef.current[id];
+    const { index, texts } = recall.current;
+    const draft = index === -1 ? draftsRef.current[id] : texts.get(-1);
+    recall.current = unbrowsed();
     const value = draft ? `${text}\n${draft}` : text;
     if (composer.current) composer.current.set({ value, cursor: text.length });
     else setDraft(id, value);
@@ -508,6 +529,21 @@ export function App({
   const unqueue = () => {
     if (!coordinator.snapshot.queue.length) return false;
     prepend(coordinator.unqueue().join('\n'));
+    return true;
+  };
+  /** shows the next older or newer prompt, keeping the composer's text for when browsing comes back to its place. */
+  const browse = (direction: 'up' | 'down', current: InputBuffer) => {
+    const { index, texts } = recall.current;
+    const next = index + (direction === 'up' ? 1 : -1);
+    const value = texts.get(next) ?? history.current[next];
+    if (value === undefined) return false;
+    texts.set(index, current.value);
+    recall.current.index = next;
+    // ↑ lands at the end and ↓ at the start, so the next press walks a multiline prompt's lines first
+    const cursor = direction === 'up' ? value.length : 0;
+    composer.current?.set({ value, cursor });
+    // a recalled command would open its list, which would take ↑/↓ from browsing
+    setDismissed(tokenKey(value, cursor));
     return true;
   };
 
@@ -552,29 +588,51 @@ export function App({
     );
     return true;
   };
-  /** ↑ on the first line takes the queue back instead of moving the cursor. */
+  /** ↑ on the first line takes the queue back, or else shows an older prompt; ↓ on the last line shows a newer one. */
   const arrow = (direction: 'up' | 'down', current: InputBuffer) =>
     // arrows while tools are focused move through tools, even in the same read as Tab
     toolFocusRef.current ||
     moveInList(direction, current) ||
-    (direction === 'up' &&
-      !current.value.slice(0, current.cursor).includes('\n') &&
-      unqueue());
-  /** Enter runs the selected command or skill, and inserts a file without sending. */
+    (direction === 'up'
+      ? !current.value.slice(0, current.cursor).includes('\n') &&
+        (unqueue() || browse('up', current))
+      : !current.value.slice(current.cursor).includes('\n') &&
+        browse('down', current));
+  /** Enter runs the selected command or skill, and inserts a file without sending; a send starts browsing again at the newest. */
   const submitComposer = (text: string) => {
     const open = listFor(bufferRef.current);
-    if (!open) return submit(text);
-    if (open.kind === 'file') {
+    if (open?.kind === 'file') {
       complete(open);
       return false;
     }
-    return submit(`/${open.items[selectedIn(open)]!.name}`);
+    const accepted = submit(
+      open ? `/${open.items[selectedIn(open)]!.name}` : text,
+    );
+    if (accepted) recall.current = unbrowsed();
+    return accepted;
   };
 
   useEffect(() => {
     setTop(null);
     setToolSelection(0);
+    const id = state.conversation?.id ?? '';
+    return () => {
+      // the shown prompt became this conversation's draft, so the one typed before browsing goes back
+      const { index, texts } = recall.current;
+      if (index !== -1) setDraft(id, texts.get(-1)!);
+      recall.current = unbrowsed();
+    };
   }, [state.conversation?.id]);
+  // prompts sent before the read ends stay ahead of the ones it finds
+  useEffect(() => {
+    const directory = state.conversation?.cwd;
+    if (store && directory)
+      run(
+        store.prompts(directory).then((found) => {
+          history.current = [...history.current, ...found];
+        }),
+      );
+  }, [state.conversation?.cwd]);
   useEffect(() => {
     const prompt = pendingPrompt.current;
     if (prompt === undefined || state.phase === 'starting') return;
