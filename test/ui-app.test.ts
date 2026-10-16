@@ -430,15 +430,26 @@ await test('/memory reads one commit even when main moves during the action', as
   }
 });
 
-await test('/memory shows a note whose name holds a line break on one row', async () => {
+await test('/memory shows a long note whose name holds a line break on one row, linked or not', async () => {
   const { seed, coordinator } = await memoryApp();
-  await writeFile(join(seed.root, 'global', 'first\nsecond.md'), 'A note.');
+  await writeFile(
+    join(seed.root, 'global', `first\nsecond${'x'.repeat(100)}.md`),
+    'A note.',
+  );
   await seed.commit('chore(memory): save a note');
   await seed.publish();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  // the 20 cells before the x's leave room for 77 in the picker's 98
+  const row = `global/first second${'x'.repeat(77)}…`;
   try {
     await delay(60);
-    await openMemory(ui, 'global/first second.md');
+    await openMemory(ui, row);
+    ui.stdin.write('\u001b');
+    await until('the chat', () => !ui.text().includes(row));
+    // a worktree at main links the rows, so they render through linkify
+    await coordinator.editMemory('global/other.md');
+    await openMemory(ui, row);
+    assert.ok(ui.frame().includes('/memory/global/other.md\u0007'));
   } finally {
     ui.unmount();
     await coordinator.close();
@@ -1395,8 +1406,8 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
         .frame()
         .split('\n')
         .find((line) => line.includes(text)) ?? '';
-    assert.ok(row('first tool 2').includes('\x1b[7m'));
-    assert.ok(!row('first tool 1').includes('\x1b[7m'));
+    assert.ok(row('first tool 2').includes('\u001b[7m'));
+    assert.ok(!row('first tool 1').includes('\u001b[7m'));
     ui.stdin.write(ENTER);
     await until(
       'the collapsed tool',
