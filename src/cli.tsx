@@ -109,6 +109,13 @@ if (!store) {
       onExit={shutdown}
       initialPrompt={prompt || undefined}
       graphics={graphics}
+      copy={(text) => {
+        const child = execFile('/usr/bin/pbcopy', (error) => {
+          if (error) coordinator.report(error);
+        });
+        // a pbcopy that exits early fails its write with EPIPE, which the callback already reports
+        child.stdin?.on('error', () => {}).end(text);
+      }}
     />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,

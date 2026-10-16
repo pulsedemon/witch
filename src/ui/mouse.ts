@@ -2,9 +2,9 @@ import { EventEmitter } from 'node:events';
 import { useEffect } from 'react';
 import { useStdin } from 'ink';
 
-/** button reports with SGR coordinates. Without motion tracking, Shift+drag still selects text natively. */
-export const captureMouse = '\u001b[?1000h\u001b[?1006h';
-export const releaseMouse = '\u001b[?1006l\u001b[?1000l';
+/** button reports, and motion while a button is held, with SGR coordinates. Shift+drag still selects text natively. */
+export const captureMouse = '\u001b[?1002h\u001b[?1006h';
+export const releaseMouse = '\u001b[?1006l\u001b[?1002l';
 
 // eslint-disable-next-line no-control-regex
 const report = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/g;
@@ -17,6 +17,9 @@ export interface Click {
   row: number;
 }
 
+/** what the left button did at a cell: went down, moved there held, or came up. */
+export type Pointer = 'press' | 'drag' | 'release';
+
 interface Source {
   setEncoding(encoding: 'utf8'): unknown;
   setRawMode(mode: boolean): unknown;
@@ -26,14 +29,17 @@ interface Source {
 }
 
 /**
- * the stdin Ink reads, with mouse reports taken out: a left press emits `click` and a wheel step emits `wheel` with
- * the rows to scroll, -1 up and 1 down. Ink drops any report that reaches it, so nothing leaks into the composer.
+ * the stdin Ink reads, with mouse reports taken out: the left button emits `pointer` with what it did and the cell,
+ * a release on the cell it went down on emits `click`, and a wheel step emits `wheel` with the rows to scroll, -1 up
+ * and 1 down. Ink drops any report that reaches it, so nothing leaks into the composer.
  */
 export class MouseInput extends EventEmitter {
   readonly isTTY = true;
   private text = '';
   /** the start of a report the next read completes. */
   private pending = '';
+  /** where the left button went down, until it moves off that cell. */
+  private pressed: Click | undefined;
 
   constructor(private readonly source: Source) {
     super();
@@ -66,31 +72,59 @@ export class MouseInput extends EventEmitter {
     let data = this.pending + chunk;
     this.pending = partial.exec(data)?.[0] ?? '';
     data = data.slice(0, data.length - this.pending.length);
-    const events: [string, unknown][] = [];
+    const events: [string, ...unknown[]][] = [];
     this.text += data.replace(
       report,
       (_, code: string, x: string, y: string, kind: string) => {
         // without the Shift, Alt and Ctrl bits; Ghostty reports Cmd+click as a plain click
         const button = Number(code) & ~0b11100;
+        const cell = { column: Number(x) - 1, row: Number(y) - 1 };
         if (button === 64 || button === 65)
           events.push(['wheel', button === 64 ? -1 : 1]);
-        else if (button === 0 && kind === 'M')
-          events.push(['click', { column: Number(x) - 1, row: Number(y) - 1 }]);
+        else if (button === 0 && kind === 'M') {
+          this.pressed = cell;
+          events.push(['pointer', 'press', cell]);
+        } else if (button === 32) {
+          if (
+            cell.column !== this.pressed?.column ||
+            cell.row !== this.pressed.row
+          )
+            this.pressed = undefined;
+          events.push(['pointer', 'drag', cell]);
+        } else if (button === 0) {
+          if (this.pressed) events.push(['click', cell]);
+          this.pressed = undefined;
+          events.push(['pointer', 'release', cell]);
+        }
         return '';
       },
     );
     if (this.text) this.emit('readable');
-    for (const [name, value] of events) this.emit(name, value);
+    for (const [name, ...values] of events) this.emit(name, ...values);
   }
+}
+
+function useMouse<T extends unknown[]>(
+  event: string,
+  handler: (...values: T) => void,
+) {
+  const { stdin } = useStdin();
+  useEffect(() => {
+    stdin.on(event, handler);
+    return () => {
+      stdin.off(event, handler);
+    };
+  }, [stdin, event, handler]);
 }
 
 /** runs `handler` for each wheel step. Outside a MouseInput the wheel never turns. */
 export function useWheel(handler: (rows: number) => void): void {
-  const { stdin } = useStdin();
-  useEffect(() => {
-    stdin.on('wheel', handler);
-    return () => {
-      stdin.off('wheel', handler);
-    };
-  }, [stdin, handler]);
+  useMouse('wheel', handler);
+}
+
+/** runs `handler` for each left press, drag and release. Outside a MouseInput none arrive. */
+export function usePointer(
+  handler: (pointer: Pointer, cell: Click) => void,
+): void {
+  useMouse('pointer', handler);
 }
