@@ -8,7 +8,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { basename, dirname, join, posix, resolve } from 'node:path';
+import { basename, dirname, join, posix } from 'node:path';
 import { Workspace } from './workspace.js';
 
 export interface MemoryScope {
@@ -75,6 +75,14 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
     child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
     child.stdin.end(input);
   });
+
+/** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and a missing origin keeps its key. */
+async function physical(path: string): Promise<string> {
+  const real = await realpath(path).catch(() => undefined);
+  if (real) return real;
+  const parent = dirname(path);
+  return parent === path ? path : join(await physical(parent), basename(path));
+}
 
 export async function exists(path: string): Promise<boolean> {
   return access(path).then(
@@ -199,10 +207,11 @@ export class Memory {
     const host = url ?? scp;
     const identity = host
       ? `${host.toLowerCase()}/${path}`
-      : // git resolves a relative origin against the top level
-        resolve(
-          (await read(['rev-parse', '--show-toplevel'])) || cwd,
-          origin ?? '',
+      : await physical(
+          origin?.startsWith('/')
+            ? origin
+            : // git resolves a relative origin against the top level
+              `${(await read(['rev-parse', '--show-toplevel'])) || cwd}/${origin ?? ''}`,
         );
     const key = `${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
     return { global: 'global', project: `projects/${key}` };
