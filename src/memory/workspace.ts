@@ -152,8 +152,7 @@ export class Workspace {
       .filter(Boolean);
     const renamed = new Map<string, string>();
     // the index merges last, so its lines can link where renamed notes went
-    for (const file of [...files.filter((file) => file !== index), index]) {
-      if (!files.includes(file)) continue;
+    for (const file of files.sort((a, b) => +(a === index) - +(b === index))) {
       const source = await this.checkedPath(file);
       const content = await readFile(source);
       const note = posix.relative(checkout, file);
