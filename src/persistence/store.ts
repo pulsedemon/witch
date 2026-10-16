@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  stat,
+} from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
 import {
   conversationRecordSchema,
@@ -19,6 +28,8 @@ import { stopPreviousProcess } from './process.js';
 
 // macOS O_EXLOCK, which Node doesn't export.
 const exclusiveLock = 0x20;
+
+const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
 // ENOTDIR covers a stray file, such as Finder's .DS_Store, where a conversation directory would be
 function missing(error: unknown): boolean {
@@ -109,6 +120,34 @@ export class StateStore {
       .map(({ conversation }) => conversation);
   }
 
+  /** the prompts sent in `cwd`, newest first, skipping a line a crash cut short. */
+  async prompts(cwd: string): Promise<string[]> {
+    const content = await readFile(this.promptsPath(), 'utf8').catch(
+      (error: unknown) => {
+        if (missing(error)) return '';
+        throw error;
+      },
+    );
+    return content
+      .split('\n')
+      .flatMap((line) => {
+        try {
+          const prompt = promptSchema.parse(JSON.parse(line));
+          return prompt.cwd === cwd ? [prompt.text] : [];
+        } catch {
+          return [];
+        }
+      })
+      .reverse();
+  }
+
+  /** one append per prompt, which concurrent instances never split. */
+  async addPrompt(cwd: string, text: string): Promise<void> {
+    await appendFile(this.promptsPath(), `${JSON.stringify({ cwd, text })}\n`, {
+      mode: 0o600,
+    });
+  }
+
   /** locks before writing `state.json`, so `records()` never lists an unlocked new conversation. */
   async create(conversation: Conversation): Promise<ConversationStore> {
     const directory = this.directory(conversation.id);
@@ -144,6 +183,10 @@ export class StateStore {
 
   private directory(id: string): string {
     return join(this.root, 'conversations', id);
+  }
+
+  private promptsPath(): string {
+    return join(this.root, 'prompts.jsonl');
   }
 }
 
