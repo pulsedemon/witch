@@ -320,6 +320,10 @@ await test('clones of one origin share project memory under its name, whatever t
     await clone('ipv6-port', 'ssh://git@[2001:db8::1]:22/owner/repo.git'),
     ipv6,
   );
+  assert.equal(
+    await clone('absolute', 'git@example.org:/srv/repos/app.git'),
+    await clone('absolute-url', 'ssh://git@example.org/srv/repos/app.git'),
+  );
 });
 
 await test('a local origin names the repository git reaches through it, from the top level or by file URL', async () => {
