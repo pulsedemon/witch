@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { exists, main, notePath, printable } from './memory.js';
@@ -87,7 +94,7 @@ export class Workspace {
     );
   }
 
-  /** publishes anything left over, moves to `main`, and returns the revision and scope the turn starts from. */
+  /** publishes anything left over, moves to `main`, takes in the checkout's path-key notes, and returns the revision and scope the turn starts from. */
   async begin(cwd: string): Promise<{ revision: string; scope: MemoryScope }> {
     if (await this.isDirty())
       throw new Error('Resolve pending memory before running another task');
@@ -96,7 +103,24 @@ export class Workspace {
         'Your memory changes conflict with another conversation. Keep yours or discard them.',
       );
     await this.git(['merge', '--ff-only', '--quiet', main]);
-    return { revision: await this.revision(), scope: await this.scope(cwd) };
+    const scope = await this.scope(cwd);
+    await this.adopt(scope);
+    return { revision: await this.revision(), scope };
+  }
+
+  /** moves a checkout's path-key notes to its origin's project while that has none, as a commit of its own. */
+  private async adopt({ project, checkout }: MemoryScope): Promise<void> {
+    if (
+      !checkout ||
+      (await this.has('HEAD', project)) ||
+      !(await this.has('HEAD', checkout))
+    )
+      return;
+    const target = await this.checkedPath(project, 'directory');
+    // the worktree is clean, so this only removes the empty directory scope() made
+    await rm(target, { recursive: true, force: true });
+    await rename(await this.checkedPath(checkout, 'directory'), target);
+    await this.commit(`chore(memory): move ${checkout} notes to ${project}`);
   }
 
   async publish(): Promise<'published' | 'conflict'> {

@@ -14,6 +14,8 @@ import { Workspace } from './workspace.js';
 export interface MemoryScope {
   global: string;
   project: string;
+  /** the checkout's path key while an origin names another project, so its notes can move there. */
+  checkout?: string;
 }
 
 export interface GitOptions {
@@ -75,6 +77,9 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
     child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
     child.stdin.end(input);
   });
+
+const projectKey = (identity: string) =>
+  `projects/${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
 
 /** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and a missing origin keeps its key. */
 async function physical(path: string): Promise<string> {
@@ -205,16 +210,21 @@ export class Memory {
     );
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
     const host = url ?? scp;
-    const identity = host
-      ? `${host.toLowerCase()}/${path}`
-      : await physical(
-          origin?.startsWith('/')
-            ? origin
-            : // git resolves a relative origin against the top level
-              `${(await read(['rev-parse', '--show-toplevel'])) || cwd}/${origin ?? ''}`,
-        );
-    const key = `${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
-    return { global: 'global', project: `projects/${key}` };
+    const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
+    const project = projectKey(
+      host
+        ? `${host.toLowerCase()}/${path}`
+        : // git resolves a relative origin against the top level
+          await physical(
+            origin?.startsWith('/') ? origin : `${top}/${origin ?? ''}`,
+          ),
+    );
+    const checkout = projectKey(top);
+    return {
+      global: 'global',
+      project,
+      ...(checkout === project ? {} : { checkout }),
+    };
   }
 
   async resolve(revision: string, cwd = this.root): Promise<string> {
