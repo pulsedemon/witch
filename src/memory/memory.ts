@@ -192,7 +192,7 @@ export class Memory {
     const [, host, path] = (origin && remote.exec(origin)) || [];
     const identity =
       host && path
-        ? `${host}/${path}`
+        ? `${host.toLowerCase()}/${path}`
         : origin || (await read(['rev-parse', '--show-toplevel'])) || cwd;
     const key = `${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
     return { global: 'global', project: `projects/${key}` };
