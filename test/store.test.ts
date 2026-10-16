@@ -372,3 +372,16 @@ await test("listing keeps this directory's conversations with history, newest hi
     ['b', 'c', 'a'],
   );
 });
+
+await test("prompts list this directory's newest first after a restart, keep line breaks, and skip a line a crash cut short", async () => {
+  const root = await mkdtemp(join(tmpdir(), 'witch-prompts-'));
+  const store = await StateStore.open(root);
+  assert.deepEqual(await store.prompts('/a'), []);
+  await store.addPrompt('/a', 'one');
+  await store.addPrompt('/b', 'other');
+  await store.addPrompt('/a', 'two\nlines');
+  await appendFile(join(root, 'prompts.jsonl'), '{"cwd":"/a","text":"cut');
+  const reopened = await StateStore.open(root);
+  assert.deepEqual(await reopened.prompts('/a'), ['two\nlines', 'one']);
+  assert.deepEqual(await reopened.prompts('/b'), ['other']);
+});
