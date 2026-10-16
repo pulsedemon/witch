@@ -79,8 +79,15 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
     child.stdin.end(input);
   });
 
-const projectKey = (identity: string) =>
-  `projects/${basename(identity)}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
+/** a key named for its repository, cut to fit the 255 bytes a directory name holds with the hash. */
+function projectKey(identity: string): string {
+  let name = '';
+  for (const char of basename(identity)) {
+    if (Buffer.byteLength(name + char) > 238) break;
+    name += char;
+  }
+  return `projects/${name}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
+}
 
 /** the host ssh reaches for a remote's: an alias in its config renames the host, but a hop to a subdomain, as `ssh.github.com` for `github.com`, keeps the service's name. */
 async function sshHost(host: string): Promise<string> {
