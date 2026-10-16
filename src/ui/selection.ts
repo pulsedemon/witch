@@ -31,7 +31,7 @@ function cut(line: string, start: number, end: number) {
   return { before, inside: plain(inside), after, width };
 }
 
-/** columns `start` to `end` of a row drawn as Ghostty draws a selection, in the window's colors swapped. */
+/** columns `start` up to but not including `end` of a row, drawn as Ghostty draws a selection, in the window's colors swapped. */
 export function highlight(line: string, start: number, end: number): string {
   // inverting a placeholder changes the color that names its image
   if (line.includes(placeholder)) return line;
