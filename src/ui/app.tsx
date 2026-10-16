@@ -172,13 +172,18 @@ export function App({
     () => layout.render(state.items, width - 2, expanded),
     [layout, state.items, width, expanded],
   );
-  // a drag's ends are anchored to their text, so they follow it when output grows or wraps again
-  const [range, setRange] = useState<{ from: RangeEnd; to: RangeEnd }>();
+  // a drag's ends are anchored to their text, so they follow it when output grows
+  const [range, setRange] = useState<{
+    from: RangeEnd;
+    to: RangeEnd;
+    /** the width its columns were measured at; at another, rows rewrap and other text sits under them. */
+    width: number;
+  }>();
   const pressedAt = useRef<RangeEnd>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
-  /** the selected range in reading order, while both its items are shown. */
+  /** the selected range in reading order, while both its items are shown at its width. */
   const ends =
-    range &&
+    range?.width === width &&
     [range.from, range.to].every(({ anchor }) =>
       transcript.starts.has(anchor.item),
     )
@@ -708,7 +713,7 @@ export function App({
     } else if (pointer === 'release') pressedAt.current = undefined;
     else if (pressedAt.current && end) {
       if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
-      setRange({ from: pressedAt.current, to: end });
+      setRange({ from: pressedAt.current, to: end, width });
     }
   });
   // a request scrolls itself, and a picker follows its selection

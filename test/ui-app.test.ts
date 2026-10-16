@@ -1768,7 +1768,7 @@ const left = (
 ) =>
   `\u001b[<${kind === 'drag' ? 32 : 0};${column + 1};${row + 1}${kind === 'release' ? 'm' : 'M'}`;
 
-await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, while a click or a drag from the composer selects nothing', async () => {
+await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from the composer selects nothing', async () => {
   const words =
     'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
   const { app } = fake({
@@ -1811,6 +1811,17 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.deepEqual(copied, [words]);
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 58, 4));
+    ui.stdin.write(left('release', 58, 4));
+    await until('the highlight again', () =>
+      ui.frame().includes('\u001b[7malpha'),
+    );
+    ui.resize(120);
+    await until(
+      'no highlight once resized',
+      () => !ui.frame().includes('\u001b[7m'),
+    );
   } finally {
     ui.unmount();
   }
