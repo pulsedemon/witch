@@ -2641,6 +2641,50 @@ await test('a press or release anywhere ends a drag, so a drag report with no pr
   }
 });
 
+await test('a held press whose width changes ends its drag, so the width coming back brings no selection back', async () => {
+  const { app } = fake({
+    items: [
+      {
+        id: 'u',
+        kind: 'user',
+        text: 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi',
+        cwd: '/work',
+      },
+    ],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  // at 60 columns the message wraps before lambda, and at 120 it does not
+  const narrow = () => /^ lambda/m.test(ui.text());
+  try {
+    await until('the narrow layout', narrow);
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 5, 3));
+    await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
+    ui.resize(120);
+    await until('the wide layout', () => !narrow());
+    ui.resize(60);
+    await until('the narrow layout again', narrow);
+    ui.stdin.write(left('drag', 10, 3));
+    ui.stdin.write(left('release', 10, 3));
+    await delay(60);
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.ok(!ui.frame().includes('\u001b[7malpha'));
+    assert.deepEqual(copied, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('drag reports past the top in one read each scroll on from where the last one left the view', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
