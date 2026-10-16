@@ -2039,7 +2039,7 @@ await test('a selection that runs past the bottom of the view stays drawn as the
   }
 });
 
-await test('a selection follows its text as output above it grows, and drops when its tool collapses or its item leaves', async () => {
+await test('a selection follows its text as output above it grows, and drops for good when its tool collapses or its item leaves', async () => {
   const items = (first: string) => [
     { id: 'u', kind: 'user' as const, text: first, cwd: '/work' },
     {
@@ -2093,6 +2093,13 @@ await test('a selection follows its text as output above it grows, and drops whe
     assert.deepEqual(copied.at(-1), 'line two');
     ui.stdin.write(ENTER);
     await until('the collapsed tool', () => !ui.text().includes('line two'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.equal(copied.length, 2);
+    ui.stdin.write(ENTER);
+    await until('the tool expanded again', () =>
+      ui.text().includes('line two'),
+    );
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.equal(copied.length, 2);

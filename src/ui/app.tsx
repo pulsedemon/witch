@@ -198,6 +198,10 @@ export function App({
           Point,
         ])
       : undefined;
+  // a range off its text drops, so it can't come back with the width or the tool
+  useEffect(() => {
+    if (range && !ends) setRange(undefined);
+  });
   /** what joins a row to the one above: a line break, or for a wrapped row the spaces its wrap trimmed. */
   const joint = (row: number) => {
     const here = transcript.anchorAt(row);
