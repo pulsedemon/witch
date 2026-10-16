@@ -1908,6 +1908,38 @@ await test('a drag past the transcript top or bottom scrolls it a row a move, an
   }
 });
 
+await test('a drag inside the view leaves it where it is, on its first and last rows too', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  try {
+    await until('the transcript', () => first() > 0);
+    const bottom = first();
+    // scrolled up, so a drag could scroll either way
+    ui.stdin.write(wheelUp + wheelUp);
+    await until('two rows up', () => first() === bottom - 2);
+    const last = ui
+      .text()
+      .split('\n')
+      .findLastIndex((row) => /row \d+/.test(row));
+    ui.stdin.write(left('press', 1, 5));
+    ui.stdin.write(left('drag', 1, 8));
+    ui.stdin.write(left('drag', 1, 2));
+    await delay(60);
+    assert.equal(first(), bottom - 2);
+    ui.stdin.write(left('drag', 1, last));
+    await delay(60);
+    assert.equal(first(), bottom - 2);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('copying a wrapped tool title keeps the space its wrap trimmed', async () => {
   const title =
     'echo alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';
