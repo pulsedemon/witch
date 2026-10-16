@@ -95,6 +95,15 @@ async function sshHost(host: string): Promise<string> {
     : reached;
 }
 
+/** a run of percent escapes as text; one that isn't UTF-8 names no APFS path, so it stays escaped. */
+function decoded(run: string): string {
+  try {
+    return decodeURIComponent(run);
+  } catch {
+    return run;
+  }
+}
+
 /** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and a missing origin keeps its key. */
 async function physical(path: string): Promise<string> {
   const real = await realpath(path).catch(() => undefined);
@@ -217,10 +226,10 @@ export class Memory {
       const result = await this.run(cwd, args, { codes: [0, 2, 128] });
       return result.code === 0 ? result.stdout.trim() : undefined;
     };
-    // git reads a `file://` origin as the path after its host
+    // git reads a `file://` origin as the path after its host, with percent escapes decoded
     const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
-      /^file:\/\/[^/]*/,
-      '',
+      /^file:\/\/[^/]*(.*)$/s,
+      (_, path: string) => path.replace(/(?:%[\da-f]{2})+/gi, decoded),
     );
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
     const host =
