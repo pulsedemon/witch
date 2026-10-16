@@ -616,8 +616,8 @@ await test('a clone of a checkout shares the project its origin names, and an or
   assert.match((await scope(checkout)).project, /^projects\/(checkout|clone)-/);
 });
 
-await test('a git that fails reading the origin fails the project key instead of falling back to the path', async () => {
-  const { memory, hook, project } = await fixture();
+await test('a git that fails reading the origin fails the project key instead of falling back to the path, and no repository falls back in any language', async () => {
+  const { memory, hook, project, root } = await fixture();
   await git(project, 'init', '--quiet');
   hook.current = async (command, run) =>
     command[0] === 'remote'
@@ -629,6 +629,21 @@ await test('a git that fails reading the origin fails the project key instead of
     return run();
   };
   await assert.rejects(memory.scopePaths(project), /EAGAIN/);
+  hook.current = passThrough;
+  await writeFile(join(project, '.git', 'config'), '[remote "origin"\n', {
+    flag: 'a',
+  });
+  await assert.rejects(memory.scopePaths(project), /bad config/);
+  const plain = join(root, 'plain');
+  await mkdir(plain);
+  const locale = process.env.LC_ALL;
+  process.env.LC_ALL = 'de_DE.UTF-8';
+  try {
+    assert.match((await memory.scopePaths(plain)).project, /^projects\/plain-/);
+  } finally {
+    if (locale === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = locale;
+  }
 });
 
 await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
