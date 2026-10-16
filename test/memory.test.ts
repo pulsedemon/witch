@@ -322,19 +322,16 @@ await test('a relative origin names the repository it reaches from the top level
     await git(path, 'remote', 'add', 'origin', origin);
     return path;
   };
+  const key = async (path: string) => (await memory.scopePaths(path)).project;
   const a = await clone('a/clone', '../upstream.git');
-  const key = (await memory.scopePaths(a)).project;
-  assert.equal((await memory.scopePaths(join(a, 'src'))).project, key);
+  const upstream = await key(a);
+  assert.equal(await key(join(a, 'src')), upstream);
   assert.notEqual(
-    (await memory.scopePaths(await clone('b/clone', '../upstream.git')))
-      .project,
-    key,
+    await key(await clone('b/clone', '../upstream.git')),
+    upstream,
   );
   const absolute = join(await realpath(root), 'a/upstream.git');
-  assert.equal(
-    (await memory.scopePaths(await clone('c', absolute))).project,
-    key,
-  );
+  assert.equal(await key(await clone('c', absolute)), upstream);
 });
 
 await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
