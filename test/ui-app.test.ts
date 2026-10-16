@@ -2188,6 +2188,65 @@ await test('drag reports past the top in one read each scroll on from where the 
   }
 });
 
+await test('Cmd+C copies nothing while a page covers the selection or from blank rows alone', async () => {
+  const { app } = fake({
+    items: [
+      { id: 'u', kind: 'user', text: 'hello', cwd: '/work' },
+      {
+        id: 't',
+        kind: 'tool',
+        title: 'run',
+        text: 'one\n',
+        cwd: '/work',
+        done: true,
+      },
+    ],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the message is on row 3, and the expanded tool's output on row 6 ends with a blank line on row 7 and the blank row under it
+    await until('the message', () => ui.text().includes('hello'));
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 5, 3));
+    ui.stdin.write(left('release', 5, 3));
+    await until('the highlight', () => ui.frame().includes('\u001b[7mhello'));
+    ui.stdin.write('/help');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the help page', () => ui.text().includes('/new  New'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, []);
+    ui.stdin.write('\u001b');
+    await until('the transcript', () => ui.frame().includes('\u001b[7mhello'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['hello']);
+    ui.stdin.write(`\t${ENTER}`);
+    await until('the expanded tool', () => ui.text().includes('one'));
+    ui.stdin.write(left('press', 1, 7));
+    ui.stdin.write(left('drag', 20, 8));
+    ui.stdin.write(left('release', 20, 8));
+    await until('the blank highlight', () =>
+      ui.frame().includes('\u001b[7m        '),
+    );
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, ['hello']);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a click on a page leaves it open', async () => {
   const { app } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));

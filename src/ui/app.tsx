@@ -742,9 +742,12 @@ export function App({
       return;
     }
     if (key.super && input === 'c') {
-      // a range of blank cells or images holds no text, and copying it would empty the clipboard
-      const text = ends && selectedText(transcript.lines, ...ends, joint);
-      if (text) copy?.(text);
+      // only a selection on screen copies, and blank rows or images hold no text to replace the clipboard with
+      const text =
+        transcriptBox.current &&
+        ends &&
+        selectedText(transcript.lines, ...ends, joint);
+      if (text?.trim()) copy?.(text);
       return;
     }
     if (request) return;
