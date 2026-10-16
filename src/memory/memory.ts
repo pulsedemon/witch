@@ -79,11 +79,11 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
     child.stdin.end(input);
   });
 
-/** a key named for its repository, cut to fit the 255 bytes a directory name holds with the hash. */
+/** a key named for its repository, cut to fit the 255 UTF-16 units an APFS name holds with the hash. */
 function projectKey(identity: string): string {
   let name = '';
   for (const char of basename(identity)) {
-    if (Buffer.byteLength(name + char) > 238) break;
+    if (name.length + char.length > 238) break;
     name += char;
   }
   return `projects/${name}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
