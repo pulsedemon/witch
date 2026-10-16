@@ -18,6 +18,7 @@ import { createElement } from 'react';
 import stripAnsi from 'strip-ansi';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Snapshot } from '../src/core/coordinator.js';
+import type { JobWatch } from '../src/core/jobs.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
@@ -26,14 +27,18 @@ import { FixtureAgent } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import { until } from './fixtures/within.js';
 
-/** a terminal of a fixed size; without rows, Ink reads the real terminal. Not a TTY, so every write is a whole frame. */
+/** a terminal of the given size until `resize` changes its columns; without rows, Ink reads the real terminal. not a TTY, so every write is a whole frame. */
 class Terminal extends EventEmitter {
   readonly frames: string[] = [];
   constructor(
-    readonly columns: number,
+    public columns: number,
     readonly rows: number,
   ) {
     super();
+  }
+  resize(columns: number) {
+    this.columns = columns;
+    this.emit('resize');
   }
   write = (frame: string) => {
     this.frames.push(frame);
@@ -78,6 +83,7 @@ function show(element: ReactElement, columns = 100, rows = 40) {
     stdin,
     frame: () => stdout.frames.at(-1) ?? '',
     text: () => stripAnsi(stdout.frames.at(-1) ?? ''),
+    resize: (columns: number) => stdout.resize(columns),
     unmount: () => instance.unmount(),
   };
 }
@@ -418,6 +424,32 @@ await test('/memory reads one commit even when main moves during the action', as
     await openMemory(ui, 'global/other.md');
     // only the launch's connect report, no error from reading memory
     assert.match(coordinator.snapshot.error ?? '', /^a is not installed\./);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('/memory shows a long note whose name holds a line break on one row, linked or not', async () => {
+  const { seed, coordinator } = await memoryApp();
+  await writeFile(
+    join(seed.root, 'global', `first\nsecond${'x'.repeat(100)}.md`),
+    'A note.',
+  );
+  await seed.commit('chore(memory): save a note');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  // the 20 cells before the x's leave room for 77 in the picker's 98
+  const row = `global/first second${'x'.repeat(77)}…`;
+  try {
+    await delay(60);
+    await openMemory(ui, row);
+    ui.stdin.write('\u001b');
+    await until('the chat', () => !ui.text().includes(row));
+    // a worktree at main links the rows, so they render through linkify
+    await coordinator.editMemory('global/other.md');
+    await openMemory(ui, row);
+    assert.ok(ui.frame().includes('/memory/global/other.md\u0007'));
   } finally {
     ui.unmount();
     await coordinator.close();
@@ -1250,6 +1282,113 @@ await test('reopening the picker resets its selection', async () => {
   }
 });
 
+await test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group, reporting a stop that fails', async () => {
+  const { app, calls } = fake({});
+  const jobs: Pick<JobWatch, 'list' | 'stop'> = {
+    list: async () => [
+      {
+        group: 4242,
+        generation: 7,
+        command: `node --import tsx test/screen.test.ts ${'x'.repeat(200)}`,
+        cpu: 99.6,
+        startedAt: Date.now() - 72_000_000,
+      },
+      {
+        group: 4343,
+        generation: 9,
+        command: 'sleep 600',
+        cpu: 0,
+        startedAt: Date.now(),
+      },
+    ],
+    stop: async ({ group, generation }) => {
+      calls.push(['stop', group, generation]);
+      throw new Error(`Job ${group} has not stopped.`);
+    },
+  };
+  const ui = show(
+    createElement(App, { coordinator: app, jobs, onExit: () => {} }),
+  );
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`jobs${ENTER}`);
+    // the row is cut to the picker's 98 cells with an ellipsis, and the 61 cells before the command's x's leave room for 36
+    await until('the jobs picker', () =>
+      ui
+        .text()
+        .includes(
+          `100% CPU · 1200M00S · node --import tsx test/screen.test.ts ${'x'.repeat(36)}…`,
+        ),
+    );
+    ui.resize(40);
+    // narrowing the terminal cuts it again, to the 38 cells left
+    await until('the narrowed picker', () =>
+      ui
+        .text()
+        .includes(
+          'choose one to stop\n  100% CPU · 1200M00S · node --import …',
+        ),
+    );
+    ui.stdin.write(DOWN);
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the report', () => calls.length > 1);
+    assert.deepEqual(calls, [
+      ['stop', 4343, 9],
+      ['report', 'Error: Job 4343 has not stopped.'],
+    ]);
+    await until(
+      'the chat view',
+      () => !ui.text().includes('choose one to stop'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('/jobs without jobs or with none listed says none are running', async () => {
+  for (const jobs of [
+    undefined,
+    { list: async () => [], stop: async () => {} },
+  ]) {
+    const { app } = fake({});
+    const ui = show(
+      createElement(App, { coordinator: app, jobs, onExit: () => {} }),
+    );
+    try {
+      await delay(60);
+      await commands(ui);
+      ui.stdin.write(`jobs${ENTER}`);
+      await until('the empty picker', () =>
+        ui.text().includes('No jobs are running'),
+      );
+    } finally {
+      ui.unmount();
+    }
+  }
+});
+
+await test('/jobs reports a list that fails', async () => {
+  const { app, calls } = fake({});
+  const jobs = {
+    list: () => Promise.reject(new Error('ps failed')),
+    stop: async () => {},
+  };
+  const ui = show(
+    createElement(App, { coordinator: app, jobs, onExit: () => {} }),
+  );
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`jobs${ENTER}`);
+    await until('the report', () => calls.length > 0);
+    assert.deepEqual(calls, [['report', 'Error: ps failed']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
@@ -1267,8 +1406,8 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
         .frame()
         .split('\n')
         .find((line) => line.includes(text)) ?? '';
-    assert.ok(row('first tool 2').includes('\x1b[7m'));
-    assert.ok(!row('first tool 1').includes('\x1b[7m'));
+    assert.ok(row('first tool 2').includes('\u001b[7m'));
+    assert.ok(!row('first tool 1').includes('\u001b[7m'));
     ui.stdin.write(ENTER);
     await until(
       'the collapsed tool',

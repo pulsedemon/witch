@@ -7,6 +7,7 @@ import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { errorMessage } from './agents/stderr.js';
 import { Coordinator } from './core/coordinator.js';
+import { JobWatch } from './core/jobs.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { StateStore } from './persistence/store.js';
@@ -90,6 +91,7 @@ if (!store) {
     );
   };
   const repository = new RepositoryWatch(process.cwd());
+  const jobs = new JobWatch();
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
   stdin.on('click', ({ column, row }: Click) => {
@@ -103,6 +105,7 @@ if (!store) {
     <App
       coordinator={coordinator}
       repository={repository}
+      jobs={jobs}
       onExit={shutdown}
       initialPrompt={prompt || undefined}
       graphics={graphics}
@@ -128,6 +131,7 @@ if (!store) {
     .catch(() => {});
   await application.waitUntilExit();
   repository.close();
+  jobs.close();
   process.removeListener('SIGTERM', shutdown);
   process.removeListener('SIGINT', shutdown);
 }

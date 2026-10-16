@@ -11,6 +11,7 @@ import { basename, dirname, join } from 'node:path';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
+import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
@@ -29,7 +30,7 @@ import { markdown } from './markdown.js';
 import { hyperlink, linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
-import { Activity } from './activity.js';
+import { Activity, elapsed } from './activity.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
 import { StatusLine } from './status-line.js';
 import { accent, colors, piped } from './theme.js';
@@ -40,6 +41,7 @@ const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'agent', label: 'Switch agent' },
   { id: 'model', label: 'Choose model and reasoning' },
   { id: 'memory', label: 'Browse shared memory' },
+  { id: 'jobs', label: 'Running jobs' },
   { id: 'help', label: 'Keyboard help' },
   { id: 'exit', label: 'Exit', aliases: ['quit'] },
 ];
@@ -85,12 +87,15 @@ export function App({
   onExit,
   initialPrompt,
   graphics,
+  jobs,
 }: {
   coordinator: Coordinator;
   /** the project's Git status for the status line, which leaves Git out without it. */
   repository?: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>;
   /** draws images in the transcript, which leaves them out without it. */
   graphics?: Graphics;
+  /** the agents' jobs, which /jobs lists and stops; it lists none without them. */
+  jobs?: Pick<JobWatch, 'list' | 'stop'>;
   onExit(): void;
   /** sent once the load ends idle with nothing reported and tools unfocused, or ahead of a prompt sent while it connects; otherwise left as the draft. */
   initialPrompt?: string;
@@ -351,6 +356,20 @@ export function App({
         ),
     );
   };
+  const showJobs = async () => {
+    const found = (await jobs?.list()) ?? [];
+    picker(
+      found.length ? 'Jobs · choose one to stop' : 'No jobs are running',
+      found.map((job) => ({
+        id: String(job.group),
+        label: `${Math.round(job.cpu)}% CPU · ${elapsed(Date.now() - job.startedAt)} · ${job.command}`,
+      })),
+      (id) => {
+        setView({ kind: 'chat' });
+        run(jobs!.stop(found.find(({ group }) => String(group) === id)!));
+      },
+    );
+  };
   const selectModel = (id: string) => {
     const efforts =
       coordinator.snapshot.models.find((model) => model.id === id)?.efforts ??
@@ -432,6 +451,9 @@ export function App({
         break;
       case 'memory':
         run(showMemory());
+        break;
+      case 'jobs':
+        run(showJobs());
         break;
       case 'help':
         setPageScroll(0);
@@ -775,13 +797,19 @@ export function App({
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>{plain(view.title)}</Text>
         <Box height={count} flexDirection="column" overflow="hidden">
-          {choices.slice(first, first + count).map((choice, index) => (
-            <Text key={choice.id} inverse={first + index === selected}>
-              {choice.cwd
-                ? linkify(` ${plain(choice.label)} `, choice.cwd)
-                : ` ${plain(choice.label)} `}
-            </Text>
-          ))}
+          {choices.slice(first, first + count).map((choice, index) => {
+            // truncate-end cuts each line on its own, and a note name can hold a line break
+            const label = ` ${plain(choice.label).replace(/\s+/g, ' ')} `;
+            return (
+              <Text
+                key={choice.id}
+                inverse={first + index === selected}
+                wrap="truncate-end"
+              >
+                {choice.cwd ? linkify(label, choice.cwd) : label}
+              </Text>
+            );
+          })}
         </Box>
         <Input
           key={view.title}
