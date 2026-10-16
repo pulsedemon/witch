@@ -444,6 +444,27 @@ await test('memory another conversation publishes refreshes an existing session 
   }
 });
 
+await test("a turn after an origin moves the project key resumes the session with the new key's memory and its snapshot", async () => {
+  const { coordinator, memory, a, project, notes } = await fixture();
+  const git = (...args: string[]) =>
+    promisify(execFile)('git', ['-C', project, ...args]);
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    const before = await notes();
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    assert.notEqual(await notes(), before);
+    await coordinator.send('remember:moved');
+    assert.equal(await memory.read(main, await notes()), 'moved');
+    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.equal(a.inputs.at(-1)!.session, a.inputs[0]!.session);
+    await coordinator.send('Again');
+    assert.equal(a.sessions.length, 2);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('recovery has one owner and shutdown waits for its accepted commit', async () => {
   const { coordinator, memory, a, workspace, note } = await fixture();
   a.interruptNext = true;
