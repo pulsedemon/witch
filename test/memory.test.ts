@@ -27,6 +27,24 @@ import type { GitHook } from './fixtures/git.js';
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 
+// a stand-in for the developer's ssh config: an alias, a hop to a subdomain and a host it fails on
+const bin = await mkdtemp(join(tmpdir(), 'witch-ssh-'));
+const asked = join(bin, 'asked');
+await writeFile(
+  join(bin, 'ssh'),
+  `#!/bin/sh
+printf '%s\\n' "$3" >> '${asked}'
+case "$3" in
+  github-work) echo 'hostname github.com' ;;
+  github.com) echo 'hostname ssh.github.com' ;;
+  broken.example) exit 255 ;;
+  *) echo "hostname $3" ;;
+esac
+`,
+  { mode: 0o755 },
+);
+process.env.PATH = `${bin}:${process.env.PATH}`;
+
 const execute = promisify(execFile);
 const lines = (changes: Record<number, string> = {}) =>
   [1, 2, 3, 4, 5].map((line) => changes[line] ?? `line ${line}`).join('\n') +
@@ -343,6 +361,13 @@ await test('clones of one origin share project memory under its name, whatever t
     await clone('at-path', 'host:a@b/c'),
     await clone('at-host', 'b:c'),
   );
+  assert.equal(await clone('alias', 'git@github-work:owner/repo.git'), ssh);
+  assert.equal(
+    await clone('unresolved', 'git@broken.example:owner/repo.git'),
+    await clone('unresolved-url', 'https://broken.example/owner/repo'),
+  );
+  await clone('shell', 'git@x$(id):owner/repo.git');
+  assert.doesNotMatch(await readFile(asked, 'utf8'), /\$\(id\)/);
 });
 
 await test('a local origin names the repository git reaches through it: from the top level, through links, by file URL, and before it exists', async () => {
