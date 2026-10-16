@@ -46,3 +46,18 @@ await test('selected text joins wrapped rows, breaks between lines, drops traili
     'with only the word',
   );
 });
+
+await test('selected text drops trailing spaces in time linear in a long run of spaces before text', () => {
+  const started = performance.now();
+  assert.equal(
+    selectedText(
+      [`${' '.repeat(50_000)}x `],
+      { row: 0, column: 0 },
+      { row: 0, column: 50_001 },
+      () => '',
+    ),
+    `${' '.repeat(50_000)}x`,
+  );
+  // the backtracking trim took seconds on this run
+  assert.ok(performance.now() - started < 500);
+});

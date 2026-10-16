@@ -60,5 +60,6 @@ export function selectedText(
       row === end.row ? end.column + 1 : Infinity,
     ).inside;
   }
-  return (text ?? '').replace(/[ \t]+$/gm, '');
+  // starting only at a run's first blank keeps a long run of spaces before text linear
+  return (text ?? '').replace(/(?<![ \t])[ \t]+$/gm, '');
 }
