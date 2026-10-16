@@ -378,6 +378,10 @@ await test('a local origin names the repository git reaches through it: from the
     await key(await clone('j', `file://${join(root, 'a/up%73tream.git')}`)),
     upstream,
   );
+  assert.doesNotMatch(
+    await key(await clone('k', `file://${join(root, 'a%00b')}`)),
+    /\0/,
+  );
   assert.notEqual(
     await key(await clone('f', `file://${join(root, 'a/upstream')}`)),
     upstream,
@@ -552,6 +556,41 @@ await test('a project name too long for an APFS name is cut by UTF-16 units to f
     await name('long', `x${'é'.repeat(250)}`),
     /^xé{237}-[0-9a-f]{16}$/,
   );
+});
+
+await test('a clone of a checkout shares the project its origin names, and an origin that is no repository of its own keys as its path', async () => {
+  const { memory, root } = await fixture();
+  const scope = (path: string) => memory.scopePaths(path);
+  const checkout = join(root, 'checkout');
+  await mkdir(join(checkout, 'sub'), { recursive: true });
+  await git(checkout, 'init', '--quiet');
+  await git(checkout, 'commit', '--quiet', '--allow-empty', '-m', 'c');
+  await git(checkout, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
+  await git(root, 'clone', '--quiet', checkout, 'clone');
+  const upstream = await scope(checkout);
+  const cloned = await scope(join(root, 'clone'));
+  assert.equal(cloned.project, upstream.project);
+  assert.notEqual(cloned.project, upstream.checkout);
+  await git(
+    checkout,
+    'bundle',
+    'create',
+    '--quiet',
+    join(root, 'c.bundle'),
+    '--all',
+  );
+  await git(root, 'clone', '--quiet', join(root, 'c.bundle'), 'unbundled');
+  assert.match(
+    (await scope(join(root, 'unbundled'))).project,
+    /^projects\/c\.bundle-/,
+  );
+  const inside = join(root, 'inside');
+  await mkdir(inside);
+  await git(inside, 'init', '--quiet');
+  await git(inside, 'remote', 'add', 'origin', join(checkout, 'sub'));
+  assert.match((await scope(inside)).project, /^projects\/sub-/);
+  await git(checkout, 'remote', 'set-url', 'origin', join(root, 'clone'));
+  assert.match((await scope(checkout)).project, /^projects\/(checkout|clone)-/);
 });
 
 await test('a git that fails reading the origin fails the project key instead of falling back to the path', async () => {
