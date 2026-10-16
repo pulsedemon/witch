@@ -1759,6 +1759,95 @@ await test('the wheel scrolls a page and a request by rows', async () => {
   }
 });
 
+const CMD_C = '\u001b[99;9u';
+/** an SGR report of the left button at a zero-based cell: down, held moving there, or up. */
+const left = (
+  kind: 'press' | 'drag' | 'release',
+  column: number,
+  row: number,
+) =>
+  `\u001b[<${kind === 'drag' ? 32 : 0};${column + 1};${row + 1}${kind === 'release' ? 'm' : 'M'}`;
+
+await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, while a click or a drag from the composer selects nothing', async () => {
+  const words =
+    'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
+  const { app } = fake({
+    items: [{ id: 'u', kind: 'user', text: words, cwd: '/work' }],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the transcript starts at row 2 and column 1, and the message wraps onto rows 3 and 4
+    await until('the wrapped message', () => ui.text().includes(' omicron pi'));
+    // each write renders before the next, so Cmd+C reads what the mouse left selected
+    for (const data of [
+      left('press', 1, 3) + left('release', 1, 3),
+      left('press', 5, 17),
+      left('drag', 5, 3),
+      left('release', 5, 3),
+      CMD_C,
+    ]) {
+      ui.stdin.write(data);
+      await delay(60);
+    }
+    assert.deepEqual(copied, []);
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 58, 4));
+    ui.stdin.write(left('release', 58, 4));
+    await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [words]);
+    ui.stdin.write(left('press', 1, 3) + left('release', 1, 3));
+    await until('no highlight', () => !ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, [words]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a drag past the transcript top scrolls it a row a move and selects the row it brings in', async () => {
+  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
+    '\n',
+  );
+  const { app } = fake({
+    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+  );
+  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  try {
+    await until('the transcript', () => first() > 0);
+    const bottom = first();
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 1, 0));
+    await until('a row up', () => first() === bottom - 1);
+    ui.stdin.write(left('drag', 1, 0));
+    await until('two rows up', () => first() === bottom - 2);
+    ui.stdin.write(left('release', 1, 0) + CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [`row ${bottom - 2}\nrow ${bottom - 1}\nr`]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a click and a wheel step between keys leave the draft as typed', async () => {
   const { app } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));

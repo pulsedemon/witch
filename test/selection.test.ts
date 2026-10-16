@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { placeholder } from '../src/ui/images.js';
+import { highlight, selectedText } from '../src/ui/selection.js';
+
+const red = (text: string) => `\u001b[31m${text}\u001b[39m`;
+const inverse = (text: string) => `\u001b[7m${text}\u001b[27m`;
+
+await test('a highlight inverts the selected cells as plain text, keeps the styles around it and counts wide characters as two', () => {
+  assert.equal(
+    highlight(`${red('ab')}日本x`, 1, 4),
+    `${red('a')}${inverse('b日')}本x`,
+  );
+});
+
+await test('a highlight past the text covers the empty cells it reaches', () => {
+  assert.equal(highlight('ab', 1, 4), `a${inverse('b  ')}`);
+  assert.equal(highlight('ab', 3, 5), `ab ${inverse('  ')}`);
+});
+
+await test("an image row keeps its placeholders' colors", () => {
+  const row = `\u001b[38;5;1m${placeholder.repeat(3)}\u001b[39m`;
+  assert.equal(highlight(row, 0, 3), row);
+});
+
+await test('selected text joins wrapped rows, breaks between lines, drops trailing spaces and images, and ends at the last cell included', () => {
+  const lines = [
+    'You',
+    `Reply ${red('with')} only `,
+    'the word ok.   ',
+    placeholder.repeat(4),
+    '',
+    'codex',
+  ];
+  const wraps = (row: number) => row === 2;
+  assert.equal(
+    selectedText(lines, { row: 0, column: 0 }, { row: 5, column: 1 }, wraps),
+    'You\nReply with only the word ok.\n\nco',
+  );
+  assert.equal(
+    selectedText(lines, { row: 1, column: 6 }, { row: 2, column: 7 }, wraps),
+    'with only the word',
+  );
+});
