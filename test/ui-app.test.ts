@@ -2685,6 +2685,40 @@ await test('a held press whose width changes ends its drag, so the width coming 
   }
 });
 
+await test('a drag and Cmd+C in one read copy what the drag selected, and a click and Cmd+C in one read copy nothing', async () => {
+  const { app } = fake({
+    items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  try {
+    // the message is on row 3, and row 10 is empty transcript
+    await until('the message', () => ui.text().includes('alpha beta gamma'));
+    ui.stdin.write(
+      left('press', 1, 3) + left('drag', 5, 3) + left('release', 5, 3) + CMD_C,
+    );
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['alpha']);
+    ui.stdin.write(
+      left('press', 7, 3) + left('drag', 10, 3) + left('release', 10, 3),
+    );
+    await until('the highlight', () => ui.frame().includes('\u001b[7mbeta'));
+    ui.stdin.write(left('press', 20, 10) + left('release', 20, 10) + CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, ['alpha']);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('drag reports past the top in one read each scroll on from where the last one left the view', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',

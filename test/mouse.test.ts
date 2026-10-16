@@ -63,6 +63,17 @@ await test('only the release of a left press on its own cell clicks, and only on
   assert.equal(clicks(), 1);
 });
 
+await test('the keys and reports in one read arrive in the order they were sent', () => {
+  const { source, mouse, read } = input();
+  const seen: string[] = [];
+  mouse.on('pointer', (kind: Pointer) =>
+    seen.push(`${kind} after ${read.join('')}`),
+  );
+  source.emit('data', 'a\u001b[<0;5;5Mb\u001b[<0;5;5mc');
+  assert.deepEqual(seen, ['press after a', 'release after ab']);
+  assert.deepEqual(read, ['a', 'b', 'c']);
+});
+
 await test('a report split across reads waits for its end', () => {
   const { source, read, clicks } = input();
   source.emit('data', 'x\u001b[<0;4');
