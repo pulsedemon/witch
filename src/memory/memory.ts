@@ -6,6 +6,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
@@ -242,10 +243,14 @@ export class Memory {
   private async reach(
     cwd: string,
     seen = new Set<string>(),
+    ceiling?: string,
   ): Promise<{ identity: string; top: string }> {
     // only a missing origin (2) or work tree (128) falls back, so a git that fails can't move the key
     const read = async (args: string[]) => {
-      const result = await this.run(cwd, args, { codes: [0, 2, 128] });
+      const result = await this.run(cwd, args, {
+        codes: [0, 2, 128],
+        ...(ceiling ? { env: { GIT_CEILING_DIRECTORIES: ceiling } } : {}),
+      });
       return result.code === 0 ? result.stdout.trim() : undefined;
     };
     // git reads a `file://` origin as the path after its host, with percent escapes but `%00` decoded
@@ -260,14 +265,22 @@ export class Memory {
         : url;
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
     if (host) return { identity: `${host.toLowerCase()}/${path}`, top };
-    seen.add(top);
+    seen.add(cwd).add(top);
     // git resolves a relative origin against the top level
     const local = await physical(
       origin?.startsWith('/') ? origin : `${top}/${origin ?? ''}`,
     );
-    if (!origin || seen.has(local) || !(await exists(local)))
+    const directory = await stat(local).then(
+      (found) => found.isDirectory(),
+      () => false,
+    );
+    if (!origin || !directory || seen.has(local) || seen.size > 32)
       return { identity: local, top };
-    return { identity: (await this.reach(local, seen)).identity, top };
+    // the ceiling stops git at the origin itself, so a directory inside another repository isn't that repository
+    return {
+      identity: (await this.reach(local, seen, dirname(local))).identity,
+      top,
+    };
   }
 
   async resolve(revision: string, cwd = this.root): Promise<string> {
