@@ -60,7 +60,7 @@ export function selectedText(
 ): string {
   let text: string | undefined;
   for (let row = start.row; row <= end.row; row++) {
-    const line = lines[row] ?? '';
+    const line = lines[row]!;
     if (line.includes(placeholder)) continue;
     text = text === undefined ? '' : text + joint(row);
     text += cut(
