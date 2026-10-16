@@ -742,7 +742,7 @@ export function App({
       return;
     }
     if (key.super && input === 'c') {
-      // only a selection on screen copies, and blank rows or images hold no text to replace the clipboard with
+      // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
       const text =
         transcriptBox.current &&
         ends &&
