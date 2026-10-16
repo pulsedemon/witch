@@ -25,10 +25,12 @@ function cut(line: string, start: number, end: number) {
   let width = 0;
   for (const char of styledCharsFromTokens(tokenize(line))) {
     if (undrawn.test(char.value)) continue;
-    if (width < start) before.push(char);
+    // a wide character is selected when either of its cells is
+    const next = width + Math.max(1, stringWidth(char.value));
+    if (next <= start) before.push(char);
     else if (width < end) inside.push(char);
     else after.push(char);
-    width += Math.max(1, stringWidth(char.value));
+    width = next;
   }
   return { before, inside, after, width };
 }
@@ -41,7 +43,7 @@ export function highlight(line: string, start: number, end: number): string {
   // past the text, the selection covers empty cells, as the terminal's does
   const gap = ' '.repeat(Math.max(0, start - width));
   const blank = ' '.repeat(Math.max(0, end - Math.max(start, width)));
-  // the selected cells keep their links, so a click on one still opens it, and drop their colors
+  // the selected cells keep their links, so a click on one still opens it, and drop their other styles
   const selected = inside.map((char) => ({
     ...char,
     styles: char.styles.filter(({ code }) => code.startsWith('\u001b]8;')),

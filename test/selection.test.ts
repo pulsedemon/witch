@@ -13,6 +13,19 @@ await test('a highlight inverts the selected cells as plain text, keeps the styl
   );
 });
 
+await test('a selection from the right half of a wide character takes the whole character', () => {
+  assert.equal(highlight('日本x', 1, 3), `${inverse('日本')}x`);
+  assert.equal(
+    selectedText(
+      ['日本x'],
+      { row: 0, column: 1 },
+      { row: 0, column: 1 },
+      () => '',
+    ),
+    '日',
+  );
+});
+
 await test('a highlight and a copy give no cell to a character Ink drops, such as a soft hyphen or a carriage return', () => {
   assert.equal(highlight('a\u00adb', 1, 2), `a${inverse('b')}`);
   assert.equal(
