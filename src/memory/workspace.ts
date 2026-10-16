@@ -157,9 +157,16 @@ export class Workspace {
       const content = await readFile(source);
       const note = posix.relative(checkout, file);
       if (file === index) {
-        let text = content.toString();
-        for (const [from, to] of renamed)
-          text = text.replaceAll(`](${from})`, `](<${to}>)`);
+        // one pass, so a rewritten link can't match another rename. it reads the `<…>` form this move writes too
+        const text = content
+          .toString()
+          .replace(
+            /\]\((?:<([^<>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\))+))/g,
+            (link, angled?: string, bare?: string) => {
+              const to = renamed.get(posix.normalize(angled ?? bare!));
+              return to === undefined ? link : `](<${to}>`;
+            },
+          );
         const target = await this.checkedPath(posix.join(project, note));
         await writeFile(
           target,
