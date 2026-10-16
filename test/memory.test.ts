@@ -7,7 +7,6 @@ import {
   mkdir,
   readdir,
   readFile,
-  realpath,
   rename,
   rm,
   stat,
@@ -346,7 +345,7 @@ await test('clones of one origin share project memory under its name, whatever t
   );
 });
 
-await test('a local origin names the repository git reaches through it, from the top level or by file URL', async () => {
+await test('a local origin names the repository git reaches through it: from the top level, through links, by file URL, and before it exists', async () => {
   const { memory, root } = await fixture();
   const clone = async (directory: string, origin: string) => {
     const path = join(root, directory);
@@ -356,6 +355,11 @@ await test('a local origin names the repository git reaches through it, from the
     return path;
   };
   const key = async (path: string) => (await memory.scopePaths(path)).project;
+  for (const repository of ['a/upstream.git', 'a/upstream', 'b/upstream.git'])
+    await git(root, 'init', '--quiet', '--bare', repository);
+  await symlink(join(root, 'a'), join(root, 'alias'));
+  await mkdir(join(root, 'b/child'));
+  await symlink(join(root, 'b/child'), join(root, 'a/link'));
   const a = await clone('a/clone', '../upstream.git');
   const upstream = await key(a);
   assert.equal(await key(join(a, 'src')), upstream);
@@ -363,14 +367,25 @@ await test('a local origin names the repository git reaches through it, from the
     await key(await clone('b/clone', '../upstream.git')),
     upstream,
   );
-  const absolute = join(await realpath(root), 'a/upstream.git');
-  assert.equal(await key(await clone('c', absolute)), upstream);
+  assert.equal(
+    await key(await clone('c', join(root, 'alias/upstream.git'))),
+    upstream,
+  );
+  const absolute = join(root, 'a/upstream.git');
   assert.equal(await key(await clone('d', `file://${absolute}`)), upstream);
   assert.equal(await key(await clone('e', `file://host${absolute}`)), upstream);
   assert.notEqual(
-    await key(await clone('f', `file://${absolute.replace(/\.git$/, '')}`)),
+    await key(await clone('f', `file://${join(root, 'a/upstream')}`)),
     upstream,
   );
+  assert.equal(
+    await key(await clone('g', `${root}/a/link/../upstream.git`)),
+    await key(await clone('h', join(root, 'b/upstream.git'))),
+  );
+  const later = await clone('i', join(root, 'alias/later.git'));
+  const missing = await key(later);
+  await git(root, 'init', '--quiet', '--bare', 'a/later.git');
+  assert.equal(await key(later), missing);
 });
 
 await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
