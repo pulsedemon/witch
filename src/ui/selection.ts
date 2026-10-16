@@ -6,7 +6,6 @@ import {
 import type { StyledChar } from '@alcalzone/ansi-tokenize';
 import stringWidth from 'string-width';
 import { placeholder } from './images.js';
-import { plain } from './links.js';
 import { colors } from './theme.js';
 
 /** a transcript row and a column in it. */
@@ -21,17 +20,17 @@ const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|(?!\t)\p{Cc})+$/u;
 /** `line` cut at columns `start` and `end`, measured as Ink lays characters out. */
 function cut(line: string, start: number, end: number) {
   const before: StyledChar[] = [];
+  const inside: StyledChar[] = [];
   const after: StyledChar[] = [];
-  let inside = '';
   let width = 0;
   for (const char of styledCharsFromTokens(tokenize(line))) {
     if (undrawn.test(char.value)) continue;
     if (width < start) before.push(char);
-    else if (width < end) inside += char.value;
+    else if (width < end) inside.push(char);
     else after.push(char);
     width += Math.max(1, stringWidth(char.value));
   }
-  return { before, inside: plain(inside), after, width };
+  return { before, inside, after, width };
 }
 
 /** columns `start` up to but not including `end` of a row, drawn as Ghostty draws a selection, in the window's colors swapped. */
@@ -42,7 +41,12 @@ export function highlight(line: string, start: number, end: number): string {
   // past the text, the selection covers empty cells, as the terminal's does
   const gap = ' '.repeat(Math.max(0, start - width));
   const blank = ' '.repeat(Math.max(0, end - Math.max(start, width)));
-  return `${styledCharsToString(before)}${gap}${colors.inverse(inside + blank)}${styledCharsToString(after)}`;
+  // the selected cells keep their links, so a click on one still opens it, and drop their colors
+  const selected = inside.map((char) => ({
+    ...char,
+    styles: char.styles.filter(({ code }) => code.startsWith('\u001b]8;')),
+  }));
+  return `${styledCharsToString(before)}${gap}${colors.inverse(styledCharsToString(selected) + blank)}${styledCharsToString(after)}`;
 }
 
 /** the plain text from `start` through `end`, each row after the first joined on by what `joint` gives for it. */
@@ -61,7 +65,9 @@ export function selectedText(
       line,
       row === start.row ? start.column : 0,
       row === end.row ? end.column + 1 : Infinity,
-    ).inside;
+    )
+      .inside.map(({ value }) => value)
+      .join('');
   }
   // starting only at a run's first blank keeps a long run of spaces before text linear
   return (text ?? '').replace(/(?<![ \t])[ \t]+$/gm, '');

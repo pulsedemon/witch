@@ -26,6 +26,15 @@ await test('a highlight and a copy give no cell to a character Ink drops, such a
   );
 });
 
+await test('a highlight keeps the links of the cells it covers', () => {
+  const link = (text: string) =>
+    `\u001b]8;;https://example.com/docs\u0007${text}\u001b]8;;\u0007`;
+  assert.equal(
+    highlight(`see ${link('docs')} here`, 2, 7),
+    `se${inverse(`e ${link('doc')}`)}${link('s')} here`,
+  );
+});
+
 await test('a highlight past the text covers the empty cells it reaches', () => {
   assert.equal(highlight('ab', 1, 4), `a${inverse('b  ')}`);
   assert.equal(highlight('ab', 3, 5), `ab ${inverse('  ')}`);
