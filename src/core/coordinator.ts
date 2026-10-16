@@ -461,7 +461,6 @@ export class Coordinator {
         create: this.newRecord(source.cwd, chosen, source),
       });
       await this.connect();
-      await this.workspace!.adoptCheckout(source.cwd);
     });
   }
 
@@ -470,7 +469,6 @@ export class Coordinator {
     await this.operate('starting', async () => {
       await this.openConversation({ id });
       await this.connect();
-      await this.workspace!.adoptCheckout(this.current().cwd);
     });
   }
 
