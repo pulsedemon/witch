@@ -66,6 +66,8 @@ interface UnreadableRecord {
 }
 
 export class StateStore {
+  private adding: Promise<void> = Promise.resolve();
+
   private constructor(readonly root: string) {}
 
   static async open(root: string): Promise<StateStore> {
@@ -133,15 +135,19 @@ export class StateStore {
       .reverse();
   }
 
-  /** starts with the line break, so a line a crash cut short ends before it. */
-  async addPrompt(cwd: string, text: string): Promise<void> {
-    const file = await open(this.promptsPath(), 'a', 0o600);
-    try {
-      // one write call, which other instances' appends never split; appendFile writes 512 KiB at a time
-      await file.write(Buffer.from(`\n${JSON.stringify({ cwd, text })}`));
-    } finally {
-      await file.close();
-    }
+  /** waits for the prompts added before it, so the file keeps their order, and starts with the line break, so a line a crash cut short ends before it. */
+  addPrompt(cwd: string, text: string): Promise<void> {
+    const added = this.adding.then(async () => {
+      const file = await open(this.promptsPath(), 'a', 0o600);
+      try {
+        // one write call, which other instances' appends never split; appendFile writes 512 KiB at a time
+        await file.write(Buffer.from(`\n${JSON.stringify({ cwd, text })}`));
+      } finally {
+        await file.close();
+      }
+    });
+    this.adding = added.catch(() => {});
+    return added;
   }
 
   /** locks before writing `state.json`, so `records()` never lists an unlocked new conversation. */
