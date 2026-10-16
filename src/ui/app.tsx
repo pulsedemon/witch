@@ -188,7 +188,9 @@ export function App({
     [layout, state.items, width, expanded],
   );
   // a drag's ends are anchored to their text, so they follow it when output above grows
-  const [range, setRange] = useState<{ from: RangeEnd; to: RangeEnd }>();
+  const [range, rangeRef, setRange] = useLiveState<
+    { from: RangeEnd; to: RangeEnd } | undefined
+  >(undefined);
   const pressedAt = useRef<RangeEnd>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
   /** where an end is drawn: at the width it was measured at, in an item still shown, while its row reads as it did. */
@@ -200,16 +202,18 @@ export function App({
       ? { row, column: end.column }
       : undefined;
   };
-  const from = range && pointOf(range.from);
-  const to = range && pointOf(range.to);
-  /** the selected range in reading order. */
-  const ends =
-    from && to
+  /** a range's ends in reading order, while both are drawn. */
+  const endsOf = (selection?: { from: RangeEnd; to: RangeEnd }) => {
+    const from = selection && pointOf(selection.from);
+    const to = selection && pointOf(selection.to);
+    return from && to
       ? ([from, to].sort((a, b) => a.row - b.row || a.column - b.column) as [
           Point,
           Point,
         ])
       : undefined;
+  };
+  const ends = endsOf(range);
   // a range or a held press off its text drops, so it can't come back with the width or the tool
   useEffect(() => {
     if (range && !ends) setRange(undefined);
@@ -819,10 +823,11 @@ export function App({
     }
     if (key.super && input === 'c') {
       // nothing copies while another view covers the transcript, and blank rows or images hold no text to replace the clipboard with
+      const selected = endsOf(rangeRef.current);
       const text =
         transcriptBox.current &&
-        ends &&
-        selectedText(transcript.lines, ...ends, joint);
+        selected &&
+        selectedText(transcript.lines, ...selected, joint);
       if (text?.trim()) copy?.(text);
       return;
     }

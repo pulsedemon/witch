@@ -40,7 +40,7 @@ await test('mouse reports leave the input as wheel steps and left clicks, and th
     'data',
     'a\u001b[<64;5;6Mb\u001b[<0;12;3M\u001b[<2;1;1M\u001b[<34;2;1M\u001b[<2;2;1m\u001b[<0;12;3mc\u001b[<73;1;1M\u001b[<16;2;9M\u001b[<16;2;9m',
   );
-  assert.deepEqual(read, ['abc']);
+  assert.deepEqual(read, ['a', 'b', 'c']);
   assert.deepEqual(wheel, [-1, 1]);
   assert.equal(clicks(), 2);
   assert.deepEqual(pointer, [
