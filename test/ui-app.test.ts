@@ -2497,6 +2497,19 @@ await test('a selection drops when output arrives under one of its ends', async 
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.deepEqual(copied, []);
+    // pressed on the blank row now under gamma and dragged up, so the next line lands under the press
+    ui.stdin.write(left('press', 30, 6));
+    ui.stdin.write(left('drag', 1, 3));
+    ui.stdin.write(left('release', 1, 3));
+    await until('the highlight from below', () =>
+      ui.frame().includes('\u001b[7malpha'),
+    );
+    coordinator.publish(reply('alpha\nbeta\ngamma\ndelta'));
+    await until('the reply under the press', () => ui.text().includes('delta'));
+    assert.ok(!ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, []);
   } finally {
     ui.unmount();
   }
