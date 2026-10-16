@@ -1951,6 +1951,65 @@ await test('a wrapped title row the wrap changed beyond trimming joins the row a
   }
 });
 
+await test('a drag past the last transcript row or its right edge selects to the end without wrapping a row, and Cmd+C over blank cells copies nothing', async () => {
+  const { app } = fake({
+    items: [
+      { id: 'u', kind: 'user', text: 'first message', cwd: '/work' },
+      { id: 'a', kind: 'assistant', text: 'second reply', cwd: '/work' },
+    ],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text: string) => copied.push(text),
+    }),
+    60,
+    20,
+  );
+  const rows = () =>
+    ui
+      .text()
+      .split('\n')
+      .map((row) => row.trimEnd());
+  try {
+    // the messages take rows 2 to 7 and the transcript runs on to row 13, between columns 1 and 58
+    await until('the reply', () => ui.text().includes('second reply'));
+    const before = rows();
+    for (const data of [
+      left('press', 1, 4),
+      left('drag', 30, 4),
+      left('release', 30, 4),
+    ]) {
+      ui.stdin.write(data);
+      await delay(60);
+    }
+    assert.ok(ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, []);
+    // ending above the reply, so a highlighted row that wrapped would push the reply down
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 59, 5));
+    ui.stdin.write(left('release', 59, 5));
+    await until('the highlight', () => ui.frame().includes('\u001b[7mfirst'));
+    assert.deepEqual(rows(), before);
+    for (const data of [
+      left('press', 1, 3),
+      left('drag', 5, 12),
+      left('release', 5, 12),
+      CMD_C,
+    ]) {
+      ui.stdin.write(data);
+      await delay(60);
+    }
+    assert.deepEqual(copied, ['first message\n\nAssistant\nsecond reply\n']);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a selection follows its text as output above it grows, and drops when its tool collapses or its item leaves', async () => {
   const items = (first: string) => [
     { id: 'u', kind: 'user' as const, text: first, cwd: '/work' },

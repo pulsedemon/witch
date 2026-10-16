@@ -741,7 +741,9 @@ export function App({
       return;
     }
     if (key.super && input === 'c') {
-      if (ends) copy?.(selectedText(transcript.lines, ...ends, joint));
+      // a range of blank cells or images holds no text, and copying it would empty the clipboard
+      const text = ends && selectedText(transcript.lines, ...ends, joint);
+      if (text) copy?.(text);
       return;
     }
     if (request) return;
