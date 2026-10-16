@@ -495,6 +495,24 @@ await test("a turn merges a checkout's path-key notes into its origin's project"
   assert.equal(await memory.read(merged.revision, kept), 'Deploy with B.\n');
 });
 
+await test('a project name too long for a directory name is cut to fit beside its hash', async () => {
+  const { open, root } = await fixture();
+  const long = join(root, 'long');
+  await mkdir(long);
+  await git(long, 'init', '--quiet');
+  await git(
+    long,
+    'remote',
+    'add',
+    'origin',
+    `https://example.org/owner/x${'é'.repeat(130)}`,
+  );
+  const { scope } = await (await open('a')).workspace.begin(long);
+  const name = basename(scope.project);
+  assert.ok(Buffer.byteLength(name) <= 255);
+  assert.match(name, /^xé+-[0-9a-f]{16}$/);
+});
+
 await test('a git that fails reading the origin fails the project key instead of falling back to the path', async () => {
   const { memory, hook, project } = await fixture();
   await git(project, 'init', '--quiet');
