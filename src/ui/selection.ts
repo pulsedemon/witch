@@ -15,6 +15,9 @@ export interface Point {
   column: number;
 }
 
+// Ink draws neither invisible characters nor controls but the tab, so they take no cell and are never copied
+const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|(?!\t)\p{Cc})+$/u;
+
 /** `line` cut at columns `start` and `end`, measured as Ink lays characters out. */
 function cut(line: string, start: number, end: number) {
   const before: StyledChar[] = [];
@@ -22,7 +25,7 @@ function cut(line: string, start: number, end: number) {
   let inside = '';
   let width = 0;
   for (const char of styledCharsFromTokens(tokenize(line))) {
-    if (/^\p{Default_Ignorable_Code_Point}+$/u.test(char.value)) continue;
+    if (undrawn.test(char.value)) continue;
     if (width < start) before.push(char);
     else if (width < end) inside += char.value;
     else after.push(char);
