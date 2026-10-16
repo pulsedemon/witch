@@ -61,6 +61,9 @@ await test('only the release of a left press on its own cell clicks, and only on
   source.emit('data', '\u001b[<0;5;5M\u001b[<0;5;9m');
   source.emit('data', '\u001b[<0;5;5M\u001b[<0;9;5m');
   assert.equal(clicks(), 1);
+  // or the next press while the last is held, and that press's own release still clicks
+  source.emit('data', '\u001b[<0;5;5M\u001b[<0;9;9M\u001b[<0;9;9m');
+  assert.equal(clicks(), 2);
 });
 
 await test('the keys and reports in one read arrive in the order they were sent', () => {
