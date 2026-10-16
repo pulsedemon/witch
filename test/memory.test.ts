@@ -388,6 +388,55 @@ await test('a local origin names the repository git reaches through it: from the
   assert.equal(await key(later), missing);
 });
 
+await test("a turn moves a checkout's path-key notes to its origin's project while that has none", async () => {
+  const { memory, open, root, project } = await fixture();
+  const begin = async (workspace: Workspace, cwd: string, note?: string) => {
+    const begun = await workspace.begin(cwd);
+    if (note)
+      await save(workspace, { [`${begun.scope.project}/MEMORY.md`]: note });
+    await workspace.publish();
+    return begun;
+  };
+  const projects = async (revision: string) =>
+    (
+      await memory.git(memory.root, [
+        'ls-tree',
+        '-r',
+        '--name-only',
+        revision,
+        '--',
+        'projects',
+      ])
+    ).trim();
+  const first = (await open('a')).workspace;
+  await git(project, 'init', '--quiet');
+  const path = (await begin(first, project, 'Use port 4567.')).scope.project;
+  const copy = join(root, 'copy');
+  await mkdir(copy);
+  await git(copy, 'init', '--quiet');
+  const second = (await open('b')).workspace;
+  const copyPath = (await begin(second, copy, 'Use port 9001.')).scope.project;
+  const origin = 'https://github.com/owner/repo.git';
+  await git(project, 'remote', 'add', 'origin', origin);
+  const moved = await begin(first, project);
+  assert.equal(moved.scope.checkout, path);
+  assert.equal(
+    await projects(moved.revision),
+    `${copyPath}/MEMORY.md\n${moved.scope.project}/MEMORY.md`,
+  );
+  await git(copy, 'remote', 'add', 'origin', origin);
+  const kept = await begin(second, copy);
+  assert.equal(kept.scope.project, moved.scope.project);
+  assert.equal(
+    await memory.read(kept.revision, `${kept.scope.project}/MEMORY.md`),
+    'Use port 4567.',
+  );
+  assert.equal(
+    await memory.read(kept.revision, `${copyPath}/MEMORY.md`),
+    'Use port 9001.',
+  );
+});
+
 await test('a git that fails reading the origin fails the project key instead of falling back to the path', async () => {
   const { memory, hook, project } = await fixture();
   await git(project, 'init', '--quiet');
