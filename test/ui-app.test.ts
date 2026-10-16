@@ -2165,41 +2165,6 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
   }
 });
 
-await test('a drag past the transcript top or bottom scrolls it a row a move, and past the top selects the row it brings in', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
-  const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
-  });
-  const copied: string[] = [];
-  const ui = show(
-    createElement(App, {
-      coordinator: app,
-      onExit: () => {},
-      copy: (text: string) => copied.push(text),
-    }),
-  );
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
-  try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
-    ui.stdin.write(left('press', 1, 2));
-    ui.stdin.write(left('drag', 1, 0));
-    await until('a row up', () => first() === bottom - 1);
-    ui.stdin.write(left('drag', 1, 0));
-    await until('two rows up', () => first() === bottom - 2);
-    ui.stdin.write(left('release', 1, 0) + CMD_C);
-    await until('the copy', () => copied.length > 0);
-    assert.deepEqual(copied, [`row ${bottom - 2}\nrow ${bottom - 1}\nr`]);
-    ui.stdin.write(left('press', 1, 2));
-    ui.stdin.write(left('drag', 1, 39));
-    await until('a row down', () => first() === bottom - 1);
-  } finally {
-    ui.unmount();
-  }
-});
-
 await test('a drag inside the view leaves it where it is, on its first and last rows too', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
@@ -2301,7 +2266,7 @@ await test('a wrapped title row the wrap changed beyond trimming joins the rows 
   }
 });
 
-await test('a drag past the last transcript row or its right edge selects to the end without wrapping a row, and Cmd+C over blank cells copies nothing', async () => {
+await test('a drag past the last transcript row or its right edge selects to the end without wrapping a row', async () => {
   const { app } = fake({
     items: [
       { id: 'u', kind: 'user', text: 'first message', cwd: '/work' },
@@ -2327,13 +2292,6 @@ await test('a drag past the last transcript row or its right edge selects to the
     // the messages take rows 2 to 7 and the transcript runs on to row 13, between columns 1 and 58
     await until('the reply', () => ui.text().includes('second reply'));
     const before = rows();
-    ui.stdin.write(left('press', 1, 4));
-    ui.stdin.write(left('drag', 30, 4));
-    ui.stdin.write(left('release', 30, 4));
-    await until('the blank highlight', () => ui.frame().includes('\u001b[7m'));
-    ui.stdin.write(CMD_C);
-    await delay(60);
-    assert.deepEqual(copied, []);
     // ending above the reply, so a highlighted row that wrapped would push the reply down
     ui.stdin.write(left('press', 1, 3));
     ui.stdin.write(left('drag', 59, 5));
@@ -2732,7 +2690,7 @@ await test('a drag and Cmd+C in one read copy what the drag selected, and a clic
   }
 });
 
-await test('drag reports past the top in one read each scroll on from where the last one left the view', async () => {
+await test('a drag past the transcript top or bottom scrolls it a row a move, and past the top each move in one read scrolls on from where the last left the view and selects the row it brings in', async () => {
   const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
     '\n',
   );
@@ -2763,6 +2721,9 @@ await test('drag reports past the top in one read each scroll on from where the 
     assert.deepEqual(copied, [
       `w ${bottom - 3}\nrow ${bottom - 2}\nrow ${bottom - 1}\nr`,
     ]);
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 1, 39));
+    await until('a row down', () => first() === bottom - 2);
   } finally {
     ui.unmount();
   }
@@ -2822,23 +2783,6 @@ await test('Cmd+C copies nothing while a page covers the selection or from blank
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.deepEqual(copied, ['hello']);
-  } finally {
-    ui.unmount();
-  }
-});
-
-await test('a click on a page leaves it open', async () => {
-  const { app } = fake({});
-  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  try {
-    await delay(60);
-    ui.stdin.write('/help');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the help page', () => ui.text().includes('/new  New'));
-    ui.stdin.write(left('press', 1, 3) + left('release', 1, 3));
-    await delay(60);
-    assert.ok(ui.text().includes('/new  New'));
   } finally {
     ui.unmount();
   }
