@@ -313,7 +313,7 @@ await test('clones of one origin share project memory under its name, whatever t
   );
 });
 
-await test('a relative origin names the repository it reaches from the top level', async () => {
+await test('a local origin names the repository git reaches through it, from the top level or by file URL', async () => {
   const { memory, root } = await fixture();
   const clone = async (directory: string, origin: string) => {
     const path = join(root, directory);
@@ -332,6 +332,12 @@ await test('a relative origin names the repository it reaches from the top level
   );
   const absolute = join(await realpath(root), 'a/upstream.git');
   assert.equal(await key(await clone('c', absolute)), upstream);
+  assert.equal(await key(await clone('d', `file://${absolute}`)), upstream);
+  assert.equal(await key(await clone('e', `file://host${absolute}`)), upstream);
+  assert.notEqual(
+    await key(await clone('f', `file://${absolute.replace(/\.git$/, '')}`)),
+    upstream,
+  );
 });
 
 await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
