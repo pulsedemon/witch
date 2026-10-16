@@ -304,7 +304,11 @@ await test('clones of one origin share project memory under its name, whatever t
     ssh,
   );
   assert.notEqual(
-    await clone('other', 'https://github.com/owner/other.git'),
+    await clone('fork', 'https://github.com/other/repo.git'),
+    ssh,
+  );
+  assert.notEqual(
+    await clone('host', 'https://gitlab.com/owner/repo.git'),
     ssh,
   );
 });
