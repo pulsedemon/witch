@@ -2210,7 +2210,7 @@ await test('a selection drops when output arrives under one of its ends', async 
   }
 });
 
-await test('a drag back along a row selects from the pointer to the press', async () => {
+await test('a drag back along a row selects from the pointer to the press, and one forward from mid-row draws from the press', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
   });
@@ -2234,6 +2234,12 @@ await test('a drag back along a row selects from the pointer to the press', asyn
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, ['alpha beta']);
+    ui.stdin.write(left('press', 7, 3));
+    ui.stdin.write(left('drag', 10, 3));
+    ui.stdin.write(left('release', 10, 3));
+    await until('the highlight from the press', () =>
+      ui.frame().includes('alpha \u001b[7mbeta\u001b[27m'),
+    );
   } finally {
     ui.unmount();
   }
