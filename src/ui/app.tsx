@@ -88,7 +88,7 @@ const unwatched = () => () => {};
 interface RangeEnd {
   anchor: ScrollAnchor;
   column: number;
-  /** the width it was measured at; a resize drops the range, since a column from a wider one can lie past the edge. */
+  /** the width it was measured at; a width change drops the range, since a column from a wider one can lie past the edge. */
   width: number;
   /** its row as measured; output growing into the row, or its tool expanding or collapsing, changes it. */
   text: string;

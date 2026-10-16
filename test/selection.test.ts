@@ -26,19 +26,6 @@ await test('a selection from the right half of a wide character takes the whole 
   );
 });
 
-await test('a tab keeps its cell and its text, and a row ending in one drops it like a space', () => {
-  assert.equal(highlight('a\tb', 1, 2), `a${inverse('\t')}b`);
-  assert.equal(
-    selectedText(
-      ['a\tb\t'],
-      { row: 0, column: 0 },
-      { row: 0, column: 3 },
-      () => '',
-    ),
-    'a\tb',
-  );
-});
-
 await test('a highlight and a copy give no cell to a character Ink drops, such as a soft hyphen or a carriage return', () => {
   assert.equal(highlight('a\u00adb', 1, 2), `a${inverse('b')}`);
   assert.equal(

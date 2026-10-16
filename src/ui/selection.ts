@@ -14,8 +14,8 @@ export interface Point {
   column: number;
 }
 
-// Ink draws neither invisible characters nor controls but the tab, so they take no cell and are never copied
-const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|(?!\t)\p{Cc})+$/u;
+// Ink draws neither invisible characters nor controls, so they take no cell and are never copied
+const undrawn = /^(?:\p{Default_Ignorable_Code_Point}|\p{Cc})+$/u;
 
 /** `line` cut at columns `start` and `end`, measured as Ink lays characters out. */
 function cut(line: string, start: number, end: number) {
@@ -71,6 +71,6 @@ export function selectedText(
       .inside.map(({ value }) => value)
       .join('');
   }
-  // starting only at a run's first blank keeps a long run of spaces before text linear
-  return (text ?? '').replace(/(?<![ \t])[ \t]+$/gm, '');
+  // starting only at a run's first space keeps a long run of spaces before text linear
+  return (text ?? '').replace(/(?<! ) +$/gm, '');
 }
