@@ -19,18 +19,18 @@ function input() {
   const mouse = new MouseInput(source);
   const read: string[] = [];
   const wheel: number[] = [];
-  const clicks: Click[] = [];
+  let clicks = 0;
   const pointer: [Pointer, Click][] = [];
   mouse.on('readable', () => {
     let text;
     while ((text = mouse.read()) !== null) read.push(text);
   });
   mouse.on('wheel', (rows: number) => wheel.push(rows));
-  mouse.on('click', (click: Click) => clicks.push(click));
+  mouse.on('click', () => clicks++);
   mouse.on('pointer', (kind: Pointer, cell: Click) =>
     pointer.push([kind, cell]),
   );
-  return { source, mouse, read, wheel, clicks, pointer };
+  return { source, mouse, read, wheel, clicks: () => clicks, pointer };
 }
 
 await test('mouse reports leave the input as wheel steps and left clicks, and the keys around them read through', () => {
@@ -42,10 +42,15 @@ await test('mouse reports leave the input as wheel steps and left clicks, and th
   );
   assert.deepEqual(read, ['abc']);
   assert.deepEqual(wheel, [-1, 1]);
-  assert.deepEqual(clicks, [
-    { column: 11, row: 2 },
-    { column: 1, row: 8 },
-  ]);
+  assert.equal(clicks(), 2);
+});
+
+await test('only the release of a left press clicks, and only once', () => {
+  const { source, clicks } = input();
+  source.emit('data', '\u001b[<0;5;5M\u001b[<2;5;5m');
+  assert.equal(clicks(), 0);
+  source.emit('data', '\u001b[<0;5;5m\u001b[<0;5;5m');
+  assert.equal(clicks(), 1);
 });
 
 await test('a report split across reads waits for its end', () => {
@@ -54,7 +59,7 @@ await test('a report split across reads waits for its end', () => {
   assert.deepEqual(read, ['x']);
   source.emit('data', ';7M\u001b[<0;4;7m');
   assert.deepEqual(read, ['x']);
-  assert.deepEqual(clicks, [{ column: 3, row: 6 }]);
+  assert.equal(clicks(), 1);
 });
 
 await test('a press dragged off its cell is a drag, not a click, even released where it began', () => {
@@ -63,7 +68,7 @@ await test('a press dragged off its cell is a drag, not a click, even released w
     'data',
     '\u001b[<0;5;5M\u001b[<32;6;5M\u001b[<32;5;5M\u001b[<0;5;5m',
   );
-  assert.deepEqual(clicks, []);
+  assert.equal(clicks(), 0);
   assert.deepEqual(pointer, [
     ['press', { column: 4, row: 4 }],
     ['drag', { column: 5, row: 4 }],
@@ -76,7 +81,7 @@ await test('a wheel step while the button is down keeps its release from clickin
   const { source, wheel, clicks } = input();
   source.emit('data', '\u001b[<0;5;5M\u001b[<65;5;5M\u001b[<0;5;5m');
   assert.deepEqual(wheel, [1]);
-  assert.deepEqual(clicks, []);
+  assert.equal(clicks(), 0);
 });
 
 await test('raw mode reaches the terminal', () => {

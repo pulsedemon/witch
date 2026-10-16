@@ -72,7 +72,9 @@ export class MouseInput extends EventEmitter {
     let data = this.pending + chunk;
     this.pending = partial.exec(data)?.[0] ?? '';
     data = data.slice(0, data.length - this.pending.length);
-    const events: [string, ...unknown[]][] = [];
+    const events: (
+      ['wheel', number] | ['pointer', Pointer, Click] | ['click']
+    )[] = [];
     this.text += data.replace(
       report,
       (_, code: string, x: string, y: string, kind: string) => {
@@ -90,7 +92,7 @@ export class MouseInput extends EventEmitter {
           this.pressed = false;
           events.push(['pointer', 'drag', cell]);
         } else if (button === 0) {
-          if (this.pressed) events.push(['click', cell]);
+          if (this.pressed) events.push(['click']);
           this.pressed = false;
           events.push(['pointer', 'release', cell]);
         }
