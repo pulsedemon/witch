@@ -492,15 +492,13 @@ export function App({
   const remember = (text: string) => {
     if (!text.trim() || text === history.current[0]) return;
     history.current = [text, ...history.current];
-    // the initial prompt can go out mid-browse, and every prompt browsed is then a place further back
+    // the initial prompt can go out once browsing has begun, and every prompt browsed or kept is then a place further back
+    const back = (at: number) => (at === -1 ? at : at + 1);
     const { index, texts } = recall.current;
-    if (index !== -1)
-      recall.current = {
-        index: index + 1,
-        texts: new Map(
-          [...texts].map(([at, kept]) => [at === -1 ? at : at + 1, kept]),
-        ),
-      };
+    recall.current = {
+      index: back(index),
+      texts: new Map([...texts].map(([at, kept]) => [back(at), kept])),
+    };
     if (store) run(store.addPrompt(cwd, text));
   };
 
