@@ -1983,15 +1983,10 @@ await test('a drag past the last transcript row or its right edge selects to the
     // the messages take rows 2 to 7 and the transcript runs on to row 13, between columns 1 and 58
     await until('the reply', () => ui.text().includes('second reply'));
     const before = rows();
-    for (const data of [
-      left('press', 1, 4),
-      left('drag', 30, 4),
-      left('release', 30, 4),
-    ]) {
-      ui.stdin.write(data);
-      await delay(60);
-    }
-    assert.ok(ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(left('press', 1, 4));
+    ui.stdin.write(left('drag', 30, 4));
+    ui.stdin.write(left('release', 30, 4));
+    await until('the blank highlight', () => ui.frame().includes('\u001b[7m'));
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.deepEqual(copied, []);
@@ -2001,15 +1996,14 @@ await test('a drag past the last transcript row or its right edge selects to the
     ui.stdin.write(left('release', 59, 5));
     await until('the highlight', () => ui.frame().includes('\u001b[7mfirst'));
     assert.deepEqual(rows(), before);
-    for (const data of [
-      left('press', 1, 3),
-      left('drag', 5, 12),
-      left('release', 5, 12),
-      CMD_C,
-    ]) {
-      ui.stdin.write(data);
-      await delay(60);
-    }
+    ui.stdin.write(left('press', 1, 3));
+    ui.stdin.write(left('drag', 5, 12));
+    ui.stdin.write(left('release', 5, 12));
+    await until('the highlight to the end', () =>
+      ui.frame().includes('\u001b[7msecond reply'),
+    );
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, ['first message\n\nAssistant\nsecond reply\n']);
   } finally {
     ui.unmount();
@@ -2074,16 +2068,23 @@ await test('a selection follows its text as output above it grows, and drops for
     60,
     20,
   );
-  const select = async (from: number, to: number, row: number) => {
+  const select = async (
+    from: number,
+    to: number,
+    row: number,
+    shown: string,
+  ) => {
     ui.stdin.write(left('press', from, row));
     ui.stdin.write(left('drag', to, row));
     ui.stdin.write(left('release', to, row));
-    await delay(60);
+    await until(`the highlight on ${shown}`, () =>
+      ui.frame().includes(`\u001b[7m${shown}`),
+    );
   };
   try {
     // the reply's text is on row 6, and the expanded tool's output on rows 9 to 11
     await until('the reply', () => ui.text().includes('selected words'));
-    await select(1, 8, 6);
+    await select(1, 8, 6, 'selected');
     coordinator.publish({ items: items('first\nsecond\nthird') });
     await until('the taller message', () => ui.text().includes('third'));
     assert.ok(ui.frame().includes('\u001b[7mselected'));
@@ -2093,7 +2094,7 @@ await test('a selection follows its text as output above it grows, and drops for
     coordinator.publish({ items: items('first') });
     ui.stdin.write(`\t${ENTER}`);
     await until('the expanded tool', () => ui.text().includes('line two'));
-    await select(1, 8, 10);
+    await select(1, 8, 10, 'line two');
     ui.stdin.write(CMD_C);
     await until('the second copy', () => copied.length > 1);
     assert.deepEqual(copied.at(-1), 'line two');
@@ -2109,7 +2110,7 @@ await test('a selection follows its text as output above it grows, and drops for
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.equal(copied.length, 2);
-    await select(1, 8, 6);
+    await select(1, 8, 6, 'selected');
     coordinator.publish({
       items: [{ id: 'b', kind: 'user', text: 'selected words', cwd: '/work' }],
     });
