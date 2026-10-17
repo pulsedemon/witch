@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
+import { ps } from '../src/persistence/process.js';
 import { until } from './fixtures/within.js';
 
 /** lists until `ready` holds, failing after five seconds. */
@@ -465,6 +466,11 @@ await test('a failed background read keeps the jobs it had', async () => {
   } finally {
     jobs.close();
   }
+});
+
+await test('a failed ps listing of every process rejects rather than listing none', async () => {
+  // an unknown keyword exits 1, as a listed pid that is gone does
+  await assert.rejects(ps('bogus='), { code: 1 });
 });
 
 await test('a job whose processes exit after a read lists as nothing and stops without an error', async () => {
