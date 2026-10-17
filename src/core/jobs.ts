@@ -51,9 +51,7 @@ export function parseProcesses(lines: string[]): Row[] {
 }
 
 async function processTable(): Promise<Row[]> {
-  return parseProcesses(
-    await ps(['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=']),
-  );
+  return parseProcesses(await ps('pid=,ppid=,pgid=,stat=,lstart='));
 }
 
 const detail =
@@ -78,9 +76,7 @@ export function parseDetails(lines: string[]): Detail[] {
 }
 
 async function describe(pids: number[]): Promise<Detail[]> {
-  return parseDetails(
-    await ps(['-p', pids.join(','), '-o', 'pid=,pgid=,%cpu=,lstart=,command=']),
-  );
+  return parseDetails(await ps('pid=,pgid=,%cpu=,lstart=,command=', pids));
 }
 
 /**
