@@ -3499,3 +3499,17 @@ await test('list rows drop a link forged in a skill description or a file name',
     file.ui.unmount();
   }
 });
+
+await test('a skill description with a line break stays on its list row', async () => {
+  const { ui } = await launched({
+    skills: [{ name: 'x-wrapped', description: 'first\nsecond' }],
+  });
+  try {
+    ui.stdin.write('/x');
+    await until('the skill list', () =>
+      ui.text().includes('/x-wrapped first second'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
