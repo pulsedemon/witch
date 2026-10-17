@@ -97,7 +97,7 @@ async function fixture(
     await other.scope(project);
     return other;
   };
-  /** a second instance continuing the project's conversation, as Witch does when it restarts. */
+  /** a second instance continuing the project's conversation, as `witch -c` does. */
   const reopen = async () => {
     const reopened = new Coordinator(store, memory, agents);
     try {
