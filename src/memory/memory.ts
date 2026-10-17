@@ -274,14 +274,13 @@ export class Memory {
       if (
         await read(
           ['rev-parse', '--resolve-git-dir', form],
-          /not a gitdir|invalid gitfile format/,
+          /not a gitdir|invalid gitfile format|too large to be a \.git file/,
         )
       ) {
         repository = directory;
         break;
       }
-    if (!repository || seen.has(repository) || seen.size > 32)
-      return { identity: local, top };
+    if (!repository || seen.has(repository)) return { identity: local, top };
     return { identity: (await this.reach(repository, seen)).identity, top };
   }
 
