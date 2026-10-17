@@ -490,6 +490,7 @@ await test('a note page shows a name that holds a line break on its title row', 
   try {
     await delay(60);
     await openCommand(ui, '/memory', 'global/first second.md');
+    await delay(30);
     ui.stdin.write('second');
     await delay(30);
     ui.stdin.write(ENTER);
