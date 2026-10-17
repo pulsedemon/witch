@@ -97,9 +97,12 @@ function decoded(run: string): string {
   }
 }
 
-/** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and a missing origin keeps its key. */
+/** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and an origin not created yet keys as it will once it is. one the OS refuses to read throws. */
 async function physical(path: string): Promise<string> {
-  const real = await realpath(path).catch(() => undefined);
+  const real = await realpath(path).catch((error: unknown) => {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+  });
   if (real) return real;
   const parent = dirname(path);
   return parent === path ? path : join(await physical(parent), basename(path));
