@@ -30,6 +30,7 @@ import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
 import { markdown } from './markdown.js';
 import { hyperlink, linkify, plain } from './links.js';
+import { useKeysReady } from './keys-ready.js';
 import { useLiveState } from './live-state.js';
 import { usePointer, useWheel } from './mouse.js';
 import { highlight, selectedText } from './selection.js';
@@ -722,14 +723,9 @@ export function App({
     if (['idle', 'error'].includes(state.phase) && state.queue.length)
       unqueue();
   }, [state.phase, state.queue]);
-  // keys meant for the composer must not answer a recovery that just appeared
-  const [recoveryReady, setRecoveryReady] = useState(false);
+  const recoveryReady = useKeysReady(state.phase === 'recovery');
   useEffect(() => {
-    setRecoveryReady(false);
-    if (state.phase !== 'recovery') return;
-    setPageScroll(0);
-    const timer = setTimeout(() => setRecoveryReady(true), 500);
-    return () => clearTimeout(timer);
+    if (state.phase === 'recovery') setPageScroll(0);
   }, [state.phase]);
 
   const recovery = state.recovery;

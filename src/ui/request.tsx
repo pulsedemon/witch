@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
@@ -6,6 +6,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
 import type { UserRequest, UserResponse } from '../agents/types.js';
 import { Input } from './input.js';
+import { useKeysReady } from './keys-ready.js';
 import { linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
@@ -32,12 +33,8 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   const answers = useRef<Record<string, string[]>>({});
   const [scroll, scrollRef, setScroll] = useLiveState(0);
   const [error, setError] = useState('');
-  // keys meant for the composer must not answer a request that just appeared
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setReady(true), 500);
-    return () => clearTimeout(timer);
-  }, []);
+  // Request mounts per request, so the guard counts from when this one appeared
+  const ready = useKeysReady(true);
   const question = request.questions?.[questionIndex];
   const options = question?.options ?? approvals.map(({ label }) => label);
   const bodyHeight = Math.max(2, height - 7);
@@ -55,33 +52,31 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     setScroll(
       Math.max(0, Math.min(last, Math.min(scrollRef.current, last) + rows)),
     );
-  // scrolling answers nothing, so the wheel works before keys do
+  // scrolling answers nothing, so the wheel and page keys work before other keys do
   useWheel(scrollBy);
 
-  useInput(
-    (input, key) => {
-      if (key.eventType === 'release') return;
-      if (key.escape) {
-        respond({ decision: 'decline' });
-        return;
-      }
-      if (key.pageUp) scrollBy(-bodyHeight);
-      if (key.pageDown) scrollBy(bodyHeight);
-      const count = (
-        request.questions?.[questionIndexRef.current]?.options ?? approvals
-      ).length;
-      if (key.upArrow) setSelection(Math.max(0, selectionRef.current - 1));
-      if (key.downArrow)
-        setSelection(Math.min(count - 1, selectionRef.current + 1));
-      if (request.kind === 'approval') {
-        if (input === 'y') respond({ decision: 'accept' });
-        if (input === 'n') respond({ decision: 'decline' });
-        if (key.return)
-          respond({ decision: approvals[selectionRef.current]!.decision });
-      }
-    },
-    { isActive: ready },
-  );
+  useInput((input, key) => {
+    if (key.eventType === 'release') return;
+    if (key.pageUp) scrollBy(-bodyHeight);
+    if (key.pageDown) scrollBy(bodyHeight);
+    if (!ready) return;
+    if (key.escape) {
+      respond({ decision: 'decline' });
+      return;
+    }
+    const count = (
+      request.questions?.[questionIndexRef.current]?.options ?? approvals
+    ).length;
+    if (key.upArrow) setSelection(Math.max(0, selectionRef.current - 1));
+    if (key.downArrow)
+      setSelection(Math.min(count - 1, selectionRef.current + 1));
+    if (request.kind === 'approval') {
+      if (input === 'y') respond({ decision: 'accept' });
+      if (input === 'n') respond({ decision: 'decline' });
+      if (key.return)
+        respond({ decision: approvals[selectionRef.current]!.decision });
+    }
+  });
 
   const submit = (text: string): boolean => {
     const index = questionIndexRef.current;
