@@ -2801,6 +2801,29 @@ await test('the sidebar lists only running familiars, depth first under the fami
   }
 });
 
+await test('a directory name with a line break stays on the header row', async () => {
+  const { app } = fake({
+    conversation: {
+      id: 'c',
+      title: 't',
+      cwd: '/work/dry\nline',
+      agent: 'a',
+      sessions: {},
+      createdAt: '',
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the composer', () => ui.text().includes('Ask the agent'));
+    assert.equal(
+      ui.text().split('\n')[0]!.trim(),
+      'dry line | A | NATIVE DEFAULT',
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test("a familiar's kind with a line break stays on its sidebar row", async () => {
   const { app } = fake({
     subagents: [
