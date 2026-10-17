@@ -731,7 +731,13 @@ for (const stage of [
 
 await test('editing a previously committed symlink never opens its external target', async () => {
   let edits = 0;
-  const { coordinator, root, project, workspace } = await fixture(async () => {
+  const {
+    coordinator,
+    root,
+    project,
+    workspace,
+    memory: shared,
+  } = await fixture(async () => {
     edits++;
   });
   try {
@@ -742,25 +748,9 @@ await test('editing a previously committed symlink never opens its external targ
     const note = join(memory.root, scope.project, 'linked.md');
     await writeFile(target, 'External content.');
     await symlink(target, note);
-    const execute = promisify(execFile);
-    await execute('git', ['add', '--all'], { cwd: memory.root });
-    await execute(
-      'git',
-      [
-        '-c',
-        'user.name=Fixture',
-        '-c',
-        'user.email=fixture@localhost',
-        '-c',
-        'commit.gpgsign=false',
-        '-c',
-        'core.hooksPath=/dev/null',
-        'commit',
-        '-m',
-        'legacy symlink',
-      ],
-      { cwd: memory.root },
-    );
+    // Memory's git commits without the checks a workspace commit makes
+    await shared.git(memory.root, ['add', '--all']);
+    await shared.git(memory.root, ['commit', '-m', 'legacy symlink']);
     assert.equal(await memory.isDirty(), false);
     await assert.rejects(coordinator.editMemory(note), /regular file/);
     assert.equal(edits, 0);

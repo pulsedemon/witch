@@ -934,21 +934,9 @@ await test('commit, restore, note preparation and the note list refuse symlinked
     await rename(parent ? scope.project : path, join(root, 'original'));
     await symlink(parent ? outside : target, parent ? scope.project : path);
     await assert.rejects(workspace.commit('link'), /regular (file|directory)/);
-    await git(workspace.root, 'add', '--all');
-    await git(
-      workspace.root,
-      '-c',
-      'user.name=Fixture',
-      '-c',
-      'user.email=fixture@localhost',
-      '-c',
-      'commit.gpgsign=false',
-      '-c',
-      'core.hooksPath=/dev/null',
-      'commit',
-      '-m',
-      'legacy symlink',
-    );
+    // Memory's git commits without the checks a workspace commit makes
+    await memory.git(workspace.root, ['add', '--all']);
+    await memory.git(workspace.root, ['commit', '-m', 'legacy symlink']);
     assert.equal(await workspace.isDirty(), false);
     await assert.rejects(
       memory.files(
