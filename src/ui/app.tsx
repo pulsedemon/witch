@@ -29,7 +29,7 @@ import type { Graphics } from './images.js';
 import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
 import { markdown } from './markdown.js';
-import { hyperlink, linkify, plain } from './links.js';
+import { hyperlink, linkify, oneLine, plain } from './links.js';
 import { useKeysReady } from './keys-ready.js';
 import { useLiveState } from './live-state.js';
 import { usePointer, useWheel } from './mouse.js';
@@ -318,10 +318,7 @@ export function App({
   const queueRows = Math.max(0, Math.min(state.queue.length, freeRows - 2));
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
   const queued = useMemo(
-    () =>
-      state.queue.map((prompt) =>
-        plain(prompt).replace(/\s+/g, ' ').slice(0, width),
-      ),
+    () => state.queue.map((prompt) => oneLine(prompt).slice(0, width)),
     [state.queue, width],
   );
   const transcriptHeight = Math.max(2, freeRows - queueRows);
@@ -969,8 +966,8 @@ export function App({
         <Text bold>{plain(view.title)}</Text>
         <Box height={count} flexDirection="column" overflow="hidden">
           {choices.slice(first, first + count).map((choice, index) => {
-            // truncate-end cuts each line on its own, and a note name can hold a line break
-            const label = ` ${plain(choice.label).replace(/\s+/g, ' ')} `;
+            // a note name can hold a line break
+            const label = ` ${oneLine(choice.label)} `;
             return (
               <Text
                 key={choice.id}
@@ -1106,7 +1103,7 @@ export function App({
               ? list.items.map((path) => `@${path}`)
               : list.items.map(
                   ({ name, argumentHint, description }) =>
-                    `/${name}${argumentHint ? ` ${argumentHint}` : ''}  ${description}`,
+                    `/${name}${argumentHint ? ` ${argumentHint}` : ''} ${description}`,
                 )
             )
               .slice(listFirst, listFirst + listRows)
@@ -1117,7 +1114,7 @@ export function App({
                   wrap="truncate-end"
                 >
                   {/* Ink keeps OSC 8 links, so a project's file name or skill description could forge one */}
-                  {plain(text).replace(/\s+/g, ' ')}
+                  {oneLine(text)}
                 </Text>
               ))}
           </Box>

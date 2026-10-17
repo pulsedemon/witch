@@ -167,3 +167,8 @@ export function plain(text: string): string {
     )
     .join('');
 }
+
+/** `plain` text for one `truncate-end` row, which cuts each line on its own, so every whitespace run becomes a space. */
+export function oneLine(text: string): string {
+  return plain(text).replace(/\s+/g, ' ');
+}
