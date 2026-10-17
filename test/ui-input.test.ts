@@ -228,6 +228,32 @@ await test('native secret questions mask the display and preserve commas in a si
   }
 });
 
+await test("a question's answer fills the request's width", async () => {
+  const ui = await mount(
+    createElement(Request, {
+      width: 40,
+      height: 20,
+      cwd: '/work',
+      request: {
+        id: 'name',
+        kind: 'question',
+        title: 'Question',
+        detail: '',
+        questions: [{ id: 'name', title: 'Name?', options: [] }],
+      },
+      respond: () => {},
+    }),
+  );
+  try {
+    await ready();
+    // the cursor takes the last cell
+    await press(ui.stdin, 'q'.repeat(39));
+    assert.ok(ui.lastFrame()?.includes('q'.repeat(39)), ui.lastFrame());
+  } finally {
+    await unmount(ui);
+  }
+});
+
 await test('MCP form submissions validate required fields, types and constraints before responding', async () => {
   const schema = {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
