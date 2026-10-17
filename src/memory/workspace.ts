@@ -117,14 +117,19 @@ export class Workspace {
     for (let attempt = 1; ; attempt++) {
       await this.git(['merge', '--ff-only', '--quiet', main]);
       const scope = await this.scope(cwd);
-      if (!(await this.adopt(scope)) || (await this.publish()) === 'published')
+      const moved = await this.adopt(scope).catch(async (error: unknown) => {
+        // a move that fails partway is dropped, so no half-made move waits as pending memory
+        await this.discardPending();
+        throw error;
+      });
+      if (!moved || (await this.publish()) === 'published')
         return { revision: await this.revision(), scope };
+      // the move derives from main alone, so it is dropped and made again on the main that beat it
+      await this.git(['reset', '--hard', '--quiet', main]);
       if (attempt === 5)
         throw new Error(
           'Moving project notes kept losing to other conversations',
         );
-      // the move derives from main alone, so it is made again on the main that beat it
-      await this.git(['reset', '--hard', '--quiet', main]);
     }
   }
 
@@ -218,8 +223,9 @@ export class Workspace {
           )
             return placed;
         }
-      } catch {
-        // the path is taken by a directory or a note, or too long, so the next base is tried
+      } catch (error) {
+        // a path taken by a directory or a note, or too long, tries the next base. an OS error fails the move
+        if ((error as NodeJS.ErrnoException).code) throw error;
       }
     }
     return undefined;
