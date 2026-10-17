@@ -97,7 +97,7 @@ function decoded(run: string): string {
   }
 }
 
-/** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and an origin not created yet keys as it will once it is. one the OS refuses to read throws. */
+/** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and an origin not created yet keys as its path, as it does once created with no origin of its own. one the OS refuses to read throws. */
 async function physical(path: string): Promise<string> {
   const real = await realpath(path).catch((error: unknown) => {
     const { code } = error as NodeJS.ErrnoException;
