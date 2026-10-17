@@ -445,9 +445,12 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
   };
   const first = (await open('a')).workspace;
   await git(project, 'init', '--quiet');
+  // its copy's name passes the 255 UTF-16 units an APFS name holds
+  const long = `${'n'.repeat(251)}.md`;
   const path = (
     await begin(first, project, {
       'MEMORY.md': '# Project\n- [deploy](deploy.md)\n- shared  \n',
+      [long]: 'Long A.\n',
       'deploy.md': 'Deploy with A.\n',
       'notes/a.md': 'A note.\n',
       'same.md': 'Same.\n',
@@ -463,6 +466,7 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
   await begin(second, copy, {
     'MEMORY.md':
       '# Project\n- shared  \n- [deploy](deploy.md)\n- [two](two.md)\n- [two](two.md)\n- [dot](./dot.md)\n- [angled](<angled.md>)\n- [p](p(1).md)\n',
+    [long]: 'Long B.\n',
     'deploy.md': 'Deploy with B.\n',
     notes: 'A file named notes.\n',
     'same.md': 'Same.\n',
@@ -490,6 +494,7 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
       ])
     ).trim(),
     [
+      `(copy)/${long}`,
       '(copy)/notes',
       'MEMORY.md',
       'angled (copy).md',
@@ -498,6 +503,7 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
       'deploy.md',
       'dot (copy).md',
       'dot.md',
+      long,
       'notes/a.md',
       'p(1) (copy).md',
       'p(1).md',
@@ -522,6 +528,10 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
   assert.equal(
     await memory.read(merged.revision, `${target}/(copy)/notes`),
     'A file named notes.\n',
+  );
+  assert.equal(
+    await memory.read(merged.revision, `${target}/(copy)/${long}`),
+    'Long B.\n',
   );
 });
 
@@ -572,6 +582,96 @@ await test("a move that loses to another clone's move is made again on the newer
     await memory.read(main, `${target}/x (copy).md`),
     'B version.\n',
   );
+});
+
+await test('a move that keeps losing to other clones gives up on main, so it never waits to publish', async () => {
+  const { memory, open, root } = await fixture();
+  const { workspace } = await open('a');
+  const copy = join(root, 'copy');
+  await mkdir(copy);
+  await git(copy, 'init', '--quiet');
+  const key = (await workspace.begin(copy)).scope.project;
+  await save(workspace, { [`${key}/x.md`]: 'X.\n' });
+  await workspace.publish();
+  await git(copy, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
+  const publish = workspace.publish.bind(workspace);
+  let publishes = 0;
+  // the leftover publish goes through, and every move after it loses
+  workspace.publish = async () => (publishes++ ? 'conflict' : publish());
+  await assert.rejects(workspace.begin(copy), /kept losing/);
+  assert.equal(
+    (await git(workspace.root, 'rev-parse', 'HEAD')).trim(),
+    await memory.resolve(main),
+  );
+});
+
+await test("a note with no free path in the project stays under the checkout's key", async () => {
+  const { memory, open, root } = await fixture();
+  const { workspace } = await open('a');
+  const repository = async (directory: string) => {
+    const path = join(root, directory);
+    await mkdir(path);
+    await git(path, 'init', '--quiet');
+    return path;
+  };
+  const origin = 'https://github.com/o/r.git';
+  const upstream = await repository('upstream');
+  await git(upstream, 'remote', 'add', 'origin', origin);
+  const target = (await workspace.begin(upstream)).scope.project;
+  await save(workspace, {
+    [`${target}/x.md/note.md`]: 'A directory.\n',
+    [`${target}/(app)`]: 'A file.\n',
+  });
+  await workspace.publish();
+  const app = await repository('app');
+  const key = (await workspace.begin(app)).scope.project;
+  await save(workspace, { [`${key}/x.md`]: 'Stays.\n' });
+  await workspace.publish();
+  await git(app, 'remote', 'add', 'origin', origin);
+  await workspace.begin(app);
+  assert.equal(await memory.read(main, `${key}/x.md`), 'Stays.\n');
+});
+
+await test('a move that fails on an OS error fails the turn and leaves every note where it was', async () => {
+  const { memory, open, root, hook } = await fixture();
+  const repository = async (directory: string) => {
+    const path = join(root, directory);
+    await mkdir(path);
+    await git(path, 'init', '--quiet');
+    await git(path, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
+    return path;
+  };
+  const first = (await open('a')).workspace;
+  const target = (await first.begin(await repository('upstream'))).scope
+    .project;
+  await save(first, { [`${target}/d/y.md`]: 'Y.\n' });
+  await first.publish();
+  const copy = join(root, 'copy');
+  await mkdir(copy);
+  await git(copy, 'init', '--quiet');
+  const second = (await open('b')).workspace;
+  const key = (await second.begin(copy)).scope.project;
+  await save(second, { [`${key}/a.md`]: 'A.\n', [`${key}/d/x.md`]: 'X.\n' });
+  await second.publish();
+  await git(copy, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
+  const locked = join(second.root, target, 'd');
+  // d is unreadable only while the move places notes, between its git commands
+  hook.current = async (command, run, options) => {
+    if (options.cwd === second.root)
+      await chmod(
+        locked,
+        command[0] === 'ls-files' && command[1] === '-z' ? 0o000 : 0o755,
+      );
+    return run();
+  };
+  try {
+    await assert.rejects(second.begin(copy), /EACCES/);
+  } finally {
+    await chmod(locked, 0o755);
+  }
+  assert.equal(await second.isDirty(), false);
+  assert.equal(await memory.read(main, `${key}/a.md`), 'A.\n');
+  assert.equal(await memory.read(main, `${key}/d/x.md`), 'X.\n');
 });
 
 await test(
@@ -703,6 +803,13 @@ await test(
       (await scope(join(root, 'unbundled'))).project,
       /^projects\/c\.bundle-/,
     );
+    // git turns away a file over 1 MiB, such as a large bundle, as too large rather than invalid
+    await writeFile(join(root, 'big.bundle'), Buffer.alloc(2 ** 20 + 1));
+    const large = join(root, 'large');
+    await mkdir(large);
+    await git(large, 'init', '--quiet');
+    await git(large, 'remote', 'add', 'origin', join(root, 'big.bundle'));
+    assert.match((await scope(large)).project, /^projects\/big\.bundle-/);
     const inside = join(root, 'inside');
     await mkdir(inside);
     await git(inside, 'init', '--quiet');
