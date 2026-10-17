@@ -149,6 +149,10 @@ export function App({
   // the sidebar shows only beside a main column of 80 cells
   const sidebar = columns - sidebarWidth >= 80;
   const width = sidebar ? columns - sidebarWidth : columns;
+  /** inside the body's paddingX. */
+  const bodyWidth = width - 2;
+  /** inside the composer's border and paddingX. */
+  const composerWidth = bodyWidth - 4;
   const height = Math.max(12, size.rows);
   const cwd = state.conversation?.cwd ?? process.cwd();
   const [view, setView] = useState<View>({ kind: 'chat' });
@@ -184,8 +188,8 @@ export function App({
   const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout(graphics));
   const transcript = useMemo(
-    () => layout.render(state.items, width - 2, expanded),
-    [layout, state.items, width, expanded],
+    () => layout.render(state.items, bodyWidth, expanded),
+    [layout, state.items, bodyWidth, expanded],
   );
   // a drag's ends are anchored to their text, so they follow it when output above grows
   const [range, rangeRef, setRange] = useLiveState<
@@ -306,7 +310,7 @@ export function App({
   // the composer grows with its text until it would take half the body
   const composerRows = Math.min(
     Math.max(1, Math.floor(bodyHeight / 2)),
-    inputRows(buffer.value, width - 6),
+    inputRows(buffer.value, composerWidth),
   );
   const freeRows = bodyHeight - composerRows - 3 - listRows - (working ? 1 : 0);
   // the transcript keeps two rows
@@ -749,7 +753,7 @@ export function App({
                 : null,
           )
         : '';
-  const pageLines = wrapAnsi(pageText, width - 2, {
+  const pageLines = wrapAnsi(pageText, bodyWidth, {
     hard: true,
     trim: false,
   }).split('\n');
@@ -794,12 +798,12 @@ export function App({
     const anchor = transcript.anchorAt(at);
     const end = anchor && {
       anchor,
-      column: Math.max(0, Math.min(width - 3, column - box.x)),
+      column: Math.max(0, Math.min(bodyWidth - 1, column - box.x)),
       width,
       text: transcript.lines[at]!,
     };
     if (pointer === 'press') {
-      if (offset >= 0 && offset < shown && column < box.x + width - 2)
+      if (offset >= 0 && offset < shown && column < box.x + bodyWidth)
         pressedAt.current = end;
     } else if (pressedAt.current && end) {
       if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
@@ -925,7 +929,7 @@ export function App({
       <Request
         key={request.id}
         request={request}
-        width={width - 2}
+        width={bodyWidth}
         height={bodyHeight}
         cwd={cwd}
         respond={(response) => run(coordinator.respond(request.id, response))}
@@ -984,7 +988,7 @@ export function App({
         </Box>
         <Input
           key={view.title}
-          width={width - 2}
+          width={bodyWidth}
           height={1}
           active
           multiline={false}
@@ -1054,7 +1058,7 @@ export function App({
         visible[row - scrollTop] = highlight(
           visible[row - scrollTop]!,
           row === start.row ? start.column : 0,
-          row === end.row ? end.column + 1 : width - 2,
+          row === end.row ? end.column + 1 : bodyWidth,
         );
     }
     body = (
@@ -1087,7 +1091,7 @@ export function App({
           <Input
             // Input reads its initial value only when it mounts
             key={state.conversation?.id ?? 'initial'}
-            width={width - 6}
+            width={composerWidth}
             height={composerRows}
             active={!toolFocus && composerPhase}
             ref={composer}

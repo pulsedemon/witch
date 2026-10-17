@@ -44,7 +44,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
     : `${request.title}\n\n${request.url ?? ''}\n${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
-  const lines = wrapAnsi(linkify(detail, cwd), width - 2, {
+  const lines = wrapAnsi(linkify(detail, cwd), width, {
     hard: true,
     trim: false,
   }).split('\n');
@@ -186,7 +186,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
           </Text>
           <Input
             key={questionIndex}
-            width={width - 2}
+            width={width}
             height={3}
             active={ready}
             secret={question?.secret}
