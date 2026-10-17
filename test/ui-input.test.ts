@@ -246,9 +246,8 @@ await test("a question's answer fills the request's width", async () => {
   );
   try {
     await ready();
-    // the cursor takes the last cell
-    await press(ui.stdin, 'q'.repeat(39));
-    assert.ok(ui.lastFrame()?.includes('q'.repeat(39)), ui.lastFrame());
+    await press(ui.stdin, 'q'.repeat(40));
+    assert.ok(ui.lastFrame()?.includes('q'.repeat(40)), ui.lastFrame());
   } finally {
     await unmount(ui);
   }
