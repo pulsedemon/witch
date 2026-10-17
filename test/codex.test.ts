@@ -342,6 +342,19 @@ await test('interrupt waits for the native turn to complete', async () => {
   }
 });
 
+for (const prompt of ['die on interrupt', 'die after interrupt'])
+  await test(`a Codex that exits during an interrupt ends the turn interrupted, and the interrupt resolves (${prompt})`, async () => {
+    const { session, cwd } = await fixture();
+    try {
+      const turn = session.send(prompt);
+      await appears(join(cwd, 'prompt.json'));
+      await within(session.interrupt(), 2000, 'interrupt');
+      assert.equal((await within(turn, 2000, 'turn')).status, 'interrupted');
+    } finally {
+      await close(session, cwd);
+    }
+  });
+
 await test('model selection waits for the settings notification', async () => {
   const { session, cwd } = await fixture();
   try {
