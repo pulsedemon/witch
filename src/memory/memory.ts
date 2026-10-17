@@ -14,6 +14,8 @@ import { Workspace } from './workspace.js';
 export interface MemoryScope {
   global: string;
   project: string;
+  /** the checkout's path key while an origin names another project, so its notes can move there. */
+  checkout?: string;
 }
 
 export interface GitOptions {
@@ -32,6 +34,12 @@ export type GitRunner = (
   args: readonly string[],
   options: GitOptions,
 ) => Promise<GitResult>;
+
+// host and path of a URL or scp-style remote, so `git@github.com:a/b.git` and `https://github.com/a/b` match.
+// like git, it reads a remote with a slash before any colon as a local path and an scp host up to its colon. a URL's port is dropped, a port inside an scp host's brackets stays.
+// a leading slash is dropped, so `host:/srv/a` matches `ssh://host/srv/a` as `host:a` matches `https://host/a`
+const remote =
+  /^(?=[^/]*:)(?:[a-zA-Z][\w+.-]*:\/\/(?:[^/]*@)?(\[[^\]]*\]|[^/:@]+)(?::\d*)?\/|(?:[^/:]*@)?(\[[^\]]*\]|[^/:@]+):)\/*(.+?)(?:\.git)?\/?$/;
 
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
@@ -69,6 +77,36 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
     child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
     child.stdin.end(input);
   });
+
+/** a key named for its repository, cut to fit the 255 UTF-16 units an APFS name holds with the hash. */
+function projectKey(identity: string): string {
+  let name = '';
+  for (const char of basename(identity)) {
+    if (name.length + char.length > 238) break;
+    name += char;
+  }
+  return `projects/${name}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
+}
+
+/** a run of percent escapes as text; one that isn't UTF-8 names no APFS path, so it stays escaped. */
+function decoded(run: string): string {
+  try {
+    return decodeURIComponent(run);
+  } catch {
+    return run;
+  }
+}
+
+/** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and an origin not created yet keys as its path, as it does once created with no origin of its own. one the OS refuses to read throws. */
+async function physical(path: string): Promise<string> {
+  const real = await realpath(path).catch((error: unknown) => {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+  });
+  if (real) return real;
+  const parent = dirname(path);
+  return parent === path ? path : join(await physical(parent), basename(path));
+}
 
 export async function exists(path: string): Promise<boolean> {
   return access(path).then(
@@ -178,15 +216,72 @@ export class Memory {
 
   /** the relative scope paths for a project directory; creates nothing. */
   async scopePaths(directory: string): Promise<MemoryScope> {
-    const cwd = await realpath(directory);
-    const toplevel = await this.runner(['rev-parse', '--show-toplevel'], {
-      cwd,
-    }).then(
-      (result) => (result.code === 0 ? result.stdout.trim() : cwd),
-      () => cwd,
+    const { identity, top } = await this.reach(await realpath(directory));
+    const project = projectKey(identity);
+    const checkout = projectKey(top);
+    return {
+      global: 'global',
+      project,
+      ...(checkout === project ? {} : { checkout }),
+    };
+  }
+
+  /** the repository git reaches through a checkout's origin, and the checkout's top level. a local origin with an origin of its own is followed, so a clone of a clone shares its project. */
+  private async reach(
+    cwd: string,
+    seen = new Set<string>(),
+  ): Promise<{ identity: string; top: string }> {
+    // only a missing origin, repository or work tree falls back, so a git that fails can't move the key.
+    // git exits 128 for the last two and for fatal errors such as a bad config, so its untranslated message tells them apart.
+    // a `.git` file whose gitdir is gone prints `not a git repository: <gitdir>`, without the parenthesis, and fails
+    const read = async (
+      args: string[],
+      absent = /not a git repository \(|must be run in a work tree/,
+    ) => {
+      const result = await this.run(cwd, args, {
+        codes: [0, 2, 128],
+        env: { LC_ALL: 'C' },
+      });
+      if (result.code === 128 && !absent.test(result.stderr))
+        throw new Error(`${cwd}: ${result.stderr.trim()}`);
+      return result.code === 0 ? result.stdout.trim() : undefined;
+    };
+    // git reads a `file://` origin as the path after its host, decoding every percent escape except `%00`
+    const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
+      /^file:\/\/[^/]*(.*)$/s,
+      (_, path: string) => path.replace(/(?:%(?!00)[\da-f]{2})+/gi, decoded),
     );
-    const key = `${basename(toplevel)}-${createHash('sha256').update(toplevel).digest('hex').slice(0, 16)}`;
-    return { global: 'global', project: `projects/${key}` };
+    const [, url, scp, path] = (origin && remote.exec(origin)) || [];
+    const host = url ?? scp;
+    const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
+    if (host) return { identity: `${host.toLowerCase()}/${path}`, top };
+    if (!origin) return { identity: top, top };
+    seen.add(cwd).add(top);
+    // git resolves a relative origin against the top level, and `<p>/.git` is `<p>`'s repository
+    const given = await physical(
+      origin.startsWith('/') ? origin : `${top}/${origin}`,
+    );
+    const local = basename(given) === '.git' ? dirname(given) : given;
+    // git reaches the first of these that is a repository, so a directory inside another repository isn't that repository
+    const dotted = await physical(`${local}.git`);
+    let repository: string | undefined;
+    for (const [form, directory] of [
+      [join(local, '.git'), local],
+      [local, local],
+      [join(dotted, '.git'), dotted],
+      [dotted, dotted],
+    ] as const)
+      if (
+        await read(
+          ['rev-parse', '--resolve-git-dir', form],
+          /not a gitdir|invalid gitfile format|too large to be a \.git file/,
+        )
+      ) {
+        repository = directory;
+        break;
+      }
+    if (!repository || seen.has(repository)) return { identity: local, top };
+    return { identity: (await this.reach(repository, seen)).identity, top };
   }
 
   async resolve(revision: string, cwd = this.root): Promise<string> {

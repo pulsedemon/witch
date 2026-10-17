@@ -147,6 +147,8 @@ export class Coordinator {
   private files?: ConversationStore;
   private workspace?: Workspace;
   private session?: AgentSession;
+  /** the project memory the live session may write; native permissions are fixed at connect. */
+  private sessionProject?: string;
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
@@ -220,8 +222,15 @@ export class Coordinator {
     }
     // a failed connect leaves the conversation open, as a failed send does
     const failure = await this.connect().then(() => undefined, errorMessage);
+    // notes keyed by the checkout's path move when Witch opens, so /memory shows them before a turn
+    const adoption = await this.workspace!.adoptCheckout(cwd).then(
+      () => undefined,
+      errorMessage,
+    );
+    // a failed scope read fails both, so its message shows once
     await this.settle(
-      [report, failure].filter(Boolean).join('\n\n') || undefined,
+      [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
+        undefined,
     );
   }
 
@@ -724,7 +733,14 @@ export class Coordinator {
   ): Promise<TurnResult> {
     const conversation = this.current();
     const { activity, scope } = await this.beginActivity(kind);
-    const session = await this.connect();
+    // an interrupt that aborts this connect interrupts the turn, as one after it does
+    const session = await this.connect(conversation.agent, scope).catch(
+      (error: unknown) => {
+        if (this.cancelled) return undefined;
+        throw error;
+      },
+    );
+    if (!session) return { status: 'interrupted', text: '' };
     this.publish({
       subagents: this.snapshot.subagents.filter(
         ({ status }) => status === 'running',
@@ -732,6 +748,12 @@ export class Coordinator {
     });
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
+    // a project other than the last one delivered gets a full snapshot. the marker moves before the send,
+    // since a sent snapshot supersedes the marked one even if this turn fails
+    if (reference.deliveredProject !== scope.project) {
+      delete reference.deliveredRevision;
+      reference.deliveredProject = scope.project;
+    }
     const snapshot =
       reference.deliveredRevision === activity.baseRevision
         ? undefined
@@ -830,16 +852,21 @@ export class Coordinator {
       : undefined;
   }
 
-  private async connect(agent = this.current().agent): Promise<AgentSession> {
+  /** reuses the live session unless `turnScope` names project memory it was never granted. */
+  private async connect(
+    agent = this.current().agent,
+    turnScope?: MemoryScope,
+  ): Promise<AgentSession> {
     const live = this.live(agent);
-    if (live) return live;
+    if (live && (!turnScope || turnScope.project === this.sessionProject))
+      return live;
     await this.disconnect();
     const conversation = this.current();
     const files = this.files!;
     const { adapter, executable } = this.registration(agent);
     const workspace = this.workspace!;
     await workspace.ensureWorktree();
-    const scope = await workspace.scope(conversation.cwd);
+    const scope = turnScope ?? (await workspace.scope(conversation.cwd));
     const stored = conversation.sessions[agent];
     this.connecting = new AbortController();
     let session: AgentSession;
@@ -869,6 +896,7 @@ export class Coordinator {
       this.connecting = undefined;
     }
     this.session = session;
+    this.sessionProject = scope.project;
     this.saveInfo(conversation, agent, session.info);
     await this.save();
     // a failed list is reported, and the session's skills and usage still publish

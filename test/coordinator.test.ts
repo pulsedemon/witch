@@ -91,6 +91,8 @@ async function fixture(
     `${(await memory.scopePaths(project)).project}/MEMORY.md`;
   const notes = async () =>
     `${(await memory.scopePaths(project)).project}/notes.md`;
+  const git = (...args: string[]) =>
+    promisify(execFile)('git', ['-C', project, ...args]);
   /** another conversation's workspace, for publishing to main from outside. */
   const outsider = async (id = randomUUID()) => {
     await mkdir(join(root, 'state', 'conversations', id), { recursive: true });
@@ -111,6 +113,7 @@ async function fixture(
     workspace,
     note,
     notes,
+    git,
     outsider,
   };
 }
@@ -439,6 +442,170 @@ await test('memory another conversation publishes refreshes an existing session 
     assert.equal(a.inputs[0]?.session, a.inputs.at(-1)?.session);
     await coordinator.send('Again');
     assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test("a turn after an origin moves the project key resumes the session with the new key's memory and its snapshot", async () => {
+  const { coordinator, memory, a, notes, git } = await fixture();
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    const before = await notes();
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    assert.notEqual(await notes(), before);
+    await coordinator.send('remember:moved');
+    assert.equal(await memory.read(main, await notes()), 'moved');
+    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.equal(a.inputs.at(-1)!.session, a.inputs[0]!.session);
+    await coordinator.send('Again');
+    assert.equal(a.sessions.length, 2);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a turn back on a project key gets its snapshot after an interrupted turn on another key', async () => {
+  const { coordinator, a, git } = await fixture();
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    a.interruptNext = true;
+    await coordinator.send('Moved');
+    await git('remote', 'remove', 'origin');
+    await coordinator.send('Back');
+    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a reopened conversation skips the snapshot it was sent, unless its marker was saved without a project', async () => {
+  const { coordinator, store, memory, a, b, root, project } = await fixture();
+  const reopen = async (prompt: string) => {
+    const reopened = new Coordinator(
+      store,
+      memory,
+      [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
+    );
+    try {
+      await reopened.initialize(project, { continue: true });
+      await reopened.send(prompt);
+    } finally {
+      await reopened.close();
+    }
+    return a.inputs.at(-1)!.prompt;
+  };
+  await coordinator.send('Start');
+  const id = coordinator.snapshot.conversation!.id;
+  await coordinator.close();
+  assert.doesNotMatch(await reopen('Same'), /Accepted shared memory/);
+  const file = join(root, 'state', 'conversations', id, 'state.json');
+  const saved = await readRecord(root, id);
+  delete saved.sessions.a!.deliveredProject;
+  await writeFile(file, JSON.stringify(saved));
+  assert.match(await reopen('Older'), /Accepted shared memory/);
+});
+
+await test("opening Witch moves the notes keyed by its checkout's path to the origin's project before a turn", async () => {
+  const { coordinator, store, memory, a, b, project, note, git } =
+    await fixture();
+  await git('init', '--quiet');
+  await coordinator.send('remember-port');
+  await coordinator.close();
+  await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+  const reopened = new Coordinator(
+    store,
+    memory,
+    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
+  );
+  try {
+    await reopened.initialize(project, { continue: true });
+    assert.equal(await memory.read(main, await note()), 'Use port 4567.');
+    assert.equal(a.inputs.length, 1);
+  } finally {
+    await reopened.close();
+  }
+});
+
+await test('opening Witch on memory that conflicts with main leaves the move to recovery', async () => {
+  const context = await fixture();
+  const { coordinator, store, memory, a, b, project, notes } = context;
+  const gate = new TurnGate();
+  try {
+    await coordinator.send('Start');
+    a.gate = gate;
+    const sending = coordinator.send('remember:mine');
+    await within(gate.entered, 2000, 'the gated turn');
+    await publishOutside(context, { [await notes()]: 'theirs' });
+    gate.open();
+    await sending;
+    assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+  const reopened = new Coordinator(
+    store,
+    memory,
+    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
+  );
+  try {
+    await reopened.initialize(project, { continue: true });
+    assert.equal(reopened.snapshot.recovery?.kind, 'conflict');
+    assert.equal(reopened.snapshot.error, undefined);
+  } finally {
+    await reopened.close();
+  }
+});
+
+await test('a git read that fails as Witch opens is reported once and leaves the conversation open', async () => {
+  const { coordinator, store, memory, a, b, project, git } = await fixture();
+  await git('init', '--quiet');
+  await coordinator.send('Start');
+  const id = coordinator.snapshot.conversation!.id;
+  await coordinator.close();
+  await writeFile(join(project, '.git', 'config'), '[remote "origin"\n', {
+    flag: 'a',
+  });
+  const reopened = new Coordinator(
+    store,
+    memory,
+    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
+  );
+  try {
+    await reopened.initialize(project, { continue: true });
+    assert.equal(reopened.snapshot.conversation!.id, id);
+    assert.equal(reopened.snapshot.phase, 'idle');
+    assert.equal(reopened.snapshot.error?.match(/bad config/g)?.length, 1);
+  } finally {
+    await reopened.close();
+  }
+});
+
+await test("an interrupt that aborts a moved key's reconnect leaves the prompt queued without an error", async () => {
+  const { coordinator, a, git } = await fixture();
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    const connecting = Promise.withResolvers<void>();
+    a.beforeConnect = (options) =>
+      new Promise((_, reject) => {
+        connecting.resolve();
+        options.signal?.addEventListener('abort', () =>
+          reject(new Error('Connect aborted')),
+        );
+      });
+    const sending = coordinator.send('Moved');
+    await within(connecting.promise, 2000, 'the reconnect');
+    await coordinator.interrupt();
+    await within(sending, 2000, 'the send');
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.deepEqual(coordinator.snapshot.queue, ['Moved']);
+    assert.equal(a.inputs.length, 1);
   } finally {
     await coordinator.close();
   }

@@ -1,9 +1,28 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import {
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { exists, main, notePath, printable } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
+
+/** an index with each non-blank line of `added` it lacks appended once, in its own line endings. */
+function mergeLines(index: string, added: string): string {
+  const eol = index.includes('\r\n') ? '\r\n' : '\n';
+  const present = new Set(index.split(/\r?\n/));
+  const missing = [...new Set(added.split(/\r?\n/))].filter(
+    (line) => line.trim() && !present.has(line),
+  );
+  if (!missing.length) return index;
+  const kept = index.replace(/(\r?\n)+$/, '');
+  return `${kept ? `${kept}${eol}` : ''}${missing.join(eol)}${eol}`;
+}
 
 /** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
@@ -12,7 +31,7 @@ export class Workspace {
   constructor(
     private readonly memory: Memory,
     readonly root: string,
-    id: string,
+    private readonly id: string,
   ) {
     this.branch = `conversations/${id}`;
   }
@@ -87,7 +106,7 @@ export class Workspace {
     );
   }
 
-  /** publishes anything left over, moves to `main`, and returns the revision and scope the turn starts from. */
+  /** publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, and returns the revision and scope the turn starts from. */
   async begin(cwd: string): Promise<{ revision: string; scope: MemoryScope }> {
     if (await this.isDirty())
       throw new Error('Resolve pending memory before running another task');
@@ -95,8 +114,121 @@ export class Workspace {
       throw new Error(
         'Your memory changes conflict with another conversation. Keep yours or discard them.',
       );
-    await this.git(['merge', '--ff-only', '--quiet', main]);
-    return { revision: await this.revision(), scope: await this.scope(cwd) };
+    for (let attempt = 1; ; attempt++) {
+      await this.git(['merge', '--ff-only', '--quiet', main]);
+      const scope = await this.scope(cwd);
+      const moved = await this.adopt(scope).catch(async (error: unknown) => {
+        // a move that fails partway is dropped, so no half-made move waits as pending memory
+        await this.discardPending();
+        throw error;
+      });
+      if (!moved || (await this.publish()) === 'published')
+        return { revision: await this.revision(), scope };
+      // the move derives from main alone, so it is dropped and made again on the main that beat it
+      await this.git(['reset', '--hard', '--quiet', main]);
+      if (attempt === 5)
+        throw new Error(
+          'Moving project notes kept losing to other conversations',
+        );
+    }
+  }
+
+  /** begins outside a turn to take in the notes keyed by the checkout's path, unless pending or unpublished memory waits for settling. */
+  async adoptCheckout(cwd: string): Promise<void> {
+    if (!(await this.exists()) || (await this.isDirty())) return;
+    const published = await this.memory.run(
+      this.root,
+      ['merge-base', '--is-ancestor', 'HEAD', main],
+      { codes: [0, 1] },
+    );
+    if (published.code === 0) await this.begin(cwd);
+  }
+
+  /** merges the notes keyed by a checkout's path into its origin's project as a commit of its own, and says whether that key held notes. */
+  private async adopt({ project, checkout }: MemoryScope): Promise<boolean> {
+    if (!checkout) return false;
+    // the index matches HEAD here, since begin runs only on a clean worktree
+    const files = (await this.git(['ls-files', '-z', '--', checkout]))
+      .split('\0')
+      .filter(Boolean);
+    if (!files.length) return false;
+    const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
+    const index = posix.join(checkout, 'MEMORY.md');
+    const renamed = new Map<string, string>();
+    // the index merges last, so its lines can link where renamed notes went
+    for (const file of files.sort((a, b) => +(a === index) - +(b === index))) {
+      const source = await this.checkedPath(file);
+      const content = await readFile(source);
+      const note = posix.relative(checkout, file);
+      if (file === index) {
+        // one pass, so a rewritten link can't match another rename. it reads the `<…>` form this move writes too
+        const text = content
+          .toString()
+          .replace(
+            /\]\((?:<([^<>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\))+))/g,
+            (link, angled?: string, bare?: string) => {
+              const to = renamed.get(posix.normalize(angled ?? bare!));
+              return to === undefined ? link : `](<${to}>`;
+            },
+          );
+        const target = await this.checkedPath(posix.join(project, note));
+        await writeFile(
+          target,
+          (await exists(target))
+            ? mergeLines((await readFile(target)).toString(), text)
+            : text,
+        );
+        await rm(source);
+        continue;
+      }
+      const placed = await this.place(project, label, note, content);
+      if (placed === undefined) continue;
+      const target = await this.checkedPath(posix.join(project, placed));
+      if (await exists(target)) await rm(source);
+      else {
+        await mkdir(dirname(target), { recursive: true });
+        await rename(source, target);
+      }
+      if (placed !== note) renamed.set(note, placed);
+    }
+    await this.commit(
+      `chore(memory): move ${checkout} notes to ${project}\n\nconversation: ${this.id}`,
+    );
+    return true;
+  }
+
+  /** where a checkout's note goes in the project: its own path, else a copy named for the checkout beside a different version, else under a directory named for it when a note and a directory share a name or the copy's name is too long. a note it can place nowhere stays. */
+  private async place(
+    project: string,
+    label: string,
+    note: string,
+    content: Buffer,
+  ): Promise<string | undefined> {
+    for (const base of [note, posix.join(`(${label})`, note)]) {
+      const { dir, name, ext } = posix.parse(base);
+      try {
+        for (let copy = 0; ; copy++) {
+          const placed = copy
+            ? posix.join(
+                dir,
+                `${name} (${label}${copy > 1 ? ` ${copy}` : ''})${ext}`,
+              )
+            : base;
+          if (posix.basename(placed).length > 255)
+            throw new Error(`Name too long: ${placed}`);
+          const target = await this.checkedPath(posix.join(project, placed));
+          if (
+            !(await exists(target)) ||
+            (await readFile(target)).equals(content)
+          )
+            return placed;
+        }
+      } catch (error) {
+        // a path taken by a directory or a note, or too long, tries the next base. an OS error fails the move
+        if ((error as NodeJS.ErrnoException).code) throw error;
+      }
+    }
+    return undefined;
   }
 
   async publish(): Promise<'published' | 'conflict'> {

@@ -7,6 +7,7 @@ const session = z.object({
   hasHistory: z.boolean(),
   effort: z.string().optional(),
   deliveredRevision: z.string().optional(),
+  deliveredProject: z.string().optional(),
 });
 
 const conversationSchema = z.object({
