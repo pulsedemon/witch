@@ -3067,7 +3067,8 @@ for (const [columns, body] of [
     try {
       await until('the request', () => ui.text().includes('Approval required'));
       assert.ok(ui.text().includes('x'.repeat(body)), ui.text());
-      assert.ok(!ui.text().includes('x'.repeat(body + 1)), ui.text());
+      // the rest makes a row of 5, where Ink would re-wrap a wider wrap into rows of 2 and 3
+      assert.match(ui.text(), /(?<!x)x{5}(?!x)/);
     } finally {
       ui.unmount();
     }
