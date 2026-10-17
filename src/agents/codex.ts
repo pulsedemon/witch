@@ -120,7 +120,7 @@ const imageContent = z.object({
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
 const turnId = z.object({ turn: z.object({ id: z.string() }) });
-/** item types that aren't tool calls. */
+/** item types besides agentMessage that aren't tool calls. */
 const untooled = ['userMessage', 'reasoning'];
 
 /** an item's name and what it acts on; a command shows as itself. */
@@ -430,7 +430,7 @@ class CodexSession implements AgentSession {
           turnId: id,
         });
       } catch (error) {
-        // an exit rejects the request after it has ended the turn
+        // an exit has ended the turn by the time its rejection lands here
         if (!this.closed) throw error;
       }
     await turn.finished.promise;
