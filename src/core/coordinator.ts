@@ -222,13 +222,15 @@ export class Coordinator {
     }
     // a failed connect leaves the conversation open, as a failed send does
     const failure = await this.connect().then(() => undefined, errorMessage);
-    // the checkout's path-key notes move as it opens, so /memory shows them before a turn
+    // notes keyed by the checkout's path move when Witch opens, so /memory shows them before a turn
     const adoption = await this.workspace!.adoptCheckout(cwd).then(
       () => undefined,
       errorMessage,
     );
+    // a failed scope read fails both, so its message shows once
     await this.settle(
-      [report, failure, adoption].filter(Boolean).join('\n\n') || undefined,
+      [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
+        undefined,
     );
   }
 
@@ -731,7 +733,7 @@ export class Coordinator {
   ): Promise<TurnResult> {
     const conversation = this.current();
     const { activity, scope } = await this.beginActivity(kind);
-    // a Ctrl+C that aborts a reconnect interrupts the turn, as one after it does
+    // an interrupt that aborts this connect interrupts the turn, as one after it does
     const session = await this.connect(conversation.agent, scope).catch(
       (error: unknown) => {
         if (this.cancelled) return undefined;
@@ -746,7 +748,8 @@ export class Coordinator {
     });
     const reference = conversation.sessions[conversation.agent]!;
     const workspace = this.workspace!;
-    // a moved key needs the new project's full snapshot, which supersedes the marked one even if this turn fails
+    // a project other than the last one delivered gets a full snapshot. the marker moves before the send,
+    // since a sent snapshot supersedes the marked one even if this turn fails
     if (reference.deliveredProject !== scope.project) {
       delete reference.deliveredRevision;
       reference.deliveredProject = scope.project;
