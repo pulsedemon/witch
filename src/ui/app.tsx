@@ -1007,8 +1007,8 @@ export function App({
       </Box>
     );
   } else if (view.kind === 'page') {
-    // a note's file name is agent-written, and Ink keeps OSC 8 links
-    const title = plain(view.title);
+    // a note's file name is agent-written and can hold a line break, and Ink keeps OSC 8 links
+    const title = oneLine(view.title);
     body = (
       <Box flexDirection="column" height={bodyHeight}>
         <Text bold>{view.link ? hyperlink(title, view.link, cwd) : title}</Text>
