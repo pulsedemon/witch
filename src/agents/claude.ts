@@ -19,6 +19,7 @@ import { toolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
+  BackgroundCommand,
   Model,
   SessionInfo,
   SessionOptions,
@@ -126,6 +127,7 @@ class ClaudeSession implements AgentSession {
   private currentMessage = '';
   private turn?: Turn;
   private readonly subagents = new Map<string, Subagent>();
+  private readonly backgroundCommands = new Map<string, BackgroundCommand>();
   /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
@@ -466,10 +468,26 @@ class ClaudeSession implements AgentSession {
           status: 'running',
           run: message.run_id,
         });
+      } else if (message.subtype === 'background_tasks_changed') {
+        // the live set lists a shell once it runs in the background, however it got there, and never a foreground one
+        for (const task of message.tasks)
+          if (
+            task.task_type === 'local_bash' &&
+            !this.backgroundCommands.has(task.task_id)
+          )
+            this.backgroundCommand({
+              id: task.task_id,
+              description: task.description,
+              status: 'running',
+            });
       } else if (message.subtype === 'task_notification') {
         const subagent = this.subagents.get(message.task_id);
         if (subagent && !this.late(message))
           this.subagent({ ...subagent, status: message.status });
+        // a shell joins the live set before its notification, so none is listed after it ends
+        const command = this.backgroundCommands.get(message.task_id);
+        if (command)
+          this.backgroundCommand({ ...command, status: message.status });
       }
     } else if (
       message.type === 'stream_event' &&
@@ -590,6 +608,11 @@ class ClaudeSession implements AgentSession {
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
     this.options.onEvent({ type: 'subagent', subagent });
+  }
+
+  private backgroundCommand(command: BackgroundCommand): void {
+    this.backgroundCommands.set(command.id, command);
+    this.options.onEvent({ type: 'command', command });
   }
 
   /** run ids sort in the order the runs opened, so a frame naming an earlier run is late. */
