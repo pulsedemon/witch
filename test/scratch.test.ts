@@ -94,6 +94,7 @@ await test("the next run removes a killed run's scratch directories, locked ones
   } finally {
     hang.child.kill('SIGKILL');
     await chmod(outside, 0o700);
-    await chmod(live, 0o700);
+    // gone if the sweep wrongly removed it, which the assertion above reports
+    await chmod(live, 0o700).catch(() => {});
   }
 });

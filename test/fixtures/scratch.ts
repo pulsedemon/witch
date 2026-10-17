@@ -29,8 +29,8 @@ async function open(): Promise<string> {
     const pid = /^(\d+)-[0-9A-Za-z]{6}$/.exec(name)?.[1];
     if (pid === undefined || running(Number(pid))) continue;
     const dead = join(base, name);
-    // a run killed inside a test's chmod leaves directories rm can't enter. another run
-    // may be sweeping the same tree, so chmod's errors don't matter; rm still throws
+    // a run killed between a test's chmod and its restore leaves directories rm can't enter.
+    // another process may be removing the same tree, so chmod's errors are ignored; rm reports what's left
     await execute('/bin/chmod', ['-R', 'u+rwx', dead]).catch(() => {});
     await rm(dead, { recursive: true, force: true });
   }
