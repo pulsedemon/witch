@@ -749,6 +749,44 @@ await test("Claude's subagent tasks report their parent, run and how they finish
   }
 });
 
+await test("Claude's background shells are commands from when the live set lists them, whether started there or moved there, until their notification, and neither foreground shells nor agents are", async () => {
+  const events: AgentEvent[] = [];
+  const { session } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('brews')).status, 'completed');
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'command' ? [event.command] : [],
+      ),
+      [
+        { id: 'serve', description: 'Start the server', status: 'running' },
+        { id: 'moved', description: 'Run tests', status: 'running' },
+        { id: 'serve', description: 'Start the server', status: 'failed' },
+        { id: 'moved', description: 'Run tests', status: 'stopped' },
+      ],
+    );
+    const outer = {
+      id: 'outer',
+      parent: undefined,
+      name: 'Map the code',
+      kind: '',
+      run: undefined,
+    };
+    // the live set's agent entries don't start or end a familiar of their own
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'subagent' ? [event.subagent] : [],
+      ),
+      [
+        { ...outer, status: 'running' },
+        { ...outer, status: 'completed' },
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
 await test('a CLI that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
   const { connect } = await launcher('exit-on-init');
