@@ -32,12 +32,24 @@ function missing(error: unknown): boolean {
   );
 }
 
+function conversationsPath(root: string): string {
+  return join(root, 'conversations');
+}
+
+function recordPath(directory: string): string {
+  return join(directory, 'state.json');
+}
+
+function historyPath(directory: string): string {
+  return join(directory, 'history.jsonl');
+}
+
 export class LockedElsewhere extends Error {}
 
-async function tryLock(path: string): Promise<FileHandle> {
+async function tryLock(directory: string): Promise<FileHandle> {
   try {
     return await open(
-      path,
+      join(directory, 'lock'),
       constants.O_RDWR |
         constants.O_CREAT |
         constants.O_NONBLOCK |
@@ -56,7 +68,7 @@ async function tryLock(path: string): Promise<FileHandle> {
 
 async function readRecord(directory: string): Promise<ConversationRecord> {
   return conversationRecordSchema.parse(
-    JSON.parse(await readFile(join(directory, 'state.json'), 'utf8')),
+    JSON.parse(await readFile(recordPath(directory), 'utf8')),
   );
 }
 
@@ -71,7 +83,7 @@ export class StateStore {
   private constructor(readonly root: string) {}
 
   static async open(root: string): Promise<StateStore> {
-    await mkdir(join(root, 'conversations'), { recursive: true, mode: 0o700 });
+    await mkdir(conversationsPath(root), { recursive: true, mode: 0o700 });
     return new StateStore(root);
   }
 
@@ -81,13 +93,13 @@ export class StateStore {
   }> {
     const records: ConversationRecord[] = [];
     const unreadable: UnreadableRecord[] = [];
-    for (const id of await readdir(join(this.root, 'conversations'))) {
+    for (const id of await readdir(conversationsPath(this.root))) {
       try {
         records.push(await readRecord(this.directory(id)));
       } catch (error) {
         if (!missing(error))
           unreadable.push({
-            file: join(this.directory(id), 'state.json'),
+            file: recordPath(this.directory(id)),
             error: errorMessage(error),
           });
       }
@@ -100,12 +112,12 @@ export class StateStore {
     const listed: { conversation: Conversation; modified: number }[] = [];
     for (const record of (await this.records()).records) {
       if (cwd !== undefined && record.cwd !== cwd) continue;
-      const history = await stat(
-        join(this.directory(record.id), 'history.jsonl'),
-      ).catch((error: unknown) => {
-        if (missing(error)) return undefined;
-        throw error;
-      });
+      const history = await stat(historyPath(this.directory(record.id))).catch(
+        (error: unknown) => {
+          if (missing(error)) return undefined;
+          throw error;
+        },
+      );
       if (history?.size)
         listed.push({ conversation: record, modified: history.mtimeMs });
     }
@@ -154,7 +166,7 @@ export class StateStore {
   async create(conversation: Conversation): Promise<ConversationStore> {
     const directory = this.directory(conversation.id);
     await mkdir(directory, { mode: 0o700 });
-    const lock = await tryLock(join(directory, 'lock'));
+    const lock = await tryLock(directory);
     const files = new ConversationStore(directory, lock, conversation);
     try {
       await files.save(conversation);
@@ -167,7 +179,7 @@ export class StateStore {
 
   async claim(id: string): Promise<ConversationStore> {
     const directory = this.directory(id);
-    const lock = await tryLock(join(directory, 'lock'));
+    const lock = await tryLock(directory);
     try {
       const record = await readRecord(directory);
       const files = new ConversationStore(directory, lock, record);
@@ -184,7 +196,7 @@ export class StateStore {
   }
 
   private directory(id: string): string {
-    return join(this.root, 'conversations', id);
+    return join(conversationsPath(this.root), id);
   }
 
   private promptsPath(): string {
@@ -219,7 +231,7 @@ export class ConversationStore {
       } finally {
         await file.close();
       }
-      await rename(temporary, join(this.directory, 'state.json'));
+      await rename(temporary, recordPath(this.directory));
     });
   }
 
@@ -227,7 +239,7 @@ export class ConversationStore {
     const line = `${JSON.stringify(update)}\n`;
     return this.enqueue(async () => {
       if (!this.historyFile) {
-        const file = await open(this.historyPath(), 'a+', 0o600);
+        const file = await open(historyPath(this.directory), 'a+', 0o600);
         const existing = await file.readFile();
         if (existing.length && existing.at(-1) !== 10) {
           await file.truncate(existing.lastIndexOf(10) + 1);
@@ -241,7 +253,7 @@ export class ConversationStore {
   async history(): Promise<DisplayUpdate[]> {
     await this.flush();
     try {
-      const content = await readFile(this.historyPath(), 'utf8');
+      const content = await readFile(historyPath(this.directory), 'utf8');
       const lines = content.split('\n');
       if (!content.endsWith('\n')) lines.pop();
       return lines
@@ -273,10 +285,6 @@ export class ConversationStore {
       this.historyFile = undefined;
       await this.lock.close();
     }
-  }
-
-  private historyPath(): string {
-    return join(this.directory, 'history.jsonl');
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
