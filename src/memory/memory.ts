@@ -44,6 +44,10 @@ const remote =
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
 
+const branches = 'conversations/';
+/** the branch a conversation's memory worktree is on. */
+export const branchOf = (id: string) => `${branches}${id}`;
+
 const overrides = [
   '-c',
   'user.name=Witch',
@@ -288,6 +292,21 @@ export class Memory {
     return (
       await this.git(cwd, ['rev-parse', '--verify', `${revision}^{commit}`])
     ).trim();
+  }
+
+  /** the ids of conversations whose branches hold commits `main` lacks. */
+  async unpublished(): Promise<string[]> {
+    return (
+      await this.git(this.root, [
+        'for-each-ref',
+        `--format=%(refname:short) %(ahead-behind:${main})`,
+        `refs/heads/${branches}`,
+      ])
+    )
+      .split('\n')
+      .map((line) => line.split(' '))
+      .filter(([, count]) => Number(count) > 0)
+      .map(([branch]) => branch!.slice(branches.length));
   }
 
   async snapshot(

@@ -9,7 +9,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { exists, main, notePath, printable } from './memory.js';
+import { branchOf, exists, main, notePath, printable } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
 /** an index with each non-blank line of `added` it lacks appended once, in its own line endings. */
@@ -33,7 +33,7 @@ export class Workspace {
     readonly root: string,
     private readonly id: string,
   ) {
-    this.branch = `conversations/${id}`;
+    this.branch = branchOf(id);
   }
 
   private git(
