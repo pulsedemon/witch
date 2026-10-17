@@ -120,6 +120,8 @@ const imageContent = z.object({
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
 const turnId = z.object({ turn: z.object({ id: z.string() }) });
+/** item types that aren't tool calls. */
+const untooled = ['userMessage', 'reasoning'];
 
 /** an item's name and what it acts on; a command shows as itself. */
 function itemTitle(
@@ -562,10 +564,7 @@ class CodexSession implements AgentSession {
           typeof item.text === 'string'
         )
           this.subagent({ ...subagent, report: item.text });
-      } else if (
-        message.method === 'item/started' &&
-        !['userMessage', 'reasoning'].includes(type)
-      )
+      } else if (message.method === 'item/started' && !untooled.includes(type))
         this.subagent({
           ...subagent,
           activity: itemTitle(type, item, this.options.cwd),
@@ -699,7 +698,7 @@ class CodexSession implements AgentSession {
               replace: true,
             });
           }
-        } else if (!['userMessage', 'reasoning'].includes(type)) {
+        } else if (!untooled.includes(type)) {
           const images = itemImages(type, item);
           this.options.onEvent({
             type: 'tool',
