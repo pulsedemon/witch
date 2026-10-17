@@ -197,6 +197,7 @@ class CodexSession implements AgentSession {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
     messages: Map<string, string>;
+    interrupted: boolean;
   };
   private requests = new Map<string, RpcMessage>();
   private closing = false;
@@ -238,7 +239,10 @@ class CodexSession implements AgentSession {
       const reported = !!(this.turn || this.settings);
       this.settings?.reject(error);
       this.closed = true;
-      this.finish('failed', error.message);
+      this.finish(
+        this.turn?.interrupted ? 'interrupted' : 'failed',
+        error.message,
+      );
       if (!reported && this.connected && !this.closing)
         options.onEvent({ type: 'notice', text: error.message });
     };
@@ -368,6 +372,7 @@ class CodexSession implements AgentSession {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
       messages: new Map<string, string>(),
+      interrupted: false,
     };
     this.turn = turn;
     try {
@@ -414,12 +419,18 @@ class CodexSession implements AgentSession {
   async interrupt(): Promise<void> {
     const turn = this.turn;
     if (!turn) return;
+    turn.interrupted = true;
     const id = await turn.started.promise;
     if (id && this.turn === turn)
-      await this.rpc.request('turn/interrupt', {
-        threadId: this.info.id,
-        turnId: id,
-      });
+      try {
+        await this.rpc.request('turn/interrupt', {
+          threadId: this.info.id,
+          turnId: id,
+        });
+      } catch (error) {
+        // an exit rejects the request after it has ended the turn
+        if (!this.closed) throw error;
+      }
     await turn.finished.promise;
   }
 
