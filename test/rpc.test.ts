@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { JsonRpc } from '../src/agents/json-rpc.js';
+import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
 function server() {
@@ -73,7 +72,7 @@ await test('a garbage line from the agent kills it', async () => {
 
 for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
   await test(`${adapter.label} with a missing executable fails to connect and cleans up`, async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'witch-missing-'));
+    const cwd = await scratch('witch-missing-');
     const reports: (number | undefined)[] = [];
     await within(
       assert.rejects(

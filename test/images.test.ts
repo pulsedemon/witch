@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtemp, truncate, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { truncate, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Graphics, imagePaths } from '../src/ui/images.js';
 import { png } from './fixtures/png.js';
+import { scratch } from './fixtures/scratch.js';
 
 const placeholder = '\u{10EEEE}';
 // the first Kitty row/column diacritics: rows 0, 1 and 2, and column 0
@@ -31,7 +31,7 @@ await test('a dropped path keeps its escaped spaces and unescaped U+202F, a quot
 });
 
 await test('an image is sent once as its PNG data, shown by rows whose color names it and whose first cell names its row, and placed again without resending when the width changes', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'witch-images-'));
+  const directory = await scratch('witch-images-');
   const image = png(160, 80);
   await writeFile(join(directory, 'shot.png'), image);
   const writes: string[] = [];
@@ -83,7 +83,7 @@ await test('a GIF is sent converted to PNG, an unreadable path shows and sends n
 });
 
 await test('a FIFO or a file over 64 MiB named like an image shows and reads nothing, so it cannot stall a render', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'witch-images-'));
+  const directory = await scratch('witch-images-');
   const source = join(directory, 'source.png');
   await writeFile(source, png(16, 16));
   const fifo = join(directory, 'fifo.png');
@@ -105,7 +105,7 @@ await test('a FIFO or a file over 64 MiB named like an image shows and reads not
 });
 
 await test('a path that failed to load is tried again, so an image written after a message names it still shows', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'witch-images-'));
+  const directory = await scratch('witch-images-');
   const graphics = new Graphics(() => {});
   assert.deepEqual(graphics.rows('shot.png', directory, 80), []);
   await writeFile(join(directory, 'shot.png'), png(160, 80));

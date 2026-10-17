@@ -2,14 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import {
-  access,
-  mkdtemp,
-  readFile,
-  realpath,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -20,13 +13,13 @@ import type {
   Usage,
   UserRequest,
 } from '../src/agents/types.js';
+import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 const claude = fileURLToPath(new URL('fixtures/claude.mjs', import.meta.url));
 
 async function launcher(mode?: string) {
-  // the real path, which the fixture's process.cwd() reports
-  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'witch-claude-')));
+  const cwd = await scratch('witch-claude-');
   const children: ChildProcessWithoutNullStreams[] = [];
   const args: string[][] = [];
   const adapter = new ClaudeAdapter((options) => {

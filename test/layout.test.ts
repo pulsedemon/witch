@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import stripAnsi from 'strip-ansi';
@@ -8,6 +7,7 @@ import { Graphics } from '../src/ui/images.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import type { DisplayItem } from '../src/core/state.js';
 import { png } from './fixtures/png.js';
+import { scratch } from './fixtures/scratch.js';
 
 await test('expanding a tool shows its complete output without losing links', () => {
   const item: DisplayItem = {
@@ -422,7 +422,7 @@ await test('a warm append to a 20k-line tool costs under a tenth of a full rende
 });
 
 await test('a message shows the images it names below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'witch-layout-'));
+  const directory = await scratch('witch-layout-');
   await writeFile(join(directory, 'shot.png'), png(160, 80));
   const layout = new TranscriptLayout(new Graphics(() => {}));
   const message: DisplayItem = {

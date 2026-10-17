@@ -1,14 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  realpath,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -25,6 +17,7 @@ import { App } from '../src/ui/app.js';
 import { MouseInput } from '../src/ui/mouse.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
+import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
 
 /** a terminal of the given size until `resize` changes its columns; without rows, Ink reads the real terminal. not a TTY, so every write is a whole frame. */
@@ -389,7 +382,7 @@ async function memoryApp(
     signal: AbortSignal,
   ) => Promise<void> = async () => {},
 ) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-ui-app-')));
+  const root = await scratch('witch-ui-app-');
   const cwd = join(root, 'project');
   await mkdir(cwd);
   const hook = { current: passThrough };
