@@ -12,16 +12,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { exists, main, notePath, printable } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
-/** an index with each line of `added` it lacks appended once, in its own line endings, as MEMORY.md merges in a rebase. */
+/** an index with each non-blank line of `added` it lacks appended once, in its own line endings. */
 function mergeLines(index: string, added: string): string {
   const eol = index.includes('\r\n') ? '\r\n' : '\n';
-  const lines = new Set(index.split(/\r?\n/));
-  const missing: string[] = [];
-  for (const line of added.split(/\r?\n/))
-    if (line.trim() && !lines.has(line)) {
-      lines.add(line);
-      missing.push(line);
-    }
+  const present = new Set(index.split(/\r?\n/));
+  const missing = [...new Set(added.split(/\r?\n/))].filter(
+    (line) => line.trim() && !present.has(line),
+  );
   if (!missing.length) return index;
   const kept = index.replace(/(\r?\n)+$/, '');
   return `${kept ? `${kept}${eol}` : ''}${missing.join(eol)}${eol}`;
@@ -109,7 +106,7 @@ export class Workspace {
     );
   }
 
-  /** publishes anything left over, moves to `main`, takes in the checkout's path-key notes, and returns the revision and scope the turn starts from. */
+  /** publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, and returns the revision and scope the turn starts from. */
   async begin(cwd: string): Promise<{ revision: string; scope: MemoryScope }> {
     if (await this.isDirty())
       throw new Error('Resolve pending memory before running another task');
@@ -131,7 +128,7 @@ export class Workspace {
     }
   }
 
-  /** begins outside a turn to take in the checkout's path-key notes, unless pending or unpublished memory waits for settling. */
+  /** begins outside a turn to take in the notes keyed by the checkout's path, unless pending or unpublished memory waits for settling. */
   async adoptCheckout(cwd: string): Promise<void> {
     if (!(await this.exists()) || (await this.isDirty())) return;
     const published = await this.memory.run(
@@ -142,14 +139,16 @@ export class Workspace {
     if (published.code === 0) await this.begin(cwd);
   }
 
-  /** merges a checkout's path-key notes into its origin's project as a commit of its own, and says whether it made one. MEMORY.md gains the lines it lacks, and a note both hold keeps both versions. */
+  /** merges the notes keyed by a checkout's path into its origin's project as a commit of its own, and says whether that key held notes. */
   private async adopt({ project, checkout }: MemoryScope): Promise<boolean> {
-    if (!checkout || !(await this.has('HEAD', checkout))) return false;
-    const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
-    const index = posix.join(checkout, 'MEMORY.md');
+    if (!checkout) return false;
+    // the index matches HEAD here, since begin runs only on a clean worktree
     const files = (await this.git(['ls-files', '-z', '--', checkout]))
       .split('\0')
       .filter(Boolean);
+    if (!files.length) return false;
+    const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
+    const index = posix.join(checkout, 'MEMORY.md');
     const renamed = new Map<string, string>();
     // the index merges last, so its lines can link where renamed notes went
     for (const file of files.sort((a, b) => +(a === index) - +(b === index))) {
@@ -193,7 +192,7 @@ export class Workspace {
     return true;
   }
 
-  /** where a checkout's note goes in the project: its own path, else a copy named for the checkout beside a different version, else under a directory named for it when a note and a directory share a name. A note it can place nowhere stays. */
+  /** where a checkout's note goes in the project: its own path, else a copy named for the checkout beside a different version, else under a directory named for it when a note and a directory share a name or the copy's name is too long. a note it can place nowhere stays. */
   private async place(
     project: string,
     label: string,
