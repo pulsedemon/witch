@@ -49,6 +49,8 @@ export interface Limit {
   resetsAt?: number;
 }
 
+export type TaskStatus = 'running' | 'completed' | 'failed' | 'stopped';
+
 /** a subagent the native agent started; a later event with the same id replaces it. */
 export interface Subagent {
   id: string;
@@ -57,7 +59,7 @@ export interface Subagent {
   name: string;
   /** its native type or role, empty when the agent reports none. */
   kind: string;
-  status: 'running' | 'completed' | 'failed' | 'stopped';
+  status: TaskStatus;
   /** the run this state belongs to; a running start under another run is a restart. */
   run?: string;
   /** its latest tool call, titled as the transcript titles one. */
@@ -66,6 +68,14 @@ export interface Subagent {
   tools?: number;
   /** its latest message, which is its report once it ends. */
   report?: string;
+}
+
+/** a command the native agent left running in the background; a running event starts it, a later one with another status ends it, and a repeated start changes nothing. */
+export interface BackgroundCommand {
+  id: string;
+  /** what the agent said it's for, or the command when it said nothing. */
+  description: string;
+  status: TaskStatus;
 }
 
 export interface Question {
@@ -112,6 +122,7 @@ export type AgentEvent =
   /** the native skill list changed; it replaces the one `skills()` gave. */
   | { type: 'skills'; skills: Skill[] }
   | { type: 'subagent'; subagent: Subagent }
+  | { type: 'command'; command: BackgroundCommand }
   | { type: 'notice'; text: string };
 
 export interface TurnResult {
