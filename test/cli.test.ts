@@ -1,17 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readdir } from 'node:fs/promises';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { scratch } from './fixtures/scratch.js';
 
 const cli = fileURLToPath(new URL('../src/cli.tsx', import.meta.url));
 
 /** runs the CLI in an empty directory that is also its HOME, so a store opened at the default ~/.witch shows in `files`. */
 async function run(args: readonly string[]) {
-  const directory = await mkdtemp(join(tmpdir(), 'witch-cli-'));
+  const directory = await scratch('witch-cli-');
   const child = spawn(
     process.execPath,
     ['--import', import.meta.resolve('tsx'), cli, ...args],

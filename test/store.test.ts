@@ -5,12 +5,10 @@ import {
   appendFile,
   chmod,
   mkdir,
-  mkdtemp,
   readFile,
   utimes,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +16,7 @@ import { identifyProcess } from '../src/persistence/process.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { foldDisplayUpdates } from '../src/core/state.js';
 import type { Conversation } from '../src/core/state.js';
+import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
 function conversation(id: string, cwd = '/project'): Conversation {
@@ -32,7 +31,7 @@ function conversation(id: string, cwd = '/project'): Conversation {
 }
 
 await test('one app owns a conversation until its process exits, including a crash', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-lock-'));
+  const root = await scratch('witch-lock-');
   const store = await StateStore.open(root);
   await (await store.create(conversation('held'))).close();
   const child = spawn(
@@ -59,9 +58,7 @@ await test('one app owns a conversation until its process exits, including a cra
 });
 
 await test('a second claim of a conversation is refused while another conversation claims fine', async () => {
-  const store = await StateStore.open(
-    await mkdtemp(join(tmpdir(), 'witch-claims-')),
-  );
+  const store = await StateStore.open(await scratch('witch-claims-'));
   const first = await store.create(conversation('first'));
   await (await store.create(conversation('second'))).close();
   try {
@@ -78,7 +75,7 @@ await test('a second claim of a conversation is refused while another conversati
 });
 
 await test('a closed conversation store rejects writes and leaves its files unchanged', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-closed-'));
+  const root = await scratch('witch-closed-');
   const store = await StateStore.open(root);
   const files = await store.create(conversation('closed'));
   await files.append({ id: 'n', kind: 'notice', text: 'kept', cwd: '/p' });
@@ -108,7 +105,7 @@ await test('a closed conversation store rejects writes and leaves its files unch
 });
 
 await test('a failed write fails every later write and the close', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-failed-write-'));
+  const root = await scratch('witch-failed-write-');
   const store = await StateStore.open(root);
   const files = await store.create(conversation('failed'));
   const directory = join(root, 'conversations', 'failed');
@@ -129,9 +126,7 @@ await test('a failed write fails every later write and the close', async () => {
 });
 
 await test('a claim that cannot stop the recorded process releases its lock', async () => {
-  const store = await StateStore.open(
-    await mkdtemp(join(tmpdir(), 'witch-failed-claim-')),
-  );
+  const store = await StateStore.open(await scratch('witch-failed-claim-'));
   const child = spawn(
     '/bin/sh',
     ['-c', "trap '' TERM; echo ready; exec /bin/sleep 20"],
@@ -156,9 +151,7 @@ await test('a claim that cannot stop the recorded process releases its lock', as
 });
 
 await test('a claim succeeds when the recorded process exits before its signal', async (t) => {
-  const store = await StateStore.open(
-    await mkdtemp(join(tmpdir(), 'witch-exited-claim-')),
-  );
+  const store = await StateStore.open(await scratch('witch-exited-claim-'));
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   try {
     const files = await store.create(conversation('exited'));
@@ -179,9 +172,7 @@ await test('a claim succeeds when the recorded process exits before its signal',
 });
 
 await test('a claim stops the recorded process after a time zone and locale change', async () => {
-  const store = await StateStore.open(
-    await mkdtemp(join(tmpdir(), 'witch-moved-zone-')),
-  );
+  const store = await StateStore.open(await scratch('witch-moved-zone-'));
   const saved = { TZ: process.env.TZ, LC_ALL: process.env.LC_ALL };
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   try {
@@ -209,9 +200,7 @@ await test('a claim stops the recorded process after a time zone and locale chan
 });
 
 await test('a claim leaves running a process that reuses the recorded pid', async () => {
-  const store = await StateStore.open(
-    await mkdtemp(join(tmpdir(), 'witch-reused-pid-')),
-  );
+  const store = await StateStore.open(await scratch('witch-reused-pid-'));
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   try {
     const files = await store.create(conversation('reused'));
@@ -228,9 +217,7 @@ await test('a claim leaves running a process that reuses the recorded pid', asyn
 });
 
 await test('serialized saves of one record keep the latest after restart', async () => {
-  const store = await StateStore.open(
-    await mkdtemp(join(tmpdir(), 'witch-state-')),
-  );
+  const store = await StateStore.open(await scratch('witch-state-'));
   const files = await store.create(conversation('saved'));
   await Promise.all([
     files.save({ ...files.record, title: 'first' }),
@@ -243,9 +230,7 @@ await test('serialized saves of one record keep the latest after restart', async
 });
 
 await test('display history keeps streamed deltas without duplicating final messages', async () => {
-  const store = await StateStore.open(
-    await mkdtemp(join(tmpdir(), 'witch-history-')),
-  );
+  const store = await StateStore.open(await scratch('witch-history-'));
   const files = await store.create(conversation('streamed'));
   try {
     await files.append({
@@ -279,7 +264,7 @@ await test('display history keeps streamed deltas without duplicating final mess
 });
 
 await test('a truncated final record cannot corrupt history written after restart', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-partial-'));
+  const root = await scratch('witch-partial-');
   const store = await StateStore.open(root);
   let files = await store.create(conversation('c'));
   await files.append({
@@ -372,7 +357,7 @@ await test('an append keeps the cwd its item has, and a replacement takes its ow
 });
 
 await test("listing keeps this directory's conversations with history, newest history first, and a stray file is no unreadable record", async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-listing-'));
+  const root = await scratch('witch-listing-');
   const store = await StateStore.open(root);
   for (const [id, cwd, history] of [
     ['a', '/project', true],
@@ -405,7 +390,7 @@ await test("listing keeps this directory's conversations with history, newest hi
 });
 
 await test("prompts list this directory's newest first after a restart, keep line breaks, and skip a line a crash cut short without losing the next", async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-prompts-'));
+  const root = await scratch('witch-prompts-');
   const store = await StateStore.open(root);
   assert.deepEqual(await store.prompts('/a'), []);
   await store.addPrompt('/a', 'one');
@@ -424,7 +409,7 @@ await test("prompts list this directory's newest first after a restart, keep lin
 });
 
 await test('prompts one instance adds at once are stored newest first', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-prompts-'));
+  const root = await scratch('witch-prompts-');
   const store = await StateStore.open(root);
   // long prompts take long enough to write that unordered appends land out of order in most runs
   const texts = [...'abcdefgh'].map((letter) => letter.repeat(2 ** 20));
@@ -433,7 +418,7 @@ await test('prompts one instance adds at once are stored newest first', async ()
 });
 
 await test('prompts longer than a write chunk, stored by several instances at once, each read back whole', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-prompts-'));
+  const root = await scratch('witch-prompts-');
   const stores = await Promise.all(
     [1, 2, 3, 4].map(() => StateStore.open(root)),
   );

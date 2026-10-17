@@ -1,14 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import {
-  mkdtemp,
-  mkdir,
-  realpath,
-  readFile,
-  writeFile,
-  unlink,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
@@ -20,13 +12,12 @@ import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
+import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
 
 /** a stored conversation whose memory worktree is ready for notes, before it opens. */
 async function conversation() {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), 'witch-ui-memory-')),
-  );
+  const root = await scratch('witch-ui-memory-');
   const cwd = join(root, 'project');
   await mkdir(cwd);
   const store = await StateStore.open(join(root, 'state'));

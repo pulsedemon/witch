@@ -1,19 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import {
-  access,
-  mkdtemp,
-  readFile,
-  realpath,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
 import type { AgentEvent, AgentSession, Usage } from '../src/agents/types.js';
+import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 const codex = fileURLToPath(new URL('fixtures/codex.mjs', import.meta.url));
@@ -32,8 +26,7 @@ async function fixture(
     signal?: AbortSignal;
   } = {},
 ) {
-  // the real path, which the fixture's process.cwd() reports
-  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'witch-codex-')));
+  const cwd = await scratch('witch-codex-');
   const adapter = new CodexAdapter((_, directory, signal) =>
     spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
       cwd: directory,

@@ -3,11 +3,9 @@ import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
-  mkdtemp,
   mkdir,
   readdir,
   readFile,
-  realpath,
   rename,
   rm,
   stat,
@@ -23,6 +21,7 @@ import { Memory, main } from '../src/memory/memory.js';
 import type { Workspace } from '../src/memory/workspace.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
+import { scratch } from './fixtures/scratch.js';
 
 // a developer's `url.<base>.insteadOf` would rewrite the origins these tests key
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
@@ -34,7 +33,7 @@ const lines = (changes: Record<number, string> = {}) =>
   '\n';
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'witch-memory-'));
+  const root = await scratch('witch-memory-');
   const project = join(root, 'project');
   await mkdir(project);
   const hook = { current: passThrough };
@@ -90,7 +89,7 @@ async function repository(
 }
 
 await test('parallel initialization seeds one repository and leaves a stray build alone', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-memory-init-'));
+  const root = await scratch('witch-memory-init-');
   const stray = join(root, `memory.git.${randomUUID()}`);
   await git(root, 'init', '--bare', '--quiet', stray);
   const before = await readdir(stray, { recursive: true });
@@ -130,7 +129,7 @@ await test('parallel initialization seeds one repository and leaves a stray buil
 });
 
 await test('memory works under user Git configuration with no identity, an empty template, the apply rebase backend, hidden untracked files, log.follow and an external diff', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-memory-identity-'));
+  const root = await scratch('witch-memory-identity-');
   const template = join(root, 'template');
   await mkdir(template);
   const module = new URL('../src/memory/memory.ts', import.meta.url).href;
@@ -299,10 +298,9 @@ await test('a subdirectory of a repository shares its project memory, and its no
   const src = join(project, 'src');
   await mkdir(src);
   // notes saved before origins keyed projects live under this key
-  const top = await realpath(project);
   assert.deepEqual(await memory.scopePaths(src), {
     global: 'global',
-    project: `projects/project-${createHash('sha256').update(top).digest('hex').slice(0, 16)}`,
+    project: `projects/project-${createHash('sha256').update(project).digest('hex').slice(0, 16)}`,
   });
   const { workspace } = await open('a');
   const begun = await workspace.begin(src);

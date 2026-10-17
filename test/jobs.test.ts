@@ -2,14 +2,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
 import { ps } from '../src/persistence/process.js';
+import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
 
 /** lists until `ready` holds, failing after five seconds. */
@@ -527,7 +526,7 @@ await test('a job whose processes exited is gone before they are reaped', async 
 });
 
 await test('stop sends SIGTERM before SIGKILL', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'witch-jobs-'));
+  const cwd = await scratch('witch-jobs-');
   const shell = spawn(
     '/bin/sh',
     ['-c', 'trap "touch term; exit" TERM; touch ready; sleep 73.5 & wait'],
@@ -554,7 +553,6 @@ await test('stop sends SIGTERM before SIGKILL', async () => {
       // stopped by the test
     }
     jobs.close();
-    await rm(cwd, { recursive: true, force: true });
   }
 });
 

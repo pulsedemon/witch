@@ -1,18 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  realpath,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { listFiles } from '../src/core/files.js';
+import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);
 
@@ -24,7 +17,7 @@ async function files(root: string, paths: Record<string, string>) {
 }
 
 await test('a work tree lists tracked and untracked files under the cwd, without ignored or deleted ones', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-files-')));
+  const root = await scratch('witch-files-');
   const git = (...args: string[]) => execute('git', ['-C', root, ...args]);
   await git('init', '-q');
   await files(root, {
@@ -56,7 +49,7 @@ await test('a work tree lists tracked and untracked files under the cwd, without
 });
 
 await test('a path in a merge conflict is listed once', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-files-')));
+  const root = await scratch('witch-files-');
   const git = (...args: string[]) =>
     execute('git', [
       '-C',
@@ -82,7 +75,7 @@ await test('a path in a merge conflict is listed once', async () => {
 });
 
 await test('outside a work tree a walk lists files breadth first and skips dot entries and unreadable directories', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-files-')));
+  const root = await scratch('witch-files-');
   await files(root, {
     'top.txt': '',
     'deep/inner.txt': '',

@@ -4,16 +4,13 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import {
   chmod,
-  mkdtemp,
   mkdir,
-  realpath,
   rm,
   writeFile,
   readFile,
   symlink,
   utimes,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -27,6 +24,7 @@ import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
+import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 function record(id: string, cwd: string, agent = 'a'): Conversation {
@@ -67,9 +65,7 @@ async function fixture(
   /** runs before the launch connects. */
   prepare?: (a: FixtureAgent, b: FixtureAgent) => void,
 ) {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), 'witch-coordinator-')),
-  );
+  const root = await scratch('witch-coordinator-');
   const project = join(root, 'project');
   await mkdir(project);
   const store = await StateStore.open(join(root, 'state'));
@@ -975,7 +971,7 @@ await test('undelivered handoff context survives visiting another conversation a
 });
 
 async function sweepFixture() {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'witch-sweep-')));
+  const root = await scratch('witch-sweep-');
   const project = join(root, 'project');
   const fresh = join(root, 'fresh');
   await mkdir(project);

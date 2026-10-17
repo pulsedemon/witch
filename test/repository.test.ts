@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -11,49 +10,46 @@ import {
   parsePullRequest,
   parseStatus,
 } from '../src/core/repository.js';
+import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);
 
 await test("Git's status counts staged, modified and untracked entries, and the branch's distance from its upstream", async () => {
-  const root = await mkdtemp(join(tmpdir(), 'witch-repository-'));
+  const root = await scratch('witch-repository-');
   const git = (cwd: string, ...args: string[]) =>
     execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
       cwd,
     });
-  try {
-    const remote = join(root, 'remote.git');
-    const work = join(root, 'work');
-    await git(root, 'init', '--bare', '-b', 'main', remote);
-    await git(root, 'clone', remote, work);
-    await writeFile(join(work, 'a.txt'), 'a\n');
-    await writeFile(join(work, 'b.txt'), 'b\n');
-    await git(work, 'add', '.');
-    await git(work, 'commit', '-m', 'first');
-    await git(work, 'push', '-u', 'origin', 'HEAD:main');
-    await git(work, 'commit', '--allow-empty', '-m', 'ahead');
-    await writeFile(join(work, 'a.txt'), 'changed\n');
-    await writeFile(join(work, 'c.txt'), 'c\n');
-    await git(work, 'add', 'c.txt');
-    await writeFile(join(work, 'b.txt'), 'staged\n');
-    await git(work, 'add', 'b.txt');
-    await writeFile(join(work, 'b.txt'), 'and modified\n');
-    await mkdir(join(work, 'new'));
-    await writeFile(join(work, 'new', 'one.txt'), '1');
-    await writeFile(join(work, 'new', 'two.txt'), '2');
-    const { stdout } = await git(work, 'status', '--porcelain=v2', '--branch');
-    // b.txt is staged and modified; the new directory is one entry
-    assert.deepEqual(parseStatus(stdout), {
-      branch: 'main',
-      ahead: 1,
-      behind: 0,
-      staged: 2,
-      modified: 2,
-      conflicts: 0,
-      untracked: 1,
-    });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  const remote = join(root, 'remote.git');
+  const work = join(root, 'work');
+  await git(root, 'init', '--bare', '-b', 'main', remote);
+  await git(root, 'clone', remote, work);
+  await writeFile(join(work, 'a.txt'), 'a\n');
+  await writeFile(join(work, 'b.txt'), 'b\n');
+  await git(work, 'add', '.');
+  await git(work, 'commit', '-m', 'first');
+  await git(work, 'push', '-u', 'origin', 'HEAD:main');
+  await git(work, 'commit', '--allow-empty', '-m', 'ahead');
+  await writeFile(join(work, 'a.txt'), 'changed\n');
+  await writeFile(join(work, 'c.txt'), 'c\n');
+  await git(work, 'add', 'c.txt');
+  await writeFile(join(work, 'b.txt'), 'staged\n');
+  await git(work, 'add', 'b.txt');
+  await writeFile(join(work, 'b.txt'), 'and modified\n');
+  await mkdir(join(work, 'new'));
+  await writeFile(join(work, 'new', 'one.txt'), '1');
+  await writeFile(join(work, 'new', 'two.txt'), '2');
+  const { stdout } = await git(work, 'status', '--porcelain=v2', '--branch');
+  // b.txt is staged and modified; the new directory is one entry
+  assert.deepEqual(parseStatus(stdout), {
+    branch: 'main',
+    ahead: 1,
+    behind: 0,
+    staged: 2,
+    modified: 2,
+    conflicts: 0,
+    untracked: 1,
+  });
 });
 
 await test('a detached head reads as HEAD, and branch.ab and unmerged entries count', () => {
