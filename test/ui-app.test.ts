@@ -114,6 +114,7 @@ function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       models: [],
       skills: [],
       subagents: [],
+      backgroundCommands: [],
       usage: {},
       agents: [],
       conversation: {
