@@ -2249,6 +2249,13 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
   }
 });
 
+/** each turn's prompt and spell, in the order the agent got them. */
+const turns = (a: FixtureAgent) =>
+  a.inputs.map(({ prompt, skill }) => [
+    prompt.split('User request:\n')[1],
+    skill,
+  ]);
+
 await test('a prompt sent during a turn joins it and shows at once, and a spell and the prompts behind it wait, the spell for a turn alone and the rest for one turn, a line each', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
@@ -2265,17 +2272,11 @@ await test('a prompt sent during a turn joins it and shows at once, and a spell 
     assert.deepEqual(coordinator.snapshot.queue, ['/review now', 'One', 'Two']);
     gate.open();
     await within(sending, 2000, 'the queued turns');
-    assert.deepEqual(
-      a.inputs.map(({ prompt, skill }) => [
-        prompt.split('User request:\n')[1],
-        skill,
-      ]),
-      [
-        ['Start', undefined],
-        ['/review now', { name: 'review', args: 'now' }],
-        ['One\nTwo', undefined],
-      ],
-    );
+    assert.deepEqual(turns(a), [
+      ['Start', undefined],
+      ['/review now', { name: 'review', args: 'now' }],
+      ['One\nTwo', undefined],
+    ]);
     assert.deepEqual(coordinator.snapshot.queue, []);
   } finally {
     gate.open();
@@ -2364,28 +2365,15 @@ for (const [name, prompt, prepare] of [
       );
       gate.open();
       await within(sending, 2000, 'the queued turn');
-      assert.deepEqual(
-        a.inputs.map((input) => [
-          input.prompt.split('User request:\n')[1],
-          input.skill,
-        ]),
-        [
-          ['Start', undefined],
-          [prompt, undefined],
-        ],
-      );
+      assert.deepEqual(turns(a), [
+        ['Start', undefined],
+        [prompt, undefined],
+      ]);
     } finally {
       gate.open();
       await coordinator.close();
     }
   });
-
-/** each turn's prompt and spell, in the order the agent got them. */
-const turns = (a: FixtureAgent) =>
-  a.inputs.map(({ prompt, skill }) => [
-    prompt.split('User request:\n')[1],
-    skill,
-  ]);
 
 await test('prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
