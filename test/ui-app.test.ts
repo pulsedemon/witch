@@ -2918,6 +2918,118 @@ await test('familiars that overflow the sidebar show the last whole familiars in
   }
 });
 
+const familiar = (id: string, name: string): Snapshot['subagents'][number] => ({
+  id,
+  name,
+  kind: '',
+  status: 'running',
+  startedAt: Date.now(),
+  rows: { start: 'row' },
+});
+
+const brew = (index: number): Snapshot['backgroundCommands'][number] => ({
+  id: `${index}`,
+  description: `brew ${index}`,
+  status: 'running',
+});
+
+await test('the sidebar lists running brews above the familiars, each with what it is for on one row, and no heading once none run', async () => {
+  const { app, coordinator } = fake({
+    backgroundCommands: [
+      {
+        id: 's',
+        description: 'start\nthe development server',
+        status: 'running',
+      },
+    ],
+    subagents: [familiar('a', 'map code')],
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  try {
+    await until('the brews', () => ui.text().includes('BREWS'));
+    // a description that wrapped would push FAMILIARS down
+    assert.deepEqual(sidebarRows(ui.text()).slice(0, 4), [
+      'BREWS',
+      '● START THE DEVELOPME…',
+      'FAMILIARS',
+      '● MAP CODE',
+    ]);
+    coordinator.publish({ backgroundCommands: [] });
+    await until('no brews', () => !ui.text().includes('BREWS'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('brews take the sidebar rows first and show their last whole brews under a count when they overflow, leave a running familiar its heading and count, and familiars take the rows they leave', async () => {
+  const { app, coordinator } = fake({
+    backgroundCommands: [1, 2, 3, 4, 5, 6, 7, 8].map(brew),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+    19,
+  );
+  // eight rows above the pentacle
+  const above = () => {
+    const rows = sidebarRows(ui.text());
+    assert.ok(
+      rows.slice(8, 19).every((row) => /[⠁-⣿]/.test(row)),
+      rows.join('\n'),
+    );
+    return rows.slice(0, 8);
+  };
+  try {
+    await until('the brews', () => ui.text().includes('BREWS'));
+    assert.deepEqual(above(), [
+      'BREWS',
+      '+2 MORE',
+      '● BREW 3',
+      '● BREW 4',
+      '● BREW 5',
+      '● BREW 6',
+      '● BREW 7',
+      '● BREW 8',
+    ]);
+
+    coordinator.publish({ subagents: [familiar('1', 'task 1')] });
+    await until('the familiars', () => ui.text().includes('FAMILIARS'));
+    assert.deepEqual(above(), [
+      'BREWS',
+      '+4 MORE',
+      '● BREW 5',
+      '● BREW 6',
+      '● BREW 7',
+      '● BREW 8',
+      'FAMILIARS',
+      '+1 MORE',
+    ]);
+
+    coordinator.publish({
+      backgroundCommands: [1, 2].map(brew),
+      subagents: [familiar('1', 'task 1'), familiar('2', 'task 2')],
+    });
+    await until('the second familiar', () => ui.text().includes('● TASK 2'));
+    const rows = above();
+    assert.match(rows[6]!, /^ {2}\dS \| 0 TOOLS$/);
+    assert.deepEqual(rows, [
+      'BREWS',
+      '● BREW 1',
+      '● BREW 2',
+      'FAMILIARS',
+      '+1 MORE',
+      '● TASK 2',
+      rows[6],
+      '',
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test("the status line shows the model's label, the effort the agent runs, its usage and the repository as it changes", async () => {
   const { app } = fake({
     native: {
