@@ -3006,6 +3006,28 @@ await test('Escape while tools are focused during a turn leaves focus without in
   }
 });
 
+for (const [columns, body] of [
+  [100, 98],
+  [120, 93],
+] as const)
+  await test(`a request wraps at the body width at ${columns} columns`, async () => {
+    const { app } = fake({
+      phase: 'running',
+      requests: [{ ...approval, detail: 'x'.repeat(body + 5) }],
+    });
+    const ui = show(
+      createElement(App, { coordinator: app, onExit: () => {} }),
+      columns,
+    );
+    try {
+      await until('the request', () => ui.text().includes('Approval required'));
+      assert.ok(ui.text().includes('x'.repeat(body)), ui.text());
+      assert.ok(!ui.text().includes('x'.repeat(body + 1)), ui.text());
+    } finally {
+      ui.unmount();
+    }
+  });
+
 await test('a new request ignores keys for its first 500 ms', async () => {
   const { app, coordinator, calls } = fake({
     phase: 'running',
