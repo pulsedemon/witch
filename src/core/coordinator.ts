@@ -18,7 +18,13 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import { branchOf, exists, main, printable } from '../memory/memory.js';
+import {
+  branchOf,
+  exists,
+  indexNote,
+  main,
+  printable,
+} from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import { LockedElsewhere } from '../persistence/store.js';
@@ -592,7 +598,7 @@ export class Coordinator {
     await this.operate('editing', async () => {
       const note =
         path ??
-        `${(await this.memory.scopePaths(this.current().cwd)).project}/MEMORY.md`;
+        `${(await this.memory.scopePaths(this.current().cwd)).project}/${indexNote}`;
       this.notice(`Memory edit: ${noteName(note)}`, this.workspace!.root);
       await this.beginActivity('memory-edit');
       const file = await this.workspace!.prepareNote(note);

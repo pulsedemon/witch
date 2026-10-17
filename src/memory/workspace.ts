@@ -9,7 +9,14 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { branchOf, exists, main, notePath, printable } from './memory.js';
+import {
+  branchOf,
+  exists,
+  indexNote,
+  main,
+  notePath,
+  printable,
+} from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
 /** an index with each non-blank line of `added` it lacks appended once, in its own line endings. */
@@ -153,7 +160,7 @@ export class Workspace {
       .filter(Boolean);
     if (!files.length) return false;
     const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
-    const index = posix.join(checkout, 'MEMORY.md');
+    const index = posix.join(checkout, indexNote);
     const renamed = new Map<string, string>();
     // the index merges last, so its lines can link where renamed notes went
     for (const file of files.sort((a, b) => +(a === index) - +(b === index))) {
