@@ -2797,12 +2797,12 @@ await test('a directory name with a line break stays on the header row', async (
   }
 });
 
-await test("a familiar's kind with a line break stays on its sidebar row", async () => {
+await test("a familiar's name and kind with line breaks stay on its sidebar row", async () => {
   const { app } = fake({
     subagents: [
       {
         id: 'a',
-        name: 'map',
+        name: 'map\nall',
         kind: 'Explore\nfast',
         status: 'running',
         startedAt: Date.now(),
@@ -2817,7 +2817,9 @@ await test("a familiar's kind with a line break stays on its sidebar row", async
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
     assert.ok(
-      sidebarRows(ui.text()).some((row) => row.includes('MAP Explore fast')),
+      sidebarRows(ui.text()).some((row) =>
+        row.includes('MAP ALL Explore fast'),
+      ),
       ui.text(),
     );
   } finally {
