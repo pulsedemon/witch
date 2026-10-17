@@ -246,8 +246,8 @@ await test("a question's answer fills the request's width", async () => {
   );
   try {
     await ready();
-    await press(ui.stdin, 'q'.repeat(40));
-    assert.ok(ui.lastFrame()?.includes('q'.repeat(40)), ui.lastFrame());
+    await press(ui.stdin, 'q'.repeat(41));
+    assert.match(ui.lastFrame() ?? '', /(?<!q)q{40}(?!q)/);
   } finally {
     await unmount(ui);
   }
