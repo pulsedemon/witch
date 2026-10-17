@@ -3121,10 +3121,11 @@ await test('a new request scrolls with PageDown before its other keys work', asy
     await until('the request', () => ui.text().includes('Approval required'));
     await delay(150);
     ui.stdin.write('\u001b[6~y');
-    await delay(100);
-    const all = rows();
     // one 29-row page down from the top, as in the page key test above
-    assert.equal(all[all.indexOf('Approval required') + 1], 'd27');
+    await until('the page down', () => {
+      const all = rows();
+      return all[all.indexOf('Approval required') + 1] === 'd27';
+    });
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
