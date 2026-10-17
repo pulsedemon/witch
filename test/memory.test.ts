@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
   mkdtemp,
   mkdir,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
@@ -280,17 +281,27 @@ await test('global memory crosses projects while project notes remain scoped', a
   assert.doesNotMatch(snapshot, /4567/);
 });
 
-await test('a subdirectory of a repository shares its project memory', async () => {
-  const { memory, project } = await fixture();
+await test('a subdirectory of a repository shares its project memory, and its notes move once the repository has an origin', async () => {
+  const { memory, open, project } = await fixture();
   await git(project, 'init', '--quiet');
-  await mkdir(join(project, 'src'));
-  assert.equal(
-    (await memory.scopePaths(join(project, 'src'))).project,
-    (await memory.scopePaths(project)).project,
-  );
+  const src = join(project, 'src');
+  await mkdir(src);
+  // notes saved before origins keyed projects live under this key
+  const top = await realpath(project);
+  assert.deepEqual(await memory.scopePaths(src), {
+    global: 'global',
+    project: `projects/project-${createHash('sha256').update(top).digest('hex').slice(0, 16)}`,
+  });
+  const { workspace } = await open('a');
+  const begun = await workspace.begin(src);
+  await save(workspace, { [`${begun.scope.project}/x.md`]: 'X.\n' });
+  await workspace.publish();
+  await git(project, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
+  const moved = await workspace.begin(src);
+  assert.equal(await memory.read(main, `${moved.scope.project}/x.md`), 'X.\n');
 });
 
-await test('clones of one origin share project memory under its name, whatever their directories and remote forms', async () => {
+await test('clones of one origin share project memory under its name across directories, URL and scp forms, users and host case', async () => {
   const { memory, root } = await fixture();
   const clone = async (directory: string, origin: string) => {
     const path = join(root, directory);
@@ -345,7 +356,7 @@ await test('clones of one origin share project memory under its name, whatever t
   );
 });
 
-await test('a local origin names the repository git reaches through it: from the top level, through links, by file URL, and before it exists', async () => {
+await test('a local origin names the repository git reaches through it: from the top level, through links, by file URL, by its .git forms, and before it exists', async () => {
   const { memory, root } = await fixture();
   const clone = async (directory: string, origin: string) => {
     const path = join(root, directory);
@@ -378,17 +389,33 @@ await test('a local origin names the repository git reaches through it: from the
     await key(await clone('j', `file://${join(root, 'a/up%73tream.git')}`)),
     upstream,
   );
-  assert.doesNotMatch(
+  assert.match(
     await key(await clone('k', `file://${join(root, 'a%00b')}`)),
-    /\0/,
+    /^projects\/a%00b-/,
+  );
+  assert.match(
+    await key(await clone('l', `file://${join(root, 'caf%E9')}`)),
+    /^projects\/caf%E9-/,
   );
   assert.notEqual(
     await key(await clone('f', `file://${join(root, 'a/upstream')}`)),
     upstream,
   );
+  const bare = await key(await clone('h', join(root, 'b/upstream.git')));
   assert.equal(
     await key(await clone('g', `${root}/a/link/../upstream.git`)),
-    await key(await clone('h', join(root, 'b/upstream.git'))),
+    bare,
+  );
+  assert.equal(await key(await clone('m', join(root, 'b/upstream'))), bare);
+  await git(root, 'init', '--quiet', '--bare', 'b/child.git');
+  assert.equal(
+    await key(await clone('n', join(root, 'b/child'))),
+    await key(await clone('o', join(root, 'b/child.git'))),
+  );
+  await git(root, 'init', '--quiet', 'worktree');
+  assert.equal(
+    await key(await clone('p', join(root, 'worktree/.git'))),
+    await key(join(root, 'worktree')),
   );
   const later = await clone('i', join(root, 'alias/later.git'));
   const missing = await key(later);
@@ -396,7 +423,7 @@ await test('a local origin names the repository git reaches through it: from the
   assert.equal(await key(later), missing);
 });
 
-await test("a turn merges a checkout's path-key notes into its origin's project, keeping both versions of a note", async () => {
+await test("a turn merges the notes keyed by a checkout's path into its origin's project, keeping both versions of a note", async () => {
   const { memory, open, root, project } = await fixture();
   const begin = async (
     workspace: Workspace,
@@ -547,6 +574,62 @@ await test("a move that loses to another clone's move is made again on the newer
   );
 });
 
+await test(
+  "a third version of a note from another checkout of the same name takes the next copy number, in the index's line endings",
+  { timeout: 20_000 },
+  async () => {
+    const { memory, open, root } = await fixture();
+    const { workspace } = await open('a');
+    const begin = async (cwd: string, notes: Record<string, string> = {}) => {
+      const { scope } = await workspace.begin(cwd);
+      await save(
+        workspace,
+        Object.fromEntries(
+          Object.entries(notes).map(([note, text]) => [
+            `${scope.project}/${note}`,
+            text,
+          ]),
+        ),
+      );
+      await workspace.publish();
+      return scope.project;
+    };
+    const repository = async (directory: string) => {
+      const path = join(root, directory);
+      await mkdir(path, { recursive: true });
+      await git(path, 'init', '--quiet');
+      return path;
+    };
+    const origin = 'https://github.com/o/r.git';
+    const upstream = await repository('upstream');
+    await git(upstream, 'remote', 'add', 'origin', origin);
+    const target = await begin(upstream, {
+      'MEMORY.md': '# Project\r\n- [x](x.md)\r\n',
+      'x.md': 'A.\n',
+    });
+    const checkouts = [
+      await repository('first/app'),
+      await repository('second/app'),
+    ];
+    for (const [index, checkout] of checkouts.entries())
+      await begin(checkout, {
+        'MEMORY.md': '# Project\n- [x](x.md)\n',
+        'x.md': `${'BC'[index]}.\n`,
+      });
+    for (const checkout of checkouts) {
+      await git(checkout, 'remote', 'add', 'origin', origin);
+      await begin(checkout);
+    }
+    assert.equal(await memory.read(main, `${target}/x.md`), 'A.\n');
+    assert.equal(await memory.read(main, `${target}/x (app).md`), 'B.\n');
+    assert.equal(await memory.read(main, `${target}/x (app 2).md`), 'C.\n');
+    assert.equal(
+      await memory.read(main, `${target}/MEMORY.md`),
+      '# Project\r\n- [x](x.md)\r\n- [x](<x (app).md>)\r\n- [x](<x (app 2).md>)\r\n',
+    );
+  },
+);
+
 await test('a project name too long for an APFS name is cut by UTF-16 units to fit beside its hash', async () => {
   const { open, root } = await fixture();
   const name = async (directory: string, repository: string) => {
@@ -568,55 +651,72 @@ await test('a project name too long for an APFS name is cut by UTF-16 units to f
     await name('long', `x${'é'.repeat(250)}`),
     /^xé{237}-[0-9a-f]{16}$/,
   );
-});
-
-await test('a clone of a checkout shares the project its origin names, and an origin that is no repository of its own keys as its path', async () => {
-  const { memory, root } = await fixture();
-  const scope = (path: string) => memory.scopePaths(path);
-  const checkout = join(root, 'checkout');
-  await mkdir(join(checkout, 'sub'), { recursive: true });
-  await git(checkout, 'init', '--quiet');
-  await git(
-    checkout,
-    '-c',
-    'user.name=Fixture',
-    '-c',
-    'user.email=fixture@localhost',
-    'commit',
-    '--quiet',
-    '--allow-empty',
-    '-m',
-    'c',
-  );
-  await git(checkout, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
-  await git(root, 'clone', '--quiet', checkout, 'clone');
-  const upstream = await scope(checkout);
-  const cloned = await scope(join(root, 'clone'));
-  assert.equal(cloned.project, upstream.project);
-  assert.notEqual(cloned.project, upstream.checkout);
-  await git(
-    checkout,
-    'bundle',
-    'create',
-    '--quiet',
-    join(root, 'c.bundle'),
-    '--all',
-  );
-  await git(root, 'clone', '--quiet', join(root, 'c.bundle'), 'unbundled');
   assert.match(
-    (await scope(join(root, 'unbundled'))).project,
-    /^projects\/c\.bundle-/,
+    await name('emoji', `x${'😀'.repeat(200)}`),
+    /^x😀{118}-[0-9a-f]{16}$/u,
   );
-  const inside = join(root, 'inside');
-  await mkdir(inside);
-  await git(inside, 'init', '--quiet');
-  await git(inside, 'remote', 'add', 'origin', join(checkout, 'sub'));
-  assert.match((await scope(inside)).project, /^projects\/sub-/);
-  await git(checkout, 'remote', 'set-url', 'origin', join(root, 'clone'));
-  assert.match((await scope(checkout)).project, /^projects\/(checkout|clone)-/);
 });
 
-await test('a git that fails reading the origin fails the project key instead of falling back to the path, and no repository falls back in any language', async () => {
+await test(
+  'a clone of a checkout shares the project its origin names, and an origin that is no repository of its own keys as its path',
+  { timeout: 10_000 },
+  async () => {
+    const { memory, root } = await fixture();
+    const scope = (path: string) => memory.scopePaths(path);
+    const checkout = join(root, 'checkout');
+    await mkdir(join(checkout, 'sub'), { recursive: true });
+    await git(checkout, 'init', '--quiet');
+    await git(
+      checkout,
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@localhost',
+      'commit',
+      '--quiet',
+      '--allow-empty',
+      '-m',
+      'c',
+    );
+    await git(
+      checkout,
+      'remote',
+      'add',
+      'origin',
+      'https://github.com/o/r.git',
+    );
+    await git(root, 'clone', '--quiet', checkout, 'clone');
+    const upstream = await scope(checkout);
+    const cloned = await scope(join(root, 'clone'));
+    assert.equal(cloned.project, upstream.project);
+    assert.notEqual(cloned.project, upstream.checkout);
+    await git(
+      checkout,
+      'bundle',
+      'create',
+      '--quiet',
+      join(root, 'c.bundle'),
+      '--all',
+    );
+    await git(root, 'clone', '--quiet', join(root, 'c.bundle'), 'unbundled');
+    assert.match(
+      (await scope(join(root, 'unbundled'))).project,
+      /^projects\/c\.bundle-/,
+    );
+    const inside = join(root, 'inside');
+    await mkdir(inside);
+    await git(inside, 'init', '--quiet');
+    await git(inside, 'remote', 'add', 'origin', join(checkout, 'sub'));
+    assert.match((await scope(inside)).project, /^projects\/sub-/);
+    await git(checkout, 'remote', 'set-url', 'origin', join(root, 'clone'));
+    assert.match(
+      (await scope(checkout)).project,
+      /^projects\/(checkout|clone)-/,
+    );
+  },
+);
+
+await test('a git or OS that fails reading a checkout or its origin fails the project key instead of falling back to the path, and no repository falls back in any language', async () => {
   const { memory, hook, project, root } = await fixture();
   await git(project, 'init', '--quiet');
   hook.current = async (command, run) =>
@@ -634,6 +734,25 @@ await test('a git that fails reading the origin fails the project key instead of
     flag: 'a',
   });
   await assert.rejects(memory.scopePaths(project), /bad config/);
+  const dangling = join(root, 'dangling');
+  await mkdir(dangling);
+  await writeFile(join(dangling, '.git'), 'gitdir: /does/not/exist\n');
+  await assert.rejects(
+    memory.scopePaths(dangling),
+    /not a git repository: \/does\/not\/exist/,
+  );
+  const locked = join(root, 'locked');
+  await mkdir(join(locked, 'upstream'), { recursive: true });
+  const reader = join(root, 'reader');
+  await mkdir(reader);
+  await git(reader, 'init', '--quiet');
+  await git(reader, 'remote', 'add', 'origin', join(locked, 'upstream'));
+  await chmod(locked, 0o000);
+  try {
+    await assert.rejects(memory.scopePaths(reader), /EACCES/);
+  } finally {
+    await chmod(locked, 0o755);
+  }
   const plain = join(root, 'plain');
   await mkdir(plain);
   const locale = process.env.LC_ALL;
