@@ -3059,6 +3059,7 @@ await test('a new request ignores keys for its first 500 ms', async () => {
     // a key in the instant the request appears beats even a 0 ms guard
     await delay(150);
     ui.stdin.write('y');
+    ui.stdin.write('\u001b');
     await delay(100);
     assert.deepEqual(calls, []);
     await delay(500);
