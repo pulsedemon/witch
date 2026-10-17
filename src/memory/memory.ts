@@ -6,7 +6,6 @@ import {
   realpath,
   rename,
   rm,
-  stat,
   writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
@@ -37,8 +36,8 @@ export type GitRunner = (
 ) => Promise<GitResult>;
 
 // host and path of a URL or scp-style remote, so `git@github.com:a/b.git` and `https://github.com/a/b` match.
-// like git, it reads a remote with a slash before any colon as a local path, a port only in a URL, and an scp host up to its colon.
-// a leading slash is dropped, since that match already pairs a home-relative scp path with a URL's absolute one
+// like git, it reads a remote with a slash before any colon as a local path and an scp host up to its colon. a URL's port is dropped, a port inside an scp host's brackets stays.
+// a leading slash is dropped, so `host:/srv/a` matches `ssh://host/srv/a` as `host:a` matches `https://host/a`
 const remote =
   /^(?=[^/]*:)(?:[a-zA-Z][\w+.-]*:\/\/(?:[^/]*@)?(\[[^\]]*\]|[^/:@]+)(?::\d*)?\/|(?:[^/:]*@)?(\[[^\]]*\]|[^/:@]+):)\/*(.+?)(?:\.git)?\/?$/;
 
@@ -212,7 +211,7 @@ export class Memory {
     return new Workspace(this, join(directory, 'memory'), id);
   }
 
-  /** the relative scope paths for a project directory; creates nothing. every clone of a repository shares its origin's scope. */
+  /** the relative scope paths for a project directory; creates nothing. */
   async scopePaths(directory: string): Promise<MemoryScope> {
     const { identity, top } = await this.reach(await realpath(directory));
     const project = projectKey(identity);
@@ -228,29 +227,23 @@ export class Memory {
   private async reach(
     cwd: string,
     seen = new Set<string>(),
-    ceiling?: string,
   ): Promise<{ identity: string; top: string }> {
     // only a missing origin, repository or work tree falls back, so a git that fails can't move the key.
     // git exits 128 for the last two and for fatal errors such as a bad config, so its untranslated message tells them apart.
     // a `.git` file whose gitdir is gone prints `not a git repository: <gitdir>`, without the parenthesis, and fails
-    const read = async (args: string[]) => {
+    const read = async (
+      args: string[],
+      absent = /not a git repository \(|must be run in a work tree/,
+    ) => {
       const result = await this.run(cwd, args, {
         codes: [0, 2, 128],
-        env: {
-          LC_ALL: 'C',
-          ...(ceiling ? { GIT_CEILING_DIRECTORIES: ceiling } : {}),
-        },
+        env: { LC_ALL: 'C' },
       });
-      if (
-        result.code === 128 &&
-        !/not a git repository \(|must be run in a work tree/.test(
-          result.stderr,
-        )
-      )
+      if (result.code === 128 && !absent.test(result.stderr))
         throw new Error(`${cwd}: ${result.stderr.trim()}`);
       return result.code === 0 ? result.stdout.trim() : undefined;
     };
-    // git reads a `file://` origin as the path after its host, with percent escapes but `%00` decoded
+    // git reads a `file://` origin as the path after its host, decoding every percent escape except `%00`
     const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
       /^file:\/\/[^/]*(.*)$/s,
       (_, path: string) => path.replace(/(?:%(?!00)[\da-f]{2})+/gi, decoded),
@@ -259,22 +252,34 @@ export class Memory {
     const host = url ?? scp;
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
     if (host) return { identity: `${host.toLowerCase()}/${path}`, top };
+    if (!origin) return { identity: top, top };
     seen.add(cwd).add(top);
-    // git resolves a relative origin against the top level
-    const local = await physical(
-      origin?.startsWith('/') ? origin : `${top}/${origin ?? ''}`,
+    // git resolves a relative origin against the top level, and `<p>/.git` is `<p>`'s repository
+    const given = await physical(
+      origin.startsWith('/') ? origin : `${top}/${origin}`,
     );
-    const directory = await stat(local).then(
-      (found) => found.isDirectory(),
-      () => false,
-    );
-    if (!origin || !directory || seen.has(local) || seen.size > 32)
+    const local = basename(given) === '.git' ? dirname(given) : given;
+    // git reaches the first of these that is a repository, so a directory inside another repository isn't that repository
+    const dotted = await physical(`${local}.git`);
+    let repository: string | undefined;
+    for (const [form, directory] of [
+      [join(local, '.git'), local],
+      [local, local],
+      [join(dotted, '.git'), dotted],
+      [dotted, dotted],
+    ] as const)
+      if (
+        await read(
+          ['rev-parse', '--resolve-git-dir', form],
+          /not a gitdir|invalid gitfile format/,
+        )
+      ) {
+        repository = directory;
+        break;
+      }
+    if (!repository || seen.has(repository) || seen.size > 32)
       return { identity: local, top };
-    // the ceiling stops git at the origin itself, so a directory inside another repository isn't that repository
-    return {
-      identity: (await this.reach(local, seen, dirname(local))).identity,
-      top,
-    };
+    return { identity: (await this.reach(repository, seen)).identity, top };
   }
 
   async resolve(revision: string, cwd = this.root): Promise<string> {
