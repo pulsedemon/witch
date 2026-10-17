@@ -484,7 +484,7 @@ class ClaudeSession implements AgentSession {
         const subagent = this.subagents.get(message.task_id);
         if (subagent && !this.late(message))
           this.subagent({ ...subagent, status: message.status });
-        // a shell joins the live set before its notification, so none is listed after it ends
+        // a shell joins the live set before its notification, so the notification finds it listed here
         const command = this.backgroundCommands.get(message.task_id);
         if (command)
           this.backgroundCommand({ ...command, status: message.status });
