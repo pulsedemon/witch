@@ -2801,6 +2801,34 @@ await test('the sidebar lists only running familiars, depth first under the fami
   }
 });
 
+await test("a familiar's kind with a line break stays on its sidebar row", async () => {
+  const { app } = fake({
+    subagents: [
+      {
+        id: 'a',
+        name: 'map',
+        kind: 'Explore\nfast',
+        status: 'running',
+        startedAt: Date.now(),
+        rows: { start: 'row' },
+      },
+    ],
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  try {
+    await until('the familiars', () => ui.text().includes('FAMILIARS'));
+    assert.ok(
+      sidebarRows(ui.text()).some((row) => row.includes('MAP Explore fast')),
+      ui.text(),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test("a running familiar's time ticks once a second, also when it starts after the sidebar shows", async () => {
   const { app, coordinator } = fake({});
   const ui = show(
