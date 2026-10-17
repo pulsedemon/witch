@@ -1177,6 +1177,7 @@ export function App({
         <Sidebar
           height={height}
           spinning={working}
+          brews={state.backgroundCommands}
           subagents={state.subagents}
         />
       )}

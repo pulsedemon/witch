@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import type { Subagent } from '../src/agents/types.js';
+import type { BackgroundCommand, Subagent } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory, main } from '../src/memory/memory.js';
@@ -332,6 +332,74 @@ await test("a familiar's name and kind arriving after its rows retitle them in p
       ['Familiar started  Hypatia', ''],
       ['Familiar completed  Hypatia  2 tools', 'Found it.'],
     ]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a brew lists from its start until its end and through a turn, its start and end each add a transcript row, and a repeated start or an unlisted end changes nothing', async () => {
+  const { coordinator, a } = await fixture();
+  const emit = (id: string, status: BackgroundCommand['status']) =>
+    a.sessions[0]!.options.onEvent({
+      type: 'command',
+      command: { id, description: 'Start the server', status },
+    });
+  const rows = () =>
+    coordinator.snapshot.items
+      .filter((item) => item.kind === 'tool')
+      .map(({ title, text, done }) => [title, text, done]);
+  const serve = {
+    id: 'serve',
+    description: 'Start the server',
+    status: 'running',
+  };
+  try {
+    emit('serve', 'running');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
+    assert.deepEqual(rows(), [['Brew started  Start the server', '', true]]);
+
+    emit('serve', 'running');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
+    assert.equal(rows().length, 1);
+
+    await coordinator.send('hello');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
+
+    emit('ghost', 'failed');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
+    assert.equal(rows().length, 1);
+
+    emit('serve', 'failed');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
+    assert.deepEqual(rows().at(-1), [
+      'Brew failed  Start the server',
+      '',
+      true,
+    ]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test("a brew still running when its session closes ends stopped, and the closed session's later start lists nothing", async () => {
+  const { coordinator, a } = await fixture();
+  const emit = (id: string) =>
+    a.sessions[0]!.options.onEvent({
+      type: 'command',
+      command: { id, description: 'Start the server', status: 'running' },
+    });
+  try {
+    emit('serve');
+    await coordinator.switchAgent('b');
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter(({ title }) => title?.startsWith('Brew'))
+        .map(({ title }) => title),
+      ['Brew started  Start the server', 'Brew stopped  Start the server'],
+    );
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
+    emit('late');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
   } finally {
     await coordinator.close();
   }

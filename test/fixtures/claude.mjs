@@ -24,6 +24,10 @@ const state = (state) =>
     uuid: randomUUID(),
     session_id,
   });
+const task = (subtype, fields) =>
+  send({ type: 'system', subtype, ...fields, uuid: randomUUID(), session_id });
+/** the live background tasks, as `background_tasks_changed` lists them. */
+const level = (tasks) => task('background_tasks_changed', { tasks });
 const streamEvent = (event, parent) =>
   send({
     type: 'stream_event',
@@ -448,14 +452,6 @@ for await (const line of lines) {
       });
       finish();
     } else if (lastPrompt === 'familiars') {
-      const task = (subtype, fields) =>
-        send({
-          type: 'system',
-          subtype,
-          ...fields,
-          uuid: randomUUID(),
-          session_id,
-        });
       task('task_started', {
         task_id: 'outer',
         description: 'Map the code',
@@ -512,6 +508,56 @@ for await (const line of lines) {
           output_file: '',
           summary: '',
         });
+      finish();
+    } else if (lastPrompt === 'brews') {
+      const outer = {
+        task_id: 'outer',
+        task_type: 'local_agent',
+        description: 'Map the code',
+      };
+      const serve = {
+        task_id: 'serve',
+        task_type: 'local_bash',
+        description: 'Start the server',
+      };
+      const moved = {
+        task_id: 'moved',
+        task_type: 'local_bash',
+        description: 'Run tests',
+      };
+      const end = (task_id, status) =>
+        task('task_notification', {
+          task_id,
+          status,
+          output_file: '',
+          summary: '',
+        });
+      level([outer]);
+      task('task_started', outer);
+      level([outer, serve]);
+      task('task_started', { ...serve, is_backgrounded: true });
+      // a foreground shell gets task frames but never joins the live set
+      task('task_started', {
+        task_id: 'build',
+        task_type: 'local_bash',
+        description: 'Build',
+        is_backgrounded: false,
+      });
+      end('build', 'completed');
+      // a foreground shell moved to the background joins the live set before its update
+      task('task_started', { ...moved, is_backgrounded: false });
+      level([outer, serve, moved]);
+      task('task_updated', {
+        task_id: 'moved',
+        patch: { is_backgrounded: true },
+      });
+      task('task_updated', { task_id: 'serve', patch: { status: 'failed' } });
+      end('serve', 'failed');
+      level([outer, moved]);
+      end('moved', 'stopped');
+      level([outer]);
+      end('outer', 'completed');
+      level([]);
       finish();
     } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
       assistant('Working.');

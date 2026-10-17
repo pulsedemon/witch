@@ -8,6 +8,7 @@ import { errorMessage } from '../agents/stderr.js';
 import type {
   AgentEvent,
   AgentSession,
+  BackgroundCommand,
   Model,
   SessionInfo,
   Skill,
@@ -121,6 +122,8 @@ export interface Snapshot {
   skills: readonly Skill[];
   /** the live session's subagents in start order; a turn drops the finished ones. */
   subagents: readonly TimedSubagent[];
+  /** the live session's running background commands, which Witch calls brews, in start order. */
+  backgroundCommands: readonly BackgroundCommand[];
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
   /** the live session's usage; a session that never reported keeps it empty. */
@@ -181,6 +184,7 @@ export class Coordinator {
       models: [],
       skills: [],
       subagents: [],
+      backgroundCommands: [],
       usage: {},
       agents: agents.map(({ adapter, executable }) => ({
         id: adapter.id,
@@ -919,10 +923,12 @@ export class Coordinator {
   private async disconnect(): Promise<void> {
     const session = this.session;
     this.session = undefined;
-    // closing the session stops its familiars, and their own stops would no longer reach receive()
+    // closing the session stops its familiars and brews, and their own stops would no longer reach receive()
     for (const subagent of this.snapshot.subagents)
       if (subagent.status === 'running')
         this.familiar(this.current(), { ...subagent, status: 'stopped' });
+    for (const command of this.snapshot.backgroundCommands)
+      this.brew(this.current(), { ...command, status: 'stopped' });
     this.publish({ skills: [], subagents: [] });
     await session?.close();
     if (!this.record) return;
@@ -956,6 +962,8 @@ export class Coordinator {
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent') {
       if (this.live(agent)) this.familiar(conversation, event.subagent);
+    } else if (event.type === 'command') {
+      if (this.live(agent)) this.brew(conversation, event.command);
     } else {
       const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       this.display(
@@ -1005,23 +1013,19 @@ export class Coordinator {
         rows,
       }),
     });
-    const row = (id: string, title: string[], text = '') =>
-      this.display({
-        id,
-        kind: 'tool',
-        title: title.filter(Boolean).join('  '),
-        text,
-        done: true,
-        cwd: conversation.cwd,
-      });
     // a name or kind can arrive after the rows, as a Codex thread's does, and retitles them in place
     const renamed =
       !started &&
       (subagent.name !== previous!.name || subagent.kind !== previous!.kind);
     if (started || renamed)
-      row(rows.start, ['Familiar started', subagent.name, subagent.kind]);
+      this.taskRow(conversation, rows.start, [
+        'Familiar started',
+        subagent.name,
+        subagent.kind,
+      ]);
     if (rows.end && (ended || renamed))
-      row(
+      this.taskRow(
+        conversation,
         rows.end,
         [
           `Familiar ${subagent.status}`,
@@ -1032,6 +1036,45 @@ export class Coordinator {
         ],
         ended ? (subagent.report ?? '') : '',
       );
+  }
+
+  /** lists a background command, which Witch calls a brew, while it runs, and writes its start and end rows. */
+  private brew(
+    conversation: ConversationRecord,
+    command: BackgroundCommand,
+  ): void {
+    const running = command.status === 'running';
+    const listed = this.snapshot.backgroundCommands.some(
+      ({ id }) => id === command.id,
+    );
+    if (running === listed) return;
+    this.publish({
+      backgroundCommands: running
+        ? [...this.snapshot.backgroundCommands, command]
+        : this.snapshot.backgroundCommands.filter(
+            ({ id }) => id !== command.id,
+          ),
+    });
+    this.taskRow(conversation, randomUUID(), [
+      `Brew ${running ? 'started' : command.status}`,
+      command.description,
+    ]);
+  }
+
+  private taskRow(
+    conversation: ConversationRecord,
+    id: string,
+    title: string[],
+    text = '',
+  ): void {
+    this.display({
+      id,
+      kind: 'tool',
+      title: title.filter(Boolean).join('  '),
+      text,
+      done: true,
+      cwd: conversation.cwd,
+    });
   }
 
   private saveInfo(
