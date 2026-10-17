@@ -912,7 +912,7 @@ export function App({
     state.native?.model ||
     state.conversation?.sessions[state.conversation.agent]?.model;
   const header = piped([
-    hyperlink(plain(basename(cwd)), cwd, cwd),
+    hyperlink(oneLine(basename(cwd)), cwd, cwd),
     (state.conversation?.agent ?? 'Starting').toUpperCase(),
     plain(model || 'Native default').toUpperCase(),
   ]);
