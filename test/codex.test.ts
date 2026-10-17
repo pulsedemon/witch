@@ -14,7 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
 import type { AgentEvent, AgentSession, Usage } from '../src/agents/types.js';
-import { within } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 const codex = fileURLToPath(new URL('fixtures/codex.mjs', import.meta.url));
 
@@ -61,17 +61,12 @@ async function close(session: AgentSession, cwd: string) {
 }
 
 async function appears(path: string) {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (
-      await access(path).then(
-        () => true,
-        () => false,
-      )
-    )
-      return;
-    await delay(10);
-  }
-  assert.fail(`${path} never appeared`);
+  await until(path, () =>
+    access(path).then(
+      () => true,
+      () => false,
+    ),
+  );
 }
 
 function settled(promise: Promise<unknown>) {

@@ -84,7 +84,7 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
     // only the background poll sees the stuck command under the agent, since its member is orphaned before the first list
     await delay(500);
     process.kill(stuck, 'SIGKILL');
-    while (!gone(stuck)) await delay(20);
+    await until('the stuck command to be gone', () => gone(stuck));
     // the running command's busy process starts two seconds after the others
     const list = await listed(jobs, (found) =>
       found.some(({ group, cpu }) => group === running && cpu > 50),
@@ -537,7 +537,7 @@ await test('stop sends SIGTERM before SIGKILL', async () => {
   });
   try {
     // a signal before the trap is set would kill the shell outright
-    while (!existsSync(join(cwd, 'ready'))) await delay(20);
+    await until('the trap', () => existsSync(join(cwd, 'ready')));
     const [job] = await jobs.list();
     await jobs.stop(job!);
     assert.ok(existsSync(join(cwd, 'term')));

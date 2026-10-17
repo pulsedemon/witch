@@ -808,24 +808,15 @@ await test('a process report that rejects fails the connect without an unhandled
   }
 });
 
-/** polls until `check` passes, since usage arrives after the turn that caused it. */
-async function eventually(what: string, check: () => boolean) {
-  for (let attempt = 0; attempt < 400; attempt++) {
-    if (check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  assert.fail(`${what} never came`);
-}
-
 await test('reports the cost from each result, and context, the 5H and 7D limits and lines once the session is idle', async () => {
   const reported: Usage[] = [];
   const { session } = await fixture((event) => {
     if (event.type === 'usage') reported.push(event.usage);
   });
   try {
-    await eventually('the usage at connect', () => !!session.usage.limits);
+    await until('the usage at connect', () => !!session.usage.limits);
     assert.equal((await session.send('hello')).status, 'completed');
-    await eventually(
+    await until(
       'the usage after the turn',
       () => session.usage.lines?.added === 4,
     );
@@ -841,7 +832,7 @@ await test('reports the cost from each result, and context, the 5H and 7D limits
     assert.deepEqual(reported.at(-1), session.usage);
     // each result carries the session's total so far
     assert.equal((await session.send('again')).status, 'completed');
-    await eventually(
+    await until(
       'the usage after the second turn',
       () => session.usage.lines?.added === 8,
     );
@@ -855,7 +846,7 @@ await test('a result that arrives with no turn open still reports the cost', asy
   const { session } = await fixture();
   try {
     assert.equal((await session.send('background result')).status, 'completed');
-    await eventually('the background result', () => session.usage.cost === 0.5);
+    await until('the background result', () => session.usage.cost === 0.5);
   } finally {
     await session.close();
   }
