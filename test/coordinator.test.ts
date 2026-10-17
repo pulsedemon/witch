@@ -2079,9 +2079,8 @@ await test('a failed history write outside any operation needs a restart', async
     a.sessions
       .at(-1)!
       .options.onEvent({ type: 'notice', text: 'Native notice' });
-    for (let attempt = 0; attempt < 100 && !errors.length; attempt++)
-      await delay(10);
-    assert.match(errors[0] ?? '', /^Restart Witch/);
+    await until('the error', () => errors.length > 0);
+    assert.match(errors[0]!, /^Restart Witch/);
   } finally {
     await chmod(directory, 0o700);
     await coordinator.close().catch(() => {});

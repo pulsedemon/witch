@@ -858,15 +858,9 @@ await test("reports context, lines summed over the thread's turns, limits merged
     if (event.type === 'usage') reported.push(event.usage);
   });
   try {
-    for (let attempt = 0; !session.usage.limits && attempt < 400; attempt++)
-      await delay(5);
+    await until('the limits', () => !!session.usage.limits);
     assert.equal((await session.send('usage')).status, 'completed');
-    for (
-      let attempt = 0;
-      session.usage.cost !== 1.5 && attempt < 400;
-      attempt++
-    )
-      await delay(5);
+    await until('the cost', () => session.usage.cost === 1.5);
     assert.deepEqual(session.usage, {
       // 64000 of a 256000-token window
       context: 25,
@@ -887,12 +881,7 @@ await test('a Codex that cannot read its limits still connects, and leaves limit
   const { session, cwd } = await fixture(() => {}, { mode: 'no-limits' });
   try {
     // the limits read is answered before the cost read
-    for (
-      let attempt = 0;
-      session.usage.cost === undefined && attempt < 400;
-      attempt++
-    )
-      await delay(5);
+    await until('the cost', () => session.usage.cost !== undefined);
     assert.deepEqual(session.usage, { cost: 0 });
     assert.equal(session.closed, false);
   } finally {
