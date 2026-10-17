@@ -231,7 +231,8 @@ export class Memory {
     ceiling?: string,
   ): Promise<{ identity: string; top: string }> {
     // only a missing origin, repository or work tree falls back, so a git that fails can't move the key.
-    // git exits 128 for those and for fatal errors such as a bad config, so its untranslated message tells them apart
+    // git exits 128 for the last two and for fatal errors such as a bad config, so its untranslated message tells them apart.
+    // a `.git` file whose gitdir is gone prints `not a git repository: <gitdir>`, without the parenthesis, and fails
     const read = async (args: string[]) => {
       const result = await this.run(cwd, args, {
         codes: [0, 2, 128],
@@ -242,9 +243,11 @@ export class Memory {
       });
       if (
         result.code === 128 &&
-        !/not a git repository|must be run in a work tree/.test(result.stderr)
+        !/not a git repository \(|must be run in a work tree/.test(
+          result.stderr,
+        )
       )
-        throw new Error(result.stderr.trim());
+        throw new Error(`${cwd}: ${result.stderr.trim()}`);
       return result.code === 0 ? result.stdout.trim() : undefined;
     };
     // git reads a `file://` origin as the path after its host, with percent escapes but `%00` decoded
