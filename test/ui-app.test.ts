@@ -481,6 +481,30 @@ await test('/memory shows a long note whose name holds a line break on one row, 
   }
 });
 
+await test('a note page shows a name that holds a line break on its title row', async () => {
+  const { seed, coordinator } = await memoryApp();
+  await writeFile(join(seed.root, 'global', 'first\nsecond.md'), 'A note.');
+  await seed.commit('chore(memory): save a note');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openCommand(ui, '/memory', 'global/first second.md');
+    ui.stdin.write('second');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the note page', () => ui.text().includes('A note.'));
+    const rows = ui.text().split('\n');
+    assert.equal(
+      rows[rows.findIndex((row) => row.includes('A note.')) - 1]!.trim(),
+      'global/first second.md',
+    );
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
 await test('memory without a worktree shows no links, builds no worktree, and keeps history', async () => {
   const { root, coordinator } = await memoryApp();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
