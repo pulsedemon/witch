@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
+import type { BackgroundCommand } from '../agents/types.js';
 import type { TimedSubagent } from '../core/coordinator.js';
 import { elapsed } from './activity.js';
 import { oneLine } from './links.js';
@@ -14,6 +15,19 @@ export const sidebarWidth = columns + 3;
 const restAngle = 0.45;
 /** a familiar's name, its time and tool count, and its latest tool call. */
 const familiarRows = 3;
+
+/** the last entries of `each` rows that fit in `room` rows, with a row for a count of the rest when some don't. */
+function fit<T>(
+  entries: readonly T[],
+  each: number,
+  room: number,
+): { shown: readonly T[]; hidden: number } {
+  const shown =
+    entries.length * each > room
+      ? entries.slice(entries.length - Math.floor(Math.max(room - 1, 0) / each))
+      : entries;
+  return { shown, hidden: entries.length - shown.length };
+}
 
 /** depth first, each subagent under the one that started it; one whose parent isn't listed is a root. */
 function lineage(
@@ -36,14 +50,16 @@ function lineage(
   return lines;
 }
 
-/** the right sidebar: the agent's running subagents, which Witch calls familiars, and the pentacle at its foot, turning while `spinning`. */
+/** the right sidebar: the agent's running background commands and subagents, which Witch calls brews and familiars, and the pentacle at its foot, turning while `spinning`. */
 export function Sidebar({
   height,
   spinning,
+  brews,
   subagents,
 }: {
   height: number;
   spinning: boolean;
+  brews: readonly BackgroundCommand[];
   subagents: readonly TimedSubagent[];
 }) {
   const [angle, setAngle] = useState(restAngle);
@@ -67,15 +83,17 @@ export function Sidebar({
     return () => clearInterval(timer);
   }, [spinning]);
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
-  // the rows above the pentacle, less the heading; the last familiars in tree order show and a count stands in for the rest
-  const room = height - rows - 1;
-  const shown =
-    familiars.length * familiarRows > room
-      ? familiars.slice(
-          familiars.length - Math.floor(Math.max(room - 1, 0) / familiarRows),
-        )
-      : familiars;
-  const hidden = familiars.length - shown.length;
+  // brews take the rows above the pentacle first, less a running familiar's heading and count
+  const above = height - rows;
+  const brewRoom = above - (running ? 2 : 0) - 1;
+  const brewing = brews.length > 0 && brewRoom > 0;
+  const listedBrews = fit(brews, 1, brewRoom);
+  const brewRows = brewing
+    ? 1 + (listedBrews.hidden ? 1 : 0) + listedBrews.shown.length
+    : 0;
+  // the last familiars in tree order show and a count stands in for the rest
+  const room = above - brewRows - 1;
+  const { shown, hidden } = fit(familiars, familiarRows, room);
   return (
     <Box
       flexDirection="column"
@@ -90,36 +108,52 @@ export function Sidebar({
       borderBottom={false}
       paddingX={1}
     >
-      {running && room > 0 && (
-        <Box flexDirection="column" flexGrow={1} overflow="hidden">
-          <Text color={accent}>FAMILIARS</Text>
-          {hidden > 0 && <Text dimColor>+{hidden} MORE</Text>}
-          {shown.map(({ subagent, depth }) => (
-            <Box key={subagent.id} flexDirection="column">
-              <Text wrap="truncate-end">
-                {'  '.repeat(depth)}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {brewing && (
+          <>
+            <Text color={accent}>BREWS</Text>
+            {listedBrews.hidden > 0 && (
+              <Text dimColor>+{listedBrews.hidden} MORE</Text>
+            )}
+            {listedBrews.shown.map((brew) => (
+              <Text key={brew.id} wrap="truncate-end">
                 <Text color={accent}>●</Text>{' '}
-                {oneLine(subagent.name).toUpperCase()}
-                {subagent.kind && (
-                  <Text dimColor> {oneLine(subagent.kind)}</Text>
-                )}
+                {oneLine(brew.description).toUpperCase()}
               </Text>
-              <Text wrap="truncate-end" dimColor>
-                {'  '.repeat(depth + 1)}
-                {piped([
-                  // one that started since the last tick shows 0S, not -1S
-                  elapsed(Math.max(0, now - subagent.startedAt)),
-                  `${subagent.tools ?? 0} TOOL${subagent.tools === 1 ? '' : 'S'}`,
-                ])}
-              </Text>
-              <Text wrap="truncate-end" dimColor>
-                {'  '.repeat(depth + 1)}
-                {oneLine(subagent.activity ?? '')}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      )}
+            ))}
+          </>
+        )}
+        {running && room > 0 && (
+          <>
+            <Text color={accent}>FAMILIARS</Text>
+            {hidden > 0 && <Text dimColor>+{hidden} MORE</Text>}
+            {shown.map(({ subagent, depth }) => (
+              <Box key={subagent.id} flexDirection="column">
+                <Text wrap="truncate-end">
+                  {'  '.repeat(depth)}
+                  <Text color={accent}>●</Text>{' '}
+                  {oneLine(subagent.name).toUpperCase()}
+                  {subagent.kind && (
+                    <Text dimColor> {oneLine(subagent.kind)}</Text>
+                  )}
+                </Text>
+                <Text wrap="truncate-end" dimColor>
+                  {'  '.repeat(depth + 1)}
+                  {piped([
+                    // one that started since the last tick shows 0S, not -1S
+                    elapsed(Math.max(0, now - subagent.startedAt)),
+                    `${subagent.tools ?? 0} TOOL${subagent.tools === 1 ? '' : 'S'}`,
+                  ])}
+                </Text>
+                <Text wrap="truncate-end" dimColor>
+                  {'  '.repeat(depth + 1)}
+                  {oneLine(subagent.activity ?? '')}
+                </Text>
+              </Box>
+            ))}
+          </>
+        )}
+      </Box>
       {lines.map((runs, row) => (
         <Text key={row}>
           {runs.map((run, index) => (
