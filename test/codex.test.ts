@@ -350,6 +350,22 @@ for (const prompt of ['die on interrupt', 'die after interrupt'])
     }
   });
 
+await test('an interrupt a running Codex refuses rejects, and the turn goes on', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    const turn = session.send('refuse interrupt');
+    await appears(join(cwd, 'prompt.json'));
+    await assert.rejects(
+      within(session.interrupt(), 2000, 'interrupt'),
+      /no active turn to interrupt/,
+    );
+    await writeFile(join(cwd, 'release'), 'yes');
+    assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('model selection waits for the settings notification', async () => {
   const { session, cwd } = await fixture();
   try {

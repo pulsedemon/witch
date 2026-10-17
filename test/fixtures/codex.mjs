@@ -178,7 +178,14 @@ for await (const line of lines) {
     lastPrompt = prompt;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
     reply({ turn: { id: 'turn-1' } });
-    if (['hold', 'die on interrupt', 'die after interrupt'].includes(prompt))
+    if (
+      [
+        'hold',
+        'die on interrupt',
+        'die after interrupt',
+        'refuse interrupt',
+      ].includes(prompt)
+    )
       continue;
     if (prompt === 'exit when idle') {
       finish('completed');
@@ -630,6 +637,15 @@ for await (const line of lines) {
   }
   if (request.method === 'turn/interrupt') {
     if (lastPrompt === 'die on interrupt') process.exit(1);
+    if (lastPrompt === 'refuse interrupt') {
+      send({
+        id: request.id,
+        error: { code: -32600, message: 'no active turn to interrupt' },
+      });
+      await held();
+      finish('completed');
+      continue;
+    }
     reply({});
     if (lastPrompt === 'die after interrupt') {
       process.stdout.write('', () => process.exit(1));
