@@ -903,6 +903,16 @@ const tools = (prefix: string) =>
     cwd: '/work',
     done: true,
   }));
+/** an assistant message of 300 numbered rows, far taller than any view. */
+const long = {
+  id: 'long',
+  kind: 'assistant' as const,
+  text: Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join('\n'),
+  cwd: '/work',
+};
+/** the number of the first `row` shown. */
+const first = (ui: { text(): string }) =>
+  Number(/row (\d+)/.exec(ui.text())?.[1]);
 const approval = {
   id: 'r1',
   kind: 'approval' as const,
@@ -1918,11 +1928,8 @@ await test('a conversation switch resets the tool selection within the next read
 });
 
 await test('two page keys in one read scroll two pages, PageDown back to the bottom follows output again, and PageUp scrolls a request back', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app, coordinator } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const rows = () =>
@@ -1971,26 +1978,22 @@ const wheelUp = '\u001b[<64;10;10M';
 const wheelDown = '\u001b[<65;10;10M';
 
 await test('the wheel scrolls the transcript a row a step, and back at the bottom follows output again', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     ui.stdin.write(wheelUp.repeat(3));
-    await until('three rows up', () => first() === bottom - 3);
+    await until('three rows up', () => first(ui) === bottom - 3);
     assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
     ui.stdin.write(wheelDown.repeat(3));
     await until(
       'live output',
       () => !ui.text().includes('READING EARLIER OUTPUT'),
     );
-    assert.equal(first(), bottom);
+    assert.equal(first(ui), bottom);
   } finally {
     ui.unmount();
   }
@@ -2163,20 +2166,16 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
 });
 
 await test('a drag inside the view leaves it where it is, on its first and last rows too', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     // scrolled up, so a drag could scroll either way
     ui.stdin.write(wheelUp + wheelUp);
-    await until('two rows up', () => first() === bottom - 2);
+    await until('two rows up', () => first(ui) === bottom - 2);
     const last = ui
       .text()
       .split('\n')
@@ -2185,10 +2184,10 @@ await test('a drag inside the view leaves it where it is, on its first and last 
     ui.stdin.write(left('drag', 1, 8));
     ui.stdin.write(left('drag', 1, 2));
     await delay(60);
-    assert.equal(first(), bottom - 2);
+    assert.equal(first(ui), bottom - 2);
     ui.stdin.write(left('drag', 1, last));
     await delay(60);
-    assert.equal(first(), bottom - 2);
+    assert.equal(first(ui), bottom - 2);
   } finally {
     ui.unmount();
   }
@@ -2275,17 +2274,13 @@ await test('a drag past the last transcript row or its right edge selects to the
 });
 
 await test('a selection that runs past the bottom of the view stays drawn as the wheel scrolls', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     const last = ui
       .text()
       .split('\n')
@@ -2294,7 +2289,7 @@ await test('a selection that runs past the bottom of the view stays drawn as the
     drag(ui, [1, 2], [5, last + 1]);
     await until('the highlight', () => ui.frame().includes('\u001b[7m'));
     ui.stdin.write(wheelUp);
-    await until('a row up', () => first() === bottom - 1);
+    await until('a row up', () => first(ui) === bottom - 1);
     assert.ok(ui.frame().includes(`\u001b[7mrow ${bottom}`));
   } finally {
     ui.unmount();
@@ -2567,22 +2562,18 @@ await test('a drag and Cmd+C in one read copy what the drag selected, and a clic
 });
 
 await test('a drag past the transcript top or bottom scrolls it a row a move, and past the top each move in one read scrolls on from where the last left the view and selects the row it brings in', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const { ui, copied } = mounted(app, 100, 40);
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     ui.stdin.write(left('press', 1, 2));
     ui.stdin.write(
       left('drag', 1, 0) + left('drag', 2, 0) + left('drag', 3, 0),
     );
-    await until('three rows up', () => first() === bottom - 3);
+    await until('three rows up', () => first(ui) === bottom - 3);
     ui.stdin.write(left('release', 3, 0));
     await delay(60);
     ui.stdin.write(CMD_C);
@@ -2592,7 +2583,7 @@ await test('a drag past the transcript top or bottom scrolls it a row a move, an
     ]);
     ui.stdin.write(left('press', 1, 2));
     ui.stdin.write(left('drag', 1, 39));
-    await until('a row down', () => first() === bottom - 2);
+    await until('a row down', () => first(ui) === bottom - 2);
   } finally {
     ui.unmount();
   }
@@ -2976,11 +2967,8 @@ await test('while the agent works, a row above the composer names a verb and cou
 });
 
 await test('a typed /agent returns to live output', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app, calls } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -3001,11 +2989,8 @@ await test('a typed /agent returns to live output', async () => {
 });
 
 await test('Down with tools focused and no tools keeps the reading position, and End returns to live output', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const top = () => ui.text().split('\n')[2]?.trim();
