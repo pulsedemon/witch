@@ -120,7 +120,7 @@ const imageContent = z.object({
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
 const turnId = z.object({ turn: z.object({ id: z.string() }) });
-/** item types besides agentMessage that aren't tool calls. */
+/** item types besides agentMessage that get no tool row or familiar activity. */
 const untooled = ['userMessage', 'reasoning'];
 
 /** an item's name and what it acts on; a command shows as itself. */
