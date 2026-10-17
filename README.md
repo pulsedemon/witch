@@ -28,6 +28,6 @@ The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md
 
 The development scripts are in [package.json](package.json). `pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
-To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. Keep backend types and protocol handling inside its adapter. The coordinator and UI consume the existing contract.
+To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
 Tested native versions: Codex 0.162.1 and Claude Code 2.1.296. Dependency versions are owned by [package.json](package.json) and its lockfile. Codex settings updates, Claude idle events and Claude's usage report use experimental native interfaces; rerun protocol and live integration checks when upgrading either CLI.

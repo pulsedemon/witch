@@ -18,6 +18,7 @@ import { identifyProcess } from '../src/persistence/process.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { foldDisplayUpdates } from '../src/core/state.js';
 import type { Conversation } from '../src/core/state.js';
+import { within } from './fixtures/within.js';
 
 function conversation(id: string, cwd = '/project'): Conversation {
   return {
@@ -173,6 +174,36 @@ await test('a claim succeeds when the recorded process exits before its signal',
     assert.equal(claimed.record.process, undefined);
     await claimed.close();
   } finally {
+    child.kill('SIGKILL');
+  }
+});
+
+await test('a claim stops the recorded process after a time zone and locale change', async () => {
+  const store = await StateStore.open(
+    await mkdtemp(join(tmpdir(), 'witch-moved-zone-')),
+  );
+  const saved = { TZ: process.env.TZ, LC_ALL: process.env.LC_ALL };
+  const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
+  try {
+    process.env.TZ = 'Asia/Tokyo';
+    process.env.LC_ALL = 'de_DE.UTF-8';
+    const files = await store.create(conversation('moved'));
+    await files.save({
+      ...files.record,
+      process: await identifyProcess(child.pid!),
+    });
+    await files.close();
+    process.env.TZ = 'America/New_York';
+    delete process.env.LC_ALL;
+    const exited = once(child, 'exit');
+    const claimed = await store.claim('moved');
+    await within(exited, 2000, 'the recorded process to stop');
+    assert.equal(claimed.record.process, undefined);
+    await claimed.close();
+  } finally {
+    for (const [name, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
     child.kill('SIGKILL');
   }
 });

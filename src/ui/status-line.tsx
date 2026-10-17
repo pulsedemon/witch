@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { basename } from 'node:path';
 import type { Usage } from '../agents/types.js';
 import type { Repository } from '../core/repository.js';
-import { hyperlink, plain } from './links.js';
+import { hyperlink, oneLine, plain } from './links.js';
 import { colors, piped } from './theme.js';
 
 export interface Status {
@@ -115,7 +115,7 @@ export function statusLines(status: Status, now: number): [string, string] {
     ]),
     piped([
       `${white('CTX')} ${context}% ${bar(context)}`,
-      white(plain(basename(status.cwd))),
+      white(oneLine(basename(status.cwd))),
       ...(repository ? [white(git(repository))] : []),
       ...(request ? [white(request)] : []),
       `${usage.lines?.added ?? 0}+/${usage.lines?.removed ?? 0}-`,

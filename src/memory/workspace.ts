@@ -9,7 +9,14 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { exists, main, notePath, printable } from './memory.js';
+import {
+  branchOf,
+  exists,
+  indexNote,
+  main,
+  notePath,
+  printable,
+} from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
 /** an index with each non-blank line of `added` it lacks appended once, in its own line endings. */
@@ -33,7 +40,7 @@ export class Workspace {
     readonly root: string,
     private readonly id: string,
   ) {
-    this.branch = `conversations/${id}`;
+    this.branch = branchOf(id);
   }
 
   private git(
@@ -41,6 +48,22 @@ export class Workspace {
     options?: { env?: Record<string, string>; input?: string },
   ): Promise<string> {
     return this.memory.git(this.root, args, options);
+  }
+
+  private async latest(): Promise<string> {
+    return (await this.git(['rev-parse', main])).trim();
+  }
+
+  private async isAncestor(
+    ancestor: string,
+    descendant: string,
+  ): Promise<boolean> {
+    const result = await this.memory.run(
+      this.root,
+      ['merge-base', '--is-ancestor', ancestor, descendant],
+      { codes: [0, 1] },
+    );
+    return result.code === 0;
   }
 
   exists(): Promise<boolean> {
@@ -136,12 +159,7 @@ export class Workspace {
   /** begins outside a turn to take in the notes keyed by the checkout's path, unless pending or unpublished memory waits for settling. */
   async adoptCheckout(cwd: string): Promise<void> {
     if (!(await this.exists()) || (await this.isDirty())) return;
-    const published = await this.memory.run(
-      this.root,
-      ['merge-base', '--is-ancestor', 'HEAD', main],
-      { codes: [0, 1] },
-    );
-    if (published.code === 0) await this.begin(cwd);
+    if (await this.isAncestor('HEAD', main)) await this.begin(cwd);
   }
 
   /** merges the notes keyed by a checkout's path into its origin's project as a commit of its own, and says whether that key held notes. */
@@ -153,7 +171,7 @@ export class Workspace {
       .filter(Boolean);
     if (!files.length) return false;
     const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
-    const index = posix.join(checkout, 'MEMORY.md');
+    const index = posix.join(checkout, indexNote);
     const renamed = new Map<string, string>();
     // the index merges last, so its lines can link where renamed notes went
     for (const file of files.sort((a, b) => +(a === index) - +(b === index))) {
@@ -233,20 +251,10 @@ export class Workspace {
 
   async publish(): Promise<'published' | 'conflict'> {
     for (let attempt = 0; attempt < 50; attempt++) {
-      const latest = (await this.git(['rev-parse', main])).trim();
+      const latest = await this.latest();
       // an idle worktree behind main stays where its last turn left it
-      const published = await this.memory.run(
-        this.root,
-        ['merge-base', '--is-ancestor', 'HEAD', latest],
-        { codes: [0, 1] },
-      );
-      if (published.code === 0) return 'published';
-      const based = await this.memory.run(
-        this.root,
-        ['merge-base', '--is-ancestor', latest, 'HEAD'],
-        { codes: [0, 1] },
-      );
-      if (based.code !== 0) {
+      if (await this.isAncestor('HEAD', latest)) return 'published';
+      if (!(await this.isAncestor(latest, 'HEAD'))) {
         // --merge overrides rebase.backend=apply, which would stop where rebaseStopped() doesn't look
         const rebase = await this.memory.run(
           this.root,
@@ -266,7 +274,7 @@ export class Workspace {
         { codes: [0, 1, 128] },
       );
       if (update.code === 0) return 'published';
-      if ((await this.git(['rev-parse', main])).trim() === latest)
+      if ((await this.latest()) === latest)
         throw new Error(
           update.stderr.trim() || 'Memory could not be published to main',
         );
@@ -311,7 +319,7 @@ export class Workspace {
 
   /** the paths that conflict with `main`, content conflicts included, and this branch's changes. */
   async conflict(): Promise<{ paths: string[]; diff: string }> {
-    const latest = (await this.git(['rev-parse', main])).trim();
+    const latest = await this.latest();
     const merged = await this.memory.run(
       this.root,
       [
@@ -347,7 +355,7 @@ export class Workspace {
 
   /** my side wins each conflicting change; every other change from both sides merges. */
   async keepMine(): Promise<void> {
-    const latest = (await this.git(['rev-parse', main])).trim();
+    const latest = await this.latest();
     const merged = await this.memory.run(
       this.root,
       [

@@ -5,22 +5,40 @@ import type { ConversationRecord } from '../core/state.js';
 
 const execute = promisify(execFile);
 
+/**
+ * `ps -o format` for the listed processes, or every process without a list. Dates and decimals are C's, which Date
+ * and Number parse, and dates are in UTC so a time zone change keeps every identity. LC_ALL goes, since it overrides
+ * both; LC_ALL=C instead would escape non-ASCII in commands.
+ */
+export async function ps(format: string, pids?: number[]): Promise<string[]> {
+  try {
+    const { stdout } = await execute(
+      '/bin/ps',
+      [...(pids ? ['-p', pids.join(',')] : ['-A']), '-o', format],
+      {
+        env: {
+          ...process.env,
+          LC_ALL: undefined,
+          LC_TIME: 'C',
+          LC_NUMERIC: 'C',
+          TZ: 'UTC',
+        },
+      },
+    );
+    return stdout.split('\n').filter(Boolean);
+  } catch (error) {
+    // ps exits 1 when none of the listed processes still runs. a full listing always holds Witch, so there it failed
+    if (pids && error instanceof Error && 'code' in error && error.code === 1)
+      return [];
+    throw error;
+  }
+}
+
 export async function identifyProcess(
   pid: number,
 ): Promise<ConversationRecord['process']> {
-  try {
-    const { stdout } = await execute('/bin/ps', [
-      '-p',
-      String(pid),
-      '-o',
-      'lstart=',
-    ]);
-    return { pid, started: stdout.trim() };
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 1)
-      return undefined;
-    throw error;
-  }
+  const [started] = await ps('lstart=', [pid]);
+  return started === undefined ? undefined : { pid, started: started.trim() };
 }
 
 export async function stopPreviousProcess(

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { TimedSubagent } from '../core/coordinator.js';
 import { elapsed } from './activity.js';
-import { plain } from './links.js';
+import { oneLine } from './links.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
 
@@ -99,8 +99,10 @@ export function Sidebar({
               <Text wrap="truncate-end">
                 {'  '.repeat(depth)}
                 <Text color={accent}>●</Text>{' '}
-                {plain(subagent.name).replace(/\s+/g, ' ').toUpperCase()}
-                {subagent.kind && <Text dimColor> {plain(subagent.kind)}</Text>}
+                {oneLine(subagent.name).toUpperCase()}
+                {subagent.kind && (
+                  <Text dimColor> {oneLine(subagent.kind)}</Text>
+                )}
               </Text>
               <Text wrap="truncate-end" dimColor>
                 {'  '.repeat(depth + 1)}
@@ -112,7 +114,7 @@ export function Sidebar({
               </Text>
               <Text wrap="truncate-end" dimColor>
                 {'  '.repeat(depth + 1)}
-                {plain(subagent.activity ?? '').replace(/\s+/g, ' ')}
+                {oneLine(subagent.activity ?? '')}
               </Text>
             </Box>
           ))}

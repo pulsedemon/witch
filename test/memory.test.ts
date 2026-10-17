@@ -77,6 +77,18 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return (await execute('git', args, { cwd })).stdout;
 }
 
+async function repository(
+  root: string,
+  name: string,
+  origin?: string,
+): Promise<string> {
+  const path = join(root, name);
+  await mkdir(path, { recursive: true });
+  await git(path, 'init', '--quiet');
+  if (origin) await git(path, 'remote', 'add', 'origin', origin);
+  return path;
+}
+
 await test('parallel initialization seeds one repository and leaves a stray build alone', async () => {
   const root = await mkdtemp(join(tmpdir(), 'witch-memory-init-'));
   const stray = join(root, `memory.git.${randomUUID()}`);
@@ -303,13 +315,9 @@ await test('a subdirectory of a repository shares its project memory, and its no
 
 await test('clones of one origin share project memory under its name across directories, URL and scp forms, users and host case', async () => {
   const { memory, root } = await fixture();
-  const clone = async (directory: string, origin: string) => {
-    const path = join(root, directory);
-    await mkdir(path);
-    await git(path, 'init', '--quiet');
-    await git(path, 'remote', 'add', 'origin', origin);
-    return (await memory.scopePaths(path)).project;
-  };
+  const clone = async (directory: string, origin: string) =>
+    (await memory.scopePaths(await repository(root, directory, origin)))
+      .project;
   const ssh = await clone('work', 'git@github.com:owner/repo.git');
   assert.match(ssh, /^projects\/repo-[0-9a-f]{16}$/);
   assert.equal(await clone('copy', 'HTTPS://github.com/owner/repo/'), ssh);
@@ -359,15 +367,13 @@ await test('clones of one origin share project memory under its name across dire
 await test('a local origin names the repository git reaches through it: from the top level, through links, by file URL, by its .git forms, and before it exists', async () => {
   const { memory, root } = await fixture();
   const clone = async (directory: string, origin: string) => {
-    const path = join(root, directory);
-    await mkdir(join(path, 'src'), { recursive: true });
-    await git(path, 'init', '--quiet');
-    await git(path, 'remote', 'add', 'origin', origin);
+    const path = await repository(root, directory, origin);
+    await mkdir(join(path, 'src'));
     return path;
   };
   const key = async (path: string) => (await memory.scopePaths(path)).project;
-  for (const repository of ['a/upstream.git', 'a/upstream', 'b/upstream.git'])
-    await git(root, 'init', '--quiet', '--bare', repository);
+  for (const bare of ['a/upstream.git', 'a/upstream', 'b/upstream.git'])
+    await git(root, 'init', '--quiet', '--bare', bare);
   await symlink(join(root, 'a'), join(root, 'alias'));
   await mkdir(join(root, 'b/child'));
   await symlink(join(root, 'b/child'), join(root, 'a/link'));
@@ -459,9 +465,7 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
       'p(1).md': 'A.\n',
     })
   ).scope.project;
-  const copy = join(root, 'copy');
-  await mkdir(copy);
-  await git(copy, 'init', '--quiet');
+  const copy = await repository(root, 'copy');
   const second = (await open('b')).workspace;
   await begin(second, copy, {
     'MEMORY.md':
@@ -546,9 +550,7 @@ await test("a move that loses to another clone's move is made again on the newer
   const first = (await open('a')).workspace;
   await git(project, 'init', '--quiet');
   await begin(first, project, 'A version.\n');
-  const copy = join(root, 'copy');
-  await mkdir(copy);
-  await git(copy, 'init', '--quiet');
+  const copy = await repository(root, 'copy');
   const second = (await open('b')).workspace;
   await begin(second, copy, 'B version.\n');
   for (const checkout of [project, copy])
@@ -587,9 +589,7 @@ await test("a move that loses to another clone's move is made again on the newer
 await test('a move that keeps losing to other clones gives up on main, so it never waits to publish', async () => {
   const { memory, open, root } = await fixture();
   const { workspace } = await open('a');
-  const copy = join(root, 'copy');
-  await mkdir(copy);
-  await git(copy, 'init', '--quiet');
+  const copy = await repository(root, 'copy');
   const key = (await workspace.begin(copy)).scope.project;
   await save(workspace, { [`${key}/x.md`]: 'X.\n' });
   await workspace.publish();
@@ -608,22 +608,15 @@ await test('a move that keeps losing to other clones gives up on main, so it nev
 await test("a note with no free path in the project stays under the checkout's key", async () => {
   const { memory, open, root } = await fixture();
   const { workspace } = await open('a');
-  const repository = async (directory: string) => {
-    const path = join(root, directory);
-    await mkdir(path);
-    await git(path, 'init', '--quiet');
-    return path;
-  };
   const origin = 'https://github.com/o/r.git';
-  const upstream = await repository('upstream');
-  await git(upstream, 'remote', 'add', 'origin', origin);
+  const upstream = await repository(root, 'upstream', origin);
   const target = (await workspace.begin(upstream)).scope.project;
   await save(workspace, {
     [`${target}/x.md/note.md`]: 'A directory.\n',
     [`${target}/(app)`]: 'A file.\n',
   });
   await workspace.publish();
-  const app = await repository('app');
+  const app = await repository(root, 'app');
   const key = (await workspace.begin(app)).scope.project;
   await save(workspace, { [`${key}/x.md`]: 'Stays.\n' });
   await workspace.publish();
@@ -634,21 +627,15 @@ await test("a note with no free path in the project stays under the checkout's k
 
 await test('a move that fails on an OS error fails the turn and leaves every note where it was', async () => {
   const { memory, open, root, hook } = await fixture();
-  const repository = async (directory: string) => {
-    const path = join(root, directory);
-    await mkdir(path);
-    await git(path, 'init', '--quiet');
-    await git(path, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
-    return path;
-  };
   const first = (await open('a')).workspace;
-  const target = (await first.begin(await repository('upstream'))).scope
-    .project;
+  const target = (
+    await first.begin(
+      await repository(root, 'upstream', 'https://github.com/o/r.git'),
+    )
+  ).scope.project;
   await save(first, { [`${target}/d/y.md`]: 'Y.\n' });
   await first.publish();
-  const copy = join(root, 'copy');
-  await mkdir(copy);
-  await git(copy, 'init', '--quiet');
+  const copy = await repository(root, 'copy');
   const second = (await open('b')).workspace;
   const key = (await second.begin(copy)).scope.project;
   await save(second, { [`${key}/a.md`]: 'A.\n', [`${key}/d/x.md`]: 'X.\n' });
@@ -694,22 +681,15 @@ await test(
       await workspace.publish();
       return scope.project;
     };
-    const repository = async (directory: string) => {
-      const path = join(root, directory);
-      await mkdir(path, { recursive: true });
-      await git(path, 'init', '--quiet');
-      return path;
-    };
     const origin = 'https://github.com/o/r.git';
-    const upstream = await repository('upstream');
-    await git(upstream, 'remote', 'add', 'origin', origin);
+    const upstream = await repository(root, 'upstream', origin);
     const target = await begin(upstream, {
       'MEMORY.md': '# Project\r\n- [x](x.md)\r\n',
       'x.md': 'A.\n',
     });
     const checkouts = [
-      await repository('first/app'),
-      await repository('second/app'),
+      await repository(root, 'first/app'),
+      await repository(root, 'second/app'),
     ];
     for (const [index, checkout] of checkouts.entries())
       await begin(checkout, {
@@ -732,16 +712,11 @@ await test(
 
 await test('a project name too long for an APFS name is cut by UTF-16 units to fit beside its hash', async () => {
   const { open, root } = await fixture();
-  const name = async (directory: string, repository: string) => {
-    const path = join(root, directory);
-    await mkdir(path);
-    await git(path, 'init', '--quiet');
-    await git(
-      path,
-      'remote',
-      'add',
-      'origin',
-      `https://example.org/o/${repository}`,
+  const name = async (directory: string, slug: string) => {
+    const path = await repository(
+      root,
+      directory,
+      `https://example.org/o/${slug}`,
     );
     const { scope } = await (await open(directory)).workspace.begin(path);
     return basename(scope.project);
@@ -763,9 +738,8 @@ await test(
   async () => {
     const { memory, root } = await fixture();
     const scope = (path: string) => memory.scopePaths(path);
-    const checkout = join(root, 'checkout');
-    await mkdir(join(checkout, 'sub'), { recursive: true });
-    await git(checkout, 'init', '--quiet');
+    const checkout = await repository(root, 'checkout');
+    await mkdir(join(checkout, 'sub'));
     await git(
       checkout,
       '-c',
@@ -805,15 +779,9 @@ await test(
     );
     // git turns away a file over 1 MiB, such as a large bundle, as too large rather than invalid
     await writeFile(join(root, 'big.bundle'), Buffer.alloc(2 ** 20 + 1));
-    const large = join(root, 'large');
-    await mkdir(large);
-    await git(large, 'init', '--quiet');
-    await git(large, 'remote', 'add', 'origin', join(root, 'big.bundle'));
+    const large = await repository(root, 'large', join(root, 'big.bundle'));
     assert.match((await scope(large)).project, /^projects\/big\.bundle-/);
-    const inside = join(root, 'inside');
-    await mkdir(inside);
-    await git(inside, 'init', '--quiet');
-    await git(inside, 'remote', 'add', 'origin', join(checkout, 'sub'));
+    const inside = await repository(root, 'inside', join(checkout, 'sub'));
     assert.match((await scope(inside)).project, /^projects\/sub-/);
     await git(checkout, 'remote', 'set-url', 'origin', join(root, 'clone'));
     assert.match(
@@ -850,10 +818,7 @@ await test('a git or OS that fails reading a checkout or its origin fails the pr
   );
   const locked = join(root, 'locked');
   await mkdir(join(locked, 'upstream'), { recursive: true });
-  const reader = join(root, 'reader');
-  await mkdir(reader);
-  await git(reader, 'init', '--quiet');
-  await git(reader, 'remote', 'add', 'origin', join(locked, 'upstream'));
+  const reader = await repository(root, 'reader', join(locked, 'upstream'));
   await chmod(locked, 0o000);
   try {
     await assert.rejects(memory.scopePaths(reader), /EACCES/);
@@ -969,21 +934,9 @@ await test('commit, restore, note preparation and the note list refuse symlinked
     await rename(parent ? scope.project : path, join(root, 'original'));
     await symlink(parent ? outside : target, parent ? scope.project : path);
     await assert.rejects(workspace.commit('link'), /regular (file|directory)/);
-    await git(workspace.root, 'add', '--all');
-    await git(
-      workspace.root,
-      '-c',
-      'user.name=Fixture',
-      '-c',
-      'user.email=fixture@localhost',
-      '-c',
-      'commit.gpgsign=false',
-      '-c',
-      'core.hooksPath=/dev/null',
-      'commit',
-      '-m',
-      'legacy symlink',
-    );
+    // Memory's git commits without the checks a workspace commit makes
+    await memory.git(workspace.root, ['add', '--all']);
+    await memory.git(workspace.root, ['commit', '-m', 'legacy symlink']);
     assert.equal(await workspace.isDirty(), false);
     await assert.rejects(
       memory.files(

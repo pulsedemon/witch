@@ -18,7 +18,13 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import { exists, main, printable } from '../memory/memory.js';
+import {
+  branchOf,
+  exists,
+  indexNote,
+  main,
+  printable,
+} from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import { LockedElsewhere } from '../persistence/store.js';
@@ -248,26 +254,14 @@ export class Coordinator {
   /** stops orphans, publishes stranded memory and reports what it can't settle in conversations no instance holds. */
   private async sweep(skip: string | undefined): Promise<string | undefined> {
     const { records, unreadable } = await this.store.records();
-    const ahead = new Set(
-      (
-        await this.memory.git(this.memory.root, [
-          'for-each-ref',
-          `--format=%(refname:short) %(ahead-behind:${main})`,
-          'refs/heads/conversations',
-        ])
-      )
-        .split('\n')
-        .map((line) => line.split(' '))
-        .filter(([, count]) => Number(count) > 0)
-        .map(([branch]) => branch!.slice('conversations/'.length)),
-    );
+    const ahead = new Set(await this.memory.unpublished());
     const lines = unreadable.map(
       ({ file, error }) => `- ${file} can't be read: ${error}`,
     );
     const listed = new Set(records.map(({ id }) => id));
     for (const id of ahead)
       if (!listed.has(id))
-        lines.push(`- conversations/${id} has unpublished memory but no state`);
+        lines.push(`- ${branchOf(id)} has unpublished memory but no state`);
     for (const record of records) {
       if (
         record.id === skip ||
@@ -604,7 +598,7 @@ export class Coordinator {
     await this.operate('editing', async () => {
       const note =
         path ??
-        `${(await this.memory.scopePaths(this.current().cwd)).project}/MEMORY.md`;
+        `${(await this.memory.scopePaths(this.current().cwd)).project}/${indexNote}`;
       this.notice(`Memory edit: ${noteName(note)}`, this.workspace!.root);
       await this.beginActivity('memory-edit');
       const file = await this.workspace!.prepareNote(note);
@@ -771,7 +765,7 @@ export class Coordinator {
     const context = [
       'You are running inside Witch. Follow your native and project instructions.',
       `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
-      'Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in MEMORY.md. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.',
+      `Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in ${indexNote}. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
       ...(snapshot ? [snapshot] : []),
       ...(pendingHandoff?.summary
         ? [

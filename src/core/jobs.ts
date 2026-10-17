@@ -1,8 +1,5 @@
-import { execFile } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { promisify } from 'node:util';
-
-const execute = promisify(execFile);
+import { ps } from '../persistence/process.js';
 
 /** a process group one of the agents' commands started. */
 export interface Job {
@@ -35,23 +32,6 @@ interface Detail {
   command: string;
 }
 
-/**
- * `ps` with C's dates and decimals, which Date and Number parse, and dates in UTC so a time zone change keeps every
- * identity. LC_ALL goes, since it overrides both; LC_ALL=C instead would escape non-ASCII in commands.
- */
-async function ps(args: string[]): Promise<string[]> {
-  const { stdout } = await execute('/bin/ps', args, {
-    env: {
-      ...process.env,
-      LC_ALL: undefined,
-      LC_TIME: 'C',
-      LC_NUMERIC: 'C',
-      TZ: 'UTC',
-    },
-  });
-  return stdout.split('\n').filter(Boolean);
-}
-
 /** reads `ps -o pid=,ppid=,pgid=,stat=,lstart=` lines, leaving zombies out so a job whose processes have all exited drops. */
 export function parseProcesses(lines: string[]): Row[] {
   return lines.flatMap((line) => {
@@ -71,9 +51,7 @@ export function parseProcesses(lines: string[]): Row[] {
 }
 
 async function processTable(): Promise<Row[]> {
-  return parseProcesses(
-    await ps(['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=']),
-  );
+  return parseProcesses(await ps('pid=,ppid=,pgid=,stat=,lstart='));
 }
 
 const detail =
@@ -98,21 +76,7 @@ export function parseDetails(lines: string[]): Detail[] {
 }
 
 async function describe(pids: number[]): Promise<Detail[]> {
-  let lines: string[];
-  try {
-    lines = await ps([
-      '-p',
-      pids.join(','),
-      '-o',
-      'pid=,pgid=,%cpu=,lstart=,command=',
-    ]);
-  } catch (error) {
-    // ps exits 1 when none of the processes still runs
-    if (error instanceof Error && 'code' in error && error.code === 1)
-      return [];
-    throw error;
-  }
-  return parseDetails(lines);
+  return parseDetails(await ps('pid=,pgid=,%cpu=,lstart=,command=', pids));
 }
 
 /**

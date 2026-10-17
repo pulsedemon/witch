@@ -44,6 +44,13 @@ const remote =
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
 
+const branches = 'conversations/';
+/** the branch a conversation's memory worktree is on. */
+export const branchOf = (id: string) => `${branches}${id}`;
+
+/** the note that indexes the rest of its scope. */
+export const indexNote = 'MEMORY.md';
+
 const overrides = [
   '-c',
   'user.name=Witch',
@@ -183,13 +190,13 @@ export class Memory {
     // every agent indexes its notes in MEMORY.md, so overlapping index lines merge instead of conflicting
     await writeFile(
       join(building, 'info', 'attributes'),
-      'MEMORY.md merge=union\n',
+      `${indexNote} merge=union\n`,
     );
     const blob = await this.git(building, ['hash-object', '-w', '--stdin'], {
       input: '# Global memory\n',
     });
     const global = await this.git(building, ['mktree'], {
-      input: `100644 blob ${blob.trim()}\tMEMORY.md\n`,
+      input: `100644 blob ${blob.trim()}\t${indexNote}\n`,
     });
     const tree = await this.git(building, ['mktree'], {
       input: `040000 tree ${global.trim()}\tglobal\n`,
@@ -290,6 +297,21 @@ export class Memory {
     ).trim();
   }
 
+  /** the ids of conversations whose branches hold commits `main` lacks. */
+  async unpublished(): Promise<string[]> {
+    return (
+      await this.git(this.root, [
+        'for-each-ref',
+        `--format=%(refname:short) %(ahead-behind:${main})`,
+        `refs/heads/${branches}`,
+      ])
+    )
+      .split('\n')
+      .map((line) => line.split(' '))
+      .filter(([, count]) => Number(count) > 0)
+      .map(([branch]) => branch!.slice(branches.length));
+  }
+
   async snapshot(
     revision: string,
     root: string,
@@ -300,7 +322,7 @@ export class Memory {
     const files = await this.files(revision, scope);
     const essentials = await Promise.all(
       paths.map(async (path) => {
-        const index = `${path}/MEMORY.md`;
+        const index = `${path}/${indexNote}`;
         const content = files.includes(index)
           ? await this.read(revision, index)
           : '(No saved essentials.)';

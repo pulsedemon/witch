@@ -167,3 +167,8 @@ export function plain(text: string): string {
     )
     .join('');
 }
+
+/** `plain` text for a single row, where a line break would start another: every whitespace run becomes a space. */
+export function oneLine(text: string): string {
+  return plain(text).replace(/\s+/g, ' ');
+}

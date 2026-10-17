@@ -63,6 +63,16 @@ await test('what no agent or repository reported yet takes the script defaults, 
   ]);
 });
 
+await test('a directory name with a line break stays on the second status row', () => {
+  const lines = statusLines({ usage: {}, cwd: '/work/dry\nline' }, now).map(
+    (line) => stripAnsi(line),
+  );
+  assert.deepEqual(lines, [
+    '? | DEFAULT | $0.00 | 0M',
+    'CTX 0% ░░░░░░░░░░ | dry line | 0+/0-',
+  ]);
+});
+
 await test('a model or effort carrying a link sequence shows as plain text', () => {
   const forged = (text: string) =>
     `\u001b]8;;x-evil:payload\u0007${text}\u001b]8;;\u0007`;

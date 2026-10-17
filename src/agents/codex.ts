@@ -120,6 +120,8 @@ const imageContent = z.object({
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
 const turnId = z.object({ turn: z.object({ id: z.string() }) });
+/** item types besides agentMessage that get no tool row or familiar activity. */
+const untooled = ['userMessage', 'reasoning'];
 
 /** an item's name and what it acts on; a command shows as itself. */
 function itemTitle(
@@ -197,6 +199,7 @@ class CodexSession implements AgentSession {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
     messages: Map<string, string>;
+    interrupted: boolean;
   };
   private requests = new Map<string, RpcMessage>();
   private closing = false;
@@ -238,7 +241,10 @@ class CodexSession implements AgentSession {
       const reported = !!(this.turn || this.settings);
       this.settings?.reject(error);
       this.closed = true;
-      this.finish('failed', error.message);
+      this.finish(
+        this.turn?.interrupted ? 'interrupted' : 'failed',
+        error.message,
+      );
       if (!reported && this.connected && !this.closing)
         options.onEvent({ type: 'notice', text: error.message });
     };
@@ -368,10 +374,11 @@ class CodexSession implements AgentSession {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
       messages: new Map<string, string>(),
+      interrupted: false,
     };
     this.turn = turn;
     try {
-      const response = z.object({ turn: z.object({ id: z.string() }) }).parse(
+      const response = turnId.parse(
         await this.rpc.request('turn/start', {
           threadId: this.info.id,
           // the TUI sends a selected skill as an item, which Codex resolves by path
@@ -414,12 +421,18 @@ class CodexSession implements AgentSession {
   async interrupt(): Promise<void> {
     const turn = this.turn;
     if (!turn) return;
+    turn.interrupted = true;
     const id = await turn.started.promise;
     if (id && this.turn === turn)
-      await this.rpc.request('turn/interrupt', {
-        threadId: this.info.id,
-        turnId: id,
-      });
+      try {
+        await this.rpc.request('turn/interrupt', {
+          threadId: this.info.id,
+          turnId: id,
+        });
+      } catch (error) {
+        // an exit has ended the turn by the time its rejection lands here
+        if (!this.closed) throw error;
+      }
     await turn.finished.promise;
   }
 
@@ -551,10 +564,7 @@ class CodexSession implements AgentSession {
           typeof item.text === 'string'
         )
           this.subagent({ ...subagent, report: item.text });
-      } else if (
-        message.method === 'item/started' &&
-        !['userMessage', 'reasoning'].includes(type)
-      )
+      } else if (message.method === 'item/started' && !untooled.includes(type))
         this.subagent({
           ...subagent,
           activity: itemTitle(type, item, this.options.cwd),
@@ -688,7 +698,7 @@ class CodexSession implements AgentSession {
               replace: true,
             });
           }
-        } else if (!['userMessage', 'reasoning'].includes(type)) {
+        } else if (!untooled.includes(type)) {
           const images = itemImages(type, item);
           this.options.onEvent({
             type: 'tool',

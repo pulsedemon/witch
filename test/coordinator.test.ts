@@ -77,12 +77,8 @@ async function fixture(
   const memory = new Memory(join(root, 'state', 'memory.git'), hookedGit(hook));
   const a = new FixtureAgent('a');
   const b = new FixtureAgent('b');
-  const coordinator = new Coordinator(
-    store,
-    memory,
-    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
-    editFile,
-  );
+  const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
+  const coordinator = new Coordinator(store, memory, agents, editFile);
   prepare?.(a, b);
   await coordinator.initialize(project);
   const workspace = (id = coordinator.snapshot.conversation!.id) =>
@@ -101,6 +97,17 @@ async function fixture(
     await other.scope(project);
     return other;
   };
+  /** a second instance continuing the project's conversation, as `witch -c` does. */
+  const reopen = async () => {
+    const reopened = new Coordinator(store, memory, agents);
+    try {
+      await reopened.initialize(project, { continue: true });
+    } catch (error) {
+      await reopened.close();
+      throw error;
+    }
+    return reopened;
+  };
   return {
     coordinator,
     store,
@@ -115,6 +122,7 @@ async function fixture(
     notes,
     git,
     outsider,
+    reopen,
   };
 }
 
@@ -483,15 +491,10 @@ await test('a turn back on a project key gets its snapshot after an interrupted 
 });
 
 await test('a reopened conversation skips the snapshot it was sent, unless its marker was saved without a project', async () => {
-  const { coordinator, store, memory, a, b, root, project } = await fixture();
-  const reopen = async (prompt: string) => {
-    const reopened = new Coordinator(
-      store,
-      memory,
-      [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
-    );
+  const { coordinator, a, root, reopen } = await fixture();
+  const resend = async (prompt: string) => {
+    const reopened = await reopen();
     try {
-      await reopened.initialize(project, { continue: true });
       await reopened.send(prompt);
     } finally {
       await reopened.close();
@@ -501,28 +504,22 @@ await test('a reopened conversation skips the snapshot it was sent, unless its m
   await coordinator.send('Start');
   const id = coordinator.snapshot.conversation!.id;
   await coordinator.close();
-  assert.doesNotMatch(await reopen('Same'), /Accepted shared memory/);
+  assert.doesNotMatch(await resend('Same'), /Accepted shared memory/);
   const file = join(root, 'state', 'conversations', id, 'state.json');
   const saved = await readRecord(root, id);
   delete saved.sessions.a!.deliveredProject;
   await writeFile(file, JSON.stringify(saved));
-  assert.match(await reopen('Older'), /Accepted shared memory/);
+  assert.match(await resend('Older'), /Accepted shared memory/);
 });
 
 await test("opening Witch moves the notes keyed by its checkout's path to the origin's project before a turn", async () => {
-  const { coordinator, store, memory, a, b, project, note, git } =
-    await fixture();
+  const { coordinator, memory, a, note, git, reopen } = await fixture();
   await git('init', '--quiet');
   await coordinator.send('remember-port');
   await coordinator.close();
   await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
-  const reopened = new Coordinator(
-    store,
-    memory,
-    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
-  );
+  const reopened = await reopen();
   try {
-    await reopened.initialize(project, { continue: true });
     assert.equal(await memory.read(main, await note()), 'Use port 4567.');
     assert.equal(a.inputs.length, 1);
   } finally {
@@ -532,7 +529,7 @@ await test("opening Witch moves the notes keyed by its checkout's path to the or
 
 await test('opening Witch on memory that conflicts with main leaves the move to recovery', async () => {
   const context = await fixture();
-  const { coordinator, store, memory, a, b, project, notes } = context;
+  const { coordinator, a, notes, reopen } = context;
   const gate = new TurnGate();
   try {
     await coordinator.send('Start');
@@ -547,13 +544,8 @@ await test('opening Witch on memory that conflicts with main leaves the move to 
     gate.open();
     await coordinator.close();
   }
-  const reopened = new Coordinator(
-    store,
-    memory,
-    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
-  );
+  const reopened = await reopen();
   try {
-    await reopened.initialize(project, { continue: true });
     assert.equal(reopened.snapshot.recovery?.kind, 'conflict');
     assert.equal(reopened.snapshot.error, undefined);
   } finally {
@@ -562,7 +554,7 @@ await test('opening Witch on memory that conflicts with main leaves the move to 
 });
 
 await test('a git read that fails as Witch opens is reported once and leaves the conversation open', async () => {
-  const { coordinator, store, memory, a, b, project, git } = await fixture();
+  const { coordinator, project, git, reopen } = await fixture();
   await git('init', '--quiet');
   await coordinator.send('Start');
   const id = coordinator.snapshot.conversation!.id;
@@ -570,13 +562,8 @@ await test('a git read that fails as Witch opens is reported once and leaves the
   await writeFile(join(project, '.git', 'config'), '[remote "origin"\n', {
     flag: 'a',
   });
-  const reopened = new Coordinator(
-    store,
-    memory,
-    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
-  );
+  const reopened = await reopen();
   try {
-    await reopened.initialize(project, { continue: true });
     assert.equal(reopened.snapshot.conversation!.id, id);
     assert.equal(reopened.snapshot.phase, 'idle');
     assert.equal(reopened.snapshot.error?.match(/bad config/g)?.length, 1);
@@ -659,6 +646,7 @@ for (const stage of [
       a,
       b,
       project,
+      reopen,
     } = await fixture();
     const id = original.snapshot.conversation!.id;
     await original.close();
@@ -699,13 +687,8 @@ for (const stage of [
     });
     await files.save(conversation);
     await files.close();
-    const restarted = new Coordinator(
-      store,
-      memory,
-      [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
-    );
+    const restarted = await reopen();
     try {
-      await restarted.initialize(project, { continue: true });
       assert.equal(
         restarted.snapshot.conversation!.agent,
         activated ? 'b' : 'a',
@@ -731,7 +714,13 @@ for (const stage of [
 
 await test('editing a previously committed symlink never opens its external target', async () => {
   let edits = 0;
-  const { coordinator, root, project, workspace } = await fixture(async () => {
+  const {
+    coordinator,
+    root,
+    project,
+    workspace,
+    memory: shared,
+  } = await fixture(async () => {
     edits++;
   });
   try {
@@ -742,25 +731,9 @@ await test('editing a previously committed symlink never opens its external targ
     const note = join(memory.root, scope.project, 'linked.md');
     await writeFile(target, 'External content.');
     await symlink(target, note);
-    const execute = promisify(execFile);
-    await execute('git', ['add', '--all'], { cwd: memory.root });
-    await execute(
-      'git',
-      [
-        '-c',
-        'user.name=Fixture',
-        '-c',
-        'user.email=fixture@localhost',
-        '-c',
-        'commit.gpgsign=false',
-        '-c',
-        'core.hooksPath=/dev/null',
-        'commit',
-        '-m',
-        'legacy symlink',
-      ],
-      { cwd: memory.root },
-    );
+    // Memory's git commits without the checks a workspace commit makes
+    await shared.git(memory.root, ['add', '--all']);
+    await shared.git(memory.root, ['commit', '-m', 'legacy symlink']);
     assert.equal(await memory.isDirty(), false);
     await assert.rejects(coordinator.editMemory(note), /regular file/);
     assert.equal(edits, 0);
@@ -884,10 +857,10 @@ await test('undelivered handoff context survives visiting another conversation a
   const {
     coordinator: original,
     store,
-    memory,
     a,
     b,
     project,
+    reopen,
   } = await fixture();
   const id = original.snapshot.conversation!.id;
   await original.close();
@@ -913,13 +886,8 @@ await test('undelivered handoff context survives visiting another conversation a
   });
   await files.save(conversation);
   await files.close();
-  const coordinator = new Coordinator(
-    store,
-    memory,
-    [a, b].map((adapter) => ({ adapter, executable: adapter.id })),
-  );
+  const coordinator = await reopen();
   try {
-    await coordinator.initialize(project, { continue: true });
     await coordinator.newConversation('a');
     await coordinator.send('Independent task');
     assert.doesNotMatch(a.inputs.at(-1)!.prompt, /amber-195/);
@@ -2111,9 +2079,8 @@ await test('a failed history write outside any operation needs a restart', async
     a.sessions
       .at(-1)!
       .options.onEvent({ type: 'notice', text: 'Native notice' });
-    for (let attempt = 0; attempt < 100 && !errors.length; attempt++)
-      await delay(10);
-    assert.match(errors[0] ?? '', /^Restart Witch/);
+    await until('the error', () => errors.length > 0);
+    assert.match(errors[0]!, /^Restart Witch/);
   } finally {
     await chmod(directory, 0o700);
     await coordinator.close().catch(() => {});
@@ -2281,6 +2248,13 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
   }
 });
 
+/** each turn's prompt and spell, in the order the agent got them. */
+const turns = (a: FixtureAgent) =>
+  a.inputs.map(({ prompt, skill }) => [
+    prompt.split('User request:\n')[1],
+    skill,
+  ]);
+
 await test('a prompt sent during a turn joins it and shows at once, and a spell and the prompts behind it wait, the spell for a turn alone and the rest for one turn, a line each', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
@@ -2297,17 +2271,11 @@ await test('a prompt sent during a turn joins it and shows at once, and a spell 
     assert.deepEqual(coordinator.snapshot.queue, ['/review now', 'One', 'Two']);
     gate.open();
     await within(sending, 2000, 'the queued turns');
-    assert.deepEqual(
-      a.inputs.map(({ prompt, skill }) => [
-        prompt.split('User request:\n')[1],
-        skill,
-      ]),
-      [
-        ['Start', undefined],
-        ['/review now', { name: 'review', args: 'now' }],
-        ['One\nTwo', undefined],
-      ],
-    );
+    assert.deepEqual(turns(a), [
+      ['Start', undefined],
+      ['/review now', { name: 'review', args: 'now' }],
+      ['One\nTwo', undefined],
+    ]);
     assert.deepEqual(coordinator.snapshot.queue, []);
   } finally {
     gate.open();
@@ -2396,28 +2364,15 @@ for (const [name, prompt, prepare] of [
       );
       gate.open();
       await within(sending, 2000, 'the queued turn');
-      assert.deepEqual(
-        a.inputs.map((input) => [
-          input.prompt.split('User request:\n')[1],
-          input.skill,
-        ]),
-        [
-          ['Start', undefined],
-          [prompt, undefined],
-        ],
-      );
+      assert.deepEqual(turns(a), [
+        ['Start', undefined],
+        [prompt, undefined],
+      ]);
     } finally {
       gate.open();
       await coordinator.close();
     }
   });
-
-/** each turn's prompt and spell, in the order the agent got them. */
-const turns = (a: FixtureAgent) =>
-  a.inputs.map(({ prompt, skill }) => [
-    prompt.split('User request:\n')[1],
-    skill,
-  ]);
 
 await test('prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {

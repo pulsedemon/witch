@@ -412,12 +412,23 @@ async function memoryApp(
   return { root, hook, seed, coordinator };
 }
 
-/** types /memory and waits for its picker to show `text`. */
-async function openMemory(ui: ReturnType<typeof show>, text: string) {
-  ui.stdin.write('/memory');
+const ENTER = '\u001b[13u';
+const SHIFT_ENTER = '\u001b[13;2u';
+const DOWN = '\u001b[B';
+const UP = '\u001b[A';
+const LEFT = '\u001b[D';
+const TAB = '\u001b[9u';
+
+/** types `command`, submits it and waits for its view to show `text`. */
+async function openCommand(
+  ui: ReturnType<typeof show>,
+  command: string,
+  text: string,
+) {
+  ui.stdin.write(command);
   await delay(30);
-  ui.stdin.write('\r');
-  await until('the memory picker', () => ui.text().includes(text));
+  ui.stdin.write(ENTER);
+  await until(`${command} to show ${text}`, () => ui.text().includes(text));
 }
 
 await test('/memory reads one commit even when main moves during the action', async () => {
@@ -435,7 +446,7 @@ await test('/memory reads one commit even when main moves during the action', as
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   try {
     await delay(60);
-    await openMemory(ui, 'global/other.md');
+    await openCommand(ui, '/memory', 'global/other.md');
     // only the launch's connect report, no error from reading memory
     assert.match(coordinator.snapshot.error ?? '', /^a is not installed\./);
   } finally {
@@ -457,13 +468,38 @@ await test('/memory shows a long note whose name holds a line break on one row, 
   const row = `global/first second${'x'.repeat(77)}…`;
   try {
     await delay(60);
-    await openMemory(ui, row);
+    await openCommand(ui, '/memory', row);
     ui.stdin.write('\u001b');
     await until('the chat', () => !ui.text().includes(row));
     // a worktree at main links the rows, so they render through linkify
     await coordinator.editMemory('global/other.md');
-    await openMemory(ui, row);
+    await openCommand(ui, '/memory', row);
     assert.ok(ui.frame().includes('/memory/global/other.md\u0007'));
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
+await test('a note page shows a name that holds a line break on its title row', async () => {
+  const { seed, coordinator } = await memoryApp();
+  await writeFile(join(seed.root, 'global', 'first\nsecond.md'), 'A note.');
+  await seed.commit('chore(memory): save a note');
+  await seed.publish();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await delay(60);
+    await openCommand(ui, '/memory', 'global/first second.md');
+    await delay(30);
+    ui.stdin.write('second');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the note page', () => ui.text().includes('A note.'));
+    const rows = ui.text().split('\n');
+    assert.equal(
+      rows[rows.findIndex((row) => row.includes('A note.')) - 1]!.trim(),
+      'global/first second.md',
+    );
   } finally {
     ui.unmount();
     await coordinator.close();
@@ -480,7 +516,7 @@ await test('memory without a worktree shows no links, builds no worktree, and ke
       .find((line) => stripAnsi(line).includes(text)) ?? '';
   try {
     await delay(60);
-    await openMemory(ui, 'global/MEMORY.md');
+    await openCommand(ui, '/memory', 'global/MEMORY.md');
     assert.ok(!row('global/MEMORY.md').includes('\u001b]8;'));
     await delay(30);
     ui.stdin.write('global/mem');
@@ -529,7 +565,7 @@ await test('a note page scrolls by rows and full pages and stops at its last row
   const pageDown = '\u001b[6~';
   try {
     await delay(60);
-    await openMemory(ui, 'long.md');
+    await openCommand(ui, '/memory', 'long.md');
     await delay(30);
     ui.stdin.write('long.md');
     await delay(30);
@@ -565,7 +601,7 @@ await test('e on a note page edits that note, and the + entry edits project esse
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   try {
     await delay(60);
-    await openMemory(ui, 'other.md');
+    await openCommand(ui, '/memory', 'other.md');
     await delay(30);
     ui.stdin.write('other.md');
     await delay(30);
@@ -576,7 +612,7 @@ await test('e on a note page edits that note, and the + entry edits project esse
     assert.match(edited[0]!, /\/global\/other\.md$/);
     await until('idle', () => coordinator.snapshot.phase === 'idle');
     // the edit's notice already names other.md
-    await openMemory(ui, 'Edit project essentials');
+    await openCommand(ui, '/memory', 'Edit project essentials');
     await delay(30);
     ui.stdin.write('\r');
     await until('the second edit', () => edited.length === 2);
@@ -596,7 +632,7 @@ await test('a note page links its relative Markdown targets beside the note once
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   const open = async () => {
     // the edit's notice already names index.md
-    await openMemory(ui, 'Edit project essentials');
+    await openCommand(ui, '/memory', 'Edit project essentials');
     await delay(30);
     ui.stdin.write('index.md');
     await delay(30);
@@ -650,7 +686,7 @@ await test('a note file name carrying a link sequence shows as plain text in the
   };
   try {
     await delay(60);
-    await openMemory(ui, 'global/forged');
+    await openCommand(ui, '/memory', 'global/forged');
     assert.ok(!ui.frame().includes('\u001b]8;;..:1'));
     ui.stdin.write('\u001b');
     await until('the chat', () => !ui.text().includes('global/forged'));
@@ -663,7 +699,7 @@ await test('a note file name carrying a link sequence shows as plain text in the
       coordinator.snapshot.conversation!.id,
     );
     const forged = `vscode://file${conversation}:1\u0007`;
-    await openMemory(ui, 'global/forged');
+    await openCommand(ui, '/memory', 'global/forged');
     assert.ok(
       ui
         .frame()
@@ -680,7 +716,7 @@ await test('a note file name carrying a link sequence shows as plain text in the
     );
     assert.ok(!ui.frame().includes(forged));
     await until('idle', () => coordinator.snapshot.phase === 'idle');
-    await openMemory(ui, 'global/forged');
+    await openCommand(ui, '/memory', 'global/forged');
     await choose();
     ui.stdin.write('h');
     await until('the history picker', () =>
@@ -883,12 +919,6 @@ await test('the composer takes typing while an open conversation connects, and n
   }
 });
 
-const ENTER = '\u001b[13u';
-const SHIFT_ENTER = '\u001b[13;2u';
-const DOWN = '\u001b[B';
-const UP = '\u001b[A';
-const LEFT = '\u001b[D';
-const TAB = '\u001b[9u';
 const tools = (prefix: string) =>
   [1, 2].map((n) => ({
     id: `${prefix}-tool-${n}`,
@@ -898,6 +928,16 @@ const tools = (prefix: string) =>
     cwd: '/work',
     done: true,
   }));
+/** an assistant message of 300 numbered rows, far taller than any view. */
+const long = {
+  id: 'long',
+  kind: 'assistant' as const,
+  text: Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join('\n'),
+  cwd: '/work',
+};
+/** the number of the first `row` shown. */
+const first = (ui: { text(): string }) =>
+  Number(/row (\d+)/.exec(ui.text())?.[1]);
 const approval = {
   id: 'r1',
   kind: 'approval' as const,
@@ -968,10 +1008,7 @@ for (const [choice, keys, effort, outcome] of [
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
       await delay(60);
-      ui.stdin.write('/model');
-      await delay(30);
-      ui.stdin.write(ENTER);
-      await until('the model picker', () => ui.text().includes('Model M'));
+      await openCommand(ui, '/model', 'Model M');
       await delay(30);
       ui.stdin.write(ENTER);
       await until('the effort picker', () =>
@@ -1002,10 +1039,7 @@ await test('a model id carrying a link sequence shows as plain text in the effor
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
     await delay(60);
-    ui.stdin.write('/model');
-    await delay(30);
-    ui.stdin.write(ENTER);
-    await until('the model picker', () => ui.text().includes('Model M'));
+    await openCommand(ui, '/model', 'Model M');
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the effort picker', () =>
@@ -1032,12 +1066,7 @@ for (const typed of ['gpt-5.1', 'gpt-6'])
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
       await delay(60);
-      ui.stdin.write('/model');
-      await delay(30);
-      ui.stdin.write(ENTER);
-      await until('the model picker', () =>
-        ui.text().includes('gpt-5.1-codex'),
-      );
+      await openCommand(ui, '/model', 'gpt-5.1-codex');
       await delay(30);
       ui.stdin.write(`${typed}${ENTER}`);
       await until('the selection', () => calls.length === 2);
@@ -1062,10 +1091,7 @@ await test('a long picker shows as many choices as its rows hold', async () => {
   );
   try {
     await delay(60);
-    ui.stdin.write('/model');
-    await delay(30);
-    ui.stdin.write(ENTER);
-    await until('the model picker', () => ui.text().includes('Models ·'));
+    await openCommand(ui, '/model', 'Models ·');
     const shown = ui
       .text()
       .split('\n')
@@ -1927,11 +1953,8 @@ await test('a conversation switch resets the tool selection within the next read
 });
 
 await test('two page keys in one read scroll two pages, PageDown back to the bottom follows output again, and PageUp scrolls a request back', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app, coordinator } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const rows = () =>
@@ -1980,26 +2003,22 @@ const wheelUp = '\u001b[<64;10;10M';
 const wheelDown = '\u001b[<65;10;10M';
 
 await test('the wheel scrolls the transcript a row a step, and back at the bottom follows output again', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     ui.stdin.write(wheelUp.repeat(3));
-    await until('three rows up', () => first() === bottom - 3);
+    await until('three rows up', () => first(ui) === bottom - 3);
     assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
     ui.stdin.write(wheelDown.repeat(3));
     await until(
       'live output',
       () => !ui.text().includes('READING EARLIER OUTPUT'),
     );
-    assert.equal(first(), bottom);
+    assert.equal(first(ui), bottom);
   } finally {
     ui.unmount();
   }
@@ -2014,10 +2033,7 @@ await test('the wheel scrolls a page and a request by rows', async () => {
   );
   try {
     await delay(60);
-    ui.stdin.write('/help');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the help page', () => ui.text().includes('/new  New'));
+    await openCommand(ui, '/help', '/new  New');
     ui.stdin.write(wheelDown.repeat(2));
     await until(
       'two rows down',
@@ -2175,20 +2191,16 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
 });
 
 await test('a drag inside the view leaves it where it is, on its first and last rows too', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     // scrolled up, so a drag could scroll either way
     ui.stdin.write(wheelUp + wheelUp);
-    await until('two rows up', () => first() === bottom - 2);
+    await until('two rows up', () => first(ui) === bottom - 2);
     const last = ui
       .text()
       .split('\n')
@@ -2197,10 +2209,10 @@ await test('a drag inside the view leaves it where it is, on its first and last 
     ui.stdin.write(left('drag', 1, 8));
     ui.stdin.write(left('drag', 1, 2));
     await delay(60);
-    assert.equal(first(), bottom - 2);
+    assert.equal(first(ui), bottom - 2);
     ui.stdin.write(left('drag', 1, last));
     await delay(60);
-    assert.equal(first(), bottom - 2);
+    assert.equal(first(ui), bottom - 2);
   } finally {
     ui.unmount();
   }
@@ -2287,17 +2299,13 @@ await test('a drag past the last transcript row or its right edge selects to the
 });
 
 await test('a selection that runs past the bottom of the view stays drawn as the wheel scrolls', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     const last = ui
       .text()
       .split('\n')
@@ -2306,7 +2314,7 @@ await test('a selection that runs past the bottom of the view stays drawn as the
     drag(ui, [1, 2], [5, last + 1]);
     await until('the highlight', () => ui.frame().includes('\u001b[7m'));
     ui.stdin.write(wheelUp);
-    await until('a row up', () => first() === bottom - 1);
+    await until('a row up', () => first(ui) === bottom - 1);
     assert.ok(ui.frame().includes(`\u001b[7mrow ${bottom}`));
   } finally {
     ui.unmount();
@@ -2496,10 +2504,7 @@ await test('a press or release anywhere ends a drag, so a drag report with no pr
     ui.stdin.write(left('press', 1, 3));
     ui.stdin.write(left('drag', 5, 3));
     await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
-    ui.stdin.write('/help');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the help page', () => ui.text().includes('/new  New'));
+    await openCommand(ui, '/help', '/new  New');
     ui.stdin.write(left('release', 5, 3));
     ui.stdin.write('\u001b');
     await until('the transcript', () => ui.frame().includes('\u001b[7malpha'));
@@ -2582,22 +2587,18 @@ await test('a drag and Cmd+C in one read copy what the drag selected, and a clic
 });
 
 await test('a drag past the transcript top or bottom scrolls it a row a move, and past the top each move in one read scrolls on from where the last left the view and selects the row it brings in', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const { ui, copied } = mounted(app, 100, 40);
-  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
   try {
-    await until('the transcript', () => first() > 0);
-    const bottom = first();
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
     ui.stdin.write(left('press', 1, 2));
     ui.stdin.write(
       left('drag', 1, 0) + left('drag', 2, 0) + left('drag', 3, 0),
     );
-    await until('three rows up', () => first() === bottom - 3);
+    await until('three rows up', () => first(ui) === bottom - 3);
     ui.stdin.write(left('release', 3, 0));
     await delay(60);
     ui.stdin.write(CMD_C);
@@ -2607,7 +2608,7 @@ await test('a drag past the transcript top or bottom scrolls it a row a move, an
     ]);
     ui.stdin.write(left('press', 1, 2));
     ui.stdin.write(left('drag', 1, 39));
-    await until('a row down', () => first() === bottom - 2);
+    await until('a row down', () => first(ui) === bottom - 2);
   } finally {
     ui.unmount();
   }
@@ -2633,10 +2634,7 @@ await test('Cmd+C copies nothing while a page covers the selection or from blank
     await until('the message', () => ui.text().includes('hello'));
     drag(ui, [1, 3], [5, 3]);
     await until('the highlight', () => ui.frame().includes('\u001b[7mhello'));
-    ui.stdin.write('/help');
-    await delay(30);
-    ui.stdin.write('\r');
-    await until('the help page', () => ui.text().includes('/new  New'));
+    await openCommand(ui, '/help', '/new  New');
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.deepEqual(copied, []);
@@ -2801,6 +2799,59 @@ await test('the sidebar lists only running familiars, depth first under the fami
   }
 });
 
+await test('a directory name with a line break stays on the header row', async () => {
+  const { app } = fake({
+    conversation: {
+      id: 'c',
+      title: 't',
+      cwd: '/work/dry\nline',
+      agent: 'a',
+      sessions: {},
+      createdAt: '',
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await until('the composer', () => ui.text().includes('Ask the agent'));
+    assert.equal(
+      ui.text().split('\n')[0]!.trim(),
+      'dry line | A | NATIVE DEFAULT',
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test("a familiar's name and kind with line breaks stay on its sidebar row", async () => {
+  const { app } = fake({
+    subagents: [
+      {
+        id: 'a',
+        name: 'map\nall',
+        kind: 'Explore\nfast',
+        status: 'running',
+        startedAt: Date.now(),
+        rows: { start: 'row' },
+      },
+    ],
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    105,
+  );
+  try {
+    await until('the familiars', () => ui.text().includes('FAMILIARS'));
+    assert.ok(
+      sidebarRows(ui.text()).some((row) =>
+        row.includes('MAP ALL Explore fast'),
+      ),
+      ui.text(),
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test("a running familiar's time ticks once a second, also when it starts after the sidebar shows", async () => {
   const { app, coordinator } = fake({});
   const ui = show(
@@ -2943,11 +2994,8 @@ await test('while the agent works, a row above the composer names a verb and cou
 });
 
 await test('a typed /agent returns to live output', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app, calls } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -2968,11 +3016,8 @@ await test('a typed /agent returns to live output', async () => {
 });
 
 await test('Down with tools focused and no tools keeps the reading position, and End returns to live output', async () => {
-  const transcript = Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join(
-    '\n',
-  );
   const { app } = fake({
-    items: [{ id: 'long', kind: 'assistant', text: transcript, cwd: '/work' }],
+    items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const top = () => ui.text().split('\n')[2]?.trim();
@@ -3006,6 +3051,29 @@ await test('Escape while tools are focused during a turn leaves focus without in
   }
 });
 
+for (const [columns, body] of [
+  [100, 98],
+  [120, 93],
+] as const)
+  await test(`a request wraps at the body width at ${columns} columns`, async () => {
+    const { app } = fake({
+      phase: 'running',
+      requests: [{ ...approval, detail: 'x'.repeat(body + 5) }],
+    });
+    const ui = show(
+      createElement(App, { coordinator: app, onExit: () => {} }),
+      columns,
+    );
+    try {
+      await until('the request', () => ui.text().includes('Approval required'));
+      assert.ok(ui.text().includes('x'.repeat(body)), ui.text());
+      // the rest makes a row of 5, where Ink would re-wrap a wider wrap into rows of 2 and 3
+      assert.match(ui.text(), /(?<!x)x{5}(?!x)/);
+    } finally {
+      ui.unmount();
+    }
+  });
+
 await test('a new request ignores keys for its first 500 ms', async () => {
   const { app, coordinator, calls } = fake({
     phase: 'running',
@@ -3017,6 +3085,7 @@ await test('a new request ignores keys for its first 500 ms', async () => {
     // a key in the instant the request appears beats even a 0 ms guard
     await delay(150);
     ui.stdin.write('y');
+    ui.stdin.write('\u001b');
     await delay(100);
     assert.deepEqual(calls, []);
     await delay(500);
@@ -3056,6 +3125,37 @@ await test('a new request ignores keys for its first 500 ms', async () => {
     assert.deepEqual(question.calls, []);
   } finally {
     asked.unmount();
+  }
+});
+
+await test('a new request scrolls with PageDown before its other keys work', async () => {
+  const { app, calls } = fake({
+    phase: 'running',
+    requests: [
+      {
+        ...approval,
+        detail: Array.from({ length: 200 }, (_, n) => `d${n + 1}`).join('\n'),
+      },
+    ],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const rows = () =>
+    ui
+      .text()
+      .split('\n')
+      .map((row) => row.trim());
+  try {
+    await until('the request', () => ui.text().includes('Approval required'));
+    await delay(150);
+    ui.stdin.write('\u001b[6~y');
+    // one 29-row page down from the top, as in the page key test above
+    await until('the page down', () => {
+      const all = rows();
+      return all[all.indexOf('Approval required') + 1] === 'd27';
+    });
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
   }
 });
 
@@ -3427,5 +3527,19 @@ await test('list rows drop a link forged in a skill description or a file name',
   } finally {
     skill.ui.unmount();
     file.ui.unmount();
+  }
+});
+
+await test('a skill description with a line break stays on its list row', async () => {
+  const { ui } = await launched({
+    skills: [{ name: 'x-wrapped', description: 'first\nsecond' }],
+  });
+  try {
+    ui.stdin.write('/x');
+    await until('the skill list', () =>
+      ui.text().includes('/x-wrapped first second'),
+    );
+  } finally {
+    ui.unmount();
   }
 });

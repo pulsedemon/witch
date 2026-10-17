@@ -20,14 +20,7 @@ import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
-
-async function until(predicate: () => boolean | Promise<boolean>) {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (await predicate()) return;
-    await delay(20);
-  }
-  assert.fail('The expected UI operation did not complete');
-}
+import { until } from './fixtures/within.js';
 
 /** a stored conversation whose memory worktree is ready for notes, before it opens. */
 async function conversation() {
@@ -77,18 +70,25 @@ await test('a deleted note remains discoverable and can be restored through its 
     ui.stdin.write('/memory');
     await delay(30);
     ui.stdin.write('\r');
-    await until(() => !!ui.lastFrame()?.includes('(deleted)'));
+    await until(
+      'the deleted note',
+      () => !!ui.lastFrame()?.includes('(deleted)'),
+    );
     assert.match(stripAnsi(ui.lastFrame()!), /decisions.md \(deleted\)/);
     assert.ok(ui.lastFrame()!.includes(`vscode://file${reference}`));
     await delay(30);
     ui.stdin.write('decisions.md');
     await delay(30);
     ui.stdin.write('\r');
-    await until(() => !!ui.lastFrame()?.includes('Restore a memory version'));
+    await until(
+      'the restore prompt',
+      () => !!ui.lastFrame()?.includes('Restore a memory version'),
+    );
     assert.ok(!ui.lastFrame()!.includes('delete reference'));
     await delay(30);
     ui.stdin.write('\r');
     await until(
+      'the restored note',
       async () =>
         coordinator.snapshot.phase === 'idle' &&
         (await readFile(reference, 'utf8').catch(() => '')) ===

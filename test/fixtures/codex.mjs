@@ -34,6 +34,7 @@ const held = async () => {
 };
 let skillAdded = false;
 let usageMicros = 0;
+let lastPrompt = '';
 const window = (usedPercent, windowDurationMins, resetsAt) => ({
   usedPercent,
   windowDurationMins,
@@ -174,9 +175,18 @@ for await (const line of lines) {
   }
   if (request.method === 'turn/start') {
     const prompt = request.params.input[0].text;
+    lastPrompt = prompt;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
     reply({ turn: { id: 'turn-1' } });
-    if (prompt === 'hold') continue;
+    if (
+      [
+        'hold',
+        'die on interrupt',
+        'die after interrupt',
+        'refuse interrupt',
+      ].includes(prompt)
+    )
+      continue;
     if (prompt === 'exit when idle') {
       finish('completed');
       process.stdout.write('', () => process.exit(1));
@@ -626,7 +636,21 @@ for await (const line of lines) {
       });
   }
   if (request.method === 'turn/interrupt') {
+    if (lastPrompt === 'die on interrupt') process.exit(1);
+    if (lastPrompt === 'refuse interrupt') {
+      send({
+        id: request.id,
+        error: { code: -32600, message: 'no active turn to interrupt' },
+      });
+      await held();
+      finish('completed');
+      continue;
+    }
     reply({});
+    if (lastPrompt === 'die after interrupt') {
+      process.stdout.write('', () => process.exit(1));
+      continue;
+    }
     await held();
     finish('interrupted');
   }
