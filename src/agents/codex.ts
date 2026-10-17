@@ -376,7 +376,7 @@ class CodexSession implements AgentSession {
     };
     this.turn = turn;
     try {
-      const response = z.object({ turn: z.object({ id: z.string() }) }).parse(
+      const response = turnId.parse(
         await this.rpc.request('turn/start', {
           threadId: this.info.id,
           // the TUI sends a selected skill as an item, which Codex resolves by path
