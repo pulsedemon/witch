@@ -372,8 +372,8 @@ await test('a local origin names the repository git reaches through it: from the
     return path;
   };
   const key = async (path: string) => (await memory.scopePaths(path)).project;
-  for (const repository of ['a/upstream.git', 'a/upstream', 'b/upstream.git'])
-    await git(root, 'init', '--quiet', '--bare', repository);
+  for (const bare of ['a/upstream.git', 'a/upstream', 'b/upstream.git'])
+    await git(root, 'init', '--quiet', '--bare', bare);
   await symlink(join(root, 'a'), join(root, 'alias'));
   await mkdir(join(root, 'b/child'));
   await symlink(join(root, 'b/child'), join(root, 'a/link'));
