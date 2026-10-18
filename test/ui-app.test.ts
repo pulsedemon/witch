@@ -589,7 +589,7 @@ await test('a note page scrolls by rows and full pages and stops at its last row
   }
 });
 
-await test('e on a note page edits that note, and the + entry edits project essentials', async () => {
+await test('e on a note page edits that note, letters typed with Ctrl, Option or Cmd leave it open, and the + entry edits project essentials', async () => {
   const edited: string[] = [];
   const { coordinator } = await memoryApp(async (file) => {
     edited.push(file);
