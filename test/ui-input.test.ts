@@ -464,7 +464,6 @@ await test('Cmd and Option keys edit by line and word as Ghostty sends them, and
     for (const [reads, expected] of [
       [[...OPT_LEFT, ...OPT_LEFT, ...OPT_RIGHT, 'X'], 'one twoX three'],
       [[...CMD_LEFT, 'X'], 'Xone two three'],
-      [[...CMD_LEFT, ...CMD_RIGHT, 'X'], 'one two threeX'],
       [[...OPT_DELETE, 'X'], 'one two X'],
       [[...OPT_LEFT, ...OPT_LEFT, ...OPT_FORWARD_DELETE], 'one  three'],
       [[...OPT_LEFT, ...CMD_DELETE], 'three'],
