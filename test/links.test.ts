@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import { hyperlink, linkify, linkTarget, plain } from '../src/ui/links.js';
 import { markdown } from '../src/ui/markdown.js';
+
+const execute = promisify(execFile);
 
 await test('bare URLs retain their exact browser target across wrapping', () => {
   const url = 'https://iterm2.com/documentation-escape-codes.html';
@@ -40,6 +44,31 @@ await test('a link is underlined inside its OSC 8 sequence on each of its lines,
     `${link('foo')}\n${link('bar')}`,
   );
   assert.equal(hyperlink('label', 'smb://example.com/share', '/work'), 'label');
+});
+
+await test('a link stays plain OSC 8 when Witch runs under tmux', async () => {
+  const links = new URL('../src/ui/links.ts', import.meta.url).href;
+  const { stdout } = await execute(
+    process.execPath,
+    [
+      '--import',
+      import.meta.resolve('tsx'),
+      '--input-type=module',
+      '-e',
+      `import { hyperlink } from ${JSON.stringify(links)}; process.stdout.write(hyperlink('label', 'https://example.com', '/work'))`,
+    ],
+    {
+      env: {
+        ...process.env,
+        TMUX: '/private/tmp/tmux-501/default,1,0',
+        TERM: 'tmux-256color',
+      },
+    },
+  );
+  assert.equal(
+    stdout,
+    '\u001b]8;;https://example.com\u0007\u001b[4mlabel\u001b[24m\u001b]8;;\u0007',
+  );
 });
 
 await test('relative files resolve against their originating project with encoded spaces and locations', () => {
