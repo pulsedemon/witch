@@ -11,7 +11,7 @@ const openable = /^(?:https?|vscode):\/\//i;
 
 /**
  * the link each cell of the terminal shows, kept by replaying what is written to it, so a click opens the link
- * under it. It follows the cursor movement and erasing Ink's frames use, and ignores styles.
+ * under it and the pointer turns into a hand over one. It follows the cursor movement and erasing Ink's frames use, and ignores styles.
  */
 export class Screen {
   private cells: (string | undefined)[][] = [];
@@ -21,10 +21,15 @@ export class Screen {
   private y = 0;
   private link: string | undefined;
   private pending = '';
+  /** the cell the pointer is over, from the last report that named one. */
+  private pointer: { column: number; row: number } | undefined;
+  /** mouse reporting starts the terminal on the arrow. */
+  private shape: 'default' | 'pointer' = 'default';
 
   constructor(private readonly size: { columns: number; rows: number }) {}
 
-  write(data: string): void {
+  /** replays `data`, returning the pointer's shape change as `point` does. */
+  write(data: string): string {
     // a tty that reports no size is drawn at 80x24, Ink's last fallback; Ink redraws the whole screen after a resize
     const columns = this.size.columns || 80;
     const rows = this.size.rows || 24;
@@ -57,11 +62,28 @@ export class Screen {
       }
     }
     this.print(data.slice(text));
+    return this.reshape();
   }
 
   /** the link at a zero-based cell. */
   linkAt(column: number, row: number): string | undefined {
     return this.cells[row]?.[column];
+  }
+
+  /** records the cell the pointer is over, returning OSC 22 when that turns the pointer into a hand or back, else ''. */
+  point(column: number, row: number): string {
+    this.pointer = { column, row };
+    return this.reshape();
+  }
+
+  private reshape(): string {
+    const shape =
+      this.pointer && this.linkAt(this.pointer.column, this.pointer.row)
+        ? 'pointer'
+        : 'default';
+    if (shape === this.shape) return '';
+    this.shape = shape;
+    return `\u001b]22;${shape}\u0007`;
   }
 
   private row(): (string | undefined)[] {
@@ -173,7 +195,7 @@ export class Screen {
   }
 }
 
-/** `stream`, with what Ink writes to it replayed into `screen` as well. */
+/** `stream`, with what Ink writes to it replayed into `screen` as well, each write followed by the pointer shape change it makes. */
 export function recorded(
   stream: NodeJS.WriteStream,
   screen: Screen,
@@ -182,10 +204,8 @@ export function recorded(
   return new Proxy(stream, {
     get(target, key) {
       if (key === 'write')
-        return (chunk: string, ...rest: unknown[]) => {
-          screen.write(chunk);
-          return write(chunk, ...rest);
-        };
+        return (chunk: string, ...rest: unknown[]) =>
+          write(chunk + screen.write(chunk), ...rest);
       const value: unknown = Reflect.get(target, key, target);
       return typeof value === 'function'
         ? (value as (...args: unknown[]) => unknown).bind(target)

@@ -97,8 +97,14 @@ if (!store) {
   const stdin = new MouseInput(process.stdin);
   // output can scroll another link under the pointer before the release, so a click opens the one it pressed
   let pressed: string | undefined;
-  stdin.on('pointer', (pointer: Pointer, { column, row }: Cell) => {
-    if (pointer === 'press') pressed = screen.linkAt(column, row);
+  const hover = ({ column, row }: Cell) => {
+    const shape = screen.point(column, row);
+    if (shape) process.stdout.write(shape);
+  };
+  stdin.on('hover', hover);
+  stdin.on('pointer', (pointer: Pointer, cell: Cell) => {
+    hover(cell);
+    if (pointer === 'press') pressed = screen.linkAt(cell.column, cell.row);
   });
   stdin.on('click', () => {
     if (pressed)
