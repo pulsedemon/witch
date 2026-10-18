@@ -80,6 +80,5 @@ export async function stopPreviousShell(
   if (!(await runs(recorded))) return;
   killGroup(recorded.pid);
   await ends(recorded, 'shell command');
-  // a new process holding the pid could lead a group of its own
-  if (!(await identifyProcess(recorded.pid))) killGroup(recorded.pid);
+  killGroup(recorded.pid);
 }
