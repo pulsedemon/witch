@@ -73,7 +73,7 @@ export async function stopPreviousProcess(
   await ends(recorded, 'agent process');
 }
 
-/** kills a recorded `!` command the way Escape does, then its group again for a child forked as the first kill landed. */
+/** kills a recorded `!` command's group, then the group again once its shell exits, for a child forked as the first kill landed. */
 export async function stopPreviousShell(
   recorded: ProcessIdentity,
 ): Promise<void> {
