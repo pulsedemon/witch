@@ -175,6 +175,8 @@ export class Coordinator {
   /** a turn in the current operation failed, which stops the queue as a report does. */
   private turnFailed = false;
   private closed = false;
+  /** a model change made while a turn has replied runs outside any operation, and two at once can finish out of order and save a model the agent isn't on. */
+  private changingModel = false;
   private draining = false;
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
@@ -528,9 +530,16 @@ export class Coordinator {
 
   /** an omitted effort keeps the one in force, except on a model that lists none. */
   async selectModel(model: string, effort?: string): Promise<void> {
+    if (this.changingModel) throw new Error('Stop the current operation first');
     // a familiar holding a replied turn open doesn't stop Claude Code taking the change
-    if (this.replied) return this.changeModel(model, effort);
-    await this.operate('starting', () => this.changeModel(model, effort));
+    if (!this.replied)
+      return this.operate('starting', () => this.changeModel(model, effort));
+    this.changingModel = true;
+    try {
+      await this.changeModel(model, effort);
+    } finally {
+      this.changingModel = false;
+    }
   }
 
   private async changeModel(model: string, effort?: string): Promise<void> {
