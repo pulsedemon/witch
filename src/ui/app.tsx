@@ -38,7 +38,7 @@ import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
 import { StatusLine } from './status-line.js';
-import { accent, colors, piped } from './theme.js';
+import { accent, colors, piped, potion } from './theme.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
@@ -282,6 +282,8 @@ export function App({
       view.kind !== 'chat' ||
       !composerPhase ||
       toolFocusRef.current ||
+      // a file would go into the command as `@path`
+      value.startsWith('!') ||
       dismissedRef.current === tokenKey(value, cursor) ||
       // a list would take ↑/↓ from browsing, even once the cursor moves into a recalled `@path`
       recalled(value)
@@ -540,7 +542,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'exit':
@@ -564,11 +566,12 @@ export function App({
   };
 
   const submit = (text: string): boolean => {
-    // Enter while tools are focused expands a tool, and one the composer would refuse keeps the draft, even in the
-    // same read as the Tab or switch before it
+    // Enter while tools are focused toggles a tool, and one the composer would refuse keeps the draft, even in the
+    // same read as the Tab or switch before it. a lone `!` has no command to run
     if (
       toolFocusRef.current ||
-      !composerOpen(coordinator.snapshot, leavingRef.current)
+      !composerOpen(coordinator.snapshot, leavingRef.current) ||
+      /^!\s*$/.test(text)
     )
       return false;
     const match = /^\/(\S+)(?:\s+(.*))?$/.exec(text.trim());
@@ -1077,7 +1080,9 @@ export function App({
         {working && <Activity />}
         <Box
           borderStyle="bold"
-          borderColor={toolFocus ? 'gray' : accent}
+          borderColor={
+            toolFocus ? 'gray' : buffer.value.startsWith('!') ? potion : accent
+          }
           height={composerRows + 2}
           paddingX={1}
         >
@@ -1123,7 +1128,7 @@ export function App({
             <Text dimColor>
               {piped([
                 '↑/↓ TOOLS',
-                'ENTER EXPAND',
+                'ENTER TOGGLE',
                 'TAB COMPOSE',
                 'END LIVE OUTPUT',
                 'ESC LEAVE TOOLS',
