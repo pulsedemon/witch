@@ -272,7 +272,6 @@ for await (const line of lines) {
       const idle = setInterval(() => {
         if (!existsSync(join(process.cwd(), 'allow-idle'))) return;
         clearInterval(idle);
-        lastPrompt = '';
         state('idle');
       }, 5);
       continue;
