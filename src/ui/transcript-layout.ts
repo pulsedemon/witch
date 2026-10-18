@@ -205,7 +205,8 @@ export class TranscriptLayout {
     // entries for items no longer shown fall away with the old cache
     const cache = new Map<string, Map<boolean, Block>>();
     for (const item of items) {
-      const open = expanded.has(item.id);
+      // a `!` command's row starts expanded, so toggling it collapses it
+      const open = expanded.has(item.id) !== !!item.shell;
       const variants = this.cache.get(item.id) ?? new Map<boolean, Block>();
       const previous = variants.get(open);
       const block =

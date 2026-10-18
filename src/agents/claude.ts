@@ -16,6 +16,7 @@ import { InputQueue } from './input-queue.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
 import { toolTitle } from './tool-title.js';
+import { bashRecord, runShell } from './user-shell.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -126,6 +127,10 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
+  /** the user's `!` command while it runs. */
+  private command?: AbortController;
+  /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
+  private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
   private readonly backgroundCommands = new Map<string, BackgroundCommand>();
   /** each subagent task's latest run, since a resumed task keeps its id. */
@@ -312,19 +317,63 @@ class ClaudeSession implements AgentSession {
       steered: new Map<string, string>(),
     };
     this.turn = turn;
+    // the CLI dispatches a command only from the last text block, and the rest become its context
+    const blocks = [
+      ...this.records,
+      prompt,
+      ...(skill ? [`/${skill.name}${skill.args ? ` ${skill.args}` : ''}`] : []),
+    ];
     this.push(
-      // the CLI dispatches a command only from the last text block, and the rest become its context
-      skill
-        ? [
-            { type: 'text', text: prompt },
-            {
-              type: 'text',
-              text: `/${skill.name}${skill.args ? ` ${skill.args}` : ''}`,
-            },
-          ]
+      blocks.length > 1
+        ? blocks.map((text) => ({ type: 'text' as const, text }))
         : prompt,
     );
+    this.records = [];
     return turn.finished.promise;
+  }
+
+  /** the SDK has no request that runs a `!` command, so Witch runs it and keeps its record for the next prompt. */
+  async shell(command: string): Promise<TurnResult> {
+    if (this.closed) throw new Error('The Claude session is closed');
+    if (this.turn || this.command)
+      throw new Error('This agent is already running');
+    const abort = new AbortController();
+    this.command = abort;
+    const id = randomUUID();
+    const row = (text: string, done = false) =>
+      this.options.onEvent({
+        type: 'tool',
+        id,
+        title: '',
+        text,
+        done,
+        append: true,
+      });
+    this.options.onEvent({
+      type: 'tool',
+      id,
+      title: command,
+      text: '',
+      done: false,
+      shell: true,
+    });
+    try {
+      const run = await runShell(command, {
+        cwd: this.options.cwd,
+        signal: abort.signal,
+        onOutput: (text) => row(text),
+      });
+      this.records.push(bashRecord(command, run));
+      return {
+        status: run.interrupted ? 'interrupted' : 'completed',
+        text: '',
+      };
+    } catch (error) {
+      return { status: 'failed', text: '', error: errorMessage(error) };
+    } finally {
+      this.command = undefined;
+      row('', true);
+    }
   }
 
   /** Claude Code queues the prompt and folds it in after the next tool step, or runs it before going idle. */
@@ -341,6 +390,7 @@ class ClaudeSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
+    this.command?.abort();
     const turn = this.turn;
     if (!turn) return;
     turn.interrupted = true;
@@ -369,6 +419,7 @@ class ClaudeSession implements AgentSession {
   }
 
   async close(): Promise<void> {
+    this.command?.abort();
     this.closed = true;
     this.input.close();
     this.query.close();

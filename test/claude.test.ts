@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import type {
   AgentEvent,
@@ -893,5 +894,108 @@ await test('reports the effort Claude Code says it will send', async () => {
     assert.equal(session.info.nativeEffort, 'low');
   } finally {
     await session.close();
+  }
+});
+
+const execute = promisify(execFile);
+/** pgrep exits 1 when nothing matches. */
+const running = (pattern: string) =>
+  execute('pgrep', ['-f', pattern]).then(
+    () => true,
+    () => false,
+  );
+const stop = (pattern: string) =>
+  execute('pkill', ['-f', pattern]).catch(() => {});
+
+await test("a shell command runs in the session's directory as one open tool row, sends Claude nothing, and its record goes ahead of the next prompt once", async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  const content = async () =>
+    JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
+  try {
+    assert.deepEqual(
+      await within(session.shell('pwd -P'), 3000, 'the command'),
+      { status: 'completed', text: '' },
+    );
+    assert.equal(new Set(tools.map(({ id }) => id)).size, 1);
+    assert.equal(tools[0]!.title, 'pwd -P');
+    assert.equal(tools[0]!.shell, true);
+    assert.equal(tools.at(-1)!.done, true);
+    await assert.rejects(access(join(cwd, 'content.json')));
+    await session.send('next');
+    assert.deepEqual(await content(), [
+      {
+        type: 'text',
+        text: `<bash-input>pwd -P</bash-input>\n<bash-stdout>${await realpath(cwd)}\n</bash-stdout><bash-stderr></bash-stderr>`,
+      },
+      { type: 'text', text: 'next' },
+    ]);
+    await session.send('again');
+    assert.equal(await content(), 'again');
+  } finally {
+    await session.close();
+  }
+});
+
+await test("a shell command refuses steering, and an interrupt kills it, ends it interrupted and keeps its record for the next prompt with the next command's", async () => {
+  const output: string[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') output.push(event.text);
+  });
+  try {
+    const shell = session.shell('echo started; sleep 60.139');
+    await until('the command starts', () =>
+      output.join('').includes('started'),
+    );
+    assert.equal(await session.steer('more'), false);
+    await session.interrupt();
+    assert.equal(
+      (await within(shell, 3000, 'the interrupted command')).status,
+      'interrupted',
+    );
+    await until('the sleep ends', async () => !(await running('sleep 60.139')));
+    assert.equal(
+      (await within(session.shell('echo second'), 3000, 'the next command'))
+        .status,
+      'completed',
+    );
+    await session.send('next');
+    const blocks = JSON.parse(
+      await readFile(join(cwd, 'content.json'), 'utf8'),
+    ) as { text: string }[];
+    assert.equal(blocks.length, 3);
+    assert.ok(
+      blocks[0]!.text.endsWith(
+        '<bash-stderr>started\n[Request interrupted by user]</bash-stderr>',
+      ),
+      blocks[0]!.text,
+    );
+    assert.equal(
+      blocks[1]!.text,
+      '<bash-input>echo second</bash-input>\n<bash-stdout>second\n</bash-stdout><bash-stderr></bash-stderr>',
+    );
+    assert.equal(blocks[2]!.text, 'next');
+  } finally {
+    await stop('sleep 60.139');
+    await session.close();
+  }
+});
+
+await test('closing the session during a shell command kills it, and the shell settles without throwing', async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    const shell = session.shell('sleep 60.141');
+    await until('the command row', () => tools.length > 0);
+    await session.close();
+    await within(shell, 3000, 'the closed command');
+    await until('the sleep ends', async () => !(await running('sleep 60.141')));
+  } finally {
+    await stop('sleep 60.141');
+    if (!session.closed) await session.close();
   }
 });

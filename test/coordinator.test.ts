@@ -3125,3 +3125,95 @@ await test('/new copies this conversation for its own agent, starts another agen
     await coordinator.close();
   }
 });
+
+await test('a ! prompt runs its command, then a turn that sends the prompt as typed and says it ran, and its open row survives a reopen', async () => {
+  const { coordinator, a, reopen } = await fixture();
+  try {
+    await coordinator.send('!git status');
+    assert.deepEqual(a.shells, ['git status']);
+    assert.equal(a.inputs.length, 1);
+    assert.ok(
+      a.inputs[0]!.prompt.endsWith(
+        'User request:\n!git status\n\nThe user ran this command themselves, and its output is above. Reply to it without running it again.',
+      ),
+    );
+    const { items } = coordinator.snapshot;
+    assert.deepEqual(
+      items.map(({ kind }) => kind),
+      ['user', 'tool', 'assistant'],
+    );
+    assert.equal(items[0]!.text, '!git status');
+    assert.equal(items[1]!.title, 'git status');
+    assert.equal(items[1]!.shell, true);
+  } finally {
+    await coordinator.close();
+  }
+  const reopened = await reopen();
+  try {
+    const row = reopened.snapshot.items.find(({ kind }) => kind === 'tool');
+    assert.equal(row?.shell, true);
+  } finally {
+    await reopened.close();
+  }
+});
+
+await test('a ! prompt sent during a turn waits in the queue and runs alone before the prompts after it', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const first = coordinator.send('first');
+    await within(gate.entered, 2000, 'the gated turn');
+    await coordinator.send('!ls');
+    await coordinator.send('after');
+    assert.deepEqual(coordinator.snapshot.queue, ['!ls', 'after']);
+    assert.deepEqual(a.steers, []);
+    gate.open();
+    await within(first, 5000, 'the queue');
+    const prompts = a.inputs.map(({ prompt }) => prompt);
+    assert.equal(prompts.length, 3);
+    assert.ok(prompts[0]!.endsWith('User request:\nfirst'));
+    assert.ok(prompts[1]!.includes('User request:\n!ls'));
+    assert.ok(prompts[2]!.endsWith('User request:\nafter'));
+    assert.deepEqual(a.shells, ['ls']);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('a ! command that fails posts its error and sends no turn', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    a.failNext = true;
+    await coordinator.send('!x');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(a.inputs, []);
+    const last = coordinator.snapshot.items.at(-1);
+    assert.equal(last?.kind, 'notice');
+    assert.equal(last?.text, 'Overloaded');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('an interrupt that lands as a ! command finishes sends no turn', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    a.finishShellOnInterrupt = true;
+    const sending = coordinator.send('!x');
+    await within(gate.entered, 2000, 'the gated command');
+    await coordinator.interrupt();
+    await within(sending, 3000, 'the turn');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(a.inputs, []);
+    const last = coordinator.snapshot.items.at(-1);
+    assert.equal(last?.kind, 'notice');
+    assert.equal(last?.text, 'Turn interrupted');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});

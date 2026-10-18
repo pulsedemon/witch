@@ -49,6 +49,8 @@ export const displayUpdateSchema = z.object({
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
   images: z.array(z.string()).optional(),
+  // a command the user ran with `!`
+  shell: z.boolean().optional(),
   // when Witch received the update; history from before it was recorded has none
   at: z.string().optional(),
 });

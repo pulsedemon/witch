@@ -893,3 +893,97 @@ await test('reports the effort Codex runs, its own default first and then the on
     await close(session, cwd);
   }
 });
+
+await test('a shell command runs through thread/shellCommand as its own turn and shows open, titled as typed', async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    assert.deepEqual(
+      await within(session.shell('echo hi'), 3000, 'the command'),
+      { status: 'completed', text: '' },
+    );
+    const request = JSON.parse(
+      await readFile(join(cwd, 'shell.json'), 'utf8'),
+    ) as { params: unknown };
+    assert.deepEqual(request.params, {
+      threadId: 'native-thread',
+      command: 'echo hi',
+    });
+    // Codex titles the item with its shell wrapper
+    assert.deepEqual(
+      tools.map(({ id, title, text, done, shell }) => [
+        id,
+        title,
+        text,
+        done,
+        shell,
+      ]),
+      [
+        ['shell-1', 'echo hi', '', false, true],
+        ['shell-1', '', 'hi\n', false, undefined],
+        ['shell-1', 'echo hi', 'hi\n', true, true],
+      ],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test('a prompt steered while a shell command runs is refused, and an interrupt ends it by the id turn/started gave', async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    const shell = session.shell('hold');
+    await until('the command row', () => tools.length > 0);
+    assert.equal(await session.steer('more'), false);
+    await assert.rejects(access(join(cwd, 'steer.json')));
+    await within(session.interrupt(), 3000, 'interrupt');
+    const request = JSON.parse(
+      await readFile(join(cwd, 'interrupt.json'), 'utf8'),
+    ) as { params: unknown };
+    assert.deepEqual(request.params, {
+      threadId: 'native-thread',
+      turnId: 'turn-shell',
+    });
+    assert.equal((await shell).status, 'interrupted');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test('an interrupt waiting on a shell turn that never started ends when Codex exits', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    const shell = session.shell('die soon');
+    await within(session.interrupt(), 3000, 'interrupt');
+    assert.notEqual(
+      (await within(shell, 3000, 'the command')).status,
+      'completed',
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test("a refused shell command fails its turn with Codex's reason and leaves the session free", async () => {
+  const { session, cwd } = await fixture();
+  try {
+    const refused = await within(
+      session.shell('refuse'),
+      3000,
+      'the refused command',
+    );
+    assert.equal(refused.status, 'failed');
+    assert.match(refused.error ?? '', /command must not be empty/);
+    assert.equal(
+      (await within(session.shell('echo hi'), 3000, 'the next command')).status,
+      'completed',
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});

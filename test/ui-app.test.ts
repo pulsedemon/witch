@@ -4,6 +4,7 @@ import { access, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import chalk from 'chalk';
 import { render } from 'ink';
 import type { ReactElement } from 'react';
 import { createElement } from 'react';
@@ -3645,6 +3646,63 @@ await test('a skill description with a line break stays on its list row', async 
     await until('the skill list', () =>
       ui.text().includes('/x-wrapped first second'),
     );
+  } finally {
+    ui.unmount();
+  }
+});
+
+const POTION = '38;2;163;230;53';
+const VIOLET = '38;2;168;85;247';
+
+await test('a draft starting with ! draws the border potion green and opens no file list, and Backspace over the ! brings violet and the list back', async () => {
+  // Ink colors borders through the default chalk, which has no color under the test runner
+  const level = chalk.level;
+  chalk.level = 3;
+  const { ui } = await launched({}, ['src/a.ts']);
+  const listed = () => /^ *@src\/a\.ts *$/m.test(ui.text());
+  try {
+    ui.stdin.write('cat @sr');
+    await until('the file list', listed);
+    assert.ok(ui.frame().includes(VIOLET));
+    // Home, then `!` at the start, then End, where a file list would open again
+    ui.stdin.write('\u001b[H!\u001b[F');
+    await until(
+      'the potion border',
+      () => ui.frame().includes(POTION) && ui.text().includes('┃ !cat @sr'),
+    );
+    await delay(60);
+    assert.equal(listed(), false);
+    // Backspace takes the `!` from just after it
+    ui.stdin.write('\u001b[H\u001b[C\u007f\u001b[F');
+    await until('the list back', listed);
+    assert.ok(ui.frame().includes(VIOLET));
+    assert.ok(!ui.frame().includes(POTION));
+  } finally {
+    ui.unmount();
+    chalk.level = level;
+  }
+});
+
+await test('a ! command is sent and recorded with its !, and a lone ! sends nothing and stays in the draft', async () => {
+  const { app, calls } = fake({});
+  const { store, added } = prompts([]);
+  const ui = show(
+    createElement(App, { coordinator: app, store, onExit: () => {} }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('!');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await delay(60);
+    assert.deepEqual(calls, []);
+    assert.ok(ui.text().includes('┃ ! '), ui.text());
+    ui.stdin.write('git status');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the send', () => calls.length > 0);
+    assert.deepEqual(calls, [['send', '!git status']]);
+    assert.deepEqual(added, [['/work', '!git status']]);
   } finally {
     ui.unmount();
   }

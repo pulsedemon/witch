@@ -200,6 +200,8 @@ class CodexSession implements AgentSession {
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
     messages: Map<string, string>;
     interrupted: boolean;
+    /** the user's `!` command this turn runs, as typed. */
+    command?: string;
   };
   private requests = new Map<string, RpcMessage>();
   private closing = false;
@@ -401,8 +403,35 @@ class CodexSession implements AgentSession {
     return turn.finished.promise;
   }
 
+  /** Codex records the command and its output in the thread, and its turn ends without a reply. */
+  async shell(command: string): Promise<TurnResult> {
+    if (this.turn) throw new Error('This agent is already running');
+    const turn = {
+      // the turn's id comes with `turn/started`, since the request answers with nothing
+      started: Promise.withResolvers<string>(),
+      finished: Promise.withResolvers<TurnResult>(),
+      messages: new Map<string, string>(),
+      interrupted: false,
+      command,
+    };
+    this.turn = turn;
+    try {
+      await this.rpc.request('thread/shellCommand', {
+        threadId: this.info.id,
+        command,
+      });
+      this.info = { ...this.info, hasHistory: true };
+      this.options.onEvent({ type: 'info', info: this.info });
+    } catch (error) {
+      this.finish('failed', errorMessage(error));
+    }
+    return turn.finished.promise;
+  }
+
   /** Codex keeps a steered prompt in the thread even when the turn is then interrupted. */
   async steer(prompt: string): Promise<boolean> {
+    // a prompt steered into a shell command's turn would never be answered
+    if (this.turn?.command !== undefined) return false;
     const id = await this.turn?.started.promise;
     if (!id) return false;
     try {
@@ -665,6 +694,10 @@ class CodexSession implements AgentSession {
         this.settings?.resolve();
         break;
       }
+      case 'turn/started':
+        // a send learned the id from `turn/start` already, and a shell command learns it here
+        this.turn?.started.resolve(turnId.parse(data).turn.id);
+        break;
       case 'skills/changed':
         if (!this.closing)
           void this.skills().then(
@@ -700,10 +733,13 @@ class CodexSession implements AgentSession {
           }
         } else if (!untooled.includes(type)) {
           const images = itemImages(type, item);
+          // Codex titles a user's command with its shell wrapper
+          const command =
+            item.source === 'userShell' ? this.turn?.command : undefined;
           this.options.onEvent({
             type: 'tool',
             id,
-            title: itemTitle(type, item, this.options.cwd),
+            title: command ?? itemTitle(type, item, this.options.cwd),
             text:
               typeof item.aggregatedOutput === 'string'
                 ? item.aggregatedOutput
@@ -721,6 +757,7 @@ class CodexSession implements AgentSession {
             done: message.method === 'item/completed',
             cwd: typeof item.cwd === 'string' ? item.cwd : undefined,
             ...(images.length ? { images } : {}),
+            ...(command === undefined ? {} : { shell: true }),
           });
         }
         break;
@@ -930,6 +967,8 @@ class CodexSession implements AgentSession {
   private finish(status: TurnResult['status'], error?: string): void {
     const turn = this.turn;
     this.turn = undefined;
+    // a shell command's turn that never reported its start would hold an interrupt waiting for it
+    turn?.started.resolve('');
     for (const id of this.requests.keys())
       this.options.onEvent({ type: 'request-resolved', id });
     this.requests.clear();
