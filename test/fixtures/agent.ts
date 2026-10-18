@@ -54,6 +54,8 @@ export class FixtureAgent implements AgentAdapter {
   unreadOnInterrupt = false;
   /** the turn in flight refuses steered prompts, as Codex refuses one for a turn that has just ended. */
   refuseSteer = false;
+  /** the turn in flight has replied and a familiar holds it open, as Claude's does. */
+  replied = false;
   /** what each session's `skills()` returns. */
   skills: Skill[] = [];
   failSkills = false;
@@ -110,6 +112,16 @@ export class FixtureAgent implements AgentAdapter {
     let shell: PromiseWithResolvers<TurnResult> | undefined;
     let steered: string[] = [];
     let usage: Usage = this.connectUsage ?? {};
+    const replied = () => this.replied && !!turn && !closed;
+    const shellRow = (command: string) =>
+      options.onEvent({
+        type: 'tool',
+        id: randomUUID(),
+        title: command,
+        text: `ran ${command}\n`,
+        done: true,
+        shell: true,
+      });
     const session: AgentSession = {
       get info() {
         return info;
@@ -120,7 +132,9 @@ export class FixtureAgent implements AgentAdapter {
       get closed() {
         return closed;
       },
-      replied: false,
+      get replied() {
+        return replied();
+      },
       skills: async () => {
         if (this.failSkills) throw new Error('Skills unavailable');
         return this.skills;
@@ -167,14 +181,7 @@ export class FixtureAgent implements AgentAdapter {
       shell: async (command): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.shells.push(command);
-        options.onEvent({
-          type: 'tool',
-          id: randomUUID(),
-          title: command,
-          text: `ran ${command}\n`,
-          done: true,
-          shell: true,
-        });
+        shellRow(command);
         shell = Promise.withResolvers<TurnResult>();
         const held = this.gate
           ? await this.gate.hold(shell.promise)
@@ -187,10 +194,15 @@ export class FixtureAgent implements AgentAdapter {
         }
         return { status: 'completed', text: '' };
       },
-      steer: async (prompt) => {
+      steer: async (prompt, { command } = {}) => {
         if (!turn || closed || this.refuseSteer) return false;
         this.steers.push(prompt);
-        steered.push(prompt);
+        // a command's reply never comes back unread, as Claude's doesn't
+        if (command === undefined) steered.push(prompt);
+        else {
+          this.shells.push(command);
+          shellRow(command);
+        }
         return true;
       },
       interrupt: async () => {

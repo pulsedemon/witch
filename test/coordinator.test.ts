@@ -3245,3 +3245,127 @@ await test('an interrupt that lands as a ! command finishes sends no turn', asyn
     await coordinator.close();
   }
 });
+
+await test('after the reply, while a familiar holds the turn, a ! prompt runs at once and steers its reply, shown after the prompt', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    a.replied = true;
+    await coordinator.send('!git status');
+    assert.deepEqual(a.shells, ['git status']);
+    assert.deepEqual(a.steers, [
+      '!git status\n\nThe user ran this command themselves, and its output is above. Reply to it without running it again.',
+    ]);
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    const [prompt, row] = coordinator.snapshot.items.slice(-2);
+    assert.equal(prompt?.kind, 'user');
+    assert.equal(prompt?.text, '!git status');
+    assert.equal(row?.kind, 'tool');
+    assert.equal(row?.title, 'git status');
+    assert.equal(row?.shell, true);
+    gate.open();
+    await within(sending, 2000, 'the turn');
+    assert.deepEqual(turns(a), [['Start', undefined]]);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('after the reply, a listed spell steers trimmed, and an unlisted slash command still waits', async () => {
+  const { coordinator, a } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'review', description: 'Review changes' }];
+  });
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    a.replied = true;
+    await coordinator.send(' /review now');
+    assert.deepEqual(a.steers, ['/review now']);
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    await coordinator.send('/clear');
+    assert.deepEqual(coordinator.snapshot.queue, ['/clear']);
+    assert.deepEqual(a.steers, ['/review now']);
+    gate.open();
+    await within(sending, 2000, 'the queued turn');
+    assert.deepEqual(turns(a), [
+      ['Start', undefined],
+      ['/clear', undefined],
+    ]);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test("a model change runs during a replied turn without waiting, and is refused during one that hasn't replied", async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    await assert.rejects(coordinator.selectModel('a-big', 'high'), {
+      message: 'Stop the current operation first',
+    });
+    a.replied = true;
+    await coordinator.selectModel('a-big', 'high');
+    assert.equal(coordinator.snapshot.phase, 'running');
+    assert.deepEqual(a.selections.at(-1), ['a-big', 'high']);
+    assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
+    gate.open();
+    await within(sending, 2000, 'the turn');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('a replied turn opens the model list from its connect without refreshing', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    a.replied = true;
+    const { models } = coordinator.snapshot;
+    a.failModels = true;
+    await coordinator.refreshModels();
+    assert.equal(coordinator.snapshot.models, models);
+    assert.equal(a.failModels, true);
+    gate.open();
+    await within(sending, 2000, 'the turn');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('commands that need idle say a familiar holds the turn, and the usual refusal otherwise', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    await assert.rejects(coordinator.newConversation(), {
+      message: 'Stop the current operation first',
+    });
+    a.replied = true;
+    await assert.rejects(coordinator.newConversation(), {
+      message:
+        'Wait for the running familiars to report, or press Escape to stop them',
+    });
+    gate.open();
+    await within(sending, 2000, 'the turn');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
