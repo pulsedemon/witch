@@ -59,7 +59,14 @@ function skillCall(
 
 /** a slash command or `!` command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, Claude Code would run any other slash command as its own, and a `!` command's reply is a turn of its own. */
 function alone(prompt: string): boolean {
-  return prompt.trimStart().startsWith('/') || prompt.startsWith('!');
+  return (
+    prompt.trimStart().startsWith('/') || shellCommand(prompt) !== undefined
+  );
+}
+
+/** the command a `!` prompt runs. */
+function shellCommand(prompt: string): string | undefined {
+  return prompt.startsWith('!') ? prompt.slice(1) : undefined;
 }
 
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
@@ -416,7 +423,7 @@ export class Coordinator {
       row();
       return true;
     }
-    const command = prompt.startsWith('!') ? prompt.slice(1) : undefined;
+    const command = shellCommand(prompt);
     if (
       !this.replied ||
       (command === undefined && !skillCall(prompt, this.snapshot.skills))
@@ -797,8 +804,7 @@ export class Coordinator {
             scope,
             reference.deliveredRevision,
           );
-    const command =
-      kind === 'turn' && prompt.startsWith('!') ? prompt.slice(1) : undefined;
+    const command = kind === 'turn' ? shellCommand(prompt) : undefined;
     const handoff = conversation.handoff;
     const pendingHandoff =
       handoff?.activated && handoff.to === conversation.agent
