@@ -839,7 +839,7 @@ class ClaudeSession implements AgentSession {
     // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
     const turn = this.turn;
-    // only a steered command runs beside a turn, and one run with no turn open outlives the CLI as before
+    // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI
     if (turn) this.command?.abort();
     // this also covers a receive() throw while the CLI lives; the SDK's SIGTERM bounds the wait
     this.query.close();
