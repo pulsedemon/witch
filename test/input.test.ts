@@ -143,7 +143,8 @@ await test('word and line deletions remove only what the matching move passes ov
 });
 
 await test('a word move in a 200KB draft segments only the lines it crosses', () => {
-  const value = 'word\n'.repeat(40000) + 'x y';
+  // each move starts on a line with no word
+  const value = ' \n' + 'word\n'.repeat(40000) + ' ';
   const times: number[] = [];
   for (let run = 0; run < 5; run++) {
     const start = performance.now();
