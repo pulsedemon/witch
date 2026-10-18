@@ -428,7 +428,10 @@ class ClaudeSession implements AgentSession {
     );
   }
 
-  /** with no familiar left and Claude Code not yet idle, a reply could land after idle, so idle releases it. */
+  /**
+   * with no familiar left and Claude Code not yet idle, a reply could land after idle, so idle releases it, or a
+   * familiar that starts first.
+   */
   private async reply(
     turn: Turn,
     command: string,
@@ -632,6 +635,8 @@ class ClaudeSession implements AgentSession {
           status: 'running',
           run: message.run_id,
         });
+        if (this.turn?.held && this.turn.answer !== undefined)
+          this.release(this.turn);
       } else if (message.subtype === 'background_tasks_changed') {
         // the live set lists a shell once it runs in the background, however it got there, and never a foreground one
         for (const task of message.tasks)
