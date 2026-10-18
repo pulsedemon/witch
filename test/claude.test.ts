@@ -374,7 +374,7 @@ await test('an interrupt that leaves the prompt queued closes the session', asyn
   }
 });
 
-await test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result', async () => {
+await test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result with no familiar running', async () => {
   const { seen, onEvent } = working();
   // the fixture sends this text after the result, while the turn waits for native idle
   const awaitingIdle = Promise.withResolvers<void>();
