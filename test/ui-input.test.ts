@@ -533,3 +533,64 @@ await test('Cmd+Delete clears one wrapped row a press, then joins the line to th
     await unmount(ui);
   }
 });
+
+await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is drawn on', async () => {
+  const mounted: { unmount: () => void }[] = [];
+  /** mounts an Input `width` cells wide with `text` pasted; `after` presses reads and gives the cursor then */
+  const typed = async (width: number, text: string) => {
+    const cursors: number[] = [];
+    const ui = await mount(
+      createElement(Input, {
+        width,
+        height: 6,
+        active: true,
+        onChange: (_value, cursor) => cursors.push(cursor),
+        onSubmit: () => true,
+      }),
+    );
+    mounted.push(ui);
+    await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
+    const after = async (reads: readonly string[]) => {
+      for (const data of reads) await press(ui.stdin, data);
+      return cursors.at(-1);
+    };
+    return { frame: () => ui.lastFrame()?.split('\n'), after };
+  };
+  const left = (count: number) => Array<string>(count).fill('\u001b[D');
+  try {
+    // x0 \n1 \t2 a3 b4 ·5 c6 d7 ·8 e9 f10 ·11 g12 h13 ·14 i15 j16 ·17 k18 … n22
+    const tab = await typed(12, 'x\n\tab cd ef gh ij kl mn');
+    assert.deepEqual(tab.frame()?.slice(0, 4), [
+      'x',
+      '        ab',
+      'cd ef gh ij',
+      'kl mn',
+    ]);
+    assert.equal(await tab.after(CMD_LEFT), 18);
+    // the start of a row stays put rather than reaching the row above
+    assert.equal(await tab.after(CMD_LEFT), 18);
+    assert.equal(await tab.after(CMD_RIGHT), 23);
+    // a soft row ends before its trailing space, past which the cursor is drawn on the next row
+    assert.equal(await tab.after([...left(9), ...CMD_RIGHT]), 17);
+    assert.equal(await tab.after(CMD_LEFT), 6);
+    assert.equal(await tab.after([...left(2), ...CMD_LEFT]), 2);
+    assert.equal(await tab.after(CMD_RIGHT), 5);
+
+    // a word longer than the row breaks with no space to stop before
+    const long = await typed(10, 'abcdefghijklmnop');
+    assert.deepEqual(long.frame()?.slice(0, 2), ['abcdefghij', 'klmnop']);
+    assert.equal(await long.after(CMD_LEFT), 10);
+    assert.equal(await long.after([...left(1), ...CMD_RIGHT]), 10);
+
+    // inside a row's trailing spaces, Cmd+→ never moves left
+    const spaced = await typed(10, 'abcdef    ghij kl');
+    assert.deepEqual(spaced.frame()?.slice(0, 2), ['abcdef', 'ghij kl']);
+    assert.equal(
+      await spaced.after([...CMD_LEFT, ...left(2), ...CMD_RIGHT]),
+      8,
+    );
+    assert.equal(await spaced.after([...left(5), ...CMD_RIGHT]), 6);
+  } finally {
+    for (const ui of mounted) await unmount(ui);
+  }
+});
