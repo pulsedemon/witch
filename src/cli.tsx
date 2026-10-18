@@ -138,8 +138,8 @@ if (!store) {
   process.once('exit', () => process.stdout.write(releaseMouse));
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
-  // a closed terminal fails the next write and may send SIGHUP, in either order, and the first stops a running
-  // ! command before anything awaits
+  // a closed terminal fails every write and may send SIGHUP, and the first of these stops a running `!` command
+  // before anything awaits
   process.on('SIGHUP', shutdown);
   process.stdout.on('error', shutdown);
   void coordinator
