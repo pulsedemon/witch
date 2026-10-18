@@ -114,6 +114,8 @@ export type AgentEvent =
       append?: boolean;
       /** image paths or `data:` URLs the tool returned, kept out of `text`. */
       images?: string[];
+      /** the user's `!` command, which shows expanded. */
+      shell?: boolean;
     }
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
@@ -143,16 +145,22 @@ export interface AgentSession {
   /** `skill` runs that native skill with the prompt as its context. */
   send(prompt: string, skill?: SkillCall): Promise<TurnResult>;
   /**
+   * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to
+   * the agent without a reply. its output streams as tool events, the first marked `shell`.
+   */
+  shell(command: string): Promise<TurnResult>;
+  /**
    * adds the prompt to the turn in flight, which the agent reads at its next
-   * tool step or before the turn ends; false when no turn can take it.
+   * tool step or before the turn ends; false when no turn can take it, and
+   * false while a shell command runs.
    */
   steer(prompt: string): Promise<boolean>;
   /** an omitted effort keeps the one in force; `null` resets it where the native agent can. */
   selectModel(model: string, effort?: string | null): Promise<void>;
   respond(id: string, response: UserResponse): void;
   /**
-   * does nothing with no turn in flight. the session may close after an
-   * interrupt, and the coordinator then reconnects with resume.
+   * does nothing with no turn or shell command in flight. the session may close
+   * after an interrupt, and the coordinator then reconnects with resume.
    */
   interrupt(): Promise<void>;
   close(): Promise<void>;

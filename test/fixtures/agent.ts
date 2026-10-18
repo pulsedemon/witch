@@ -157,6 +157,7 @@ export class FixtureAgent implements AgentAdapter {
       respond: (id, response) => {
         this.responses.push([id, response]);
       },
+      shell: async () => ({ status: 'completed', text: '' }),
       steer: async (prompt) => {
         if (!turn || closed || this.refuseSteer) return false;
         this.steers.push(prompt);
