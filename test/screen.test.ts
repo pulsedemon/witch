@@ -187,3 +187,18 @@ await test('the recorded stream follows a frame with the shape change it makes',
   stream.write('\u001b[1;1Hab');
   assert.deepEqual(chunks, [frame + hand, '\u001b[1;1Hab']);
 });
+
+await test('a shape change waits for the write that ends a split sequence, so it never lands inside one', () => {
+  const chunks: string[] = [];
+  const stub = {
+    write: (chunk: string) => chunks.push(chunk) > 0,
+  } as unknown as NodeJS.WriteStream;
+  const screen = new Screen({ columns: 20, rows: 2 });
+  screen.point(2, 0);
+  const stream = recorded(stub, screen);
+  const start = `ab\u001b]8;;${docs}\u0007cd\u001b]8;;`;
+  stream.write(start);
+  assert.equal(screen.point(3, 0), '');
+  stream.write('\u0007e');
+  assert.deepEqual(chunks, [start, `\u0007e${hand}`]);
+});
