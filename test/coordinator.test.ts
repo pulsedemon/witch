@@ -74,11 +74,12 @@ async function fixture(
   const a = new FixtureAgent('a');
   const b = new FixtureAgent('b');
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
+  const tracked: number[] = [];
   const coordinator = new Coordinator(
     store,
     memory,
     agents,
-    undefined,
+    { track: (group) => tracked.push(group) },
     editFile,
   );
   prepare?.(a, b);
@@ -125,6 +126,7 @@ async function fixture(
     git,
     outsider,
     reopen,
+    tracked,
   };
 }
 
@@ -1253,6 +1255,26 @@ await test('a late event from a released session reaches neither conversation', 
       errors.filter((error) => error !== reported),
       [],
     );
+  } finally {
+    sleeper.kill('SIGKILL');
+    await coordinator.close();
+  }
+});
+
+await test('a reported shell is in the state, handed to the jobs, and cleared by the end report', async () => {
+  const { coordinator, a, root, tracked } = await fixture();
+  const sleeper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  try {
+    const id = coordinator.snapshot.conversation!.id;
+    const { onShell } = a.sessions[0]!.options;
+    await onShell!(sleeper.pid);
+    assert.deepEqual(
+      (await readRecord(root, id)).shell,
+      await identifyProcess(sleeper.pid!),
+    );
+    assert.deepEqual(tracked, [sleeper.pid]);
+    await onShell!(undefined);
+    assert.equal((await readRecord(root, id)).shell, undefined);
   } finally {
     sleeper.kill('SIGKILL');
     await coordinator.close();
