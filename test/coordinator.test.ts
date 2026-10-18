@@ -79,7 +79,7 @@ async function fixture(
     store,
     memory,
     agents,
-    { track: (group) => tracked.push(group) },
+    { track: (group) => tracked.push(group), environment: {} },
     editFile,
   );
   prepare?.(a, b);
