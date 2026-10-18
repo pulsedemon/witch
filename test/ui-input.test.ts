@@ -505,10 +505,14 @@ await test('Cmd and Option keys edit by line and word as Ghostty sends them, and
   );
   try {
     assert.equal(await submit(secret, 'ab cd', [...OPT_LEFT, 'X']), 'ab cdX');
-    // masked, the line breaks at 60 inside the eighth word, not before it at 56
+    // masked, the tab takes one cell and no space is a break, so the first row ends at 60 inside the eighth word
     assert.equal(
-      await submit(secret, 'abcdefg '.repeat(8), [...CMD_LEFT, 'X']),
-      'abcdefg '.repeat(7) + 'abcdXefg ',
+      await submit(secret, '\t' + 'abcdefg '.repeat(8), [
+        ...Array<string>(8).fill('\u001b[D'),
+        ...CMD_RIGHT,
+        'X',
+      ]),
+      '\t' + 'abcdefg '.repeat(7) + 'abcXdefg ',
     );
   } finally {
     await unmount(secret);
