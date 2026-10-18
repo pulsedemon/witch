@@ -21,37 +21,54 @@ const visible = (value: string, secret = false) =>
 const wrap = (display: string, width: number) =>
   wrapAnsi(`${display} `, width, { hard: true, trim: false }).split('\n');
 
-/** Ghostty sends Cmd+← and Cmd+→ as Ctrl+A and Ctrl+E, and Cmd+Delete as Ctrl+U. */
-const ctrlSteps: Partial<Record<string, Step>> = {
-  a: 'home',
-  e: 'end',
-};
-
 /** Ghostty sends Option+← and Option+→ as Esc B and Esc F. */
 const optionSteps: Partial<Record<string, Step>> = {
   b: 'wordLeft',
   f: 'wordRight',
 };
 
-/** where the wrapped row holding the character before `cursor` starts, so Cmd+Delete clears one row a press. */
-function rowStart(
+/**
+ * where Cmd+← and Cmd+→ stop, the edges of the wrapped row the cursor is drawn on, and where Cmd+Delete
+ * stops, the start of the row holding the character before it. Cmd+→ stops before a soft row's trailing
+ * spaces, since a cursor after them is drawn on the next row.
+ */
+function rowStops(
   value: string,
   cursor: number,
   width: number,
   secret: boolean,
-): number {
+) {
   const [start, end] = lineAt(value, cursor);
-  const before = visible(value.slice(start, cursor), secret).length;
-  let row = 0;
-  for (const line of wrap(visible(value.slice(start, end), secret), width)) {
-    const next = row + stripAnsi(line).length;
-    if (before <= next) break;
-    row = next;
+  const line = visible(value.slice(start, end), secret);
+  const at = visible(value.slice(start, cursor), secret).length;
+  const rows: { from: number; to: number; text: string }[] = [];
+  for (const row of wrap(line, width)) {
+    const text = stripAnsi(row);
+    const from = rows.at(-1)?.to ?? 0;
+    rows.push({ from, to: from + text.length, text });
   }
-  // a row that starts inside an expanded tab takes the whole tab
-  return boundaries(value, start, cursor).findLast(
-    (stop) => visible(value.slice(start, stop), secret).length <= row,
-  )!;
+  const stops = boundaries(value, start, end);
+  // the last boundary drawn at or before `cells`; a row that starts inside an expanded tab takes the whole tab
+  const offset = (cells: number) => {
+    let low = 0;
+    let high = stops.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (visible(value.slice(start, stops[middle]), secret).length <= cells)
+        low = middle;
+      else high = middle - 1;
+    }
+    return stops[low]!;
+  };
+  const drawn = rows.find((row) => at < row.to) ?? rows.at(-1)!;
+  return {
+    home: offset(drawn.from),
+    end:
+      drawn.to >= line.length
+        ? end
+        : Math.max(cursor, offset(drawn.from + drawn.text.trimEnd().length)),
+    back: offset(rows.find((row) => at <= row.to)!.from),
+  };
 }
 
 /** the rows an input holding `value` fills at `width`. */
@@ -156,15 +173,14 @@ export function Input({
         key.pageDown
       )
         return;
+      // Ghostty sends Cmd+←, Cmd+→ and Cmd+Delete as Ctrl+A, Ctrl+E and Ctrl+U
       if (key.ctrl) {
-        const type = ctrlSteps[input];
-        if (type) edit({ type });
-        else if (input === 'u') {
+        if (input === 'a' || input === 'e' || input === 'u') {
           const { value, cursor } = current.current;
-          edit({
-            type: 'backspaceRow',
-            start: rowStart(value, cursor, width, secret),
-          });
+          const stops = rowStops(value, cursor, width, secret);
+          if (input === 'u') edit({ type: 'backspaceRow', start: stops.back });
+          else
+            replace({ value, cursor: input === 'a' ? stops.home : stops.end });
         }
         return;
       }
