@@ -16,7 +16,7 @@ import type {
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
-import { stopPreviousProcess } from './process.js';
+import { stopPreviousProcess, stopPreviousShell } from './process.js';
 
 // macOS O_EXLOCK, which Node doesn't export.
 const exclusiveLock = 0x20;
@@ -183,8 +183,11 @@ export class StateStore {
     try {
       const record = await readRecord(directory);
       const files = new ConversationStore(directory, lock, record);
-      if (record.process) {
-        await stopPreviousProcess(record.process);
+      if (record.shell || record.process) {
+        // the shell goes first, so a CLI that won't stop still leaves the command killed
+        if (record.shell) await stopPreviousShell(record.shell);
+        if (record.process) await stopPreviousProcess(record.process);
+        delete record.shell;
         delete record.process;
         await files.save(record);
       }

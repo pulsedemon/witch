@@ -883,6 +883,14 @@ export class Coordinator {
     await workspace.ensureWorktree();
     const scope = turnScope ?? (await workspace.scope(conversation.cwd));
     const stored = conversation.sessions[agent];
+    const identify =
+      (key: 'process' | 'shell') => async (pid: number | undefined) => {
+        const identity =
+          pid === undefined ? undefined : await identifyProcess(pid);
+        if (files.closed) return;
+        conversation[key] = identity;
+        await files.save(conversation);
+      };
     this.connecting = new AbortController();
     let session: AgentSession;
     try {
@@ -899,16 +907,11 @@ export class Coordinator {
         onEvent: (event) => {
           if (!files.closed) this.receive(conversation, agent, event);
         },
-        onProcess: async (pid) => {
-          const process =
-            pid === undefined ? undefined : await identifyProcess(pid);
-          if (files.closed) return;
-          conversation.process = process;
-          await files.save(conversation);
-        },
+        onProcess: identify('process'),
         // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
         onShell: async (pid) => {
           if (pid !== undefined) this.jobs?.track(pid);
+          await identify('shell')(pid);
         },
       });
     } finally {

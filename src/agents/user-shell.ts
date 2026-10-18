@@ -16,7 +16,7 @@ export interface ShellRun {
 }
 
 /** a group holding only the unreaped shell refuses signals with EPERM, and a throw from an abort listener would end Witch. */
-function killGroup(pid: number): void {
+export function killGroup(pid: number): void {
   try {
     process.kill(-pid, 'SIGKILL');
   } catch (error) {

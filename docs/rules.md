@@ -34,7 +34,7 @@ Use an alternate-screen header and status row, a scrolling transcript, a multili
 
 Follow output only at the bottom. Keep typing responsive with long expanded tool results, preserve scroll on view changes and resize, batch streamed display changes and reuse completed rendering. Capture the mouse: the wheel scrolls, a click opens the link under it, and a drag selects transcript text, drawn as the terminal draws a selection, for Cmd+C to copy with wrapped rows joined. A drag past the transcript's top or bottom scrolls it. Shift+drag keeps native selection, and mouse reporting ends on exit. Web links use OSC 8 and the default browser. File references use encoded VS Code URLs with optional line/column, resolved against their originating cwd. Preserve links in Markdown, bare text, tool output, wrapping and clipping. A message shows the images it names and an expanded tool the images it returned, drawn as Kitty Unicode placeholders so they scroll and clip as text. An answered question stays in the transcript with its answers. Each familiar's and brew's start and end add transcript rows, a familiar's end with its report.
 
-Persist native IDs and display history. Each instance has one conversation open, and its coordinator exclusively owns that state. Refuse a conversation another instance holds; recover after a dead owner and reconcile native execution. Never automatically replay a prompt.
+Persist native IDs and display history. Each instance has one conversation open, and its coordinator exclusively owns that state. Refuse a conversation another instance holds; recover after a dead owner, stopping the agent and any `!` command it left running, and reconcile native execution. Never automatically replay a prompt.
 
 ## Shared memory
 
