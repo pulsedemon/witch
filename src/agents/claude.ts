@@ -99,7 +99,7 @@ interface Turn {
    * turn meanwhile.
    */
   held: boolean;
-  /** Claude Code reported idle while the turn was held. */
+  /** Claude Code's last state reported while the turn was held is idle. */
   idle: boolean;
   /** the completed command's reply, waiting to go. */
   answer?: string;
@@ -600,19 +600,22 @@ class ClaudeSession implements AgentSession {
           skills: skillsOf(message.commands),
         });
       } else if (
+        // a command steered after the reply holds the turn until its reply goes. Claude Code can run again meanwhile, as
+        // it does when a brew ends
+        message.subtype === 'session_state_changed' &&
+        this.turn?.held
+      ) {
+        this.turn.idle = message.state === 'idle';
+        if (this.turn.idle && this.turn.answer !== undefined)
+          this.release(this.turn);
+      } else if (
         // more activity can follow a result, so a turn ends only at native idle
         message.subtype === 'session_state_changed' &&
         message.state === 'idle' &&
         this.turn?.result
       ) {
-        // a command steered after the reply holds the turn until its reply goes
-        if (this.turn.held) {
-          this.turn.idle = true;
-          if (this.turn.answer !== undefined) this.release(this.turn);
-        } else {
-          this.finish(this.turn, this.turn.result);
-          void this.readUsage();
-        }
+        this.finish(this.turn, this.turn.result);
+        void this.readUsage();
       } else if (
         // ambient tasks are housekeeping, such as forked-skill workers
         message.subtype === 'task_started' &&
