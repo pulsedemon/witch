@@ -17,9 +17,12 @@ const visible = (value: string, secret = false) =>
     { trim: false },
   );
 
-/** `display` wrapped to `width`, with a cell after the last character for the cursor. */
-const wrap = (display: string, width: number) =>
-  wrapAnsi(`${display} `, width, { hard: true, trim: false }).split('\n');
+/** `display` wrapped to `width`. text that ends the buffer gets a cell after its last character for the cursor. */
+const wrap = (display: string, width: number, last = true) =>
+  wrapAnsi(last ? `${display} ` : display, width, {
+    hard: true,
+    trim: false,
+  }).split('\n');
 
 /** Ghostty sends Option+← and Option+→ as Esc B and Esc F. */
 const optionSteps: Partial<Record<string, Step>> = {
@@ -42,7 +45,7 @@ function rowStops(
   const line = visible(value.slice(start, end), secret);
   const at = visible(value.slice(start, cursor), secret).length;
   const rows: { from: number; to: number; text: string }[] = [];
-  for (const row of wrap(line, width)) {
+  for (const row of wrap(line, width, end === value.length)) {
     const text = stripAnsi(row);
     const from = rows.at(-1)?.to ?? 0;
     rows.push({ from, to: from + text.length, text });
