@@ -582,6 +582,11 @@ await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor 
     assert.equal(await long.after(CMD_LEFT), 10);
     assert.equal(await long.after([...left(1), ...CMD_RIGHT]), 10);
 
+    // a full-width line above another gets no cursor cell, so its end is drawn on its own row
+    const full = await typed(10, 'abcdefghij\nx');
+    assert.deepEqual(full.frame()?.slice(0, 2), ['abcdefghij', 'x']);
+    assert.equal(await full.after([...left(2), ...CMD_LEFT]), 0);
+
     // inside a row's trailing spaces, Cmd+→ never moves left
     const spaced = await typed(10, 'abcdef    ghij kl');
     assert.deepEqual(spaced.frame()?.slice(0, 2), ['abcdef', 'ghij kl']);
