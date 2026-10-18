@@ -380,8 +380,8 @@ class ClaudeSession implements AgentSession {
   async steer(prompt: string): Promise<boolean> {
     const turn = this.turn;
     if (this.closed || !turn || turn.interrupted) return false;
-    // after the result, the CLI holds off idle only while a familiar runs in the background. without one, a prompt
-    // could land after idle and run outside any turn
+    // after the result, a familiar running in the background holds off idle. without one, a prompt could land after
+    // idle and run outside any turn
     if (
       turn.result &&
       ![...this.subagents.values()].some(({ status }) => status === 'running')
