@@ -108,6 +108,29 @@ await test('a wheel step while the button is down keeps its release from clickin
   assert.equal(clicks(), 0);
 });
 
+await test('motion with no button held and middle or right reports are hovers at their cell, and neither click nor reach the input', () => {
+  const { source, mouse, read, clicks, pointer } = input();
+  const hovers: Cell[] = [];
+  mouse.on('hover', (cell: Cell) => hovers.push(cell));
+  // a hover, then a middle and a right press, drag and release
+  source.emit(
+    'data',
+    'a\u001b[<35;3;2Mb\u001b[<1;4;2M\u001b[<33;5;2M\u001b[<1;5;2m\u001b[<2;6;2M\u001b[<34;7;2M\u001b[<2;7;2m',
+  );
+  assert.deepEqual(read, ['a', 'b']);
+  assert.deepEqual(hovers, [
+    { column: 2, row: 1 },
+    { column: 3, row: 1 },
+    { column: 4, row: 1 },
+    { column: 4, row: 1 },
+    { column: 5, row: 1 },
+    { column: 6, row: 1 },
+    { column: 6, row: 1 },
+  ]);
+  assert.equal(clicks(), 0);
+  assert.deepEqual(pointer, []);
+});
+
 await test('raw mode reaches the terminal', () => {
   const { source, mouse } = input();
   mouse.setRawMode(true);
@@ -115,12 +138,12 @@ await test('raw mode reaches the terminal', () => {
   assert.deepEqual(source.raw, [true, false]);
 });
 
-await test('capturing the mouse asks for motion while a button is held, in SGR coordinates, and releasing it ends every mode capture began', () => {
+await test('capturing the mouse asks for all motion, in SGR coordinates, and releasing it ends every mode capture began', () => {
   const modes = (sequence: string, end: 'h' | 'l') =>
     [...sequence.matchAll(/\?(\d+)([hl])/g)]
       .filter(([, , kind]) => kind === end)
       .map(([, mode]) => mode)
       .sort();
-  assert.deepEqual(modes(captureMouse, 'h'), ['1002', '1006']);
+  assert.deepEqual(modes(captureMouse, 'h'), ['1003', '1006']);
   assert.deepEqual(modes(releaseMouse, 'l'), modes(captureMouse, 'h'));
 });

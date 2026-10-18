@@ -154,3 +154,51 @@ await test('only http, https and vscode links open, since open would launch a fi
   assert.equal(screen.linkAt(3, 0), 'vscode://file/a.ts');
   assert.equal(screen.linkAt(4, 0), 'HTTP://example.com');
 });
+
+const hand = '\u001b]22;pointer\u0007';
+const arrow = '\u001b]22;default\u0007';
+
+await test('the pointer turns into a hand over a link and back to the arrow off it, once per change', () => {
+  const screen = new Screen({ columns: 20, rows: 2 });
+  assert.equal(screen.write(`ab${link('cd', docs)}e`), '');
+  assert.equal(screen.point(2, 0), hand);
+  assert.equal(screen.point(3, 0), '');
+  assert.equal(screen.point(4, 0), arrow);
+  assert.equal(screen.point(1, 0), '');
+});
+
+await test('a frame that draws a link under a still pointer or covers it changes the shape', () => {
+  const screen = new Screen({ columns: 20, rows: 2 });
+  assert.equal(screen.point(2, 0), '');
+  assert.equal(screen.write(`ab${link('cd', docs)}`), hand);
+  assert.equal(screen.write('\u001b[1;1Habcd'), arrow);
+});
+
+await test('the recorded stream follows a frame with the shape change it makes', () => {
+  const chunks: string[] = [];
+  const stub = {
+    write: (chunk: string) => chunks.push(chunk) > 0,
+  } as unknown as NodeJS.WriteStream;
+  const screen = new Screen({ columns: 20, rows: 2 });
+  screen.point(2, 0);
+  const stream = recorded(stub, screen);
+  const frame = `ab${link('cd', docs)}`;
+  stream.write(frame);
+  stream.write('\u001b[1;1Hab');
+  assert.deepEqual(chunks, [frame + hand, '\u001b[1;1Hab']);
+});
+
+await test('a shape change waits for the write that ends a split sequence, so it never lands inside one', () => {
+  const chunks: string[] = [];
+  const stub = {
+    write: (chunk: string) => chunks.push(chunk) > 0,
+  } as unknown as NodeJS.WriteStream;
+  const screen = new Screen({ columns: 20, rows: 2 });
+  screen.point(2, 0);
+  const stream = recorded(stub, screen);
+  const start = `ab\u001b]8;;${docs}\u0007cd\u001b]8;;`;
+  stream.write(start);
+  assert.equal(screen.point(3, 0), '');
+  stream.write('\u0007e');
+  assert.deepEqual(chunks, [start, `\u0007e${hand}`]);
+});

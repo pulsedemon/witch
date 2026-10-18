@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { tokenize } from '@alcalzone/ansi-tokenize';
 import ansiEscapes from 'ansi-escapes';
 import LinkifyIt from 'linkify-it';
+import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
@@ -46,7 +47,12 @@ export function hyperlink(text: string, target: string, cwd: string): string {
     return text;
   }
   if (/\p{Cc}/u.test(url)) return text;
-  return ansiEscapes.link(text, url);
+  // the underline sits inside the link, since markdown's inline code checks for a leading OSC 8,
+  // and each line is its own link, so a line drawn without the one above still opens
+  return text
+    .split('\n')
+    .map((line) => ansiEscapes.link(colors.underline(line), url))
+    .join('\n');
 }
 
 function fileLinks(text: string, cwd: string): string {

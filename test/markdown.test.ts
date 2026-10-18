@@ -60,7 +60,7 @@ await test('a URL in inline code links to itself, alone, after a command or afte
   ])
     assert.ok(
       markdown(input, '/work').includes(
-        '\u001b]8;;http://localhost:3000/api\u0007http://localhost:3000/api\u001b]8;;\u0007',
+        '\u001b]8;;http://localhost:3000/api\u0007\u001b[4mhttp://localhost:3000/api\u001b[24m\u001b]8;;\u0007',
       ),
       input,
     );

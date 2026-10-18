@@ -49,9 +49,13 @@ await test('the status line shows every reported field in the order and format s
     'CTX 45% ████░░░░░░ | witch | feat/x ↑1 ↓2 +3 ~4 !1 ?5 | PR#7 ✓ | 12+/3-',
   );
   assert.ok(
-    second.includes('\u001b]8;;https://github.com/o/r/pull/7\u0007PR#7'),
+    second.includes(
+      '\u001b]8;;https://github.com/o/r/pull/7\u0007\u001b[4mPR#7',
+    ),
   );
-  assert.ok(second.includes('\u001b]8;;vscode://file/work/witch\u0007witch'));
+  assert.ok(
+    second.includes('\u001b]8;;vscode://file/work/witch\u0007\u001b[4mwitch'),
+  );
 });
 
 await test('what no agent or repository reported yet takes the script defaults, and Git and limits stay out', () => {

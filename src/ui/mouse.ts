@@ -2,9 +2,9 @@ import { EventEmitter } from 'node:events';
 import { useEffect } from 'react';
 import { useStdin } from 'ink';
 
-/** button reports, and motion while a button is held, with SGR coordinates. Shift+drag still selects text natively. */
-export const captureMouse = '\u001b[?1002h\u001b[?1006h';
-export const releaseMouse = '\u001b[?1006l\u001b[?1002l';
+/** button reports and all motion, with SGR coordinates. Shift+drag still selects text natively. */
+export const captureMouse = '\u001b[?1003h\u001b[?1006h';
+export const releaseMouse = '\u001b[?1006l\u001b[?1003l';
 
 // eslint-disable-next-line no-control-regex
 const report = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/g;
@@ -31,7 +31,8 @@ interface Source {
 /**
  * the stdin Ink reads, with mouse reports taken out: the left button emits `pointer` with what it did and the cell,
  * a release on its press's cell with no drag or wheel step between emits `click`, and a wheel step emits `wheel`
- * with the rows to scroll, -1 up and 1 down. Ink drops any report that reaches it, so nothing leaks into the composer.
+ * with the rows to scroll, -1 up and 1 down. Any other report, such as motion with no button or another button held,
+ * emits `hover` with the cell. Ink drops any report that reaches it, so nothing leaks into the composer.
  */
 export class MouseInput extends EventEmitter {
   readonly isTTY = true;
@@ -101,7 +102,7 @@ export class MouseInput extends EventEmitter {
           this.emit('click');
         this.pressed = undefined;
         this.emit('pointer', 'release', cell);
-      }
+      } else this.emit('hover', cell);
     }
     this.text += data.slice(end);
     if (this.text) this.emit('readable');
