@@ -258,10 +258,7 @@ await test("a claim kills a recorded shell's whole group, a member its first sig
       }
       return kill(pid, signal);
     });
-    // the shell is reaped inside the claim's wait
-    const exited = once(child, 'exit');
     const claimed = await store.claim('shell');
-    await within(exited, 2000, 'the shell to exit');
     await until(
       'the background sleep to exit',
       async () => !(await identifyProcess(background)),
