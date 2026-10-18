@@ -5,8 +5,8 @@ import type { DOMElement } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
-import { editInput, initialInput } from './input-buffer.js';
-import type { Edit, InputBuffer } from './input-buffer.js';
+import { boundaries, editInput, initialInput, lineAt } from './input-buffer.js';
+import type { Edit, InputBuffer, Step } from './input-buffer.js';
 import { useLiveState } from './live-state.js';
 
 // wrapping at Infinity still expands tabs and applies NFC, which the cursor column depends on
@@ -21,13 +21,10 @@ const visible = (value: string, secret = false) =>
 const wrap = (display: string, width: number) =>
   wrapAnsi(`${display} `, width, { hard: true, trim: false }).split('\n');
 
-type Step = Exclude<Edit, { type: 'insert' }>['type'];
-
-/** Ghostty sends Cmd+←, Cmd+→ and Cmd+Delete as Ctrl+A, Ctrl+E and Ctrl+U. */
+/** Ghostty sends Cmd+← and Cmd+→ as Ctrl+A and Ctrl+E, and Cmd+Delete as Ctrl+U. */
 const ctrlSteps: Partial<Record<string, Step>> = {
   a: 'home',
   e: 'end',
-  u: 'backspaceLine',
 };
 
 /** Ghostty sends Option+← and Option+→ as Esc B and Esc F. */
@@ -35,6 +32,27 @@ const optionSteps: Partial<Record<string, Step>> = {
   b: 'wordLeft',
   f: 'wordRight',
 };
+
+/** where the wrapped row holding the character before `cursor` starts, so Cmd+Delete clears one row a press. */
+function rowStart(
+  value: string,
+  cursor: number,
+  width: number,
+  secret: boolean,
+): number {
+  const [start, end] = lineAt(value, cursor);
+  const before = visible(value.slice(start, cursor), secret).length;
+  let row = 0;
+  for (const line of wrap(visible(value.slice(start, end), secret), width)) {
+    const next = row + stripAnsi(line).length;
+    if (before <= next) break;
+    row = next;
+  }
+  // a row that starts inside an expanded tab takes the whole tab
+  return boundaries(value, start, cursor).findLast(
+    (stop) => visible(value.slice(start, stop), secret).length <= row,
+  )!;
+}
 
 /** the rows an input holding `value` fills at `width`. */
 export function inputRows(value: string, width: number): number {
@@ -141,6 +159,13 @@ export function Input({
       if (key.ctrl) {
         const type = ctrlSteps[input];
         if (type) edit({ type });
+        else if (input === 'u') {
+          const { value, cursor } = current.current;
+          edit({
+            type: 'backspaceRow',
+            start: rowStart(value, cursor, width, secret),
+          });
+        }
         return;
       }
       // a secret takes no Option keys: word stops in masked text would show where its words break

@@ -2,24 +2,25 @@ export interface InputBuffer {
   value: string;
   cursor: number;
 }
+/** edits that need nothing but the buffer. */
+export type Step =
+  | 'left'
+  | 'right'
+  | 'up'
+  | 'down'
+  | 'home'
+  | 'end'
+  | 'backspace'
+  | 'delete'
+  | 'wordLeft'
+  | 'wordRight'
+  | 'backspaceWord'
+  | 'deleteWord';
 export type Edit =
   | { type: 'insert'; text: string }
-  | {
-      type:
-        | 'left'
-        | 'right'
-        | 'up'
-        | 'down'
-        | 'home'
-        | 'end'
-        | 'backspace'
-        | 'delete'
-        | 'wordLeft'
-        | 'wordRight'
-        | 'backspaceWord'
-        | 'deleteWord'
-        | 'backspaceLine';
-    };
+  /** deletes back to `start`, where the cursor's wrapped row begins; at a line's start, what backspace would. */
+  | { type: 'backspaceRow'; start: number }
+  | { type: Step };
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const words = new Intl.Segmenter(undefined, { granularity: 'word' });
@@ -34,7 +35,11 @@ export function initialInput(value: string): InputBuffer {
 }
 
 /** grapheme boundaries of one line; a cluster never spans a normalized newline. */
-function boundaries(value: string, start: number, end: number): number[] {
+export function boundaries(
+  value: string,
+  start: number,
+  end: number,
+): number[] {
   const result = [...segmenter.segment(value.slice(start, end))].map(
     (segment) => start + segment.index,
   );
@@ -42,7 +47,7 @@ function boundaries(value: string, start: number, end: number): number[] {
   return result;
 }
 
-function lineAt(value: string, position: number): [number, number] {
+export function lineAt(value: string, position: number): [number, number] {
   const newline = value.indexOf('\n', position);
   return [
     // lastIndexOf treats a negative start as 0 and would find a leading newline
@@ -132,8 +137,8 @@ export function editInput(state: InputBuffer, action: Edit): InputBuffer {
       return back(left());
     case 'backspaceWord':
       return back(wordStart(value, cursor));
-    case 'backspaceLine':
-      return back(cursor === start ? left() : start);
+    case 'backspaceRow':
+      return back(cursor === start ? left() : action.start);
     case 'delete':
       return forward(right());
     case 'deleteWord':
