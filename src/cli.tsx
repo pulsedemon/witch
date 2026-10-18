@@ -138,6 +138,10 @@ if (!store) {
   process.once('exit', () => process.stdout.write(releaseMouse));
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+  // a closed terminal fails the next write and may send SIGHUP, in either order, and the first stops a running
+  // ! command before anything awaits
+  process.on('SIGHUP', shutdown);
+  process.stdout.on('error', shutdown);
   void coordinator
     .initialize(process.cwd(), { continue: values.continue })
     // initialize shows its own failure
@@ -147,4 +151,6 @@ if (!store) {
   jobs.close();
   process.removeListener('SIGTERM', shutdown);
   process.removeListener('SIGINT', shutdown);
+  process.removeListener('SIGHUP', shutdown);
+  process.stdout.removeListener('error', shutdown);
 }
