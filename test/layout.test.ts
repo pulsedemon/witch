@@ -465,3 +465,38 @@ await test('a message shows the images it names below its text, and a tool shows
   assert.equal(imageRows(grown), 5);
   assert.ok(grown.some((line) => stripAnsi(line).includes('and more')));
 });
+
+await test("a shell tool row shows expanded until toggled, and an agent's tool row collapsed until toggled", () => {
+  const items: DisplayItem[] = [
+    {
+      id: 's',
+      kind: 'tool',
+      title: 'ls',
+      text: 'shell-a\nshell-b',
+      cwd: '/work',
+      done: true,
+      shell: true,
+    },
+    {
+      id: 't',
+      kind: 'tool',
+      title: 'Read',
+      text: 'agent-x',
+      cwd: '/work',
+      done: true,
+    },
+  ];
+  const layout = new TranscriptLayout();
+  const lines = (expanded: Set<string>) =>
+    stripAnsi(layout.render(items, 60, expanded).lines.join('\n')).split('\n');
+  const untoggled = lines(new Set());
+  assert.ok(untoggled.includes('− ✓ ls'), untoggled.join('\n'));
+  assert.ok(untoggled.includes('shell-a') && untoggled.includes('shell-b'));
+  assert.ok(untoggled.includes('+ ✓ Read'));
+  assert.ok(!untoggled.includes('agent-x'));
+  const toggled = lines(new Set(['s', 't']));
+  assert.ok(toggled.includes('+ ✓ ls'), toggled.join('\n'));
+  assert.ok(!toggled.includes('shell-a'));
+  assert.ok(toggled.includes('− ✓ Read'));
+  assert.ok(toggled.includes('agent-x'));
+});
