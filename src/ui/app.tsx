@@ -7,7 +7,7 @@ import {
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement, Key } from 'ink';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
@@ -252,8 +252,8 @@ export function App({
           `+${errorLines.length - errorLimit + 1} more rows`,
         ]
       : errorLines;
-  // the header and phase rows above, the status line's two below
-  const bodyHeight = height - 4 - errorRows.length;
+  // the phase row above, the status line's two below
+  const bodyHeight = height - 3 - errorRows.length;
   /** a draft belongs to its conversation, so typing waits for the load or a switch to open one. */
   const composerOpen = (snapshot: Snapshot, leaving: string | undefined) =>
     !!snapshot.conversation &&
@@ -915,11 +915,6 @@ export function App({
   const model =
     state.native?.model ||
     state.conversation?.sessions[state.conversation.agent]?.model;
-  const header = piped([
-    hyperlink(oneLine(basename(cwd)), cwd, cwd),
-    (state.conversation?.agent ?? 'Starting').toUpperCase(),
-    plain(model || 'Native default').toUpperCase(),
-  ]);
   let body;
   if (request)
     body = (
@@ -1143,9 +1138,6 @@ export function App({
   return (
     <Box width={columns} height={height}>
       <Box flexDirection="column" width={width} height={height}>
-        <Box height={1} overflow="hidden">
-          <Text bold>{header}</Text>
-        </Box>
         <Box height={1}>
           <Text dimColor>
             {piped([
