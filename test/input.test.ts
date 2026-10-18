@@ -82,6 +82,8 @@ await test('word moves stop at word edges, crossing punctuation, blank lines and
     [23, 19, 12, 10, 4, 0].map((cursor) => at(cursor, 'wordLeft')),
     [19, 10, 10, 4, 0, 0],
   );
+  // with no word before it, the value's start
+  assert.equal(at(2, 'wordLeft', '  four'), 0);
   assert.deepEqual(
     [0, 1, 3, 7, 15, 21, 23].map((cursor) => at(cursor, 'wordRight')),
     [3, 3, 7, 15, 23, 23, 24],
