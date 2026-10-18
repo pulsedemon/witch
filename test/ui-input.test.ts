@@ -428,3 +428,77 @@ await test('browser elicitation confirms without JSON form content', async () =>
     await unmount(ui);
   }
 });
+
+// Ghostty 1.3.1 sends a modifier's own report before the key, and turns Cmd+←, Cmd+→, Cmd+Delete, Option+← and Option+→ into legacy bytes
+const CMD = '\u001b[57444;9u';
+const OPT = '\u001b[57443;3u';
+const CMD_LEFT = [CMD, '\u0001'];
+const CMD_RIGHT = [CMD, '\u0005'];
+const CMD_DELETE = [CMD, '\u0015'];
+const OPT_LEFT = [OPT, '\u001bb'];
+const OPT_RIGHT = [OPT, '\u001bf'];
+const OPT_DELETE = [OPT, '\u001b[127;3u'];
+const OPT_FORWARD_DELETE = [OPT, '\u001b[3;3~'];
+
+await test('Cmd and Option keys edit by line and word as Ghostty sends them, and a secret answer ignores Option', async () => {
+  const sent: string[] = [];
+  const onSubmit = (value: string) => {
+    sent.push(value);
+    return true;
+  };
+  /** pastes `text`, writes each read on its own, then submits */
+  const submit = async (
+    ui: Awaited<ReturnType<typeof mount>>,
+    text: string,
+    reads: string[],
+  ) => {
+    await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
+    for (const data of reads) await press(ui.stdin, data);
+    await press(ui.stdin, '\r');
+    return sent.at(-1);
+  };
+  const ui = await mount(
+    createElement(Input, { width: 60, height: 4, active: true, onSubmit }),
+  );
+  try {
+    for (const [reads, expected] of [
+      [[...OPT_LEFT, ...OPT_LEFT, ...OPT_RIGHT, 'X'], 'one twoX three'],
+      [[...CMD_LEFT, 'X'], 'Xone two three'],
+      [[...CMD_LEFT, ...CMD_RIGHT, 'X'], 'one two threeX'],
+      [[...OPT_DELETE, 'X'], 'one two X'],
+      [[...OPT_LEFT, ...OPT_LEFT, ...OPT_FORWARD_DELETE], 'one  three'],
+      [[...OPT_LEFT, ...CMD_DELETE], 'three'],
+    ] as const)
+      assert.equal(await submit(ui, 'one two three', [...reads]), expected);
+    // control bytes sharing one read insert nothing, and a newline among them stays
+    assert.equal(await submit(ui, 'ab', ['\u0015\n\u0015', 'x']), 'ab\nx');
+    // Ctrl+X, Option+K and Cmd+K
+    assert.equal(
+      await submit(ui, 'one two three', [
+        '\u001b[120;5u',
+        OPT,
+        '\u001b[107;3u',
+        CMD,
+        '\u001b[107;9u',
+      ]),
+      'one two three',
+    );
+  } finally {
+    await unmount(ui);
+  }
+  const secret = await mount(
+    createElement(Input, {
+      width: 60,
+      height: 4,
+      active: true,
+      secret: true,
+      onSubmit,
+    }),
+  );
+  try {
+    assert.equal(await submit(secret, 'ab cd', [...OPT_LEFT, 'X']), 'ab cdX');
+    assert.equal(await submit(secret, 'ab cd', [...CMD_LEFT, 'X']), 'Xab cd');
+  } finally {
+    await unmount(secret);
+  }
+});

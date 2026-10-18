@@ -242,7 +242,7 @@ await test('an error naming a note drops a link forged in the name', async () =>
   }
 });
 
-await test('the pending view ignores k', async () => {
+await test('the pending view ignores k and letters typed with Ctrl, Option or Cmd', async () => {
   const { app, calls } = fake({
     phase: 'recovery',
     recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
@@ -253,7 +253,8 @@ await test('the pending view ignores k', async () => {
       ui.text().includes('a ACCEPT | d DISCARD'),
     );
     await delay(600);
-    for (const key of ['k', 'a']) {
+    // Cmd+← as Ghostty sends it, Option+D and Cmd+D come between k and a
+    for (const key of ['k', '\u0001', '\u001b[100;3u', '\u001b[100;9u', 'a']) {
       ui.stdin.write(key);
       await delay(30);
     }
@@ -601,6 +602,12 @@ await test('e on a note page edits that note, and the + entry edits project esse
     await delay(30);
     ui.stdin.write('\r');
     await until('the note page', () => ui.text().includes('e EDIT'));
+    // Cmd+→ as Ghostty sends it, Option+E and Cmd+E leave the page where it is
+    for (const key of ['\u0005', '\u001b[101;3u', '\u001b[101;9u']) {
+      ui.stdin.write(key);
+      await delay(60);
+      assert.ok(ui.text().includes('e EDIT'), JSON.stringify(key));
+    }
     ui.stdin.write('e');
     await until('the edit', () => edited.length === 1);
     assert.match(edited[0]!, /\/global\/other\.md$/);
