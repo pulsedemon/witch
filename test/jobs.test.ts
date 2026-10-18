@@ -745,14 +745,14 @@ await test('a shell that reports its pid makes its group a job after it exits, a
   }
 });
 
-await test("the report script, run ahead of a command by zsh or bash, reports that shell's pid, marks the command and drops CLAUDE_ENV_FILE, and the command runs unchanged when it can't write its report", async () => {
+await test("the report script, run ahead of a command by zsh or bash, reports that shell's pid, marks the command and drops CLAUDE_ENV_FILE, and the command runs unchanged when it can't write its report, even under errexit", async () => {
   const directory = await scratch("witch-jobs-'q-");
   const jobs = new JobWatch({ directory, interval: 60_000 });
   const text = await readFile(jobs.script!, 'utf8');
-  const run = async (shell: string, command: string) => {
+  const run = async (shell: string, command: string, prelude = '') => {
     const running = promisify(execFile)(
       shell,
-      ['-c', `${text}\n: && ${command}`],
+      ['-c', `${prelude}${text}\n: && ${command}`],
       {
         env: { ...process.env, CLAUDE_ENV_FILE: jobs.script },
       },
@@ -771,14 +771,16 @@ await test("the report script, run ahead of a command by zsh or bash, reports th
     }
     await chmod(directory, 0o555);
     try {
-      for (const shell of shells) {
-        const { stdout, stderr } = await run(shell, 'echo ran');
-        assert.deepEqual(
-          { stdout, stderr },
-          { stdout: 'ran\n', stderr: '' },
-          shell,
-        );
-      }
+      // Claude's snapshot replays errexit from the user's shell
+      for (const shell of shells)
+        for (const prelude of ['', 'set -e\n']) {
+          const { stdout, stderr } = await run(shell, 'echo ran', prelude);
+          assert.deepEqual(
+            { stdout, stderr },
+            { stdout: 'ran\n', stderr: '' },
+            `${shell} ${prelude}`,
+          );
+        }
     } finally {
       await chmod(directory, 0o755);
     }
