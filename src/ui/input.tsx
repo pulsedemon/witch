@@ -67,7 +67,7 @@ function rowStops(
   return {
     home: offset(drawn.from),
     end:
-      drawn.to >= line.length
+      drawn === rows.at(-1)
         ? end
         : Math.max(cursor, offset(drawn.from + drawn.text.trimEnd().length)),
     back: offset((rows.find((row) => at <= row.to) ?? rows.at(-1)!).from),
