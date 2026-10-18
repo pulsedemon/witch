@@ -18,7 +18,7 @@ export type Step =
   | 'deleteWord';
 export type Edit =
   | { type: 'insert'; text: string }
-  /** deletes back to `start`, where the cursor's wrapped row begins; at a line's start, what backspace would. */
+  /** deletes back to `start`; at a line's start, what backspace would. */
   | { type: 'backspaceRow'; start: number }
   | { type: Step };
 
