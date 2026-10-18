@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
 import { test } from 'node:test';
+import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import { hyperlink, linkify, linkTarget, plain } from '../src/ui/links.js';
@@ -13,6 +14,32 @@ await test('bare URLs retain their exact browser target across wrapping', () => 
   });
   assert.ok(rendered.includes(`\u001b]8;;${url}\u0007`));
   assert.equal(stripAnsi(rendered).replaceAll('\n', ''), `Read ${url}.`);
+  for (const row of rendered.split('\n')) {
+    const linked = styledCharsFromTokens(tokenize(row)).filter(({ styles }) =>
+      styles.some(({ code }) => code === `\u001b]8;;${url}\u0007`),
+    );
+    assert.ok(linked.length, row);
+    assert.ok(
+      linked.every(({ styles }) =>
+        styles.some(({ code }) => code === '\u001b[4m'),
+      ),
+      row,
+    );
+  }
+});
+
+await test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
+  const link = (text: string) =>
+    `\u001b]8;;https://example.com\u0007\u001b[4m${text}\u001b[24m\u001b]8;;\u0007`;
+  assert.equal(
+    hyperlink('label', 'https://example.com', '/work'),
+    link('label'),
+  );
+  assert.equal(
+    hyperlink('foo\nbar', 'https://example.com', '/work'),
+    `${link('foo')}\n${link('bar')}`,
+  );
+  assert.equal(hyperlink('label', 'smb://example.com/share', '/work'), 'label');
 });
 
 await test('relative files resolve against their originating project with encoded spaces and locations', () => {

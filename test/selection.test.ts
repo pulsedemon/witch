@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import { placeholder } from '../src/ui/images.js';
+import { hyperlink } from '../src/ui/links.js';
 import { highlight, selectedText } from '../src/ui/selection.js';
 
 const red = (text: string) => `\u001b[31m${text}\u001b[39m`;
@@ -46,6 +48,20 @@ await test('a highlight keeps the links of the cells it covers', () => {
     highlight(`see ${link('docs')} here`, 2, 7),
     `se${inverse(`e ${link('doc')}`)}${link('s')} here`,
   );
+});
+
+await test('a highlighted link keeps its underline, as the terminal draws a selected link', () => {
+  const line = `see ${hyperlink('docs', 'https://example.com/docs', '/')} here`;
+  const cells = styledCharsFromTokens(tokenize(highlight(line, 2, 7)));
+  for (const index of [4, 5, 6]) {
+    const codes = cells[index]!.styles.map(({ code }) => code);
+    assert.ok(codes.includes('\u001b[7m'), `${index}: ${codes.join(' ')}`);
+    assert.ok(codes.includes('\u001b[4m'), `${index}: ${codes.join(' ')}`);
+    assert.ok(
+      codes.includes('\u001b]8;;https://example.com/docs\u0007'),
+      `${index}: ${codes.join(' ')}`,
+    );
+  }
 });
 
 await test('a highlight past the text covers the empty cells it reaches', () => {
