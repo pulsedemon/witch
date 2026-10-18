@@ -108,15 +108,24 @@ await test('a wheel step while the button is down keeps its release from clickin
   assert.equal(clicks(), 0);
 });
 
-await test('motion with no button held is a hover at its cell, and neither clicks nor reaches the input', () => {
+await test('motion with no button held and middle or right reports are hovers at their cell, and neither click nor reach the input', () => {
   const { source, mouse, read, clicks, pointer } = input();
   const hovers: Cell[] = [];
   mouse.on('hover', (cell: Cell) => hovers.push(cell));
-  source.emit('data', 'a\u001b[<35;3;2Mb\u001b[<35;4;2M');
+  // a hover, then a middle and a right press, drag and release
+  source.emit(
+    'data',
+    'a\u001b[<35;3;2Mb\u001b[<1;4;2M\u001b[<33;5;2M\u001b[<1;5;2m\u001b[<2;6;2M\u001b[<34;7;2M\u001b[<2;7;2m',
+  );
   assert.deepEqual(read, ['a', 'b']);
   assert.deepEqual(hovers, [
     { column: 2, row: 1 },
     { column: 3, row: 1 },
+    { column: 4, row: 1 },
+    { column: 4, row: 1 },
+    { column: 5, row: 1 },
+    { column: 6, row: 1 },
+    { column: 6, row: 1 },
   ]);
   assert.equal(clicks(), 0);
   assert.deepEqual(pointer, []);
