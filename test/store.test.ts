@@ -30,12 +30,13 @@ function conversation(id: string, cwd = '/project'): Conversation {
   };
 }
 
-/** a detached shell like a `!` command's, and the pid of the sleep it runs in the background. */
+/** a detached shell like a `!` command's, and the pid of the sleep it runs in the background. both ignore SIGTERM, as a command can. */
 async function detachedShell(seconds: string) {
-  const child = spawn('/bin/sh', ['-c', `sleep ${seconds} & echo $!; wait`], {
-    detached: true,
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  const child = spawn(
+    '/bin/sh',
+    ['-c', `trap "" TERM; sleep ${seconds} & echo $!; wait`],
+    { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
+  );
   const [data] = (await once(child.stdout, 'data')) as [Buffer];
   return { child, background: Number(String(data).trim()) };
 }
