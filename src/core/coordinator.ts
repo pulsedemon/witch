@@ -53,9 +53,9 @@ function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
-/** a slash command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, and Claude Code would run any other as its own. */
-function slashCommand(prompt: string): boolean {
-  return prompt.trimStart().startsWith('/');
+/** a slash command or `!` command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, Claude Code would run any other slash command as its own, and a `!` command's reply is a turn of its own. */
+function alone(prompt: string): boolean {
+  return prompt.trimStart().startsWith('/') || prompt.startsWith('!');
 }
 
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
@@ -386,13 +386,13 @@ export class Coordinator {
     return queue;
   }
 
-  /** a slash command, and a prompt behind queued ones or sent after an interrupt, wait in the queue. */
+  /** a slash command or `!` command, and a prompt behind queued ones or sent after an interrupt, wait in the queue. */
   private async steer(prompt: string): Promise<boolean> {
     if (
       this.snapshot.phase !== 'running' ||
       this.cancelled ||
       this.snapshot.queue.length ||
-      slashCommand(prompt) ||
+      alone(prompt) ||
       !(await this.session?.steer(prompt))
     )
       return false;
@@ -416,14 +416,14 @@ export class Coordinator {
     return !!this.snapshot.error || this.turnFailed;
   }
 
-  /** runs the queue while idle: a slash command alone, otherwise every prompt before the next one, a line each. */
+  /** runs the queue while idle: a slash command or `!` command alone, otherwise every prompt before the next one, a line each. */
   private async drain(): Promise<void> {
     if (this.draining) return;
     this.draining = true;
     try {
       while (this.snapshot.phase === 'idle' && this.snapshot.queue.length) {
         const queue = this.snapshot.queue;
-        const command = queue.findIndex(slashCommand);
+        const command = queue.findIndex(alone);
         const batch = queue.slice(
           0,
           command === 0 ? 1 : command < 0 ? queue.length : command,
@@ -761,6 +761,8 @@ export class Coordinator {
             scope,
             reference.deliveredRevision,
           );
+    const command =
+      kind === 'turn' && prompt.startsWith('!') ? prompt.slice(1) : undefined;
     const handoff = conversation.handoff;
     const pendingHandoff =
       handoff?.activated && handoff.to === conversation.agent
@@ -777,8 +779,14 @@ export class Coordinator {
           ]
         : []),
       `User request:\n${prompt}`,
+      // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
+      ...(command === undefined
+        ? []
+        : [
+            'The user ran this command themselves, and its output is above. Reply to it without running it again.',
+          ]),
     ].join('\n\n');
-    // no await from here to the send, so a Ctrl+C before it never reaches the agent
+    // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
     if (this.cancelled || session.closed)
       return { status: 'interrupted', text: '' };
     if (kind === 'turn' && conversation.title === untitled)
@@ -793,10 +801,17 @@ export class Coordinator {
     delivered?.();
     let result: TurnResult;
     try {
-      result = await session.send(
-        context,
-        skillCall(prompt, this.snapshot.skills),
-      );
+      const ran =
+        command === undefined ? undefined : await session.shell(command);
+      if (ran && ran.status !== 'completed') result = ran;
+      // an interrupt that lands as a fast command finishes still sends no reply
+      else if (ran && this.cancelled)
+        result = { status: 'interrupted', text: '' };
+      else
+        result = await session.send(
+          context,
+          skillCall(prompt, this.snapshot.skills),
+        );
     } catch (error) {
       result = { status: 'failed', text: '', error: errorMessage(error) };
     }
@@ -985,6 +1000,8 @@ export class Coordinator {
               done: event.done,
               cwd: event.cwd ?? conversation.cwd,
               ...(event.images ? { images: event.images } : {}),
+              // an append leaves it out, and keeps the one its row has
+              ...(event.shell ? { shell: true } : {}),
             },
       );
     }
