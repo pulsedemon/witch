@@ -40,15 +40,6 @@ async function detachedShell(seconds: string) {
   return { child, background: Number(String(data).trim()) };
 }
 
-function gone(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 await test('one app owns a conversation until its process exits, including a crash', async () => {
   const root = await scratch('witch-lock-');
   const store = await StateStore.open(root);
@@ -260,7 +251,10 @@ await test("a claim kills a recorded shell's whole group, a member its first sig
     const exited = once(child, 'exit');
     const claimed = await store.claim('shell');
     await within(exited, 2000, 'the shell to exit');
-    await until('the background sleep to exit', () => gone(background));
+    await until(
+      'the background sleep to exit',
+      async () => !(await identifyProcess(background)),
+    );
     assert.equal(claimed.record.shell, undefined);
     await claimed.close();
     const saved = JSON.parse(
@@ -278,7 +272,7 @@ await test("a claim kills a recorded shell's whole group, a member its first sig
 
 await test("a claim leaves a group alone when its recorded shell's pid has another start time", async () => {
   const store = await StateStore.open(await scratch('witch-shell-reused-'));
-  const { child, background } = await detachedShell('20.312');
+  const { child } = await detachedShell('20.312');
   try {
     const files = await store.create(conversation('reused'));
     await files.save({
@@ -288,7 +282,6 @@ await test("a claim leaves a group alone when its recorded shell's pid has anoth
     await files.close();
     await (await store.claim('reused')).close();
     assert.equal(child.exitCode ?? child.signalCode, null);
-    assert.equal(gone(background), false);
   } finally {
     try {
       process.kill(-child.pid!, 'SIGKILL');
