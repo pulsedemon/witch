@@ -21,6 +21,21 @@ const visible = (value: string, secret = false) =>
 const wrap = (display: string, width: number) =>
   wrapAnsi(`${display} `, width, { hard: true, trim: false }).split('\n');
 
+type Step = Exclude<Edit, { type: 'insert' }>['type'];
+
+/** Ghostty sends Cmd+←, Cmd+→ and Cmd+Delete as Ctrl+A, Ctrl+E and Ctrl+U. */
+const ctrlSteps: Partial<Record<string, Step>> = {
+  a: 'home',
+  e: 'end',
+  u: 'backspaceLine',
+};
+
+/** Ghostty sends Option+← and Option+→ as Esc B and Esc F. */
+const optionSteps: Partial<Record<string, Step>> = {
+  b: 'wordLeft',
+  f: 'wordRight',
+};
+
 /** the rows an input holding `value` fills at `width`. */
 export function inputRows(value: string, width: number): number {
   return wrap(visible(value), width).length;
@@ -117,15 +132,27 @@ export function Input({
     (input, key) => {
       if (
         key.eventType === 'release' ||
-        key.ctrl ||
-        key.meta ||
-        key.super ||
         key.escape ||
         key.tab ||
         key.pageUp ||
         key.pageDown
       )
         return;
+      if (key.ctrl) {
+        const type = ctrlSteps[input];
+        if (type) edit({ type });
+        return;
+      }
+      // a secret takes no Option keys: word stops in masked text would show where its words break
+      if (key.meta && !secret) {
+        const type = key.backspace
+          ? 'backspaceWord'
+          : key.delete
+            ? 'deleteWord'
+            : optionSteps[input];
+        if (type) edit({ type });
+      }
+      if (key.meta || key.super) return;
       if (key.return) {
         if (key.shift && multiline) edit({ type: 'insert', text: '\n' });
         else if (onSubmit(current.current.value))
@@ -140,7 +167,11 @@ export function Input({
       else if (key.end) edit({ type: 'end' });
       else if (key.backspace) edit({ type: 'backspace' });
       else if (key.delete) edit({ type: 'delete' });
-      else if (input) edit({ type: 'insert', text: input });
+      else if (input) {
+        // control bytes sharing a read, as a held Cmd+Delete's can, arrive as text: Ink splits out only 0x7f, 0x08 and 0x03
+        const text = input.replace(/(?![\t\n\r])\p{Cc}/gu, '');
+        if (text) edit({ type: 'insert', text });
+      }
     },
     { isActive: active },
   );

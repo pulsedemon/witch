@@ -540,7 +540,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the line, and Option+←/→ move by word. Cmd+Delete deletes to the start of the line, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'exit':
@@ -829,9 +829,10 @@ export function App({
       return;
     }
     if (request) return;
+    const modified = key.ctrl || key.meta || key.super;
     if (state.phase === 'recovery') {
       scrollPage(key);
-      if (!recoveryReady) return;
+      if (!recoveryReady || modified) return;
       const kind = recovery?.kind;
       if (input === 'd') run(coordinator.recoverMemory('discard'));
       if (input === 'a' && kind === 'pending')
@@ -871,7 +872,7 @@ export function App({
     }
     if (view.kind === 'page') {
       scrollPage(key);
-      if (view.note) {
+      if (view.note && !modified) {
         if (input === 'e') {
           setView({ kind: 'chat' });
           run(coordinator.editMemory(view.note));
