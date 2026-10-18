@@ -17,7 +17,7 @@ import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { foldDisplayUpdates } from '../src/core/state.js';
 import type { Conversation } from '../src/core/state.js';
 import { scratch } from './fixtures/scratch.js';
-import { within } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 function conversation(id: string, cwd = '/project'): Conversation {
   return {
@@ -28,6 +28,25 @@ function conversation(id: string, cwd = '/project'): Conversation {
     sessions: {},
     createdAt: new Date().toISOString(),
   };
+}
+
+/** a detached shell like a `!` command's, and the pid of the sleep it runs in the background. */
+async function detachedShell(seconds: string) {
+  const child = spawn('/bin/sh', ['-c', `sleep ${seconds} & echo $!; wait`], {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const [data] = (await once(child.stdout, 'data')) as [Buffer];
+  return { child, background: Number(String(data).trim()) };
+}
+
+function gone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 await test('one app owns a conversation until its process exits, including a crash', async () => {
@@ -213,6 +232,99 @@ await test('a claim leaves running a process that reuses the recorded pid', asyn
     assert.equal((await identifyProcess(child.pid!))?.pid, child.pid);
   } finally {
     child.kill('SIGKILL');
+  }
+});
+
+await test("a claim kills a recorded shell's whole group, a member its first signal missed included, and clears the record", async (t) => {
+  const store = await StateStore.open(await scratch('witch-shell-claim-'));
+  const { child, background } = await detachedShell('20.311');
+  const kill = process.kill.bind(process);
+  try {
+    const files = await store.create(conversation('shell'));
+    await files.save({
+      ...files.record,
+      shell: await identifyProcess(child.pid!),
+    });
+    await files.close();
+    let missed = false;
+    t.mock.method(process, 'kill', (pid: number, signal?: string | number) => {
+      // the first group kill lands as the shell forks, so it reaches only the shell
+      if (!missed && pid === -child.pid! && signal === 'SIGKILL') {
+        missed = true;
+        return kill(child.pid!, 'SIGKILL');
+      }
+      return kill(pid, signal);
+    });
+    // the shell is reaped inside the claim's wait
+    const exited = once(child, 'exit');
+    const claimed = await store.claim('shell');
+    await within(exited, 2000, 'the shell to exit');
+    await until('the background sleep to exit', () => gone(background));
+    assert.equal(claimed.record.shell, undefined);
+    await claimed.close();
+    const saved = JSON.parse(
+      await readFile(join(claimed.directory, 'state.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    assert.equal(saved.shell, undefined);
+  } finally {
+    try {
+      kill(-child.pid!, 'SIGKILL');
+    } catch {
+      // stopped by the claim
+    }
+  }
+});
+
+await test("a claim leaves a group alone when its recorded shell's pid has another start time", async () => {
+  const store = await StateStore.open(await scratch('witch-shell-reused-'));
+  const { child, background } = await detachedShell('20.312');
+  try {
+    const files = await store.create(conversation('reused'));
+    await files.save({
+      ...files.record,
+      shell: { pid: child.pid!, started: 'Thu Jan  1 00:00:00 1970' },
+    });
+    await files.close();
+    await (await store.claim('reused')).close();
+    assert.equal(child.exitCode ?? child.signalCode, null);
+    assert.equal(gone(background), false);
+  } finally {
+    try {
+      process.kill(-child.pid!, 'SIGKILL');
+    } catch {
+      // a wrong claim already stopped it
+    }
+  }
+});
+
+await test("a claim kills a recorded shell even when the recorded agent process won't stop", async () => {
+  const store = await StateStore.open(await scratch('witch-shell-stuck-'));
+  const agent = spawn(
+    '/bin/sh',
+    ['-c', "trap '' TERM; echo ready; exec /bin/sleep 20"],
+    { stdio: ['ignore', 'pipe', 'ignore'] },
+  );
+  const { child } = await detachedShell('20.313');
+  try {
+    await once(agent.stdout, 'data');
+    const files = await store.create(conversation('stuck'));
+    await files.save({
+      ...files.record,
+      process: await identifyProcess(agent.pid!),
+      shell: await identifyProcess(child.pid!),
+    });
+    await files.close();
+    const exited = once(child, 'exit');
+    await assert.rejects(store.claim('stuck'), /has not stopped/);
+    // unbounded, this wait would pass once the shell's sleep ends by itself
+    await within(exited, 1000, 'the shell to exit');
+  } finally {
+    agent.kill('SIGKILL');
+    try {
+      process.kill(-child.pid!, 'SIGKILL');
+    } catch {
+      // stopped by the claim
+    }
   }
 });
 
