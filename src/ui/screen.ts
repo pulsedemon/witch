@@ -81,7 +81,8 @@ export class Screen {
       this.pointer && this.linkAt(this.pointer.column, this.pointer.row)
         ? 'pointer'
         : 'default';
-    if (shape === this.shape) return '';
+    // OSC 22 inside an unfinished sequence would corrupt it, so the write that finishes it makes the change
+    if (this.pending || shape === this.shape) return '';
     this.shape = shape;
     return `\u001b]22;${shape}\u0007`;
   }
