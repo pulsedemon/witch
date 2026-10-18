@@ -357,11 +357,17 @@ class ClaudeSession implements AgentSession {
       done: false,
       shell: true,
     });
+    let started: Promise<void> | undefined;
     try {
       const run = await runShell(command, {
         cwd: this.options.cwd,
         signal: abort.signal,
         onOutput: (text) => row(text),
+        onSpawn: (pid) => {
+          started = this.options.onShell?.(pid);
+          // awaited once the command ends, which can be long after a failed report
+          started?.catch(() => {});
+        },
       });
       this.records.push(bashRecord(command, run));
       return {
@@ -373,6 +379,10 @@ class ClaudeSession implements AgentSession {
     } finally {
       this.command = undefined;
       row('', true);
+      if (started) {
+        await started;
+        await this.options.onShell?.(undefined);
+      }
     }
   }
 

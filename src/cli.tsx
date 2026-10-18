@@ -61,10 +61,12 @@ if (!store) {
   process.stdout.write(usage);
 } else {
   const prompt = positionals.join(' ');
+  const jobs = new JobWatch();
   const coordinator = new Coordinator(
     store,
     new Memory(join(store.root, 'memory.git')),
     await installedAgents(),
+    jobs,
   );
   // straight to the terminal, since the link screen would read image data as printed text
   const graphics = new Graphics((data) => process.stdout.write(data));
@@ -91,7 +93,6 @@ if (!store) {
     );
   };
   const repository = new RepositoryWatch(process.cwd());
-  const jobs = new JobWatch();
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
   // output can scroll another link under the pointer before the release, so a click opens the one it pressed
@@ -137,6 +138,10 @@ if (!store) {
   process.once('exit', () => process.stdout.write(releaseMouse));
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+  // a closed terminal fails every write and may send SIGHUP, and the first of these stops a running Claude `!`
+  // command before anything awaits
+  process.on('SIGHUP', shutdown);
+  process.stdout.on('error', shutdown);
   void coordinator
     .initialize(process.cwd(), { continue: values.continue })
     // initialize shows its own failure
@@ -146,4 +151,6 @@ if (!store) {
   jobs.close();
   process.removeListener('SIGTERM', shutdown);
   process.removeListener('SIGINT', shutdown);
+  process.removeListener('SIGHUP', shutdown);
+  process.stdout.removeListener('error', shutdown);
 }

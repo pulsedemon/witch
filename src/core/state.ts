@@ -27,8 +27,12 @@ const conversationSchema = z.object({
     .optional(),
 });
 
+const processIdentity = z.object({ pid: z.number(), started: z.string() });
+
 export const conversationRecordSchema = conversationSchema.extend({
-  process: z.object({ pid: z.number(), started: z.string() }).optional(),
+  process: processIdentity.optional(),
+  // the shell of a running `!` command Witch runs for Claude
+  shell: processIdentity.optional(),
   activity: z
     .object({
       id: z.string(),
@@ -57,6 +61,7 @@ export const displayUpdateSchema = z.object({
 
 export type Conversation = z.infer<typeof conversationSchema>;
 export type ConversationRecord = z.infer<typeof conversationRecordSchema>;
+export type ProcessIdentity = z.infer<typeof processIdentity>;
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
 

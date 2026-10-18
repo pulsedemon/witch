@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import type { ConversationRecord } from '../core/state.js';
+import { killGroup } from '../agents/user-shell.js';
+import type { ProcessIdentity } from '../core/state.js';
 
 const execute = promisify(execFile);
 
@@ -36,16 +37,32 @@ export async function ps(format: string, pids?: number[]): Promise<string[]> {
 
 export async function identifyProcess(
   pid: number,
-): Promise<ConversationRecord['process']> {
+): Promise<ProcessIdentity | undefined> {
   const [started] = await ps('lstart=', [pid]);
   return started === undefined ? undefined : { pid, started: started.trim() };
 }
 
-export async function stopPreviousProcess(
-  recorded: NonNullable<ConversationRecord['process']>,
-): Promise<void> {
+/** false once the recorded process has exited, even when a later one holds its pid. */
+async function runs(recorded: ProcessIdentity): Promise<boolean> {
   const current = await identifyProcess(recorded.pid);
-  if (!current || current.started !== recorded.started) return;
+  return current?.started === recorded.started;
+}
+
+/** waits up to 5 s for the recorded process to exit, and throws if it hasn't. */
+async function ends(recorded: ProcessIdentity, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    await delay(100);
+    if (!(await runs(recorded))) return;
+  }
+  throw new Error(
+    `The previous ${what} (${recorded.pid}) has not stopped. Stop it before restarting Witch.`,
+  );
+}
+
+export async function stopPreviousProcess(
+  recorded: ProcessIdentity,
+): Promise<void> {
+  if (!(await runs(recorded))) return;
   try {
     process.kill(recorded.pid, 'SIGTERM');
   } catch (error) {
@@ -53,12 +70,15 @@ export async function stopPreviousProcess(
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
     throw error;
   }
-  for (let attempt = 0; attempt < 50; attempt++) {
-    await delay(100);
-    const remaining = await identifyProcess(recorded.pid);
-    if (!remaining || remaining.started !== recorded.started) return;
-  }
-  throw new Error(
-    `The previous agent process (${recorded.pid}) has not stopped. Stop it before restarting Witch.`,
-  );
+  await ends(recorded, 'agent process');
+}
+
+/** kills a recorded `!` command's group, then the group again once its shell exits, for a child forked as the first kill landed. */
+export async function stopPreviousShell(
+  recorded: ProcessIdentity,
+): Promise<void> {
+  if (!(await runs(recorded))) return;
+  killGroup(recorded.pid);
+  await ends(recorded, 'shell command');
+  killGroup(recorded.pid);
 }

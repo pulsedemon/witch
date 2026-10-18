@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { ps } from '../persistence/process.js';
 
-/** a process group one of the agents' commands started. */
+/** a process group one of the agents' commands, or a `!` command Witch runs, started. */
 export interface Job {
   /** the group's id, which `stop` signals. */
   group: number;
@@ -80,13 +80,16 @@ async function describe(pids: number[]): Promise<Detail[]> {
 }
 
 /**
- * the process groups of the agents' commands, which both agents start as session leaders, and of any group a
- * process inside one moves to. a group keeps its generation while a process from the last read remains in it, so a
- * command orphaned to launchd still shows; one orphaned before any read sees it never does.
+ * the process groups of the agents' commands, which both agents start as session leaders, of the groups handed to
+ * `track`, and of any group a process inside one moves to. a group keeps its generation while a process from the last
+ * read remains in it, so a command orphaned to launchd still shows; one orphaned before any read sees it never does,
+ * unless its group was handed over.
  */
 export class JobWatch {
   /** each tracked group's generation. */
   private groups: ReadonlyMap<number, number> = new Map();
+  /** the groups handed to `track` that no read has yet found empty. */
+  private readonly handed = new Set<number>();
   private generation = 0;
   /** the tracked groups' processes as of the last read, by identity, with the group each was in. */
   private members = new Map<string, number>();
@@ -115,6 +118,11 @@ export class JobWatch {
 
   close(): void {
     clearInterval(this.timer);
+  }
+
+  /** tracks a group Witch started itself from the next read, even once its leader has exited. */
+  track(group: number): void {
+    this.handed.add(group);
   }
 
   /** the tracked jobs as of a fresh read, oldest first. */
@@ -186,6 +194,8 @@ export class JobWatch {
   }
 
   private async read(): Promise<Row[]> {
+    // a group handed over while this read's ps runs can be missing from its rows, so it waits for the next read
+    const handed = [...this.handed];
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
     // the agents' commands lead sessions and their MCP servers don't. a server's detached helpers sit a level deeper
@@ -195,6 +205,7 @@ export class JobWatch {
       ...(children.get(process.pid) ?? []).flatMap(({ pid }) =>
         (children.get(pid) ?? []).filter(({ leadsSession }) => leadsSession),
       ),
+      ...rows.filter(({ pgid }) => handed.includes(pgid)),
       // a command's process orphaned to launchd is reached by its identity, so a group it starts or moves to later is too
       ...rows.filter(
         ({ ppid, identity }) => ppid === 1 && this.members.has(identity),
@@ -222,6 +233,8 @@ export class JobWatch {
     this.members = new Map(
       tracked.map(({ identity, pgid }) => [identity, pgid]),
     );
+    for (const group of handed)
+      if (!rows.some(({ pgid }) => pgid === group)) this.handed.delete(group);
     return tracked;
   }
 }

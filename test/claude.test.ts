@@ -1032,3 +1032,55 @@ await test('closing the session during a shell command kills it, and the shell s
     if (!session.closed) await session.close();
   }
 });
+
+await test("a shell command reports its shell's pid as it starts and undefined once it ends, after the start's report settles", async () => {
+  const done = Promise.withResolvers<void>();
+  const texts: string[] = [];
+  const reports: string[] = [];
+  const { connect } = await launcher();
+  const session = await connect({
+    onEvent: (event) => {
+      if (event.type !== 'tool') return;
+      texts.push(event.text);
+      if (event.done) done.resolve();
+    },
+    onShell: async (pid) => {
+      reports.push(`report ${pid}`);
+      if (pid === undefined) return;
+      // throws once the shell is reaped
+      process.kill(pid, 0);
+      // still pending when the command ends, however fast it runs
+      await done.promise;
+      reports.push('settled');
+    },
+  });
+  try {
+    await within(session.shell('echo $$'), 3000, 'the command');
+    const pid = Number(texts.join('').trim());
+    assert.deepEqual(reports, [`report ${pid}`, 'settled', 'report undefined']);
+  } finally {
+    await session.close();
+  }
+});
+
+await test('a shell report that rejects fails the command once it ends, without an unhandled rejection', async () => {
+  const texts: string[] = [];
+  const { connect } = await launcher();
+  const session = await connect({
+    onEvent: (event) => {
+      if (event.type === 'tool') texts.push(event.text);
+    },
+    onShell: async (pid) => {
+      if (pid !== undefined) throw new Error('no shell record');
+    },
+  });
+  try {
+    await assert.rejects(
+      session.shell('sleep 0.3; echo ended'),
+      /no shell record/,
+    );
+    assert.equal(texts.join(''), 'ended\n');
+  } finally {
+    await session.close();
+  }
+});

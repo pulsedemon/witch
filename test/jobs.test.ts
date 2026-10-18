@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
+import { runShell } from '../src/agents/user-shell.js';
 import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
 import { ps } from '../src/persistence/process.js';
@@ -582,6 +584,123 @@ await test('stop rejects while reads still show a job it signalled', async () =>
     await assert.rejects(jobs.stop(job!), { code: 'ESRCH' });
   } finally {
     sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
+await test("a ! command's group handed to track is a job from the first read, though its shell has already exited, and stops", async () => {
+  const jobs = new JobWatch({ interval: 60_000 });
+  try {
+    await runShell('sleep 60.271 &', {
+      cwd: await scratch('witch-jobs-'),
+      signal: new AbortController().signal,
+      onOutput: () => {},
+      onSpawn: (pid) => jobs.track(pid),
+    });
+    const list = await jobs.list();
+    assert.deepEqual(
+      list.map(({ command }) => command),
+      ['sleep 60.271'],
+    );
+    await jobs.stop(list[0]!);
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    // pkill exits 1 once stop has killed the sleep
+    await promisify(execFile)('pkill', ['-f', 'sleep 60.271']).catch(() => {});
+    jobs.close();
+  }
+});
+
+await test('a group handed to track while a read runs is a job at the next read and after, along with the groups its process starts', async () => {
+  // a `!` command's shell is Witch's own child, which a read never walks from by identity as it does an orphan.
+  // pids above 99999 can't be this test's
+  const shell: Row = {
+    pid: 100000,
+    ppid: process.pid,
+    pgid: 100000,
+    leadsSession: true,
+    identity: '100000 a',
+  };
+  const first = Promise.withResolvers<Row[]>();
+  const tables = [
+    first.promise,
+    Promise.resolve<Row[]>([
+      shell,
+      {
+        pid: 100001,
+        ppid: 100000,
+        pgid: 100001,
+        leadsSession: false,
+        identity: '100001 a',
+      },
+    ]),
+    // a new child, so only the walk from the handed group reaches its group
+    Promise.resolve<Row[]>([
+      shell,
+      {
+        pid: 100002,
+        ppid: 100000,
+        pgid: 100002,
+        leadsSession: false,
+        identity: '100002 a',
+      },
+    ]),
+  ];
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: () => tables.shift()!,
+    describe: leaders,
+  });
+  try {
+    const listing = jobs.list();
+    jobs.track(100000);
+    first.resolve([]);
+    await listing;
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100000, 100001],
+    );
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100000, 100002],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('a handed group stays a job while any process holds its id, and once a read finds it empty, a later group given its id is not', async () => {
+  // each orphan is new to its read, so only the handed group reaches it
+  const orphan = (pid: number): Row => ({
+    pid,
+    ppid: 1,
+    pgid: 100000,
+    leadsSession: false,
+    identity: `${pid} a`,
+  });
+  const tables = [[orphan(100001)], [orphan(100002)], [], [orphan(100000)]];
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => tables.shift()!,
+    describe: async (pids) =>
+      pids.map((pid) => ({
+        pid,
+        pgid: 100000,
+        cpu: 0,
+        startedAt: 0,
+        command: '',
+      })),
+  });
+  try {
+    jobs.track(100000);
+    await jobs.list();
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100000],
+    );
+    await jobs.list();
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
     jobs.close();
   }
 });

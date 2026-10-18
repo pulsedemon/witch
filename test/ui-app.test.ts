@@ -402,6 +402,7 @@ async function memoryApp(
     memory,
     // uninstalled, so opening the conversation builds no worktree
     [{ adapter: new FixtureAgent('a') }],
+    undefined,
     editFile,
   );
   await coordinator.initialize(cwd);

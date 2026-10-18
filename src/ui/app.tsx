@@ -114,7 +114,7 @@ export function App({
   repository?: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>;
   /** draws images in the transcript, which leaves them out without it. */
   graphics?: Graphics;
-  /** the agents' jobs, which /jobs lists and stops; it lists none without them. */
+  /** the agents' and `!` commands' jobs, which /jobs lists and stops; it lists none without them. */
   jobs?: Pick<JobWatch, 'list' | 'stop'>;
   /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
   store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
