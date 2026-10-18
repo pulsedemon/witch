@@ -419,7 +419,11 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
   try {
     // familiars that finished in an earlier turn stay in the session
     assert.equal((await session.send('familiars')).status, 'completed');
-    const turn = session.send('background familiar');
+    let finished = false;
+    const turn = session.send('background familiar').then((result) => {
+      finished = true;
+      return result;
+    });
     // each result reports the session's running cost
     await until('the result', () => costs.includes(0.5));
     assert.equal(await session.steer('meanwhile'), true);
@@ -428,7 +432,8 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
       await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
       '"meanwhile"\n',
     );
-    await until('the report', () => texts.includes('Reported.'));
+    await until('the report', () => costs.includes(1));
+    assert.equal(finished, false);
     assert.equal(await session.steer('after the report'), false);
     await writeFile(join(cwd, 'allow-idle'), 'yes');
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
