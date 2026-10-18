@@ -379,8 +379,14 @@ class ClaudeSession implements AgentSession {
   /** Claude Code queues the prompt and folds it in after the next tool step, or runs it before going idle. */
   async steer(prompt: string): Promise<boolean> {
     const turn = this.turn;
-    // one that arrives after the result could run after native idle, outside any turn
-    if (this.closed || !turn || turn.result || turn.interrupted) return false;
+    if (this.closed || !turn || turn.interrupted) return false;
+    // after the result, the CLI holds off idle only while a familiar runs in the background. without one, a prompt
+    // could land after idle and run outside any turn
+    if (
+      turn.result &&
+      ![...this.subagents.values()].some(({ status }) => status === 'running')
+    )
+      return false;
     turn.steered.set(this.push(prompt), prompt);
     return true;
   }
