@@ -82,6 +82,16 @@ async function describe(pids: number[]): Promise<Detail[]> {
   return parseDetails(await ps('pid=,pgid=,%cpu=,lstart=,command=', pids));
 }
 
+/** the listed processes whose environment holds `entry`. ps prints no environment for Apple's platform binaries. */
+async function carrying(entry: string, pids: number[]): Promise<number[]> {
+  return (await ps('pid=,command=', pids, { environment: true })).flatMap(
+    (line) => {
+      const [, pid, rest] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+      return pid && ` ${rest} `.includes(` ${entry} `) ? [Number(pid)] : [];
+    },
+  );
+}
+
 /** `text` in single quotes, for zsh and bash. */
 function quote(text: string): string {
   return `'${text.replaceAll("'", `'\\''`)}'`;
@@ -94,7 +104,10 @@ function quote(text: string): string {
  *
  * with a `directory`, Claude Code runs `script` as its `CLAUDE_ENV_FILE` ahead of each Bash command, in the shell that
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
- * as handed over. an orphan no read saw is missed unless its group was handed over or reported.
+ * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
+ * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
+ * those below it, are then tracked. an orphan no read saw is missed unless its group was handed over or reported, or a
+ * process in it carries the mark.
  */
 export class JobWatch {
   /** the report script's path, `<directory>/env`. */
@@ -108,6 +121,8 @@ export class JobWatch {
   private generation = 0;
   /** the tracked groups' processes as of the last read, by identity, with the group each was in. */
   private members = new Map<string, number>();
+  /** every process's identity as of the last read, unset until a read succeeds. */
+  private seen?: Set<string>;
   private readonly timer: ReturnType<typeof setInterval>;
   private polling?: Promise<Row[]>;
 
@@ -121,8 +136,10 @@ export class JobWatch {
       processes?: () => Promise<Row[]>;
       /** describes the tracked processes for `list`, from `ps` without it. */
       describe?: (pids: number[]) => Promise<Detail[]>;
-      /** an existing directory this instance alone reports into; without it nothing reports. */
+      /** an existing directory this instance alone reports into; without it nothing reports or is marked. */
       directory?: string;
+      /** the listed processes whose environment holds the mark, from `ps` without it. */
+      marked?: (pids: number[]) => Promise<number[]>;
     } = {},
   ) {
     const { directory } = options;
@@ -251,10 +268,43 @@ export class JobWatch {
         .map(({ pgid }) => pgid),
     );
     const groups = new Set(held);
-    while (pending.length) {
-      const row = pending.pop()!;
-      groups.add(row.pgid);
-      pending.push(...(children.get(row.pid) ?? []));
+    // stopping Witch's own group would end Witch. Codex's `shell_zsh_fork` and a Claude hook that sources
+    // `$CLAUDE_ENV_FILE`, both off by default, put marked processes there, since neither agent is spawned detached
+    const own = rows.find(({ pid }) => pid === process.pid)?.pgid;
+    const walk = () => {
+      while (pending.length) {
+        const row = pending.pop()!;
+        if (row.pgid !== own) groups.add(row.pgid);
+        pending.push(...(children.get(row.pid) ?? []));
+      }
+    };
+    walk();
+    // every process from before the first read, Witch's own terminal or tmux server included, is in that read, so none
+    // of them is checked
+    const { directory } = this.options;
+    const { seen } = this;
+    if (directory && seen) {
+      const below = (row: Row): Row[] => [
+        row,
+        ...(children.get(row.pid) ?? []).flatMap(below),
+      ];
+      const candidates = rows
+        .filter(
+          ({ ppid, pgid, identity }) =>
+            ppid === 1 && !seen.has(identity) && !groups.has(pgid),
+        )
+        .flatMap(below);
+      if (candidates.length) {
+        const marked = new Set(
+          await (
+            this.options.marked ??
+            ((pids) => carrying(`WITCH_JOBS=${directory}`, pids))
+          )(candidates.map(({ pid }) => pid)),
+        );
+        // an unmarked root can sit above a command's session in a group that isn't the command's
+        pending.push(...candidates.filter(({ pid }) => marked.has(pid)));
+        walk();
+      }
     }
     // a group none of whose processes carry over is a new one, even under an id tracked before
     this.groups = new Map(
@@ -267,6 +317,7 @@ export class JobWatch {
     this.members = new Map(
       tracked.map(({ identity, pgid }) => [identity, pgid]),
     );
+    this.seen = new Set(rows.map(({ identity }) => identity));
     for (const group of handed)
       if (!rows.some(({ pgid }) => pgid === group)) this.handed.delete(group);
     return tracked;
