@@ -146,11 +146,12 @@ export class JobWatch {
     this.environment = directory ? { WITCH_JOBS: directory } : {};
     if (directory) {
       this.script = join(directory, 'env');
-      // the braces send a failed write's error to /dev/null, `>|` writes under noclobber, and the unset keeps a Claude
-      // Code that a command starts from reading this file
+      // the braces send a failed write's error to /dev/null, `|| :` keeps it from ending a shell under errexit, which
+      // Claude's snapshot replays from the user's shell, and `>|` writes under noclobber. the unset keeps a Claude Code
+      // that a command starts from reading this file
       writeFileSync(
         this.script,
-        `{ true >| ${quote(directory)}/$$; } 2>/dev/null\nexport WITCH_JOBS=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
+        `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport WITCH_JOBS=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
       );
     }
     // a failed read leaves the groups as they were, and the next tick reads again
