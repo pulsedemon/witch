@@ -7,9 +7,10 @@ import { oneLine } from './links.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
 
-const columns = 22;
+/** the text's width; the pentacle centers in it, sized by `rows`, its shorter side. */
+const columns = 32;
 const rows = 11;
-/** the pentacle with the sidebar's border and padding. */
+/** the text with the sidebar's border and padding. */
 export const sidebarWidth = columns + 3;
 /** turned a little, so the pentacle shows its depth at rest. */
 const restAngle = 0.45;
