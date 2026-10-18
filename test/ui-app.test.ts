@@ -2169,9 +2169,9 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
     ui.unmount();
   }
   // mounted at its width, so the first press runs on a handler measured at it
-  const { ui: wide, copied: copiedWide } = mounted(app, 120);
+  const { ui: wide, copied: copiedWide } = mounted(app, 130);
   try {
-    // the sidebar takes the 25 columns from 95, and the message fits on row 2
+    // the sidebar takes the 35 columns from 95, and the message fits on row 2
     await until('the message', () => wide.text().includes(' omicron pi'));
     for (const data of [
       left('press', 110, 2),
@@ -2689,7 +2689,7 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
     );
   const narrow = show(
     createElement(App, { coordinator: fake({}).app, onExit: () => {} }),
-    104,
+    114,
   );
   try {
     await delay(60);
@@ -2700,7 +2700,7 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
   const { app, coordinator } = fake({});
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
-    105,
+    115,
   );
   try {
     await until('the pentacle', () => !!inSidebar(ui.text()));
@@ -2774,7 +2774,7 @@ await test('the sidebar lists only running familiars, depth first under the fami
   const { app, coordinator } = fake({ subagents });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
-    105,
+    115,
   );
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
@@ -2822,7 +2822,7 @@ await test("a familiar's name and kind with line breaks stay on its sidebar row"
   });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
-    105,
+    115,
   );
   try {
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
@@ -2841,7 +2841,7 @@ await test("a running familiar's time ticks once a second, also when it starts a
   const { app, coordinator } = fake({});
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
-    105,
+    115,
   );
   const seconds = () =>
     Number(/^ {2}(\d+)S \|/.exec(sidebarRows(ui.text())[2] ?? '')?.[1]);
@@ -2882,7 +2882,7 @@ await test('familiars that overflow the sidebar show the last whole familiars in
   });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
-    105,
+    115,
     19,
   );
   try {
@@ -2922,7 +2922,7 @@ await test('the sidebar lists running brews above the familiars, each with what 
     backgroundCommands: [
       {
         id: 's',
-        description: 'start\nthe development server',
+        description: 'start\nthe documentation development server',
         status: 'running',
       },
     ],
@@ -2930,14 +2930,14 @@ await test('the sidebar lists running brews above the familiars, each with what 
   });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
-    105,
+    115,
   );
   try {
     await until('the brews', () => ui.text().includes('BREWS'));
     // a description that wrapped would push FAMILIARS down
     assert.deepEqual(sidebarRows(ui.text()).slice(0, 4), [
       'BREWS',
-      '● START THE DEVELOPME…',
+      '● START THE DOCUMENTATION DEVEL…',
       'FAMILIARS',
       '● MAP CODE',
     ]);
@@ -2954,7 +2954,7 @@ await test('brews take the sidebar rows first and show their last whole brews un
   });
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
-    105,
+    115,
     19,
   );
   // eight rows above the pentacle
@@ -3150,7 +3150,7 @@ await test('Escape while tools are focused during a turn leaves focus without in
 
 for (const [columns, body] of [
   [100, 98],
-  [120, 93],
+  [120, 83],
 ] as const)
   await test(`a request wraps at the body width at ${columns} columns`, async () => {
     const { app } = fake({
