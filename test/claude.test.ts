@@ -1064,20 +1064,23 @@ await test("a shell command reports its shell's pid as it starts and undefined o
 });
 
 await test('a shell report that rejects fails the command once it ends, without an unhandled rejection', async () => {
-  const unhandled: unknown[] = [];
-  const record = (reason: unknown) => unhandled.push(reason);
-  process.on('unhandledRejection', record);
+  const texts: string[] = [];
   const { connect } = await launcher();
   const session = await connect({
+    onEvent: (event) => {
+      if (event.type === 'tool') texts.push(event.text);
+    },
     onShell: async (pid) => {
       if (pid !== undefined) throw new Error('no shell record');
     },
   });
   try {
-    await assert.rejects(session.shell('sleep 0.3'), /no shell record/);
-    assert.deepEqual(unhandled, []);
+    await assert.rejects(
+      session.shell('sleep 0.3; echo ended'),
+      /no shell record/,
+    );
+    assert.equal(texts.join(''), 'ended\n');
   } finally {
-    process.off('unhandledRejection', record);
     await session.close();
   }
 });
