@@ -417,9 +417,11 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
     if (event.type === 'usage') costs.push(event.usage.cost);
   });
   try {
+    // familiars that finished in an earlier turn stay in the session
+    assert.equal((await session.send('familiars')).status, 'completed');
     const turn = session.send('background familiar');
     // each result reports the session's running cost
-    await until('the result', () => costs.includes(0.25));
+    await until('the result', () => costs.includes(0.5));
     assert.equal(await session.steer('meanwhile'), true);
     await until('the answer', () => texts.includes('Answered.'));
     assert.equal(
