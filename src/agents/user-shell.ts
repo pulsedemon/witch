@@ -33,6 +33,8 @@ export function runShell(
   command: string,
   options: {
     cwd: string;
+    /** entries added to Witch's environment. */
+    env?: Record<string, string>;
     signal: AbortSignal;
     onOutput(text: string): void;
     /** gets the shell's pid, which is its group's id. */
@@ -42,6 +44,7 @@ export function runShell(
   return new Promise((resolve, reject) => {
     const child = spawn(process.env.SHELL || '/bin/zsh', ['-c', command], {
       cwd: options.cwd,
+      env: { ...process.env, ...options.env },
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
