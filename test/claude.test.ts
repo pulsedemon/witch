@@ -374,7 +374,7 @@ await test('an interrupt that leaves the prompt queued closes the session', asyn
   }
 });
 
-await test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result', async () => {
+await test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result with no familiar running', async () => {
   const { seen, onEvent } = working();
   // the fixture sends this text after the result, while the turn waits for native idle
   const awaitingIdle = Promise.withResolvers<void>();
@@ -404,6 +404,39 @@ await test('a prompt steered into a turn reaches Claude Code, and none is taken 
     for (const state of ['requires_action', 'idle'])
       await writeFile(join(cwd, `allow-${state}`), 'yes');
     await within(waiting, 2000, 'idle');
+  } finally {
+    await session.close();
+  }
+});
+
+await test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
+  const texts: string[] = [];
+  const costs: (number | undefined)[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'text') texts.push(event.text);
+    if (event.type === 'usage') costs.push(event.usage.cost);
+  });
+  try {
+    // familiars that finished in an earlier turn stay in the session
+    assert.equal((await session.send('familiars')).status, 'completed');
+    let finished = false;
+    const turn = session.send('background familiar').then((result) => {
+      finished = true;
+      return result;
+    });
+    // each result reports the session's running cost
+    await until('the result', () => costs.includes(0.5));
+    assert.equal(await session.steer('meanwhile'), true);
+    await until('the answer', () => texts.includes('Answered.'));
+    assert.equal(
+      await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
+      '"meanwhile"\n',
+    );
+    await until('the report', () => costs.includes(1));
+    assert.equal(finished, false);
+    assert.equal(await session.steer('after the report'), false);
+    await writeFile(join(cwd, 'allow-idle'), 'yes');
+    assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
   } finally {
     await session.close();
   }
