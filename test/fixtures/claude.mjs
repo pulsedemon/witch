@@ -261,25 +261,19 @@ for await (const line of lines) {
       );
       assistant('Answered.');
       result();
-      const allowed = (name) =>
-        existsSync(join(process.cwd(), `allow-${name}`));
-      const report = setInterval(() => {
-        if (!allowed('report')) return;
-        clearInterval(report);
-        task('task_notification', {
-          task_id: 'helper',
-          status: 'completed',
-          output_file: '',
-          summary: '',
-        });
-        assistant('Reported.');
-        result();
-        const idle = setInterval(() => {
-          if (!allowed('idle')) return;
-          clearInterval(idle);
-          lastPrompt = '';
-          state('idle');
-        }, 5);
+      task('task_notification', {
+        task_id: 'helper',
+        status: 'completed',
+        output_file: '',
+        summary: '',
+      });
+      assistant('Reported.');
+      result();
+      const idle = setInterval(() => {
+        if (!existsSync(join(process.cwd(), 'allow-idle'))) return;
+        clearInterval(idle);
+        lastPrompt = '';
+        state('idle');
       }, 5);
       continue;
     }

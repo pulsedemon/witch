@@ -426,7 +426,6 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
       await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
       '"meanwhile"\n',
     );
-    await writeFile(join(cwd, 'allow-report'), 'yes');
     await until('the report', () => texts.includes('Reported.'));
     assert.equal(await session.steer('after the report'), false);
     await writeFile(join(cwd, 'allow-idle'), 'yes');
