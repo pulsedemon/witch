@@ -470,6 +470,11 @@ await test('Cmd and Option keys edit by line and word as Ghostty sends them, and
       [[...OPT_LEFT, ...CMD_DELETE], 'three'],
     ] as const)
       assert.equal(await submit(ui, 'one two three', [...reads]), expected);
+    // the last row keeps its trailing spaces
+    assert.equal(
+      await submit(ui, 'one two  ', [...CMD_LEFT, ...CMD_RIGHT, 'X']),
+      'one two  X',
+    );
     // control bytes sharing one read insert nothing, and a newline among them stays
     assert.equal(await submit(ui, 'ab', ['\u0015\n\u0015', 'x']), 'ab\nx');
     // Ctrl+X, Option+K and Cmd+K
