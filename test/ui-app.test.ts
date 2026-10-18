@@ -168,7 +168,7 @@ function prompts(found: string[]) {
   };
 }
 
-await test('the conflict view resolves with k and d, ignores a, and links notes into the worktree', async () => {
+await test('the conflict view resolves with k and d, ignores a and Option+K, and links notes into the worktree', async () => {
   const { app, calls } = fake({
     phase: 'recovery',
     recovery: {
@@ -191,9 +191,9 @@ await test('the conflict view resolves with k and d, ignores a, and links notes 
         .includes('vscode://file/state/conversations/c/memory/global/one.md'),
     );
     assert.ok(!ui.frame().includes('memory.git'));
-    // past the 500 ms recovery guard, so the view's kind, not the guard, ignores the key
+    // past the 500 ms recovery guard, so the view, not the guard, ignores a and Option+K
     await delay(600);
-    for (const key of ['a', 'k', 'd']) {
+    for (const key of ['a', '\u001b[107;3u', 'k', 'd']) {
       ui.stdin.write(key);
       await delay(30);
     }
