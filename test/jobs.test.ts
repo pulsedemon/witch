@@ -611,24 +611,38 @@ await test("a ! command's group handed to track is a job from the first read, th
   }
 });
 
-await test('a group handed to track while a read runs is a job at the next read, along with a group its process starts', async () => {
+await test('a group handed to track while a read runs is a job at the next read and after, along with the groups its process starts', async () => {
+  // a `!` command's shell is Witch's own child, which a read never walks from by identity as it does an orphan.
+  // pids above 99999 can't be this test's
+  const shell: Row = {
+    pid: 100000,
+    ppid: process.pid,
+    pgid: 100000,
+    leadsSession: true,
+    identity: '100000 a',
+  };
   const first = Promise.withResolvers<Row[]>();
   const tables = [
     first.promise,
     Promise.resolve<Row[]>([
+      shell,
       {
-        pid: 4242,
-        ppid: 1,
-        pgid: 4242,
+        pid: 100001,
+        ppid: 100000,
+        pgid: 100001,
         leadsSession: false,
-        identity: '4242 a',
+        identity: '100001 a',
       },
+    ]),
+    // a new child, so only the walk from the handed group reaches its group
+    Promise.resolve<Row[]>([
+      shell,
       {
-        pid: 4243,
-        ppid: 4242,
-        pgid: 4243,
+        pid: 100002,
+        ppid: 100000,
+        pgid: 100002,
         leadsSession: false,
-        identity: '4243 a',
+        identity: '100002 a',
       },
     ]),
   ];
@@ -639,12 +653,16 @@ await test('a group handed to track while a read runs is a job at the next read,
   });
   try {
     const listing = jobs.list();
-    jobs.track(4242);
+    jobs.track(100000);
     first.resolve([]);
-    assert.deepEqual(await listing, []);
+    await listing;
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [4242, 4243],
+      [100000, 100001],
+    );
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100000, 100002],
     );
   } finally {
     jobs.close();
