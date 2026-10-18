@@ -70,7 +70,7 @@ function rowStops(
       drawn.to >= line.length
         ? end
         : Math.max(cursor, offset(drawn.from + drawn.text.trimEnd().length)),
-    back: offset(rows.find((row) => at <= row.to)!.from),
+    back: offset((rows.find((row) => at <= row.to) ?? rows.at(-1)!).from),
   };
 }
 
