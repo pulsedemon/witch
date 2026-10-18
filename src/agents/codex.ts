@@ -195,6 +195,8 @@ class CodexSession implements AgentSession {
   info: SessionInfo;
   usage: Usage = {};
   closed = false;
+  /** a turn ends at its own `turn/completed`, which no familiar holds back. */
+  readonly replied = false;
   private turn?: {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;

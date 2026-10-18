@@ -120,6 +120,7 @@ export class FixtureAgent implements AgentAdapter {
       get closed() {
         return closed;
       },
+      replied: false,
       skills: async () => {
         if (this.failSkills) throw new Error('Skills unavailable');
         return this.skills;
