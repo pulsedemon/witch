@@ -35,6 +35,26 @@ const held = async () => {
 let skillAdded = false;
 let usageMicros = 0;
 let lastPrompt = '';
+/** a `!` command of `hold` runs until an interrupt or the test's release. */
+let shellHeld = false;
+const shellItem = (method, command, fields) =>
+  notify(method, {
+    threadId: 'native-thread',
+    turnId: 'turn-shell',
+    item: {
+      type: 'commandExecution',
+      id: 'shell-1',
+      command: `/bin/zsh -lc '${command}'`,
+      source: 'userShell',
+      cwd: process.cwd(),
+      ...fields,
+    },
+  });
+const finishShell = (status) =>
+  notify('turn/completed', {
+    threadId: 'native-thread',
+    turn: { id: 'turn-shell', status, error: null },
+  });
 const window = (usedPercent, windowDurationMins, resetsAt) => ({
   usedPercent,
   windowDurationMins,
@@ -172,6 +192,62 @@ for await (const line of lines) {
       });
     } else
       send({ id: request.id, error: { code: -32600, message: 'no thread' } });
+  }
+  if (request.method === 'thread/shellCommand') {
+    const { command } = request.params;
+    writeFileSync(file('shell.json'), JSON.stringify(request));
+    if (command === 'refuse') {
+      send({
+        id: request.id,
+        error: { code: -32600, message: 'command must not be empty' },
+      });
+      continue;
+    }
+    reply({});
+    if (command === 'die soon') {
+      setTimeout(() => process.exit(1), 100);
+      continue;
+    }
+    notify('turn/started', {
+      threadId: 'native-thread',
+      turn: { id: 'turn-shell', status: 'inProgress' },
+    });
+    shellItem('item/started', command, { status: 'inProgress' });
+    if (command === 'hold') {
+      shellHeld = true;
+      // without a turn/started handler, close would wait on the interrupt forever, so the release ends the turn
+      void held().then(() => {
+        if (!shellHeld) return;
+        shellHeld = false;
+        finishShell('interrupted');
+      });
+      continue;
+    }
+    notify('item/commandExecution/outputDelta', {
+      threadId: 'native-thread',
+      turnId: 'turn-shell',
+      itemId: 'shell-1',
+      delta: 'hi\n',
+    });
+    shellItem('item/completed', command, {
+      status: 'completed',
+      exitCode: 0,
+      aggregatedOutput: 'hi\n',
+    });
+    finishShell('completed');
+    continue;
+  }
+  if (request.method === 'turn/interrupt' && shellHeld) {
+    shellHeld = false;
+    writeFileSync(file('interrupt.json'), JSON.stringify(request));
+    reply({});
+    shellItem('item/completed', 'hold', {
+      status: 'failed',
+      exitCode: -1,
+      aggregatedOutput: 'command aborted by user',
+    });
+    finishShell('interrupted');
+    continue;
   }
   if (request.method === 'turn/start') {
     const prompt = request.params.input[0].text;

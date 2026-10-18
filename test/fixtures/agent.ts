@@ -46,6 +46,10 @@ export class FixtureAgent implements AgentAdapter {
     [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
+  /** the `!` commands sessions ran. */
+  readonly shells: string[] = [];
+  /** a gated command finishes as the interrupt lands, as a fast one can. */
+  finishShellOnInterrupt = false;
   /** an interrupt reports the turn's steered prompts unread, as Claude Code does for those it still holds. */
   unreadOnInterrupt = false;
   /** the turn in flight refuses steered prompts, as Codex refuses one for a turn that has just ended. */
@@ -102,6 +106,8 @@ export class FixtureAgent implements AgentAdapter {
     await options.onProcess(sleeper.pid);
     let closed = false;
     let turn: PromiseWithResolvers<TurnResult> | undefined;
+    // apart from `turn`, so steering is refused while a command runs, as the real agents refuse it
+    let shell: PromiseWithResolvers<TurnResult> | undefined;
     let steered: string[] = [];
     let usage: Usage = this.connectUsage ?? {};
     const session: AgentSession = {
@@ -157,6 +163,29 @@ export class FixtureAgent implements AgentAdapter {
       respond: (id, response) => {
         this.responses.push([id, response]);
       },
+      shell: async (command): Promise<TurnResult> => {
+        if (closed) throw new Error('Session closed');
+        this.shells.push(command);
+        options.onEvent({
+          type: 'tool',
+          id: randomUUID(),
+          title: command,
+          text: `ran ${command}\n`,
+          done: true,
+          shell: true,
+        });
+        shell = Promise.withResolvers<TurnResult>();
+        const held = this.gate
+          ? await this.gate.hold(shell.promise)
+          : undefined;
+        shell = undefined;
+        if (held) return held;
+        if (this.failNext) {
+          this.failNext = false;
+          return { status: 'failed', text: '', error: 'Overloaded' };
+        }
+        return { status: 'completed', text: '' };
+      },
       steer: async (prompt) => {
         if (!turn || closed || this.refuseSteer) return false;
         this.steers.push(prompt);
@@ -165,6 +194,10 @@ export class FixtureAgent implements AgentAdapter {
       },
       interrupt: async () => {
         if (this.failInterrupt) throw new Error('Interrupt failed');
+        shell?.resolve({
+          status: this.finishShellOnInterrupt ? 'completed' : 'interrupted',
+          text: '',
+        });
         turn?.resolve({
           status: 'interrupted',
           text: '',
