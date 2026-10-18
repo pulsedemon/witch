@@ -51,13 +51,13 @@ function rowStops(
     rows.push({ from, to: from + text.length, text });
   }
   const stops = boundaries(value, start, end);
-  // the last boundary drawn at or before `cells`; a row that starts inside an expanded tab takes the whole tab
-  const offset = (cells: number) => {
+  // the last boundary drawn at or before `length`; a row that starts inside an expanded tab takes the whole tab
+  const offset = (length: number) => {
     let low = 0;
     let high = stops.length - 1;
     while (low < high) {
       const middle = (low + high + 1) >> 1;
-      if (visible(value.slice(start, stops[middle]), secret).length <= cells)
+      if (visible(value.slice(start, stops[middle]), secret).length <= length)
         low = middle;
       else high = middle - 1;
     }
