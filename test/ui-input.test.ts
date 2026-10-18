@@ -534,6 +534,29 @@ await test('Cmd+Delete clears one wrapped row a press, then joins the line to th
   }
 });
 
+await test('Cmd+Delete with the cursor inside a pasted C1 sequence deletes to the row start', async () => {
+  const values: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 10,
+      height: 4,
+      active: true,
+      onChange: (value) => values.push(value),
+      onSubmit: () => true,
+    }),
+  );
+  try {
+    // Ghostty's paste filter keeps U+009B, a one-character CSI the display drops along with `31m`. five ← put the
+    // cursor between the two, on a line that gets no cursor cell, so it sits past every drawn row
+    await press(ui.stdin, '\u001b[200~ab\u009b31m\nx\u001b[201~');
+    for (const data of [...Array<string>(5).fill('\u001b[D'), ...CMD_DELETE])
+      await press(ui.stdin, data);
+    assert.equal(values.at(-1), '31m\nx');
+  } finally {
+    await unmount(ui);
+  }
+});
+
 await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is drawn on', async () => {
   const mounted: { unmount: () => void }[] = [];
   /** mounts an Input `width` cells wide with `text` pasted; `after` presses reads and gives the cursor then */
