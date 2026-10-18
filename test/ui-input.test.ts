@@ -610,6 +610,10 @@ await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor 
     assert.deepEqual(full.frame()?.slice(0, 2), ['abcdefghij', 'x']);
     assert.equal(await full.after([...left(2), ...CMD_LEFT]), 0);
 
+    // the cursor cell after a full last row wraps onto a row of its own, so the full row ends before its trailing space
+    const last = await typed(10, 'abcdefghi ');
+    assert.equal(await last.after([...left(3), ...CMD_RIGHT]), 9);
+
     // inside a row's trailing spaces, Cmd+→ never moves left
     const spaced = await typed(10, 'abcdef    ghij kl');
     assert.deepEqual(spaced.frame()?.slice(0, 2), ['abcdef', 'ghij kl']);
