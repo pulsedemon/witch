@@ -48,13 +48,15 @@ async function runs(recorded: ProcessIdentity): Promise<boolean> {
   return current?.started === recorded.started;
 }
 
-/** waits up to 5 s for the recorded process to exit. */
-async function ends(recorded: ProcessIdentity): Promise<boolean> {
+/** waits up to 5 s for the recorded process to exit, and throws if it hasn't. */
+async function ends(recorded: ProcessIdentity, what: string): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
     await delay(100);
-    if (!(await runs(recorded))) return true;
+    if (!(await runs(recorded))) return;
   }
-  return false;
+  throw new Error(
+    `The previous ${what} (${recorded.pid}) has not stopped. Stop it before restarting Witch.`,
+  );
 }
 
 export async function stopPreviousProcess(
@@ -68,10 +70,7 @@ export async function stopPreviousProcess(
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
     throw error;
   }
-  if (!(await ends(recorded)))
-    throw new Error(
-      `The previous agent process (${recorded.pid}) has not stopped. Stop it before restarting Witch.`,
-    );
+  await ends(recorded, 'agent process');
 }
 
 /** kills a recorded `!` command the way Escape does, then its group again for a child forked as the first kill landed. */
@@ -80,10 +79,7 @@ export async function stopPreviousShell(
 ): Promise<void> {
   if (!(await runs(recorded))) return;
   killGroup(recorded.pid);
-  if (!(await ends(recorded)))
-    throw new Error(
-      `The previous shell command (${recorded.pid}) has not stopped. Stop it before restarting Witch.`,
-    );
+  await ends(recorded, 'shell command');
   // a new process holding the pid could lead a group of its own
   if (!(await identifyProcess(recorded.pid))) killGroup(recorded.pid);
 }
