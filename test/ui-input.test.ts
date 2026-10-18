@@ -651,6 +651,11 @@ await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor 
     assert.equal(await long.after(CMD_LEFT), 5);
     assert.equal(await long.after([...left(1), ...CMD_RIGHT]), 5);
 
+    // the tab's cells span the row break, and the row that starts inside it takes the whole tab
+    const split = await typed(6, 'abcd\tx');
+    assert.deepEqual(split.frame()?.slice(0, 2), ['abcd', '  x']);
+    assert.equal(await split.after(CMD_LEFT), 4);
+
     // a full-width line above another gets no cursor cell, so its end is drawn on its own row
     const full = await typed(10, 'abcdefghij\nx');
     assert.deepEqual(full.frame()?.slice(0, 2), ['abcdefghij', 'x']);
