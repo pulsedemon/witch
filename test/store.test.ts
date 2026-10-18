@@ -218,20 +218,28 @@ await test('a claim stops the recorded process after a time zone and locale chan
   }
 });
 
-await test('a claim leaves running a process that reuses the recorded pid', async () => {
+await test("a claim leaves running a process that reuses the recorded process's pid, and a group that reuses the recorded shell's", async () => {
   const store = await StateStore.open(await scratch('witch-reused-pid-'));
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
+  const { child: shell } = await detachedShell('20.312');
   try {
     const files = await store.create(conversation('reused'));
     await files.save({
       ...files.record,
       process: { pid: child.pid!, started: 'Thu Jan  1 00:00:00 1970' },
+      shell: { pid: shell.pid!, started: 'Thu Jan  1 00:00:00 1970' },
     });
     await files.close();
     await (await store.claim('reused')).close();
     assert.equal((await identifyProcess(child.pid!))?.pid, child.pid);
+    assert.equal(shell.exitCode ?? shell.signalCode, null);
   } finally {
     child.kill('SIGKILL');
+    try {
+      process.kill(-shell.pid!, 'SIGKILL');
+    } catch {
+      // a wrong claim already stopped it
+    }
   }
 });
 
@@ -272,27 +280,6 @@ await test("a claim kills a recorded shell's whole group, a member its first sig
       kill(-child.pid!, 'SIGKILL');
     } catch {
       // stopped by the claim
-    }
-  }
-});
-
-await test("a claim leaves a group alone when its recorded shell's pid has another start time", async () => {
-  const store = await StateStore.open(await scratch('witch-shell-reused-'));
-  const { child } = await detachedShell('20.312');
-  try {
-    const files = await store.create(conversation('reused'));
-    await files.save({
-      ...files.record,
-      shell: { pid: child.pid!, started: 'Thu Jan  1 00:00:00 1970' },
-    });
-    await files.close();
-    await (await store.claim('reused')).close();
-    assert.equal(child.exitCode ?? child.signalCode, null);
-  } finally {
-    try {
-      process.kill(-child.pid!, 'SIGKILL');
-    } catch {
-      // a wrong claim already stopped it
     }
   }
 });
