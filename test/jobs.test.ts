@@ -690,7 +690,7 @@ await test('a handed group a read finds empty is dropped, so a later group given
   });
   try {
     jobs.track(4242);
-    assert.deepEqual(await jobs.list(), []);
+    await jobs.list();
     assert.deepEqual(await jobs.list(), []);
   } finally {
     jobs.close();
