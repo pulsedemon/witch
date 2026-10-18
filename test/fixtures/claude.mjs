@@ -253,6 +253,36 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    // the CLI answers a prompt sent while it waits on a background familiar, then idles once the familiar reports
+    if (lastPrompt === 'background familiar') {
+      appendFileSync(
+        join(process.cwd(), 'steered.jsonl'),
+        `${JSON.stringify(message.message.content)}\n`,
+      );
+      assistant('Answered.');
+      result();
+      const allowed = (name) =>
+        existsSync(join(process.cwd(), `allow-${name}`));
+      const report = setInterval(() => {
+        if (!allowed('report')) return;
+        clearInterval(report);
+        task('task_notification', {
+          task_id: 'helper',
+          status: 'completed',
+          output_file: '',
+          summary: '',
+        });
+        assistant('Reported.');
+        result();
+        const idle = setInterval(() => {
+          if (!allowed('idle')) return;
+          clearInterval(idle);
+          lastPrompt = '';
+          state('idle');
+        }, 5);
+      }, 5);
+      continue;
+    }
     // the CLI folds a prompt sent during a turn into it, here until one says to wrap up
     if (lastPrompt === 'steerable') {
       steered.push(message.uuid);
@@ -559,6 +589,15 @@ for await (const line of lines) {
       end('outer', 'completed');
       level([]);
       finish();
+    } else if (lastPrompt === 'background familiar') {
+      task('task_started', {
+        task_id: 'helper',
+        description: 'Slow helper',
+        task_type: 'local_agent',
+      });
+      assistant('Started.');
+      // no idle until the familiar reports
+      result();
     } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {

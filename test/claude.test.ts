@@ -409,6 +409,33 @@ await test('a prompt steered into a turn reaches Claude Code, and none is taken 
   }
 });
 
+await test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
+  const texts: string[] = [];
+  const costs: (number | undefined)[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'text') texts.push(event.text);
+    if (event.type === 'usage') costs.push(event.usage.cost);
+  });
+  try {
+    const turn = session.send('background familiar');
+    // each result reports the session's running cost
+    await until('the result', () => costs.includes(0.25));
+    assert.equal(await session.steer('meanwhile'), true);
+    await until('the answer', () => texts.includes('Answered.'));
+    assert.equal(
+      await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
+      '"meanwhile"\n',
+    );
+    await writeFile(join(cwd, 'allow-report'), 'yes');
+    await until('the report', () => texts.includes('Reported.'));
+    assert.equal(await session.steer('after the report'), false);
+    await writeFile(join(cwd, 'allow-idle'), 'yes');
+    assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+  } finally {
+    await session.close();
+  }
+});
+
 await test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
   const { seen, onEvent } = working();
   const { session } = await fixture(onEvent);
