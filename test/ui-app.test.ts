@@ -603,8 +603,13 @@ await test('e on a note page edits that note, and the + entry edits project esse
     await delay(30);
     ui.stdin.write('\r');
     await until('the note page', () => ui.text().includes('e EDIT'));
-    // Cmd+→ as Ghostty sends it, Option+E and Cmd+E leave the page where it is
-    for (const key of ['\u0005', '\u001b[101;3u', '\u001b[101;9u']) {
+    // Cmd+→ as Ghostty sends it, Option+E, Cmd+E and Option+H leave the page where it is
+    for (const key of [
+      '\u0005',
+      '\u001b[101;3u',
+      '\u001b[101;9u',
+      '\u001b[104;3u',
+    ]) {
       ui.stdin.write(key);
       await delay(60);
       assert.ok(ui.text().includes('e EDIT'), JSON.stringify(key));
