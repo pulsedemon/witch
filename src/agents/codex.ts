@@ -279,7 +279,15 @@ class CodexSession implements AgentSession {
     const parameters = {
       cwd: this.options.cwd,
       model: this.options.model,
-      config: { 'sandbox_workspace_write.writable_roots': roots },
+      config: {
+        'sandbox_workspace_write.writable_roots': roots,
+        // in the thread's config, so app-server's own children stay unmarked
+        ...Object.fromEntries(
+          Object.entries(this.options.mark?.environment ?? {}).map(
+            ([key, value]) => [`shell_environment_policy.set.${key}`, value],
+          ),
+        ),
+      },
       ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
     this.updateInfo(
