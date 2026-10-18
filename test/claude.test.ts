@@ -1047,6 +1047,8 @@ await test("a shell command reports its shell's pid as it starts and undefined o
     onShell: async (pid) => {
       reports.push(`report ${pid}`);
       if (pid === undefined) return;
+      // throws once the shell is reaped
+      process.kill(pid, 0);
       // still pending when the command ends, however fast it runs
       await done.promise;
       reports.push('settled');
