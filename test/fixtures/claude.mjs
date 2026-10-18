@@ -16,7 +16,7 @@ let model = 'claude-a';
 let lastPrompt = '';
 /** the uuids of prompts sent during a steerable turn. */
 const steered = [];
-/** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, or `idle`. */
+/** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, `idle`, or `running` again. */
 let reporting = '';
 /** the uuids of prompts the CLI holds unread before that report. */
 const held = [];
@@ -278,7 +278,10 @@ for await (const line of lines) {
       );
       continue;
     }
-    if (lastPrompt === 'reporting familiar' && reporting === 'reported')
+    if (
+      lastPrompt === 'reporting familiar' &&
+      ['reported', 'running'].includes(reporting)
+    )
       appendFileSync(
         join(process.cwd(), 'early.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
@@ -299,11 +302,7 @@ for await (const line of lines) {
       });
       assistant('Reported.');
       result();
-      const idle = setInterval(() => {
-        if (!existsSync(join(process.cwd(), 'allow-idle'))) return;
-        clearInterval(idle);
-        state('idle');
-      }, 5);
+      once('allow-idle', () => state('idle'));
       continue;
     }
     // the CLI folds a prompt sent during a turn into it, here until one says to wrap up
@@ -613,7 +612,7 @@ for await (const line of lines) {
       level([]);
       finish();
     } else if (lastPrompt === 'reporting familiar') {
-      // reports, then idles, then dies, each once the test allows it
+      // reports, then idles, then dies or runs again on its own and idles, each once the test allows it
       task('task_started', {
         task_id: 'helper',
         description: 'Reporting helper',
@@ -645,6 +644,17 @@ for await (const line of lines) {
             ],
           });
           once('allow-die', () => exitBeforeGrandchild(1));
+          // as Claude Code does when a brew ends
+          once('allow-run', () => {
+            reporting = 'running';
+            state('running');
+            assistant('Brewed.');
+            result();
+            once('allow-rest', () => {
+              reporting = 'idle';
+              state('idle');
+            });
+          });
         });
       });
     } else if (lastPrompt === 'background familiar') {

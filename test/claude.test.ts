@@ -65,6 +65,21 @@ function working() {
   return { seen: seen.promise, onEvent };
 }
 
+/** the JSON lines the fixture wrote, or none while the file is missing or half written. */
+async function jsonLines(file: string): Promise<unknown[]> {
+  try {
+    return (await readFile(file, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as unknown);
+  } catch {
+    return [];
+  }
+}
+
+const content = async (cwd: string) =>
+  JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
+
 await test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
   const { args, connect } = await launcher();
   const session = await connect({ effort: 'high' });
@@ -124,16 +139,14 @@ await test('skills leave out built-ins and the rows they shadow, before and afte
 
 await test('a skill goes last after its context, and a plain prompt stays a string', async () => {
   const { session, cwd } = await fixture();
-  const content = async () =>
-    JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
   try {
     await session.send('context', { name: 'review', args: 'main' });
-    assert.deepEqual(await content(), [
+    assert.deepEqual(await content(cwd), [
       { type: 'text', text: 'context' },
       { type: 'text', text: '/review main' },
     ]);
     await session.send('plain');
-    assert.equal(await content(), 'plain');
+    assert.equal(await content(cwd), 'plain');
   } finally {
     await session.close();
   }
@@ -162,11 +175,9 @@ await test('a model chosen without an effort keeps the effort in force and sends
     await session.selectModel('claude-a', 'high');
     await session.selectModel('claude-b');
     assert.equal(session.info.effort, 'high');
-    const payloads = (await readFile(join(cwd, 'settings.jsonl'), 'utf8'))
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as unknown);
-    assert.deepEqual(payloads, [{ effortLevel: 'high' }]);
+    assert.deepEqual(await jsonLines(join(cwd, 'settings.jsonl')), [
+      { effortLevel: 'high' },
+    ]);
   } finally {
     await session.close();
   }
@@ -390,13 +401,10 @@ await test('a prompt steered into a turn reaches Claude Code, and none is taken 
     assert.equal(await session.steer('also this'), true);
     assert.equal(await session.steer('wrap up'), true);
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
-    assert.deepEqual(
-      (await readFile(join(cwd, 'steered.jsonl'), 'utf8'))
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as unknown),
-      ['also this', 'wrap up'],
-    );
+    assert.deepEqual(await jsonLines(join(cwd, 'steered.jsonl')), [
+      'also this',
+      'wrap up',
+    ]);
     const waiting = session.send('wait for idle');
     await writeFile(join(cwd, 'allow-running'), 'yes');
     await within(awaitingIdle.promise, 2000, 'the result');
@@ -945,8 +953,6 @@ await test("a shell command runs in the session's directory as one open tool row
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
   });
-  const content = async () =>
-    JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
   try {
     assert.deepEqual(
       await within(session.shell('pwd -P'), 3000, 'the command'),
@@ -958,7 +964,7 @@ await test("a shell command runs in the session's directory as one open tool row
     assert.equal(tools.at(-1)!.done, true);
     await assert.rejects(access(join(cwd, 'content.json')));
     await session.send('next');
-    assert.deepEqual(await content(), [
+    assert.deepEqual(await content(cwd), [
       {
         type: 'text',
         text: `<bash-input>pwd -P</bash-input>\n<bash-stdout>${await realpath(cwd)}\n</bash-stdout><bash-stderr></bash-stderr>`,
@@ -966,7 +972,7 @@ await test("a shell command runs in the session's directory as one open tool row
       { type: 'text', text: 'next' },
     ]);
     await session.send('again');
-    assert.equal(await content(), 'again');
+    assert.equal(await content(cwd), 'again');
   } finally {
     await session.close();
   }
@@ -1117,20 +1123,6 @@ const replyBlocks = (command: string, stdout: string) => [
   { type: 'text', text: 'reply' },
 ];
 
-/** the JSON lines the fixture wrote, or none while the file is missing or half written. */
-async function jsonLines(file: string): Promise<unknown[]> {
-  try {
-    return (await readFile(file, 'utf8'))
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as unknown);
-  } catch {
-    return [];
-  }
-}
-
-const content = async (cwd: string) =>
-  JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
 const allow = (cwd: string, ...names: string[]) =>
   Promise.all(names.map((name) => writeFile(join(cwd, name), 'yes')));
 const gated = 'until [ -e go ]; do sleep 0.05; done; echo held';
@@ -1197,6 +1189,30 @@ await test("a command that ends while Claude Code answers the familiar's report 
     // time for a reply sent too early to reach the fixture
     await new Promise((resolve) => setTimeout(resolve, 200));
     await allow(cwd, 'allow-idle');
+    assert.equal((await within(turn, 3000, 'turn')).status, 'completed');
+    assert.deepEqual(await content(cwd), replyBlocks(gated, 'held\n'));
+    await assert.rejects(access(join(cwd, 'early.jsonl')));
+  } finally {
+    await session.close();
+  }
+});
+
+await test('a command that ends while Claude Code runs again after idle sends its reply only once Claude Code is idle again', async () => {
+  const seen = observe();
+  const { session, cwd } = await fixture(seen.onEvent);
+  try {
+    const turn = session.send('reporting familiar');
+    await until('the result', () => seen.costs.includes(0.25));
+    assert.equal(await session.steer('reply', { command: gated }), true);
+    await allow(cwd, 'allow-report', 'allow-idle');
+    await until('idle', () => seen.skills.includes('after-idle'));
+    await allow(cwd, 'allow-run');
+    await until('the run', () => seen.texts.includes('Brewed.'));
+    await allow(cwd, 'go');
+    await until('the command ends', () => seen.ended(gated));
+    // time for a reply sent too early to reach the fixture
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await allow(cwd, 'allow-rest');
     assert.equal((await within(turn, 3000, 'turn')).status, 'completed');
     assert.deepEqual(await content(cwd), replyBlocks(gated, 'held\n'));
     await assert.rejects(access(join(cwd, 'early.jsonl')));
