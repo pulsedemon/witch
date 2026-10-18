@@ -475,8 +475,11 @@ await test('Cmd and Option keys edit by line and word as Ghostty sends them, and
       await submit(ui, 'one two  ', [...CMD_LEFT, ...CMD_RIGHT, 'X']),
       'one two  X',
     );
-    // control bytes sharing one read insert nothing, and a newline among them stays
-    assert.equal(await submit(ui, 'ab', ['\u0015\n\u0015', 'x']), 'ab\nx');
+    // control bytes sharing one read insert nothing, and a tab or line break among them stays
+    assert.equal(
+      await submit(ui, 'ab', ['\u0015\t\n\r\u0015', 'x']),
+      'ab\t\n\nx',
+    );
     // Ctrl+X, Option+K and Cmd+K
     assert.equal(
       await submit(ui, 'one two three', [
