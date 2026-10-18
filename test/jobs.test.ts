@@ -669,27 +669,35 @@ await test('a group handed to track while a read runs is a job at the next read 
   }
 });
 
-await test('a handed group a read finds empty is dropped, so a later group given its id is not a job', async () => {
-  const tables: Row[][] = [
-    [],
-    [
-      {
-        pid: 4242,
-        ppid: 1,
-        pgid: 4242,
-        leadsSession: false,
-        identity: '4242 a',
-      },
-    ],
-  ];
+await test('a handed group stays a job while any process holds its id, and once a read finds it empty, a later group given its id is not', async () => {
+  // each orphan is new to its read, so only the handed group reaches it
+  const orphan = (pid: number): Row => ({
+    pid,
+    ppid: 1,
+    pgid: 100000,
+    leadsSession: false,
+    identity: `${pid} a`,
+  });
+  const tables = [[orphan(100001)], [orphan(100002)], [], [orphan(100000)]];
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => tables.shift()!,
-    // a real ps finds no pid 4242, which would empty the list either way
-    describe: leaders,
+    describe: async (pids) =>
+      pids.map((pid) => ({
+        pid,
+        pgid: 100000,
+        cpu: 0,
+        startedAt: 0,
+        command: '',
+      })),
   });
   try {
-    jobs.track(4242);
+    jobs.track(100000);
+    await jobs.list();
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100000],
+    );
     await jobs.list();
     assert.deepEqual(await jobs.list(), []);
   } finally {
