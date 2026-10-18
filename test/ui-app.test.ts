@@ -168,7 +168,7 @@ function prompts(found: string[]) {
   };
 }
 
-await test('the conflict view resolves with k and d, ignores a, and links notes into the worktree', async () => {
+await test('the conflict view resolves with k and d, ignores a and Option+K, and links notes into the worktree', async () => {
   const { app, calls } = fake({
     phase: 'recovery',
     recovery: {
@@ -191,9 +191,9 @@ await test('the conflict view resolves with k and d, ignores a, and links notes 
         .includes('vscode://file/state/conversations/c/memory/global/one.md'),
     );
     assert.ok(!ui.frame().includes('memory.git'));
-    // past the 500 ms recovery guard, so the view's kind, not the guard, ignores the key
+    // past the 500 ms recovery guard, so the view, not the guard, ignores a and Option+K
     await delay(600);
-    for (const key of ['a', 'k', 'd']) {
+    for (const key of ['a', '\u001b[107;3u', 'k', 'd']) {
       ui.stdin.write(key);
       await delay(30);
     }
@@ -243,7 +243,7 @@ await test('an error naming a note drops a link forged in the name', async () =>
   }
 });
 
-await test('the pending view ignores k', async () => {
+await test('the pending view ignores k and letters typed with Ctrl, Option or Cmd', async () => {
   const { app, calls } = fake({
     phase: 'recovery',
     recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
@@ -254,7 +254,8 @@ await test('the pending view ignores k', async () => {
       ui.text().includes('a ACCEPT | d DISCARD'),
     );
     await delay(600);
-    for (const key of ['k', 'a']) {
+    // Cmd+← as Ghostty sends it, Option+D and Cmd+D come between k and a
+    for (const key of ['k', '\u0001', '\u001b[100;3u', '\u001b[100;9u', 'a']) {
       ui.stdin.write(key);
       await delay(30);
     }
@@ -588,7 +589,7 @@ await test('a note page scrolls by rows and full pages and stops at its last row
   }
 });
 
-await test('e on a note page edits that note, and the + entry edits project essentials', async () => {
+await test('e on a note page edits that note, letters typed with Ctrl, Option or Cmd leave it open, and the + entry edits project essentials', async () => {
   const edited: string[] = [];
   const { coordinator } = await memoryApp(async (file) => {
     edited.push(file);
@@ -602,6 +603,17 @@ await test('e on a note page edits that note, and the + entry edits project esse
     await delay(30);
     ui.stdin.write('\r');
     await until('the note page', () => ui.text().includes('e EDIT'));
+    // Cmd+→ as Ghostty sends it, Option+E, Cmd+E and Option+H leave the page where it is
+    for (const key of [
+      '\u0005',
+      '\u001b[101;3u',
+      '\u001b[101;9u',
+      '\u001b[104;3u',
+    ]) {
+      ui.stdin.write(key);
+      await delay(60);
+      assert.ok(ui.text().includes('e EDIT'), JSON.stringify(key));
+    }
     ui.stdin.write('e');
     await until('the edit', () => edited.length === 1);
     assert.match(edited[0]!, /\/global\/other\.md$/);

@@ -428,3 +428,252 @@ await test('browser elicitation confirms without JSON form content', async () =>
     await unmount(ui);
   }
 });
+
+// Ghostty 1.3.1 sends a modifier's own report before the key, and turns Cmd+←, Cmd+→, Cmd+Delete, Option+← and Option+→ into legacy bytes
+const CMD = '\u001b[57444;9u';
+const OPT = '\u001b[57443;3u';
+const CMD_LEFT = [CMD, '\u0001'];
+const CMD_RIGHT = [CMD, '\u0005'];
+const CMD_DELETE = [CMD, '\u0015'];
+const OPT_LEFT = [OPT, '\u001bb'];
+const OPT_RIGHT = [OPT, '\u001bf'];
+const OPT_DELETE = [OPT, '\u001b[127;3u'];
+const OPT_FORWARD_DELETE = [OPT, '\u001b[3;3~'];
+
+await test('Cmd and Option keys edit by line and word as Ghostty sends them, and a secret answer ignores Option', async () => {
+  const sent: string[] = [];
+  const onSubmit = (value: string) => {
+    sent.push(value);
+    return true;
+  };
+  /** pastes `text`, writes each read on its own, then submits */
+  const submit = async (
+    ui: Awaited<ReturnType<typeof mount>>,
+    text: string,
+    reads: string[],
+  ) => {
+    await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
+    for (const data of reads) await press(ui.stdin, data);
+    await press(ui.stdin, '\r');
+    return sent.at(-1);
+  };
+  const ui = await mount(
+    createElement(Input, { width: 60, height: 4, active: true, onSubmit }),
+  );
+  try {
+    for (const [reads, expected] of [
+      [[...OPT_LEFT, ...OPT_LEFT, ...OPT_RIGHT, 'X'], 'one twoX three'],
+      [[...CMD_LEFT, 'X'], 'Xone two three'],
+      [[...OPT_DELETE, 'X'], 'one two X'],
+      [[...OPT_LEFT, ...OPT_LEFT, ...OPT_FORWARD_DELETE], 'one  three'],
+      [[...OPT_LEFT, ...CMD_DELETE], 'three'],
+    ] as const)
+      assert.equal(await submit(ui, 'one two three', [...reads]), expected);
+    // the last row keeps its trailing spaces
+    assert.equal(
+      await submit(ui, 'one two  ', [...CMD_LEFT, ...CMD_RIGHT, 'X']),
+      'one two  X',
+    );
+    // control bytes sharing one read insert nothing, and a tab or line break among them stays
+    assert.equal(
+      await submit(ui, 'ab', ['\u0015\t\n\r\u0015', 'x']),
+      'ab\t\n\nx',
+    );
+    // Ctrl+X, Option+K and Cmd+K
+    assert.equal(
+      await submit(ui, 'one two three', [
+        '\u001b[120;5u',
+        OPT,
+        '\u001b[107;3u',
+        CMD,
+        '\u001b[107;9u',
+      ]),
+      'one two three',
+    );
+  } finally {
+    await unmount(ui);
+  }
+  const secret = await mount(
+    createElement(Input, {
+      width: 60,
+      height: 4,
+      active: true,
+      secret: true,
+      onSubmit,
+    }),
+  );
+  try {
+    assert.equal(await submit(secret, 'ab cd', [...OPT_LEFT, 'X']), 'ab cdX');
+    // masked, the tab takes one cell and no space is a break, so the first row ends at 60 inside the eighth word
+    assert.equal(
+      await submit(secret, '\t' + 'abcdefg '.repeat(8), [
+        ...Array<string>(8).fill('\u001b[D'),
+        ...CMD_RIGHT,
+        'X',
+      ]),
+      '\t' + 'abcdefg '.repeat(7) + 'abcXdefg ',
+    );
+  } finally {
+    await unmount(secret);
+  }
+});
+
+await test('Cmd+Delete clears one wrapped row a press, then joins the line to the one above', async () => {
+  const values: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 12,
+      height: 6,
+      active: true,
+      onChange: (value) => values.push(value),
+      onSubmit: () => true,
+    }),
+  );
+  try {
+    await press(ui.stdin, '\u001b[200~x\n\tab cd ef gh ij kl mn\u001b[201~');
+    // the tab takes eight cells, so the second line wraps after `ab ` and `ij `
+    assert.deepEqual(ui.lastFrame()?.split('\n').slice(0, 4), [
+      'x',
+      '        ab',
+      'cd ef gh ij',
+      'kl mn',
+    ]);
+    const after: string[] = [];
+    for (let count = 0; count < 4; count++) {
+      for (const data of CMD_DELETE) await press(ui.stdin, data);
+      after.push(values.at(-1)!);
+    }
+    assert.deepEqual(after, ['x\n\tab cd ef gh ij ', 'x\n\tab ', 'x\n', 'x']);
+  } finally {
+    await unmount(ui);
+  }
+});
+
+await test('Cmd+Delete with the cursor inside a pasted C1 sequence deletes to the row start', async () => {
+  const values: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 10,
+      height: 4,
+      active: true,
+      onChange: (value) => values.push(value),
+      onSubmit: () => true,
+    }),
+  );
+  try {
+    // Ghostty's paste filter keeps U+009B, a one-character CSI the display drops along with `31m`. five ← put the
+    // cursor between the two, on a line that gets no cursor cell, so it sits past every drawn row
+    await press(ui.stdin, '\u001b[200~ab\u009b31m\nx\u001b[201~');
+    for (const data of [...Array<string>(5).fill('\u001b[D'), ...CMD_DELETE])
+      await press(ui.stdin, data);
+    assert.equal(values.at(-1), '31m\nx');
+  } finally {
+    await unmount(ui);
+  }
+});
+
+await test('Cmd+← and Cmd+Delete inside a pasted C1 sequence never pass the cursor', async () => {
+  const changes: [string, number][] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 4,
+      height: 4,
+      active: true,
+      onChange: (value, cursor) => changes.push([value, cursor]),
+      onSubmit: () => true,
+    }),
+  );
+  /** presses reads and gives the value and cursor then */
+  const after = async (reads: readonly string[]) => {
+    for (const data of reads) await press(ui.stdin, data);
+    return changes.at(-1);
+  };
+  try {
+    // with the cursor after U+009B, a prefix cut after `3` or `31` strips as a whole sequence and draws shorter
+    const value = 'abcd\u009b31mxyz';
+    await press(ui.stdin, `\u001b[200~${value}\u001b[201~`);
+    assert.deepEqual(
+      await after([...Array<string>(6).fill('\u001b[D'), ...CMD_LEFT]),
+      [value, 5],
+    );
+    assert.deepEqual(await after(CMD_DELETE), [value, 5]);
+  } finally {
+    await unmount(ui);
+  }
+});
+
+await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is drawn on', async () => {
+  const mounted: { unmount: () => void }[] = [];
+  /** mounts an Input `width` cells wide with `text` pasted; `after` presses reads and gives the cursor then */
+  const typed = async (width: number, text: string) => {
+    const cursors: number[] = [];
+    const ui = await mount(
+      createElement(Input, {
+        width,
+        height: 6,
+        active: true,
+        onChange: (_value, cursor) => cursors.push(cursor),
+        onSubmit: () => true,
+      }),
+    );
+    mounted.push(ui);
+    await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
+    const after = async (reads: readonly string[]) => {
+      for (const data of reads) await press(ui.stdin, data);
+      return cursors.at(-1);
+    };
+    return { frame: () => ui.lastFrame()?.split('\n'), after };
+  };
+  const left = (count: number) => Array<string>(count).fill('\u001b[D');
+  try {
+    // x0 \n1 \t2 a3 b4 ·5 c6 d7 ·8 e9 f10 ·11 g12 h13 ·14 i15 j16 ·17 k18 … n22
+    const tab = await typed(12, 'x\n\tab cd ef gh ij kl mn');
+    assert.deepEqual(tab.frame()?.slice(0, 4), [
+      'x',
+      '        ab',
+      'cd ef gh ij',
+      'kl mn',
+    ]);
+    assert.equal(await tab.after(CMD_LEFT), 18);
+    // the start of a row stays put rather than reaching the row above
+    assert.equal(await tab.after(CMD_LEFT), 18);
+    assert.equal(await tab.after(CMD_RIGHT), 23);
+    // a soft row ends before its trailing space, past which the cursor is drawn on the next row
+    assert.equal(await tab.after([...left(9), ...CMD_RIGHT]), 17);
+    assert.equal(await tab.after(CMD_LEFT), 6);
+    assert.equal(await tab.after([...left(2), ...CMD_LEFT]), 2);
+    assert.equal(await tab.after(CMD_RIGHT), 5);
+
+    // a word longer than the row breaks with no space to stop before, and wide characters fill it at five
+    const long = await typed(10, '中'.repeat(8));
+    assert.deepEqual(long.frame()?.slice(0, 2), ['中中中中中', '中中中']);
+    assert.equal(await long.after(CMD_LEFT), 5);
+    assert.equal(await long.after([...left(1), ...CMD_RIGHT]), 5);
+
+    // the tab's cells span the row break, and the row that starts inside it takes the whole tab
+    const split = await typed(6, 'abcd\tx');
+    assert.deepEqual(split.frame()?.slice(0, 2), ['abcd', '  x']);
+    assert.equal(await split.after(CMD_LEFT), 4);
+
+    // a full-width line above another gets no cursor cell, so its end is drawn on its own row
+    const full = await typed(10, 'abcdefghij\nx');
+    assert.deepEqual(full.frame()?.slice(0, 2), ['abcdefghij', 'x']);
+    assert.equal(await full.after([...left(2), ...CMD_LEFT]), 0);
+    assert.equal(await full.after(CMD_RIGHT), 10);
+
+    // the cursor cell after a full last row wraps onto a row of its own, so the full row ends before its trailing space
+    const last = await typed(10, 'abcdefghi ');
+    assert.equal(await last.after([...left(3), ...CMD_RIGHT]), 9);
+
+    // inside a row's trailing spaces, Cmd+→ never moves left
+    const spaced = await typed(10, 'abcdef    ghij kl');
+    assert.deepEqual(spaced.frame()?.slice(0, 2), ['abcdef', 'ghij kl']);
+    assert.equal(
+      await spaced.after([...CMD_LEFT, ...left(2), ...CMD_RIGHT]),
+      8,
+    );
+    assert.equal(await spaced.after([...left(5), ...CMD_RIGHT]), 6);
+  } finally {
+    for (const ui of mounted) await unmount(ui);
+  }
+});
