@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { editInput, initialInput } from '../src/ui/input-buffer.js';
-import type { Edit } from '../src/ui/input-buffer.js';
+import type { Step } from '../src/ui/input-buffer.js';
 
 await test('an insert stores CRLF and lone CR line endings as newlines', () => {
   assert.deepEqual(
@@ -41,10 +41,8 @@ await test('Home and Down navigate an empty first line', () => {
 await test('cursor moves and deletions land on grapheme boundaries across lines', () => {
   // é as e plus a combining accent, then an emoji of five UTF-16 units
   const value = 'e\u0301x\n👩‍💻y\nz';
-  const at = (
-    cursor: number,
-    type: Exclude<Edit, { type: 'insert' }>['type'],
-  ) => editInput({ value, cursor }, { type });
+  const at = (cursor: number, type: Step) =>
+    editInput({ value, cursor }, { type });
   assert.deepEqual(at(4, 'left'), { value, cursor: 3 });
   assert.deepEqual(at(4, 'backspace'), { value: 'e\u0301x👩‍💻y\nz', cursor: 3 });
   assert.deepEqual(at(3, 'right'), { value, cursor: 4 });
@@ -108,11 +106,8 @@ await test('word moves stop at word edges, crossing punctuation, blank lines and
 });
 
 await test('word and line deletions remove only what the matching move passes over', () => {
-  const run = (
-    value: string,
-    cursor: number,
-    type: Exclude<Edit, { type: 'insert' }>['type'],
-  ) => editInput({ value, cursor }, { type });
+  const run = (value: string, cursor: number, type: Step) =>
+    editInput({ value, cursor }, { type });
   const value = 'one two,  three\n\n  four.';
   assert.deepEqual(run(value, 12, 'backspaceWord'), {
     value: 'one two,  ree\n\n  four.',
@@ -130,16 +125,17 @@ await test('word and line deletions remove only what the matching move passes ov
     value: 'one two,  three.',
     cursor: 15,
   });
+  const row = (value: string, cursor: number, start: number) =>
+    editInput({ value, cursor }, { type: 'backspaceRow', start });
+  // `three` wrapped onto a row of its own
+  assert.deepEqual(row('one two three', 13, 8), {
+    value: 'one two ',
+    cursor: 8,
+  });
   const lines = 'one\ntwo three';
-  assert.deepEqual(run(lines, 8, 'backspaceLine'), {
-    value: 'one\nthree',
-    cursor: 4,
-  });
-  assert.deepEqual(run(lines, 4, 'backspaceLine'), {
-    value: 'onetwo three',
-    cursor: 3,
-  });
-  assert.deepEqual(run(lines, 0, 'backspaceLine'), { value: lines, cursor: 0 });
+  assert.deepEqual(row(lines, 8, 4), { value: 'one\nthree', cursor: 4 });
+  assert.deepEqual(row(lines, 4, 4), { value: 'onetwo three', cursor: 3 });
+  assert.deepEqual(row(lines, 0, 0), { value: lines, cursor: 0 });
 });
 
 await test('a word move in a 200KB draft segments only the lines it crosses', () => {

@@ -502,3 +502,34 @@ await test('Cmd and Option keys edit by line and word as Ghostty sends them, and
     await unmount(secret);
   }
 });
+
+await test('Cmd+Delete clears one wrapped row a press, then joins the line to the one above', async () => {
+  const values: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 12,
+      height: 6,
+      active: true,
+      onChange: (value) => values.push(value),
+      onSubmit: () => true,
+    }),
+  );
+  try {
+    await press(ui.stdin, '\u001b[200~x\n\tab cd ef gh ij kl mn\u001b[201~');
+    // the tab takes eight cells, so the second line wraps after `ab ` and `ij `
+    assert.deepEqual(ui.lastFrame()?.split('\n').slice(0, 4), [
+      'x',
+      '        ab',
+      'cd ef gh ij',
+      'kl mn',
+    ]);
+    const after: string[] = [];
+    for (let count = 0; count < 4; count++) {
+      for (const data of CMD_DELETE) await press(ui.stdin, data);
+      after.push(values.at(-1)!);
+    }
+    assert.deepEqual(after, ['x\n\tab cd ef gh ij ', 'x\n\tab ', 'x\n', 'x']);
+  } finally {
+    await unmount(ui);
+  }
+});
