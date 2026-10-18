@@ -43,10 +43,13 @@ export function highlight(line: string, start: number, end: number): string {
   // past the text, the selection covers empty cells, as the terminal's does
   const gap = ' '.repeat(Math.max(0, start - width));
   const blank = ' '.repeat(Math.max(0, end - Math.max(start, width)));
-  // the selected cells keep their links, so a click on one still opens it, and drop their other styles
+  // the selected cells keep their links and underline, so a link still opens and looks like one, as in the
+  // terminal's own selection, and drop their other styles
   const selected = inside.map((char) => ({
     ...char,
-    styles: char.styles.filter(({ code }) => code.startsWith('\u001b]8;')),
+    styles: char.styles.filter(
+      ({ code }) => code.startsWith('\u001b]8;') || code === '\u001b[4m',
+    ),
   }));
   return `${styledCharsToString(before)}${gap}${colors.inverse(styledCharsToString(selected) + blank)}${styledCharsToString(after)}`;
 }
