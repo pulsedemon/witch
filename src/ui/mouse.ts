@@ -31,8 +31,8 @@ interface Source {
 /**
  * the stdin Ink reads, with mouse reports taken out: the left button emits `pointer` with what it did and the cell,
  * a release on its press's cell with no drag or wheel step between emits `click`, and a wheel step emits `wheel`
- * with the rows to scroll, -1 up and 1 down. Motion with no button held emits `hover` with the cell. Ink drops any
- * report that reaches it, so nothing leaks into the composer.
+ * with the rows to scroll, -1 up and 1 down. Any other report, such as motion with no button or another button held,
+ * emits `hover` with the cell. Ink drops any report that reaches it, so nothing leaks into the composer.
  */
 export class MouseInput extends EventEmitter {
   readonly isTTY = true;
@@ -86,8 +86,6 @@ export class MouseInput extends EventEmitter {
       if (button === 64 || button === 65) {
         this.pressed = undefined;
         this.emit('wheel', button === 64 ? -1 : 1);
-      } else if (button === 35) {
-        this.emit('hover', cell);
       } else if (button === 0 && kind === 'M') {
         this.pressed = cell;
         this.emit('pointer', 'press', cell);
@@ -104,7 +102,7 @@ export class MouseInput extends EventEmitter {
           this.emit('click');
         this.pressed = undefined;
         this.emit('pointer', 'release', cell);
-      }
+      } else this.emit('hover', cell);
     }
     this.text += data.slice(end);
     if (this.text) this.emit('readable');
