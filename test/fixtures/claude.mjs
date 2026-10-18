@@ -16,6 +16,19 @@ let model = 'claude-a';
 let lastPrompt = '';
 /** the uuids of prompts sent during a steerable turn. */
 const steered = [];
+/** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, or `idle`. */
+let reporting = '';
+/** the uuids of prompts the CLI holds unread before that report. */
+const held = [];
+/** calls `then` once `file` exists in the cwd; the poll alone doesn't keep the CLI running. */
+const once = (file, then) => {
+  const poll = setInterval(() => {
+    if (!existsSync(join(process.cwd(), file))) return;
+    clearInterval(poll);
+    then();
+  }, 5);
+  poll.unref();
+};
 const state = (state) =>
   send({
     type: 'system',
@@ -235,7 +248,11 @@ for await (const line of lines) {
       );
     }
     if (request.subtype === 'interrupt') {
-      if (lastPrompt === 'still queued') response = { still_queued: ['q-1'] };
+      appendFileSync(join(process.cwd(), 'interrupts.log'), 'interrupt\n');
+      if (lastPrompt === 'reporting familiar' && held.length)
+        response = { still_queued: held };
+      else if (lastPrompt === 'still queued')
+        response = { still_queued: ['q-1'] };
       // the first steered prompt was folded in at a tool step, so the CLI still holds the rest
       else if (lastPrompt === 'steerable' && steered.length > 1)
         response = { still_queued: steered.slice(1) };
@@ -253,6 +270,19 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    if (lastPrompt === 'reporting familiar' && reporting === 'before') {
+      held.push(message.uuid);
+      appendFileSync(
+        join(process.cwd(), 'steered.jsonl'),
+        `${JSON.stringify(message.message.content)}\n`,
+      );
+      continue;
+    }
+    if (lastPrompt === 'reporting familiar' && reporting === 'reported')
+      appendFileSync(
+        join(process.cwd(), 'early.jsonl'),
+        `${JSON.stringify(message.message.content)}\n`,
+      );
     // the CLI answers a prompt sent while it waits on a background familiar, then idles once the familiar reports
     if (lastPrompt === 'background familiar') {
       appendFileSync(
@@ -582,6 +612,41 @@ for await (const line of lines) {
       end('outer', 'completed');
       level([]);
       finish();
+    } else if (lastPrompt === 'reporting familiar') {
+      // reports, then idles, then dies, each once the test allows it
+      task('task_started', {
+        task_id: 'helper',
+        description: 'Reporting helper',
+        task_type: 'local_agent',
+      });
+      assistant('Started.');
+      result();
+      reporting = 'before';
+      once('allow-report', () => {
+        reporting = 'reported';
+        task('task_notification', {
+          task_id: 'helper',
+          status: 'completed',
+          output_file: '',
+          summary: '',
+        });
+        assistant('Reported.');
+        result();
+        once('allow-idle', () => {
+          reporting = 'idle';
+          state('idle');
+          task('commands_changed', {
+            commands: [
+              {
+                name: 'after-idle',
+                description: 'After idle',
+                argumentHint: '',
+              },
+            ],
+          });
+          once('allow-die', () => exitBeforeGrandchild(1));
+        });
+      });
     } else if (lastPrompt === 'background familiar') {
       task('task_started', {
         task_id: 'helper',
