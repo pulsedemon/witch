@@ -105,6 +105,8 @@ await test('word moves stop at word edges, crossing punctuation, blank lines and
     [at(10, 'wordLeft', under), at(3, 'wordRight', under)],
     [9, 4],
   );
+  // a period between letters stays inside the word
+  assert.equal(at(7, 'wordLeft', 'foo.bar'), 0);
 });
 
 await test('word and line deletions remove only what the matching move passes over', () => {
