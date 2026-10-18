@@ -65,12 +65,16 @@ function rowStops(
   };
   const drawn = rows.find((row) => at < row.to) ?? rows.at(-1)!;
   return {
-    home: offset(drawn.from),
+    // a prefix cut after a digit of a pasted U+009B sequence strips as a whole sequence, so `offset` can pass the cursor
+    home: Math.min(cursor, offset(drawn.from)),
+    back: Math.min(
+      cursor,
+      offset((rows.find((row) => at <= row.to) ?? rows.at(-1)!).from),
+    ),
     end:
       drawn === rows.at(-1)
         ? end
         : Math.max(cursor, offset(drawn.from + drawn.text.trimEnd().length)),
-    back: offset((rows.find((row) => at <= row.to) ?? rows.at(-1)!).from),
   };
 }
 
