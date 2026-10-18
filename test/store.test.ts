@@ -248,10 +248,11 @@ await test("a claim kills a recorded shell's whole group, a member its first sig
     await files.close();
     let missed = false;
     t.mock.method(process, 'kill', (pid: number, signal?: string | number) => {
-      // the first group kill lands as the shell forks, so it reaches only the shell
+      // the first group kill lands as the shell forks, so it reaches only the shell, which ps lists until it's reaped
       if (!missed && pid === -child.pid! && signal === 'SIGKILL') {
         missed = true;
-        return kill(child.pid!, 'SIGKILL');
+        setTimeout(() => kill(child.pid!, 'SIGKILL'), 50);
+        return true;
       }
       return kill(pid, signal);
     });
