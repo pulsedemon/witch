@@ -135,28 +135,38 @@ await test('a failed write fails every later write and the close', async () => {
   await assert.rejects(files.close(), /EACCES/);
 });
 
-await test('a claim that cannot stop the recorded process releases its lock', async () => {
+await test('a claim that cannot stop the recorded process still kills the recorded shell, and releases its lock', async () => {
   const store = await StateStore.open(await scratch('witch-failed-claim-'));
-  const child = spawn(
+  const agent = spawn(
     '/bin/sh',
     ['-c', "trap '' TERM; echo ready; exec /bin/sleep 20"],
     { stdio: ['ignore', 'pipe', 'ignore'] },
   );
+  const { child: shell } = await detachedShell('20.313');
   try {
-    await once(child.stdout, 'data');
+    await once(agent.stdout, 'data');
     const files = await store.create(conversation('orphan'));
     await files.save({
       ...files.record,
-      process: await identifyProcess(child.pid!),
+      process: await identifyProcess(agent.pid!),
+      shell: await identifyProcess(shell.pid!),
     });
     await files.close();
+    const shellExited = once(shell, 'exit');
     await assert.rejects(store.claim('orphan'), /has not stopped/);
-    const exited = once(child, 'exit');
-    child.kill('SIGKILL');
-    await exited;
+    // unbounded, this wait would pass once the shell's sleep ends by itself
+    await within(shellExited, 1000, 'the shell to exit');
+    const agentExited = once(agent, 'exit');
+    agent.kill('SIGKILL');
+    await agentExited;
     await (await store.claim('orphan')).close();
   } finally {
-    child.kill('SIGKILL');
+    agent.kill('SIGKILL');
+    try {
+      process.kill(-shell.pid!, 'SIGKILL');
+    } catch {
+      // stopped by the claim
+    }
   }
 });
 
@@ -287,37 +297,6 @@ await test("a claim leaves a group alone when its recorded shell's pid has anoth
       process.kill(-child.pid!, 'SIGKILL');
     } catch {
       // a wrong claim already stopped it
-    }
-  }
-});
-
-await test("a claim kills a recorded shell even when the recorded agent process won't stop", async () => {
-  const store = await StateStore.open(await scratch('witch-shell-stuck-'));
-  const agent = spawn(
-    '/bin/sh',
-    ['-c', "trap '' TERM; echo ready; exec /bin/sleep 20"],
-    { stdio: ['ignore', 'pipe', 'ignore'] },
-  );
-  const { child } = await detachedShell('20.313');
-  try {
-    await once(agent.stdout, 'data');
-    const files = await store.create(conversation('stuck'));
-    await files.save({
-      ...files.record,
-      process: await identifyProcess(agent.pid!),
-      shell: await identifyProcess(child.pid!),
-    });
-    await files.close();
-    const exited = once(child, 'exit');
-    await assert.rejects(store.claim('stuck'), /has not stopped/);
-    // unbounded, this wait would pass once the shell's sleep ends by itself
-    await within(exited, 1000, 'the shell to exit');
-  } finally {
-    agent.kill('SIGKILL');
-    try {
-      process.kill(-child.pid!, 'SIGKILL');
-    } catch {
-      // stopped by the claim
     }
   }
 });
