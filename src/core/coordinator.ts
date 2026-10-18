@@ -32,6 +32,7 @@ import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
 import { listFiles } from './files.js';
+import type { JobWatch } from './jobs.js';
 import { applyDisplayUpdate } from './state.js';
 import type {
   Conversation,
@@ -174,6 +175,7 @@ export class Coordinator {
     private readonly store: StateStore,
     readonly memory: Memory,
     private readonly agents: readonly AgentRegistration[],
+    private readonly jobs?: Pick<JobWatch, 'track'>,
     private readonly editFile = editInVSCode,
   ) {
     this.snapshot = {
@@ -903,6 +905,10 @@ export class Coordinator {
           if (files.closed) return;
           conversation.process = process;
           await files.save(conversation);
+        },
+        // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
+        onShell: async (pid) => {
+          if (pid !== undefined) this.jobs?.track(pid);
         },
       });
     } finally {

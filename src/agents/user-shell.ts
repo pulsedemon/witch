@@ -31,7 +31,13 @@ function killGroup(pid: number): void {
  */
 export function runShell(
   command: string,
-  options: { cwd: string; signal: AbortSignal; onOutput(text: string): void },
+  options: {
+    cwd: string;
+    signal: AbortSignal;
+    onOutput(text: string): void;
+    /** gets the shell's pid, which is its group's id. */
+    onSpawn?(pid: number): void;
+  },
 ): Promise<ShellRun> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.env.SHELL || '/bin/zsh', ['-c', command], {
@@ -39,6 +45,7 @@ export function runShell(
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    if (child.pid) options.onSpawn?.(child.pid);
     let output = '';
     let cut = false;
     let code: number | null = null;

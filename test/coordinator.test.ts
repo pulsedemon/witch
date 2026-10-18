@@ -61,7 +61,7 @@ async function readRecord(
 }
 
 async function fixture(
-  editFile?: ConstructorParameters<typeof Coordinator>[3],
+  editFile?: ConstructorParameters<typeof Coordinator>[4],
   /** runs before the launch connects. */
   prepare?: (a: FixtureAgent, b: FixtureAgent) => void,
 ) {
@@ -74,7 +74,13 @@ async function fixture(
   const a = new FixtureAgent('a');
   const b = new FixtureAgent('b');
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
-  const coordinator = new Coordinator(store, memory, agents, editFile);
+  const coordinator = new Coordinator(
+    store,
+    memory,
+    agents,
+    undefined,
+    editFile,
+  );
   prepare?.(a, b);
   await coordinator.initialize(project);
   const workspace = (id = coordinator.snapshot.conversation!.id) =>

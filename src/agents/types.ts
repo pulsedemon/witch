@@ -177,6 +177,11 @@ export interface SessionOptions {
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
   onProcess(pid: number | undefined): Promise<void>;
+  /**
+   * an adapter that runs a `!` command itself reports its shell when it starts and `undefined` once it ends, and the
+   * end waits for the start's report to settle.
+   */
+  onShell?(pid: number | undefined): Promise<void>;
 }
 
 export interface AgentAdapter {
