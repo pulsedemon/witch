@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
+import { runShell } from '../src/agents/user-shell.js';
 import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
 import { ps } from '../src/persistence/process.js';
@@ -582,6 +584,97 @@ await test('stop rejects while reads still show a job it signalled', async () =>
     await assert.rejects(jobs.stop(job!), { code: 'ESRCH' });
   } finally {
     sleep.kill('SIGKILL');
+    jobs.close();
+  }
+});
+
+await test("a ! command's group handed to track is a job from the first read, though its shell has already exited, and stops", async () => {
+  const jobs = new JobWatch({ interval: 60_000 });
+  try {
+    await runShell('sleep 60.271 &', {
+      cwd: await scratch('witch-jobs-'),
+      signal: new AbortController().signal,
+      onOutput: () => {},
+      onSpawn: (pid) => jobs.track(pid),
+    });
+    const list = await jobs.list();
+    assert.deepEqual(
+      list.map(({ command }) => command),
+      ['sleep 60.271'],
+    );
+    await jobs.stop(list[0]!);
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    // pkill exits 1 once stop has killed the sleep
+    await promisify(execFile)('pkill', ['-f', 'sleep 60.271']).catch(() => {});
+    jobs.close();
+  }
+});
+
+await test('a group handed to track while a read runs is a job at the next read, along with a group its process starts', async () => {
+  const first = Promise.withResolvers<Row[]>();
+  const tables = [
+    first.promise,
+    Promise.resolve<Row[]>([
+      {
+        pid: 4242,
+        ppid: 1,
+        pgid: 4242,
+        leadsSession: false,
+        identity: '4242 a',
+      },
+      {
+        pid: 4243,
+        ppid: 4242,
+        pgid: 4243,
+        leadsSession: false,
+        identity: '4243 a',
+      },
+    ]),
+  ];
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: () => tables.shift()!,
+    describe: leaders,
+  });
+  try {
+    const listing = jobs.list();
+    jobs.track(4242);
+    first.resolve([]);
+    assert.deepEqual(await listing, []);
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [4242, 4243],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('a handed group a read finds empty is dropped, so a later group given its id is not a job', async () => {
+  const tables: Row[][] = [
+    [],
+    [
+      {
+        pid: 4242,
+        ppid: 1,
+        pgid: 4242,
+        leadsSession: false,
+        identity: '4242 a',
+      },
+    ],
+  ];
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => tables.shift()!,
+    // a real ps finds no pid 4242, which would empty the list either way
+    describe: leaders,
+  });
+  try {
+    jobs.track(4242);
+    assert.deepEqual(await jobs.list(), []);
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
     jobs.close();
   }
 });
