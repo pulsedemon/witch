@@ -153,10 +153,8 @@ await test('a claim that cannot stop the recorded process still kills the record
       shell: await identifyProcess(shell.pid!),
     });
     await files.close();
-    const shellExited = once(shell, 'exit');
     await assert.rejects(store.claim('orphan'), /has not stopped/);
-    // unbounded, this wait would pass once the shell's sleep ends by itself
-    await within(shellExited, 1000, 'the shell to exit');
+    assert.equal(shell.signalCode, 'SIGKILL');
     const agentExited = once(agent, 'exit');
     agent.kill('SIGKILL');
     await agentExited;
