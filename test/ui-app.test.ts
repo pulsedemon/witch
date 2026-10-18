@@ -1104,8 +1104,8 @@ await test('a long picker shows as many choices as its rows hold', async () => {
       .text()
       .split('\n')
       .filter((row) => row.trim().startsWith('model-'));
-    // 24 rows less the header, status, title, filter, hint, the row every view leaves free and the status line's two
-    assert.equal(shown.length, 16);
+    // 24 rows less the phase row, title, filter, hint, the row every view leaves free and the status line's two
+    assert.equal(shown.length, 17);
   } finally {
     ui.unmount();
   }
@@ -1872,7 +1872,7 @@ await test('a conversation switch starts browsing again at the newest prompt as 
   }
 });
 
-await test('the header shows the stored model until the session reports one, and the status its permission mode', async () => {
+await test('the status line shows the stored model until the session reports one, and the phase row its permission mode', async () => {
   const { app, coordinator } = fake({
     conversation: {
       id: 'c',
@@ -1886,7 +1886,7 @@ await test('the header shows the stored model until the session reports one, and
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const row = (index: number) => ui.text().split('\n')[index] ?? '';
   try {
-    await until('the stored model', () => row(0).includes('STORED-MODEL'));
+    await until('the stored model', () => /^ STORED-MODEL \|/m.test(ui.text()));
     coordinator.publish({
       native: {
         id: 's',
@@ -1896,14 +1896,14 @@ await test('the header shows the stored model until the session reports one, and
         hasHistory: true,
       },
     });
-    await until('the live model', () => row(0).includes('LIVE-MODEL'));
-    assert.match(row(1), /^IDLE \| ON-REQUEST/);
+    await until('the live model', () => /^ LIVE-MODEL \|/m.test(ui.text()));
+    assert.match(row(0), /^IDLE \| ON-REQUEST/);
   } finally {
     ui.unmount();
   }
 });
 
-await test('a project name, model and permission mode carrying a link sequence show as plain text in the header', async () => {
+await test('a project name, model and permission mode carrying a link sequence show as plain text', async () => {
   const forged = (name: string) => forgedLink('x-evil:payload', name);
   const { app } = fake({
     conversation: {
@@ -1924,8 +1924,8 @@ await test('a project name, model and permission mode carrying a link sequence s
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
-    await until('the header', () => ui.text().includes('MODEL'));
-    assert.match(ui.text(), /project\]8;;x-evil:payloadproject\]8;; \| A/);
+    await until('the status line', () => ui.text().includes('MODEL'));
+    assert.match(ui.text(), / \| project\]8;;x-evil:payloadproject\]8;; \|/);
     assert.ok(
       !ui.frame().includes('\u001b]8;;x-evil'),
       JSON.stringify(ui.frame()),
@@ -1973,8 +1973,8 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~\u001b[5~');
-    // 302 lines in a 32-row transcript start at row 270; two pages up is 206
-    await until('two pages up', () => rows()[2] === 'row 206');
+    // 302 lines in a 33-row transcript start at row 269; two pages up is 203
+    await until('two pages up', () => rows()[1] === 'row 203');
     assert.ok(ui.text().includes('READING EARLIER OUTPUT'));
     ui.stdin.write('\u001b[6~\u001b[6~');
     await until(
@@ -1992,15 +1992,15 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
     });
     await delay(600);
     ui.stdin.write('\u001b[6~\u001b[6~');
-    // the detail starts on line 4, and two 29-row pages down show line 59
+    // the detail starts on line 4, and two 30-row pages down show line 61
     await until('two pages down', () => {
       const all = rows();
-      return all[all.indexOf('Approval required') + 1] === 'd56';
+      return all[all.indexOf('Approval required') + 1] === 'd58';
     });
     ui.stdin.write('\u001b[5~');
     await until('a page up', () => {
       const all = rows();
-      return all[all.indexOf('Approval required') + 1] === 'd27';
+      return all[all.indexOf('Approval required') + 1] === 'd28';
     });
   } finally {
     ui.unmount();
@@ -2118,35 +2118,35 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
   });
   const { ui, copied } = mounted(app);
   try {
-    // the transcript starts at row 2 and column 1 under the phase row, the message wraps onto rows 3 and 4, and the composer's text is on row 15
+    // the transcript starts at row 1 and column 1 under the phase row, the message wraps onto rows 2 and 3, and the composer's text is on row 15
     await until('the wrapped message', () => ui.text().includes(' omicron pi'));
     // each write renders before the next, so Cmd+C reads what the mouse left selected
     for (const data of [
-      left('press', 1, 3) + left('release', 1, 3),
-      left('press', 5, 1),
-      left('drag', 5, 3),
-      left('release', 5, 3),
+      left('press', 1, 2) + left('release', 1, 2),
+      left('press', 5, 0),
+      left('drag', 5, 2),
+      left('release', 5, 2),
       CMD_C,
       left('press', 5, 15),
-      left('drag', 5, 3),
-      left('release', 5, 3),
+      left('drag', 5, 2),
+      left('release', 5, 2),
       CMD_C,
     ]) {
       ui.stdin.write(data);
       await delay(60);
     }
     assert.deepEqual(copied, []);
-    drag(ui, [1, 3], [58, 4]);
+    drag(ui, [1, 2], [58, 3]);
     await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, [words]);
-    ui.stdin.write(left('press', 1, 3) + left('release', 1, 3));
+    ui.stdin.write(left('press', 1, 2) + left('release', 1, 2));
     await until('no highlight', () => !ui.frame().includes('\u001b[7m'));
     ui.stdin.write(CMD_C);
     await delay(60);
     assert.deepEqual(copied, [words]);
-    drag(ui, [1, 3], [58, 4]);
+    drag(ui, [1, 2], [58, 3]);
     await until('the highlight again', () =>
       ui.frame().includes('\u001b[7malpha'),
     );
@@ -2155,11 +2155,11 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
       'no highlight once resized',
       () => !ui.frame().includes('\u001b[7m'),
     );
-    ui.stdin.write(left('press', 50, 3));
+    ui.stdin.write(left('press', 50, 2));
     await delay(60);
     ui.resize(60);
     await until('the narrow layout', () => ui.text().includes(' omicron pi'));
-    for (const data of [left('drag', 5, 3), left('release', 5, 3), CMD_C]) {
+    for (const data of [left('drag', 5, 2), left('release', 5, 2), CMD_C]) {
       ui.stdin.write(data);
       await delay(60);
     }
@@ -2171,12 +2171,12 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
   // mounted at its width, so the first press runs on a handler measured at it
   const { ui: wide, copied: copiedWide } = mounted(app, 120);
   try {
-    // the sidebar takes the 25 columns from 95, and the message fits on row 3
+    // the sidebar takes the 25 columns from 95, and the message fits on row 2
     await until('the message', () => wide.text().includes(' omicron pi'));
     for (const data of [
-      left('press', 110, 3),
-      left('drag', 5, 3),
-      left('release', 5, 3),
+      left('press', 110, 2),
+      left('drag', 5, 2),
+      left('release', 5, 2),
       CMD_C,
     ]) {
       wide.stdin.write(data);
@@ -2184,7 +2184,7 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
     }
     assert.deepEqual(copiedWide, []);
     // the title row reads the same at both widths, so only the width drops a selection past its text
-    drag(wide, [1, 2], [90, 2]);
+    drag(wide, [1, 1], [90, 1]);
     await until('the highlight on the title', () =>
       wide.frame().includes('\u001b[7mYou'),
     );
@@ -2215,7 +2215,7 @@ await test('a drag inside the view leaves it where it is, on its first and last 
       .findLastIndex((row) => /row \d+/.test(row));
     ui.stdin.write(left('press', 1, 5));
     ui.stdin.write(left('drag', 1, 8));
-    ui.stdin.write(left('drag', 1, 2));
+    ui.stdin.write(left('drag', 1, 1));
     await delay(60);
     assert.equal(first(ui), bottom - 2);
     ui.stdin.write(left('drag', 1, last));
@@ -2236,9 +2236,9 @@ await test('copying a wrapped tool title keeps the space its wrap trimmed', asyn
   });
   const { ui, copied } = mounted(app);
   try {
-    // the title starts at row 2 and wraps onto row 3
+    // the title starts at row 1 and wraps onto row 2
     await until('the wrapped title', () => ui.text().includes(' lambda'));
-    drag(ui, [1, 2], [58, 3]);
+    drag(ui, [1, 1], [58, 2]);
     await until('the highlight', () => ui.frame().includes('\u001b[7m'));
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
@@ -2259,9 +2259,9 @@ await test('a wrapped title row the wrap changed beyond trimming joins the rows 
   });
   const { ui, copied } = mounted(app);
   try {
-    // the message is on row 3 and the title wraps from row 5 onto rows 6 and 7
+    // the message is on row 2 and the title wraps from row 4 onto rows 5 and 6
     await until('the wrapped title', () => ui.text().includes('tail'));
-    drag(ui, [1, 3], [58, 7]);
+    drag(ui, [1, 2], [58, 6]);
     await until('the highlight', () => ui.frame().includes('\u001b[7mhello'));
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
@@ -2287,14 +2287,14 @@ await test('a drag past the last transcript row or its right edge selects to the
       .split('\n')
       .map((row) => row.trimEnd());
   try {
-    // the messages take rows 2 to 7 and the transcript runs on to row 13, between columns 1 and 58
+    // the messages take rows 1 to 6 and the transcript runs on to row 13, between columns 1 and 58
     await until('the reply', () => ui.text().includes('second reply'));
     const before = rows();
     // ending above the reply, so a highlighted row that wrapped would push the reply down
-    drag(ui, [1, 3], [59, 5]);
+    drag(ui, [1, 2], [59, 4]);
     await until('the highlight', () => ui.frame().includes('\u001b[7mfirst'));
     assert.deepEqual(rows(), before);
-    drag(ui, [1, 3], [5, 12]);
+    drag(ui, [1, 2], [5, 12]);
     await until('the highlight to the end', () =>
       ui.frame().includes('\u001b[7msecond reply'),
     );
@@ -2319,7 +2319,7 @@ await test('a selection that runs past the bottom of the view stays drawn as the
       .split('\n')
       .findLastIndex((row) => /row \d+/.test(row));
     // the view ends with the blank row under the last row of text
-    drag(ui, [1, 2], [5, last + 1]);
+    drag(ui, [1, 1], [5, last + 1]);
     await until('the highlight', () => ui.frame().includes('\u001b[7m'));
     ui.stdin.write(wheelUp);
     await until('a row up', () => first(ui) === bottom - 1);
@@ -2361,9 +2361,9 @@ await test('a selection follows its text as output above it grows, and drops for
     );
   };
   try {
-    // the message's title is on row 2, the reply's text on row 6, and the expanded tool's output on rows 9 to 11
+    // the message's title is on row 1, the reply's text on row 5, and the expanded tool's output on rows 8 to 10
     await until('the reply', () => ui.text().includes('selected words'));
-    await select(1, 8, 6, 'selected');
+    await select(1, 8, 5, 'selected');
     coordinator.publish({ items: items('first\nsecond\nthird') });
     await until('the taller message', () => ui.text().includes('third'));
     assert.ok(ui.frame().includes('\u001b[7mselected'));
@@ -2373,7 +2373,7 @@ await test('a selection follows its text as output above it grows, and drops for
     coordinator.publish({ items: items('first') });
     ui.stdin.write(`\t${ENTER}`);
     await until('the expanded tool', () => ui.text().includes('line two'));
-    await select(1, 8, 10, 'line two');
+    await select(1, 8, 9, 'line two');
     ui.stdin.write(CMD_C);
     await until('the second copy', () => copied.length > 1);
     assert.deepEqual(copied.at(-1), 'line two');
@@ -2390,7 +2390,7 @@ await test('a selection follows its text as output above it grows, and drops for
     await delay(60);
     assert.equal(copied.length, 2);
     // the new transcript starts with a title like the one selected, so only the item drops it
-    await select(1, 3, 2, 'You');
+    await select(1, 3, 1, 'You');
     coordinator.publish({
       items: [{ id: 'b', kind: 'user', text: 'first', cwd: '/work' }],
     });
@@ -2411,9 +2411,9 @@ await test('a selection drops when output arrives under one of its ends', async 
   const { app, coordinator } = fake(reply('alpha\nbeta'));
   const { ui, copied } = mounted(app);
   try {
-    // the reply's lines are on rows 3 and 4, and the blank row under them is the next line's first
+    // the reply's lines are on rows 2 and 3, and the blank row under them is the next line's first
     await until('the reply', () => ui.text().includes('beta'));
-    drag(ui, [1, 3], [30, 5]);
+    drag(ui, [1, 2], [30, 4]);
     await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
     coordinator.publish(reply('alpha\nbeta\ngamma'));
     await until('the longer reply', () => ui.text().includes('gamma'));
@@ -2422,7 +2422,7 @@ await test('a selection drops when output arrives under one of its ends', async 
     await delay(60);
     assert.deepEqual(copied, []);
     // pressed on the blank row now under gamma and dragged up, so the next line lands under the press
-    drag(ui, [30, 6], [1, 3]);
+    drag(ui, [30, 5], [1, 2]);
     await until('the highlight from below', () =>
       ui.frame().includes('\u001b[7malpha'),
     );
@@ -2445,16 +2445,16 @@ await test('a drag into the left margin or above a transcript at its top reaches
   });
   const { ui, copied } = mounted(app);
   try {
-    // the title is on row 2, the message wraps onto rows 3 and 4 from column 1, and the blank row under it is row 5
+    // the title is on row 1, the message wraps onto rows 2 and 3 from column 1, and the blank row under it is row 4
     await until('the wrapped message', () => ui.text().includes(' omicron pi'));
-    drag(ui, [5, 3], [0, 4]);
+    drag(ui, [5, 2], [0, 3]);
     await until('the highlight', () => ui.frame().includes('\u001b[7ma beta'));
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, [
       'a beta gamma delta epsilon zeta eta theta iota kappa l',
     ]);
-    drag(ui, [5, 4], [8, 1]);
+    drag(ui, [5, 3], [8, 0]);
     await until('the highlight from the title', () =>
       ui.frame().includes('\u001b[7malpha'),
     );
@@ -2464,7 +2464,7 @@ await test('a drag into the left margin or above a transcript at its top reaches
       copied[1],
       '\nalpha beta gamma delta epsilon zeta eta theta iota kappa lambd',
     );
-    drag(ui, [5, 9], [8, 3]);
+    drag(ui, [5, 8], [8, 2]);
     await delay(60);
     ui.stdin.write(CMD_C);
     await delay(60);
@@ -2480,9 +2480,9 @@ await test('a drag back along a row selects from the pointer to the press, one f
   });
   const { ui, copied } = mounted(app);
   try {
-    // the message is on row 3, from column 1
+    // the message is on row 2, from column 1
     await until('the message', () => ui.text().includes('alpha beta gamma'));
-    drag(ui, [11, 3], [1, 3]);
+    drag(ui, [11, 2], [1, 2]);
     await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
     // a typed c and Cmd+V leave the clipboard alone
     ui.stdin.write('c');
@@ -2492,7 +2492,7 @@ await test('a drag back along a row selects from the pointer to the press, one f
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, ['alpha beta']);
-    drag(ui, [7, 3], [10, 3]);
+    drag(ui, [7, 2], [10, 2]);
     await until('the highlight from the press', () =>
       ui.frame().includes('alpha \u001b[7mbeta\u001b[27m'),
     );
@@ -2507,23 +2507,23 @@ await test('a press or release anywhere ends a drag, so a drag report with no pr
   });
   const { ui, copied } = mounted(app);
   try {
-    // the message is on row 3, and the composer's text on row 15
+    // the message is on row 2, and the composer's text on row 15
     await until('the message', () => ui.text().includes('alpha beta gamma'));
-    ui.stdin.write(left('press', 1, 3));
-    ui.stdin.write(left('drag', 5, 3));
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 5, 2));
     await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
     await openCommand(ui, '/help', '/new  New');
-    ui.stdin.write(left('release', 5, 3));
+    ui.stdin.write(left('release', 5, 2));
     ui.stdin.write('\u001b');
     await until('the transcript', () => ui.frame().includes('\u001b[7malpha'));
     // Ghostty keeps a Shift+press for itself but reports its motion once Shift lifts
-    ui.stdin.write(left('drag', 16, 3));
+    ui.stdin.write(left('drag', 16, 2));
     await delay(60);
     ui.stdin.write(CMD_C);
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, ['alpha']);
-    ui.stdin.write(left('press', 1, 3));
-    ui.stdin.write(left('drag', 5, 3));
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 5, 2));
     drag(ui, [5, 15], [6, 15]);
     await delay(60);
     ui.stdin.write(CMD_C);
@@ -2550,15 +2550,15 @@ await test('a held press whose width changes ends its drag, so the width coming 
   const narrow = () => /^ lambda/m.test(ui.text());
   try {
     await until('the narrow layout', narrow);
-    ui.stdin.write(left('press', 1, 3));
-    ui.stdin.write(left('drag', 5, 3));
+    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('drag', 5, 2));
     await until('the highlight', () => ui.frame().includes('\u001b[7malpha'));
     ui.resize(120);
     await until('the wide layout', () => !narrow());
     ui.resize(60);
     await until('the narrow layout again', narrow);
-    ui.stdin.write(left('drag', 10, 3));
-    ui.stdin.write(left('release', 10, 3));
+    ui.stdin.write(left('drag', 10, 2));
+    ui.stdin.write(left('release', 10, 2));
     await delay(60);
     ui.stdin.write(CMD_C);
     await delay(60);
@@ -2575,18 +2575,18 @@ await test('a drag and Cmd+C in one read copy what the drag selected, and a clic
   });
   const { ui, copied } = mounted(app);
   try {
-    // the message is on row 3, and row 10 is empty transcript
+    // the message is on row 2, and row 9 is empty transcript
     await until('the message', () => ui.text().includes('alpha beta gamma'));
     ui.stdin.write(
-      left('press', 1, 3) + left('drag', 5, 3) + left('release', 5, 3) + CMD_C,
+      left('press', 1, 2) + left('drag', 5, 2) + left('release', 5, 2) + CMD_C,
     );
     await until('the copy', () => copied.length > 0);
     assert.deepEqual(copied, ['alpha']);
     ui.stdin.write(
-      left('press', 7, 3) + left('drag', 10, 3) + left('release', 10, 3),
+      left('press', 7, 2) + left('drag', 10, 2) + left('release', 10, 2),
     );
     await until('the highlight', () => ui.frame().includes('\u001b[7mbeta'));
-    ui.stdin.write(left('press', 20, 10) + left('release', 20, 10) + CMD_C);
+    ui.stdin.write(left('press', 20, 9) + left('release', 20, 9) + CMD_C);
     await delay(60);
     assert.deepEqual(copied, ['alpha']);
   } finally {
@@ -2602,7 +2602,7 @@ await test('a drag past the transcript top or bottom scrolls it a row a move, an
   try {
     await until('the transcript', () => first(ui) > 0);
     const bottom = first(ui);
-    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('press', 1, 1));
     ui.stdin.write(
       left('drag', 1, 0) + left('drag', 2, 0) + left('drag', 3, 0),
     );
@@ -2614,7 +2614,7 @@ await test('a drag past the transcript top or bottom scrolls it a row a move, an
     assert.deepEqual(copied, [
       `w ${bottom - 3}\nrow ${bottom - 2}\nrow ${bottom - 1}\nr`,
     ]);
-    ui.stdin.write(left('press', 1, 2));
+    ui.stdin.write(left('press', 1, 1));
     ui.stdin.write(left('drag', 1, 39));
     await until('a row down', () => first(ui) === bottom - 2);
   } finally {
@@ -2638,9 +2638,9 @@ await test('Cmd+C copies nothing while a page covers the selection or from blank
   });
   const { ui, copied } = mounted(app);
   try {
-    // the message is on row 3, and the expanded tool's output on row 6 ends with a blank line on row 7 and the blank row under it
+    // the message is on row 2, and the expanded tool's output on row 5 ends with a blank line on row 6 and the blank row under it
     await until('the message', () => ui.text().includes('hello'));
-    drag(ui, [1, 3], [5, 3]);
+    drag(ui, [1, 2], [5, 2]);
     await until('the highlight', () => ui.frame().includes('\u001b[7mhello'));
     await openCommand(ui, '/help', '/new  New');
     ui.stdin.write(CMD_C);
@@ -2653,7 +2653,7 @@ await test('Cmd+C copies nothing while a page covers the selection or from blank
     assert.deepEqual(copied, ['hello']);
     ui.stdin.write(`\t${ENTER}`);
     await until('the expanded tool', () => ui.text().includes('one'));
-    drag(ui, [1, 7], [20, 8]);
+    drag(ui, [1, 6], [20, 7]);
     await until('the blank highlight', () =>
       ui.frame().includes('\u001b[7m        '),
     );
@@ -2802,29 +2802,6 @@ await test('the sidebar lists only running familiars, depth first under the fami
       })),
     });
     await until('no familiars', () => !ui.text().includes('FAMILIARS'));
-  } finally {
-    ui.unmount();
-  }
-});
-
-await test('a directory name with a line break stays on the header row', async () => {
-  const { app } = fake({
-    conversation: {
-      id: 'c',
-      title: 't',
-      cwd: '/work/dry\nline',
-      agent: 'a',
-      sessions: {},
-      createdAt: '',
-    },
-  });
-  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  try {
-    await until('the composer', () => ui.text().includes('Ask the agent'));
-    assert.equal(
-      ui.text().split('\n')[0]!.trim(),
-      'dry line | A | NATIVE DEFAULT',
-    );
   } finally {
     ui.unmount();
   }
@@ -3140,17 +3117,17 @@ await test('Down with tools focused and no tools keeps the reading position, and
     items: [long],
   });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
-  const top = () => ui.text().split('\n')[2]?.trim();
+  const top = () => ui.text().split('\n')[1]?.trim();
   try {
     await delay(60);
     ui.stdin.write('\u001b[5~');
-    await until('a page up', () => top() === 'row 238');
+    await until('a page up', () => top() === 'row 236');
     ui.stdin.write(`\t${DOWN}`);
     await delay(60);
-    assert.equal(top(), 'row 238');
+    assert.equal(top(), 'row 236');
     ui.stdin.write('\u001b[F');
     // the tools hint takes a transcript row
-    await until('live output', () => top() === 'row 271');
+    await until('live output', () => top() === 'row 270');
   } finally {
     ui.unmount();
   }
@@ -3268,10 +3245,10 @@ await test('a new request scrolls with PageDown before its other keys work', asy
     await until('the request', () => ui.text().includes('Approval required'));
     await delay(150);
     ui.stdin.write('\u001b[6~y');
-    // one 29-row page down from the top, as in the page key test above
+    // one 30-row page down from the top, as in the page key test above
     await until('the page down', () => {
       const all = rows();
-      return all[all.indexOf('Approval required') + 1] === 'd27';
+      return all[all.indexOf('Approval required') + 1] === 'd28';
     });
     assert.deepEqual(calls, []);
   } finally {

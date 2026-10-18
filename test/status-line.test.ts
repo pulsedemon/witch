@@ -51,6 +51,7 @@ await test('the status line shows every reported field in the order and format s
   assert.ok(
     second.includes('\u001b]8;;https://github.com/o/r/pull/7\u0007PR#7'),
   );
+  assert.ok(second.includes('\u001b]8;;vscode://file/work/witch\u0007witch'));
 });
 
 await test('what no agent or repository reported yet takes the script defaults, and Git and limits stay out', () => {
