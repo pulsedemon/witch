@@ -566,6 +566,36 @@ await test('Cmd+Delete with the cursor inside a pasted C1 sequence deletes to th
   }
 });
 
+await test('Cmd+← and Cmd+Delete inside a pasted C1 sequence never pass the cursor', async () => {
+  const changes: [string, number][] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 4,
+      height: 4,
+      active: true,
+      onChange: (value, cursor) => changes.push([value, cursor]),
+      onSubmit: () => true,
+    }),
+  );
+  /** presses reads and gives the value and cursor then */
+  const after = async (reads: readonly string[]) => {
+    for (const data of reads) await press(ui.stdin, data);
+    return changes.at(-1);
+  };
+  try {
+    // with the cursor after U+009B, a prefix cut after `3` or `31` strips as a whole sequence and draws shorter
+    const value = 'abcd\u009b31mxyz';
+    await press(ui.stdin, `\u001b[200~${value}\u001b[201~`);
+    assert.deepEqual(
+      await after([...Array<string>(6).fill('\u001b[D'), ...CMD_LEFT]),
+      [value, 5],
+    );
+    assert.deepEqual(await after(CMD_DELETE), [value, 5]);
+  } finally {
+    await unmount(ui);
+  }
+});
+
 await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is drawn on', async () => {
   const mounted: { unmount: () => void }[] = [];
   /** mounts an Input `width` cells wide with `text` pasted; `after` presses reads and gives the cursor then */
