@@ -115,7 +115,7 @@ export function statusLines(status: Status, now: number): [string, string] {
     ]),
     piped([
       `${white('CTX')} ${context}% ${bar(context)}`,
-      white(oneLine(basename(status.cwd))),
+      white(hyperlink(oneLine(basename(status.cwd)), status.cwd, status.cwd)),
       ...(repository ? [white(git(repository))] : []),
       ...(request ? [white(request)] : []),
       `${usage.lines?.added ?? 0}+/${usage.lines?.removed ?? 0}-`,
