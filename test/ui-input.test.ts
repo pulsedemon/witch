@@ -645,11 +645,11 @@ await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor 
     assert.equal(await tab.after([...left(2), ...CMD_LEFT]), 2);
     assert.equal(await tab.after(CMD_RIGHT), 5);
 
-    // a word longer than the row breaks with no space to stop before
-    const long = await typed(10, 'abcdefghijklmnop');
-    assert.deepEqual(long.frame()?.slice(0, 2), ['abcdefghij', 'klmnop']);
-    assert.equal(await long.after(CMD_LEFT), 10);
-    assert.equal(await long.after([...left(1), ...CMD_RIGHT]), 10);
+    // a word longer than the row breaks with no space to stop before, and wide characters fill it at five
+    const long = await typed(10, '中'.repeat(8));
+    assert.deepEqual(long.frame()?.slice(0, 2), ['中中中中中', '中中中']);
+    assert.equal(await long.after(CMD_LEFT), 5);
+    assert.equal(await long.after([...left(1), ...CMD_RIGHT]), 5);
 
     // a full-width line above another gets no cursor cell, so its end is drawn on its own row
     const full = await typed(10, 'abcdefghij\nx');
