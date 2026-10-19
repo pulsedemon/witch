@@ -214,7 +214,8 @@ export async function refreshInstall(
 /**
  * cleans up after the merged pull request whose branch the checkout sits on, once nothing staged, modified or
  * conflicted would block it and the conversation is idle with no error or queue on screen. a cleanup that acted,
- * kept the branch or failed isn't tried again; one that found the checkout changed waits for the next status read.
+ * kept the branch or failed isn't tried again; one that found the checkout changed, or another Witch's turn in its
+ * directory, waits for the next status read.
  */
 export function watchMerges(
   repository: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>,
