@@ -414,6 +414,34 @@ await test('the install pulls, installs and builds when clean on the base, and s
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
 });
 
+await test("an edit made during the install's fetch keeps it from being pulled and built", async () => {
+  const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
+  const install = join(root, 'install');
+  await git(root, 'clone', origin, install);
+  const head = await git(install, 'rev-parse', 'HEAD');
+  await git(other, 'commit', '--allow-empty', '-m', 'ahead');
+  await git(other, 'push');
+  // runs in the fetch, as an edit from another terminal could
+  const pack = join(root, 'upload-pack');
+  await write(
+    pack,
+    `#!/bin/sh\necho edited > '${install}/a.txt'\nexec git upload-pack "$@"\n`,
+  );
+  await execute('chmod', ['+x', pack]);
+  await git(install, 'config', 'remote.origin.uploadpack', pack);
+  const calls: string[][] = [];
+  const run = async (command: string, args: string[]) => {
+    calls.push([command, ...args]);
+    return { stdout: '' };
+  };
+  assert.equal(
+    await refreshInstall(install, 'main', run),
+    `Witch's checkout at ${install} isn't clean on main, so it wasn't rebuilt.`,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
+});
+
 await test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async () => {
   const tick = () => new Promise((resolve) => setImmediate(resolve));
   const listeners = {
