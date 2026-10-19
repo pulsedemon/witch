@@ -178,12 +178,15 @@ export async function cleanUpMerge(
   };
 }
 
-/** the option of a switch, checkout or worktree add that creates a branch, with the name when it's attached. */
-const creating: Record<string, RegExp> = {
-  switch: /^(?:-[cC]|--(?:force-)?create=?|--orphan=?)(.*)/,
-  checkout: /^(?:-[bB]|--orphan=?)(.*)/,
-  worktree: /^-[bB](.*)/,
-};
+/**
+ * the option of a switch, checkout or worktree add that creates a branch, alone or among other short options, with
+ * the name when it's attached.
+ */
+const creating = new Map([
+  ['switch', /^(?:-[a-zA-Z]*?[cC]|--(?:force-)?create=?|--orphan=?)(.*)/],
+  ['checkout', /^(?:-[a-zA-Z]*?[bB]|--orphan=?)(.*)/],
+  ['worktree', /^-[a-zA-Z]*?[bB](.*)/],
+]);
 
 /**
  * the branch each git command in `text` creates, as written. a command that creates one it doesn't name counts as
@@ -192,11 +195,22 @@ const creating: Record<string, RegExp> = {
 function createdBranches(text: string): Set<string> {
   const created = new Set<string>();
   const add = (name: string) => created.add(name.replace(/[.,:]+$/, ''));
-  for (const [command] of text.matchAll(/\bgit [^\n`;&|)]*/g)) {
-    const words = command.trim().split(/\s+/).slice(1);
-    // options before the subcommand, such as -C <dir>
+  // a backslash at a line's end continues the command
+  for (const [command] of text
+    .replace(/\\\n\s*/g, ' ')
+    .matchAll(/\bgit [^\n`;&|)]*/g)) {
+    // a quoted path with a space in it is one word
+    const words = command.match(/"[^"]*"|'[^']*'|\S+/g)!.slice(1);
+    // options before the subcommand, and the value of those that take one, such as -C <dir>
     while (words[0]?.startsWith('-'))
-      words.splice(0, /^-[Cc]$/.test(words[0]) ? 2 : 1);
+      words.splice(
+        0,
+        /^(?:-[Cc]|--(?:git-dir|work-tree|namespace|config-env))$/.test(
+          words[0],
+        )
+          ? 2
+          : 1,
+      );
     const [subcommand = '', ...args] = words;
     if (subcommand === 'branch') {
       const names = args.filter((word) => !word.startsWith('-'));
@@ -217,7 +231,7 @@ function createdBranches(text: string): Set<string> {
       );
       continue;
     }
-    const option = creating[subcommand];
+    const option = creating.get(subcommand);
     if (!option || (subcommand === 'worktree' && args[0] !== 'add')) continue;
     const index = args.findIndex((word) => option.test(word));
     if (index >= 0) {
