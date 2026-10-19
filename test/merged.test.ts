@@ -165,6 +165,9 @@ await test("a merged branch's checkout switches to the base, and loses the branc
     'feat/wt',
     'main',
   ]);
+  await assert.rejects(
+    git(checkout, 'config', '--get-regexp', '^branch\\.feat/x\\.'),
+  );
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
     'multi.md',
     'stack.md',
@@ -284,6 +287,32 @@ await test('an ignored file the base or the merge would start tracking stops the
     assert.equal(await readFile(join(checkout, 'secret.txt'), 'utf8'), 'mine');
     assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
   }
+});
+
+await test('a branch committed to after the tip check stays, and so does its plan', async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
+  // runs after the cleanup's switch, as a commit from another terminal could
+  const hooks = join(checkout, '.git/hooks');
+  await git(checkout, 'config', 'core.hooksPath', hooks);
+  await write(
+    join(hooks, 'post-checkout'),
+    `#!/bin/sh\ngit update-ref refs/heads/feat/x "$(git -c user.name=t -c user.email=t@t commit-tree -p ${tip} -m late '${tip}^{tree}')"\n`,
+  );
+  await execute('chmod', ['+x', join(hooks, 'post-checkout')]);
+  await assert.rejects(cleanUpMerge(checkout, pullRequest(tip)), (error) => {
+    const message = (error as Error).message;
+    assert.ok(
+      message.startsWith(
+        "#7 merged: switched to main, but feat/x wasn't deleted",
+      ),
+      message,
+    );
+    return true;
+  });
+  assert.equal(await git(checkout, 'rev-parse', 'feat/x^'), tip);
+  assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
 await test('the install pulls, installs and builds when clean on the base, and stays put otherwise', async () => {
