@@ -474,10 +474,7 @@ class ClaudeSession implements AgentSession {
       // kept out of `steered`, since an unread reply would go back to the queue and run its command again
       this.push(this.content(answer));
     } else if (turn.idle && !this.closed) {
-      this.finish(turn, {
-        ...turn.result!,
-        ...(turn.interrupted ? { status: 'interrupted' as const } : {}),
-      });
+      this.finish(turn, turn.result!);
       void this.readUsage();
     }
   }
@@ -788,11 +785,7 @@ class ClaudeSession implements AgentSession {
       if (!this.turn) return;
       const success = message.subtype === 'success' && !message.is_error;
       this.turn.result = {
-        status: this.turn.interrupted
-          ? 'interrupted'
-          : success
-            ? 'completed'
-            : 'failed',
+        status: success ? 'completed' : 'failed',
         text:
           message.subtype === 'success'
             ? message.result
@@ -888,19 +881,17 @@ class ClaudeSession implements AgentSession {
     this.query.close();
     await this.child?.closed;
     const text = withTail(error, this.child?.tail() ?? '');
-    if (turn)
-      this.finish(turn, {
-        status: turn.interrupted ? 'interrupted' : 'failed',
-        text: '',
-        error: text,
-      });
+    if (turn) this.finish(turn, { status: 'failed', text: '', error: text });
     // a turn reports the error through its result
     if (!turn && this.connected && !closed)
       this.options.onEvent({ type: 'notice', text });
   }
 
+  /** an interrupt decides how the turn ends, whatever result came before or after it. */
   private finish(turn: Turn, result: TurnResult): void {
     if (this.turn === turn) this.turn = undefined;
-    turn.finished.resolve(result);
+    turn.finished.resolve(
+      turn.interrupted ? { ...result, status: 'interrupted' } : result,
+    );
   }
 }
