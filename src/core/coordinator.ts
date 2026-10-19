@@ -161,6 +161,11 @@ interface MemoryView {
   root?: string;
 }
 
+interface Launch {
+  continue?: boolean;
+  conversation?: string;
+}
+
 export class Coordinator {
   snapshot: Snapshot;
   private record?: ConversationRecord;
@@ -213,12 +218,9 @@ export class Coordinator {
     return () => this.listeners.delete(listener);
   }
 
-  /** opens a new conversation in `directory`, or with `continue` its most recent one. */
-  async initialize(
-    directory: string,
-    options: { continue?: boolean } = {},
-  ): Promise<void> {
-    this.task = this.load(directory, options.continue ?? false);
+  /** opens the `conversation` it names, or with `continue` the most recent one in `directory`, or a new one there. */
+  async initialize(directory: string, options: Launch = {}): Promise<void> {
+    this.task = this.load(directory, options);
     try {
       await this.task;
     } catch (error) {
@@ -229,16 +231,18 @@ export class Coordinator {
     }
   }
 
-  private async load(directory: string, resume: boolean): Promise<void> {
+  private async load(directory: string, options: Launch): Promise<void> {
     await this.memory.initialize();
     const cwd = await realpath(directory);
-    const target = resume
-      ? (await this.store.conversations(cwd))[0]
-      : undefined;
-    const report = await this.sweep(target?.id);
+    const id =
+      options.conversation ??
+      (options.continue
+        ? (await this.store.conversations(cwd))[0]?.id
+        : undefined);
+    const report = await this.sweep(id);
     try {
       await this.openConversation(
-        target ? { id: target.id } : { create: await this.launchRecord(cwd) },
+        id ? { id } : { create: await this.launchRecord(cwd) },
       );
     } catch (error) {
       if (report === undefined) throw error;
