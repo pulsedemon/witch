@@ -40,6 +40,9 @@ contains one, and put -- before a prompt that starts with -.
 Use /help inside the app for controls.
 `;
 
+// the restart hands its conversation over here, and no agent or command may inherit it
+const handedOver = process.env.WITCH_CONVERSATION;
+delete process.env.WITCH_CONVERSATION;
 let values;
 let positionals;
 let store: StateStore | undefined;
@@ -68,9 +71,10 @@ if (!store) {
   process.stdout.write(usage);
 } else {
   const prompt = positionals.join(' ');
+  const restore = () => process.stdout.write(releaseMouse);
   // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
   // can't hold mouse reporting on
-  process.once('exit', () => process.stdout.write(releaseMouse));
+  process.once('exit', restore);
   // the pid keeps another live instance's mark from matching
   const jobs = new JobWatch({
     directory: instanceDirectory(join(store.root, 'jobs')),
@@ -107,6 +111,11 @@ if (!store) {
       },
     );
   };
+  let restarting = false;
+  const restart = () => {
+    restarting = true;
+    shutdown();
+  };
   const repository = new RepositoryWatch(process.cwd());
   const stopMerges = watchMerges(repository, coordinator, install);
   const screen = new Screen(process.stdout);
@@ -135,6 +144,7 @@ if (!store) {
       jobs={jobs}
       store={store}
       onExit={shutdown}
+      onRestart={restart}
       initialPrompt={prompt || undefined}
       graphics={graphics}
       copy={(text) => {
@@ -163,7 +173,10 @@ if (!store) {
   process.on('SIGHUP', shutdown);
   process.stdout.on('error', shutdown);
   void coordinator
-    .initialize(process.cwd(), { continue: values.continue })
+    .initialize(process.cwd(), {
+      continue: values.continue,
+      conversation: handedOver,
+    })
     // initialize shows its own failure
     .catch(() => {});
   await application.waitUntilExit();
@@ -174,4 +187,20 @@ if (!store) {
   process.removeListener('SIGINT', shutdown);
   process.removeListener('SIGHUP', shutdown);
   process.stdout.removeListener('error', shutdown);
+  if (restarting) {
+    // execve fires no exit event. it keeps the pid, so the new process removes this one's instance directories
+    restore();
+    const id = coordinator.snapshot.conversation?.id ?? handedOver;
+    process.execve!(
+      process.execPath,
+      [
+        process.execPath,
+        ...process.execArgv,
+        process.argv[1]!,
+        '--state-dir',
+        store.root,
+      ],
+      { ...process.env, ...(id ? { WITCH_CONVERSATION: id } : {}) },
+    );
+  }
 }

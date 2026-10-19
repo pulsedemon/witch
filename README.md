@@ -10,7 +10,7 @@ Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or new
 pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
 ```
 
-Rerun `pnpm build` after changes. After a merge into Witch's own repository, a Witch open on the merged branch pulls and rebuilds this checkout itself when it sits clean on the base branch. Restart to run the new build.
+Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation. After a merge into Witch's own repository, a Witch open on the merged branch pulls and rebuilds this checkout itself when it sits clean on the base branch.
 
 ## Usage
 
