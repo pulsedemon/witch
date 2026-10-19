@@ -192,14 +192,22 @@ await test("a merged branch's checkout switches to the base, and loses the branc
   });
 });
 
-await test('a plan that also creates another branch stays whichever git command creates it, and one for the branch alone goes in any spelling', async () => {
+await test('a plan that also creates another branch stays whichever git command creates it, named or not, and one for the branch alone goes in any spelling', async () => {
   const { checkout, other, tip } = await merged();
   for (const [name, command] of [
     ['create.md', 'git switch --create feat/y'],
     ['force.md', 'git switch --force-create=feat/y'],
     ['checkout.md', 'git checkout -B feat/y'],
     ['worktree.md', 'git worktree add -b feat/y ../y'],
+    ['path.md', 'git worktree add ../y -b feat/y'],
+    ['dir.md', 'git -C ../y switch -c feat/y'],
+    ['track.md', 'git checkout --track -b feat/y origin/feat/y'],
+    ['orphan.md', 'git switch --orphan feat/y'],
     ['branch.md', 'git branch feat/y'],
+    ['reset.md', 'git branch -f feat/y main'],
+    ['copy.md', 'git branch -c feat/x feat/y'],
+    ['unnamed.md', 'git worktree add ../y'],
+    ['remote.md', 'git checkout --track origin/feat/y'],
   ] as const)
     await write(
       join(plans(checkout), name),
@@ -207,15 +215,23 @@ await test('a plan that also creates another branch stays whichever git command 
     );
   await write(
     join(plans(checkout), 'upper.md'),
-    '`git switch -C feat/x`\n\nafter the merge\n\n`git branch -d feat/x`\n',
+    '```sh\ngit switch main && git pull --ff-only && git switch -C feat/x\n```\n\nafter the merge\n\n`git branch -d feat/x`, since `git checkout -b` would fail\n',
   );
   await merge(other, 'feat/x');
   const result = await cleanUpMerge(checkout, pullRequest(tip));
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
     'branch.md',
     'checkout.md',
+    'copy.md',
     'create.md',
+    'dir.md',
     'force.md',
+    'orphan.md',
+    'path.md',
+    'remote.md',
+    'reset.md',
+    'track.md',
+    'unnamed.md',
     'worktree.md',
   ]);
   assert.equal(
