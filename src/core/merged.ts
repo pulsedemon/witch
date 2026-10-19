@@ -131,7 +131,7 @@ export async function cleanUpMerge(
   const kept = stayed.length
     ? `${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`
     : '';
-  // after the deletions, so a base that can't fast-forward leaves no merged branch or plan behind
+  // after the deletions, so a base that can't fast-forward still leaves the merged branch and its plans gone
   try {
     // the first fetch reached only the merged branch's remote, and the base can track another
     await fetchRemote(cwd);
