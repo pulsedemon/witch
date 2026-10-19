@@ -5,7 +5,12 @@ import { promisify } from 'node:util';
 import { errorMessage } from '../agents/stderr.js';
 import type { Coordinator } from './coordinator.js';
 import { parseStatus } from './repository.js';
-import type { PullRequest, RepositoryWatch, Run } from './repository.js';
+import type {
+  PullRequest,
+  Repository,
+  RepositoryWatch,
+  Run,
+} from './repository.js';
 
 const execute = promisify(execFile);
 
@@ -23,12 +28,19 @@ const git = async (cwd: string, ...args: string[]) =>
     })
   ).stdout.trim();
 
-/** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. */
-const ignored = (cwd: string, path: string) =>
-  git(cwd, 'check-ignore', '-q', path).then(
+const succeeds = (promise: Promise<unknown>) =>
+  promise.then(
     () => true,
     () => false,
   );
+
+/** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. */
+const ignored = (cwd: string, path: string) =>
+  succeeds(git(cwd, 'check-ignore', '-q', path));
+
+/** what a switch would carry along or stop at. untracked files don't count, since `git switch` refuses to overwrite one. */
+const changed = ({ staged, modified, conflicts }: Repository) =>
+  !!(staged || modified || conflicts);
 
 const list = (items: string[]) =>
   items.length > 1
@@ -52,13 +64,7 @@ export async function cleanUpMerge(
   const status = parseStatus(
     await git(cwd, 'status', '--porcelain=v2', '--branch'),
   );
-  if (
-    status.branch !== branch ||
-    status.staged ||
-    status.modified ||
-    status.conflicts
-  )
-    return undefined;
+  if (status.branch !== branch || changed(status)) return undefined;
   if ((await git(cwd, 'rev-parse', 'HEAD')) !== commit)
     return {
       text: `#${number} merged, but ${branch}'s last commit isn't the one it merged, so it stays.`,
@@ -115,13 +121,7 @@ export async function cleanUpMerge(
     // a merged pull request's remote branch is gone and a long-lived branch's isn't; -d refuses a branch checked
     // out in a worktree
     if (!name || track !== '[gone]') continue;
-    if (
-      await git(cwd, 'branch', '-d', name).then(
-        () => true,
-        () => false,
-      )
-    )
-      deleted.push(name);
+    if (await succeeds(git(cwd, 'branch', '-d', name))) deleted.push(name);
   }
   const branches = `${deleted.length > 1 ? 'branches' : 'branch'} ${list(deleted)}`;
   return {
@@ -180,12 +180,7 @@ export async function refreshInstall(
   const status = parseStatus(
     await git(root, 'status', '--porcelain=v2', '--branch'),
   );
-  if (
-    status.branch !== base ||
-    status.staged ||
-    status.modified ||
-    status.conflicts
-  )
+  if (status.branch !== base || changed(status))
     return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
   await git(root, 'fetch');
   // a pull would overwrite an ignored file the incoming commits start tracking
@@ -219,9 +214,7 @@ export function watchMerges(
     if (
       pullRequest?.state !== 'MERGED' ||
       status!.branch !== pullRequest.branch ||
-      status!.staged ||
-      status!.modified ||
-      status!.conflicts ||
+      changed(status!) ||
       phase !== 'idle' ||
       error ||
       queue.length ||
