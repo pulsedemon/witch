@@ -75,13 +75,11 @@ async function fixture(
   const b = new FixtureAgent('b');
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
   const tracked: number[] = [];
-  const coordinator = new Coordinator(
-    store,
-    memory,
-    agents,
-    { track: (group) => tracked.push(group) },
-    editFile,
-  );
+  const jobs = {
+    track: (group: number) => tracked.push(group),
+    environment: {},
+  };
+  const coordinator = new Coordinator(store, memory, agents, jobs, editFile);
   prepare?.(a, b);
   await coordinator.initialize(project);
   const workspace = (id = coordinator.snapshot.conversation!.id) =>
@@ -127,6 +125,7 @@ async function fixture(
     outsider,
     reopen,
     tracked,
+    jobs,
   };
 }
 
@@ -1277,6 +1276,15 @@ await test('a reported shell is in the state, handed to the jobs, and cleared by
     assert.equal((await readRecord(root, id)).shell, undefined);
   } finally {
     sleeper.kill('SIGKILL');
+    await coordinator.close();
+  }
+});
+
+await test("an agent connects with the job watch's mark", async () => {
+  const { coordinator, a, jobs } = await fixture();
+  try {
+    assert.equal(a.sessions[0]!.options.mark, jobs);
+  } finally {
     await coordinator.close();
   }
 });

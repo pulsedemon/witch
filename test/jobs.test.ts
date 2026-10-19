@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
+import { chmod, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -701,6 +702,382 @@ await test('a handed group stays a job while any process holds its id, and once 
     await jobs.list();
     assert.deepEqual(await jobs.list(), []);
   } finally {
+    jobs.close();
+  }
+});
+
+await test('a shell that reports its pid makes its group a job after it exits, and its report is consumed', async () => {
+  const directory = await scratch('witch-jobs-');
+  const jobs = new JobWatch({ directory, interval: 60_000 });
+  // as Claude Code runs a Bash command after its CLAUDE_ENV_FILE
+  const shell = spawn(
+    '/bin/zsh',
+    [
+      '-c',
+      `${await readFile(jobs.script!, 'utf8')}\n: && /usr/bin/perl -e 'sleep 60.31' witch-jobs-fixture &`,
+    ],
+    { detached: true, stdio: 'ignore' },
+  );
+  const group = shell.pid!;
+  try {
+    await once(shell, 'exit');
+    // just after the shell exits, its `&` child can still be the forked zsh, whose command line holds the perl's
+    const list = await listed(jobs, (found) =>
+      found.some(
+        ({ command }) =>
+          command === '/usr/bin/perl -e sleep 60.31 witch-jobs-fixture',
+      ),
+    );
+    assert.deepEqual(
+      list.map(({ group }) => group),
+      [group],
+    );
+    assert.deepEqual(await readdir(directory), ['env']);
+    await jobs.stop(list[0]!);
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    try {
+      process.kill(-group, 'SIGKILL');
+    } catch {
+      // stopped by the test
+    }
+    jobs.close();
+  }
+});
+
+await test("the report script, run ahead of a command by zsh or bash, reports that shell's pid, marks the command and drops CLAUDE_ENV_FILE, and the command runs unchanged when it can't write its report, even under errexit", async () => {
+  const directory = await scratch("witch-jobs-'q-");
+  const jobs = new JobWatch({ directory, interval: 60_000 });
+  const text = await readFile(jobs.script!, 'utf8');
+  const run = async (shell: string, command: string, prelude = '') => {
+    const running = promisify(execFile)(
+      shell,
+      ['-c', `${prelude}${text}\n: && ${command}`],
+      {
+        env: { ...process.env, CLAUDE_ENV_FILE: jobs.script },
+      },
+    );
+    return { pid: running.child.pid, ...(await running) };
+  };
+  const shells = ['/bin/zsh', '/bin/bash'];
+  try {
+    for (const shell of shells) {
+      const { pid, stdout } = await run(
+        shell,
+        `printf '%s|%s|%s' $$ "$WITCH_JOBS" "\${CLAUDE_ENV_FILE-unset}"`,
+      );
+      assert.equal(stdout, `${pid}|${directory}|unset`, shell);
+      assert.ok(existsSync(join(directory, String(pid))), shell);
+    }
+    await chmod(directory, 0o555);
+    try {
+      // Claude's snapshot replays errexit from the user's shell
+      for (const shell of shells)
+        for (const prelude of ['', 'set -e\n']) {
+          const { stdout, stderr } = await run(shell, 'echo ran', prelude);
+          assert.deepEqual(
+            { stdout, stderr },
+            { stdout: 'ran\n', stderr: '' },
+            `${shell} ${prelude}`,
+          );
+        }
+    } finally {
+      await chmod(directory, 0o755);
+    }
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('a report from a pid that leads no group adds no job, though the group it sits in runs', async () => {
+  const directory = await scratch('witch-jobs-');
+  const jobs = new JobWatch({
+    directory,
+    interval: 60_000,
+    processes: async () => [
+      agentRow,
+      {
+        pid: 100005,
+        ppid: 100000,
+        pgid: 100000,
+        leadsSession: false,
+        identity: '100005 a',
+      },
+    ],
+    describe: leaders,
+  });
+  try {
+    await writeFile(join(directory, '100005'), '');
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    jobs.close();
+  }
+});
+
+await test("a report written while a read's ps runs is a job at the next read, and stays one after its shell exits", async () => {
+  const directory = await scratch('witch-jobs-');
+  const tables: (() => Promise<Row[]>)[] = [
+    async () => {
+      await writeFile(join(directory, '100000'), '');
+      return [];
+    },
+    async () => [
+      {
+        pid: 100000,
+        ppid: 1,
+        pgid: 100000,
+        leadsSession: true,
+        identity: '100000 a',
+      },
+    ],
+    // the shell has exited, and only the process it left holds its group
+    async () => [
+      {
+        pid: 100002,
+        ppid: 1,
+        pgid: 100000,
+        leadsSession: false,
+        identity: '100002 a',
+      },
+    ],
+  ];
+  const jobs = new JobWatch({
+    directory,
+    interval: 60_000,
+    processes: () => tables.shift()!(),
+    describe: async (pids) =>
+      pids.map((pid) => ({
+        pid,
+        pgid: 100000,
+        cpu: 0,
+        startedAt: 0,
+        command: '',
+      })),
+    marked: async () => [],
+  });
+  try {
+    assert.deepEqual(await jobs.list(), []);
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100000],
+    );
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100000],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('a removed report directory leaves the jobs the walk reaches', async () => {
+  const directory = await scratch('witch-jobs-');
+  const jobs = new JobWatch({
+    directory,
+    interval: 60_000,
+    processes: async () => commandRows(100001, '100001 a'),
+    describe: leaders,
+  });
+  try {
+    await rm(directory, { recursive: true });
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100001],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test("the first read only learns the processes, so the terminal Witch runs in isn't a job though processes below it carry the mark", async () => {
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-'),
+    interval: 60_000,
+    processes: async () => [
+      {
+        pid: 100010,
+        ppid: 1,
+        pgid: 100010,
+        leadsSession: true,
+        identity: '100010 a',
+      },
+      {
+        pid: process.pid,
+        ppid: 100010,
+        pgid: process.pid,
+        leadsSession: false,
+        identity: `${process.pid} a`,
+      },
+      agentRow,
+    ],
+    describe: leaders,
+    marked: async (pids) => pids.filter((pid) => pid === agentRow.pid),
+  });
+  try {
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    jobs.close();
+  }
+});
+
+await test("a marked process orphaned in Witch's own group doesn't make that group a job", async () => {
+  const witch: Row = {
+    pid: process.pid,
+    ppid: 100030,
+    pgid: 100020,
+    leadsSession: false,
+    identity: `${process.pid} a`,
+  };
+  const tables = [
+    [witch],
+    [
+      witch,
+      {
+        pid: 100021,
+        ppid: 1,
+        pgid: 100020,
+        leadsSession: false,
+        identity: '100021 a',
+      },
+    ],
+  ];
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-'),
+    interval: 60_000,
+    processes: async () => tables.shift()!,
+    describe: async (pids) =>
+      pids.map((pid) => ({
+        pid,
+        pgid: 100020,
+        cpu: 0,
+        startedAt: 0,
+        command: '',
+      })),
+    marked: async (pids) => pids.filter((pid) => pid === 100021),
+  });
+  try {
+    await jobs.list();
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    jobs.close();
+  }
+});
+
+/** a process launchd adopted, alone in a group of its own. */
+function orphanRow(pid: number): Row {
+  return {
+    pid,
+    ppid: 1,
+    pgid: pid,
+    leadsSession: false,
+    identity: `${pid} a`,
+  };
+}
+
+await test("a launchd child the last read didn't list is a job when it or a process below it carries the mark, and one the last read listed isn't checked", async () => {
+  const now = new Set<number>();
+  const old = orphanRow(100001);
+  const later = [
+    old,
+    orphanRow(100002),
+    {
+      pid: 100003,
+      ppid: 100002,
+      pgid: 100003,
+      leadsSession: false,
+      identity: '100003 a',
+    },
+    orphanRow(100004),
+    orphanRow(100005),
+  ];
+  const tables = [[old], later, later];
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-'),
+    interval: 60_000,
+    processes: async () => tables.shift()!,
+    describe: leaders,
+    marked: async (pids) => pids.filter((pid) => now.has(pid)),
+  });
+  try {
+    await jobs.list();
+    for (const pid of [100001, 100003, 100004]) now.add(pid);
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100003, 100004],
+    );
+    // the last read listed it, so it isn't checked
+    now.add(100005);
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100003, 100004],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('a failed mark check fails the read, and the next read checks the same processes', async () => {
+  const later = [orphanRow(100001), orphanRow(100004)];
+  const tables = [[], later, later];
+  let checks = 0;
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-'),
+    interval: 60_000,
+    processes: async () => tables.shift()!,
+    describe: leaders,
+    marked: async (pids) => {
+      if (!checks++) throw new Error('ps failed');
+      return pids.filter((pid) => pid === 100004);
+    },
+  });
+  try {
+    await jobs.list();
+    await assert.rejects(jobs.list(), { message: 'ps failed' });
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100004],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test("a launchd child carrying another instance's mark, or one extending this mark's path, is not a job", async () => {
+  const directory = await scratch('witch-jobs-');
+  const cwd = await scratch('witch-jobs-');
+  const jobs = new JobWatch({ directory, interval: 60_000 });
+  /** a node that writes `name` into cwd once it runs, left to launchd by its shell. */
+  const orphan = (name: string, env: NodeJS.ProcessEnv) =>
+    spawn(
+      '/bin/sh',
+      [
+        '-c',
+        `"$0" -e "require('fs').writeFileSync('${name}', ''); setTimeout(() => {}, 60000)" witch-jobs-fixture-${name} &`,
+        process.execPath,
+      ],
+      { cwd, detached: true, stdio: 'ignore', env },
+    );
+  await jobs.list();
+  const shells = [
+    orphan('a', { ...process.env, ...jobs.environment }),
+    orphan('b', { ...process.env, WITCH_JOBS: `${directory}x` }),
+  ];
+  try {
+    await Promise.all(shells.map((shell) => once(shell, 'exit')));
+    await until('both nodes', () =>
+      ['a', 'b'].every((name) => existsSync(join(cwd, name))),
+    );
+    assert.deepEqual(
+      (await jobs.list()).map(({ command }) => command.split(' ').at(-1)),
+      ['witch-jobs-fixture-a'],
+    );
+  } finally {
+    for (const shell of shells)
+      try {
+        process.kill(-shell.pid!, 'SIGKILL');
+      } catch {
+        // already empty
+      }
     jobs.close();
   }
 });

@@ -186,7 +186,14 @@ class ClaudeSession implements AgentSession {
         includePartialMessages: true,
         // a familiar's last message is its report, which the sidebar and transcript show
         forwardSubagentText: true,
-        env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+        env: {
+          ...process.env,
+          CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
+          // the script exports the mark to each command, and the CLI itself stays unmarked
+          ...(options.mark?.script
+            ? { CLAUDE_ENV_FILE: options.mark.script }
+            : {}),
+        },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
           this.child = watchChild(child);
@@ -367,6 +374,7 @@ class ClaudeSession implements AgentSession {
     try {
       const run = await runShell(command, {
         cwd: this.options.cwd,
+        env: this.options.mark?.environment,
         signal: abort.signal,
         onOutput: (text) => row(text),
         onSpawn: (pid) => {

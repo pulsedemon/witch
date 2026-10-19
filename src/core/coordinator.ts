@@ -187,7 +187,7 @@ export class Coordinator {
     private readonly store: StateStore,
     readonly memory: Memory,
     private readonly agents: readonly AgentRegistration[],
-    private readonly jobs?: Pick<JobWatch, 'track'>,
+    private readonly jobs?: Pick<JobWatch, 'track' | 'environment' | 'script'>,
     private readonly editFile = editInVSCode,
   ) {
     this.snapshot = {
@@ -957,6 +957,7 @@ export class Coordinator {
           if (pid !== undefined) this.jobs?.track(pid);
           await identify('shell')(pid);
         },
+        mark: this.jobs,
       });
     } finally {
       this.connecting = undefined;

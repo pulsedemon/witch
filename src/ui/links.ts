@@ -1,7 +1,6 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { tokenize } from '@alcalzone/ansi-tokenize';
-import ansiEscapes from 'ansi-escapes';
 import LinkifyIt from 'linkify-it';
 import { colors } from './theme.js';
 
@@ -48,10 +47,14 @@ export function hyperlink(text: string, target: string, cwd: string): string {
   }
   if (/\p{Cc}/u.test(url)) return text;
   // the underline sits inside the link, since markdown's inline code checks for a leading OSC 8,
-  // and each line is its own link, so a line drawn without the one above still opens
+  // and each line is its own link, so a line drawn without the one above still opens,
+  // and it's written here, since under tmux ansi-escapes wraps it in passthrough, which Ink drops with the link inside
   return text
     .split('\n')
-    .map((line) => ansiEscapes.link(colors.underline(line), url))
+    .map(
+      (line) =>
+        `\u001b]8;;${url}\u0007${colors.underline(line)}\u001b]8;;\u0007`,
+    )
     .join('\n');
 }
 

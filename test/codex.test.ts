@@ -6,7 +6,12 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
-import type { AgentEvent, AgentSession, Usage } from '../src/agents/types.js';
+import type {
+  AgentEvent,
+  AgentSession,
+  CommandMark,
+  Usage,
+} from '../src/agents/types.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
@@ -19,11 +24,13 @@ async function fixture(
     resume,
     mode,
     signal,
+    mark,
   }: {
     effort?: string;
     resume?: string;
     mode?: string;
     signal?: AbortSignal;
+    mark?: CommandMark;
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
@@ -43,6 +50,7 @@ async function fixture(
     memoryDirectories: ['/shared/global', '/shared/project'],
     onEvent,
     onProcess: async () => {},
+    mark,
   });
   return { session, cwd };
 }
@@ -88,6 +96,25 @@ await test('loads every model page and preserves native roots without overriding
       start.params.config['sandbox_workspace_write.writable_roots'],
       ['/already-allowed', '/shared/global', '/shared/project'],
     );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+await test("threads start with the mark in Codex's shell environment policy", async () => {
+  const { session, cwd } = await fixture(undefined, {
+    mark: { environment: { WITCH_JOBS: '/x/jobs' } },
+  });
+  try {
+    const start = JSON.parse(await readFile(join(cwd, 'start.json'), 'utf8'));
+    assert.deepEqual(start.params.config, {
+      'sandbox_workspace_write.writable_roots': [
+        '/already-allowed',
+        '/shared/global',
+        '/shared/project',
+      ],
+      'shell_environment_policy.set.WITCH_JOBS': '/x/jobs',
+    });
   } finally {
     await close(session, cwd);
   }

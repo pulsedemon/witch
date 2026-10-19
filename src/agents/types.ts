@@ -177,6 +177,14 @@ export interface AgentSession {
   close(): Promise<void>;
 }
 
+/** lets /jobs tell the processes an agent's commands leave under launchd from any other's. */
+export interface CommandMark {
+  /** entries for every command's environment. */
+  environment: Record<string, string>;
+  /** a script a shell runs ahead of each command, which reports the shell's pid and exports `environment`. */
+  script?: string;
+}
+
 export interface SessionOptions {
   cwd: string;
   executable: string;
@@ -193,6 +201,7 @@ export interface SessionOptions {
    * comes once the start's report resolves, and none comes when it rejects.
    */
   onShell?(pid: number | undefined): Promise<void>;
+  mark?: CommandMark;
 }
 
 export interface AgentAdapter {
