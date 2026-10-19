@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
-import { resolve, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { errorMessage } from './agents/stderr.js';
 import { Coordinator } from './core/coordinator.js';
 import { JobWatch } from './core/jobs.js';
+import { watchMerges } from './core/merged.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
@@ -19,6 +21,10 @@ import type { Cell, Pointer } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
 
 const defaultState = join(homedir(), '.witch');
+// a built Witch rebuilds the checkout it runs from; Node resolves the bin symlink to the real path
+const install = import.meta.url.endsWith('/dist/cli.js')
+  ? dirname(dirname(fileURLToPath(import.meta.url)))
+  : undefined;
 const usage = `Usage: witch [options] [prompt...]
 
 Start a conversation in the current directory on the agent, model and effort
@@ -102,6 +108,7 @@ if (!store) {
     );
   };
   const repository = new RepositoryWatch(process.cwd());
+  const stopMerges = watchMerges(repository, coordinator, install);
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
   // output can scroll another link under the pointer before the release, so a click opens the one it pressed
@@ -160,6 +167,7 @@ if (!store) {
     // initialize shows its own failure
     .catch(() => {});
   await application.waitUntilExit();
+  stopMerges();
   repository.close();
   jobs.close();
   process.removeListener('SIGTERM', shutdown);

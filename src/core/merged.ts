@@ -3,8 +3,9 @@ import { readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { errorMessage } from '../agents/stderr.js';
+import type { Coordinator } from './coordinator.js';
 import { parseStatus } from './repository.js';
-import type { PullRequest } from './repository.js';
+import type { PullRequest, RepositoryWatch, Run } from './repository.js';
 
 const execute = promisify(execFile);
 
@@ -165,4 +166,92 @@ async function removePlans(cwd: string, branch: string): Promise<string[]> {
     }
   }
   return removed;
+}
+
+/**
+ * pulls and rebuilds the checkout Witch runs from when it sits clean on `base`, the branch a pull request merged
+ * into. running instances keep their code until they restart. returns a sentence saying what it did.
+ */
+export async function refreshInstall(
+  root: string,
+  base: string,
+  run: Run = execute,
+): Promise<string> {
+  const status = parseStatus(
+    await git(root, 'status', '--porcelain=v2', '--branch'),
+  );
+  if (
+    status.branch !== base ||
+    status.staged ||
+    status.modified ||
+    status.conflicts
+  )
+    return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+  await git(root, 'fetch');
+  // a pull would overwrite an ignored file the incoming commits start tracking
+  await git(root, 'merge', '--ff-only', '--no-overwrite-ignore', '@{upstream}');
+  await run('pnpm', ['install', '--frozen-lockfile'], {
+    cwd: root,
+    timeout: 300_000,
+  });
+  await run('pnpm', ['build'], { cwd: root, timeout: 300_000 });
+  return `Rebuilt Witch at ${await git(root, 'rev-parse', '--short', 'HEAD')}, for its next start.`;
+}
+
+/**
+ * cleans up after the merged pull request whose branch the checkout sits on, once nothing staged, modified or
+ * conflicted would block it and the conversation is idle with no error or queue on screen. a cleanup that acted,
+ * kept the branch or failed isn't tried again; one that found the checkout changed waits for the next status read.
+ */
+export function watchMerges(
+  repository: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>,
+  coordinator: Pick<Coordinator, 'snapshot' | 'subscribe' | 'cleanUpMerge'>,
+  install?: string,
+): () => void {
+  const settled = new Set<string>();
+  let attempted: string | undefined;
+  let pending: NodeJS.Immediate | undefined;
+  const check = () => {
+    pending = undefined;
+    const status = repository.snapshot;
+    const pullRequest = status?.pullRequest;
+    const { phase, error, queue } = coordinator.snapshot;
+    if (
+      pullRequest?.state !== 'MERGED' ||
+      status!.branch !== pullRequest.branch ||
+      status!.staged ||
+      status!.modified ||
+      status!.conflicts ||
+      phase !== 'idle' ||
+      error ||
+      queue.length ||
+      settled.has(pullRequest.commit) ||
+      attempted === pullRequest.commit
+    )
+      return;
+    attempted = pullRequest.commit;
+    void coordinator.cleanUpMerge(pullRequest, install).then(
+      (acted) => {
+        if (acted) settled.add(pullRequest.commit);
+      },
+      // a failed cleanup shows its error; operate can't refuse, since the phase was checked this tick
+      () => settled.add(pullRequest.commit),
+    );
+  };
+  // after the publish that called it: a turn's end settles its queue and error after publishing idle
+  const schedule = () => {
+    pending ??= setImmediate(check);
+  };
+  const stops = [
+    repository.subscribe(() => {
+      attempted = undefined;
+      schedule();
+    }),
+    coordinator.subscribe(schedule),
+  ];
+  schedule();
+  return () => {
+    clearImmediate(pending);
+    stops.forEach((stop) => stop());
+  };
 }
