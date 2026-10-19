@@ -3542,7 +3542,7 @@ await test('Ctrl+P over an open list gives the picker its keys', async () => {
   }
 });
 
-await test('the composer grows with its text up to half the body and shrinks after a send', async () => {
+await test('the composer grows with its text up to half the body, sizes a ! command beside its !, and shrinks after a send', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const composerRows = () => {
@@ -3563,6 +3563,9 @@ await test('the composer grows with its text up to half the body and shrinks aft
     ui.stdin.write(ENTER);
     await until('the send', () => calls.length > 0);
     await until('an empty composer', () => composerRows() === 1);
+    // beside its `!`, a command has 92 of the 94 columns, so 92 characters and the cursor take 2 rows
+    ui.stdin.write(`!${'x'.repeat(92)}`);
+    await until('a grown ! command', () => composerRows() === 2);
   } finally {
     ui.unmount();
   }
@@ -3658,12 +3661,12 @@ await test('a draft starting with ! draws the border potion green and opens no f
     ui.stdin.write('\u001b[H!\u001b[F');
     await until(
       'the potion border',
-      () => ui.frame().includes(POTION) && ui.text().includes('┃ !cat @sr'),
+      () => ui.frame().includes(POTION) && ui.text().includes('┃ ! cat @sr'),
     );
     await delay(60);
     assert.equal(listed(), false);
-    // Backspace takes the `!` from just after it
-    ui.stdin.write('\u001b[H\u001b[C\u007f\u001b[F');
+    // Home stops after the `!`, and Backspace there takes it
+    ui.stdin.write('\u001b[H\u007f\u001b[F');
     await until('the list back', listed);
     assert.ok(ui.frame().includes(VIOLET));
     assert.ok(!ui.frame().includes(POTION));
