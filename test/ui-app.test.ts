@@ -3379,6 +3379,34 @@ for (const typed of ['/ex', '/quit '])
     }
   });
 
+await test('/restart restarts without exiting or sending a prompt', async () => {
+  const { app, calls } = fake({});
+  let exits = 0;
+  let restarts = 0;
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {
+        exits++;
+      },
+      onRestart: () => {
+        restarts++;
+      },
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('/restart');
+    await delay(30);
+    ui.stdin.write('\r');
+    await until('the restart', () => restarts === 1);
+    assert.equal(exits, 0);
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const [phase, outcome, exits, interrupts] of [
   ['idle', 'exits', 1, 0],
   ['running', 'interrupts', 0, 1],
