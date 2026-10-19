@@ -564,6 +564,47 @@ for await (const line of lines) {
       finish('completed');
       continue;
     }
+    if (prompt === 'file-changes') {
+      const at = (name) => join(process.cwd(), name);
+      const patch = {
+        type: 'fileChange',
+        id: 'patch-1',
+        changes: [
+          {
+            path: at('a.txt'),
+            kind: { type: 'update', move_path: null },
+            diff: '@@ -3,3 +3,3 @@\n gamma\n-delta\n+DELTA\n epsilon\n',
+          },
+          {
+            path: at('b.txt'),
+            kind: { type: 'add' },
+            diff: 'new one\nnew two\n',
+          },
+          {
+            path: at('c.txt'),
+            kind: { type: 'delete' },
+            diff: 'remove me\nsecond line\n',
+          },
+          {
+            path: at('d.txt'),
+            kind: { type: 'update', move_path: at('e.txt') },
+            diff: `@@ -1 +1 @@\n-x\n+y\n\n\nMoved to: ${at('e.txt')}`,
+          },
+        ],
+      };
+      notify('item/started', { item: { ...patch, status: 'inProgress' } });
+      notify('item/completed', { item: { ...patch, status: 'completed' } });
+      notify('item/completed', {
+        item: {
+          type: 'fileChange',
+          id: 'patch-2',
+          changes: [{ path: at('f.txt'), kind: { type: 'add' }, diff: 'f\n' }],
+          status: 'declined',
+        },
+      });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'unknown-request') {
       send({ id: 92, method: 'item/unknown/request', params: {} });
       continue;
