@@ -3,11 +3,14 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
+import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import { shortPath, toolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
+  FileDiff,
+  Hunk,
   Model,
   SessionInfo,
   SessionOptions,
@@ -100,6 +103,35 @@ function diffLines(diff: string): { added: number; removed: number } {
   return { added, removed };
 }
 
+/** the hunks of a Codex update's diff, which has no file headers and can end with a move's note. */
+function hunks(diff: string): Hunk[] {
+  const hunks: Hunk[] = [];
+  for (const line of diff.split('\n')) {
+    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (header)
+      hunks.push({
+        oldStart: Number(header[1]),
+        newStart: Number(header[2]),
+        lines: [],
+      });
+    else if (/^[ +-]/.test(line)) hunks.at(-1)?.lines.push(line);
+  }
+  return hunks;
+}
+
+function fileDiffs(changes: z.infer<typeof fileChanges>): FileDiff[] {
+  return changes.map(({ path, kind, diff }) =>
+    kind.type === 'update'
+      ? {
+          path,
+          kind: 'update',
+          ...(kind.move_path ? { movePath: kind.move_path } : {}),
+          hunks: hunks(diff),
+        }
+      : wholeFile(path, kind.type, diff),
+  );
+}
+
 /** `5H` for 300 minutes, `7D` for 10080. */
 function windowName(minutes: number): string {
   return minutes % 1440 === 0
@@ -108,6 +140,16 @@ function windowName(minutes: number): string {
 }
 
 const changedFiles = z.array(z.object({ path: z.string() })).catch([]);
+const fileChanges = z.array(
+  z.object({
+    path: z.string(),
+    kind: z.object({
+      type: z.enum(['add', 'delete', 'update']),
+      move_path: z.string().nullish(),
+    }),
+    diff: z.string(),
+  }),
+);
 const mcpCall = z.object({
   server: z.string(),
   tool: z.string(),
@@ -746,12 +788,21 @@ class CodexSession implements AgentSession {
           // Codex titles a user's command with its shell wrapper
           const command =
             item.source === 'userShell' ? this.turn?.command : undefined;
+          const changes =
+            type === 'fileChange'
+              ? fileChanges.safeParse(item.changes)
+              : undefined;
+          const diff = changes?.success ? fileDiffs(changes.data) : undefined;
           this.options.onEvent({
             type: 'tool',
             id,
             title: command ?? itemTitle(type, item, this.options.cwd),
-            text:
-              typeof item.aggregatedOutput === 'string'
+            // a change's diff comes before it applies and stays after it fails or is declined
+            text: diff
+              ? item.status === 'failed' || item.status === 'declined'
+                ? `Patch ${item.status}`
+                : ''
+              : typeof item.aggregatedOutput === 'string'
                 ? item.aggregatedOutput
                 : type === 'commandExecution'
                   ? ''
@@ -767,6 +818,7 @@ class CodexSession implements AgentSession {
             done: message.method === 'item/completed',
             cwd: typeof item.cwd === 'string' ? item.cwd : undefined,
             ...(images.length ? { images } : {}),
+            ...(diff ? { diff } : {}),
             ...(command === undefined ? {} : { shell: true }),
           });
         }

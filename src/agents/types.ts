@@ -102,6 +102,23 @@ export interface UserResponse {
   content?: Record<string, unknown>;
 }
 
+/** a run of lines from a unified diff, each starting with ' ', '+' or '-', numbered on each side from its start. */
+export interface Hunk {
+  oldStart: number;
+  newStart: number;
+  lines: string[];
+}
+
+/** a file a tool changed. */
+export interface FileDiff {
+  /** absolute. */
+  path: string;
+  kind: 'add' | 'delete' | 'update';
+  /** where an update moved the file. */
+  movePath?: string;
+  hunks: Hunk[];
+}
+
 export type AgentEvent =
   | { type: 'text'; id: string; text: string; replace?: boolean }
   | {
@@ -114,6 +131,8 @@ export type AgentEvent =
       append?: boolean;
       /** image paths or `data:` URLs the tool returned, kept out of `text`. */
       images?: string[];
+      /** the files the tool changed, drawn below its text. */
+      diff?: FileDiff[];
       /** the user's `!` command, which shows expanded. */
       shell?: boolean;
     }

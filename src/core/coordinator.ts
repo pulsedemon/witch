@@ -1087,6 +1087,7 @@ export class Coordinator {
               done: event.done,
               cwd: event.cwd ?? conversation.cwd,
               ...(event.images ? { images: event.images } : {}),
+              ...(event.diff ? { diff: event.diff } : {}),
               // an append leaves it out, and keeps the one its row has
               ...(event.shell ? { shell: true } : {}),
             },

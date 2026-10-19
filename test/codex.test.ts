@@ -566,6 +566,68 @@ await test("Codex items are titled by what they act on, with a path under the se
   }
 });
 
+await test('a Codex file change arrives as its diffs from its start, a new or deleted file as one hunk of its lines, a move without its note, and a declined change says so', async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    assert.equal((await session.send('file-changes')).status, 'completed');
+    const patch = [
+      {
+        path: join(cwd, 'a.txt'),
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 3,
+            newStart: 3,
+            lines: [' gamma', '-delta', '+DELTA', ' epsilon'],
+          },
+        ],
+      },
+      {
+        path: join(cwd, 'b.txt'),
+        kind: 'add',
+        hunks: [{ oldStart: 0, newStart: 1, lines: ['+new one', '+new two'] }],
+      },
+      {
+        path: join(cwd, 'c.txt'),
+        kind: 'delete',
+        hunks: [
+          { oldStart: 1, newStart: 0, lines: ['-remove me', '-second line'] },
+        ],
+      },
+      {
+        path: join(cwd, 'd.txt'),
+        kind: 'update',
+        movePath: join(cwd, 'e.txt'),
+        hunks: [{ oldStart: 1, newStart: 1, lines: ['-x', '+y'] }],
+      },
+    ];
+    assert.deepEqual(
+      tools.map(({ id, text, done, diff }) => [id, text, done, diff]),
+      [
+        ['patch-1', '', false, patch],
+        ['patch-1', '', true, patch],
+        [
+          'patch-2',
+          'Patch declined',
+          true,
+          [
+            {
+              path: join(cwd, 'f.txt'),
+              kind: 'add',
+              hunks: [{ oldStart: 0, newStart: 1, lines: ['+f'] }],
+            },
+          ],
+        ],
+      ],
+    );
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 await test('a Codex that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(

@@ -233,9 +233,10 @@ export function App({
       return '\n';
     // a row its wrap changed beyond trimming is not found in its line and has offset -1, so take the break as a space
     if (here.offset < 0 || above.offset < 0) return ' ';
-    return ' '.repeat(
-      here.offset - above.offset - stripAnsi(transcript.lines[row - 1]!).length,
-    );
+    const trimmed =
+      here.offset - above.offset - stripAnsi(transcript.lines[row - 1]!).length;
+    // a diff row's offset counts rows, not characters, so it leaves no room for the row above
+    return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
   };
   const errorLimit = Math.max(1, Math.floor(height / 3));
   // an error can quote an agent-written note name
