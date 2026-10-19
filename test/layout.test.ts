@@ -592,3 +592,44 @@ await test('a tool in a conversation at / shows the diff of a file anywhere unti
   assert.ok(untoggled.includes('Update /Users/me/a.txt +1 -1'));
   assert.ok(lines(new Set(['root'])).includes('+ ✓ Edit root'));
 });
+
+await test('a scroll anchor on a diff line stays on that line when a resize rewraps the lines above it', () => {
+  const item: DisplayItem = {
+    id: 't',
+    kind: 'tool',
+    title: 'Edit',
+    text: '',
+    cwd: '/work',
+    done: true,
+    diff: [
+      {
+        path: '/work/a.md',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [' ' + 'long '.repeat(30), '-old', '+new', ' tail'],
+          },
+        ],
+      },
+    ],
+  };
+  const layout = new TranscriptLayout();
+  const plainAt = (width: number, row: number) =>
+    stripAnsi(layout.render([item], width, new Set()).lines[row]!).trimEnd();
+  const narrow = layout.render([item], 40, new Set());
+  const tail = narrow.lines.findIndex((line) =>
+    stripAnsi(line).includes('tail'),
+  );
+  const continuation = narrow.anchorAt(3)!;
+  const anchor = narrow.anchorAt(tail)!;
+  const wide = layout.render([item], 200, new Set());
+  assert.equal(stripAnsi(wide.lines[wide.rowOf(anchor)]!).trimEnd(), '3  tail');
+  // the long line no longer wraps, so its continuation's anchor lands on the line itself
+  assert.match(plainAt(200, wide.rowOf(continuation)), /^1 {2}long long/);
+  assert.equal(
+    plainAt(30, layout.render([item], 30, new Set()).rowOf(anchor)),
+    '3  tail',
+  );
+});

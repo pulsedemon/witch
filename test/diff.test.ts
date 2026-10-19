@@ -5,7 +5,8 @@ import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../src/agents/types.js';
 import { diffRows } from '../src/ui/diff.js';
 
-const rows = (files: FileDiff[], width = 30) => diffRows(files, width, '/work');
+const rows = (files: FileDiff[], width = 30) =>
+  diffRows(files, width, '/work').flat();
 const plainRows = (files: FileDiff[], width = 30) =>
   rows(files, width).map((row) => stripAnsi(row).trimEnd());
 const green = '\u001b[48;2;34;92;43m';
