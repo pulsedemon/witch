@@ -153,9 +153,10 @@ async function removePlans(cwd: string, branch: string): Promise<string[]> {
     if (!name.endsWith('.md')) continue;
     const created = new Set(
       Array.from(
-        // the whole argument, less trailing markdown, so feat/x+next isn't read as feat/x and a quoted name isn't skipped
+        // every form that creates a branch, since one missed would let a plan with work left go. the whole argument,
+        // less trailing markdown, so feat/x+next isn't read as feat/x and a quoted name isn't skipped
         (await readFile(plan, 'utf8')).matchAll(
-          /git (?:switch -c|checkout -b) (\S+)/g,
+          /git (?:switch (?:-[cC]|--(?:force-)?create)[ =]|checkout -[bB] |worktree add -[bB] |branch (?!-))(\S+)/g,
         ),
         (match) => match[1]!.replace(/[`.,;:)]+$/, ''),
       ),
