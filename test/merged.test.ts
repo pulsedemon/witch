@@ -548,6 +548,27 @@ await test('a branch committed to after the tip check stays, and so does its pla
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
+await test("a merged branch's config section that can't be removed is named, and the rest of the cleanup goes on", async () => {
+  const { checkout, other, tip } = await merged();
+  await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
+  await merge(other, 'feat/x');
+  // as another git command holding the config's lock leaves it
+  await writeFile(join(checkout, '.git/config.lock'), '');
+  assert.match(
+    (await cleanUpMerge(checkout, pullRequest(tip)))?.text ?? '',
+    /^#7 merged: switched to main and pulled, deleted branch feat\/x, and plan x\.md, but config section branch\.feat\/x stayed: .*could not lock config file/s,
+  );
+  assert.equal(
+    await git(checkout, 'config', 'branch.feat/x.merge'),
+    'refs/heads/feat/x',
+  );
+  assert.deepEqual(await branches(checkout), ['main']);
+  assert.equal(
+    await git(checkout, 'rev-parse', 'HEAD'),
+    await git(other, 'rev-parse', 'origin/main'),
+  );
+});
+
 await test('a base that tracks another remote is brought up to date from it', async () => {
   const { root, origin, checkout, tip } = await merged();
   const upstream = join(root, 'upstream.git');
