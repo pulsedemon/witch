@@ -2248,6 +2248,42 @@ await test('copying a wrapped tool title keeps the space its wrap trimmed', asyn
   }
 });
 
+await test('copying across a diff joins its rows with line breaks', async () => {
+  const { app } = fake({
+    items: [
+      {
+        id: 't',
+        kind: 'tool',
+        title: 'Edit  ./a.txt',
+        text: '',
+        cwd: '/work',
+        done: true,
+        diff: [
+          {
+            path: '/work/a.txt',
+            kind: 'update',
+            hunks: [{ oldStart: 1, newStart: 1, lines: [' a', '-b', '+B'] }],
+          },
+        ],
+      },
+    ],
+  });
+  const { ui, copied } = mounted(app);
+  try {
+    // the title is on row 1 and the diff's header and rows on rows 2 to 5
+    await until('the diff', () => ui.text().includes('2 +B'));
+    drag(ui, [1, 1], [58, 5]);
+    await until('the highlight', () => ui.frame().includes('\u001b[7m'));
+    ui.stdin.write(CMD_C);
+    await until('the copy', () => copied.length > 0);
+    assert.deepEqual(copied, [
+      '− ✓ Edit  ./a.txt\nUpdate ./a.txt +1 -1\n1  a\n2 -b\n2 +B',
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a wrapped title row the wrap changed beyond trimming joins the rows beside it with a space', async () => {
   // the wrap drops the space after the zero-width space, so the title's second row is not found in it
   const title = `${'a'.repeat(53)} \u00a0\u200b ${'b'.repeat(55)} tail`;

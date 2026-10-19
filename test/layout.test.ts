@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import stripAnsi from 'strip-ansi';
 import { Graphics } from '../src/ui/images.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
+import type { FileDiff } from '../src/agents/types.js';
 import type { DisplayItem } from '../src/core/state.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
@@ -499,4 +500,68 @@ await test("a shell tool row shows expanded until toggled, and an agent's tool r
   assert.ok(!toggled.includes('shell-a'));
   assert.ok(toggled.includes('− ✓ Read'));
   assert.ok(toggled.includes('agent-x'));
+});
+
+await test('a tool that changed a file under its directory shows its diff until toggled, one elsewhere collapsed until toggled, and a diff that arrives under unchanged output still shows', () => {
+  const diff = (path: string): FileDiff[] => [
+    {
+      path,
+      kind: 'update',
+      hunks: [{ oldStart: 1, newStart: 1, lines: [' a', '-b', '+B'] }],
+    },
+  ];
+  const items: DisplayItem[] = [
+    {
+      id: 'in',
+      kind: 'tool',
+      title: 'Edit in',
+      text: '',
+      cwd: '/work',
+      done: true,
+      diff: diff('/work/a.txt'),
+    },
+    {
+      id: 'out',
+      kind: 'tool',
+      title: 'Edit out',
+      text: '',
+      cwd: '/work',
+      done: true,
+      diff: diff('/elsewhere/a.txt'),
+    },
+  ];
+  const layout = new TranscriptLayout();
+  const lines = (shown: DisplayItem[], expanded: Set<string>) =>
+    layout
+      .render(shown, 60, expanded)
+      .lines.map((line) => stripAnsi(line).trimEnd());
+  const untoggled = lines(items, new Set());
+  assert.ok(untoggled.includes('− ✓ Edit in'), untoggled.join('\n'));
+  assert.ok(untoggled.includes('Update ./a.txt +1 -1'));
+  assert.ok(untoggled.includes('2 +B'));
+  assert.ok(untoggled.includes('+ ✓ Edit out'));
+  assert.ok(!untoggled.includes('Update /elsewhere/a.txt +1 -1'));
+  const toggled = lines(items, new Set(['in', 'out']));
+  assert.ok(toggled.includes('+ ✓ Edit in'), toggled.join('\n'));
+  assert.ok(toggled.includes('− ✓ Edit out'));
+  assert.ok(toggled.includes('Update /elsewhere/a.txt +1 -1'));
+  assert.ok(!toggled.includes('Update ./a.txt +1 -1'));
+
+  const growing: DisplayItem = {
+    id: 'g',
+    kind: 'tool',
+    title: 'Patch',
+    text: 'out\n',
+    cwd: '/work',
+    done: false,
+  };
+  lines([growing], new Set(['g']));
+  const patched = lines(
+    [{ ...growing, diff: diff('/elsewhere/a.txt') }],
+    new Set(['g']),
+  );
+  assert.ok(
+    patched.includes('Update /elsewhere/a.txt +1 -1'),
+    patched.join('\n'),
+  );
 });
