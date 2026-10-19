@@ -196,12 +196,11 @@ export async function refreshInstall(
   base: string,
   run: Run = execute,
 ): Promise<string> {
-  const status = parseStatus(
-    await git(root, 'status', '--porcelain=v2', '--branch'),
-  );
+  await git(root, 'fetch');
+  // after the fetch, so a switch or an edit made during it isn't pulled and built
+  const status = await read(root);
   if (status.branch !== base || changed(status))
     return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
-  await git(root, 'fetch');
   // a pull would overwrite an ignored file the incoming commits start tracking
   await git(root, 'merge', '--ff-only', '--no-overwrite-ignore', '@{upstream}');
   await run('pnpm', ['install', '--frozen-lockfile'], {
