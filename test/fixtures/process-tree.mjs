@@ -9,10 +9,10 @@ const command = (script) =>
   spawn('/bin/sh', ['-c', script], { detached: true, stdio: 'ignore' });
 // its member ignores SIGTERM, as a test stuck in a loop does
 const stuck = command(`sh -c 'trap "" TERM; exec sleep 60.5' & wait`);
-// its leader stays, and it starts a process that moves to a group of its own, then two seconds later a busy one. both
-// exit once the leader has
+// its leader stays until its sleep ends, and it starts a process that moves to a group of its own, then two seconds
+// later a busy one. both exit once the leader has, so it waits for the sleep alone: a bare wait would never return
 const running = command(
-  `sleep 61.5 & perl -e 'setpgrp(0, 0); sleep 1 while getppid() != 1' witch-jobs-fixture & sleep 2; perl -e '1 while getppid() != 1' witch-jobs-fixture & wait`,
+  `sleep 61.5 & s=$!; perl -e 'setpgrp(0, 0); sleep 1 while getppid() != 1' witch-jobs-fixture & sleep 2; perl -e '1 while getppid() != 1' witch-jobs-fixture & wait $s`,
 );
 // the server and its helper exit once their parent has
 const server = spawn(
