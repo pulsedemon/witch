@@ -136,13 +136,15 @@ export async function cleanUpMerge(
     (error: unknown) => errorMessage(error).trim(),
   );
   const { removed: plans, stayed, reason } = await removePlans(cwd, branch);
-  const removed = plans.length
-    ? `, and ${plans.length > 1 ? 'plans' : 'plan'} ${list(plans)}`
-    : '';
+  // none is named when the plans couldn't be listed
+  const named = (names: string[]) =>
+    names.length
+      ? `${names.length > 1 ? 'plans' : 'plan'} ${list(names)}`
+      : 'plans';
+  const removed = plans.length ? `, and ${named(plans)}` : '';
   const kept = [
     unset && `config section branch.${branch} stayed: ${unset}`,
-    stayed.length &&
-      `${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`,
+    reason && `${named(stayed)} stayed: ${reason}`,
   ]
     .filter(Boolean)
     .join(' and ');
@@ -273,7 +275,8 @@ const absent =
 
 /**
  * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
- * `plan-path` names it. returns those removed, and those it failed to remove with the first reason.
+ * `plan-path` names it. returns those removed, and those it failed to remove with the first reason, or only a reason
+ * when it couldn't list the plans.
  */
 async function removePlans(
   cwd: string,
@@ -285,7 +288,13 @@ async function removePlans(
   const removed: string[] = [];
   const stayed: string[] = [];
   let reason: string | undefined;
-  for (const name of await readdir(plans).catch(() => [])) {
+  let names: string[];
+  try {
+    names = await readdir(plans).catch(absent([]));
+  } catch (error) {
+    return { removed, stayed, reason: errorMessage(error) };
+  }
+  for (const name of names) {
     const plan = join(plans, name);
     if (!name.endsWith('.md')) continue;
     // a plan that can't be read creates no branch, so it stays
