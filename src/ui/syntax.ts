@@ -72,8 +72,9 @@ export function languageOf(
 }
 
 /**
- * `line` in its colored runs, plain when highlight.js fails on it or ends a run inside a character, as a grammar without
- * the `u` flag can inside an emoji or before a keycap's marks, since copying the row would drop the rest of it.
+ * `line` in its colored runs, plain when highlight.js fails on it or its runs don't spell the line whole: a grammar
+ * without the `u` flag can split an emoji, which then draws as two U+FFFD, or a keycap, whose marks a copy drops, and the
+ * CSS ones turn U+2028 into a line break.
  */
 function spansOf(line: string, language: string): Span[] {
   const spans: Span[] = [];
@@ -107,10 +108,10 @@ function spansOf(line: string, language: string): Span[] {
   );
   let at = 0;
   for (const { text } of spans) {
-    if (!starts.has(at)) return [{ text: line }];
+    if (!starts.has(at) || !line.startsWith(text, at)) return [{ text: line }];
     at += text.length;
   }
-  return spans;
+  return at === line.length ? spans : [{ text: line }];
 }
 
 /**
