@@ -315,7 +315,7 @@ await test("the language comes from the file's name ahead of its extension, a mo
     assert.ok(!colored(path, [' const a = 1', '+if (a) return']), path);
 });
 
-await test('words a removed row and the added row at its place in the next run changed show brighter, even across a no-newline marker, unless over 40% of their text changed', () => {
+await test("words a removed row and the added row at its place in the next run changed show brighter, even across a no-newline marker, unless over 40% of their text changed, and a longer run's extra rows pair with nothing", () => {
   const drawn = rows(
     [
       {
@@ -345,6 +345,14 @@ await test('words a removed row and the added row at its place in the next run c
               '\\ No newline at end of file',
               '+const z = forty;',
               '\\ No newline at end of file',
+              ' f;',
+              '-const p = one;',
+              '-const q = two;',
+              '+const p = forty;',
+              ' g;',
+              '-const r = one;',
+              '+const r = forty;',
+              '+const s = two;',
             ],
           },
         ],
@@ -375,6 +383,10 @@ await test('words a removed row and the added row at its place in the next run c
   }
   assert.ok(row('+const n = f(1);').includes(`${addedWord}(`));
   assert.ok(row('+const z = forty;').includes(`${addedWord}forty`));
+  assert.ok(row('+const p = forty;').includes(`${addedWord}forty`));
+  assert.ok(!row('-const q = two;').includes(removedWord));
+  assert.ok(row('+const r = forty;').includes(`${addedWord}forty`));
+  assert.ok(!row('+const s = two;').includes(addedWord));
   assert.ok(
     // the row's own background comes back after each brighter word
     // eslint-disable-next-line no-control-regex
