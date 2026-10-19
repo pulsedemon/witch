@@ -34,6 +34,9 @@ const succeeds = (promise: Promise<unknown>) =>
     () => false,
   );
 
+const read = async (cwd: string) =>
+  parseStatus(await git(cwd, 'status', '--porcelain=v2', '--branch'));
+
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. */
 const ignored = (cwd: string, path: string) =>
   succeeds(git(cwd, 'check-ignore', '-q', path));
@@ -61,9 +64,7 @@ export async function cleanUpMerge(
   await git(cwd, 'fetch', '--prune');
   // after the fetch, which can take a while: the watch's status is seconds old, and a commit made meanwhile would
   // go with the branch
-  const status = parseStatus(
-    await git(cwd, 'status', '--porcelain=v2', '--branch'),
-  );
+  const status = await read(cwd);
   if (status.branch !== branch || changed(status)) return undefined;
   if ((await git(cwd, 'rev-parse', 'HEAD')) !== commit)
     return {
@@ -105,6 +106,10 @@ export async function cleanUpMerge(
   try {
     // the first fetch reached only the merged branch's remote, and the base can track another
     await git(cwd, 'fetch');
+    // another terminal can switch or edit meanwhile, and the merge would pull whatever branch it left
+    const fetched = await read(cwd);
+    if (fetched.branch !== base || changed(fetched))
+      throw new Error(`the checkout left ${base} or changed during the fetch`);
     await git(
       cwd,
       'merge',
