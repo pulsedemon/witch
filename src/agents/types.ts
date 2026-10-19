@@ -139,6 +139,11 @@ export interface AgentSession {
   readonly info: SessionInfo;
   readonly usage: Usage;
   readonly closed: boolean;
+  /**
+   * the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then runs a
+   * steered spell, sent as `/name args`, as a turn of its own, and takes a command or a model change.
+   */
+  readonly replied: boolean;
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
   skills(): Promise<Skill[]>;
@@ -152,10 +157,16 @@ export interface AgentSession {
   /**
    * adds the prompt to the turn in flight, which the agent reads at its next
    * tool step or before the turn ends; false when no turn can take it, and
-   * false while a shell command runs.
+   * false while a shell command runs. it never refuses while `replied`, and
+   * `command` is passed only then: the command runs first, as `shell` runs
+   * one, and holds the turn open, and once it completes the prompt goes as
+   * its reply.
    */
-  steer(prompt: string): Promise<boolean>;
-  /** an omitted effort keeps the one in force; `null` resets it where the native agent can. */
+  steer(prompt: string, options?: { command?: string }): Promise<boolean>;
+  /**
+   * an omitted effort keeps the one in force; `null` resets it where the native agent can. refused during a turn
+   * unless it has `replied`.
+   */
   selectModel(model: string, effort?: string | null): Promise<void>;
   respond(id: string, response: UserResponse): void;
   /**

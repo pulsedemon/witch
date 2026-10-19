@@ -43,6 +43,9 @@ import type {
 
 const execute = promisify(execFile);
 const untitled = 'New conversation';
+// an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
+const ranCommand =
+  'The user ran this command themselves, and its output is above. Reply to it without running it again.';
 
 /** splits `/name args` as Claude Code does: the name ends at the first whitespace. */
 function skillCall(
@@ -56,7 +59,14 @@ function skillCall(
 
 /** a slash command or `!` command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, Claude Code would run any other slash command as its own, and a `!` command's reply is a turn of its own. */
 function alone(prompt: string): boolean {
-  return prompt.trimStart().startsWith('/') || prompt.startsWith('!');
+  return (
+    prompt.trimStart().startsWith('/') || shellCommand(prompt) !== undefined
+  );
+}
+
+/** the command a `!` prompt runs. */
+function shellCommand(prompt: string): string | undefined {
+  return prompt.startsWith('!') ? prompt.slice(1) : undefined;
 }
 
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
@@ -165,6 +175,8 @@ export class Coordinator {
   /** a turn in the current operation failed, which stops the queue as a report does. */
   private turnFailed = false;
   private closed = false;
+  /** a model change made while a turn has replied runs outside any operation, and two at once can finish out of order and save a model the agent isn't on. */
+  private changingModel = false;
   private draining = false;
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
@@ -388,23 +400,48 @@ export class Coordinator {
     return queue;
   }
 
-  /** a slash command or `!` command, and a prompt behind queued ones or sent after an interrupt, wait in the queue. */
+  /**
+   * a prompt behind queued ones or sent after an interrupt waits in the queue, and so does a slash command or `!`
+   * command, apart from a spell or `!` command sent once the turn has replied.
+   */
   private async steer(prompt: string): Promise<boolean> {
+    const session = this.session;
     if (
       this.snapshot.phase !== 'running' ||
       this.cancelled ||
       this.snapshot.queue.length ||
-      alone(prompt) ||
-      !(await this.session?.steer(prompt))
+      !session
     )
       return false;
-    this.display({
-      id: randomUUID(),
-      kind: 'user',
-      text: prompt,
-      cwd: this.current().cwd,
-    });
+    const row = () =>
+      this.display({
+        id: randomUUID(),
+        kind: 'user',
+        text: prompt,
+        cwd: this.current().cwd,
+      });
+    if (!alone(prompt)) {
+      if (!(await session.steer(prompt))) return false;
+      row();
+      return true;
+    }
+    const command = shellCommand(prompt);
+    if (
+      !this.replied ||
+      (command === undefined && !skillCall(prompt, this.snapshot.skills))
+    )
+      return false;
+    // shown first, since a command's output streams as soon as it starts
+    row();
+    await (command === undefined
+      ? session.steer(prompt.trimStart())
+      : session.steer(`${prompt}\n\n${ranCommand}`, { command }));
     return true;
+  }
+
+  /** the live session's turn has replied and stays open only for its familiars or workflows. */
+  private get replied(): boolean {
+    return this.snapshot.phase === 'running' && !!this.session?.replied;
   }
 
   /** runs what was sent during an operation once it ends, unless that would run over a report or failed turn. */
@@ -483,6 +520,8 @@ export class Coordinator {
   }
 
   async refreshModels(): Promise<void> {
+    // a replied turn keeps the list from its connect, since a refresh reinitializes Claude Code
+    if (this.replied) return;
     await this.operate('starting', async () => {
       const session = await this.connect();
       this.publish({ models: await session.models(true) });
@@ -491,35 +530,46 @@ export class Coordinator {
 
   /** an omitted effort keeps the one in force, except on a model that lists none. */
   async selectModel(model: string, effort?: string): Promise<void> {
-    await this.operate('starting', async () => {
-      const conversation = this.current();
-      if (!this.live(conversation.agent)) {
-        // so a model that fails to connect can be replaced. the effort waits for the session to accept it, since a stored one every connect rejects can't be replaced
-        conversation.sessions[conversation.agent] = {
-          id: '',
-          hasHistory: false,
-          ...conversation.sessions[conversation.agent],
-          model,
-          requestedModel: model,
-        };
-        await this.save();
-      }
-      const session = await this.connect();
-      const listed = this.snapshot.models.find((item) => item.id === model);
-      // a kept effort would reach a model that takes none on the next connect
-      await session.selectModel(
-        model,
-        listed && !listed.efforts.length ? null : effort,
-      );
+    if (this.changingModel) throw new Error('Stop the current operation first');
+    // a familiar or workflow holding a replied turn open doesn't stop Claude Code taking the change
+    if (!this.replied)
+      return this.operate('starting', () => this.changeModel(model, effort));
+    this.changingModel = true;
+    try {
+      await this.changeModel(model, effort);
+    } finally {
+      this.changingModel = false;
+    }
+  }
+
+  private async changeModel(model: string, effort?: string): Promise<void> {
+    const conversation = this.current();
+    if (!this.live(conversation.agent)) {
+      // so a model that fails to connect can be replaced. the effort waits for the session to accept it, since a stored one every connect rejects can't be replaced
       conversation.sessions[conversation.agent] = {
-        ...conversation.sessions[conversation.agent]!,
-        model: session.info.model,
+        id: '',
+        hasHistory: false,
+        ...conversation.sessions[conversation.agent],
+        model,
         requestedModel: model,
-        effort: session.info.effort,
       };
       await this.save();
-      this.publish({ conversation, native: session.info });
-    });
+    }
+    const session = await this.connect();
+    const listed = this.snapshot.models.find((item) => item.id === model);
+    // a kept effort would reach a model that takes none on the next connect
+    await session.selectModel(
+      model,
+      listed && !listed.efforts.length ? null : effort,
+    );
+    conversation.sessions[conversation.agent] = {
+      ...conversation.sessions[conversation.agent]!,
+      model: session.info.model,
+      requestedModel: model,
+      effort: session.info.effort,
+    };
+    await this.save();
+    this.publish({ conversation, native: session.info });
   }
 
   async switchAgent(agent: string): Promise<void> {
@@ -763,8 +813,7 @@ export class Coordinator {
             scope,
             reference.deliveredRevision,
           );
-    const command =
-      kind === 'turn' && prompt.startsWith('!') ? prompt.slice(1) : undefined;
+    const command = kind === 'turn' ? shellCommand(prompt) : undefined;
     const handoff = conversation.handoff;
     const pendingHandoff =
       handoff?.activated && handoff.to === conversation.agent
@@ -781,12 +830,7 @@ export class Coordinator {
           ]
         : []),
       `User request:\n${prompt}`,
-      // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
-      ...(command === undefined
-        ? []
-        : [
-            'The user ran this command themselves, and its output is above. Reply to it without running it again.',
-          ]),
+      ...(command === undefined ? [] : [ranCommand]),
     ].join('\n\n');
     // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
     if (this.cancelled || session.closed)
@@ -1259,7 +1303,9 @@ export class Coordinator {
           ? 'Resolve pending memory before running another task'
           : this.snapshot.phase === 'error' && this.snapshot.error
             ? this.snapshot.error
-            : 'Stop the current operation first',
+            : this.replied
+              ? 'Wait for the running familiars or workflows to report, or press Escape to stop them'
+              : 'Stop the current operation first',
       );
     this.cancelled = false;
     this.turnFailed = false;

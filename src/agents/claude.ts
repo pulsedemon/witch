@@ -94,6 +94,15 @@ interface Turn {
   messages: Map<string, string>;
   /** prompts steered into the turn, by the uuid each was sent with. */
   steered: Map<string, string>;
+  /**
+   * a command steered after the reply hasn't ended, or its reply hasn't gone, and Claude Code's idle doesn't end the
+   * turn meanwhile.
+   */
+  held: boolean;
+  /** Claude Code's last state reported while the turn was held is idle. */
+  idle: boolean;
+  /** the completed command's reply, waiting to go. */
+  answer?: string;
 }
 
 /** everything but Claude Code's own commands, including unmarked rows a built-in shadows, since `/name` runs the built-in. */
@@ -133,6 +142,8 @@ class ClaudeSession implements AgentSession {
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
   private readonly backgroundCommands = new Map<string, BackgroundCommand>();
+  /** the background workflows still running. */
+  private readonly workflows = new Set<string>();
   /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
@@ -298,7 +309,7 @@ class ClaudeSession implements AgentSession {
 
   /** an omitted effort leaves `effortLevel` unsent, which keeps the effort in force. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
-    if (this.turn)
+    if (this.turn && !this.replied)
       throw new Error('Stop the current turn before changing models');
     const level = effort == null ? effort : effortLevel.parse(effort);
     await this.query.setModel(model);
@@ -322,20 +333,11 @@ class ClaudeSession implements AgentSession {
       interrupted: false,
       messages: new Map<string, string>(),
       steered: new Map<string, string>(),
+      held: false,
+      idle: false,
     };
     this.turn = turn;
-    // the CLI dispatches a command only from the last text block, and the rest become its context
-    const blocks = [
-      ...this.records,
-      prompt,
-      ...(skill ? [`/${skill.name}${skill.args ? ` ${skill.args}` : ''}`] : []),
-    ];
-    this.push(
-      blocks.length > 1
-        ? blocks.map((text) => ({ type: 'text' as const, text }))
-        : prompt,
-    );
-    this.records = [];
+    this.push(this.content(prompt, skill));
     return turn.finished.promise;
   }
 
@@ -344,6 +346,10 @@ class ClaudeSession implements AgentSession {
     if (this.closed) throw new Error('The Claude session is closed');
     if (this.turn || this.command)
       throw new Error('This agent is already running');
+    return this.run(command);
+  }
+
+  private async run(command: string): Promise<TurnResult> {
     const abort = new AbortController();
     this.command = abort;
     const id = randomUUID();
@@ -394,19 +400,84 @@ class ClaudeSession implements AgentSession {
     }
   }
 
-  /** Claude Code queues the prompt and folds it in after the next tool step, or runs it before going idle. */
-  async steer(prompt: string): Promise<boolean> {
+  /**
+   * Claude Code queues the prompt and folds it in after the next tool step, or runs it before going idle. a command
+   * runs first, and its reply follows once it completes.
+   */
+  async steer(
+    prompt: string,
+    { command }: { command?: string } = {},
+  ): Promise<boolean> {
     const turn = this.turn;
-    if (this.closed || !turn || turn.interrupted) return false;
-    // after the result, a familiar running in the background holds off idle. without one, a prompt could land after
-    // idle and run outside any turn
-    if (
-      turn.result &&
-      ![...this.subagents.values()].some(({ status }) => status === 'running')
-    )
-      return false;
-    turn.steered.set(this.push(prompt), prompt);
+    if (this.closed || !turn || turn.interrupted || turn.held) return false;
+    // after the result, a familiar or workflow running in the background holds off idle. without one, a prompt could
+    // land after idle and run outside any turn
+    if (turn.result && !this.replied) return false;
+    if (command === undefined) turn.steered.set(this.push(prompt), prompt);
+    else {
+      turn.held = true;
+      void this.reply(turn, command, prompt);
+    }
     return true;
+  }
+
+  get replied(): boolean {
+    const turn = this.turn;
+    return (
+      !this.closed &&
+      !!turn?.result &&
+      !turn.interrupted &&
+      !turn.held &&
+      this.holding
+    );
+  }
+
+  /** a familiar or workflow runs in the background, which holds off Claude Code's idle. */
+  private get holding(): boolean {
+    return (
+      this.workflows.size > 0 ||
+      [...this.subagents.values()].some(({ status }) => status === 'running')
+    );
+  }
+
+  /**
+   * with no familiar or workflow left and Claude Code not yet idle, a reply could land after idle, so idle releases
+   * it, or a familiar or workflow that starts first.
+   */
+  private async reply(
+    turn: Turn,
+    command: string,
+    prompt: string,
+  ): Promise<void> {
+    let ran: TurnResult;
+    try {
+      ran = await this.run(command);
+    } catch (error) {
+      ran = { status: 'failed', text: '', error: errorMessage(error) };
+    }
+    if (ran.status === 'failed')
+      this.options.onEvent({ type: 'notice', text: ran.error ?? '' });
+    if (ran.status === 'completed') turn.answer = prompt;
+    if (ran.status !== 'completed' || turn.idle || this.holding)
+      this.release(turn);
+  }
+
+  /** runs once a steered command has ended: sends its reply, or ends a turn Claude Code has let go idle. */
+  private release(turn: Turn): void {
+    const answer = turn.answer;
+    turn.held = false;
+    turn.answer = undefined;
+    if (answer !== undefined && !turn.interrupted && !this.closed) {
+      turn.idle = false;
+      // kept out of `steered`, since an unread reply would go back to the queue and run its command again
+      this.push(this.content(answer));
+    } else if (turn.idle && !this.closed) {
+      this.finish(turn, {
+        ...turn.result!,
+        ...(turn.interrupted ? { status: 'interrupted' as const } : {}),
+      });
+      void this.readUsage();
+    }
   }
 
   respond(id: string, response: UserResponse): void {
@@ -418,6 +489,11 @@ class ClaudeSession implements AgentSession {
     const turn = this.turn;
     if (!turn) return;
     turn.interrupted = true;
+    // Claude Code is idle, and the abort stops the command that holds the turn
+    if (turn.idle) {
+      await turn.finished.promise;
+      return;
+    }
     let receipt;
     try {
       receipt = await this.query.interrupt();
@@ -451,6 +527,25 @@ class ClaudeSession implements AgentSession {
     await this.child?.closed;
     this.options.signal?.removeEventListener('abort', this.cancelConnection);
     await this.options.onProcess(undefined);
+  }
+
+  /**
+   * the records of commands run since the last prompt go ahead of it, and a skill goes last, since the CLI dispatches a
+   * command only from the last text block and the rest become its context.
+   */
+  private content(
+    prompt: string,
+    skill?: SkillCall,
+  ): SDKUserMessage['message']['content'] {
+    const blocks = [
+      ...this.records,
+      prompt,
+      ...(skill ? [`/${skill.name}${skill.args ? ` ${skill.args}` : ''}`] : []),
+    ];
+    this.records = [];
+    return blocks.length > 1
+      ? blocks.map((text) => ({ type: 'text' as const, text }))
+      : prompt;
   }
 
   /** returns the uuid the message went with. */
@@ -520,6 +615,15 @@ class ClaudeSession implements AgentSession {
           skills: skillsOf(message.commands),
         });
       } else if (
+        // a command steered after the reply holds the turn until its reply goes. Claude Code can run again meanwhile, as
+        // it does when a brew ends
+        message.subtype === 'session_state_changed' &&
+        this.turn?.held
+      ) {
+        this.turn.idle = message.state === 'idle';
+        if (this.turn.idle && this.turn.answer !== undefined)
+          this.release(this.turn);
+      } else if (
         // more activity can follow a result, so a turn ends only at native idle
         message.subtype === 'session_state_changed' &&
         message.state === 'idle' &&
@@ -530,19 +634,27 @@ class ClaudeSession implements AgentSession {
       } else if (
         // ambient tasks are housekeeping, such as forked-skill workers
         message.subtype === 'task_started' &&
-        message.task_type === 'local_agent' &&
+        (message.task_type === 'local_agent' ||
+          message.task_type === 'local_workflow') &&
         !message.ambient &&
         !this.late(message)
       ) {
-        if (message.run_id) this.runs.set(message.task_id, message.run_id);
-        this.subagent({
-          id: message.task_id,
-          parent: message.parent_task_id,
-          name: message.description,
-          kind: message.subagent_type ?? '',
-          status: 'running',
-          run: message.run_id,
-        });
+        // a workflow holds off idle as a familiar does, though its agents never reach the stream
+        if (message.task_type === 'local_workflow')
+          this.workflows.add(message.task_id);
+        else {
+          if (message.run_id) this.runs.set(message.task_id, message.run_id);
+          this.subagent({
+            id: message.task_id,
+            parent: message.parent_task_id,
+            name: message.description,
+            kind: message.subagent_type ?? '',
+            status: 'running',
+            run: message.run_id,
+          });
+        }
+        if (this.turn?.held && this.turn.answer !== undefined)
+          this.release(this.turn);
       } else if (message.subtype === 'background_tasks_changed') {
         // the live set lists a shell once it runs in the background, however it got there, and never a foreground one
         for (const task of message.tasks)
@@ -556,6 +668,7 @@ class ClaudeSession implements AgentSession {
               status: 'running',
             });
       } else if (message.subtype === 'task_notification') {
+        this.workflows.delete(message.task_id);
         const subagent = this.subagents.get(message.task_id);
         if (subagent && !this.late(message))
           this.subagent({ ...subagent, status: message.status });
@@ -753,6 +866,8 @@ class ClaudeSession implements AgentSession {
     // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
     const turn = this.turn;
+    // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI
+    if (turn) this.command?.abort();
     // this also covers a receive() throw while the CLI lives; the SDK's SIGTERM bounds the wait
     this.query.close();
     await this.child?.closed;
