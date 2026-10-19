@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { ClaudeAdapter } from '../../src/agents/claude.js';
+import type { AgentEvent, SessionOptions } from '../../src/agents/types.js';
+import { scratch } from './scratch.js';
+
+const claude = fileURLToPath(new URL('claude.mjs', import.meta.url));
+
+export async function launcher(mode?: string) {
+  const cwd = await scratch('witch-claude-');
+  const children: ChildProcessWithoutNullStreams[] = [];
+  const args: string[][] = [];
+  const envs: NodeJS.ProcessEnv[] = [];
+  const adapter = new ClaudeAdapter((options) => {
+    assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
+    assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
+    args.push(options.args);
+    envs.push(options.env);
+    const child = spawn(process.execPath, [claude, ...(mode ? [mode] : [])], {
+      cwd,
+      stdio: 'pipe',
+      signal: options.signal,
+    });
+    children.push(child);
+    return child;
+  });
+  const connect = (options: Partial<SessionOptions> = {}) =>
+    adapter.connect({
+      cwd,
+      executable: '/fake/claude',
+      memoryDirectories: [],
+      onEvent: () => {},
+      onProcess: async () => {},
+      ...options,
+    });
+  return { cwd, children, args, envs, connect };
+}
+
+export async function fixture(
+  onEvent: (event: AgentEvent) => void = () => {},
+  mode?: string,
+) {
+  const { cwd, children, connect } = await launcher(mode);
+  const session = await connect({ onEvent });
+  return { session, cwd, child: children[0]! };
+}
+
+/** resolves on the first text event, so an interrupt can't land ahead of the queued prompt. */
+export function working() {
+  const seen = Promise.withResolvers<void>();
+  const onEvent = (event: AgentEvent) => {
+    if (event.type === 'text' && event.text === 'Working.') seen.resolve();
+  };
+  return { seen: seen.promise, onEvent };
+}
+
+/** the JSON lines the fixture wrote, or none while the file is missing or half written. */
+export async function jsonLines(file: string): Promise<unknown[]> {
+  try {
+    return (await readFile(file, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as unknown);
+  } catch {
+    return [];
+  }
+}
+
+export const content = async (cwd: string) =>
+  JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
