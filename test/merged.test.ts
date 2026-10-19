@@ -348,6 +348,33 @@ await test('a base that tracks another remote is brought up to date from it', as
   });
 });
 
+await test('a branch switched to during the base fetch is left as it was, and the cleanup stops', async () => {
+  const { root, checkout, other, tip } = await merged();
+  await git(checkout, 'switch', '-c', 'feat/y', 'main');
+  await git(checkout, 'push', '-u', 'origin', 'feat/y');
+  const before = await git(checkout, 'rev-parse', 'HEAD');
+  await git(other, 'fetch');
+  await git(other, 'switch', 'feat/y');
+  await git(other, 'commit', '--allow-empty', '-m', 'y');
+  await git(other, 'push');
+  await git(other, 'switch', 'main');
+  await git(checkout, 'switch', 'feat/x');
+  await merge(other, 'feat/x');
+  // runs in each fetch, and switches once the cleanup is on the base, as another terminal could
+  const pack = join(root, 'upload-pack');
+  await write(
+    pack,
+    `#!/bin/sh\nif [ "$(git -C '${checkout}' branch --show-current)" = main ]; then git -C '${checkout}' switch -q feat/y; fi\nexec git upload-pack "$@"\n`,
+  );
+  await execute('chmod', ['+x', pack]);
+  await git(checkout, 'config', 'remote.origin.uploadpack', pack);
+  await assert.rejects(cleanUpMerge(checkout, pullRequest(tip)), {
+    message:
+      "#7 merged: switched to main and deleted branch feat/x, but main didn't fast-forward: the checkout left main or changed during the fetch",
+  });
+  assert.equal(await git(checkout, 'rev-parse', 'feat/y'), before);
+});
+
 await test('the install pulls, installs and builds when clean on the base, and stays put otherwise', async () => {
   const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
   const install = join(root, 'install');
