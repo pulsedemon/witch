@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  readFile,
+  readdir,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
@@ -261,6 +268,43 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
     cleaned: false,
   });
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+});
+
+await test("a plan that can't be read stays, and one that can't be removed stops the cleanup, saying what it did", async () => {
+  {
+    const { checkout, other, tip } = await merged();
+    await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
+    await symlink('missing.md', join(plans(checkout), 'dangling.md'));
+    await merge(other, 'feat/x');
+    assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip)), {
+      text: '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md.',
+      cleaned: true,
+    });
+    assert.deepEqual(await readdir(plans(checkout)), ['dangling.md']);
+  }
+  {
+    const { checkout, other, tip } = await merged();
+    await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
+    await merge(other, 'feat/x');
+    await chmod(plans(checkout), 0o500);
+    try {
+      await assert.rejects(
+        cleanUpMerge(checkout, pullRequest(tip)),
+        (error) => {
+          const message = (error as Error).message;
+          assert.ok(
+            message.startsWith(
+              '#7 merged: switched to main and deleted branch feat/x, but removing its plans failed: EACCES',
+            ),
+            message,
+          );
+          return true;
+        },
+      );
+    } finally {
+      await chmod(plans(checkout), 0o700);
+    }
+  }
 });
 
 await test("a squash merge's branch goes too", async () => {
