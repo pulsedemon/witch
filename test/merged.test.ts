@@ -315,6 +315,29 @@ await test('a branch committed to after the tip check stays, and so does its pla
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
+await test('a base that tracks another remote is brought up to date from it', async () => {
+  const { root, origin, checkout, tip } = await merged();
+  const upstream = join(root, 'upstream.git');
+  const fork = join(root, 'fork');
+  await git(root, 'clone', '--bare', origin, upstream);
+  await git(checkout, 'remote', 'add', 'upstream', upstream);
+  await git(checkout, 'fetch', 'upstream');
+  await git(checkout, 'branch', '--set-upstream-to=upstream/main', 'main');
+  await git(root, 'clone', upstream, fork);
+  await git(fork, 'merge', '--no-ff', '-m', 'merge feat/x', 'origin/feat/x');
+  await git(fork, 'push', 'origin', 'main');
+  await git(checkout, 'push', 'origin', '--delete', 'feat/x');
+  const result = await cleanUpMerge(checkout, pullRequest(tip));
+  assert.equal(
+    await git(checkout, 'rev-parse', 'HEAD'),
+    await git(fork, 'rev-parse', 'HEAD'),
+  );
+  assert.deepEqual(result, {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+    cleaned: true,
+  });
+});
+
 await test('the install pulls, installs and builds when clean on the base, and stays put otherwise', async () => {
   const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
   const install = join(root, 'install');
