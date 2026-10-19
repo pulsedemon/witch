@@ -92,7 +92,7 @@ export async function cleanUpMerge(
       cleaned: false,
     };
   // GitHub deletes a merged pull request's branch, and a long-lived head branch such as develop keeps its own
-  const [upstream, track] = (
+  const [upstream, tracking] = (
     await git(
       cwd,
       'for-each-ref',
@@ -105,7 +105,7 @@ export async function cleanUpMerge(
       text: `#${number} merged, but ${branch} tracks no remote branch, so it stays.`,
       cleaned: false,
     };
-  if (track !== '[gone]')
+  if (tracking !== '[gone]')
     return {
       text: `#${number} merged, but ${branch} is still on its remote, so it stays.`,
       cleaned: false,
@@ -124,12 +124,7 @@ export async function cleanUpMerge(
   }
   // branch -D would drop it too, and a later branch of the same name would inherit its upstream
   await succeeds(git(cwd, 'config', '--remove-section', `branch.${branch}`));
-  const plans = await removePlans(cwd, branch).catch((error: unknown) => {
-    throw new Error(
-      `#${number} merged: switched to ${base} and deleted branch ${branch}, but removing its plans failed: ${errorMessage(error)}`,
-      { cause: error },
-    );
-  });
+  const { removed: plans, stayed, reason } = await removePlans(cwd, branch);
   const removed = plans.length
     ? `, and ${plans.length > 1 ? 'plans' : 'plan'} ${list(plans)}`
     : '';
@@ -172,8 +167,11 @@ export async function cleanUpMerge(
     if (await succeeds(git(cwd, 'branch', '-d', name))) deleted.push(name);
   }
   const branches = `${deleted.length > 1 ? 'branches' : 'branch'} ${list(deleted)}`;
+  const kept = stayed.length
+    ? `, but ${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`
+    : '';
   return {
-    text: `#${number} merged: switched to ${base} and pulled, deleted ${branches}${removed}.`,
+    text: `#${number} merged: switched to ${base} and pulled, deleted ${branches}${removed}${kept}.`,
     cleaned: true,
   };
 }
@@ -249,12 +247,20 @@ function createdBranches(text: string): Set<string> {
   return created;
 }
 
-/** the gitignored plans that create `branch` and no other branch, and each ledger whose `plan-path` names one. */
-async function removePlans(cwd: string, branch: string): Promise<string[]> {
+/**
+ * removes the gitignored plans that create `branch` and no other branch, each with the ledgers whose `plan-path`
+ * names it. returns those removed, and those that stayed with the first reason.
+ */
+async function removePlans(
+  cwd: string,
+  branch: string,
+): Promise<{ removed: string[]; stayed: string[]; reason?: string }> {
   const top = await git(cwd, 'rev-parse', '--show-toplevel');
   const plans = join(top, 'docs/superpowers/plans');
   const ledgers = join(top, '.superpowers/sdd');
   const removed: string[] = [];
+  const stayed: string[] = [];
+  let reason: string | undefined;
   for (const name of await readdir(plans).catch(() => [])) {
     const plan = join(plans, name);
     if (!name.endsWith('.md')) continue;
@@ -269,18 +275,24 @@ async function removePlans(cwd: string, branch: string): Promise<string[]> {
       !(await ignored(top, plan))
     )
       continue;
-    await rm(plan);
-    removed.push(name);
-    for (const ledger of await readdir(ledgers).catch(() => [])) {
-      const folder = join(ledgers, ledger);
-      const link = (
-        await readFile(join(folder, 'plan-path'), 'utf8').catch(() => '')
-      ).trim();
-      if (link && resolve(top, link) === plan && (await ignored(top, folder)))
-        await rm(folder, { recursive: true, force: true });
+    try {
+      // the ledgers first, since only the plan leads to them
+      for (const ledger of await readdir(ledgers).catch(() => [])) {
+        const folder = join(ledgers, ledger);
+        const link = (
+          await readFile(join(folder, 'plan-path'), 'utf8').catch(() => '')
+        ).trim();
+        if (link && resolve(top, link) === plan && (await ignored(top, folder)))
+          await rm(folder, { recursive: true, force: true });
+      }
+      await rm(plan);
+      removed.push(name);
+    } catch (error) {
+      stayed.push(name);
+      reason ??= errorMessage(error);
     }
   }
-  return removed;
+  return { removed, stayed, reason };
 }
 
 /**
