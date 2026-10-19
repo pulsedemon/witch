@@ -11,7 +11,7 @@ const instance = fileURLToPath(
   new URL('../src/persistence/instance.ts', import.meta.url),
 );
 
-await test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone, while a live process's stays", async () => {
+await test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone or of an earlier process with its pid, while a live process's stays", async () => {
   const parent = await scratch('witch-instance-');
   const exited = spawn('/usr/bin/true');
   await once(exited, 'exit');
@@ -19,10 +19,13 @@ await test("an instance directory goes when its process exits, read-only content
   await mkdir(join(parent, String(process.pid)));
   await mkdir(join(parent, 'notes'));
   const script = `
-    import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+    import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';
     import { instanceDirectory } from ${JSON.stringify(instance)};
+    // what the process this one replaced with execve left
+    mkdirSync(join(${JSON.stringify(parent)}, String(process.pid), 'stale'), { recursive: true });
     const directory = instanceDirectory(${JSON.stringify(parent)});
+    if (existsSync(join(directory, 'stale'))) throw new Error('stale');
     mkdirSync(join(directory, 'locked'));
     writeFileSync(join(directory, 'locked', 'file'), 'x');
     chmodSync(join(directory, 'locked'), 0o500);
