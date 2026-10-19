@@ -14,19 +14,31 @@ import type {
 
 const execute = promisify(execFile);
 
-/** a passphrase or password prompt would draw over the TUI, and nothing could answer it. */
+/** a password prompt would draw over the TUI, and nothing could answer it. */
 const git = async (cwd: string, ...args: string[]) =>
   (
     await execute('git', args, {
       cwd,
       timeout: 60_000,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
-      },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     })
   ).stdout.trim();
+
+/**
+ * ssh's passphrase and host key prompts would too, so a fetch runs ssh in batch mode, unless the user set their own
+ * ssh command, which this would replace.
+ */
+const fetchRemote = async (cwd: string, ...args: string[]) => {
+  const own =
+    process.env.GIT_SSH ||
+    (await git(cwd, 'config', 'core.sshCommand').catch(() => ''));
+  await git(
+    cwd,
+    ...(own ? [] : ['-c', 'core.sshCommand=ssh -o BatchMode=yes']),
+    'fetch',
+    ...args,
+  );
+};
 
 const succeeds = (promise: Promise<unknown>) =>
   promise.then(
@@ -61,7 +73,7 @@ export async function cleanUpMerge(
   pullRequest: PullRequest,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
   const { number, branch, commit, base } = pullRequest;
-  await git(cwd, 'fetch', '--prune');
+  await fetchRemote(cwd, '--prune');
   // after the fetch, which can take a while: the watch's status is seconds old, and a commit made meanwhile would
   // go with the branch
   const status = await read(cwd);
@@ -105,7 +117,7 @@ export async function cleanUpMerge(
   // after the deletions, so a base that can't fast-forward leaves no merged branch or plan behind
   try {
     // the first fetch reached only the merged branch's remote, and the base can track another
-    await git(cwd, 'fetch');
+    await fetchRemote(cwd);
     // another terminal can switch or edit meanwhile, and the merge would pull whatever branch it left
     const fetched = await read(cwd);
     if (fetched.branch !== base || changed(fetched))
@@ -244,7 +256,7 @@ export async function refreshInstall(
   base: string,
   run: Run = execute,
 ): Promise<string> {
-  await git(root, 'fetch');
+  await fetchRemote(root);
   // after the fetch, so a switch or an edit made during it isn't pulled and built
   const status = await read(root);
   if (status.branch !== base || changed(status))
