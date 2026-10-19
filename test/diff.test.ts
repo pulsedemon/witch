@@ -298,7 +298,13 @@ await test("the language comes from the file's name ahead of its extension, a mo
       {
         path,
         kind: 'update',
-        hunks: [{ oldStart: start, newStart: start, lines }],
+        hunks: [
+          {
+            oldStart: extra.kind === 'add' ? 0 : start,
+            newStart: start,
+            lines,
+          },
+        ],
         ...extra,
       },
     ])
