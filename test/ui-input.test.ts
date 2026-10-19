@@ -677,3 +677,45 @@ await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor 
     for (const ui of mounted) await unmount(ui);
   }
 });
+
+await test('a shell prompt draws its ! apart from the text, keeps the cursor after it, and a delete at the text start takes it', async () => {
+  const sent: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 12,
+      height: 4,
+      active: true,
+      shell: true,
+      onSubmit: (value) => {
+        sent.push(value);
+        return true;
+      },
+    }),
+  );
+  /** pastes `text`, writes each read on its own, then submits */
+  const submit = async (text: string, reads: string[]) => {
+    await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
+    for (const data of reads) await press(ui.stdin, data);
+    await press(ui.stdin, '\r');
+    return sent.at(-1);
+  };
+  try {
+    await press(ui.stdin, '\u001b[200~!abcdefghijk\u001b[201~');
+    // the text has the 10 cells beside the `!`, so it wraps there and its second row starts under it
+    assert.deepEqual(ui.lastFrame()?.split('\n').slice(0, 2), [
+      '! abcdefghij',
+      '  k',
+    ]);
+    await press(ui.stdin, '\r');
+    for (const [reads, expected] of [
+      [['\u001b[H', 'x'], '!xabcdefghijk'],
+      [[...CMD_LEFT, 'x'], '!abcdefghijxk'],
+      [['\u001b[H', '\u007f'], 'abcdefghijk'],
+      [['\u001b[H', ...OPT_DELETE], 'abcdefghijk'],
+      [['\u001b[H', ...CMD_DELETE], 'abcdefghijk'],
+    ] as const)
+      assert.equal(await submit('!abcdefghijk', [...reads]), expected);
+  } finally {
+    await unmount(ui);
+  }
+});

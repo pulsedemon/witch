@@ -313,7 +313,7 @@ export function App({
   // the composer grows with its text until it would take half the body
   const composerRows = Math.min(
     Math.max(1, Math.floor(bodyHeight / 2)),
-    inputRows(buffer.value, composerWidth),
+    inputRows(buffer.value, composerWidth, true),
   );
   const freeRows = bodyHeight - composerRows - 3 - listRows - (working ? 1 : 0);
   // the transcript keeps two rows
@@ -1087,6 +1087,7 @@ export function App({
             key={state.conversation?.id ?? 'initial'}
             width={composerWidth}
             height={composerRows}
+            shell
             active={!toolFocus && composerPhase}
             ref={composer}
             initialValue={drafts[state.conversation?.id ?? ''] ?? ''}
