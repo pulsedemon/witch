@@ -682,8 +682,9 @@ export class Coordinator {
 
   /**
    * cleans up after the checkout's merged pull request, and rebuilds Witch from `install` when it moved the checkout
-   * and the merge is Witch's own. false when the checkout had left the branch or changed, or another Witch in its
-   * directory was in a turn, so nothing was done.
+   * and the merge is Witch's own. false when the checkout had left the branch or changed, or another conversation in
+   * its directory was in a turn with its agent running, so nothing was done. a turn whose agent hasn't started yet
+   * doesn't count, since its record names no process.
    */
   async cleanUpMerge(
     pullRequest: PullRequest,

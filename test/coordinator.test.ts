@@ -3568,7 +3568,7 @@ await test('a turn that ends with a prompt queued runs that prompt before the me
   }
 });
 
-await test("a merge cleanup waits for another Witch's turn in its directory, but not for one no live Witch holds or one elsewhere", async () => {
+await test("a merge cleanup waits for another Witch's turn in its directory, but not for one whose agent has exited or isn't recorded, or one elsewhere", async () => {
   const { coordinator, store, memory, project } = await fixture();
   const agent = new FixtureAgent('a');
   const other = new Coordinator(store, memory, [
@@ -3590,7 +3590,8 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
     assert.deepEqual(notices(coordinator), []);
     gate.open();
     await within(sending, 2000, 'the other turn');
-    // a turn left by a Witch that has exited, one no Witch holds, and one a live Witch runs in another directory
+    // a turn whose agent has exited, one whose agent isn't recorded, as before a live Witch's agent starts, and a live
+    // agent's turn in another directory
     for (const [cwd, owner] of [
       [project, { pid: 1, started: 'never' }],
       [project, undefined],
