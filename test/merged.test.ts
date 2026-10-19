@@ -143,6 +143,14 @@ await test("a merged branch's checkout switches to the base, and loses the branc
     join(plans(checkout), 'multi.md'),
     '`git switch -c feat/x`\n\nlater\n\n`git switch -c feat/b`\n',
   );
+  await write(
+    join(plans(checkout), 'plus.md'),
+    '`git switch -c feat/x+next`.\n',
+  );
+  await write(
+    join(plans(checkout), 'quoted.md'),
+    '`git switch -c feat/x`\n\nlater\n\n`git switch -c "feat/y"`\n',
+  );
   await write(join(plans(checkout), 'y.md'), 'on branch feat/x\n');
   await write(
     join(checkout, '.superpowers/sdd/x/plan-path'),
@@ -170,6 +178,8 @@ await test("a merged branch's checkout switches to the base, and loses the branc
   );
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
     'multi.md',
+    'plus.md',
+    'quoted.md',
     'stack.md',
     'tracked.md',
     'x2.md',
