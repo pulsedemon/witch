@@ -103,6 +103,8 @@ export async function cleanUpMerge(
     : '';
   // after the deletions, so a base that can't fast-forward leaves no merged branch or plan behind
   try {
+    // the first fetch reached only the merged branch's remote, and the base can track another
+    await git(cwd, 'fetch');
     await git(
       cwd,
       'merge',
