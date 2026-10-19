@@ -35,7 +35,7 @@ function remove(directory: string): void {
   try {
     rmSync(directory, { recursive: true, force: true });
   } catch {
-    // a test run killed between its chmod and the restore leaves directories rm can't enter
+    // a read-only directory an agent's command left stops rm until it's made writable
     spawnSync('/bin/chmod', ['-R', 'u+rwx', directory]);
     try {
       rmSync(directory, { recursive: true, force: true });
