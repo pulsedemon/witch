@@ -299,7 +299,7 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
-await test("a plan that can't be read stays, and one that can't go with its ledgers stays with them and is named, even when the base can't fast-forward", async () => {
+await test("a plan that can't be read stays, one that can't go with its ledgers stays with them and is named, and so are plans that can't be listed, even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
@@ -339,17 +339,21 @@ await test("a plan that can't be read stays, and one that can't go with its ledg
       await git(other, 'rev-parse', 'origin/main'),
     );
   }
-  {
+  // the plan can't be removed, and the plans can't be listed
+  for (const [mode, stayed] of [
+    [0o500, 'plan x.md'],
+    [0o000, 'plans'],
+  ] as const) {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
     await merge(other, 'feat/x');
-    await chmod(plans(checkout), 0o500);
+    await chmod(plans(checkout), mode);
     const result = await cleanUpMerge(checkout, pullRequest(tip)).finally(() =>
       chmod(plans(checkout), 0o700),
     );
     assert.ok(
       result?.text.startsWith(
-        '#7 merged: switched to main and pulled, deleted branch feat/x, but plan x.md stayed: EACCES',
+        `#7 merged: switched to main and pulled, deleted branch feat/x, but ${stayed} stayed: EACCES`,
       ),
       result?.text,
     );
