@@ -48,6 +48,7 @@ const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'memory', label: 'Browse shared memory' },
   { id: 'jobs', label: 'Running jobs' },
   { id: 'help', label: 'Keyboard help' },
+  { id: 'restart', label: 'Restart Witch in this conversation' },
   { id: 'exit', label: 'Exit', aliases: ['quit'] },
 ];
 const claimed = new Set(
@@ -103,6 +104,7 @@ export function App({
   coordinator,
   repository,
   onExit,
+  onRestart,
   initialPrompt,
   graphics,
   jobs,
@@ -119,6 +121,8 @@ export function App({
   /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
   store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
   onExit(): void;
+  /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */
+  onRestart?(): void;
   /** puts text on the clipboard, where Cmd+C sends the transcript's selection. */
   copy?(text: string): void;
   /** sent once the load ends idle with nothing reported and tools unfocused, or ahead of a prompt sent while it connects; otherwise left as the draft. */
@@ -545,6 +549,9 @@ export function App({
           title: 'Keyboard help',
           text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing else is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
+        break;
+      case 'restart':
+        onRestart?.();
         break;
       case 'exit':
         onExit();

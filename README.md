@@ -10,7 +10,7 @@ Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or new
 pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
 ```
 
-Rerun `pnpm build` after changes.
+Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation.
 
 ## Usage
 
