@@ -85,8 +85,18 @@ export async function cleanUpMerge(
     };
   // a plain switch overwrites an ignored file the base tracks, and that file was never committed
   await git(cwd, 'switch', '--no-overwrite-ignore', base);
-  // the tip check makes -D safe; -d would compare against the base before it's brought up to date
-  await git(cwd, 'branch', '-D', branch);
+  // deleted only while still at the merged commit, since another terminal can commit to it after the tip check. -d
+  // would compare against the base before it's brought up to date
+  try {
+    await git(cwd, 'update-ref', '-d', `refs/heads/${branch}`, commit);
+  } catch (error) {
+    throw new Error(
+      `#${number} merged: switched to ${base}, but ${branch} wasn't deleted: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  }
+  // branch -D would drop it too, and a later branch of the same name would inherit its upstream
+  await succeeds(git(cwd, 'config', '--remove-section', `branch.${branch}`));
   const plans = await removePlans(cwd, branch);
   const removed = plans.length
     ? `, and ${plans.length > 1 ? 'plans' : 'plan'} ${list(plans)}`
