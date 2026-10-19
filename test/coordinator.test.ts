@@ -3376,7 +3376,7 @@ await test('a replied turn opens the model list from its connect without refresh
   }
 });
 
-await test('commands that need idle say a familiar holds the turn, and the usual refusal otherwise', async () => {
+await test('commands that need idle say familiars or workflows hold the turn, and the usual refusal otherwise', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   try {
@@ -3389,7 +3389,7 @@ await test('commands that need idle say a familiar holds the turn, and the usual
     a.replied = true;
     await assert.rejects(coordinator.newConversation(), {
       message:
-        'Wait for the running familiars to report, or press Escape to stop them',
+        'Wait for the running familiars or workflows to report, or press Escape to stop them',
     });
     gate.open();
     await within(sending, 2000, 'the turn');
