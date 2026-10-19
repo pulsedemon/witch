@@ -3,6 +3,7 @@ import { all, createLowlight } from 'lowlight';
 import { syntax, storage } from './theme.js';
 
 const lowlight = createLowlight(all);
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 // `@types/hast` isn't a direct dependency, and pnpm doesn't hoist it
 type Root = ReturnType<typeof lowlight.highlight>;
 type Node = Root['children'][number];
@@ -70,14 +71,11 @@ export function languageOf(
   );
 }
 
-/** `line` in its colored runs, plain when highlight.js gives up on it or, in a grammar without the `u` flag, ends a run inside an emoji. */
+/**
+ * `line` in its colored runs, plain when highlight.js fails on it or ends a run inside a character, as a grammar without
+ * the `u` flag can inside an emoji or before a keycap's marks, since copying the row would drop the rest of it.
+ */
 function spansOf(line: string, language: string): Span[] {
-  let tree: Root;
-  try {
-    tree = lowlight.highlight(language, line);
-  } catch {
-    return [{ text: line }];
-  }
   const spans: Span[] = [];
   const walk = (nodes: readonly Node[], scope?: string) => {
     for (const node of nodes)
@@ -98,10 +96,21 @@ function spansOf(line: string, language: string): Span[] {
               : syntax.get(scope ?? ''),
         });
   };
-  walk(tree.children);
-  return spans.every(({ text }) => text.isWellFormed())
-    ? spans
-    : [{ text: line }];
+  try {
+    // a deep enough nesting overflows the stack
+    walk(lowlight.highlight(language, line).children);
+  } catch {
+    return [{ text: line }];
+  }
+  const starts = new Set(
+    Array.from(graphemes.segment(line), ({ index }) => index),
+  );
+  let at = 0;
+  for (const { text } of spans) {
+    if (!starts.has(at)) return [{ text: line }];
+    at += text.length;
+  }
+  return spans;
 }
 
 /**
