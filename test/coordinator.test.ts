@@ -3568,6 +3568,52 @@ await test('a turn that ends with a prompt queued runs that prompt before the me
   }
 });
 
+await test("a merge cleanup waits for another Witch's turn in its directory, but not for a gone Witch's or one elsewhere", async () => {
+  const { coordinator, store, memory, project } = await fixture();
+  const agent = new FixtureAgent('a');
+  const other = new Coordinator(store, memory, [
+    { adapter: agent, executable: 'a' },
+  ]);
+  const gate = new TurnGate();
+  const left: ConversationStore[] = [];
+  try {
+    await other.initialize(project);
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    agent.gate = gate;
+    const sending = other.send('Start');
+    await within(gate.entered, 2000, 'the other turn');
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      false,
+    );
+    assert.deepEqual(notices(coordinator), []);
+    gate.open();
+    await within(sending, 2000, 'the other turn');
+    // a turn left by a Witch that has exited, and one a live Witch runs in another directory
+    for (const [cwd, owner] of [
+      [project, { pid: 1, started: 'never' }],
+      [join(project, '..'), (await identifyProcess(process.pid))!],
+    ] as const) {
+      const files = await store.create(record(randomUUID(), cwd));
+      left.push(files);
+      files.record.activity = activity();
+      files.record.process = owner;
+      await files.save(files.record);
+    }
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      true,
+    );
+    assert.deepEqual(notices(coordinator), [kept]);
+  } finally {
+    gate.open();
+    for (const files of left) await files.close();
+    await other.close();
+    await coordinator.close();
+  }
+});
+
 await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project", async () => {
   for (const other of ['b', 'a'] as const) {
     const { coordinator, root, project } = await fixture();
