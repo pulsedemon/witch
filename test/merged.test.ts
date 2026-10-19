@@ -378,6 +378,21 @@ await test("a plan that can't be read stays, and one that can't be removed stays
   }
 });
 
+await test('a ledger the repository tracks stays when its plan goes', async () => {
+  const { checkout, other, tip } = await merged({
+    '.gitignore': 'docs/superpowers/\n',
+    '.superpowers/sdd/x/plan-path': 'docs/superpowers/plans/x.md\n',
+  });
+  await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
+  await merge(other, 'feat/x');
+  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip)), {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md.',
+    cleaned: true,
+  });
+  assert.ok(await exists(join(checkout, '.superpowers/sdd/x/plan-path')));
+  assert.equal(await git(checkout, 'status', '--porcelain'), '');
+});
+
 await test("a squash merge's branch goes too", async () => {
   const { checkout, other, tip } = await merged();
   await git(other, 'pull');
