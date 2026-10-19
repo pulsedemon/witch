@@ -44,6 +44,19 @@ export const conversationRecordSchema = conversationSchema.extend({
     .optional(),
 });
 
+const hunk = z.object({
+  oldStart: z.number(),
+  newStart: z.number(),
+  lines: z.array(z.string()),
+});
+
+const fileDiff = z.object({
+  path: z.string(),
+  kind: z.enum(['add', 'delete', 'update']),
+  movePath: z.string().optional(),
+  hunks: z.array(hunk),
+});
+
 export const displayUpdateSchema = z.object({
   id: z.string(),
   kind: z.enum(['user', 'assistant', 'tool', 'notice']),
@@ -53,6 +66,7 @@ export const displayUpdateSchema = z.object({
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
   images: z.array(z.string()).optional(),
+  diff: z.array(fileDiff).optional(),
   // a command the user ran with `!`
   shell: z.boolean().optional(),
   // when Witch received the update; history from before it was recorded has none

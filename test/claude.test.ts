@@ -718,6 +718,55 @@ await test("Claude tool use and its result update one tool titled by what it act
   }
 });
 
+await test('a Claude edit or write arrives as the diff its result reports, at its path under the session, in place of the result text, while a failed edit, an empty patch or a staged write keeps its text', async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('edits')).status, 'completed');
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'tool')
+        .filter(({ done }) => done)
+        .map(({ id, text, diff }) => [id, text, diff]),
+      [
+        [
+          'edit-1',
+          '',
+          [
+            {
+              path: join(cwd, 'a.txt'),
+              kind: 'update',
+              hunks: [
+                {
+                  oldStart: 1,
+                  newStart: 1,
+                  lines: [' alpha', '-bravo', '+BRAVO', ' charlie'],
+                },
+              ],
+            },
+          ],
+        ],
+        [
+          'write-1',
+          '',
+          [
+            {
+              path: join(cwd, 'b.txt'),
+              kind: 'add',
+              hunks: [{ oldStart: 0, newStart: 1, lines: ['+one', '+two'] }],
+            },
+          ],
+        ],
+        ['edit-2', 'Error: String to replace not found in file.', undefined],
+        ['write-2', 'The file c.txt has been updated successfully.', undefined],
+        ['write-3', 'Staged for review.', undefined],
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
 await test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));

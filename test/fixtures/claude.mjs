@@ -94,7 +94,7 @@ const assistant = (
     },
   });
 };
-const toolResult = (id, content, parent = null) =>
+const toolResult = (id, content, parent = null, extra = {}) =>
   send({
     type: 'user',
     uuid: randomUUID(),
@@ -104,6 +104,7 @@ const toolResult = (id, content, parent = null) =>
       role: 'user',
       content: [{ type: 'tool_result', tool_use_id: id, content }],
     },
+    ...extra,
   });
 let results = 0;
 const result = (fields = {}) => {
@@ -460,6 +461,90 @@ for await (const line of lines) {
           source: { type: 'base64', media_type: 'image/png', data: 'iVBORw==' },
         },
       ]);
+      assistant('Done.');
+      finish();
+    } else if (lastPrompt === 'edits') {
+      const call = (id, name, input) =>
+        assistant('', [{ type: 'tool_use', id, name, input }]);
+      const a = join(process.cwd(), 'a.txt');
+      call('edit-1', 'Edit', {
+        file_path: a,
+        old_string: 'bravo',
+        new_string: 'BRAVO',
+      });
+      toolResult(
+        'edit-1',
+        'The file a.txt has been updated successfully.',
+        null,
+        {
+          tool_use_result: {
+            filePath: a,
+            oldString: 'bravo',
+            newString: 'BRAVO',
+            originalFile: 'alpha\nbravo\ncharlie\n',
+            structuredPatch: [
+              {
+                oldStart: 1,
+                oldLines: 3,
+                newStart: 1,
+                newLines: 3,
+                lines: [' alpha', '-bravo', '+BRAVO', ' charlie'],
+              },
+            ],
+            userModified: false,
+            replaceAll: false,
+          },
+        },
+      );
+      // a relative path, as a model might write it
+      call('write-1', 'Write', { file_path: 'b.txt', content: 'one\ntwo' });
+      toolResult('write-1', 'File created successfully at: b.txt', null, {
+        tool_use_result: {
+          type: 'create',
+          filePath: 'b.txt',
+          content: 'one\ntwo',
+          structuredPatch: [],
+          originalFile: null,
+          userModified: false,
+        },
+      });
+      const missing = 'Error: String to replace not found in file.';
+      call('edit-2', 'Edit', {
+        file_path: a,
+        old_string: 'zulu',
+        new_string: 'ZULU',
+      });
+      toolResult('edit-2', missing, null, { tool_use_result: missing });
+      const c = join(process.cwd(), 'c.txt');
+      call('write-2', 'Write', { file_path: c, content: 'same' });
+      toolResult(
+        'write-2',
+        'The file c.txt has been updated successfully.',
+        null,
+        {
+          tool_use_result: {
+            type: 'update',
+            filePath: c,
+            content: 'same',
+            structuredPatch: [],
+            originalFile: 'same',
+            userModified: false,
+          },
+        },
+      );
+      const settings = join(process.cwd(), '.claude', 'settings.json');
+      call('write-3', 'Write', { file_path: settings, content: '{}' });
+      toolResult('write-3', 'Staged for review.', null, {
+        tool_use_result: {
+          type: 'create',
+          filePath: settings,
+          content: '{}',
+          structuredPatch: [],
+          originalFile: null,
+          userModified: false,
+          staged: true,
+        },
+      });
       assistant('Done.');
       finish();
     } else if (lastPrompt === 'familiar-work') {

@@ -15,7 +15,11 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import type { BackgroundCommand, Subagent } from '../src/agents/types.js';
+import type {
+  BackgroundCommand,
+  FileDiff,
+  Subagent,
+} from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory, main } from '../src/memory/memory.js';
@@ -2856,6 +2860,37 @@ await test('agent events reach the transcript with their own replace, append and
     ]);
   } finally {
     await coordinator.close();
+  }
+});
+
+await test("a tool's diff reaches its transcript row and comes back when the conversation reopens", async () => {
+  const { coordinator, a, project, reopen } = await fixture();
+  const diff: FileDiff[] = [
+    {
+      path: join(project, 'a.txt'),
+      kind: 'update',
+      movePath: join(project, 'b.txt'),
+      hunks: [{ oldStart: 1, newStart: 1, lines: [' a', '-b', '+B'] }],
+    },
+  ];
+  try {
+    a.sessions.at(-1)!.options.onEvent({
+      type: 'tool',
+      id: 't',
+      title: 'Edit',
+      text: '',
+      done: true,
+      diff,
+    });
+    assert.deepEqual(coordinator.snapshot.items.at(-1)?.diff, diff);
+  } finally {
+    await coordinator.close();
+  }
+  const reopened = await reopen();
+  try {
+    assert.deepEqual(reopened.snapshot.items.at(-1)?.diff, diff);
+  } finally {
+    await reopened.close();
   }
 });
 
