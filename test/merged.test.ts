@@ -252,6 +252,17 @@ await test('a head branch still on its remote stays', async () => {
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
+await test('a head branch that tracks no remote branch stays, and says so', async () => {
+  const { checkout, other, tip } = await merged();
+  await git(checkout, 'branch', '--unset-upstream');
+  await merge(other, 'feat/x');
+  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip)), {
+    text: '#7 merged, but feat/x tracks no remote branch, so it stays.',
+    cleaned: false,
+  });
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+});
+
 await test("a squash merge's branch goes too", async () => {
   const { checkout, other, tip } = await merged();
   await git(other, 'pull');
