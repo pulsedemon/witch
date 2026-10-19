@@ -20,6 +20,12 @@ import {
 import type { PullRequest, Repository } from '../src/core/repository.js';
 import { scratch } from './fixtures/scratch.js';
 
+// a developer's own ssh command would take the place of the ssh test's stand-in
+process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+delete process.env.GIT_SSH;
+delete process.env.GIT_SSH_COMMAND;
+
 const execute = promisify(execFile);
 
 const git = async (cwd: string, ...args: string[]) =>
