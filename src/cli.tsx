@@ -79,7 +79,7 @@ if (!store) {
   const jobs = new JobWatch({
     directory: instanceDirectory(join(store.root, 'jobs')),
   });
-  // every child inherits it, so agents' scratch goes when this instance does
+  // agents and their commands inherit it, so their scratch goes when this instance does
   process.env.TMPDIR = instanceDirectory(join(store.root, 'scratch'));
   const coordinator = new Coordinator(
     store,
