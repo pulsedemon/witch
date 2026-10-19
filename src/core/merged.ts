@@ -153,10 +153,11 @@ async function removePlans(cwd: string, branch: string): Promise<string[]> {
     if (!name.endsWith('.md')) continue;
     const created = new Set(
       Array.from(
+        // the whole argument, less trailing markdown, so feat/x+next isn't read as feat/x and a quoted name isn't skipped
         (await readFile(plan, 'utf8')).matchAll(
-          /git (?:switch -c|checkout -b) ([\w./-]*[\w-])/g,
+          /git (?:switch -c|checkout -b) (\S+)/g,
         ),
-        (match) => match[1],
+        (match) => match[1]!.replace(/[`.,;:)]+$/, ''),
       ),
     );
     // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
