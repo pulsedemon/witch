@@ -1,6 +1,7 @@
 import wrapAnsi from 'wrap-ansi';
 import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
+import { diffRows } from './diff.js';
 import { markdown } from './markdown.js';
 import { accent, colors } from './theme.js';
 import type { Graphics } from './images.js';
@@ -118,15 +119,19 @@ function build(
   const images = graphics
     ? sources.flatMap((source) => graphics.rows(source, item.cwd, width))
     : [];
+  const diff =
+    tool && expanded && item.diff?.length
+      ? diffRows(item.diff, width, item.cwd)
+      : [];
   const head = section(title, width, true, 0);
   // concat, since spreading a long log into push() exceeds the argument limit
   const rendered = body ? section(body, width, false, head.next) : undefined;
   const next = rendered?.next ?? head.next;
-  const lines = head.lines.concat(rendered?.lines ?? [], images, '');
+  const lines = head.lines.concat(rendered?.lines ?? [], diff, images, '');
   const anchors = head.anchors.concat(
     rendered?.anchors ?? [],
-    // each image row and the closing blank anchor as lines of their own
-    Array.from({ length: images.length + 1 }, (_, index) => ({
+    // each diff row, image row and the closing blank anchor as lines of their own
+    Array.from({ length: diff.length + images.length + 1 }, (_, index) => ({
       line: next + index,
       offset: 0,
     })),
@@ -135,9 +140,9 @@ function build(
     item,
     lines,
     anchors,
-    // output grows above the images, so a block with images is rebuilt whole
+    // output grows above the diff and images, so a block with either is rebuilt whole
     tail:
-      tool && body && !images.length
+      tool && body && !diff.length && !images.length
         ? tailOf(item, anchors, head.lines.length)
         : undefined,
   };
@@ -156,6 +161,7 @@ function extend(
     item.title !== previous.title ||
     item.done !== previous.done ||
     item.cwd !== previous.cwd ||
+    item.diff !== previous.diff ||
     !item.text.startsWith(previous.text)
   )
     return undefined;
@@ -183,6 +189,16 @@ function extend(
   };
 }
 
+/** a `!` command, or a change to a file under the row's cwd, shows expanded until toggled. */
+function opens(item: DisplayItem): boolean {
+  const inside = (path: string | undefined) =>
+    path === item.cwd || !!path?.startsWith(`${item.cwd}/`);
+  return (
+    !!item.shell ||
+    !!item.diff?.some((file) => inside(file.path) || inside(file.movePath))
+  );
+}
+
 export class TranscriptLayout {
   /** blocks by item id, then by expanded state, all at `width`. */
   private cache = new Map<string, Map<boolean, Block>>();
@@ -205,8 +221,7 @@ export class TranscriptLayout {
     // entries for items no longer shown fall away with the old cache
     const cache = new Map<string, Map<boolean, Block>>();
     for (const item of items) {
-      // a `!` command's row starts expanded, so toggling it collapses it
-      const open = expanded.has(item.id) !== !!item.shell;
+      const open = expanded.has(item.id) !== opens(item);
       const variants = this.cache.get(item.id) ?? new Map<boolean, Block>();
       const previous = variants.get(open);
       const block =
