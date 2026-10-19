@@ -70,7 +70,7 @@ export function languageOf(
   );
 }
 
-/** `line` in its colored runs, plain when highlight.js gives up on it. */
+/** `line` in its colored runs, plain when highlight.js gives up on it or, in a grammar without the `u` flag, ends a run inside an emoji. */
 function spansOf(line: string, language: string): Span[] {
   let tree: Root;
   try {
@@ -99,7 +99,9 @@ function spansOf(line: string, language: string): Span[] {
         });
   };
   walk(tree.children);
-  return spans;
+  return spans.every(({ text }) => text.isWellFormed())
+    ? spans
+    : [{ text: line }];
 }
 
 /**
