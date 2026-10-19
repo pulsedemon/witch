@@ -290,7 +290,7 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
-await test("a plan that can't be read stays, and one that can't be removed stays with its ledger while the cleanup carries on", async () => {
+await test("a plan that can't be read stays, and one that can't be removed stays with its ledger while the cleanup carries on, named even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
@@ -323,6 +323,37 @@ await test("a plan that can't be read stays, and one that can't be removed stays
     assert.equal(
       await git(checkout, 'rev-parse', 'HEAD'),
       await git(other, 'rev-parse', 'origin/main'),
+    );
+  }
+  {
+    const { checkout, other, tip } = await merged();
+    await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
+    const ledgers = join(checkout, '.superpowers/sdd');
+    await write(join(ledgers, 'x/plan-path'), 'docs/superpowers/plans/x.md\n');
+    // a commit only the checkout's main has, so main can't fast-forward
+    await git(checkout, 'switch', 'main');
+    await git(checkout, 'commit', '--allow-empty', '-m', 'local');
+    await git(checkout, 'switch', 'feat/x');
+    await merge(other, 'feat/x');
+    await chmod(ledgers, 0o500);
+    await assert.rejects(
+      cleanUpMerge(checkout, pullRequest(tip)).finally(() =>
+        chmod(ledgers, 0o700),
+      ),
+      (error) => {
+        const message = (error as Error).message;
+        assert.ok(
+          message.startsWith(
+            '#7 merged: switched to main and deleted branch feat/x (plan x.md stayed: EACCES',
+          ),
+          message,
+        );
+        assert.ok(
+          message.includes("), but main didn't fast-forward: "),
+          message,
+        );
+        return true;
+      },
     );
   }
 });
