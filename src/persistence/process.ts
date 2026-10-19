@@ -7,15 +7,25 @@ import type { ProcessIdentity } from '../core/state.js';
 const execute = promisify(execFile);
 
 /**
- * `ps -o format` for the listed processes, or every process without a list. Dates and decimals are C's, which Date
- * and Number parse, and dates are in UTC so a time zone change keeps every identity. LC_ALL goes, since it overrides
- * both; LC_ALL=C instead would escape non-ASCII in commands.
+ * `ps -o format` for the listed processes, or every process without a list, with each command's environment after it
+ * when `environment` is set. Dates and decimals are C's, which Date and Number parse, and dates are in UTC so a time
+ * zone change keeps every identity. LC_ALL goes, since it overrides both; LC_ALL=C instead would escape non-ASCII in
+ * commands.
  */
-export async function ps(format: string, pids?: number[]): Promise<string[]> {
+export async function ps(
+  format: string,
+  pids?: number[],
+  options: { environment?: boolean } = {},
+): Promise<string[]> {
   try {
     const { stdout } = await execute(
       '/bin/ps',
-      [...(pids ? ['-p', pids.join(',')] : ['-A']), '-o', format],
+      [
+        ...(options.environment ? ['-E'] : []),
+        ...(pids ? ['-p', pids.join(',')] : ['-A']),
+        '-o',
+        format,
+      ],
       {
         env: {
           ...process.env,
@@ -24,6 +34,8 @@ export async function ps(format: string, pids?: number[]): Promise<string[]> {
           LC_NUMERIC: 'C',
           TZ: 'UTC',
         },
+        // an environment is about 5 KB, so the default 1 MiB overflows at about 200 processes
+        ...(options.environment ? { maxBuffer: 64 << 20 } : {}),
       },
     );
     return stdout.split('\n').filter(Boolean);

@@ -1,3 +1,6 @@
+import { writeFileSync } from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ps } from '../persistence/process.js';
 
@@ -79,13 +82,38 @@ async function describe(pids: number[]): Promise<Detail[]> {
   return parseDetails(await ps('pid=,pgid=,%cpu=,lstart=,command=', pids));
 }
 
+/** the listed processes whose environment holds `entry`. ps prints no environment for Apple's platform binaries. */
+async function carrying(entry: string, pids: number[]): Promise<number[]> {
+  return (await ps('pid=,command=', pids, { environment: true })).flatMap(
+    (line) => {
+      const [, pid, rest] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+      return pid && ` ${rest} `.includes(` ${entry} `) ? [Number(pid)] : [];
+    },
+  );
+}
+
+/** `text` in single quotes, for zsh and bash. */
+function quote(text: string): string {
+  return `'${text.replaceAll("'", `'\\''`)}'`;
+}
+
 /**
  * the process groups of the agents' commands, which both agents start as session leaders, of the groups handed to
  * `track`, and of any group a process inside one moves to. a group keeps its generation while a process from the last
- * read remains in it, so a command orphaned to launchd still shows; one orphaned before any read sees it never does,
- * unless its group was handed over.
+ * read remains in it, so a command orphaned to launchd still shows.
+ *
+ * with a `directory`, Claude Code runs `script` as its `CLAUDE_ENV_FILE` ahead of each Bash command, in the shell that
+ * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
+ * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
+ * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
+ * those below it, are then tracked. an orphan no read saw is missed unless its group was handed over or reported, or a
+ * process in it carries the mark.
  */
 export class JobWatch {
+  /** the report script's path, `<directory>/env`. */
+  readonly script?: string;
+  /** what every agent command's environment gains. */
+  readonly environment: Record<string, string>;
   /** each tracked group's generation. */
   private groups: ReadonlyMap<number, number> = new Map();
   /** the groups handed to `track` that no read has yet found empty. */
@@ -93,6 +121,8 @@ export class JobWatch {
   private generation = 0;
   /** the tracked groups' processes as of the last read, by identity, with the group each was in. */
   private members = new Map<string, number>();
+  /** every process's identity as of the last read, unset until a read succeeds. */
+  private seen?: Set<string>;
   private readonly timer: ReturnType<typeof setInterval>;
   private polling?: Promise<Row[]>;
 
@@ -106,8 +136,24 @@ export class JobWatch {
       processes?: () => Promise<Row[]>;
       /** describes the tracked processes for `list`, from `ps` without it. */
       describe?: (pids: number[]) => Promise<Detail[]>;
+      /** an existing directory this instance alone reports into; without it nothing reports or is marked. */
+      directory?: string;
+      /** the listed processes whose environment holds the mark, from `ps` without it. */
+      marked?: (pids: number[]) => Promise<number[]>;
     } = {},
   ) {
+    const { directory } = options;
+    this.environment = directory ? { WITCH_JOBS: directory } : {};
+    if (directory) {
+      this.script = join(directory, 'env');
+      // the braces send a failed write's error to /dev/null, `|| :` keeps it from ending a shell under errexit, which
+      // Claude's snapshot replays from the user's shell, and `>|` writes under noclobber. the unset keeps a Claude Code
+      // that a command starts from reading this file
+      writeFileSync(
+        this.script,
+        `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport WITCH_JOBS=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
+      );
+    }
     // a failed read leaves the groups as they were, and the next tick reads again
     this.timer = setInterval(
       () => void this.poll().catch(() => {}),
@@ -196,6 +242,12 @@ export class JobWatch {
   private async read(): Promise<Row[]> {
     // a group handed over while this read's ps runs can be missing from its rows, so it waits for the next read
     const handed = [...this.handed];
+    // a report collected after ps could name a group ps never saw, which this read would drop. one in the copy alone
+    // would be lost when its shell still runs now and exits before the next read
+    for (const pid of await this.reports()) {
+      handed.push(pid);
+      this.handed.add(pid);
+    }
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
     // the agents' commands lead sessions and their MCP servers don't. a server's detached helpers sit a level deeper
@@ -217,10 +269,43 @@ export class JobWatch {
         .map(({ pgid }) => pgid),
     );
     const groups = new Set(held);
-    while (pending.length) {
-      const row = pending.pop()!;
-      groups.add(row.pgid);
-      pending.push(...(children.get(row.pid) ?? []));
+    // stopping Witch's own group would end Witch. Codex's `shell_zsh_fork` and a Claude hook that sources
+    // `$CLAUDE_ENV_FILE`, both off by default, put marked processes there, since neither agent is spawned detached
+    const own = rows.find(({ pid }) => pid === process.pid)?.pgid;
+    const walk = () => {
+      while (pending.length) {
+        const row = pending.pop()!;
+        if (row.pgid !== own) groups.add(row.pgid);
+        pending.push(...(children.get(row.pid) ?? []));
+      }
+    };
+    walk();
+    // every process from before the first read, Witch's own terminal or tmux server included, is in that read, so none
+    // of them is checked
+    const { directory } = this.options;
+    const { seen } = this;
+    if (directory && seen) {
+      const below = (row: Row): Row[] => [
+        row,
+        ...(children.get(row.pid) ?? []).flatMap(below),
+      ];
+      const candidates = rows
+        .filter(
+          ({ ppid, pgid, identity }) =>
+            ppid === 1 && !seen.has(identity) && !groups.has(pgid),
+        )
+        .flatMap(below);
+      if (candidates.length) {
+        const marked = new Set(
+          await (
+            this.options.marked ??
+            ((pids) => carrying(`WITCH_JOBS=${directory}`, pids))
+          )(candidates.map(({ pid }) => pid)),
+        );
+        // an unmarked root can sit above a command's session in a group that isn't the command's
+        pending.push(...candidates.filter(({ pid }) => marked.has(pid)));
+        walk();
+      }
     }
     // a group none of whose processes carry over is a new one, even under an id tracked before
     this.groups = new Map(
@@ -233,8 +318,28 @@ export class JobWatch {
     this.members = new Map(
       tracked.map(({ identity, pgid }) => [identity, pgid]),
     );
+    this.seen = new Set(rows.map(({ identity }) => identity));
     for (const group of handed)
       if (!rows.some(({ pgid }) => pgid === group)) this.handed.delete(group);
     return tracked;
+  }
+
+  /** takes the pids reported since the last read. */
+  private async reports(): Promise<number[]> {
+    const { directory } = this.options;
+    if (!directory) return [];
+    let names: string[];
+    try {
+      names = await readdir(directory);
+    } catch (error) {
+      // an agent's command can remove the directory, and /jobs should keep what the other paths reach
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const pids = names.filter((name) => /^\d+$/.test(name));
+    await Promise.all(
+      pids.map((name) => rm(join(directory, name), { force: true })),
+    );
+    return pids.map(Number);
   }
 }

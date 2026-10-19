@@ -23,10 +23,12 @@ async function launcher(mode?: string) {
   const cwd = await scratch('witch-claude-');
   const children: ChildProcessWithoutNullStreams[] = [];
   const args: string[][] = [];
+  const envs: NodeJS.ProcessEnv[] = [];
   const adapter = new ClaudeAdapter((options) => {
     assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
     assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
     args.push(options.args);
+    envs.push(options.env);
     const child = spawn(process.execPath, [claude, ...(mode ? [mode] : [])], {
       cwd,
       stdio: 'pipe',
@@ -44,7 +46,7 @@ async function launcher(mode?: string) {
       onProcess: async () => {},
       ...options,
     });
-  return { cwd, children, args, connect };
+  return { cwd, children, args, envs, connect };
 }
 
 async function fixture(
@@ -1083,4 +1085,54 @@ await test('a shell report that rejects fails the command once it ends, without 
   } finally {
     await session.close();
   }
+});
+
+const mark = { environment: { WITCH_JOBS: '/x/jobs' }, script: '/x/jobs/env' };
+
+/** runs `body` with another instance's mark in Witch's environment, as when Witch runs inside an agent's command. */
+async function insideAnotherWitch(body: () => Promise<void>) {
+  const outer = process.env.WITCH_JOBS;
+  process.env.WITCH_JOBS = '/outer/jobs/1';
+  try {
+    await body();
+  } finally {
+    if (outer === undefined) delete process.env.WITCH_JOBS;
+    else process.env.WITCH_JOBS = outer;
+  }
+}
+
+await test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI doesn't get the mark", async () => {
+  await insideAnotherWitch(async () => {
+    const { envs, connect } = await launcher();
+    const session = await connect({ mark });
+    try {
+      assert.equal(envs[0]!.CLAUDE_ENV_FILE, '/x/jobs/env');
+      assert.equal(envs[0]!.WITCH_JOBS, '/outer/jobs/1');
+    } finally {
+      await session.close();
+    }
+  });
+});
+
+await test("a ! command's shell gets the mark's environment over Witch's", async () => {
+  await insideAnotherWitch(async () => {
+    const texts: string[] = [];
+    const { connect } = await launcher();
+    const session = await connect({
+      mark,
+      onEvent: (event) => {
+        if (event.type === 'tool') texts.push(event.text);
+      },
+    });
+    try {
+      await within(
+        session.shell('printf "%s|%s" "$WITCH_JOBS" "$TMPDIR"'),
+        3000,
+        'the command',
+      );
+      assert.equal(texts.join(''), `/x/jobs|${process.env.TMPDIR}`);
+    } finally {
+      await session.close();
+    }
+  });
 });

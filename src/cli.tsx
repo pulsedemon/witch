@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
+import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -61,7 +62,14 @@ if (!store) {
   process.stdout.write(usage);
 } else {
   const prompt = positionals.join(' ');
-  const jobs = new JobWatch();
+  // the pid keeps another live instance's mark from matching, so one already here is an earlier instance's
+  const directory = join(store.root, 'jobs', String(process.pid));
+  rmSync(directory, { recursive: true, force: true });
+  mkdirSync(directory, { recursive: true });
+  process.once('exit', () =>
+    rmSync(directory, { recursive: true, force: true }),
+  );
+  const jobs = new JobWatch({ directory });
   const coordinator = new Coordinator(
     store,
     new Memory(join(store.root, 'memory.git')),
