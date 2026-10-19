@@ -41,6 +41,16 @@ const declarations = new Set([
   'impl',
 ]);
 
+/** what a shebang names, in the order Claude Code looks for it, with the language it reads as. */
+const interpreters = [
+  ['bash', 'bash'],
+  ['/sh', 'bash'],
+  ['python', 'python'],
+  ['node', 'javascript'],
+  ['ruby', 'ruby'],
+  ['perl', 'perl'],
+] as const;
+
 /** the language Claude Code reads a file as: by its name, then its extension, then a shebang or XML or PHP opening. */
 export function languageOf(
   path: string,
@@ -51,17 +61,7 @@ export function languageOf(
   const line = first?.replace(/^\uFEFF/, '');
   if (line?.startsWith('#!'))
     candidates.push(
-      line.includes('bash') || line.includes('/sh')
-        ? 'bash'
-        : line.includes('python')
-          ? 'python'
-          : line.includes('node')
-            ? 'javascript'
-            : line.includes('ruby')
-              ? 'ruby'
-              : line.includes('perl')
-                ? 'perl'
-                : undefined,
+      interpreters.find(([interpreter]) => line.includes(interpreter))?.[1],
     );
   else if (line?.startsWith('<?php')) candidates.push('php');
   else if (line?.startsWith('<?xml')) candidates.push('xml');
