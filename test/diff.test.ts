@@ -282,17 +282,17 @@ await test('a line whose colors would end inside an emoji draws plain and keeps 
   assert.ok(row(' my $x = 1;').includes('\u001b[38;2;249;38;114mmy'));
 });
 
-await test("the language comes from the file's name ahead of its extension, a move's new name or a shebang on its first line, and a file that names none draws plain", () => {
+await test("the language comes from the file's name ahead of its extension, a move's new name, or a shebang, PHP or XML opening on the file's first line, read only from a context or added row of a first hunk at line 1, and a file that names none draws plain", () => {
   const colored = (
     path: string,
     lines: string[],
-    extra: Partial<FileDiff> = {},
+    { start = 1, ...extra }: Partial<FileDiff> & { start?: number } = {},
   ) =>
     rows([
       {
         path,
         kind: 'update',
-        hunks: [{ oldStart: 1, newStart: 1, lines }],
+        hunks: [{ oldStart: start, newStart: start, lines }],
         ...extra,
       },
     ])
@@ -310,6 +310,25 @@ await test("the language comes from the file's name ahead of its extension, a mo
   );
   assert.ok(
     colored('/work/bin/tool.zz', [' #!/usr/bin/env python', '+def f(): pass']),
+  );
+  assert.ok(
+    colored('/work/bin/tool.zz', ['+#!/usr/bin/env python', '+def f(): pass'], {
+      kind: 'add',
+    }),
+  );
+  assert.ok(
+    !colored(
+      '/work/bin/tool.zz',
+      [' #!/usr/bin/env python', '+def f(): pass'],
+      { start: 5 },
+    ),
+  );
+  assert.ok(
+    !colored('/work/bin/tool.zz', ['-#!/usr/bin/env python', '+x = 1']),
+  );
+  assert.ok(colored('/work/x', ['+<?php', '+echo 1;']));
+  assert.ok(
+    colored('/work/x', ['+\uFEFF<?xml version="1.0"?>', '+<a b="c"/>']),
   );
   for (const path of ['/work/notes', '/work/a.zz'])
     assert.ok(!colored(path, [' const a = 1', '+if (a) return']), path);
