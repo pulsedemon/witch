@@ -418,11 +418,11 @@ await test("words a removed row and the added row at its place in the next run c
     );
 });
 
-await test("a long line past the highlighting budget draws plain while shorter lines keep their colors, the budget adds up within a hunk, counts a line's indent and starts again in the next, and a pair needing over 400 token edits gets no word colors, so long lines draw quickly", () => {
+await test("a long line past the highlighting budget draws plain while shorter lines keep their colors, the budget adds up across a file's hunks, counts a line's indent and starts again in the next file, and a pair needing over 400 token edits gets no word colors, so long lines draw quickly", () => {
   // each costs about 9,000,000, so the second passes the 16,000,000 budget
   const long = (name: string) =>
     `+const ${name} = [` + 'a, '.repeat(1000) + '];';
-  const [, first, second, short, , later, , indented] = diffRows(
+  const [, first, second, short, , later, , indented, , , next] = diffRows(
     [
       {
         path: '/work/a.ts',
@@ -445,6 +445,17 @@ await test("a long line past the highlighting budget draws plain while shorter l
           },
         ],
       },
+      {
+        path: '/work/b.ts',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [`+const v = [${'a, '.repeat(100)}];`],
+          },
+        ],
+      },
     ],
     100,
     '/work',
@@ -454,8 +465,9 @@ await test("a long line past the highlighting budget draws plain while shorter l
   assert.ok(colored(first!));
   assert.ok(!colored(second!));
   assert.ok(colored(short!));
-  assert.ok(colored(later!));
+  assert.ok(!colored(later!));
   assert.ok(!colored(indented!));
+  assert.ok(colored(next!));
   const words = Array.from({ length: 1200 }, (_, index) => `w${index}`);
   const changed = words.map((word, index) => (index % 5 ? word : `v${index}`));
   const paired = rows([
