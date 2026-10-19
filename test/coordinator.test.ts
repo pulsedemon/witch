@@ -1692,6 +1692,22 @@ await test('continue opens the newest conversation in this directory, ignoring n
   }
 });
 
+await test('a conversation id opens that conversation, even one with nothing sent', async () => {
+  const { coordinator: first, store, root, project, a } = await fixture();
+  await first.close();
+  await used(store, root, record('fresh', project));
+  const coordinator = new Coordinator(store, first.memory, [
+    { adapter: a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(project, { conversation: 'fresh' });
+    assert.equal(coordinator.snapshot.conversation!.id, 'fresh');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('continue with nothing in this directory starts a new conversation here', async () => {
   const { coordinator: first, store, root, project, a } = await fixture();
   await first.close();
