@@ -3326,6 +3326,35 @@ await test("a model change runs during a replied turn without waiting, and is re
   }
 });
 
+await test('a model change during a replied turn refuses another until it finishes', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    a.replied = true;
+    const before = a.selections.length;
+    const first = coordinator.selectModel('a-big', 'high');
+    await assert.rejects(coordinator.selectModel('a-model'), {
+      message: 'Stop the current operation first',
+    });
+    await first;
+    assert.deepEqual(a.selections.slice(before), [['a-big', 'high']]);
+    assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
+    await coordinator.selectModel('a-model');
+    assert.equal(
+      coordinator.snapshot.conversation!.sessions.a!.model,
+      'a-model',
+    );
+    gate.open();
+    await within(sending, 2000, 'the turn');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 await test('a replied turn opens the model list from its connect without refreshing', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
