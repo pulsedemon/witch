@@ -24,6 +24,12 @@ const wrap = (display: string, width: number, last = true) =>
     trim: false,
   }).split('\n');
 
+const backward = new Set<Edit['type']>([
+  'backspace',
+  'backspaceWord',
+  'backspaceRow',
+]);
+
 /** Ghostty sends Option+← and Option+→ as Esc B and Esc F. */
 const optionSteps: Partial<Record<string, Step>> = {
   b: 'wordLeft',
@@ -78,9 +84,24 @@ function rowStops(
   };
 }
 
+/**
+ * with `shell`, a leading `!` is drawn in a column of its own, as Claude Code and Codex draw shell mode, and kept out of
+ * the text beside it, so no cursor or edit reaches it.
+ */
+function split({ value, cursor }: InputBuffer, width: number, shell: boolean) {
+  return shell && value.startsWith('!')
+    ? {
+        mark: '!',
+        width: width - 2,
+        text: { value: value.slice(1), cursor: Math.max(0, cursor - 1) },
+      }
+    : { mark: '', width, text: { value, cursor } };
+}
+
 /** the rows an input holding `value` fills at `width`. */
-export function inputRows(value: string, width: number): number {
-  return wrap(visible(value), width).length;
+export function inputRows(value: string, width: number, shell = false): number {
+  const drawn = split({ value, cursor: 0 }, width, shell);
+  return wrap(visible(drawn.text.value), drawn.width).length;
 }
 
 export interface InputHandle {
@@ -94,6 +115,8 @@ interface Props {
   height: number;
   active: boolean;
   secret?: boolean;
+  /** draws a leading `!` apart from the text, as shell mode's prompt. */
+  shell?: boolean;
   multiline?: boolean;
   placeholder?: string;
   initialValue?: string;
@@ -110,6 +133,7 @@ export function Input({
   height,
   active,
   secret = false,
+  shell = false,
   multiline = true,
   placeholder = 'Ask the agent, or type /help',
   initialValue = '',
@@ -123,9 +147,14 @@ export function Input({
   const reference = useRef<DOMElement>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number }>();
   const { setCursorPosition } = useCursor();
-  const display = visible(state.value, secret);
-  const cursor = visible(state.value.slice(0, state.cursor), secret).length;
-  const wrapped = wrap(display, width);
+  const drawnAt = (buffer: InputBuffer) => split(buffer, width, shell);
+  const drawn = drawnAt(state);
+  const display = visible(drawn.text.value, secret);
+  const cursor = visible(
+    drawn.text.value.slice(0, drawn.text.cursor),
+    secret,
+  ).length;
+  const wrapped = wrap(display, drawn.width);
   let consumed = 0;
   let row = 0;
   let column = 0;
@@ -163,7 +192,13 @@ export function Input({
     setState(next);
     onChange?.(next.value, next.cursor);
   };
-  const edit = (action: Edit) => replace(editInput(current.current, action));
+  const edit = (action: Edit) => {
+    const { mark, text } = drawnAt(current.current);
+    // Backspace, Option+Delete or Cmd+Delete at the text's start takes the `!`, as Backspace leaves Claude Code's and Codex's shell mode
+    if (mark && !text.cursor && backward.has(action.type)) return replace(text);
+    const next = editInput(text, action);
+    replace({ value: mark + next.value, cursor: mark.length + next.cursor });
+  };
   useImperativeHandle(ref, () => ({ set: replace }));
   useEffect(() => {
     onChange?.(current.current.value, current.current.cursor);
@@ -183,11 +218,14 @@ export function Input({
       // Ghostty sends Cmd+←, Cmd+→ and Cmd+Delete as Ctrl+A, Ctrl+E and Ctrl+U
       if (key.ctrl) {
         if (input === 'a' || input === 'e' || input === 'u') {
-          const { value, cursor } = current.current;
-          const stops = rowStops(value, cursor, width, secret);
+          const { mark, width: rowWidth, text } = drawnAt(current.current);
+          const stops = rowStops(text.value, text.cursor, rowWidth, secret);
           if (input === 'u') edit({ type: 'backspaceRow', start: stops.back });
           else
-            replace({ value, cursor: input === 'a' ? stops.home : stops.end });
+            replace({
+              value: current.current.value,
+              cursor: mark.length + (input === 'a' ? stops.home : stops.end),
+            });
         }
         return;
       }
@@ -225,10 +263,18 @@ export function Input({
   );
 
   return (
-    <Box ref={reference} width={width} height={height} overflow="hidden">
-      <Text>
-        {state.value ? lines.join('\n') : <Text dimColor>{placeholder}</Text>}
-      </Text>
+    <Box width={width} height={height}>
+      {drawn.mark && <Text>{`${drawn.mark} `}</Text>}
+      <Box
+        ref={reference}
+        width={drawn.width}
+        height={height}
+        overflow="hidden"
+      >
+        <Text>
+          {state.value ? lines.join('\n') : <Text dimColor>{placeholder}</Text>}
+        </Text>
+      </Box>
     </Box>
   );
 }
