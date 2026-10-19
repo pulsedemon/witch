@@ -140,7 +140,7 @@ export interface AgentSession {
   readonly usage: Usage;
   readonly closed: boolean;
   /**
-   * the turn in flight has replied and stays open only while familiars run, as Claude Code's does. it then runs a
+   * the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then runs a
    * steered spell, sent as `/name args`, as a turn of its own, and takes a command or a model change.
    */
   readonly replied: boolean;

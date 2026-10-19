@@ -439,7 +439,7 @@ export class Coordinator {
     return true;
   }
 
-  /** the live session's turn has replied and stays open only for its familiars. */
+  /** the live session's turn has replied and stays open only for its familiars or workflows. */
   private get replied(): boolean {
     return this.snapshot.phase === 'running' && !!this.session?.replied;
   }
@@ -531,7 +531,7 @@ export class Coordinator {
   /** an omitted effort keeps the one in force, except on a model that lists none. */
   async selectModel(model: string, effort?: string): Promise<void> {
     if (this.changingModel) throw new Error('Stop the current operation first');
-    // a familiar holding a replied turn open doesn't stop Claude Code taking the change
+    // a familiar or workflow holding a replied turn open doesn't stop Claude Code taking the change
     if (!this.replied)
       return this.operate('starting', () => this.changeModel(model, effort));
     this.changingModel = true;
@@ -1303,7 +1303,7 @@ export class Coordinator {
           : this.snapshot.phase === 'error' && this.snapshot.error
             ? this.snapshot.error
             : this.replied
-              ? 'Wait for the running familiars to report, or press Escape to stop them'
+              ? 'Wait for the running familiars or workflows to report, or press Escape to stop them'
               : 'Stop the current operation first',
       );
     this.cancelled = false;
