@@ -259,7 +259,7 @@ await test('each line reads alone, as Claude Code reads it, so a hunk that opens
   assert.ok(row(' class A(B):').includes('\u001b[38;2;166;226;46mA'));
 });
 
-await test('a line whose colors would end inside a character, such as an emoji or a keycap, draws plain and keeps it whole, while the lines around it keep their colors', () => {
+await test('a line whose colored runs would split a character, such as an emoji or a keycap, or change one, as the CSS grammars change U+2028, draws plain and keeps it whole, while the lines around it keep their colors', () => {
   const drawn = rows(
     [
       {
@@ -278,6 +278,11 @@ await test('a line whose colors would end inside a character, such as an emoji o
         kind: 'update',
         hunks: [{ oldStart: 1, newStart: 1, lines: ['+f(1\uFE0F\u20E3);'] }],
       },
+      {
+        path: '/work/c.css',
+        kind: 'update',
+        hunks: [{ oldStart: 1, newStart: 1, lines: ['+a[b\u2028] {}'] }],
+      },
     ],
     40,
   );
@@ -285,6 +290,7 @@ await test('a line whose colors would end inside a character, such as an emoji o
     drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
   assert.ok(row('+my $😀 = 2;').includes('my $😀 = 2;'));
   assert.ok(row('+f(1\uFE0F\u20E3);').includes('f(1\uFE0F\u20E3);'));
+  assert.ok(row('+a[b\u2028] {}').includes('a[b\u2028] {}'));
   assert.ok(row(' my $x = 1;').includes('\u001b[38;2;249;38;114mmy'));
 });
 
