@@ -177,17 +177,19 @@ function fileRows(file: FileDiff, width: number, cwd: string): string[][] {
         });
       }
     }
-    // removed rows stay plain, as Claude Code draws them
-    const kept = drawn.filter((row) => row.marker !== '-');
-    const spans = syntaxSpans(
-      kept.map(({ code }) => code),
-      language,
-    );
-    for (const [at, row] of kept.entries()) row.spans = spans[at]!;
     for (const [removed, added] of pairs(drawn))
       [removed.words, added.words] = changedWords(removed.code, added.code);
     for (const row of drawn) rows.push(row);
   }
+  // removed rows stay plain, as Claude Code draws them
+  const kept = rows.filter(
+    (row): row is Row => row !== undefined && row.marker !== '-',
+  );
+  const spans = syntaxSpans(
+    kept.map(({ code }) => code),
+    language,
+  );
+  for (const [at, row] of kept.entries()) row.spans = spans[at]!;
   // a loop, since spreading every number into Math.max exceeds the argument limit
   let digits = 1;
   for (const row of rows)
