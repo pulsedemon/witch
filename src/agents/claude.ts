@@ -144,6 +144,8 @@ class ClaudeSession implements AgentSession {
   private readonly backgroundCommands = new Map<string, BackgroundCommand>();
   /** the background workflows still running. */
   private readonly workflows = new Set<string>();
+  /** the task ids the last live set listed. a foreground familiar is never listed, so only a task listed before can end by leaving it. */
+  private listed = new Set<string>();
   /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
@@ -656,6 +658,20 @@ class ClaudeSession implements AgentSession {
         if (this.turn?.held && this.turn.answer !== undefined)
           this.release(this.turn);
       } else if (message.subtype === 'background_tasks_changed') {
+        const listed = new Set(message.tasks.map(({ task_id }) => task_id));
+        // a task can leave the live set with no notification, when Claude Code drops it from its registry or a full
+        // output queue evicts the notification
+        for (const id of this.listed) {
+          if (listed.has(id)) continue;
+          this.workflows.delete(id);
+          const subagent = this.subagents.get(id);
+          if (subagent?.status === 'running')
+            this.subagent({ ...subagent, status: 'stopped' });
+          const command = this.backgroundCommands.get(id);
+          if (command?.status === 'running')
+            this.backgroundCommand({ ...command, status: 'stopped' });
+        }
+        this.listed = listed;
         // the live set lists a shell once it runs in the background, however it got there, and never a foreground one
         for (const task of message.tasks)
           if (
