@@ -478,6 +478,41 @@ await test('a checkout that changed since the watch looked is left alone', async
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
+await test('a checkout with a staged or conflicted change is left alone, and one with only an untracked file is not', async () => {
+  for (const change of ['staged', 'conflicted'] as const) {
+    const { checkout, other, tip } = await merged();
+    await merge(other, 'feat/x');
+    await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
+    if (change === 'staged') {
+      await writeFile(join(checkout, 's.txt'), 's\n');
+      await git(checkout, 'add', 's.txt');
+    } else {
+      // a commit that adds x.txt too, so merging it conflicts while the branch stays at the merged commit
+      await git(checkout, 'switch', '--detach', 'main');
+      await writeFile(join(checkout, 'x.txt'), 'side\n');
+      await git(checkout, 'add', 'x.txt');
+      await git(checkout, 'commit', '-m', 'side');
+      const side = await git(checkout, 'rev-parse', 'HEAD');
+      await git(checkout, 'switch', 'feat/x');
+      await assert.rejects(git(checkout, 'merge', side));
+    }
+    assert.equal(
+      await cleanUpMerge(checkout, pullRequest(tip)),
+      undefined,
+      change,
+    );
+    assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+    assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
+    assert.ok(await exists(join(plans(checkout), 'x.md')));
+  }
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await writeFile(join(checkout, 'notes.txt'), 'notes\n');
+  assert.equal((await cleanUpMerge(checkout, pullRequest(tip)))?.cleaned, true);
+  assert.deepEqual(await branches(checkout), ['main']);
+  assert.equal(await readFile(join(checkout, 'notes.txt'), 'utf8'), 'notes\n');
+});
+
 await test('an ignored file the base or the merge would start tracking stops the cleanup before overwriting it', async () => {
   {
     const { checkout, other } = await merged({ 'config.local': 'base\n' });
