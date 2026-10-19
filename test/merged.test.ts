@@ -396,6 +396,39 @@ await test('a base that tracks another remote is brought up to date from it', as
   });
 });
 
+await test("the cleanup fetches through the user's own ssh command, and through ssh in batch mode otherwise", async () => {
+  for (const own of [true, false]) {
+    const { root, origin, checkout, other, tip } = await merged();
+    await merge(other, 'feat/x');
+    await git(checkout, 'remote', 'set-url', 'origin', `ssh://x.test${origin}`);
+    // stands in for ssh: logs its arguments and runs the remote command here
+    const log = join(root, 'ssh.log');
+    const ssh = join(root, 'bin', own ? 'own-ssh' : 'ssh');
+    await write(
+      ssh,
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\neval "command=\\\${$#}"\nexec sh -c "$command"\n`,
+    );
+    await execute('chmod', ['+x', ssh]);
+    const path = process.env.PATH;
+    if (own) {
+      await git(checkout, 'config', 'core.sshCommand', ssh);
+      await git(checkout, 'config', 'ssh.variant', 'simple');
+    } else process.env.PATH = `${dirname(ssh)}:${path}`;
+    try {
+      assert.equal(
+        (await cleanUpMerge(checkout, pullRequest(tip)))?.cleaned,
+        true,
+      );
+    } finally {
+      process.env.PATH = path;
+    }
+    const calls = (await readFile(log, 'utf8')).trim().split('\n');
+    assert.equal(calls.length, 2);
+    for (const call of calls)
+      assert.ok(call.startsWith(own ? 'x.test ' : '-o BatchMode=yes '), call);
+  }
+});
+
 await test('a branch switched to during the base fetch is left as it was, and the cleanup stops', async () => {
   const { root, checkout, other, tip } = await merged();
   await git(checkout, 'switch', '-c', 'feat/y', 'main');
