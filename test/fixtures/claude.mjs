@@ -256,7 +256,16 @@ for await (const line of lines) {
       // the first steered prompt was folded in at a tool step, so the CLI still holds the rest
       else if (lastPrompt === 'steerable' && steered.length > 1)
         response = { still_queued: steered.slice(1) };
-      else {
+      // after the reply Claude Code stops the familiar and idles, with no fresh result
+      else if (lastPrompt === 'background familiar') {
+        task('task_notification', {
+          task_id: 'helper',
+          status: 'stopped',
+          output_file: '',
+          summary: '',
+        });
+        setTimeout(() => state('idle'));
+      } else {
         result();
         state('idle');
       }
@@ -683,6 +692,46 @@ for await (const line of lines) {
       assistant('Started.');
       // no idle until the workflow reports
       result();
+    } else if (lastPrompt === 'dropped tasks') {
+      // the live set drops the background tasks with no notification, once the test allows it
+      const helper = {
+        task_id: 'helper',
+        task_type: 'local_agent',
+        description: 'Slow helper',
+      };
+      const workflow = {
+        task_id: 'workflow',
+        task_type: 'local_workflow',
+        description: 'Slow workflow',
+      };
+      const serve = {
+        task_id: 'serve',
+        task_type: 'local_bash',
+        description: 'Start the server',
+      };
+      task('task_started', {
+        task_id: 'fore',
+        task_type: 'local_agent',
+        description: 'Foreground helper',
+        is_backgrounded: false,
+      });
+      level([helper]);
+      task('task_started', { ...helper, is_backgrounded: true });
+      level([helper, workflow]);
+      task('task_started', workflow);
+      level([helper, workflow, serve]);
+      task('task_notification', {
+        task_id: 'fore',
+        status: 'completed',
+        output_file: '',
+        summary: '',
+      });
+      assistant('Started.');
+      result();
+      once('allow-drop', () => {
+        level([]);
+        once('allow-idle', () => state('idle'));
+      });
     } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
       assistant('Working.');
     else if (lastPrompt === 'crash') {

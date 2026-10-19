@@ -480,6 +480,42 @@ await test("a background workflow holds the turn open for a prompt as a familiar
   }
 });
 
+await test('a background familiar, workflow or brew that leaves the live set with no notification ends stopped, and the turn no longer holds open for the familiar or workflow, while a foreground familiar the live set never listed keeps running', async () => {
+  const subagents: [string, string][] = [];
+  const commands: [string, string][] = [];
+  const costs: (number | undefined)[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'subagent')
+      subagents.push([event.subagent.id, event.subagent.status]);
+    if (event.type === 'command')
+      commands.push([event.command.id, event.command.status]);
+    if (event.type === 'usage') costs.push(event.usage.cost);
+  });
+  try {
+    const turn = session.send('dropped tasks');
+    await until('the result', () => costs.includes(0.25));
+    await writeFile(join(cwd, 'allow-drop'), 'yes');
+    await until('the drop', () =>
+      subagents.some(([id, status]) => id === 'helper' && status === 'stopped'),
+    );
+    assert.equal(await session.steer('after the drop'), false);
+    await writeFile(join(cwd, 'allow-idle'), 'yes');
+    assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+    assert.deepEqual(subagents, [
+      ['fore', 'running'],
+      ['helper', 'running'],
+      ['fore', 'completed'],
+      ['helper', 'stopped'],
+    ]);
+    assert.deepEqual(commands, [
+      ['serve', 'running'],
+      ['serve', 'stopped'],
+    ]);
+  } finally {
+    await session.close();
+  }
+});
+
 await test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
   const { seen, onEvent } = working();
   const { session } = await fixture(onEvent);
@@ -837,7 +873,7 @@ await test("Claude's background shells are commands from when the live set lists
       kind: '',
       run: undefined,
     };
-    // the live set's agent entries don't start or end a familiar of their own
+    // the live set's agent entries don't start a familiar, and one it drops after its notification has already ended
     assert.deepEqual(
       events.flatMap((event) =>
         event.type === 'subagent' ? [event.subagent] : [],
@@ -1294,6 +1330,22 @@ await test('an interrupt during a steered command after Claude Code is idle kill
     await until('the sleep ends', async () => !(await running('sleep 60.38')));
   } finally {
     await stop('sleep 60.38');
+    await session.close();
+  }
+});
+
+await test('an interrupt after the reply while a familiar holds the turn open ends the turn interrupted, though Claude Code sends no fresh result', async () => {
+  const seen = observe();
+  const { session } = await fixture(seen.onEvent);
+  try {
+    const turn = session.send('background familiar');
+    await until('the result', () => seen.costs.includes(0.25));
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.deepEqual(await within(turn, 2000, 'turn'), {
+      status: 'interrupted',
+      text: 'Finished.',
+    });
+  } finally {
     await session.close();
   }
 });
