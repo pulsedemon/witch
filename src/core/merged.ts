@@ -47,7 +47,15 @@ const succeeds = (promise: Promise<unknown>) =>
   );
 
 const read = async (cwd: string) =>
-  parseStatus(await git(cwd, 'status', '--porcelain=v2', '--branch'));
+  parseStatus(
+    await git(
+      cwd,
+      '--no-optional-locks',
+      'status',
+      '--porcelain=v2',
+      '--branch',
+    ),
+  );
 
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. */
 const ignored = (cwd: string, path: string) =>
@@ -84,14 +92,20 @@ export async function cleanUpMerge(
       cleaned: false,
     };
   // GitHub deletes a merged pull request's branch, and a long-lived head branch such as develop keeps its own
-  if (
-    (await git(
+  const [upstream, track] = (
+    await git(
       cwd,
       'for-each-ref',
-      '--format=%(upstream:track)',
+      '--format=%(upstream)%09%(upstream:track)',
       `refs/heads/${branch}`,
-    )) !== '[gone]'
-  )
+    )
+  ).split('\t');
+  if (!upstream)
+    return {
+      text: `#${number} merged, but ${branch} tracks no remote branch, so it stays.`,
+      cleaned: false,
+    };
+  if (track !== '[gone]')
     return {
       text: `#${number} merged, but ${branch} is still on its remote, so it stays.`,
       cleaned: false,
