@@ -106,7 +106,8 @@ function spansOf(line: string, language: string): Span[] {
 
 /**
  * a hunk's `lines`, each read alone as Claude Code reads them, in their colored runs. past its budget, a line over 256
- * characters after its indent draws plain: it costs its length squared, as highlight.js can take quadratic time on it.
+ * characters draws plain: it costs its length squared, as highlight.js can take quadratic time on it. unlike Claude
+ * Code, the indent counts, since Witch doesn't cut long lines and grammars such as Nix's are quadratic in the indent.
  */
 export function syntaxSpans(
   lines: readonly string[],
@@ -114,8 +115,7 @@ export function syntaxSpans(
 ): Span[][] {
   let spent = 0;
   return lines.map((line) => {
-    const length = line.trimStart().length;
-    const cost = length > 256 ? length ** 2 : 0;
+    const cost = line.length > 256 ? line.length ** 2 : 0;
     spent += cost;
     return !language || (cost && spent > 16_000_000)
       ? [{ text: line }]
