@@ -173,6 +173,8 @@ await test("a merged branch's checkout switches to the base, and loses the branc
     join(checkout, '.superpowers/sdd/y/plan-path'),
     'docs/superpowers/plans/y.md\n',
   );
+  // a stray file among the ledgers has no plan-path to read
+  await write(join(checkout, '.superpowers/sdd/.DS_Store'), '');
   await merge(other, 'feat/x');
   const result = await cleanUpMerge(checkout, pullRequest(tip));
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
@@ -198,7 +200,10 @@ await test("a merged branch's checkout switches to the base, and loses the branc
     'x2.md',
     'y.md',
   ]);
-  assert.deepEqual(await readdir(join(checkout, '.superpowers/sdd')), ['y']);
+  assert.deepEqual((await readdir(join(checkout, '.superpowers/sdd'))).sort(), [
+    '.DS_Store',
+    'y',
+  ]);
   assert.deepEqual(result, {
     text: '#7 merged: switched to main and pulled, deleted branches feat/x and feat/old, and plan x.md.',
     cleaned: true,
@@ -294,7 +299,7 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
-await test("a plan that can't be read or removed stays with its ledger, and the notice names it, even when the base can't fast-forward", async () => {
+await test("a plan that can't be read stays, and one that can't go with its ledgers stays with them and is named, even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
@@ -306,15 +311,20 @@ await test("a plan that can't be read or removed stays with its ledger, and the 
     });
     assert.deepEqual(await readdir(plans(checkout)), ['dangling.md']);
   }
-  {
+  // the ledger can't be removed, the ledgers can't be listed, and the plan-path can't be read
+  for (const [locked, mode, restored] of [
+    ['.superpowers/sdd', 0o500, 0o700],
+    ['.superpowers/sdd', 0o000, 0o700],
+    ['.superpowers/sdd/x/plan-path', 0o000, 0o600],
+  ] as const) {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
     const ledgers = join(checkout, '.superpowers/sdd');
     await write(join(ledgers, 'x/plan-path'), 'docs/superpowers/plans/x.md\n');
     await merge(other, 'feat/x');
-    await chmod(ledgers, 0o500);
+    await chmod(join(checkout, locked), mode);
     const result = await cleanUpMerge(checkout, pullRequest(tip)).finally(() =>
-      chmod(ledgers, 0o700),
+      chmod(join(checkout, locked), restored),
     );
     assert.ok(
       result?.text.startsWith(
