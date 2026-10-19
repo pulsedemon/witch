@@ -191,8 +191,10 @@ function extend(
 
 /** a `!` command, or a change to a file under the row's cwd, shows expanded until toggled. */
 function opens(item: DisplayItem): boolean {
+  // only `/` already ends in a separator
+  const root = item.cwd.endsWith('/') ? item.cwd : `${item.cwd}/`;
   const inside = (path: string | undefined) =>
-    path === item.cwd || !!path?.startsWith(`${item.cwd}/`);
+    path === item.cwd || !!path?.startsWith(root);
   return (
     !!item.shell ||
     !!item.diff?.some((file) => inside(file.path) || inside(file.movePath))
