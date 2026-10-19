@@ -450,6 +450,34 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
   }
 });
 
+await test("a background workflow holds the turn open for a prompt as a familiar does, until it reports, and isn't a familiar", async () => {
+  const texts: string[] = [];
+  const costs: (number | undefined)[] = [];
+  const subagents: string[] = [];
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'text') texts.push(event.text);
+    if (event.type === 'usage') costs.push(event.usage.cost);
+    if (event.type === 'subagent') subagents.push(event.subagent.id);
+  });
+  try {
+    const turn = session.send('background workflow');
+    await until('the result', () => costs.includes(0.25));
+    assert.equal(await session.steer('meanwhile'), true);
+    await until('the answer', () => texts.includes('Answered.'));
+    assert.equal(
+      await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
+      '"meanwhile"\n',
+    );
+    await until('the report', () => costs.includes(0.75));
+    assert.equal(await session.steer('after the report'), false);
+    await writeFile(join(cwd, 'allow-idle'), 'yes');
+    assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
+    assert.deepEqual(subagents, []);
+  } finally {
+    await session.close();
+  }
+});
+
 await test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
   const { seen, onEvent } = working();
   const { session } = await fixture(onEvent);

@@ -286,8 +286,8 @@ for await (const line of lines) {
         join(process.cwd(), 'early.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
       );
-    // the CLI answers a prompt sent while it waits on a background familiar, then idles once the familiar reports
-    if (lastPrompt === 'background familiar') {
+    // the CLI answers a prompt sent while it waits on a background familiar or workflow, then idles once it reports
+    if (['background familiar', 'background workflow'].includes(lastPrompt)) {
       appendFileSync(
         join(process.cwd(), 'steered.jsonl'),
         `${JSON.stringify(message.message.content)}\n`,
@@ -295,7 +295,7 @@ for await (const line of lines) {
       assistant('Answered.');
       result();
       task('task_notification', {
-        task_id: 'helper',
+        task_id: lastPrompt === 'background workflow' ? 'workflow' : 'helper',
         status: 'completed',
         output_file: '',
         summary: '',
@@ -673,6 +673,15 @@ for await (const line of lines) {
       });
       assistant('Started.');
       // no idle until the familiar reports
+      result();
+    } else if (lastPrompt === 'background workflow') {
+      task('task_started', {
+        task_id: 'workflow',
+        description: 'Slow workflow',
+        task_type: 'local_workflow',
+      });
+      assistant('Started.');
+      // no idle until the workflow reports
       result();
     } else if (['wait', 'still queued', 'steerable'].includes(lastPrompt))
       assistant('Working.');

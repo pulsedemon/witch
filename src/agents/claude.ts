@@ -142,6 +142,8 @@ class ClaudeSession implements AgentSession {
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
   private readonly backgroundCommands = new Map<string, BackgroundCommand>();
+  /** the background workflows still running. */
+  private readonly workflows = new Set<string>();
   /** each subagent task's latest run, since a resumed task keeps its id. */
   private readonly runs = new Map<string, string>();
   /** the message each familiar's report comes from; its later blocks arrive as frames of their own. */
@@ -400,8 +402,8 @@ class ClaudeSession implements AgentSession {
   ): Promise<boolean> {
     const turn = this.turn;
     if (this.closed || !turn || turn.interrupted || turn.held) return false;
-    // after the result, a familiar running in the background holds off idle. without one, a prompt could land after
-    // idle and run outside any turn
+    // after the result, a familiar or workflow running in the background holds off idle. without one, a prompt could
+    // land after idle and run outside any turn
     if (turn.result && !this.replied) return false;
     if (command === undefined) turn.steered.set(this.push(prompt), prompt);
     else {
@@ -418,19 +420,21 @@ class ClaudeSession implements AgentSession {
       !!turn?.result &&
       !turn.interrupted &&
       !turn.held &&
-      this.familiarRunning
+      this.holding
     );
   }
 
-  private get familiarRunning(): boolean {
-    return [...this.subagents.values()].some(
-      ({ status }) => status === 'running',
+  /** a familiar or workflow runs in the background, which holds off Claude Code's idle. */
+  private get holding(): boolean {
+    return (
+      this.workflows.size > 0 ||
+      [...this.subagents.values()].some(({ status }) => status === 'running')
     );
   }
 
   /**
-   * with no familiar left and Claude Code not yet idle, a reply could land after idle, so idle releases it, or a
-   * familiar that starts first.
+   * with no familiar or workflow left and Claude Code not yet idle, a reply could land after idle, so idle releases
+   * it, or a familiar or workflow that starts first.
    */
   private async reply(
     turn: Turn,
@@ -446,7 +450,7 @@ class ClaudeSession implements AgentSession {
     if (ran.status === 'failed')
       this.options.onEvent({ type: 'notice', text: ran.error ?? '' });
     if (ran.status === 'completed') turn.answer = prompt;
-    if (ran.status !== 'completed' || turn.idle || this.familiarRunning)
+    if (ran.status !== 'completed' || turn.idle || this.holding)
       this.release(turn);
   }
 
@@ -622,19 +626,25 @@ class ClaudeSession implements AgentSession {
       } else if (
         // ambient tasks are housekeeping, such as forked-skill workers
         message.subtype === 'task_started' &&
-        message.task_type === 'local_agent' &&
+        (message.task_type === 'local_agent' ||
+          message.task_type === 'local_workflow') &&
         !message.ambient &&
         !this.late(message)
       ) {
-        if (message.run_id) this.runs.set(message.task_id, message.run_id);
-        this.subagent({
-          id: message.task_id,
-          parent: message.parent_task_id,
-          name: message.description,
-          kind: message.subagent_type ?? '',
-          status: 'running',
-          run: message.run_id,
-        });
+        // a workflow holds off idle as a familiar does, though its agents never reach the stream
+        if (message.task_type === 'local_workflow')
+          this.workflows.add(message.task_id);
+        else {
+          if (message.run_id) this.runs.set(message.task_id, message.run_id);
+          this.subagent({
+            id: message.task_id,
+            parent: message.parent_task_id,
+            name: message.description,
+            kind: message.subagent_type ?? '',
+            status: 'running',
+            run: message.run_id,
+          });
+        }
         if (this.turn?.held && this.turn.answer !== undefined)
           this.release(this.turn);
       } else if (message.subtype === 'background_tasks_changed') {
@@ -650,6 +660,7 @@ class ClaudeSession implements AgentSession {
               status: 'running',
             });
       } else if (message.subtype === 'task_notification') {
+        this.workflows.delete(message.task_id);
         const subagent = this.subagents.get(message.task_id);
         if (subagent && !this.late(message))
           this.subagent({ ...subagent, status: message.status });
