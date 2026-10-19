@@ -17,6 +17,7 @@ export default defineConfig(
     rules: {
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
+      'max-lines': ['error', 1500],
     },
   },
 );
