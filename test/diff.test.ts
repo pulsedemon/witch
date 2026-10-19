@@ -448,7 +448,7 @@ await test("a long line past the highlighting budget draws plain while shorter l
   // each costs about 9,000,000, so the second passes the 16,000,000 budget
   const long = (name: string) =>
     `+const ${name} = [` + 'a, '.repeat(1000) + '];';
-  const [, first, second, short, , later, , indented, , , next] = diffRows(
+  const [, first, second, short, , later, , , next, , , indented] = diffRows(
     [
       {
         path: '/work/a.ts',
@@ -464,11 +464,6 @@ await test("a long line past the highlighting budget draws plain while shorter l
             newStart: 12,
             lines: [`+const z = [${'a, '.repeat(100)}];`],
           },
-          {
-            oldStart: 30,
-            newStart: 33,
-            lines: [`+${' '.repeat(4100)}const w = 1;`],
-          },
         ],
       },
       {
@@ -479,6 +474,17 @@ await test("a long line past the highlighting budget draws plain while shorter l
             oldStart: 1,
             newStart: 1,
             lines: [`+const v = [${'a, '.repeat(100)}];`],
+          },
+        ],
+      },
+      {
+        path: '/work/c.ts',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [`+${' '.repeat(4100)}const w = 1;`],
           },
         ],
       },
