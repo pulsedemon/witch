@@ -192,6 +192,38 @@ await test("a merged branch's checkout switches to the base, and loses the branc
   });
 });
 
+await test('a plan that also creates another branch stays whichever git command creates it, and one for the branch alone goes in any spelling', async () => {
+  const { checkout, other, tip } = await merged();
+  for (const [name, command] of [
+    ['create.md', 'git switch --create feat/y'],
+    ['force.md', 'git switch --force-create=feat/y'],
+    ['checkout.md', 'git checkout -B feat/y'],
+    ['worktree.md', 'git worktree add -b feat/y ../y'],
+    ['branch.md', 'git branch feat/y'],
+  ] as const)
+    await write(
+      join(plans(checkout), name),
+      `\`git switch -c feat/x\`\n\nlater\n\n\`${command}\`\n`,
+    );
+  await write(
+    join(plans(checkout), 'upper.md'),
+    '`git switch -C feat/x`\n\nafter the merge\n\n`git branch -d feat/x`\n',
+  );
+  await merge(other, 'feat/x');
+  const result = await cleanUpMerge(checkout, pullRequest(tip));
+  assert.deepEqual((await readdir(plans(checkout))).sort(), [
+    'branch.md',
+    'checkout.md',
+    'create.md',
+    'force.md',
+    'worktree.md',
+  ]);
+  assert.equal(
+    result?.text,
+    '#7 merged: switched to main and pulled, deleted branch feat/x, and plan upper.md.',
+  );
+});
+
 await test('a head branch still on its remote stays', async () => {
   const { checkout, other, tip } = await merged();
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
