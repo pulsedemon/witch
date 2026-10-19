@@ -3568,7 +3568,7 @@ await test('a turn that ends with a prompt queued runs that prompt before the me
   }
 });
 
-await test("a merge cleanup waits for another Witch's turn in its directory, but not for a gone Witch's or one elsewhere", async () => {
+await test("a merge cleanup waits for another Witch's turn in its directory, but not for one no live Witch holds or one elsewhere", async () => {
   const { coordinator, store, memory, project } = await fixture();
   const agent = new FixtureAgent('a');
   const other = new Coordinator(store, memory, [
@@ -3590,9 +3590,10 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
     assert.deepEqual(notices(coordinator), []);
     gate.open();
     await within(sending, 2000, 'the other turn');
-    // a turn left by a Witch that has exited, and one a live Witch runs in another directory
+    // a turn left by a Witch that has exited, one no Witch holds, and one a live Witch runs in another directory
     for (const [cwd, owner] of [
       [project, { pid: 1, started: 'never' }],
+      [project, undefined],
       [join(project, '..'), (await identifyProcess(process.pid))!],
     ] as const) {
       const files = await store.create(record(randomUUID(), cwd));
@@ -3614,8 +3615,26 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
   }
 });
 
-await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, and a failed rebuild keeps the cleanup's notice", async () => {
-  for (const other of ['b', 'a', 'diverged'] as const) {
+await test('a merge cleanup leaves a checkout that changed alone, and says nothing', async () => {
+  const { coordinator, project } = await fixture();
+  try {
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await writeFile(join(project, 'a.txt'), 'a\n');
+    await gitIn(project, 'add', '.');
+    await gitIn(project, 'commit', '-q', '-m', 'one');
+    await writeFile(join(project, 'a.txt'), 'b\n');
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      false,
+    );
+    assert.deepEqual(notices(coordinator), []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, a cleanup with no install still acts, and a failed rebuild keeps the cleanup's notice", async () => {
+  for (const variant of ['b', 'a', 'diverged', 'none'] as const) {
     const { coordinator, root, project } = await fixture();
     try {
       const a = join(root, 'a.git');
@@ -3637,13 +3656,13 @@ await test("the install is rebuilt only after a cleanup that moved the checkout,
       await gitIn(merger, 'push', '-q');
       await gitIn(merger, 'push', '-q', 'origin', '--delete', 'feat/x');
       const install = join(root, 'install');
-      if (other === 'b') {
+      if (variant === 'b') {
         const b = join(root, 'b.git');
         await gitIn(root, 'init', '-q', '--bare', b);
         await gitIn(root, 'clone', '-q', b, install);
-      } else {
+      } else if (variant !== 'none') {
         await gitIn(root, 'clone', '-q', a, install);
-        if (other === 'a')
+        if (variant === 'a')
           await gitIn(install, 'switch', '-q', '-c', 'elsewhere');
         else {
           // a commit the merge doesn't have, so the install can't fast-forward
@@ -3651,14 +3670,17 @@ await test("the install is rebuilt only after a cleanup that moved the checkout,
           await gitIn(install, 'commit', '-q', '--allow-empty', '-m', 'local');
         }
       }
-      const cleanup = coordinator.cleanUpMerge(mergedPullRequest(tip), install);
-      if (other === 'diverged') await assert.rejects(cleanup);
+      const cleanup = coordinator.cleanUpMerge(
+        mergedPullRequest(tip),
+        variant === 'none' ? undefined : install,
+      );
+      if (variant === 'diverged') await assert.rejects(cleanup);
       else assert.equal(await cleanup, true);
       const cleaned =
         '#7 merged: switched to main and pulled, deleted branch feat/x.';
       assert.deepEqual(
         notices(coordinator),
-        other !== 'a'
+        variant !== 'a'
           ? [cleaned]
           : [
               cleaned,
