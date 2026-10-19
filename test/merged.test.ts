@@ -205,9 +205,14 @@ await test('a plan that also creates another branch stays whichever git command 
     ['create.md', 'git switch --create feat/y'],
     ['force.md', 'git switch --force-create=feat/y'],
     ['checkout.md', 'git checkout -B feat/y'],
+    ['lower.md', 'git checkout -b feat/y'],
+    ['bundled.md', 'git checkout -qb feat/y'],
     ['worktree.md', 'git worktree add -b feat/y ../y'],
     ['path.md', 'git worktree add ../y -b feat/y'],
     ['dir.md', 'git -C ../y switch -c feat/y'],
+    ['space.md', 'git -C "../my y" switch -c feat/y'],
+    ['gitdir.md', 'git --git-dir ../y/.git switch -c feat/y'],
+    ['continued.md', 'git checkout \\\n  -b feat/y'],
     ['track.md', 'git checkout --track -b feat/y origin/feat/y'],
     ['orphan.md', 'git switch --orphan feat/y'],
     ['branch.md', 'git branch feat/y'],
@@ -222,21 +227,26 @@ await test('a plan that also creates another branch stays whichever git command 
     );
   await write(
     join(plans(checkout), 'upper.md'),
-    '```sh\ngit switch main && git pull --ff-only && git switch -C feat/x\n```\n\nafter the merge\n\n`git branch -d feat/x`, since `git checkout -b` would fail\n',
+    '```sh\ngit switch main && git pull --ff-only && git switch -C feat/x\n```\n\n`git branch --show-current` and `git branch -a` show it, and `git constructor x` is no command\n\nafter the merge\n\n`git branch -d feat/x`, since `git checkout -b` would fail\n',
   );
   await merge(other, 'feat/x');
   const result = await cleanUpMerge(checkout, pullRequest(tip));
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
     'branch.md',
+    'bundled.md',
     'checkout.md',
+    'continued.md',
     'copy.md',
     'create.md',
     'dir.md',
     'force.md',
+    'gitdir.md',
+    'lower.md',
     'orphan.md',
     'path.md',
     'remote.md',
     'reset.md',
+    'space.md',
     'track.md',
     'unnamed.md',
     'worktree.md',
