@@ -565,3 +565,30 @@ await test('a tool that changed a file under its directory shows its diff until 
     patched.join('\n'),
   );
 });
+
+await test('a tool in a conversation at / shows the diff of a file anywhere until toggled', () => {
+  const item: DisplayItem = {
+    id: 'root',
+    kind: 'tool',
+    title: 'Edit root',
+    text: '',
+    cwd: '/',
+    done: true,
+    diff: [
+      {
+        path: '/Users/me/a.txt',
+        kind: 'update',
+        hunks: [{ oldStart: 1, newStart: 1, lines: [' a', '-b', '+B'] }],
+      },
+    ],
+  };
+  const layout = new TranscriptLayout();
+  const lines = (expanded: Set<string>) =>
+    layout
+      .render([item], 60, expanded)
+      .lines.map((line) => stripAnsi(line).trimEnd());
+  const untoggled = lines(new Set());
+  assert.ok(untoggled.includes('− ✓ Edit root'), untoggled.join('\n'));
+  assert.ok(untoggled.includes('Update /Users/me/a.txt +1 -1'));
+  assert.ok(lines(new Set(['root'])).includes('+ ✓ Edit root'));
+});
