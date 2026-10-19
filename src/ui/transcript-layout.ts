@@ -127,12 +127,21 @@ function build(
   // concat, since spreading a long log into push() exceeds the argument limit
   const rendered = body ? section(body, width, false, head.next) : undefined;
   const next = rendered?.next ?? head.next;
-  const lines = head.lines.concat(rendered?.lines ?? [], diff, images, '');
+  const lines = head.lines.concat(
+    rendered?.lines ?? [],
+    diff.flat(),
+    images,
+    '',
+  );
   const anchors = head.anchors.concat(
     rendered?.anchors ?? [],
-    // each diff row, image row and the closing blank anchor as lines of their own
-    Array.from({ length: diff.length + images.length + 1 }, (_, index) => ({
-      line: next + index,
+    // a diff line's rows count from it, so a resize keeps the line, and copying breaks between them
+    diff.flatMap((rows, index) =>
+      rows.map((_, row) => ({ line: next + index, offset: row })),
+    ),
+    // each image row and the closing blank anchor as lines of their own
+    Array.from({ length: images.length + 1 }, (_, index) => ({
+      line: next + diff.length + index,
       offset: 0,
     })),
   );

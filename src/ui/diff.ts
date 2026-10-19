@@ -16,7 +16,7 @@ interface Row {
   code: string;
 }
 
-function fileRows(file: FileDiff, width: number, cwd: string): string[] {
+function fileRows(file: FileDiff, width: number, cwd: string): string[][] {
   // undefined separates hunks
   const rows: (Row | undefined)[] = [];
   const whole = file.kind !== 'update';
@@ -58,11 +58,11 @@ function fileRows(file: FileDiff, width: number, cwd: string): string[] {
     ...(file.kind === 'delete' ? [] : [colors.green(`+${added}`)]),
     ...(file.kind === 'add' ? [] : [colors.red(`-${removed}`)]),
   ].join(' ');
-  const lines = wrapAnsi(header, width, { hard: true }).split('\n');
+  const lines = [wrapAnsi(header, width, { hard: true }).split('\n')];
   const gutter = ' '.repeat(digits + 2);
   for (const row of rows) {
     if (!row) {
-      lines.push(colors.dim('...'));
+      lines.push([colors.dim('...')]);
       continue;
     }
     // wrapping the code on its own expands its tabs from its first column
@@ -78,29 +78,29 @@ function fileRows(file: FileDiff, width: number, cwd: string): string[] {
         : row.marker === '-'
           ? colors.bgHex(diffRemoved)
           : undefined;
-    for (const [index, part] of code.entries()) {
-      if (!background)
-        lines.push(index ? gutter + part : `${colors.dim(number)}  ${part}`);
-      else {
+    lines.push(
+      code.map((part, index) => {
+        if (!background)
+          return index ? gutter + part : `${colors.dim(number)}  ${part}`;
         const text = index ? gutter + part : `${number} ${row.marker}${part}`;
-        lines.push(
-          background(text + ' '.repeat(Math.max(0, width - stringWidth(text)))),
+        return background(
+          text + ' '.repeat(Math.max(0, width - stringWidth(text))),
         );
-      }
-    }
+      }),
+    );
   }
-  if (hidden) lines.push(colors.dim(`… +${hidden} lines`));
+  if (hidden) lines.push([colors.dim(`… +${hidden} lines`)]);
   return lines;
 }
 
-/** each file's header and numbered rows, a blank row apart. Every row fits `width` while it leaves the code two cells, the widest a character takes. */
+/** each file's header and numbered lines, a blank line apart, as the rows each line wraps into. Every row fits `width` while it leaves the code two cells, the widest a character takes. */
 export function diffRows(
   files: readonly FileDiff[],
   width: number,
   cwd: string,
-): string[] {
+): string[][] {
   return files.flatMap((file, index) => [
-    ...(index ? [''] : []),
+    ...(index ? [['']] : []),
     ...fileRows(file, width, cwd),
   ]);
 }
