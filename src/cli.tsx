@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -11,6 +10,7 @@ import { Coordinator } from './core/coordinator.js';
 import { JobWatch } from './core/jobs.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
+import { instanceDirectory } from './persistence/instance.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
@@ -62,14 +62,15 @@ if (!store) {
   process.stdout.write(usage);
 } else {
   const prompt = positionals.join(' ');
-  // the pid keeps another live instance's mark from matching, so one already here is an earlier instance's
-  const directory = join(store.root, 'jobs', String(process.pid));
-  rmSync(directory, { recursive: true, force: true });
-  mkdirSync(directory, { recursive: true });
-  process.once('exit', () =>
-    rmSync(directory, { recursive: true, force: true }),
-  );
-  const jobs = new JobWatch({ directory });
+  // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
+  // can't hold mouse reporting on
+  process.once('exit', () => process.stdout.write(releaseMouse));
+  // the pid keeps another live instance's mark from matching
+  const jobs = new JobWatch({
+    directory: instanceDirectory(join(store.root, 'jobs')),
+  });
+  // every child inherits it, so agents' scratch goes when this instance does
+  process.env.TMPDIR = instanceDirectory(join(store.root, 'scratch'));
   const coordinator = new Coordinator(
     store,
     new Memory(join(store.root, 'memory.git')),
@@ -148,8 +149,6 @@ if (!store) {
     },
   );
   process.stdout.write(captureMouse);
-  // runs on every exit, including a second Ctrl+C's process.exit and a crash
-  process.once('exit', () => process.stdout.write(releaseMouse));
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
   // a closed terminal fails every write and may send SIGHUP, and the first of these stops a running Claude `!`
