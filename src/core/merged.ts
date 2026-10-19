@@ -275,8 +275,8 @@ const absent =
 
 /**
  * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
- * `plan-path` names it. returns those removed, and those it failed to remove with the first reason, or only a reason
- * when it couldn't list the plans.
+ * `plan-path` names it. returns those removed, and those it failed to read or remove with the first reason, or only a
+ * reason when it couldn't list the plans.
  */
 async function removePlans(
   cwd: string,
@@ -297,18 +297,18 @@ async function removePlans(
   for (const name of names) {
     const plan = join(plans, name);
     if (!name.endsWith('.md')) continue;
-    // a plan that can't be read creates no branch, so it stays
-    const created = createdBranches(
-      await readFile(plan, 'utf8').catch(() => ''),
-    );
-    // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
-    if (
-      created.size !== 1 ||
-      !created.has(branch) ||
-      !(await ignored(top, plan))
-    )
-      continue;
     try {
+      // a plan that isn't there, such as a dangling link, creates no branch
+      const created = createdBranches(
+        await readFile(plan, 'utf8').catch(absent('')),
+      );
+      // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
+      if (
+        created.size !== 1 ||
+        !created.has(branch) ||
+        !(await ignored(top, plan))
+      )
+        continue;
       // the ledgers first, since only the plan leads to them
       for (const ledger of await readdir(ledgers).catch(absent([]))) {
         const folder = join(ledgers, ledger);
