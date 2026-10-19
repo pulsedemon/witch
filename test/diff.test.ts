@@ -4,6 +4,7 @@ import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../src/agents/types.js';
 import { diffRows } from '../src/ui/diff.js';
+import { syntaxSpans } from '../src/ui/syntax.js';
 
 const rows = (files: FileDiff[], width = 30) =>
   diffRows(files, width, '/work').flat();
@@ -292,6 +293,13 @@ await test('a line whose colored runs would split a character, such as an emoji 
   assert.ok(row('+f(1\uFE0F\u20E3);').includes('f(1\uFE0F\u20E3);'));
   assert.ok(row('+a[b\u2028] {}').includes('a[b\u2028] {}'));
   assert.ok(row(' my $x = 1;').includes('\u001b[38;2;249;38;114mmy'));
+});
+
+await test('a line highlight.js fails on draws plain', () => {
+  // an unknown language makes it throw, as a nesting deep enough to overflow the stack does
+  assert.deepEqual(syntaxSpans(['const a = 1;'], 'not-a-language'), [
+    [{ text: 'const a = 1;' }],
+  ]);
 });
 
 await test("the language comes from the file's name ahead of its extension, a move's new name, or a shebang, PHP or XML opening on the file's first line, read only from a context or added row of a first hunk at line 1, and a file that names none draws plain", () => {
