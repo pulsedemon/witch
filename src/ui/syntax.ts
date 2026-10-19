@@ -103,15 +103,16 @@ function spansOf(line: string, language: string): Span[] {
   } catch {
     return [{ text: line }];
   }
+  if (spans.map(({ text }) => text).join('') !== line) return [{ text: line }];
   const starts = new Set(
     Array.from(graphemes.segment(line), ({ index }) => index),
   );
   let at = 0;
   for (const { text } of spans) {
-    if (!starts.has(at) || !line.startsWith(text, at)) return [{ text: line }];
+    if (!starts.has(at)) return [{ text: line }];
     at += text.length;
   }
-  return at === line.length ? spans : [{ text: line }];
+  return spans;
 }
 
 /**
