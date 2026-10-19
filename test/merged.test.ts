@@ -290,7 +290,7 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
-await test("a plan that can't be read stays, and one that can't be removed stops the cleanup, saying what it did", async () => {
+await test("a plan that can't be read stays, and one that can't be removed stays with its ledger while the cleanup carries on", async () => {
   {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
@@ -305,25 +305,25 @@ await test("a plan that can't be read stays, and one that can't be removed stops
   {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
+    const ledgers = join(checkout, '.superpowers/sdd');
+    await write(join(ledgers, 'x/plan-path'), 'docs/superpowers/plans/x.md\n');
     await merge(other, 'feat/x');
-    await chmod(plans(checkout), 0o500);
-    try {
-      await assert.rejects(
-        cleanUpMerge(checkout, pullRequest(tip)),
-        (error) => {
-          const message = (error as Error).message;
-          assert.ok(
-            message.startsWith(
-              '#7 merged: switched to main and deleted branch feat/x, but removing its plans failed: EACCES',
-            ),
-            message,
-          );
-          return true;
-        },
-      );
-    } finally {
-      await chmod(plans(checkout), 0o700);
-    }
+    await chmod(ledgers, 0o500);
+    const result = await cleanUpMerge(checkout, pullRequest(tip)).finally(() =>
+      chmod(ledgers, 0o700),
+    );
+    assert.ok(
+      result?.text.startsWith(
+        '#7 merged: switched to main and pulled, deleted branch feat/x, but plan x.md stayed: EACCES',
+      ),
+      result?.text,
+    );
+    assert.deepEqual(await readdir(plans(checkout)), ['x.md']);
+    assert.deepEqual(await readdir(ledgers), ['x']);
+    assert.equal(
+      await git(checkout, 'rev-parse', 'HEAD'),
+      await git(other, 'rev-parse', 'origin/main'),
+    );
   }
 });
 
