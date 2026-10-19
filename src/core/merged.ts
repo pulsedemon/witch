@@ -61,7 +61,10 @@ const read = async (cwd: string) =>
 const ignored = (cwd: string, path: string) =>
   succeeds(git(cwd, 'check-ignore', '-q', path));
 
-/** what a switch would carry along or stop at. untracked files don't count, since `git switch` refuses to overwrite one. */
+/**
+ * what a switch would carry along or stop at. untracked files don't count, since `git switch` refuses to overwrite
+ * one.
+ */
 const changed = ({ staged, modified, conflicts }: Repository) =>
   !!(staged || modified || conflicts);
 
@@ -73,8 +76,8 @@ const list = (items: string[]) =>
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base, deletes the branch and its
  * gitignored plans with their gitignored ledgers, brings the base up to date, and deletes the other merged branches
- * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing when the
- * checkout left the branch or changed.
+ * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing
+ * when the checkout left the branch or changed.
  */
 export async function cleanUpMerge(
   cwd: string,
@@ -123,15 +126,27 @@ export async function cleanUpMerge(
     );
   }
   // branch -D would drop it too, and a later branch of the same name would inherit its upstream
-  await succeeds(git(cwd, 'config', '--remove-section', `branch.${branch}`));
+  const unset = await git(
+    cwd,
+    'config',
+    '--remove-section',
+    `branch.${branch}`,
+  ).then(
+    () => '',
+    (error: unknown) => errorMessage(error).trim(),
+  );
   const { removed: plans, stayed, reason } = await removePlans(cwd, branch);
   const removed = plans.length
     ? `, and ${plans.length > 1 ? 'plans' : 'plan'} ${list(plans)}`
     : '';
-  const kept = stayed.length
-    ? `${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`
-    : '';
-  // after the deletions, so a base that can't fast-forward doesn't stop them
+  const kept = [
+    unset && `config section branch.${branch} stayed: ${unset}`,
+    stayed.length &&
+      `${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`,
+  ]
+    .filter(Boolean)
+    .join(' and ');
+  // after the branch and its plans go, so a base that can't fast-forward still deletes them
   try {
     // the first fetch reached only the merged branch's remote, and the base can track another
     await fetchRemote(cwd);
