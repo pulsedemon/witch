@@ -3614,8 +3614,8 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
   }
 });
 
-await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project", async () => {
-  for (const other of ['b', 'a'] as const) {
+await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, and a failed rebuild keeps the cleanup's notice", async () => {
+  for (const other of ['b', 'a', 'diverged'] as const) {
     const { coordinator, root, project } = await fixture();
     try {
       const a = join(root, 'a.git');
@@ -3643,17 +3643,22 @@ await test("the install is rebuilt only after a cleanup that moved the checkout,
         await gitIn(root, 'clone', '-q', b, install);
       } else {
         await gitIn(root, 'clone', '-q', a, install);
-        await gitIn(install, 'switch', '-q', '-c', 'elsewhere');
+        if (other === 'a')
+          await gitIn(install, 'switch', '-q', '-c', 'elsewhere');
+        else {
+          // a commit the merge doesn't have, so the install can't fast-forward
+          await gitIn(install, 'reset', '-q', '--hard', 'HEAD~1');
+          await gitIn(install, 'commit', '-q', '--allow-empty', '-m', 'local');
+        }
       }
-      assert.equal(
-        await coordinator.cleanUpMerge(mergedPullRequest(tip), install),
-        true,
-      );
+      const cleanup = coordinator.cleanUpMerge(mergedPullRequest(tip), install);
+      if (other === 'diverged') await assert.rejects(cleanup);
+      else assert.equal(await cleanup, true);
       const cleaned =
         '#7 merged: switched to main and pulled, deleted branch feat/x.';
       assert.deepEqual(
         notices(coordinator),
-        other === 'b'
+        other !== 'a'
           ? [cleaned]
           : [
               cleaned,
