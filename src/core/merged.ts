@@ -72,8 +72,8 @@ const list = (items: string[]) =>
 
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base, deletes the branch and its
- * gitignored plans with their ledgers, brings the base up to date, and deletes the other merged branches whose remote
- * branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing when the
+ * gitignored plans with their gitignored ledgers, brings the base up to date, and deletes the other merged branches
+ * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing when the
  * checkout left the branch or changed.
  */
 export async function cleanUpMerge(
@@ -131,7 +131,7 @@ export async function cleanUpMerge(
   const kept = stayed.length
     ? `${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`
     : '';
-  // after the deletions, so a base that can't fast-forward still leaves the merged branch and its plans gone
+  // after the deletions, so a base that can't fast-forward doesn't stop them
   try {
     // the first fetch reached only the merged branch's remote, and the base can track another
     await fetchRemote(cwd);
@@ -247,9 +247,18 @@ function createdBranches(text: string): Set<string> {
   return created;
 }
 
+/** `fallback` for a path that isn't there, ENOTDIR included for one under a stray file such as Finder's .DS_Store. */
+const absent =
+  <T>(fallback: T) =>
+  (error: unknown): T => {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+    return fallback;
+  };
+
 /**
- * removes the gitignored plans that create `branch` and no other branch, each with the ledgers whose `plan-path`
- * names it. returns those removed, and those that stayed with the first reason.
+ * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
+ * `plan-path` names it. returns those removed, and those it failed to remove with the first reason.
  */
 async function removePlans(
   cwd: string,
@@ -277,10 +286,10 @@ async function removePlans(
       continue;
     try {
       // the ledgers first, since only the plan leads to them
-      for (const ledger of await readdir(ledgers).catch(() => [])) {
+      for (const ledger of await readdir(ledgers).catch(absent([]))) {
         const folder = join(ledgers, ledger);
         const link = (
-          await readFile(join(folder, 'plan-path'), 'utf8').catch(() => '')
+          await readFile(join(folder, 'plan-path'), 'utf8').catch(absent(''))
         ).trim();
         if (link && resolve(top, link) === plan && (await ignored(top, folder)))
           await rm(folder, { recursive: true, force: true });
