@@ -682,7 +682,8 @@ export class Coordinator {
 
   /**
    * cleans up after the checkout's merged pull request, and rebuilds Witch from `install` when it moved the checkout
-   * and the merge is Witch's own. false when the checkout had left the branch or changed, so nothing was done.
+   * and the merge is Witch's own. false when the checkout had left the branch or changed, or another Witch in its
+   * directory was in a turn, so nothing was done.
    */
   async cleanUpMerge(
     pullRequest: PullRequest,
@@ -690,7 +691,19 @@ export class Coordinator {
   ): Promise<boolean> {
     let acted = false;
     await this.operate('cleaning', async () => {
-      const { cwd } = this.current();
+      const { id, cwd } = this.current();
+      // the phase covers only this Witch, and another one's agent would carry on on the base
+      for (const record of (await this.store.records()).records) {
+        const agent = record.process;
+        if (
+          record.id !== id &&
+          record.cwd === cwd &&
+          record.activity &&
+          agent &&
+          (await identifyProcess(agent.pid))?.started === agent.started
+        )
+          return;
+      }
       const outcome = await cleanUpMerge(cwd, pullRequest);
       if (!outcome) return;
       acted = true;
