@@ -294,7 +294,7 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
-await test("a plan that can't be read stays, and one that can't be removed stays with its ledger while the cleanup carries on, named even when the base can't fast-forward", async () => {
+await test("a plan that can't be read or removed stays with its ledger, and the notice names it, even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
@@ -344,6 +344,30 @@ await test("a plan that can't be read stays, and one that can't be removed stays
       result?.text,
     );
     assert.deepEqual(await readdir(plans(checkout)), ['x.md']);
+  }
+  {
+    const { checkout, other, tip } = await merged();
+    for (const name of ['a', 'b', 'c'])
+      await write(
+        join(plans(checkout), `${name}.md`),
+        '`git switch -c feat/x`\n',
+      );
+    const ledgers = join(checkout, '.superpowers/sdd');
+    for (const name of ['a', 'b'])
+      await write(
+        join(ledgers, `${name}/plan-path`),
+        `docs/superpowers/plans/${name}.md\n`,
+      );
+    await merge(other, 'feat/x');
+    await chmod(ledgers, 0o500);
+    const result = await cleanUpMerge(checkout, pullRequest(tip)).finally(() =>
+      chmod(ledgers, 0o700),
+    );
+    assert.match(
+      result?.text ?? '',
+      /^#7 merged: switched to main and pulled, deleted branch feat\/x, and plan c\.md, but plans (a\.md and b\.md|b\.md and a\.md) stayed: EACCES/,
+    );
+    assert.deepEqual((await readdir(plans(checkout))).sort(), ['a.md', 'b.md']);
   }
   {
     const { checkout, other, tip } = await merged();
