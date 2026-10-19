@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -12,6 +13,7 @@ import type {
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { wholeFile } from './file-diff.js';
 import { InputQueue } from './input-queue.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
@@ -21,6 +23,7 @@ import type {
   AgentAdapter,
   AgentSession,
   BackgroundCommand,
+  FileDiff,
   Model,
   SessionInfo,
   SessionOptions,
@@ -59,6 +62,33 @@ const usageReport = z.object({
     .object({ five_hour: limitWindow, seven_day: limitWindow })
     .nullable(),
 });
+/** what Claude Code's Edit and Write report of the file they changed. */
+const fileResult = z.object({
+  filePath: z.string(),
+  type: z.enum(['create', 'update']).optional(),
+  content: z.string().optional(),
+  staged: z.boolean().optional(),
+  structuredPatch: z.array(
+    z.object({
+      oldStart: z.number(),
+      newStart: z.number(),
+      lines: z.array(z.string()),
+    }),
+  ),
+});
+
+/** the change an Edit or Write result reports, at the path the model wrote, resolved against `cwd`. A staged result, held for review, changed nothing yet. */
+function reportedDiff(report: unknown, cwd: string): FileDiff[] | undefined {
+  const parsed = fileResult.safeParse(report);
+  if (!parsed.success || parsed.data.staged) return undefined;
+  const { filePath, type, content, structuredPatch } = parsed.data;
+  const path = resolve(cwd, filePath);
+  if (type === 'create') return [wholeFile(path, 'add', content ?? '')];
+  return structuredPatch.length
+    ? [{ path, kind: 'update', hunks: structuredPatch }]
+    : undefined;
+}
+
 const questions = z.object({
   questions: z.array(
     z.object({
@@ -752,6 +782,9 @@ class ClaudeSession implements AgentSession {
       message.parent_tool_use_id === null &&
       Array.isArray(message.message.content)
     ) {
+      // each result comes in a message of its own, so the report is its block's,
+      // and its diff replaces the result text, as in Claude Code
+      const diff = reportedDiff(message.tool_use_result, this.options.cwd);
       for (const block of message.message.content) {
         if (block.type !== 'tool_result') continue;
         const parts =
@@ -774,9 +807,10 @@ class ClaudeSession implements AgentSession {
           type: 'tool',
           id: block.tool_use_id,
           title: '',
-          text: texts.join('\n'),
+          text: diff ? '' : texts.join('\n'),
           done: true,
           ...(images.length ? { images } : {}),
+          ...(diff ? { diff } : {}),
         });
       }
     } else if (message.type === 'result') {
