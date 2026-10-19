@@ -147,7 +147,64 @@ export async function cleanUpMerge(
   };
 }
 
-/** the gitignored plans whose every branch-creating step creates `branch`, and each ledger whose `plan-path` names one. */
+/** the option of a switch, checkout or worktree add that creates a branch, with the name when it's attached. */
+const creating: Record<string, RegExp> = {
+  switch: /^(?:-[cC]|--(?:force-)?create=?|--orphan=?)(.*)/,
+  checkout: /^(?:-[bB]|--orphan=?)(.*)/,
+  worktree: /^-[bB](.*)/,
+};
+
+/**
+ * the branch each git command in `text` creates, as written. a command that creates one it doesn't name counts as
+ * the command itself, so that a plan with a step this misreads stays rather than going.
+ */
+function createdBranches(text: string): Set<string> {
+  const created = new Set<string>();
+  const add = (name: string) => created.add(name.replace(/[.,:]+$/, ''));
+  for (const [command] of text.matchAll(/\bgit [^\n`;&|)]*/g)) {
+    const words = command.trim().split(/\s+/).slice(1);
+    // options before the subcommand, such as -C <dir>
+    while (words[0]?.startsWith('-'))
+      words.splice(0, /^-[Cc]$/.test(words[0]) ? 2 : 1);
+    const [subcommand = '', ...args] = words;
+    if (subcommand === 'branch') {
+      const names = args.filter((word) => !word.startsWith('-'));
+      if (
+        !names.length ||
+        args.some((word) =>
+          /^(?:-[dDlu]|--(?:delete|list|contains|no-contains|merged|no-merged|points-at|set-upstream-to|unset-upstream|edit-description))/.test(
+            word,
+          ),
+        )
+      )
+        continue;
+      // a rename or a copy creates its last name
+      add(
+        args.some((word) => /^(?:-[mMcC]|--move|--copy)$/.test(word))
+          ? names.at(-1)!
+          : names[0]!,
+      );
+      continue;
+    }
+    const option = creating[subcommand];
+    if (!option || (subcommand === 'worktree' && args[0] !== 'add')) continue;
+    const index = args.findIndex((word) => option.test(word));
+    if (index >= 0) {
+      // with no name after it, the option is only mentioned
+      const name = option.exec(args[index]!)![1] || args[index + 1];
+      if (name) add(name);
+    }
+    // a worktree without -b creates one named after its path, and --track one named after the remote branch
+    else if (
+      subcommand === 'worktree' ||
+      args.some((word) => /^(?:-t|--track)/.test(word))
+    )
+      add(command);
+  }
+  return created;
+}
+
+/** the gitignored plans that create `branch` and no other branch, and each ledger whose `plan-path` names one. */
 async function removePlans(cwd: string, branch: string): Promise<string[]> {
   const top = await git(cwd, 'rev-parse', '--show-toplevel');
   const plans = join(top, 'docs/superpowers/plans');
@@ -156,16 +213,7 @@ async function removePlans(cwd: string, branch: string): Promise<string[]> {
   for (const name of await readdir(plans).catch(() => [])) {
     const plan = join(plans, name);
     if (!name.endsWith('.md')) continue;
-    const created = new Set(
-      Array.from(
-        // every form that creates a branch, since one missed would let a plan with work left go. the whole argument,
-        // less trailing markdown, so feat/x+next isn't read as feat/x and a quoted name isn't skipped
-        (await readFile(plan, 'utf8')).matchAll(
-          /git (?:switch (?:-[cC]|--(?:force-)?create)[ =]|checkout -[bB] |worktree add -[bB] |branch (?!-))(\S+)/g,
-        ),
-        (match) => match[1]!.replace(/[`.,;:)]+$/, ''),
-      ),
-    );
+    const created = createdBranches(await readFile(plan, 'utf8'));
     // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
     if (
       created.size !== 1 ||
