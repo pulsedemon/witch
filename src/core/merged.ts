@@ -128,6 +128,9 @@ export async function cleanUpMerge(
   const removed = plans.length
     ? `, and ${plans.length > 1 ? 'plans' : 'plan'} ${list(plans)}`
     : '';
+  const kept = stayed.length
+    ? `${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`
+    : '';
   // after the deletions, so a base that can't fast-forward leaves no merged branch or plan behind
   try {
     // the first fetch reached only the merged branch's remote, and the base can track another
@@ -145,7 +148,7 @@ export async function cleanUpMerge(
     );
   } catch (error) {
     throw new Error(
-      `#${number} merged: switched to ${base} and deleted branch ${branch}${removed}, but ${base} didn't fast-forward: ${errorMessage(error)}`,
+      `#${number} merged: switched to ${base} and deleted branch ${branch}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward: ${errorMessage(error)}`,
       { cause: error },
     );
   }
@@ -167,11 +170,8 @@ export async function cleanUpMerge(
     if (await succeeds(git(cwd, 'branch', '-d', name))) deleted.push(name);
   }
   const branches = `${deleted.length > 1 ? 'branches' : 'branch'} ${list(deleted)}`;
-  const kept = stayed.length
-    ? `, but ${stayed.length > 1 ? 'plans' : 'plan'} ${list(stayed)} stayed: ${reason}`
-    : '';
   return {
-    text: `#${number} merged: switched to ${base} and pulled, deleted ${branches}${removed}${kept}.`,
+    text: `#${number} merged: switched to ${base} and pulled, deleted ${branches}${removed}${kept && `, but ${kept}`}.`,
     cleaned: true,
   };
 }
