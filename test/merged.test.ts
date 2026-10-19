@@ -543,6 +543,27 @@ await test("an edit made during the install's fetch keeps it from being pulled a
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
 });
 
+await test("an ignored file the install's incoming commits would start tracking stops its rebuild before overwriting it", async () => {
+  const { root, origin, other } = await merged({}, ['secret.txt']);
+  const install = join(root, 'install');
+  await git(root, 'clone', origin, install);
+  const head = await git(install, 'rev-parse', 'HEAD');
+  await writeFile(join(other, 'secret.txt'), 'theirs');
+  await git(other, 'add', '-f', 'secret.txt');
+  await git(other, 'commit', '-m', 'secret');
+  await git(other, 'push');
+  await writeFile(join(install, 'secret.txt'), 'mine');
+  const calls: string[][] = [];
+  const run = async (command: string, args: string[]) => {
+    calls.push([command, ...args]);
+    return { stdout: '' };
+  };
+  await assert.rejects(refreshInstall(install, 'main', run));
+  assert.equal(await readFile(join(install, 'secret.txt'), 'utf8'), 'mine');
+  assert.deepEqual(calls, []);
+  assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
+});
+
 await test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async () => {
   const tick = () => new Promise((resolve) => setImmediate(resolve));
   const listeners = {
