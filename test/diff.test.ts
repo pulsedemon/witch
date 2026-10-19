@@ -259,6 +259,29 @@ await test('each line reads alone, as Claude Code reads it, so a hunk that opens
   assert.ok(row(' class A(B):').includes('\u001b[38;2;166;226;46mA'));
 });
 
+await test('a line whose colors would end inside an emoji draws plain and keeps it whole, while the lines around it keep their colors', () => {
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.pl',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [' my $x = 1;', '+my $😀 = 2;'],
+          },
+        ],
+      },
+    ],
+    40,
+  );
+  const row = (code: string) =>
+    drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
+  assert.ok(row('+my $😀 = 2;').includes('my $😀 = 2;'));
+  assert.ok(row(' my $x = 1;').includes('\u001b[38;2;249;38;114mmy'));
+});
+
 await test("the language comes from the file's name ahead of its extension, a move's new name or a shebang on its first line, and a file that names none draws plain", () => {
   const colored = (
     path: string,
