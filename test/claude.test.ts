@@ -1221,6 +1221,29 @@ await test('a command that ends while Claude Code runs again after idle sends it
   }
 });
 
+await test("a reply waiting for Claude Code's idle goes once Claude Code starts another familiar", async () => {
+  const seen = observe();
+  const { session, cwd } = await fixture(seen.onEvent);
+  try {
+    const turn = session.send('reporting familiar');
+    await until('the result', () => seen.costs.includes(0.25));
+    assert.equal(await session.steer('reply', { command: gated }), true);
+    await allow(cwd, 'allow-report');
+    await until('the report', () => seen.texts.includes('Reported.'));
+    await allow(cwd, 'go');
+    await until('the command ends', () => seen.ended(gated));
+    await allow(cwd, 'allow-second');
+    await until('the reply', async () =>
+      isDeepStrictEqual(await jsonLines(join(cwd, 'early.jsonl')), [
+        replyBlocks(gated, 'held\n'),
+      ]),
+    );
+    assert.equal((await within(turn, 3000, 'turn')).status, 'completed');
+  } finally {
+    await session.close();
+  }
+});
+
 await test('an interrupt during a steered command after Claude Code is idle kills it and ends the turn interrupted, sending the idle CLI no interrupt and no reply', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);

@@ -612,7 +612,8 @@ for await (const line of lines) {
       level([]);
       finish();
     } else if (lastPrompt === 'reporting familiar') {
-      // reports, then idles, then dies or runs again on its own and idles, each once the test allows it
+      // reports and may start another familiar, then idles, then dies or runs again on its own and idles, each once the
+      // test allows it
       task('task_started', {
         task_id: 'helper',
         description: 'Reporting helper',
@@ -631,6 +632,13 @@ for await (const line of lines) {
         });
         assistant('Reported.');
         result();
+        once('allow-second', () =>
+          task('task_started', {
+            task_id: 'second',
+            description: 'Second helper',
+            task_type: 'local_agent',
+          }),
+        );
         once('allow-idle', () => {
           reporting = 'idle';
           state('idle');
