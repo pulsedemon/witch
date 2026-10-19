@@ -124,7 +124,12 @@ export async function cleanUpMerge(
   }
   // branch -D would drop it too, and a later branch of the same name would inherit its upstream
   await succeeds(git(cwd, 'config', '--remove-section', `branch.${branch}`));
-  const plans = await removePlans(cwd, branch);
+  const plans = await removePlans(cwd, branch).catch((error: unknown) => {
+    throw new Error(
+      `#${number} merged: switched to ${base} and deleted branch ${branch}, but removing its plans failed: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  });
   const removed = plans.length
     ? `, and ${plans.length > 1 ? 'plans' : 'plan'} ${list(plans)}`
     : '';
@@ -239,7 +244,10 @@ async function removePlans(cwd: string, branch: string): Promise<string[]> {
   for (const name of await readdir(plans).catch(() => [])) {
     const plan = join(plans, name);
     if (!name.endsWith('.md')) continue;
-    const created = createdBranches(await readFile(plan, 'utf8'));
+    // a plan that can't be read creates no branch, so it stays
+    const created = createdBranches(
+      await readFile(plan, 'utf8').catch(() => ''),
+    );
     // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
     if (
       created.size !== 1 ||
