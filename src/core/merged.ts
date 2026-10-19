@@ -95,17 +95,23 @@ export async function cleanUpMerge(
       cleaned: false,
     };
   // GitHub deletes a merged pull request's branch, and a long-lived head branch such as develop keeps its own
-  const [upstream, tracking] = (
+  const [upstream, tracking, merges] = (
     await git(
       cwd,
       'for-each-ref',
-      '--format=%(upstream)%09%(upstream:track)',
+      '--format=%(upstream:short)%09%(upstream:track)%09%(upstream:remoteref)',
       `refs/heads/${branch}`,
     )
   ).split('\t');
   if (!upstream)
     return {
       text: `#${number} merged, but ${branch} tracks no remote branch, so it stays.`,
+      cleaned: false,
+    };
+  // `git switch -c feat/x origin/main` makes a branch that tracks main
+  if (merges !== `refs/heads/${branch}`)
+    return {
+      text: `#${number} merged, but ${branch} tracks ${upstream} rather than its own remote branch, so it stays.`,
       cleaned: false,
     };
   if (tracking !== '[gone]')
