@@ -683,8 +683,9 @@ export class Coordinator {
   /**
    * cleans up after the checkout's merged pull request, and rebuilds Witch from `install` when the cleanup finished
    * and the merge is Witch's own. false when the checkout had left the branch or changed, another Witch was cleaning it
-   * up, or another conversation in its directory was in a turn with its agent running, so nothing was done. a turn
-   * whose agent hasn't started yet doesn't count, since its record names no process.
+   * up, a conversation record couldn't be read, or another conversation in its directory was in a turn with its agent
+   * running, so nothing was done. a turn whose agent hasn't started yet doesn't count, since its record names no
+   * process.
    */
   async cleanUpMerge(
     pullRequest: PullRequest,
@@ -694,7 +695,10 @@ export class Coordinator {
     await this.operate('cleaning', async () => {
       const { id, cwd } = this.current();
       // the phase covers only this Witch, and another one's agent would carry on on the base
-      for (const record of (await this.store.records()).records) {
+      const { records, unreadable } = await this.store.records();
+      // one it can't read could be such a turn. the launch's sweep names it
+      if (unreadable.length) return;
+      for (const record of records) {
         const agent = record.process;
         if (
           record.id !== id &&
