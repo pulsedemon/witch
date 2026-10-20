@@ -113,12 +113,18 @@ async function clean(
   pullRequest: PullRequest,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
   const { number, branch, commit, base } = pullRequest;
-  await fetchRemote(cwd, '--prune');
+  const stopped = (error: unknown): never => {
+    throw new Error(
+      `#${number} merged, but its cleanup failed before deleting ${branch}: ${errorMessage(error).trim()}`,
+      { cause: error },
+    );
+  };
+  await fetchRemote(cwd, '--prune').catch(stopped);
   // after the fetch, which can take a while: the watch's status is seconds old, and a commit made meanwhile would
   // go with the branch
-  const status = await read(cwd);
+  const status = await read(cwd).catch(stopped);
   if (status.branch !== branch || changed(status)) return undefined;
-  if ((await git(cwd, 'rev-parse', 'HEAD')) !== commit)
+  if ((await git(cwd, 'rev-parse', 'HEAD').catch(stopped)) !== commit)
     return {
       text: `#${number} merged, but ${branch}'s last commit isn't the one it merged, so it stays.`,
       cleaned: false,
@@ -130,7 +136,7 @@ async function clean(
       'for-each-ref',
       '--format=%(upstream:short)%09%(upstream:track)%09%(upstream:remoteref)',
       `refs/heads/${branch}`,
-    )
+    ).catch(stopped)
   ).split('\t');
   if (!upstream)
     return {
@@ -149,7 +155,7 @@ async function clean(
       cleaned: false,
     };
   // a plain switch overwrites an ignored file the base tracks, and that file was never committed
-  await git(cwd, 'switch', '--no-overwrite-ignore', base);
+  await git(cwd, 'switch', '--no-overwrite-ignore', base).catch(stopped);
   // deleted only while still at the merged commit, since another terminal can commit to it after the tip check. -d
   // would compare against the base before it's brought up to date
   try {
@@ -372,18 +378,36 @@ export async function refreshInstall(
   base: string,
   run: Run = execute,
 ): Promise<string> {
-  await fetchRemote(root);
+  const failed = (error: unknown): never => {
+    // tsc reports its errors on stdout, which the message leaves out
+    const { stdout } = error as { stdout?: unknown };
+    const tail =
+      typeof stdout === 'string'
+        ? stdout.trim().split('\n').slice(-20).join('\n')
+        : '';
+    throw new Error(
+      `Witch's checkout at ${root} wasn't rebuilt: ${errorMessage(error).trim()}${tail && `\n${tail}`}`,
+      { cause: error },
+    );
+  };
+  await fetchRemote(root).catch(failed);
   // after the fetch, so a switch or an edit made during it isn't pulled and built
-  const status = await read(root);
+  const status = await read(root).catch(failed);
   if (status.branch !== base || changed(status))
     return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
   // a pull would overwrite an ignored file the incoming commits start tracking
-  await git(root, 'merge', '--ff-only', '--no-overwrite-ignore', '@{upstream}');
+  await git(
+    root,
+    'merge',
+    '--ff-only',
+    '--no-overwrite-ignore',
+    '@{upstream}',
+  ).catch(failed);
   await run('pnpm', ['install', '--frozen-lockfile'], {
     cwd: root,
     timeout: 300_000,
-  });
-  await run('pnpm', ['build'], { cwd: root, timeout: 300_000 });
+  }).catch(failed);
+  await run('pnpm', ['build'], { cwd: root, timeout: 300_000 }).catch(failed);
   return `Rebuilt Witch at ${await git(root, 'rev-parse', '--short', 'HEAD')}, for its next start.`;
 }
 
