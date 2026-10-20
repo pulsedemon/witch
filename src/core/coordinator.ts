@@ -139,6 +139,8 @@ export interface Snapshot {
   usage: Usage;
   /** when this instance opened the conversation, in epoch milliseconds. */
   openedAt?: number;
+  /** a successful normal turn whose memory and final record save finished; never persisted. */
+  completedTurn?: string;
   recovery?: Recovery;
   error?: string;
 }
@@ -374,6 +376,7 @@ export class Coordinator {
         native: undefined,
         usage: {},
         openedAt: Date.now(),
+        completedTurn: undefined,
       });
       if (failure !== undefined) this.report(failure);
       if (this.coordination)
@@ -856,6 +859,7 @@ export class Coordinator {
     delivered?: () => void,
   ): Promise<TurnResult> {
     const conversation = this.current();
+    if (kind === 'turn') this.publish({ completedTurn: undefined });
     const { activity, scope } = await this.beginActivity(kind);
     // an interrupt that aborts this connect interrupts the turn, as one after it does
     const session = await this.connect(conversation.agent, scope).catch(
@@ -966,6 +970,8 @@ export class Coordinator {
       if (!(await workspace.isDirty())) delete conversation.activity;
     }
     await this.save();
+    if (kind === 'turn' && result.status === 'completed')
+      this.publish({ completedTurn: activity.id });
     return result;
   }
 

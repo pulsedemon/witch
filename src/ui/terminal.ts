@@ -37,6 +37,16 @@ function waiting(snapshot: Snapshot) {
   return undefined;
 }
 
+function settled(snapshot: Snapshot): boolean {
+  return (
+    snapshot.phase === 'idle' &&
+    !snapshot.queue.length &&
+    !snapshot.requests.length &&
+    !snapshot.recovery &&
+    !snapshot.error
+  );
+}
+
 /** cancellation writes nothing, so a failed stdout cannot force a second shutdown. */
 export function watchTerminal(
   coordinator: Pick<Coordinator, 'snapshot' | 'subscribe'>,
@@ -45,14 +55,28 @@ export function watchTerminal(
 ): () => void {
   let stopped = false;
   let title = '';
-  let task = '';
   let active: string | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let conversationId = coordinator.snapshot.conversation?.id;
+  let delivered = coordinator.snapshot.completedTurn;
+  let pending: ReturnType<typeof setImmediate> | undefined;
 
   const notify = (reason: string) =>
     write(
-      `\u001b]777;notify;Witch;${bounded(`${reason}: ${task}`)}\u001b\\\u0007`,
+      `\u001b]777;notify;Witch;${bounded(`${reason}: ${taskName()}`)}\u001b\\\u0007`,
     );
+
+  function taskName(): string {
+    const conversation = coordinator.snapshot.conversation;
+    const claim = coordination?.snapshot.ownClaim;
+    return (
+      oneLine(
+        (claim?.owner.conversation === conversation?.id
+          ? claim?.summary
+          : conversation?.title) ?? '',
+      ).trim() || 'New conversation'
+    );
+  }
 
   function update() {
     if (stopped) return;
@@ -62,16 +86,15 @@ export function watchTerminal(
       return;
     }
     const conversation = snapshot.conversation;
-    const claim = coordination?.snapshot.ownClaim;
-    task =
-      oneLine(
-        (claim?.owner.conversation === conversation?.id
-          ? claim?.summary
-          : conversation?.title) ?? '',
-      ).trim() || 'New conversation';
+    if (conversation?.id !== conversationId) {
+      conversationId = conversation?.id;
+      delivered = snapshot.completedTurn;
+      clearImmediate(pending);
+      pending = undefined;
+    }
     const status = snapshot.requests.length ? 'waiting' : snapshot.phase;
     const next = bounded(
-      `Witch | ${status}${conversation ? ` | ${task}` : ''}`,
+      `Witch | ${status}${conversation ? ` | ${taskName()}` : ''}`,
     );
     if (next !== title) {
       title = next;
@@ -88,6 +111,33 @@ export function watchTerminal(
         timer.unref();
       }
     }
+    const completed = snapshot.completedTurn;
+    if (
+      snapshot.phase === 'recovery' ||
+      snapshot.phase === 'error' ||
+      snapshot.error
+    )
+      delivered = completed;
+    if (!completed || completed === delivered || !settled(snapshot)) {
+      clearImmediate(pending);
+      pending = undefined;
+    } else if (!pending) {
+      const owner = conversationId;
+      pending = setImmediate(() => {
+        pending = undefined;
+        const current = coordinator.snapshot;
+        if (
+          stopped ||
+          current.conversation?.id !== owner ||
+          current.completedTurn !== completed ||
+          !settled(current)
+        )
+          return;
+        delivered = completed;
+        notify('Turn complete');
+      });
+      pending.unref();
+    }
   }
 
   const unsubscribe = coordinator.subscribe(update);
@@ -98,6 +148,7 @@ export function watchTerminal(
     unsubscribe();
     unsubscribeCoordination?.();
     clearInterval(timer);
+    clearImmediate(pending);
   }
   update();
   return stop;
