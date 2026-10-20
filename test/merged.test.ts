@@ -588,6 +588,25 @@ await test('an ignored file the base or the merge would start tracking stops the
   }
 });
 
+await test('of two cleanups in one checkout at once, one cleans up and the other does nothing', async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  const results = await Promise.all([
+    cleanUpMerge(checkout, pullRequest(tip)),
+    cleanUpMerge(checkout, pullRequest(tip)),
+  ]);
+  assert.deepEqual(
+    results.filter((result) => result),
+    [
+      {
+        text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+        cleaned: true,
+      },
+    ],
+  );
+  assert.deepEqual(await branches(checkout), ['main']);
+});
+
 await test('a branch committed to after the tip check stays, and so does its plan', async () => {
   const { checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
