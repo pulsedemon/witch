@@ -282,7 +282,10 @@ export class TranscriptLayout {
           rendered
             .get(anchor.item)
             ?.anchors.findLastIndex(
-              (row) => row.line === anchor.line && row.offset <= anchor.offset,
+              (row) =>
+                row.line === anchor.line &&
+                (row.offset === anchor.offset ||
+                  (row.offset >= 0 && row.offset < anchor.offset)),
             ) ?? 0;
         return start + Math.max(0, offset);
       },
