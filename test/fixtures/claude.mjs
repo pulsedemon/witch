@@ -159,6 +159,10 @@ const finish = () => {
 };
 for await (const line of lines) {
   const message = JSON.parse(line);
+  if (mode === 'pending-model' && message.type === 'user')
+    message.message.content = message.message.content
+      .split('User request:\n')
+      .at(-1);
   if (message.type === 'control_request') {
     const request = message.request;
     let response = {};
@@ -237,7 +241,13 @@ for await (const line of lines) {
         },
         behaviors: null,
       };
-    if (request.subtype === 'set_model') model = request.model;
+    if (request.subtype === 'set_model') {
+      if (mode === 'pending-model') {
+        writeFileSync(join(process.cwd(), 'model-entered'), '');
+        continue;
+      }
+      model = request.model;
+    }
     if (request.subtype === 'apply_flag_settings') {
       writeFileSync(
         join(process.cwd(), 'settings.json'),

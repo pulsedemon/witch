@@ -6,7 +6,7 @@ import { Coordinator } from '../src/core/coordinator.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import type { FixtureAgent } from './fixtures/agent.js';
 import { TurnGate } from './fixtures/agent.js';
-import { fixture, turns } from './fixtures/coordinator.js';
+import { fixture, readRecord, turns } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
@@ -793,16 +793,34 @@ await test("a model change runs during a replied turn without waiting, and is re
 await test('a model change during a replied turn refuses another until it finishes', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let first: Promise<void> | undefined;
+  let duplicate: Promise<void> | undefined;
   try {
+    const { session } = a.sessions.at(-1)!;
+    const select = session.selectModel.bind(session);
+    session.selectModel = async (...args) => {
+      entered.resolve();
+      await release.promise;
+      await select(...args);
+    };
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
     a.replied = true;
     const before = a.selections.length;
-    const first = coordinator.selectModel('a-big', 'high');
-    await assert.rejects(coordinator.selectModel('a-model'), {
-      message: 'Stop the current operation first',
-    });
+    first = coordinator.selectModel('a-big', 'high');
+    await within(entered.promise, 2000, 'the model change');
+    duplicate = coordinator.selectModel('a-model');
+    await within(
+      assert.rejects(duplicate, {
+        message: 'Stop the current operation first',
+      }),
+      2000,
+      'the overlapping model change refusal',
+    );
+    release.resolve();
     await first;
     assert.deepEqual(a.selections.slice(before), [['a-big', 'high']]);
     assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
@@ -814,10 +832,102 @@ await test('a model change during a replied turn refuses another until it finish
     gate.open();
     await within(sending, 2000, 'the turn');
   } finally {
+    release.resolve();
+    await Promise.allSettled([first, duplicate]);
     gate.open();
     await coordinator.close();
   }
 });
+
+for (const rejected of [false, true])
+  await test(
+    rejected
+      ? 'a rejected replied model change leaves queued prompts unsent'
+      : 'a replied model change finishes before the next queued turn starts',
+    async () => {
+      const { coordinator, a, root } = await fixture();
+      const gate = new TurnGate();
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const atNextSend: { model: string; effort?: string }[] = [];
+      const order: string[] = [];
+      let selecting: Promise<void> | undefined;
+      let sending: Promise<void> | undefined;
+      try {
+        const { session } = a.sessions.at(-1)!;
+        const select = session.selectModel.bind(session);
+        session.selectModel = async (...args) => {
+          entered.resolve();
+          await release.promise;
+          if (rejected) throw new Error('Model rejected');
+          await select(...args);
+          order.push('selection completed');
+        };
+        const send = session.send.bind(session);
+        session.send = async (prompt, skill) => {
+          if (prompt.endsWith('User request:\n/queued')) {
+            atNextSend.push({
+              model: session.info.model,
+              effort: session.info.effort,
+            });
+            order.push('queued send');
+          }
+          return send(prompt, skill);
+        };
+        a.gate = gate;
+        sending = coordinator.send('Start');
+        await within(gate.entered, 2000, 'the first turn');
+        a.replied = true;
+        const change = coordinator.selectModel('a-big', 'high');
+        selecting = rejected
+          ? assert.rejects(change, { message: 'Model rejected' })
+          : change;
+        await within(entered.promise, 2000, 'the model change');
+        await coordinator.send('/queued');
+        gate.open();
+        await within(gate.result, 2000, 'the native turn');
+        // the native result precedes coordinator persistence and its next queue read
+        await delay(400);
+        assert.deepEqual(atNextSend, []);
+        assert.deepEqual(coordinator.snapshot.queue, ['/queued']);
+        release.resolve();
+        await within(
+          Promise.all([selecting, sending]),
+          3000,
+          'the settled model change',
+        );
+        if (rejected) {
+          assert.equal(coordinator.snapshot.error, 'Model rejected');
+          assert.deepEqual(coordinator.snapshot.queue, ['/queued']);
+          assert.equal(a.inputs.length, 1);
+          assert.equal(
+            coordinator.snapshot.conversation!.sessions.a!.model,
+            'a-model',
+          );
+        } else {
+          assert.deepEqual(atNextSend, [{ model: 'a-big', effort: 'high' }]);
+          assert.deepEqual(order, ['selection completed', 'queued send']);
+          const saved = await readRecord(
+            root,
+            coordinator.snapshot.conversation!.id,
+          );
+          assert.equal(saved.sessions.a!.model, 'a-big');
+          assert.equal(saved.sessions.a!.effort, 'high');
+          assert.deepEqual(coordinator.snapshot.queue, []);
+          assert.deepEqual(turns(a), [
+            ['Start', undefined],
+            ['/queued', undefined],
+          ]);
+        }
+      } finally {
+        release.resolve();
+        gate.open();
+        await selecting;
+        await coordinator.close();
+        await sending;
+      }
+    },
+  );
 
 await test('a replied turn opens the model list from its connect without refreshing', async () => {
   const { coordinator, a } = await fixture();

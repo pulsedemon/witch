@@ -177,8 +177,8 @@ export class Coordinator {
   /** a turn in the current operation failed, which stops the queue as a report does. */
   private turnFailed = false;
   private closed = false;
-  /** a model change made while a turn has replied runs outside any operation, and two at once can finish out of order and save a model the agent isn't on. */
-  private changingModel = false;
+  /** a model change accepted after the reply can outlive the native turn. */
+  private changingModel?: Promise<void>;
   private draining = false;
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
@@ -542,11 +542,14 @@ export class Coordinator {
     // a familiar or workflow holding a replied turn open doesn't stop Claude Code taking the change
     if (!this.replied)
       return this.operate('starting', () => this.changeModel(model, effort));
-    this.changingModel = true;
+    this.changingModel = this.changeModel(model, effort);
     try {
-      await this.changeModel(model, effort);
+      await this.changingModel;
+    } catch (error) {
+      this.report(error);
+      throw error;
     } finally {
-      this.changingModel = false;
+      this.changingModel = undefined;
     }
   }
 
@@ -594,7 +597,11 @@ export class Coordinator {
     this.editorCancellation?.abort();
     // a session that is still starting has no turn to interrupt, so stopping it closes it
     if (this.snapshot.phase === 'starting') await this.session?.close();
-    else await this.session?.interrupt();
+    else {
+      const session = this.session;
+      await session?.interrupt();
+      if (this.changingModel) await session?.close();
+    }
   }
 
   async respond(id: string, response: UserResponse): Promise<void> {
@@ -1404,6 +1411,8 @@ export class Coordinator {
         failure = error;
         this.report(error);
       }
+      // the selector reports its failure; the original operation still needs to settle
+      await this.changingModel?.catch(() => {});
       try {
         await this.settle();
       } catch (error) {
