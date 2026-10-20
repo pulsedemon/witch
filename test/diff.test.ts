@@ -518,25 +518,42 @@ await test("a long line past the highlighting budget draws plain while shorter l
   assert.ok(!paired.some((row) => row.includes('\u001b[48;2;56;166;96m')));
 });
 
-await test('an html line opening many script tags draws quickly, and script content colors as JavaScript', () => {
+await test('an html line opening many script tags draws quickly, and script and style content reads only as JavaScript or CSS', () => {
   const started = performance.now();
-  const drawn = rows([
-    {
-      path: '/work/a.html',
-      kind: 'update',
-      hunks: [
-        {
-          oldStart: 1,
-          newStart: 1,
-          lines: [
-            '+' + '<script>'.repeat(20),
-            '+<script>const a = 1;</script>',
-          ],
-        },
-      ],
-    },
-  ]);
-  // reading each tag's content as xml again takes seconds
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.html',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [
+              '+' + '<script>'.repeat(20),
+              '+<script>const a = 1;</script>',
+              '+<script><!-- c --></script>',
+              '+<style><!-- c --></style>',
+            ],
+          },
+        ],
+      },
+    ],
+    60,
+  );
+  // reading each tag's content as both xml and handlebars takes seconds
   assert.ok(performance.now() - started < 500);
-  assert.ok(drawn.some((row) => row.includes('\u001b[38;2;102;217;239mconst')));
+  const row = (code: string) =>
+    drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
+  assert.ok(
+    row('<script>const a = 1;</script>').includes(
+      '\u001b[38;2;102;217;239mconst',
+    ),
+  );
+  // an html comment colors only where xml reads it, directly or through handlebars
+  for (const code of [
+    '<script><!-- c --></script>',
+    '<style><!-- c --></style>',
+  ])
+    assert.ok(!syntaxOf(row(code)).includes('\u001b[38;'), code);
 });
