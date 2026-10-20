@@ -1049,6 +1049,36 @@ await test('an install lock lookup failure keeps the install context', async () 
   assert.deepEqual(calls, []);
 });
 
+await test('an install lock open failure keeps its cause and install context', async () => {
+  const { root, origin } = await merged();
+  const install = join(root, 'install');
+  await git(root, 'clone', origin, install);
+  const directory = join(install, '.git');
+  const calls: string[][] = [];
+  await chmod(directory, 0o111);
+  try {
+    await assert.rejects(
+      refreshInstall(install, 'main', async (_, args) => {
+        calls.push(args);
+        return { stdout: '' };
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.ok(
+          error.message.startsWith(
+            `Witch's checkout at ${install} wasn't rebuilt:`,
+          ),
+        );
+        assert.equal((error.cause as NodeJS.ErrnoException).code, 'EACCES');
+        return true;
+      },
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    await chmod(directory, 0o755);
+  }
+});
+
 await test("a failed rebuild names the install and keeps tsc's errors", async () => {
   const { root, origin } = await merged();
   const install = join(root, 'install');
