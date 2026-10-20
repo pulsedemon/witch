@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { access, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
@@ -691,6 +692,89 @@ await test('a Claude edit or write arrives as the diff its result reports, at it
         ['edit-2', 'Error: String to replace not found in file.', undefined],
         ['write-2', 'The file c.txt has been updated successfully.', undefined],
         ['write-3', 'Staged for review.', undefined],
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+await test('Claude edit and write diffs resolve home paths outside the session directory', async () => {
+  const events: AgentEvent[] = [];
+  const { session } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('home-edits')).status, 'completed');
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'tool' && event.done ? (event.diff ?? []) : [],
+      ),
+      [
+        {
+          path: join(homedir(), 'issue69-edit.txt'),
+          kind: 'update',
+          hunks: [
+            {
+              oldStart: 1,
+              newStart: 1,
+              lines: [' alpha', '-bravo', '+BRAVO', ' charlie'],
+            },
+          ],
+        },
+        {
+          path: join(homedir(), 'issue69-write.txt'),
+          kind: 'add',
+          hunks: [{ oldStart: 0, newStart: 1, lines: ['+one', '+two'] }],
+        },
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+await test('Claude Edit creations keep their reported patch and staged creations keep their text', async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('created-edits')).status, 'completed');
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'tool')
+        .filter(({ done }) => done)
+        .map(({ id, text, diff }) => [id, text, diff]),
+      [
+        [
+          'create-edit',
+          '',
+          [
+            {
+              path: join(cwd, 'created.txt'),
+              kind: 'add',
+              hunks: [
+                {
+                  oldStart: 0,
+                  newStart: 1,
+                  lines: Array.from(
+                    { length: 12 },
+                    (_, index) => `+l${index + 1}`,
+                  ),
+                },
+              ],
+            },
+          ],
+        ],
+        [
+          'append-edit',
+          '',
+          [
+            {
+              path: join(cwd, 'append.txt'),
+              kind: 'update',
+              hunks: [{ oldStart: 1, newStart: 1, lines: [' base', '+next'] }],
+            },
+          ],
+        ],
+        ['staged-edit', 'Staged for review.', undefined],
       ],
     );
   } finally {

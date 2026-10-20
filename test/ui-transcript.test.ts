@@ -17,16 +17,40 @@ import {
 } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
-/** an assistant message of 300 numbered rows, far taller than any view. */
+/** the transcript must overflow for scroll tests. */
 const long = {
   id: 'long',
   kind: 'assistant' as const,
   text: Array.from({ length: 300 }, (_, n) => `row ${n + 1}`).join('\n'),
   cwd: '/work',
 };
-/** the number of the first `row` shown. */
 const first = (ui: { text(): string }) =>
   Number(/row (\d+)/.exec(ui.text())?.[1]);
+
+const pendingEdit = {
+  id: 'edit',
+  kind: 'tool' as const,
+  title: 'Edit ./a.txt',
+  text: JSON.stringify(
+    { file_path: '/work/a.txt', old_string: 'b', new_string: 'B' },
+    null,
+    2,
+  ),
+  cwd: '/work',
+  done: false,
+};
+const completedEdit = {
+  ...pendingEdit,
+  text: '',
+  done: true,
+  diff: [
+    {
+      path: '/work/a.txt',
+      kind: 'update' as const,
+      hunks: [{ oldStart: 1, newStart: 1, lines: [' a', '-b', '+B'] }],
+    },
+  ],
+};
 
 await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
@@ -55,6 +79,74 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
     assert.deepEqual(calls, []);
   } finally {
     ui.unmount();
+  }
+});
+
+await test('a manually expanded tool stays open when its project diff arrives', async () => {
+  const { app, coordinator } = fake({
+    phase: 'running',
+    items: [pendingEdit],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`\t${ENTER}`);
+    await until('the opened input', () =>
+      ui.text().includes('"old_string": "b"'),
+    );
+    coordinator.publish({ items: [completedEdit] });
+    await until('the completed tool', () =>
+      ui.text().includes('✓ Edit ./a.txt'),
+    );
+    assert.match(ui.text(), /2 \+B/);
+    ui.stdin.write(ENTER);
+    await until('the collapsed tool', () =>
+      ui.text().includes('+ ✓ Edit ./a.txt'),
+    );
+    assert.doesNotMatch(ui.text(), /2 \+B/);
+    ui.stdin.write(ENTER);
+    await until('the reopened tool', () => ui.text().includes('2 +B'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a manual collapse survives a project diff and batched toggles use the previous choice', async () => {
+  const { app, coordinator } = fake({
+    phase: 'running',
+    items: [pendingEdit],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write(`\t${ENTER}${ENTER}`);
+    await delay(60);
+    coordinator.publish({ items: [completedEdit] });
+    await until('the completed tool', () =>
+      ui.text().includes('✓ Edit ./a.txt'),
+    );
+    assert.ok(ui.text().includes('+ ✓ Edit ./a.txt'));
+    assert.doesNotMatch(ui.text(), /2 \+B/);
+    ui.stdin.write(ENTER);
+    await until('the reopened tool', () => ui.text().includes('2 +B'));
+  } finally {
+    ui.unmount();
+  }
+
+  const automatic = fake({ items: [completedEdit] });
+  const opened = show(
+    createElement(App, { coordinator: automatic.app, onExit: () => {} }),
+  );
+  try {
+    await delay(60);
+    assert.match(opened.text(), /2 \+B/);
+    opened.stdin.write(`\t${ENTER}`);
+    await until('the collapsed automatic tool', () =>
+      opened.text().includes('+ ✓ Edit ./a.txt'),
+    );
+    assert.doesNotMatch(opened.text(), /2 \+B/);
+  } finally {
+    opened.unmount();
   }
 });
 
