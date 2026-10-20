@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { Coordinator } from '../src/core/coordinator.js';
+import { Coordinator, editorEnvironment } from '../src/core/coordinator.js';
 import { main } from '../src/memory/memory.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import {
@@ -25,6 +26,9 @@ await test('a fresh conversation receives committed memory without a handoff', a
     await coordinator.send('Which port should this project use?');
     assert.match(b.inputs.at(-1)!.prompt, /Use port 4567/);
     assert.doesNotMatch(b.inputs.at(-1)!.prompt, /Pending task context/);
+    assert.ok(
+      b.inputs.at(-1)!.prompt.includes(`Put scratch files under ${tmpdir()}`),
+    );
     assert.equal(a.inputs.length, 1);
   } finally {
     await coordinator.close();
@@ -230,6 +234,17 @@ await test('recovery has one owner and shutdown waits for its accepted commit', 
   await Promise.all([recovering, coordinator.close()]);
   assert.equal(await workspace().isDirty(), false);
   assert.match(await memory.read(main, await note()), /4567/);
+});
+
+await test("the editor's environment drops TMPDIR and passes Node options under VS Code's names", () => {
+  const environment = editorEnvironment({
+    PATH: '/bin',
+    TMPDIR: '/scratch',
+    NODE_OPTIONS: '--import tsx',
+  });
+  assert.equal(environment.TMPDIR, undefined);
+  assert.equal(environment.VSCODE_NODE_OPTIONS, '--import tsx');
+  assert.equal(environment.PATH, '/bin');
 });
 
 await test('editing a previously committed symlink never opens its external target', async () => {

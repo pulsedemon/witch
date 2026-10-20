@@ -6,7 +6,7 @@ import { Coordinator } from '../src/core/coordinator.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import type { FixtureAgent } from './fixtures/agent.js';
 import { TurnGate } from './fixtures/agent.js';
-import { fixture } from './fixtures/coordinator.js';
+import { fixture, turns } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
@@ -145,13 +145,6 @@ await test('a failure after the agent has the prompt still counts as delivered',
     await coordinator.close();
   }
 });
-
-/** each turn's prompt and spell, in the order the agent got them. */
-const turns = (a: FixtureAgent) =>
-  a.inputs.map(({ prompt, skill }) => [
-    prompt.split('User request:\n')[1],
-    skill,
-  ]);
 
 await test('a prompt sent during a turn joins it and shows at once, and a spell and the prompts behind it wait, the spell for a turn alone and the rest for one turn, a line each', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {

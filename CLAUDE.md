@@ -22,9 +22,9 @@ pnpm exec node --import tsx --test --test-name-pattern='invalid effort' test/cla
 - `Coordinator` (`src/core/coordinator.ts`) is the only owner of application state for the one conversation it has open. It publishes an immutable `Snapshot`; `App` reads it through `useSyncExternalStore`, batched to 40 ms, and calls coordinator methods. Every action except `initialize`, `send`, `unqueue`, `interrupt`, `respond` and `close` runs through `operate()`, which rejects unless the phase is `idle` (`recovery` for memory recovery) and finishes in `settle()`, which publishes the conversation's memory and classifies what is left. `initialize` settles its own load, `send` steers the turn in flight or queues the prompt until `drain()` runs it through `operate()`, and the other four act while another operation holds the phase. While `AgentSession.replied` is true, `selectModel` acts without `operate()` too, and `refreshModels` keeps the list from the connect.
 - `performTurn` runs each turn; its memory, recovery, handoff and Claude idle-completion rules are in [docs/rules.md](docs/rules.md).
 - Adapters implement `AgentAdapter` from `src/agents/types.ts`. Codex's JSON-RPC transport is `src/agents/json-rpc.ts`.
-- The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/memory.ts` and `src/cli.tsx`, which places `memory.git` and `jobs/`.
+- The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/memory.ts` and `src/cli.tsx`, which places `memory.git`, `jobs/` and `scratch/`. `src/persistence/instance.ts` makes and removes the `<pid>` directories in `jobs/` and `scratch/`.
 
-macOS assumptions are deliberate: memory editing launches VS Code from `/Applications`, clicked links open with `/usr/bin/open`, copied text goes to `/usr/bin/pbcopy`, images other than PNG convert with `/usr/bin/sips`, process identity reads `/bin/ps`, and conversation locks use `O_EXLOCK`.
+macOS assumptions are deliberate: memory editing launches VS Code from `/Applications`, clicked links open with `/usr/bin/open`, copied text goes to `/usr/bin/pbcopy`, images other than PNG convert with `/usr/bin/sips`, process identity reads `/bin/ps`, an instance directory holding a read-only directory is made removable with `/bin/chmod`, and conversation locks and the merge cleanup's lock on a checkout's git directory use `O_EXLOCK`.
 
 ## Tests
 
