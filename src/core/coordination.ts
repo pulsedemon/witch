@@ -32,13 +32,15 @@ interface Activation {
   publishing: boolean;
 }
 
+const emptySnapshot: CoordinationSnapshot = {
+  peers: [],
+  reservations: [],
+  unregistered: [],
+};
+
 /** one conversation owns mutations until quiesced; presence disappears only while its conversation lock is held. */
 export class SessionCoordination {
-  snapshot: CoordinationSnapshot = {
-    peers: [],
-    reservations: [],
-    unregistered: [],
-  };
+  snapshot: CoordinationSnapshot = emptySnapshot;
   private listeners = new Set<() => void>();
   private active?: Activation;
   private state?: Snapshot;
@@ -124,6 +126,7 @@ export class SessionCoordination {
       publishing: true,
     };
     this.active = active;
+    this.publish(emptySnapshot);
     try {
       const presence = this.presence(active);
       this.projected = JSON.stringify({ ...presence, updatedAt: undefined });
