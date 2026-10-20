@@ -17,7 +17,7 @@ import type {
   DisplayUpdate,
 } from '../core/state.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
-import { exclusiveLock } from './lock.js';
+import { exclusiveLock, isLocked } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
@@ -197,20 +197,8 @@ export class StateStore {
   }
 
   /** observes ownership without creating a lock or recovering native processes. */
-  async isOpen(id: string): Promise<boolean> {
-    try {
-      const lock = await open(
-        join(this.directory(id), 'lock'),
-        constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
-      );
-      await lock.close();
-      return false;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'EAGAIN') return true;
-      if (code === 'ENOENT') return false;
-      throw error;
-    }
+  isOpen(id: string): Promise<boolean> {
+    return isLocked(join(this.directory(id), 'lock'));
   }
 
   private directory(id: string): string {

@@ -17,7 +17,7 @@ import type {
   SessionPresence,
   TaskClaim,
 } from '../core/coordination-state.js';
-import { exclusiveLock } from './lock.js';
+import { exclusiveLock, isLocked } from './lock.js';
 import { writeJson } from './json.js';
 
 const ledgerSchema = z.object({
@@ -68,6 +68,30 @@ export class CoordinationStore {
       join(this.directory, 'sessions', `${presence.id}.json`),
       sessionPresenceSchema.parse(presence),
     );
+  }
+
+  /** a failed presence removal cannot register a later holder of the conversation lock. */
+  async holdActivation(activation: string): Promise<() => Promise<void>> {
+    const file = join(this.directory, 'sessions', `${activation}.lock`);
+    const lock = await open(
+      file,
+      constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_RDWR |
+        constants.O_NONBLOCK |
+        exclusiveLock,
+      0o600,
+    );
+    return async () => {
+      await lock.close();
+      await unlink(file).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      });
+    };
+  }
+
+  isActive(activation: string): Promise<boolean> {
+    return isLocked(join(this.directory, 'sessions', `${activation}.lock`));
   }
 
   /** the caller holds the conversation lock until its writer drains and this removal finishes. */

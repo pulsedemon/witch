@@ -30,6 +30,7 @@ interface Activation {
   openedAt: number;
   accepting: boolean;
   publishing: boolean;
+  release(): Promise<void>;
 }
 
 const emptySnapshot: CoordinationSnapshot = {
@@ -113,17 +114,20 @@ export class SessionCoordination {
     )
       return this.active.binding;
     if (this.active) await this.deactivate();
+    const activation = randomUUID();
+    const release = await this.registry.holdActivation(activation);
     const active: Activation = {
       conversation,
       project,
       binding: {
         directory: this.directory,
         conversation: conversation.id,
-        activation: randomUUID(),
+        activation,
       },
       openedAt: this.state?.openedAt ?? Date.now(),
       accepting: false,
       publishing: true,
+      release,
     };
     this.active = active;
     this.publish(emptySnapshot);
@@ -174,6 +178,9 @@ export class SessionCoordination {
     } catch (error) {
       failure ??= error;
     } finally {
+      await active.release().catch((error: unknown) => {
+        failure ??= error;
+      });
       if (this.active === active) this.active = undefined;
       this.projected = undefined;
     }
@@ -501,7 +508,11 @@ export class SessionCoordination {
       if (!(await this.store.isOpen(record.id))) continue;
       opened.add(record.id);
       const presence = presences.find((entry) => entry.id === record.id);
-      if (presence && presence.cwd === record.cwd) {
+      if (
+        presence &&
+        presence.cwd === record.cwd &&
+        (await this.registry.isActive(presence.activation))
+      ) {
         let process = processes.get(presence.process.pid);
         if (!process) {
           process = identifyProcess(presence.process.pid);
