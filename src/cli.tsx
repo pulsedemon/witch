@@ -19,6 +19,7 @@ import { watchMerges } from './core/merged.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
+import { ScratchSpace } from './persistence/scratch.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
@@ -56,7 +57,9 @@ Use /help inside the app for controls.
 
 // the restart hands its conversation over here, and no agent or command may inherit it
 const handedOver = process.env.WITCH_CONVERSATION;
+const handedScratch = process.env.WITCH_SCRATCH;
 delete process.env.WITCH_CONVERSATION;
+delete process.env.WITCH_SCRATCH;
 let values;
 let positionals;
 let control;
@@ -94,14 +97,21 @@ if (control) {
   const jobs = new JobWatch({
     directory: instanceDirectory(join(store.root, 'jobs')),
   });
-  // agents and their commands inherit it, so their scratch goes when this instance does
-  const scratch = instanceDirectory(join(store.root, 'scratch'));
-  process.env.TMPDIR = scratch;
+  const scratchParent = join(store.root, 'scratch');
+  const scratch = await ScratchSpace.open(scratchParent, {
+    resume:
+      handedScratch ??
+      (handedOver &&
+      process.env.TMPDIR === join(scratchParent, String(process.pid))
+        ? process.env.TMPDIR
+        : undefined),
+  });
+  process.env.TMPDIR = scratch.directory;
   const memory = new Memory(join(store.root, 'memory.git'));
   const coordination = await SessionCoordination.open(
     store,
     memory,
-    join(scratch, 'control'),
+    join(scratch.directory, 'control'),
     (binding) => controlPrefix(binding, fileURLToPath(import.meta.url)),
   );
   const coordinator = new Coordinator(
@@ -120,6 +130,7 @@ if (control) {
     application.unmount();
   };
   let shuttingDown = false;
+  let shutdownComplete = false;
   const shutdown = () => {
     // a second request quits without waiting for a stuck agent
     if (shuttingDown) {
@@ -128,7 +139,10 @@ if (control) {
     }
     shuttingDown = true;
     void coordinator.close().then(
-      () => unmount(),
+      () => {
+        shutdownComplete = true;
+        unmount();
+      },
       (error: unknown) => {
         unmount();
         process.stderr.write(`witch: ${errorMessage(error)}\n`);
@@ -217,8 +231,22 @@ if (control) {
   process.removeListener('SIGINT', shutdown);
   process.removeListener('SIGHUP', shutdown);
   process.stdout.removeListener('error', shutdown);
+  try {
+    // a replacement watcher can miss inherited jobs, so resumed scratch stays until a later boot
+    if (!restarting && !scratch.resumed && shutdownComplete) {
+      const tracked = await jobs.tracked().catch((error: unknown) => {
+        process.stderr.write(
+          `witch: scratch retained: ${errorMessage(error)}\n`,
+        );
+        return undefined;
+      });
+      if (tracked?.length === 0) await scratch.remove();
+    }
+  } finally {
+    await scratch.close();
+  }
   if (restarting) {
-    // execve fires no exit event. it keeps the pid, so the new process removes this one's instance directories
+    // execve fires no exit event; the replacement resets job reports and resumes scratch
     restore();
     const id = coordinator.snapshot.conversation?.id ?? handedOver;
     process.execve!(
@@ -230,7 +258,11 @@ if (control) {
         '--state-dir',
         store.root,
       ],
-      { ...process.env, ...(id ? { WITCH_CONVERSATION: id } : {}) },
+      {
+        ...process.env,
+        WITCH_SCRATCH: scratch.directory,
+        ...(id ? { WITCH_CONVERSATION: id } : {}),
+      },
     );
   }
 }

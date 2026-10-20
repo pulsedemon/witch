@@ -11,7 +11,7 @@ export function instanceDirectory(parent: string): string {
   for (const name of readdirSync(parent))
     if (
       /^\d+$/.test(name) &&
-      (Number(name) === process.pid || !running(Number(name)))
+      (Number(name) === process.pid || !processRunning(Number(name)))
     )
       removeDirectory(join(parent, name));
   const directory = join(parent, String(process.pid));
@@ -21,7 +21,7 @@ export function instanceDirectory(parent: string): string {
 }
 
 /** only ESRCH means gone: EPERM is another user's live process. */
-function running(pid: number): boolean {
+export function processRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

@@ -7,7 +7,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { processIdentity } from '../core/state.js';
-import { removeDirectory } from './instance.js';
+import { processRunning, removeDirectory } from './instance.js';
 import { writeJson } from './json.js';
 import { exclusiveLock } from './lock.js';
 import { identifyProcess } from './process.js';
@@ -50,16 +50,6 @@ async function readRecord(directory: string) {
   }
 }
 
-/** only ESRCH permits adopting an unrecorded numeric directory into the sweep. */
-function running(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
-
 /** a later boot rules out surviving workers, including children forked after their Witch exited. */
 async function sweep(parent: string, boot: string): Promise<void> {
   for (const name of await readdir(parent)) {
@@ -72,7 +62,7 @@ async function sweep(parent: string, boot: string): Promise<void> {
       const record = await readRecord(directory);
       if (record) {
         if (record.boot !== boot) removeDirectory(directory);
-      } else if (!numeric || !running(Number(name))) {
+      } else if (!numeric || !processRunning(Number(name))) {
         await writeJson(join(directory, metadata), { version: 1, boot });
       }
     } catch {
