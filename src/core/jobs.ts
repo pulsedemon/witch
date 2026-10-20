@@ -23,6 +23,7 @@ export interface Row {
   pid: number;
   ppid: number;
   pgid: number;
+  name: string;
   leadsSession: boolean;
   /** the pid and start time, which tell a process from a later one that reuses its pid. */
   identity: string;
@@ -36,10 +37,10 @@ interface Detail {
   command: string;
 }
 
-/** reads `ps -o pid=,ppid=,pgid=,stat=,lstart=` lines, leaving zombies out so a job whose processes have all exited drops. */
+/** reads `ps -o pid=,ppid=,pgid=,stat=,lstart=,ucomm=` lines, leaving zombies out so a job whose processes have all exited drops. */
 export function parseProcesses(lines: string[]): Row[] {
   return lines.flatMap((line) => {
-    const [pid, ppid, pgid, stat, ...started] = line.trim().split(/\s+/);
+    const [pid, ppid, pgid, stat, ...rest] = line.trim().split(/\s+/);
     return stat!.startsWith('Z')
       ? []
       : [
@@ -47,15 +48,16 @@ export function parseProcesses(lines: string[]): Row[] {
             pid: Number(pid),
             ppid: Number(ppid),
             pgid: Number(pgid),
+            name: rest.slice(5).join(' '),
             leadsSession: stat!.includes('s'),
-            identity: `${pid} ${started.join(' ')}`,
+            identity: `${pid} ${rest.slice(0, 5).join(' ')}`,
           },
         ];
   });
 }
 
 async function processTable(): Promise<Row[]> {
-  return parseProcesses(await ps('pid=,ppid=,pgid=,stat=,lstart='));
+  return parseProcesses(await ps('pid=,ppid=,pgid=,stat=,lstart=,ucomm='));
 }
 
 const detail =
@@ -95,8 +97,12 @@ async function carrying(entry: string, pids: number[]): Promise<number[]> {
 
 /**
  * the process groups of the agents' commands, which both agents start as session leaders, of the groups handed to
- * `track`, and of any group a process inside one moves to. a group keeps its generation while a process from the last
- * read remains in it, so a command orphaned to launchd still shows.
+ * `track`, and of any group a process inside one moves to. a listed group keeps its generation while a process from
+ * the last read remains in it, so a command orphaned to launchd still shows.
+ *
+ * tmux processes and their observed descendants are excluded, including after reparenting. their entire groups are
+ * withheld, but ordinary peers keep their ownership and return with a new generation once the exclusion ends.
+ * exclusion stops at this Witch so running it inside tmux leaves its own agent commands available.
  *
  * with a `directory`, Claude Code runs `script` as its `CLAUDE_ENV_FILE` ahead of each Bash command, in the shell that
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
@@ -110,13 +116,15 @@ export class JobWatch {
   readonly script?: string;
   /** what every agent command's environment gains. */
   readonly environment: Record<string, string>;
-  /** each tracked group's generation. */
+  /** each listed group's generation. */
   private groups: ReadonlyMap<number, number> = new Map();
-  /** the groups handed to `track` that no read has yet found empty. */
+  /** the groups handed to `track` or reported by shells that no read has yet found empty. */
   private readonly handed = new Set<number>();
   private generation = 0;
-  /** the tracked groups' processes as of the last read, by identity, with the group each was in. */
+  /** ordinary owned processes and their groups, including peers in temporarily withheld groups. */
   private members = new Map<string, number>();
+  /** excluded identities still present at the last successful read. */
+  private excluded = new Set<string>();
   /** every process's identity as of the last read, unset until a read succeeds. */
   private seen?: Set<string>;
   private readonly timer: ReturnType<typeof setInterval>;
@@ -142,9 +150,8 @@ export class JobWatch {
     this.environment = directory ? { WITCH_JOBS: directory } : {};
     if (directory) {
       this.script = join(directory, 'env');
-      // the braces send a failed write's error to /dev/null, `|| :` keeps it from ending a shell under errexit, which
-      // Claude's snapshot replays from the user's shell, and `>|` writes under noclobber. the unset keeps a Claude Code
-      // that a command starts from reading this file
+      // a failed report must not stop commands under errexit; >| also tolerates noclobber.
+      // nested Claude sessions must not reuse this report script
       writeFileSync(
         this.script,
         `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport WITCH_JOBS=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
@@ -246,6 +253,21 @@ export class JobWatch {
     }
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
+    const excluded = new Set<string>();
+    const boundaries = rows.filter(
+      ({ name, identity }) => name === 'tmux' || this.excluded.has(identity),
+    );
+    while (boundaries.length) {
+      const row = boundaries.pop()!;
+      if (row.pid === process.pid || excluded.has(row.identity)) continue;
+      excluded.add(row.identity);
+      boundaries.push(...(children.get(row.pid) ?? []));
+    }
+    const excludedGroups = new Set(
+      rows
+        .filter(({ identity }) => excluded.has(identity))
+        .map(({ pgid }) => pgid),
+    );
     // the agents' commands lead sessions and their MCP servers don't. a server's detached helpers sit a level deeper
     // and are never reached, nor is any command of a Codex from npm, whose Node launcher runs app-server as its child.
     // VS Code's launcher for memory editing starts `open` as a session leader, so it shows as a job until it exits
@@ -271,20 +293,20 @@ export class JobWatch {
     const walk = () => {
       while (pending.length) {
         const row = pending.pop()!;
+        if (excluded.has(row.identity)) continue;
         if (row.pgid !== own) groups.add(row.pgid);
         pending.push(...(children.get(row.pid) ?? []));
       }
     };
     walk();
-    // every process from before the first read, Witch's own terminal or tmux server included, is in that read, so none
-    // of them is checked
+    // the first read only records identities so pre-existing processes cannot be adopted by their marks
     const { directory } = this.options;
     const { seen } = this;
     if (directory && seen) {
-      const below = (row: Row): Row[] => [
-        row,
-        ...(children.get(row.pid) ?? []).flatMap(below),
-      ];
+      const below = (row: Row): Row[] =>
+        excluded.has(row.identity)
+          ? []
+          : [row, ...(children.get(row.pid) ?? []).flatMap(below)];
       const candidates = rows
         .filter(
           ({ ppid, pgid, identity }) =>
@@ -303,18 +325,22 @@ export class JobWatch {
         walk();
       }
     }
-    // a group none of whose processes carry over is a new one, even under an id tracked before
+    const owned = rows.filter(
+      ({ identity, pgid }) => groups.has(pgid) && !excluded.has(identity),
+    );
+    for (const group of excludedGroups) groups.delete(group);
+    // a returning or replaced group must invalidate selections from its earlier listing
     this.groups = new Map(
       [...groups].map((group) => [
         group,
-        held.has(group) ? this.groups.get(group)! : ++this.generation,
+        (held.has(group) ? this.groups.get(group) : undefined) ??
+          ++this.generation,
       ]),
     );
     const tracked = rows.filter(({ pgid }) => groups.has(pgid));
-    this.members = new Map(
-      tracked.map(({ identity, pgid }) => [identity, pgid]),
-    );
+    this.members = new Map(owned.map(({ identity, pgid }) => [identity, pgid]));
     this.seen = new Set(rows.map(({ identity }) => identity));
+    this.excluded = excluded;
     for (const group of handed)
       if (!rows.some(({ pgid }) => pgid === group)) this.handed.delete(group);
     return tracked;
