@@ -377,6 +377,7 @@ await test('failed target activation holds its selected lock without starting na
     'error',
   );
   assert.deepEqual(await registry.presences(), []);
+  assert.equal(await registry.isActive(rejected), false);
   assert.equal(a.coordination.snapshot.ownClaim, undefined);
   assert.equal(
     (await registry.claims())[0]!.owner.conversation,

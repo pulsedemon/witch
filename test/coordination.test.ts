@@ -167,6 +167,42 @@ await test('a dead owner leaves a blocking unattended claim even if its stale pr
   assert.equal((await b.claim()).kind, 'conflict');
 });
 
+await test('a failed presence removal cannot register a later legacy lock owner', async (t) => {
+  const { start, store, registry } = await coordinationFixture(t);
+  const a = await start(),
+    b = await start('B');
+  const old = await a.binding();
+  const remove = CoordinationStore.prototype.removePresence;
+  t.mock.method(
+    CoordinationStore.prototype,
+    'removePresence',
+    function (this: CoordinationStore, id: string, activation: string) {
+      return id === old.conversation
+        ? Promise.reject(new Error('presence removal failed'))
+        : remove.call(this, id, activation);
+    },
+  );
+  await a.coordinator.newConversation();
+  assert.ok(
+    (await registry.presences()).some((p) => p.id === old.conversation),
+  );
+  assert.equal(await registry.isActive(old.activation), false);
+  const legacy = await store.claim(old.conversation);
+  try {
+    assert.equal((await b.claim('task:other')).kind, 'error');
+    const snapshot = await b.query();
+    assert.deepEqual(
+      snapshot.unregistered.map((p) => p.id),
+      [old.conversation],
+    );
+    assert.ok(snapshot.peers.every((p) => p.presence.id !== old.conversation));
+    assert.deepEqual(await registry.claims(), []);
+  } finally {
+    await legacy.close();
+  }
+  assert.equal((await b.claim('task:other')).kind, 'claimed');
+});
+
 await test('unknown discovery refuses both a successful query and new ownership', async (t) => {
   const { start, store, registry } = await coordinationFixture(t);
   const a = await start();
