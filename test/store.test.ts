@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
   appendFile,
+  access,
   chmod,
   mkdir,
   readFile,
@@ -82,6 +83,54 @@ await test('a second claim of a conversation is refused while another conversati
     await (await store.claim('second')).close();
   } finally {
     await first.close();
+  }
+});
+
+await test('observing conversation ownership leaves its native process and stored data untouched', async () => {
+  const root = await scratch('witch-observation-');
+  const store = await StateStore.open(root);
+  const files = await store.create(conversation('observed'));
+  const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  const ended = once(child, 'exit');
+  try {
+    const identity = await identifyProcess(child.pid!);
+    assert.ok(identity);
+    await files.save({ ...files.record, process: identity });
+    await files.append({
+      id: 'n',
+      kind: 'notice',
+      text: 'kept',
+      cwd: '/project',
+    });
+    const contents = () =>
+      Promise.all(
+        ['state.json', 'history.jsonl'].map((name) =>
+          readFile(join(root, 'conversations', 'observed', name), 'utf8'),
+        ),
+      );
+    const before = await contents();
+    assert.equal(await store.isOpen('observed'), true);
+    await assert.rejects(store.claim('observed'), LockedElsewhere);
+    await files.close();
+    assert.equal(await store.isOpen('observed'), false);
+    assert.deepEqual(await contents(), before);
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    assert.equal(await store.isOpen('absent'), false);
+    await assert.rejects(access(join(root, 'conversations', 'absent')), {
+      code: 'ENOENT',
+    });
+    const lock = join(root, 'conversations', 'observed', 'lock');
+    await chmod(lock, 0o000);
+    try {
+      await assert.rejects(store.isOpen('observed'), { code: 'EACCES' });
+    } finally {
+      await chmod(lock, 0o600);
+    }
+  } finally {
+    await files.close();
+    child.kill();
+    await ended;
   }
 });
 
