@@ -43,6 +43,7 @@ const tmux: Row = {
   pid: 100040,
   pgid: worker.pgid,
   name: 'tmux',
+  leadsSession: false,
   identity: '100040 tmux',
 };
 const pane: Row = {
@@ -50,6 +51,7 @@ const pane: Row = {
   pid: 100041,
   ppid: tmux.pid,
   pgid: 100041,
+  leadsSession: false,
   identity: '100041 pane',
 };
 
@@ -193,14 +195,20 @@ await test('restoration does not adopt pre-existing marked or foreign workers', 
   await original.list();
   rows = [{ ...worker, ppid: 1 }];
   const saved = await checkpoint(original);
-  const own = { ...agent, pid: process.pid, ppid: 1, pgid: 100050 };
+  const own = {
+    ...agent,
+    pid: process.pid,
+    ppid: 1,
+    pgid: 100050,
+    identity: `${process.pid} own`,
+  };
   rows = [
     ...rows,
     unrelated,
     { ...unrelated, pid: 100021, pgid: 100021, identity: '100021 foreign' },
     own,
     { ...agent, pgid: own.pgid },
-    { ...command, pgid: own.pgid },
+    { ...command, pgid: own.pgid, leadsSession: false },
   ];
   let markReads = 0;
   const restored = watcher(t, () => rows, saved, {
@@ -210,6 +218,7 @@ await test('restoration does not adopt pre-existing marked or foreign workers', 
       return pids;
     },
   });
+  restored.track(own.pgid);
   assert.deepEqual(await groups(restored), [100010]);
   assert.deepEqual(await groups(restored), [100010]);
   assert.equal(markReads, 0);
