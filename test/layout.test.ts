@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import stripAnsi from 'strip-ansi';
-import { Graphics } from '../src/ui/images.js';
+import { Graphics, placeholder } from '../src/ui/images.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import type { FileDiff } from '../src/agents/types.js';
 import type { DisplayItem } from '../src/core/state.js';
@@ -442,14 +442,14 @@ await test('a message shows the images it names below its text, and a tool shows
     images: ['shot.png'],
   };
   const imageRows = (lines: string[]) =>
-    lines.filter((line) => line.includes('\u{10EEEE}')).length;
+    lines.filter((line) => line.includes(placeholder)).length;
 
   const collapsed = layout.render([message, tool], 100, new Set());
   const [shown] = collapsed.blocks;
   assert.equal(imageRows(shown!), 5);
   assert.ok(
     shown!.findIndex((line) => stripAnsi(line).includes('look at shot.png')) <
-      shown!.findIndex((line) => line.includes('\u{10EEEE}')),
+      shown!.findIndex((line) => line.includes(placeholder)),
   );
   assert.equal(imageRows(collapsed.blocks[1]!), 0);
 
@@ -465,6 +465,76 @@ await test('a message shows the images it names below its text, and a tool shows
   ).blocks[1]!;
   assert.equal(imageRows(grown), 5);
   assert.ok(grown.some((line) => stripAnsi(line).includes('and more')));
+});
+
+for (const kind of ['tool', 'user'] as const) {
+  await test(`a ${kind}'s image anchors keep their image and closing blank across resizes`, async () => {
+    const directory = await scratch('witch-layout-');
+    await writeFile(join(directory, 'a.png'), png(800, 200));
+    await writeFile(join(directory, 'b.png'), png(800, 160));
+    const item: DisplayItem = {
+      id: 'images',
+      kind,
+      text: 'a.png b.png',
+      cwd: directory,
+      ...(kind === 'tool'
+        ? { title: 'Read', done: true, images: ['a.png', 'b.png'] }
+        : {}),
+    };
+    const layout = new TranscriptLayout(new Graphics(() => {}));
+    const expanded = new Set(['images']);
+    const narrow = layout.render([item], 40, expanded);
+    const wide = layout.render([item], 100, expanded);
+
+    assert.equal(narrow.lines.length, 12);
+    assert.equal(wide.lines.length, 26);
+    assert.equal(narrow.lines[11], '');
+    assert.equal(wide.lines[25], '');
+    assert.equal(wide.rowOf(narrow.anchorAt(11)!), 25);
+    assert.equal(narrow.rowOf(wide.anchorAt(25)!), 11);
+    assert.equal(wide.rowOf(narrow.anchorAt(4)!), 4);
+    assert.equal(wide.rowOf(narrow.anchorAt(9)!), 17);
+    assert.equal(narrow.rowOf(wide.anchorAt(14)!), 6);
+    assert.equal(narrow.rowOf(wide.anchorAt(24)!), 10);
+  });
+}
+
+await test('an image anchor follows wrapped diff output', async () => {
+  const directory = await scratch('witch-layout-');
+  await writeFile(join(directory, 'a.png'), png(800, 200));
+  const item: DisplayItem = {
+    id: 'mixed',
+    kind: 'tool',
+    title: 'Read',
+    text: 'Image',
+    cwd: directory,
+    done: true,
+    images: ['a.png'],
+    diff: [
+      {
+        path: '/elsewhere/a.txt',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [' ' + 'long '.repeat(30), '-old', '+new', ' tail'],
+          },
+        ],
+      },
+    ],
+  };
+  const layout = new TranscriptLayout(new Graphics(() => {}));
+  const expanded = new Set(['mixed']);
+  const narrow = layout.render([item], 40, expanded);
+  const wide = layout.render([item], 100, expanded);
+  const narrowImage = narrow.lines.findIndex((line) =>
+    line.includes(placeholder),
+  );
+  const wideImage = wide.lines.findIndex((line) => line.includes(placeholder));
+  assert.equal(narrowImage, 11);
+  assert.equal(wideImage, 8);
+  assert.equal(wide.rowOf(narrow.anchorAt(narrowImage + 2)!), wideImage + 2);
 });
 
 await test("a shell tool row shows expanded until toggled, and an agent's tool row collapsed until toggled", () => {

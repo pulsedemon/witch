@@ -4,6 +4,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { Coordinator } from '../src/core/coordinator.js';
 import { App } from '../src/ui/app.js';
+import { Graphics, placeholder } from '../src/ui/images.js';
+import { png } from './fixtures/png.js';
 import {
   show,
   fake,
@@ -150,6 +152,74 @@ await test('the wheel scrolls the transcript a row a step, and back at the botto
     assert.equal(first(ui), bottom);
   } finally {
     ui.unmount();
+  }
+});
+
+await test('the viewport keeps the blank after an image across resizes', async () => {
+  const placements: string[] = [];
+  const graphics = new Graphics((data) => {
+    if (data.includes('a=p,')) placements.push(data);
+  });
+  const { app } = fake({
+    items: [
+      {
+        id: 'image',
+        kind: 'tool',
+        title: 'Read',
+        text: 'Image',
+        cwd: '/work',
+        done: true,
+        images: [`data:image/png;base64,${png(800, 200).toString('base64')}`],
+      },
+      {
+        id: 'after',
+        kind: 'assistant',
+        text: Array.from({ length: 80 }, (_, n) => `after ${n + 1}`).join('\n'),
+        cwd: '/work',
+      },
+    ],
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, graphics, onExit: () => {} }),
+    42,
+    16,
+  );
+  const rows = () =>
+    ui
+      .text()
+      .split('\n')
+      .map((row) => row.trim());
+  try {
+    await until('the transcript bottom', () => ui.text().includes('after 80'));
+    ui.stdin.write(wheelUp.repeat(100));
+    await until('the tool title at the top', () => rows()[1] === '+ ✓ Read');
+    ui.stdin.write(`\t${ENTER}`);
+    await until('the expanded image', () => ui.text().includes(placeholder));
+    ui.stdin.write('\u001b');
+    await until('the composer', () => !ui.text().includes('↑/↓ TOOLS'));
+    ui.stdin.write(wheelDown.repeat(7));
+    await until('the blank after the image', () => rows()[2] === 'Assistant');
+    assert.deepEqual(rows().slice(1, 4), ['', 'Assistant', 'after 1']);
+
+    for (const [columns, placement] of [
+      [102, 'c=100,r=13'],
+      [42, 'c=40,r=5'],
+    ] as const) {
+      const before = ui.frame();
+      const count = placements.length;
+      ui.resize(columns);
+      await until(
+        'the resized frame and image',
+        () =>
+          ui.frame() !== before &&
+          placements.length > count &&
+          placements.at(-1)!.includes(placement),
+      );
+      assert.deepEqual(rows().slice(1, 4), ['', 'Assistant', 'after 1']);
+    }
+  } finally {
+    ui.unmount();
+    graphics.release();
   }
 });
 
