@@ -341,6 +341,7 @@ await test('failed target activation holds its selected lock without starting na
   const { start, store, registry } = await coordinationFixture(t);
   const a = await start(),
     bound = await a.binding();
+  await a.claim();
   const publish = CoordinationStore.prototype.publish;
   let failing = true,
     rejected = '';
@@ -376,6 +377,11 @@ await test('failed target activation holds its selected lock without starting na
     'error',
   );
   assert.deepEqual(await registry.presences(), []);
+  assert.equal(a.coordination.snapshot.ownClaim, undefined);
+  assert.equal(
+    (await registry.claims())[0]!.owner.conversation,
+    bound.conversation,
+  );
   const source = await store.claim(bound.conversation);
   await source.close();
   await assert.rejects(store.claim(target), LockedElsewhere);
