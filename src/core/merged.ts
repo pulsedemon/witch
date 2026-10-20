@@ -103,7 +103,12 @@ export async function cleanUpMerge(
   cwd: string,
   pullRequest: PullRequest,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
-  const lock = await lockCheckout(cwd);
+  const lock = await lockCheckout(cwd).catch((error: unknown) => {
+    throw new Error(
+      `#${pullRequest.number} merged, but its cleanup failed while locking ${pullRequest.branch}: ${errorMessage(error).trim()}`,
+      { cause: error },
+    );
+  });
   if (!lock) return undefined;
   try {
     return await clean(cwd, pullRequest);
@@ -188,19 +193,26 @@ async function clean(
     `branch.${branch}`,
   ).then(
     () => '',
-    (error: unknown) => errorMessage(error).trim(),
+    (error: unknown) =>
+      `config section branch.${branch} stayed: ${errorMessage(error).trim()}`,
   );
-  const { removed: plans, stayed, reason } = await removePlans(cwd, branch);
+  const {
+    removed: plans,
+    stayed,
+    reason,
+  } = await removePlans(cwd, branch).catch((error: unknown) => {
+    throw new Error(
+      `#${number} merged: switched to ${base} and deleted branch ${branch}${unset && ` (${unset})`}, but could not locate its plans: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  });
   // none is named when the plans couldn't be listed
   const named = (names: string[]) =>
     names.length
       ? `${names.length > 1 ? 'plans' : 'plan'} ${list(names)}`
       : 'plans';
   const removed = plans.length ? `, and ${named(plans)}` : '';
-  const kept = [
-    unset && `config section branch.${branch} stayed: ${unset}`,
-    reason && `${named(stayed)} stayed: ${reason}`,
-  ]
+  const kept = [unset, reason && `${named(stayed)} stayed: ${reason}`]
     .filter(Boolean)
     .join(' and ');
   // after the branch and its plans go, so a base that can't fast-forward still deletes them
@@ -236,7 +248,12 @@ async function clean(
     // :short would print heads/<name> for a branch a tag shares a name with
     '--format=%(refname:lstrip=2)%09%(upstream:track)%09%(worktreepath)',
     'refs/heads',
-  );
+  ).catch((error: unknown) => {
+    throw new Error(
+      `#${number} merged: switched to ${base} and pulled, deleted branch ${branch}${removed}${kept && ` (${kept})`}, but could not list other merged branches: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  });
   for (const line of refs.split('\n')) {
     const [name, track, worktree] = line.split('\t');
     // a merged pull request's remote branch is gone and a long-lived branch's isn't
