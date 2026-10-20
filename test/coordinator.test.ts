@@ -3616,6 +3616,29 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
   }
 });
 
+await test("a merge cleanup waits while a conversation record can't be read", async () => {
+  const { coordinator, store, project } = await fixture();
+  try {
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    const broken = join(store.root, 'conversations', randomUUID());
+    await mkdir(broken);
+    await writeFile(join(broken, 'state.json'), '{');
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      false,
+    );
+    assert.deepEqual(notices(coordinator), []);
+    await rm(broken, { recursive: true });
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      true,
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a merge cleanup leaves a checkout that changed alone, and says nothing', async () => {
   const { coordinator, project } = await fixture();
   try {
