@@ -680,6 +680,29 @@ await test('a switch whose post-checkout hook fails after moving the checkout st
   assert.deepEqual(await branches(checkout), ['main']);
 });
 
+await test('a base and a merged branch named like options are switched to and deleted', async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(other, 'push', 'origin', 'main:refs/heads/-base');
+  await git(checkout, 'fetch');
+  // git's porcelain won't name a branch this way, but update-ref will
+  await git(checkout, 'update-ref', 'refs/heads/-base', 'origin/-base');
+  await git(checkout, 'update-ref', 'refs/heads/-old', 'main');
+  for (const name of ['-base', '-old']) {
+    await git(checkout, 'config', `branch.${name}.remote`, 'origin');
+    await git(checkout, 'config', `branch.${name}.merge`, `refs/heads/${name}`);
+  }
+  assert.deepEqual(
+    await cleanUpMerge(checkout, { ...pullRequest(tip), base: '-base' }),
+    {
+      text: '#7 merged: switched to -base and pulled, deleted branches feat/x and -old.',
+      cleaned: true,
+    },
+  );
+  assert.equal(await git(checkout, 'branch', '--show-current'), '-base');
+  assert.deepEqual(await branches(checkout), ['-base', 'main']);
+});
+
 await test('a base that tracks another remote is brought up to date from it', async () => {
   const { root, origin, checkout, tip } = await merged();
   const upstream = join(root, 'upstream.git');
