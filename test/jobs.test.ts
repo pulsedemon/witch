@@ -41,6 +41,7 @@ await test('a final tracked read waits for the pending poll and then reads again
     pid: 100002,
     ppid: 1,
     pgid: 100001,
+    name: 'node',
     leadsSession: false,
     identity: '100002 final',
   };
@@ -101,6 +102,7 @@ const agentRow: Row = {
   pid: 100_000,
   ppid: process.pid,
   pgid: 100_000,
+  name: 'node',
   leadsSession: false,
   identity: '100000 a',
 };
@@ -113,6 +115,7 @@ function commandRows(group: number, identity: string): Row[] {
       pid: group,
       ppid: agentRow.pid,
       pgid: group,
+      name: 'sh',
       leadsSession: true,
       identity,
     },
@@ -224,6 +227,7 @@ await test("a group that a process below its command's leader moves to is a job"
         pid: 4243,
         ppid: 4242,
         pgid: 4242,
+        name: 'node',
         leadsSession: false,
         identity: '4243 a',
       },
@@ -231,6 +235,7 @@ await test("a group that a process below its command's leader moves to is a job"
         pid: 4244,
         ppid: 4243,
         pgid: 4244,
+        name: 'node',
         leadsSession: false,
         identity: '4244 a',
       },
@@ -280,6 +285,7 @@ await test("a later group given a tracked group's id is not a job", async () => 
         pid: 4242,
         ppid: 1,
         pgid: 4242,
+        name: 'sh',
         leadsSession: true,
         identity: '4242 b',
       },
@@ -292,8 +298,8 @@ await test("a later group given a tracked group's id is not a job", async () => 
 
 await test('a process given the pid of one that exited has another identity', () => {
   const [exited, later] = parseProcesses([
-    '  501     1   501 Ss   Thu Oct 15 18:50:27 2026',
-    '  501     1   501 Ss   Thu Oct 15 19:02:03 2026',
+    '  501     1   501 Ss   Thu Oct 15 18:50:27 2026 sh',
+    '  501     1   501 Ss   Thu Oct 15 19:02:03 2026 sh',
   ]);
   assert.notEqual(later?.identity, exited?.identity);
 });
@@ -362,6 +368,7 @@ await test('a process that left its tracked group before ps describes it is not 
         pid: 4243,
         ppid: 4242,
         pgid: 4242,
+        name: 'node',
         leadsSession: false,
         identity: '4243 a',
       },
@@ -454,6 +461,7 @@ await test("a job sums parsed CPU and keeps its earliest start and oldest non-le
         pid: 4243,
         ppid: 4242,
         pgid: 4242,
+        name: 'node',
         leadsSession: false,
         identity: '4243 a',
       },
@@ -461,6 +469,7 @@ await test("a job sums parsed CPU and keeps its earliest start and oldest non-le
         pid: 4244,
         ppid: 4242,
         pgid: 4242,
+        name: 'node',
         leadsSession: false,
         identity: '4244 a',
       },
@@ -534,6 +543,7 @@ await test('a failed background read keeps the jobs it had', async () => {
         pid: 4242,
         ppid: 1,
         pgid: 4242,
+        name: 'sh',
         leadsSession: true,
         identity: '4242 a',
       },
@@ -693,6 +703,7 @@ await test('a group handed to track while a read runs is a job at the next read 
     pid: 100000,
     ppid: process.pid,
     pgid: 100000,
+    name: 'sh',
     leadsSession: true,
     identity: '100000 a',
   };
@@ -705,6 +716,7 @@ await test('a group handed to track while a read runs is a job at the next read 
         pid: 100001,
         ppid: 100000,
         pgid: 100001,
+        name: 'node',
         leadsSession: false,
         identity: '100001 a',
       },
@@ -716,6 +728,7 @@ await test('a group handed to track while a read runs is a job at the next read 
         pid: 100002,
         ppid: 100000,
         pgid: 100002,
+        name: 'node',
         leadsSession: false,
         identity: '100002 a',
       },
@@ -750,6 +763,7 @@ await test('a handed group stays a job while any process holds its id, and once 
     pid,
     ppid: 1,
     pgid: 100000,
+    name: 'node',
     leadsSession: false,
     identity: `${pid} a`,
   });
@@ -874,6 +888,7 @@ await test('a report from a pid that leads no group adds no job, though the grou
         pid: 100005,
         ppid: 100000,
         pgid: 100000,
+        name: 'node',
         leadsSession: false,
         identity: '100005 a',
       },
@@ -900,6 +915,7 @@ await test("a report written while a read's ps runs is a job at the next read, a
         pid: 100000,
         ppid: 1,
         pgid: 100000,
+        name: 'sh',
         leadsSession: true,
         identity: '100000 a',
       },
@@ -910,6 +926,7 @@ await test("a report written while a read's ps runs is a job at the next read, a
         pid: 100002,
         ppid: 1,
         pgid: 100000,
+        name: 'node',
         leadsSession: false,
         identity: '100002 a',
       },
@@ -972,6 +989,7 @@ await test("the first read only learns the processes, so the terminal Witch runs
         pid: 100010,
         ppid: 1,
         pgid: 100010,
+        name: 'sh',
         leadsSession: true,
         identity: '100010 a',
       },
@@ -979,6 +997,7 @@ await test("the first read only learns the processes, so the terminal Witch runs
         pid: process.pid,
         ppid: 100010,
         pgid: process.pid,
+        name: 'node',
         leadsSession: false,
         identity: `${process.pid} a`,
       },
@@ -999,6 +1018,7 @@ await test("a marked process orphaned in Witch's own group doesn't make that gro
     pid: process.pid,
     ppid: 100030,
     pgid: 100020,
+    name: 'node',
     leadsSession: false,
     identity: `${process.pid} a`,
   };
@@ -1010,6 +1030,7 @@ await test("a marked process orphaned in Witch's own group doesn't make that gro
         pid: 100021,
         ppid: 1,
         pgid: 100020,
+        name: 'node',
         leadsSession: false,
         identity: '100021 a',
       },
@@ -1043,6 +1064,7 @@ function orphanRow(pid: number): Row {
     pid,
     ppid: 1,
     pgid: pid,
+    name: 'node',
     leadsSession: false,
     identity: `${pid} a`,
   };
@@ -1058,6 +1080,7 @@ await test("a launchd child the last read didn't list is a job when it or a proc
       pid: 100003,
       ppid: 100002,
       pgid: 100003,
+      name: 'node',
       leadsSession: false,
       identity: '100003 a',
     },
@@ -1152,6 +1175,265 @@ await test("a launchd child carrying another instance's mark, or one extending t
       } catch {
         // already empty
       }
+    jobs.close();
+  }
+});
+
+await test('process names do not alter start identities', () => {
+  const rows = parseProcesses([
+    '100101 1 100101 Ss Fri Oct  9 22:34:18 2026 tmux',
+    '100102 1 100102 S Tue Oct 20 22:34:18 2026 node',
+    '100103 1 100103 Z Tue Oct 20 22:34:18 2026 node',
+  ]);
+  assert.deepEqual(
+    rows.map(({ identity, name }) => ({ identity, name })),
+    [
+      { identity: '100101 Fri Oct 9 22:34:18 2026', name: 'tmux' },
+      { identity: '100102 Tue Oct 20 22:34:18 2026', name: 'node' },
+    ],
+  );
+  assert.equal(
+    parseProcesses(['100101 1 100101 Ss Fri Oct  9 22:34:18 2026 node'])[0]!
+      .identity,
+    rows[0]!.identity,
+  );
+});
+
+for (const admission of ['direct', 'handed', 'reported', 'marked']) {
+  await test(`tmux trees stay out of ${admission} admission`, async () => {
+    const directory = await scratch('witch-jobs-tmux-');
+    const server = {
+      ...orphanRow(100101),
+      ppid:
+        admission === 'direct'
+          ? agentRow.pid
+          : admission === 'marked'
+            ? 1
+            : process.pid,
+      name: 'tmux',
+      leadsSession: admission === 'direct',
+    };
+    const pane = { ...orphanRow(100102), ppid: server.pid };
+    const ordinary = {
+      ...orphanRow(100103),
+      ppid: admission === 'marked' ? 1 : agentRow.pid,
+      name: 'tmux-helper',
+      leadsSession: admission !== 'marked',
+    };
+    let rows: Row[] = [];
+    const jobs = new JobWatch({
+      directory,
+      interval: 60_000,
+      processes: async () => rows,
+      describe: leaders,
+      marked: async (pids) => (admission === 'marked' ? pids : []),
+    });
+    try {
+      await jobs.list();
+      rows = [agentRow, server, pane, ordinary];
+      if (admission === 'handed') jobs.track(server.pgid);
+      if (admission === 'reported')
+        await writeFile(join(directory, String(server.pid)), '');
+      assert.deepEqual(
+        (await jobs.list()).map(({ group }) => group),
+        [100103],
+      );
+      if (admission === 'marked') {
+        rows.push({ ...orphanRow(100104), ppid: server.pid });
+        assert.deepEqual(
+          (await jobs.list()).map(({ group }) => group),
+          [100103],
+        );
+      }
+    } finally {
+      jobs.close();
+    }
+  });
+}
+
+await test('a mixed group preserves ordinary ownership while excluding tmux', async (t) => {
+  const command = commandRows(100201, '100201 a')[1]!;
+  const orphan = { ...command, ppid: 1 };
+  const tmux = {
+    ...orphanRow(100202),
+    ppid: orphan.pid,
+    pgid: orphan.pgid,
+    name: 'tmux',
+  };
+  const pane = { ...orphanRow(100203), ppid: tmux.pid };
+  const child = { ...orphanRow(100204), ppid: orphan.pid };
+  const later = { ...orphanRow(100205), ppid: orphan.pid };
+  let rows = [agentRow, command];
+  const jobs = new JobWatch({
+    interval: 60_000,
+    grace: 1,
+    processes: async () => rows,
+    describe: async (pids) =>
+      rows
+        .filter(({ pid }) => pids.includes(pid))
+        .map(({ pid, pgid, name }) => ({
+          pid,
+          pgid,
+          command: name,
+          cpu: 0,
+          startedAt: 0,
+        })),
+  });
+  const kill = t.mock.method(process, 'kill', (pid: number) => {
+    const parents = new Set(
+      rows.filter(({ pgid }) => pgid === -pid).map(({ pid }) => pid),
+    );
+    rows = rows
+      .filter(({ pgid }) => pgid !== -pid)
+      .map((row) => (parents.has(row.ppid) ? { ...row, ppid: 1 } : row));
+    return true;
+  });
+  try {
+    const [original] = await jobs.list();
+    assert.ok(original);
+    rows = [orphan];
+    assert.equal((await jobs.list())[0]!.generation, original.generation);
+    rows = [orphan, tmux, pane, child];
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100204],
+    );
+    await jobs.stop(original);
+    assert.equal(kill.mock.callCount(), 0);
+    rows = [orphan, child];
+    const restored = (await jobs.list()).find(({ group }) => group === 100201);
+    assert.ok(restored, 'ordinary orphan returns after tmux exits');
+    assert.notEqual(restored.generation, original.generation);
+    await jobs.stop(original);
+    assert.equal(kill.mock.callCount(), 0);
+    rows = [orphan, child, later];
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100201, 100204, 100205],
+    );
+    await jobs.stop(restored);
+    assert.deepEqual(
+      kill.mock.calls.map(({ arguments: args }) => args),
+      [[-100201, 'SIGTERM']],
+    );
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100204, 100205],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test("an enclosing tmux leaves this Witch's own agent jobs available", async () => {
+  const server = { ...orphanRow(100301), name: 'tmux' };
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => [
+      server,
+      { ...orphanRow(100302), ppid: server.pid },
+      { ...orphanRow(process.pid), ppid: server.pid },
+      ...commandRows(100303, '100303 a'),
+      { ...commandRows(100304, '100304 a')[1]!, name: 'tmux' },
+      { ...orphanRow(100305), ppid: 100304 },
+    ],
+    describe: leaders,
+  });
+  try {
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100303],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('observed tmux descendants stay excluded after reparenting and group changes', async () => {
+  let rows: Row[] = [];
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-tmux-'),
+    interval: 60_000,
+    processes: async () => rows,
+    describe: async (pids) =>
+      rows
+        .filter(({ pid }) => pids.includes(pid))
+        .map(({ pid, pgid, name }) => ({
+          pid,
+          pgid,
+          command: name,
+          cpu: 0,
+          startedAt: 0,
+        })),
+    marked: async (pids) => pids,
+  });
+  try {
+    await jobs.list();
+    rows = [
+      { ...orphanRow(100401), name: 'tmux' },
+      { ...orphanRow(100402), ppid: 100401 },
+    ];
+    assert.deepEqual(await jobs.list(), []);
+    rows = [{ ...orphanRow(100402), pgid: 100403 }];
+    jobs.track(100403);
+    assert.deepEqual(await jobs.list(), []);
+    rows = [{ ...orphanRow(100402), identity: '100402 b' }];
+    assert.deepEqual(
+      (await jobs.list()).map(({ group }) => group),
+      [100402],
+    );
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('a stale selection cannot stop a group that became tmux', async (t) => {
+  let rows = commandRows(100501, '100501 a');
+  const jobs = new JobWatch({
+    interval: 60_000,
+    processes: async () => rows,
+    describe: leaders,
+  });
+  const kill = t.mock.method(process, 'kill', () => {
+    rows = [];
+    return true;
+  });
+  try {
+    const [original] = await jobs.list();
+    assert.ok(original);
+    rows = [agentRow, { ...rows[1]!, name: 'tmux' }];
+    await jobs.stop(original);
+    assert.equal(kill.mock.callCount(), 0);
+    assert.deepEqual(await jobs.list(), []);
+  } finally {
+    jobs.close();
+  }
+});
+
+await test('a failed read does not commit partial tmux exclusions', async () => {
+  const original = commandRows(100601, '100601 a');
+  let rows = original;
+  let fail = false;
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-tmux-'),
+    interval: 60_000,
+    processes: async () => rows,
+    describe: leaders,
+    marked: async () => {
+      if (fail) throw new Error('mark failed');
+      return [];
+    },
+  });
+  try {
+    const [before] = await jobs.list();
+    assert.ok(before);
+    rows = [agentRow, { ...original[1]!, name: 'tmux' }, orphanRow(100602)];
+    fail = true;
+    await assert.rejects(jobs.list(), { message: 'mark failed' });
+    rows = original;
+    fail = false;
+    assert.deepEqual(await jobs.list(), [before]);
+  } finally {
     jobs.close();
   }
 });
