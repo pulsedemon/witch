@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { promises as files } from 'node:fs';
+import { constants, promises as files } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
@@ -15,6 +15,8 @@ import { ClaimConflict, checkDeadline } from './coordination.js';
 import { writeJson } from './json.js';
 
 const idSchema = z.string().uuid();
+// macOS O_NOFOLLOW_ANY, which Node doesn't export
+const noFollowAny = 0x20000000;
 export const controlBindingSchema = z.object({
   directory: z.string().min(1),
   conversation: z.string().min(1),
@@ -50,11 +52,16 @@ export type ControlRequest = z.infer<typeof controlRequestSchema>;
 export type ControlOutcome = z.infer<typeof controlOutcomeSchema>;
 export type ControlResult = z.infer<typeof controlResultSchema>;
 
-async function read(file: string): Promise<string | undefined> {
-  return files.readFile(file, 'utf8').catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  });
+async function read(
+  file: string,
+  flag = constants.O_RDONLY,
+): Promise<string | undefined> {
+  return files
+    .readFile(file, { encoding: 'utf8', flag })
+    .catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    });
 }
 
 async function remove(file: string): Promise<void> {
@@ -85,7 +92,7 @@ export async function callControl(
   try {
     while (Date.now() < request.deadline) {
       const text = await read(reply);
-      if (text !== undefined) {
+      if (text?.endsWith('\n')) {
         const result = controlResultSchema.parse(JSON.parse(text));
         if (result.id !== request.id)
           throw new Error('Reply id does not match.');
@@ -131,7 +138,7 @@ export class ControlHost {
         recursive: true,
         mode: 0o700,
       });
-    return new ControlHost(directory, handle, failed);
+    return new ControlHost(await files.realpath(directory), handle, failed);
   }
 
   async drain(): Promise<void> {
@@ -169,7 +176,10 @@ export class ControlHost {
         },
       );
       if (answered) continue;
-      const text = await read(join(this.directory, 'inbox', name));
+      const text = await read(
+        join(this.directory, 'inbox', name),
+        constants.O_RDONLY | constants.O_NONBLOCK | noFollowAny,
+      );
       if (text === undefined) continue;
       let outcome: ControlOutcome;
       try {
@@ -184,7 +194,19 @@ export class ControlHost {
             ? { kind: 'conflict', claim: error.claim, message: error.message }
             : { kind: 'error', message: errorMessage(error) };
       }
-      await writeJson(reply, { ...outcome, id });
+      // a fresh descriptor cannot follow a redirected parent or overwrite an existing file.
+      const file = await files.open(
+        reply,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollowAny,
+        0o600,
+      );
+      try {
+        // the final newline marks a complete reply while clients can observe a partial write.
+        await file.writeFile(`${JSON.stringify({ ...outcome, id })}\n`);
+        await file.sync();
+      } finally {
+        await file.close();
+      }
     }
   }
 }
