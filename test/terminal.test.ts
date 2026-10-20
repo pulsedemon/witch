@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { setImmediate as next } from 'node:timers/promises';
 import type { UserRequest } from '../src/agents/types.js';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
 import type { Snapshot } from '../src/core/coordinator.js';
@@ -272,3 +273,109 @@ await test('switching conversations cancels the old request timer', (t) => {
     'Approval required: Second task',
   ]);
 });
+
+await test('completion baselines existing turns and notifies once with the current claim', async (t) => {
+  const { coordinator, coordination, notices, stop } = fixture({
+    completedTurn: 'old',
+  });
+  t.after(stop);
+  await next();
+  assert.deepEqual(notices(), []);
+  coordinator.publish({ phase: 'running', completedTurn: undefined });
+  coordinator.publish({ phase: 'idle', completedTurn: 'new' });
+  assert.deepEqual(notices(), []);
+  coordination.publish({
+    ownClaim: {
+      id: '11111111-1111-4111-8111-111111111111',
+      owner: { conversation: 'first', project: 'projects/terminal' },
+      references: ['task:projects/terminal:attention'],
+      summary: 'Current claim',
+      createdAt: 1,
+    },
+  });
+  await next();
+  assert.deepEqual(notices(), ['Turn complete: Current claim']);
+  coordinator.publish({ usage: { cost: 42 } });
+  coordination.publish({ error: 'Peer read failed' });
+  await next();
+  assert.deepEqual(notices(), ['Turn complete: Current claim']);
+  coordinator.publish({ phase: 'running', completedTurn: undefined });
+  coordination.publish({
+    ownClaim: { ...coordination.snapshot.ownClaim!, summary: '🧙'.repeat(100) },
+  });
+  coordinator.publish({ phase: 'idle', completedTurn: 'last' });
+  await next();
+  const body = notices().at(-1)!;
+  assert.ok(body.startsWith('Turn complete: 🧙'));
+  assert.ok(body.endsWith('…'));
+  assert.ok(Buffer.byteLength(body) <= 240);
+  assert.equal(Buffer.from(body).toString(), body);
+  assert.ok(!body.includes('\ufffd'));
+});
+
+await test('the idle gap before a queued turn cannot announce its predecessor', async (t) => {
+  const { coordinator, notices, stop } = fixture({ phase: 'running' });
+  t.after(stop);
+  coordinator.publish({
+    phase: 'idle',
+    completedTurn: 'first',
+    queue: ['next'],
+  });
+  coordinator.publish({ queue: [] });
+  coordinator.publish({ phase: 'running', completedTurn: undefined });
+  await next();
+  assert.deepEqual(notices(), []);
+  coordinator.publish({ phase: 'idle', completedTurn: 'second' });
+  await next();
+  assert.deepEqual(notices(), ['Turn complete: First task']);
+});
+
+for (const condition of [
+  'recovery',
+  'error',
+  'report',
+  'closing',
+  'switch',
+  'stop',
+] as const)
+  await test(`${condition} cancels a deferred completion without later replay`, async (t) => {
+    const { coordinator, notices, stop } = fixture();
+    t.after(stop);
+    coordinator.publish({ completedTurn: 'finished' });
+    if (condition === 'recovery')
+      coordinator.publish({
+        phase: 'recovery',
+        recovery: {
+          kind: 'pending',
+          paths: [],
+          diff: '+note',
+          root: '/memory',
+        },
+      });
+    else if (condition === 'error')
+      coordinator.publish({ phase: 'error', error: 'Session lost' });
+    else if (condition === 'closing') coordinator.publish({ phase: 'closing' });
+    else if (condition === 'report')
+      coordinator.publish({ error: 'Idle report' });
+    else if (condition === 'switch')
+      coordinator.publish({
+        conversation: { ...record('second', '/project'), title: 'Second task' },
+        completedTurn: undefined,
+      });
+    else stop();
+    await next();
+    assert.deepEqual(
+      notices().filter((body) => body.startsWith('Turn complete:')),
+      [],
+    );
+    coordinator.publish({
+      phase: 'idle',
+      error: undefined,
+      recovery: undefined,
+    });
+    await next();
+    assert.deepEqual(
+      notices().filter((body) => body.startsWith('Turn complete:')),
+      [],
+    );
+  });
