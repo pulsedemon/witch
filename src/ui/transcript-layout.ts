@@ -252,12 +252,20 @@ export class TranscriptLayout {
       rendered.set(item.id, block);
     }
     this.cache = cache;
+    const positions = [...starts];
     return {
       lines,
       blocks,
       starts,
       anchorAt(row: number): ScrollAnchor | undefined {
-        const entry = [...starts].findLast(([, start]) => start <= row);
+        let low = 0;
+        let high = positions.length;
+        while (low < high) {
+          const middle = Math.floor((low + high) / 2);
+          if (positions[middle]![1] <= row) low = middle + 1;
+          else high = middle;
+        }
+        const entry = positions[low - 1];
         if (!entry) return undefined;
         const [item, start] = entry;
         return {

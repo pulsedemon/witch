@@ -174,6 +174,81 @@ await test('a reading anchor includes spaces trimmed while wrapping a title', ()
   assert.match(stripAnsi(wide.lines[wide.rowOf(anchor)]!), /^word009/);
 });
 
+await test('anchors keep item boundaries and wrapped offsets in their own render frame', () => {
+  const items: DisplayItem[] = [
+    { id: 'first', kind: 'notice', text: 'first', cwd: '/work' },
+    {
+      id: 'middle',
+      kind: 'tool',
+      title: 'Build',
+      text: 'abcdefghijklmnop\nnext',
+      cwd: '/work',
+      done: true,
+    },
+    { id: 'last', kind: 'user', text: 'last', cwd: '/work' },
+  ];
+  const layout = new TranscriptLayout();
+  const first = layout.render(items, 12, new Map([['middle', true]]));
+  const expected = [
+    ['first', 0, 0],
+    ['first', 1, 0],
+    ['first', 2, 0],
+    ['middle', 0, 0],
+    ['middle', 1, 0],
+    ['middle', 1, 12],
+    ['middle', 2, 0],
+    ['middle', 3, 0],
+    ['last', 0, 0],
+    ['last', 1, 0],
+    ['last', 2, 0],
+  ].map(([item, line, offset]) => ({ item, line, offset }));
+  assert.deepEqual(
+    first.lines.map((_, row) => first.anchorAt(row)),
+    expected,
+  );
+  const second = layout.render(items.slice(1), 24, new Map());
+  assert.deepEqual(
+    second.lines.map((_, row) => second.anchorAt(row)),
+    [
+      { item: 'middle', line: 0, offset: 0 },
+      { item: 'middle', line: 1, offset: 0 },
+      { item: 'last', line: 0, offset: 0 },
+      { item: 'last', line: 1, offset: 0 },
+      { item: 'last', line: 2, offset: 0 },
+    ],
+  );
+  assert.deepEqual(
+    first.lines.map((_, row) => first.anchorAt(row)),
+    expected,
+  );
+  assert.equal(first.anchorAt(-1), undefined);
+  assert.equal(layout.render([], 12, new Map()).anchorAt(0), undefined);
+  assert.deepEqual(first.anchorAt(first.lines.length), {
+    item: 'last',
+    line: 0,
+    offset: 0,
+  });
+});
+
+await test('anchor lookups stay fast across ten thousand messages', () => {
+  const items: DisplayItem[] = Array.from({ length: 10000 }, (_, index) => ({
+    id: `message-${index}`,
+    kind: 'user',
+    text: `message ${index}`,
+    cwd: '/work',
+  }));
+  const output = new TranscriptLayout().render(items, 58, new Map());
+  assert.equal(output.lines.length, 30000);
+  const expected = items.flatMap((item) =>
+    [0, 1, 2].map((line) => ({ item: item.id, line, offset: 0 })),
+  );
+  const started = performance.now();
+  const actual = output.lines.map((_, row) => output.anchorAt(row));
+  const elapsed = performance.now() - started;
+  assert.deepEqual(actual, expected);
+  assert.ok(elapsed < 500, `anchor lookups took ${elapsed} ms`);
+});
+
 interface Frame {
   items: DisplayItem[];
   width: number;
