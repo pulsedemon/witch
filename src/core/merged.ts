@@ -429,9 +429,9 @@ export async function refreshInstall(
   if (!lock)
     return `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`;
   try {
-    await fetchRemote(root).catch(failed);
+    await fetchRemote(root);
     // after the fetch, so a switch or an edit made during it isn't pulled and built
-    const status = await read(root).catch(failed);
+    const status = await read(root);
     if (status.branch !== base || changed(status))
       return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
     // a pull would overwrite an ignored file the incoming commits start tracking
@@ -441,13 +441,15 @@ export async function refreshInstall(
       '--ff-only',
       '--no-overwrite-ignore',
       '@{upstream}',
-    ).catch(failed);
+    );
     await run('pnpm', ['install', '--frozen-lockfile'], {
       cwd: root,
       timeout: 300_000,
-    }).catch(failed);
-    await run('pnpm', ['build'], { cwd: root, timeout: 300_000 }).catch(failed);
+    });
+    await run('pnpm', ['build'], { cwd: root, timeout: 300_000 });
     return `Rebuilt Witch at ${await git(root, 'rev-parse', '--short', 'HEAD')}, for its next start.`;
+  } catch (error) {
+    return failed(error);
   } finally {
     await lock.close();
   }
