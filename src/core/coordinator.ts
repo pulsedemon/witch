@@ -1011,6 +1011,7 @@ export class Coordinator {
     await this.disconnect(!this.session);
     const conversation = this.current();
     const files = this.files!;
+    const tools = new Map<string, string>();
     const { adapter, executable } = this.registration(agent);
     const workspace = this.workspace!;
     await workspace.ensureWorktree();
@@ -1039,7 +1040,7 @@ export class Coordinator {
         ),
         signal: this.connecting.signal,
         onEvent: (event) => {
-          if (!files.closed) this.receive(conversation, agent, event);
+          if (!files.closed) this.receive(conversation, agent, event, tools);
         },
         onProcess: identify('process'),
         // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
@@ -1104,6 +1105,7 @@ export class Coordinator {
     conversation: ConversationRecord,
     agent: string,
     event: AgentEvent,
+    tools: Map<string, string>,
   ): void {
     if (event.type === 'info') {
       this.saveInfo(conversation, agent, event.info);
@@ -1129,7 +1131,12 @@ export class Coordinator {
     } else if (event.type === 'command') {
       if (this.live(agent)) this.brew(conversation, event.command);
     } else {
-      const id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
+      let id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
+      if (event.type === 'tool') {
+        id = tools.get(event.id) ?? id;
+        if (event.done) tools.delete(event.id);
+        else tools.set(event.id, id);
+      }
       this.display(
         event.type === 'text'
           ? {
