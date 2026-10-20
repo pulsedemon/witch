@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { access, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
@@ -691,6 +692,39 @@ await test('a Claude edit or write arrives as the diff its result reports, at it
         ['edit-2', 'Error: String to replace not found in file.', undefined],
         ['write-2', 'The file c.txt has been updated successfully.', undefined],
         ['write-3', 'Staged for review.', undefined],
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+await test('Claude edit and write diffs resolve home paths outside the session directory', async () => {
+  const events: AgentEvent[] = [];
+  const { session } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('home-edits')).status, 'completed');
+    assert.deepEqual(
+      events.flatMap((event) =>
+        event.type === 'tool' && event.done ? (event.diff ?? []) : [],
+      ),
+      [
+        {
+          path: join(homedir(), 'issue69-edit.txt'),
+          kind: 'update',
+          hunks: [
+            {
+              oldStart: 1,
+              newStart: 1,
+              lines: [' alpha', '-bravo', '+BRAVO', ' charlie'],
+            },
+          ],
+        },
+        {
+          path: join(homedir(), 'issue69-write.txt'),
+          kind: 'add',
+          hunks: [{ oldStart: 0, newStart: 1, lines: ['+one', '+two'] }],
+        },
       ],
     );
   } finally {

@@ -463,10 +463,13 @@ for await (const line of lines) {
       ]);
       assistant('Done.');
       finish();
-    } else if (lastPrompt === 'edits') {
+    } else if (lastPrompt === 'edits' || lastPrompt === 'home-edits') {
       const call = (id, name, input) =>
         assistant('', [{ type: 'tool_use', id, name, input }]);
-      const a = join(process.cwd(), 'a.txt');
+      const a =
+        lastPrompt === 'home-edits'
+          ? '~/issue69-edit.txt'
+          : join(process.cwd(), 'a.txt');
       call('edit-1', 'Edit', {
         file_path: a,
         old_string: 'bravo',
@@ -496,12 +499,12 @@ for await (const line of lines) {
           },
         },
       );
-      // a relative path, as a model might write it
-      call('write-1', 'Write', { file_path: 'b.txt', content: 'one\ntwo' });
-      toolResult('write-1', 'File created successfully at: b.txt', null, {
+      const b = lastPrompt === 'home-edits' ? '~/issue69-write.txt' : 'b.txt';
+      call('write-1', 'Write', { file_path: b, content: 'one\ntwo' });
+      toolResult('write-1', `File created successfully at: ${b}`, null, {
         tool_use_result: {
           type: 'create',
-          filePath: 'b.txt',
+          filePath: b,
           content: 'one\ntwo',
           structuredPatch: [],
           originalFile: null,
