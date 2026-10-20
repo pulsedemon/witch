@@ -299,6 +299,17 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
+await test('a head branch that tracks another branch stays, and says which', async () => {
+  const { checkout, other, tip } = await merged();
+  await git(checkout, 'branch', '--set-upstream-to=origin/main');
+  await merge(other, 'feat/x');
+  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip)), {
+    text: '#7 merged, but feat/x tracks origin/main rather than its own remote branch, so it stays.',
+    cleaned: false,
+  });
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+});
+
 await test("a dangling plan link stays quietly, a plan that can't be read or go with its ledgers stays with them and is named, and so are plans that can't be listed, even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
