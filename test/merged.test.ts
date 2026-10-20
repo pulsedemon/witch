@@ -1028,6 +1028,75 @@ await test('an install stays locked through install and build, aliases share it,
   }
 });
 
+await test('an install stays locked through revision reporting and releases on success or failure', async () => {
+  const { root, origin } = await merged();
+  const install = join(root, 'install');
+  await git(root, 'clone', origin, install);
+  const head = await git(origin, 'rev-parse', '--short', 'main');
+  const directory = join(install, '.git');
+  const marker = join(root, 'revision-lock');
+  const bin = join(root, 'bin');
+  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
+  const previousPath = process.env.PATH;
+  for (const failing of [false, true]) {
+    await write(
+      join(bin, 'git'),
+      `#!${process.execPath}
+const { constants, openSync, closeSync, writeFileSync } = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args.join(' ') === 'rev-parse --short HEAD') {
+  let result = 'unlocked';
+  try {
+    closeSync(openSync(${JSON.stringify(directory)}, constants.O_RDONLY | constants.O_NONBLOCK | 0x20));
+  } catch (error) {
+    result = error.code;
+  }
+  writeFileSync(${JSON.stringify(marker)}, result);
+  if (${failing}) {
+    process.stderr.write('revision unavailable\\n');
+    process.exit(23);
+  }
+}
+process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
+`,
+    );
+    await chmod(join(bin, 'git'), 0o755);
+    process.env.PATH = `${bin}:${previousPath}`;
+    try {
+      const result = refreshInstall(install, 'main', async () => ({
+        stdout: '',
+      }));
+      if (failing)
+        await assert.rejects(result, (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.ok(
+            error.message.startsWith(
+              `Witch's checkout at ${install} wasn't rebuilt:`,
+            ),
+          );
+          assert.match(error.message, /revision unavailable/);
+          assert.equal((error.cause as { code: number }).code, 23);
+          return true;
+        });
+      else
+        assert.equal(
+          await result,
+          `Rebuilt Witch at ${head}, for its next start.`,
+        );
+      assert.equal(await readFile(marker, 'utf8'), 'EAGAIN');
+      const lock = await open(
+        directory,
+        constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+      );
+      await lock.close();
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }
+});
+
 await test('an install lock lookup failure keeps the install context', async () => {
   const install = await scratch('witch-invalid-install-');
   const calls: string[][] = [];
