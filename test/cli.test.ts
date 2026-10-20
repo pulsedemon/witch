@@ -87,7 +87,15 @@ await test('headless controls preserve quoted paths, JSON and conflicts without 
             unregistered: [],
           },
         };
-      if (action.kind !== 'claim') throw new Error('Expected claim');
+      if (action.kind === 'release') {
+        await store.release(
+          { conversation, project: 'project-p' },
+          action.claim,
+          deadline,
+          async () => {},
+        );
+        return { kind: 'released' };
+      }
       return {
         kind: 'claimed',
         claim: await store.claim(
@@ -117,11 +125,24 @@ await test('headless controls preserve quoted paths, JSON and conflicts without 
     assert.equal(JSON.parse(conflict.stdout).claim.id, occupied.id);
     assert.deepEqual(conflict.files, []);
     const own = await run(
-      `${prefix} --claim task:ours --summary 'Current work' --json`,
+      `${prefix} --claim task:ours --summary 'Current work' --alias https://github.com/acme/widget/issues/42 --alias task:related --json`,
     );
     assert.equal(own.code, 0);
-    assert.equal(JSON.parse(own.stdout).claim.owner.conversation, 'a');
+    const claim = JSON.parse(own.stdout).claim;
+    assert.equal(claim.owner.conversation, 'a');
+    assert.deepEqual(claim.references, [
+      'task:project-p:ours',
+      'github:acme/widget#42',
+      'task:project-p:related',
+    ]);
+    assert.deepEqual(await store.claims(), [occupied, claim]);
     assert.deepEqual(own.files, []);
+    const released = await run(`${prefix} --release ${claim.id} --json`);
+    assert.equal(released.code, 0);
+    assert.equal(released.stderr, '');
+    assert.equal(JSON.parse(released.stdout).kind, 'released');
+    assert.deepEqual(await store.claims(), [occupied]);
+    assert.deepEqual(released.files, []);
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
