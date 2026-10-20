@@ -390,22 +390,86 @@ await test('a model change waits for the turn, unless it has replied and a famil
   }
 });
 
-await test("a command's reply that an interrupt leaves unread is not reported, so its command never runs again", async () => {
-  const seen = observe();
-  const { session, cwd } = await fixture(seen.onEvent);
+for (const mode of [undefined, 'first-reply-read']) {
+  await test(
+    mode
+      ? 'an interrupt recovers only command records named by its receipt'
+      : 'an interrupt returns unread command records separately from ordinary prompts',
+    async () => {
+      const { session, cwd } = await fixture(undefined, mode);
+      const records = [
+        "<bash-input>printf 'alpha\\n'</bash-input>\n<bash-stdout>alpha\n</bash-stdout><bash-stderr></bash-stderr>",
+        "<bash-input>printf 'beta\\n' >&2; exit 7</bash-input>\n<bash-stdout></bash-stdout><bash-stderr>beta\nExit code 7</bash-stderr>",
+      ];
+      try {
+        const turn = session.send('reporting familiar');
+        await until('the first reply', () => session.replied);
+        const first = "printf 'alpha\\n'";
+        assert.equal(
+          await session.steer(`!${first}\n\nReply without running it again.`, {
+            command: first,
+          }),
+          true,
+        );
+        await until(
+          'the first command reply',
+          async () =>
+            (await jsonLines(join(cwd, 'steered.jsonl'))).length === 1,
+        );
+        assert.equal(await session.steer('between'), true);
+        const second = "printf 'beta\\n' >&2; exit 7";
+        assert.equal(
+          await session.steer(`!${second}\n\nReply without running it again.`, {
+            command: second,
+          }),
+          true,
+        );
+        await until(
+          'the second command reply',
+          async () =>
+            (await jsonLines(join(cwd, 'steered.jsonl'))).length === 3,
+        );
+        await within(session.interrupt(), 3000, 'interrupt');
+        const result = await within(turn, 2000, 'turn');
+        assert.equal(result.status, 'interrupted');
+        assert.deepEqual(result.unread, ['between']);
+        assert.deepEqual(result.unreadContext, mode ? [records[1]] : records);
+        assert.equal(session.closed, true);
+      } finally {
+        await session.close();
+      }
+    },
+  );
+}
+
+await test('an interrupt recovers a completed idle command from its initial reply', async () => {
+  const { session, cwd } = await fixture(undefined, 'hold-initial');
+  const command = "printf 'once\\n' >> executions; printf 'initial-output\\n'";
+  const record = `<bash-input>${command}</bash-input>\n<bash-stdout>initial-output\n</bash-stdout><bash-stderr></bash-stderr>`;
   try {
-    const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
-    assert.equal(await session.steer('reply', { command: 'echo quick' }), true);
-    await until('the reply', async () =>
-      isDeepStrictEqual(await jsonLines(join(cwd, 'steered.jsonl')), [
-        replyBlocks('echo quick', 'quick\n'),
-      ]),
+    assert.equal((await session.shell(command)).status, 'completed');
+    const prompt = `!${command}\n\nReply without running it again.`;
+    const turn = session.send(prompt);
+    await until(
+      'the initial reply',
+      async () => (await jsonLines(join(cwd, 'held.json'))).length === 1,
     );
+    const input = JSON.parse(
+      await readFile(join(cwd, 'held.json'), 'utf8'),
+    ) as {
+      message: { content: unknown };
+    };
+    assert.deepEqual(input.message.content, [
+      { type: 'text', text: record },
+      { type: 'text', text: prompt },
+    ]);
     await within(session.interrupt(), 3000, 'interrupt');
     const result = await within(turn, 2000, 'turn');
     assert.equal(result.status, 'interrupted');
     assert.deepEqual(result.unread, []);
+    assert.deepEqual(result.unreadContext, [record]);
+    assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
+    assert.equal(session.closed, true);
   } finally {
     await session.close();
   }

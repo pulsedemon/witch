@@ -37,7 +37,7 @@ export async function launcher(mode?: string) {
       onProcess: async () => {},
       ...options,
     });
-  return { cwd, children, args, envs, connect };
+  return { cwd, children, args, envs, adapter, connect };
 }
 
 export async function fixture(

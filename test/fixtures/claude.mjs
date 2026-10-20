@@ -18,7 +18,7 @@ let lastPrompt = '';
 const steered = [];
 /** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, `idle`, or `running` again. */
 let reporting = '';
-/** the uuids of prompts the CLI holds unread before that report. */
+/** the uuids of prompts the CLI holds unread for an interrupt receipt. */
 const held = [];
 /** calls `then` once `file` exists in the cwd; the poll alone doesn't keep the CLI running. */
 const once = (file, then) => {
@@ -260,8 +260,13 @@ for await (const line of lines) {
     }
     if (request.subtype === 'interrupt') {
       appendFileSync(join(process.cwd(), 'interrupts.log'), 'interrupt\n');
-      if (lastPrompt === 'reporting familiar' && held.length)
-        response = { still_queued: held };
+      if (
+        (mode === 'hold-initial' || lastPrompt === 'reporting familiar') &&
+        held.length
+      )
+        response = {
+          still_queued: mode === 'first-reply-read' ? held.slice(1) : held,
+        };
       else if (lastPrompt === 'still queued')
         response = { still_queued: ['q-1'] };
       // the first steered prompt was folded in at a tool step, so the CLI still holds the rest
@@ -290,6 +295,11 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    if (mode === 'hold-initial') {
+      held.push(message.uuid);
+      writeFileSync(join(process.cwd(), 'held.json'), JSON.stringify(message));
+      continue;
+    }
     if (lastPrompt === 'reporting familiar' && reporting === 'before') {
       held.push(message.uuid);
       appendFileSync(
@@ -343,6 +353,12 @@ for await (const line of lines) {
       join(process.cwd(), 'content.json'),
       JSON.stringify(lastPrompt),
     );
+    if (
+      mode === 'coordinator-reporting' &&
+      typeof lastPrompt === 'string' &&
+      lastPrompt.endsWith('User request:\nreporting familiar')
+    )
+      lastPrompt = 'reporting familiar';
     send({
       type: 'system',
       subtype: 'init',

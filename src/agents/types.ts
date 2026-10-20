@@ -152,6 +152,8 @@ export interface TurnResult {
   error?: string;
   /** prompts steered into the turn that the agent reports, when interrupted, it will never read. */
   unread?: string[];
+  /** already executed command records to include as context with the next prompt, never to enqueue. */
+  unreadContext?: string[];
 }
 
 export interface AgentSession {
