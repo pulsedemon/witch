@@ -29,6 +29,10 @@ await test('a fresh conversation receives committed memory without a handoff', a
     assert.ok(
       b.inputs.at(-1)!.prompt.includes(`Put scratch files under ${tmpdir()}`),
     );
+    assert.match(
+      b.inputs.at(-1)!.prompt,
+      /preserves this directory across \/restart and may defer cleanup/,
+    );
     assert.equal(a.inputs.length, 1);
   } finally {
     await coordinator.close();

@@ -11,17 +11,17 @@ export function instanceDirectory(parent: string): string {
   for (const name of readdirSync(parent))
     if (
       /^\d+$/.test(name) &&
-      (Number(name) === process.pid || !running(Number(name)))
+      (Number(name) === process.pid || !processRunning(Number(name)))
     )
-      remove(join(parent, name));
+      removeDirectory(join(parent, name));
   const directory = join(parent, String(process.pid));
   mkdirSync(directory, { recursive: true });
-  process.once('exit', () => remove(directory));
+  process.once('exit', () => removeDirectory(directory));
   return directory;
 }
 
 /** only ESRCH means gone: EPERM is another user's live process. */
-function running(pid: number): boolean {
+export function processRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -31,7 +31,7 @@ function running(pid: number): boolean {
 }
 
 /** what can't be removed stays for a later launch, since a throw here would end launch or skip later exit listeners. */
-function remove(directory: string): void {
+export function removeDirectory(directory: string): void {
   try {
     rmSync(directory, { recursive: true, force: true });
   } catch {
