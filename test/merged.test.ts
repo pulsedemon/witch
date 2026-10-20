@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { constants } from 'node:fs';
 import {
   chmod,
   mkdir,
+  open,
   readFile,
   readdir,
   symlink,
@@ -17,8 +19,9 @@ import {
   refreshInstall,
   watchMerges,
 } from '../src/core/merged.js';
-import type { PullRequest, Repository } from '../src/core/repository.js';
+import type { PullRequest, Repository, Run } from '../src/core/repository.js';
 import { scratch } from './fixtures/scratch.js';
+import { within } from './fixtures/within.js';
 
 // a developer's own ssh command would take the place of the ssh test's stand-in
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
@@ -889,6 +892,161 @@ await test('the install pulls, installs and builds when clean on the base, and s
   assert.equal(await refreshInstall(install, 'main', run), kept);
   assert.equal(calls.length, 2);
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
+  await git(install, 'switch', 'main');
+  assert.equal(
+    await refreshInstall(install, 'main', run),
+    `Rebuilt Witch at ${head.slice(0, 7)}, for its next start.`,
+  );
+  assert.deepEqual(calls.slice(2), [
+    [
+      'pnpm',
+      ['install', '--frozen-lockfile'],
+      { cwd: install, timeout: 300_000 },
+    ],
+    ['pnpm', ['build'], { cwd: install, timeout: 300_000 }],
+  ]);
+});
+
+await test('a busy install is skipped before fetching', async () => {
+  const { root, origin } = await merged();
+  const install = join(root, 'install');
+  await git(root, 'clone', origin, install);
+  const fetchMarker = join(root, 'fetches');
+  const pack = join(root, 'upload-pack');
+  await write(
+    pack,
+    `#!/bin/sh\nprintf 'fetch\\n' >> '${fetchMarker}'\nexec git upload-pack "$@"\n`,
+  );
+  await chmod(pack, 0o755);
+  await git(install, 'config', 'remote.origin.uploadpack', pack);
+  const lock = await open(
+    join(install, '.git'),
+    constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+  );
+  const calls: string[][] = [];
+  try {
+    const result = await within(
+      refreshInstall(install, 'main', async (_, args) => {
+        calls.push(args);
+        return { stdout: '' };
+      }),
+      5000,
+      'the busy install',
+    );
+    assert.equal(
+      result,
+      `Witch's checkout at ${install} is busy, so it wasn't rebuilt.`,
+    );
+    assert.deepEqual(calls, []);
+    assert.equal(await exists(fetchMarker), false);
+  } finally {
+    await lock.close();
+  }
+});
+
+await test('an install stays locked through install and build, aliases share it, and another install can refresh', async () => {
+  const { root, origin } = await merged();
+  const install = join(root, 'install');
+  const independent = join(root, 'independent');
+  const alias = join(root, 'alias');
+  await git(root, 'clone', origin, install);
+  await git(root, 'clone', origin, independent);
+  await symlink(install, alias);
+  const head = await git(origin, 'rev-parse', 'main');
+  const rebuilt = `Rebuilt Witch at ${head.slice(0, 7)}, for its next start.`;
+  const request = { ...pullRequest(head), branch: 'main' };
+  const gates = {
+    install: {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    },
+    build: {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    },
+  };
+  const refreshing = refreshInstall(install, 'main', async (_, args) => {
+    const gate = args[0] === 'install' ? gates.install : gates.build;
+    gate.entered.resolve();
+    await gate.release.promise;
+    return { stdout: '' };
+  });
+  void refreshing.catch(() => {});
+  const calls: string[][] = [];
+  const run: Run = async (_, args) => {
+    calls.push(args);
+    return { stdout: '' };
+  };
+  try {
+    for (const [stage, target] of [
+      ['install', alias],
+      ['build', install],
+    ] as const) {
+      await within(gates[stage].entered.promise, 5000, `the held ${stage}`);
+      assert.equal(
+        await within(
+          refreshInstall(target, 'main', run),
+          5000,
+          'the contender',
+        ),
+        `Witch's checkout at ${target} is busy, so it wasn't rebuilt.`,
+      );
+      assert.deepEqual(calls, []);
+      if (stage === 'install') {
+        assert.equal(await cleanUpMerge(install, request), undefined);
+        const independentCalls: string[][] = [];
+        assert.equal(
+          await within(
+            refreshInstall(independent, 'main', async (_, args) => {
+              independentCalls.push(args);
+              return { stdout: '' };
+            }),
+            5000,
+            'the independent install',
+          ),
+          rebuilt,
+        );
+        assert.equal(await git(independent, 'rev-parse', 'HEAD'), head);
+        assert.deepEqual(independentCalls, [
+          ['install', '--frozen-lockfile'],
+          ['build'],
+        ]);
+      }
+      gates[stage].release.resolve();
+    }
+    assert.equal(await refreshing, rebuilt);
+    assert.deepEqual(await cleanUpMerge(install, request), {
+      text: '#7 merged, but main is still on its remote, so it stays.',
+      cleaned: false,
+    });
+    assert.equal(await refreshInstall(install, 'main', run), rebuilt);
+    assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['build']]);
+  } finally {
+    gates.install.release.resolve();
+    gates.build.release.resolve();
+    await refreshing;
+  }
+});
+
+await test('an install lock lookup failure keeps the install context', async () => {
+  const install = await scratch('witch-invalid-install-');
+  const calls: string[][] = [];
+  await assert.rejects(
+    refreshInstall(install, 'main', async (_, args) => {
+      calls.push(args);
+      return { stdout: '' };
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.ok(
+        error.message.startsWith(
+          `Witch's checkout at ${install} wasn't rebuilt:`,
+        ),
+      );
+      return true;
+    },
+  );
+  assert.deepEqual(calls, []);
 });
 
 await test("a failed rebuild names the install and keeps tsc's errors", async () => {
@@ -906,6 +1064,16 @@ await test("a failed rebuild names the install and keeps tsc's errors", async ()
   await assert.rejects(refreshInstall(install, 'main', run), {
     message: `Witch's checkout at ${install} wasn't rebuilt: Command failed: pnpm build\nsrc/a.ts(1,7): error TS2322: Type 'number' is not assignable to type 'string'.`,
   });
+  const head = await git(origin, 'rev-parse', 'main');
+  const calls: string[][] = [];
+  assert.equal(
+    await refreshInstall(install, 'main', async (_, args) => {
+      calls.push(args);
+      return { stdout: '' };
+    }),
+    `Rebuilt Witch at ${head.slice(0, 7)}, for its next start.`,
+  );
+  assert.deepEqual(calls, [['install', '--frozen-lockfile'], ['build']]);
 });
 
 await test("an edit made during the install's fetch keeps it from being pulled and built", async () => {

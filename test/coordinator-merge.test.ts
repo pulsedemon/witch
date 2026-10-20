@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
@@ -205,9 +207,11 @@ await test('a merge cleanup leaves a checkout that changed alone, and says nothi
   }
 });
 
-await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, a cleanup with no install still acts, and a failed rebuild keeps the cleanup's notice", async () => {
-  for (const variant of ['b', 'a', 'diverged', 'none'] as const) {
+await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, a cleanup with no install still acts, and a failed or busy rebuild keeps the cleanup's notice", async () => {
+  for (const variant of ['b', 'a', 'diverged', 'none', 'busy'] as const) {
     const { coordinator, root, project } = await fixture();
+    const previousPath = process.env.PATH;
+    let lock: FileHandle | undefined;
     try {
       const a = join(root, 'a.git');
       await gitIn(root, 'init', '-q', '--bare', a);
@@ -236,11 +240,26 @@ await test("the install is rebuilt only after a cleanup that moved the checkout,
         await gitIn(root, 'clone', '-q', a, install);
         if (variant === 'a')
           await gitIn(install, 'switch', '-q', '-c', 'elsewhere');
-        else {
+        else if (variant === 'diverged') {
           // a commit the merge doesn't have, so the install can't fast-forward
           await gitIn(install, 'reset', '-q', '--hard', 'HEAD~1');
           await gitIn(install, 'commit', '-q', '--allow-empty', '-m', 'local');
         }
+      }
+      const pnpmCalls = join(root, 'pnpm-calls');
+      if (variant === 'busy') {
+        const bin = join(root, 'bin');
+        await mkdir(bin);
+        await writeFile(
+          join(bin, 'pnpm'),
+          `#!/bin/sh\nprintf '%s\\n' "$*" >> '${pnpmCalls}'\n`,
+          { mode: 0o755 },
+        );
+        process.env.PATH = `${bin}:${previousPath}`;
+        lock = await open(
+          join(install, '.git'),
+          constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+        );
       }
       const cleanup = coordinator.cleanUpMerge(
         mergedPullRequest(tip),
@@ -252,14 +271,27 @@ await test("the install is rebuilt only after a cleanup that moved the checkout,
         '#7 merged: switched to main and pulled, deleted branch feat/x.';
       assert.deepEqual(
         notices(coordinator),
-        variant !== 'a'
-          ? [cleaned]
-          : [
+        variant === 'a'
+          ? [
               cleaned,
               `Witch's checkout at ${install} isn't clean on main, so it wasn't rebuilt.`,
-            ],
+            ]
+          : variant === 'busy'
+            ? [
+                cleaned,
+                `Witch's checkout at ${install} is busy, so it wasn't rebuilt.`,
+              ]
+            : [cleaned],
       );
+      if (variant === 'busy') {
+        assert.equal(coordinator.snapshot.phase, 'idle');
+        assert.equal(coordinator.snapshot.error, undefined);
+        await assert.rejects(readFile(pnpmCalls), { code: 'ENOENT' });
+      }
     } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      await lock?.close();
       await coordinator.close();
     }
   }
