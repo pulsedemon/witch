@@ -168,6 +168,7 @@ export class Coordinator {
   private files?: ConversationStore;
   private workspace?: Workspace;
   private session?: AgentSession;
+  private readonly pendingContext = new Map<string, string[]>();
   /** the project memory the live session may write; native permissions are fixed at connect. */
   private sessionProject?: string;
   private listeners = new Set<() => void>();
@@ -883,6 +884,7 @@ export class Coordinator {
         ? handoff
         : undefined;
     const coordination = await this.coordination?.context();
+    const pendingContext = this.pendingContext.get(conversation.id);
     const context = [
       'You are running inside Witch. Follow your native and project instructions.',
       `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
@@ -895,6 +897,12 @@ export class Coordinator {
           ]
         : []),
       ...(coordination ? [coordination] : []),
+      ...(pendingContext
+        ? [
+            'These commands already ran before an interrupt. Use their output as context without running them again:',
+            ...pendingContext,
+          ]
+        : []),
       `User request:\n${prompt}`,
       ...(command === undefined ? [] : [ranCommand]),
     ].join('\n\n');
@@ -919,16 +927,20 @@ export class Coordinator {
       // an interrupt that lands as a fast command finishes still sends no reply
       else if (ran && this.cancelled)
         result = { status: 'interrupted', text: '' };
-      else
+      else {
+        this.pendingContext.delete(conversation.id);
         result = await session.send(
           context,
           skillCall(prompt, this.snapshot.skills),
         );
+      }
     } catch (error) {
       result = { status: 'failed', text: '', error: errorMessage(error) };
     }
     if (result.unread?.length)
       this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
+    if (result.unreadContext?.length)
+      this.pendingContext.set(conversation.id, result.unreadContext);
     await this.files!.flush();
     if (result.status === 'completed') {
       await workspace.commit(

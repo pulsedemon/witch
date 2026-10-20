@@ -134,6 +134,7 @@ interface Turn {
   messages: Map<string, string>;
   /** prompts steered into the turn, by the uuid each was sent with. */
   steered: Map<string, string>;
+  commandRecords: Map<string, string[]>;
   /**
    * a command steered after the reply hasn't ended, or its reply hasn't gone, and Claude Code's idle doesn't end the
    * turn meanwhile.
@@ -375,11 +376,14 @@ class ClaudeSession implements AgentSession {
       interrupted: false,
       messages: new Map<string, string>(),
       steered: new Map<string, string>(),
+      commandRecords: new Map<string, string[]>(),
       held: false,
       idle: false,
     };
     this.turn = turn;
-    this.push(this.content(prompt, skill));
+    const records = this.records;
+    const uuid = this.push(this.content(prompt, skill));
+    turn.commandRecords.set(uuid, records);
     return turn.finished.promise;
   }
 
@@ -511,8 +515,10 @@ class ClaudeSession implements AgentSession {
     turn.answer = undefined;
     if (answer !== undefined && !turn.interrupted && !this.closed) {
       turn.idle = false;
-      // kept out of `steered`, since an unread reply would go back to the queue and run its command again
-      this.push(this.content(answer));
+      // recover records separately, since queuing the reply would run its command again
+      const records = this.records;
+      const uuid = this.push(this.content(answer));
+      turn.commandRecords.set(uuid, records);
     } else if (turn.idle && !this.closed) {
       this.finish(turn, turn.result!);
       void this.readUsage();
@@ -544,6 +550,9 @@ class ClaudeSession implements AgentSession {
     }
     // the CLI would run what it still holds after this turn, outside any turn
     if (receipt?.still_queued?.length) {
+      const unreadContext = receipt.still_queued.flatMap(
+        (uuid) => turn.commandRecords.get(uuid) ?? [],
+      );
       this.closed = true;
       this.finish(turn, {
         status: 'interrupted',
@@ -551,6 +560,7 @@ class ClaudeSession implements AgentSession {
         unread: receipt.still_queued.flatMap(
           (uuid) => turn.steered.get(uuid) ?? [],
         ),
+        ...(unreadContext.length ? { unreadContext } : {}),
       });
       this.query.close();
     }

@@ -26,6 +26,97 @@ function holdSnapshot(hook: { current: GitHook }) {
   return { entered: entered.promise, release: () => release.resolve() };
 }
 
+const savedCommand =
+  '<bash-input>already-ran</bash-input>\n<bash-stdout>saved-output</bash-stdout><bash-stderr></bash-stderr>';
+
+async function recoverCommandContext(
+  coordinator: Coordinator,
+  agent: FixtureAgent,
+) {
+  const session = agent.sessions.at(-1)!.session;
+  const send = session.send;
+  session.send = async () => ({
+    status: 'interrupted',
+    text: '',
+    unreadContext: [savedCommand],
+  });
+  try {
+    await coordinator.send('seed');
+  } finally {
+    session.send = send;
+  }
+}
+
+await test('pending command context stays with its conversation', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    await recoverCommandContext(coordinator, a);
+    const id = coordinator.snapshot.conversation!.id;
+    await coordinator.newConversation();
+    await coordinator.send('other');
+    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+    await coordinator.selectConversation(id);
+    await coordinator.send('original');
+    assert.equal(a.inputs.at(-1)!.prompt.split(savedCommand).length - 1, 1);
+    await coordinator.send('again');
+    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('pending command context waits until a prompt is dispatched', async (t) => {
+  for (const failure of ['connect', 'snapshot', 'shell']) {
+    await t.test(failure, async () => {
+      const { coordinator, a, hook } = await fixture(undefined, (a) => {
+        a.skills = [{ name: 'review', description: 'Review' }];
+      });
+      try {
+        await recoverCommandContext(coordinator, a);
+        const before = a.inputs.length;
+        if (failure === 'connect') {
+          await a.sessions.at(-1)!.session.close();
+          a.failConnect = true;
+          await coordinator.send('blocked');
+          assert.deepEqual(coordinator.unqueue(), ['blocked']);
+          a.failConnect = false;
+        } else if (failure === 'snapshot') {
+          const snapshot = holdSnapshot(hook);
+          const sending = coordinator.send('blocked');
+          try {
+            await within(snapshot.entered, 3000, 'the snapshot');
+            await coordinator.interrupt();
+          } finally {
+            snapshot.release();
+          }
+          await within(sending, 3000, 'the cancelled send');
+          assert.deepEqual(coordinator.unqueue(), ['blocked']);
+        } else {
+          a.failNext = true;
+          await coordinator.send('!fails');
+          assert.deepEqual(a.shells, ['fails']);
+        }
+        assert.equal(a.inputs.length, before);
+        const next = failure === 'connect' ? '/review now' : 'fresh';
+        await coordinator.send(next);
+        const received = a.inputs.at(-1)!;
+        assert.equal(received.prompt.split(savedCommand).length - 1, 1);
+        assert.ok(
+          received.prompt.indexOf(savedCommand) <
+            received.prompt.indexOf('User request:'),
+        );
+        assert.ok(received.prompt.endsWith(`User request:\n${next}`));
+        if (failure === 'connect')
+          assert.deepEqual(received.skill, { name: 'review', args: 'now' });
+        await coordinator.send('again');
+        assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+      } finally {
+        await coordinator.close();
+      }
+    });
+  }
+});
+
 await test('an interrupt during the memory snapshot delivers nothing and leaves the prompt queued', async () => {
   const { coordinator, a, hook } = await fixture();
   try {
