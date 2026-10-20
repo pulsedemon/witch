@@ -726,6 +726,27 @@ await test("another merged branch's config section that branch -d leaves is name
   assert.deepEqual(await branches(checkout), ['main']);
 });
 
+await test('a merged branch that cannot be deleted stays named with its error while other branches go', async () => {
+  const { checkout, other, tip } = await merged();
+  for (const name of ['feat/blocked', 'feat/later']) {
+    await git(checkout, 'switch', '-c', name, 'main');
+    await git(checkout, 'commit', '--allow-empty', '-m', name);
+    await git(checkout, 'push', '-u', 'origin', name);
+    await merge(other, name);
+  }
+  await git(checkout, 'switch', 'feat/x');
+  await merge(other, 'feat/x');
+  await write(join(checkout, '.git/refs/heads/feat/blocked.lock'), '');
+  const result = await cleanUpMerge(checkout, pullRequest(tip));
+  assert.deepEqual(await branches(checkout), ['feat/blocked', 'main']);
+  assert.equal(result?.cleaned, true);
+  assert.match(
+    result.text,
+    /^#7 merged: switched to main and pulled, deleted branches feat\/x and feat\/later, but branch feat\/blocked stayed: Command failed: git branch -d --end-of-options feat\/blocked\n/,
+  );
+  assert.match(result.text, /feat\/blocked\.lock.*File exists/);
+});
+
 await test('a base that tracks another remote is brought up to date from it', async () => {
   const { root, origin, checkout, tip } = await merged();
   const upstream = join(root, 'upstream.git');
