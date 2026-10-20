@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmod, readFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
+import { CodexAdapter } from '../src/agents/codex.js';
+import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type {
   AgentSession,
   BackgroundCommand,
@@ -18,6 +28,7 @@ import { TurnGate } from './fixtures/agent.js';
 import { jsonLines, launcher } from './fixtures/claude-adapter.js';
 import { readRecord, fixture } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
+import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 await test('the pentacle follows foreground work and every running local task', async () => {
@@ -279,6 +290,176 @@ await test("a familiar's name and kind arriving after its rows retitle them in p
   } finally {
     await coordinator.close();
   }
+});
+
+await test('Codex brew events keep the coordinator active after its reply', async (t) => {
+  for (const loss of [false, true])
+    await t.test(
+      loss ? 'process exit' : 'completion in a later turn',
+      async () => {
+        const root = await scratch('witch-codex-brews-');
+        const cwd = join(root, 'project');
+        await mkdir(cwd);
+        const store = await StateStore.open(join(root, 'state'));
+        const memory = new Memory(join(root, 'state', 'memory.git'));
+        const executable = fileURLToPath(
+          new URL('fixtures/codex.mjs', import.meta.url),
+        );
+        const adapter = new CodexAdapter(() =>
+          spawn(process.execPath, [executable, 'brews'], {
+            cwd,
+            stdio: 'pipe',
+          }),
+        );
+        const coordinator = new Coordinator(store, memory, [
+          { adapter, executable },
+        ]);
+        let sequence = 0;
+        const write = async (name: string, value: unknown) => {
+          await writeFile(join(cwd, `${name}.next`), JSON.stringify(value));
+          await rename(join(cwd, `${name}.next`), join(cwd, name));
+        };
+        const emit = (...frames: RpcMessage[]) =>
+          write(`events-${++sequence}.json`, frames);
+        const appears = (name: string) =>
+          until(name, () =>
+            access(join(cwd, name)).then(
+              () => true,
+              () => false,
+            ),
+          );
+        const command = {
+          type: 'commandExecution',
+          id: 'command',
+          command: 'fixture command',
+          cwd,
+          source: 'unifiedExecStartup',
+          processId: '1',
+        };
+        const rows = () =>
+          coordinator.snapshot.items.filter(({ id }) =>
+            id.endsWith('/codex/command'),
+          );
+        try {
+          await coordinator.initialize(cwd);
+          const first = coordinator.send('first');
+          await appears('turn-1.json');
+          await emit(
+            {
+              method: 'item/started',
+              params: {
+                threadId: 'native-thread',
+                turnId: 'turn-1',
+                item: {
+                  ...command,
+                  status: 'inProgress',
+                  aggregatedOutput: null,
+                },
+              },
+            },
+            {
+              method: 'item/commandExecution/outputDelta',
+              params: {
+                threadId: 'native-thread',
+                turnId: 'turn-1',
+                itemId: 'command',
+                delta: 'start\n',
+              },
+            },
+            {
+              method: 'turn/completed',
+              params: {
+                threadId: 'native-thread',
+                turn: { id: 'turn-1', status: 'completed', error: null },
+              },
+            },
+          );
+          await first;
+          const originalId = rows()[0]!.id;
+          await appears('list-1.json');
+          await write('list-reply-1.json', {
+            result: {
+              data: [
+                {
+                  itemId: 'command',
+                  processId: '1',
+                  command: 'run the fixture command',
+                  cwd,
+                  osPid: null,
+                  cpuPercent: null,
+                  rssKb: null,
+                },
+              ],
+              nextCursor: null,
+            },
+          });
+          await until(
+            'the admitted brew',
+            () => coordinator.snapshot.backgroundCommands.length === 1,
+          );
+          assert.equal(coordinator.snapshot.phase, 'idle');
+          assert.deepEqual(
+            coordinator.snapshot.backgroundCommands.map(
+              ({ description }) => description,
+            ),
+            ['run the fixture command'],
+          );
+          assert.equal(coordinator.pentacle.active, true);
+          if (loss) {
+            await writeFile(join(cwd, 'exit'), '');
+            await until(
+              'the stopped brew',
+              () => coordinator.snapshot.backgroundCommands.length === 0,
+            );
+            assert.equal(
+              coordinator.snapshot.items.filter(
+                ({ title }) =>
+                  title === 'Brew stopped  run the fixture command',
+              ).length,
+              1,
+            );
+          } else {
+            const second = coordinator.send('second');
+            await appears('turn-2.json');
+            await emit({
+              method: 'item/completed',
+              params: {
+                threadId: 'native-thread',
+                turnId: 'turn-1',
+                item: {
+                  ...command,
+                  status: 'completed',
+                  aggregatedOutput: 'start\nend\n',
+                  exitCode: 0,
+                },
+              },
+            });
+            await until(
+              'the completed command',
+              () => rows()[0]!.done === true,
+            );
+            assert.equal(rows().length, 1);
+            assert.equal(rows()[0]!.id, originalId);
+            assert.equal(rows()[0]!.text, 'start\nend\n');
+            assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
+            assert.equal(coordinator.snapshot.phase, 'running');
+            assert.equal(coordinator.pentacle.active, true);
+            await emit({
+              method: 'turn/completed',
+              params: {
+                threadId: 'native-thread',
+                turn: { id: 'turn-2', status: 'completed', error: null },
+              },
+            });
+            await second;
+          }
+          assert.equal(coordinator.pentacle.active, false);
+        } finally {
+          await writeFile(join(cwd, 'release'), '');
+          await coordinator.close();
+        }
+      },
+    );
 });
 
 await test('a brew lists from its start until its end and through a turn, its start and end each add a transcript row, and a repeated start or an unlisted end changes nothing', async () => {
