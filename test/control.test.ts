@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { constants, promises as files } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { setImmediate } from 'node:timers/promises';
 import { callControl, ControlHost } from '../src/persistence/control.js';
 import type {
   ControlBinding,
@@ -35,6 +36,11 @@ function envelope(bound: ControlBinding): ControlRequest {
 
 await test('control requests preserve their binding and action through a real ledger mutation and acknowledgement', async () => {
   const bound = await binding();
+  const directory = join(bound.directory, 'actual');
+  const alias = join(bound.directory, 'alias');
+  await files.mkdir(directory);
+  await files.symlink(directory, alias);
+  bound.directory = alias;
   const store = await CoordinationStore.open(bound.directory);
   const failures: unknown[] = [];
   const host = await ControlHost.open(
@@ -111,6 +117,138 @@ await test('a reply for another request is not accepted or acknowledged', async 
   assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), [
     `${id}.json`,
   ]);
+});
+
+await test('the client waits through an incomplete reply before accepting and acknowledging it', async (t) => {
+  const bound = await binding();
+  await files.mkdir(join(bound.directory, 'inbox'));
+  await files.mkdir(join(bound.directory, 'replies'));
+  const partialRead = Promise.withResolvers<void>();
+  const originalRead = files.readFile;
+  t.mock.method(
+    files,
+    'readFile',
+    async (...args: Parameters<typeof files.readFile>) => {
+      const text = await originalRead(...args);
+      if (
+        String(args[0]).startsWith(join(bound.directory, 'replies')) &&
+        text === '{"id":'
+      )
+        partialRead.resolve();
+      return text;
+    },
+  );
+  let settled = false;
+  const calling = callControl(bound, { kind: 'peers' });
+  void calling.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  let id = '';
+  await until('published request', async () => {
+    id =
+      (await files.readdir(join(bound.directory, 'inbox')))
+        .find((name) => name.endsWith('.json'))
+        ?.slice(0, -5) ?? '';
+    return !!id;
+  });
+  const reply = join(bound.directory, 'replies', `${id}.json`);
+  try {
+    await files.writeFile(reply, '{"id":');
+    await within(partialRead.promise, 3000, 'partial reply read');
+    await setImmediate();
+    assert.equal(settled, false);
+    await writeJson(reply, { id, kind: 'released' });
+    assert.deepEqual(await calling, { id, kind: 'released' });
+    assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
+    assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
+  } finally {
+    if (!settled) await writeJson(reply, { id, kind: 'released' });
+    await calling.catch(() => {});
+  }
+});
+
+for (const redirect of ['file', 'inbox'] as const) {
+  await test(`the host refuses a request redirected through a symlinked ${redirect}`, async () => {
+    const bound = await binding();
+    const target = await scratch('witch-control-request-target-');
+    const request = envelope(bound);
+    let calls = 0;
+    const failures: unknown[] = [];
+    const host = await ControlHost.open(
+      bound.directory,
+      async () => {
+        calls++;
+        return { kind: 'released' };
+      },
+      (error) => failures.push(error),
+    );
+    try {
+      await host.drain();
+      const inbox = join(bound.directory, 'inbox');
+      const name = `${request.id}.json`;
+      await writeJson(join(target, name), request);
+      if (redirect === 'file')
+        await files.symlink(join(target, name), join(inbox, name));
+      else {
+        await files.rename(inbox, join(bound.directory, 'original-inbox'));
+        await files.symlink(target, inbox);
+      }
+      await until(
+        'request read or rejected',
+        () => calls > 0 || failures.length > 0,
+      );
+      await host.drain();
+      assert.equal(calls, 0);
+      assert.equal((failures[0] as NodeJS.ErrnoException).code, 'ELOOP');
+      assert.deepEqual(
+        await files.readdir(join(bound.directory, 'replies')),
+        [],
+      );
+      assert.deepEqual(
+        JSON.parse(await files.readFile(join(target, name), 'utf8')),
+        request,
+      );
+    } finally {
+      await host.close();
+    }
+  });
+}
+
+await test('the host cannot create a reply through a redirected parent', async () => {
+  const bound = await binding();
+  const target = await scratch('witch-control-reply-target-');
+  const failures: unknown[] = [];
+  let calls = 0;
+  const host = await ControlHost.open(
+    bound.directory,
+    async () => {
+      calls++;
+      return { kind: 'released' };
+    },
+    (error) => failures.push(error),
+  );
+  try {
+    await host.drain();
+    const replies = join(bound.directory, 'replies');
+    await files.rename(replies, join(bound.directory, 'original-replies'));
+    await files.symlink(target, replies);
+    const request = envelope(bound);
+    await writeJson(
+      join(bound.directory, 'inbox', `${request.id}.json`),
+      request,
+    );
+    await until('request handled', () => calls > 0);
+    await host.drain();
+    assert.deepEqual(await files.readdir(target), []);
+    assert.equal((failures[0] as NodeJS.ErrnoException).code, 'ELOOP');
+  } finally {
+    await host.close();
+  }
 });
 
 await test('a missing host reply leaves the result unknown and keeps the published request', async () => {
@@ -353,6 +491,7 @@ await test('invalid and expired envelopes never reach the action handler', async
           () => false,
         ),
       );
+      await host.drain();
       const result = JSON.parse(await files.readFile(reply, 'utf8')) as {
         id: string;
         kind: string;
