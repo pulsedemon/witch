@@ -1,0 +1,396 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { ClaudeAdapter } from '../src/agents/claude.js';
+import { CodexAdapter } from '../src/agents/codex.js';
+import { CoordinationStore } from '../src/persistence/coordination.js';
+import { callControl } from '../src/persistence/control.js';
+import {
+  ConversationStore,
+  LockedElsewhere,
+} from '../src/persistence/store.js';
+import { TurnGate } from './fixtures/agent.js';
+import { coordinationFixture, git } from './fixtures/coordination.js';
+import { record } from './fixtures/coordinator.js';
+import { until, within } from './fixtures/within.js';
+
+await test('coordination context stays before the exact user request and raw steered spells', async (t) => {
+  const { root, start } = await coordinationFixture(t);
+  const a = await start(),
+    b = await start('B');
+  await b.claim('task:peer', 'Distinct peer task');
+  const input = '  /review alpha\n  beta with spaces';
+  await a.coordinator.send(input);
+  const captured = a.a.inputs[0]!;
+  assert.ok(captured.prompt.includes('Distinct peer task'));
+  assert.ok(captured.prompt.includes(join(root, 'B')));
+  assert.ok(captured.prompt.includes((await a.binding()).activation));
+  assert.ok(captured.prompt.endsWith(`User request:\n${input}`));
+  assert.ok(
+    captured.prompt.indexOf('Control command:') <
+      captured.prompt.indexOf('User request:'),
+  );
+  assert.deepEqual(captured.skill, {
+    name: 'review',
+    args: 'alpha\n  beta with spaces',
+  });
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Start');
+  try {
+    await within(gate.entered, 5000, 'held turn');
+    a.a.replied = true;
+    await a.coordinator.send(input);
+    assert.deepEqual(a.a.steers, ['/review alpha\n  beta with spaces']);
+    assert.deepEqual(a.coordinator.snapshot.queue, []);
+  } finally {
+    gate.open();
+    await sending;
+  }
+});
+
+for (const name of ['claude', 'codex'] as const) {
+  await test(`${name} receives the native spell contract with fresh coordination context`, async (t) => {
+    const { root, start } = await coordinationFixture(t);
+    const script = fileURLToPath(
+      new URL(`fixtures/${name}.mjs`, import.meta.url),
+    );
+    const adapter =
+      name === 'claude'
+        ? new ClaudeAdapter((options) =>
+            spawn(process.execPath, [script], {
+              cwd: join(root, 'A'),
+              stdio: 'pipe',
+              signal: options.signal,
+            }),
+          )
+        : new CodexAdapter((_, cwd, signal) =>
+            spawn(process.execPath, [script], {
+              cwd,
+              stdio: 'pipe',
+              signal,
+            }),
+          );
+    const a = await start('A', {}, [{ adapter, executable: name }]);
+    const b = await start('B');
+    await b.claim('task:peer', 'Native peer task');
+    const prompt = '/review left\n  right with spaces';
+    await writeFile(join(root, 'A', 'release'), 'yes');
+    const sending = a.coordinator.send(prompt);
+    if (name === 'codex') {
+      await until(
+        'fixture approval',
+        () => a.coordinator.snapshot.requests.length > 0,
+      );
+      await a.coordinator.respond(a.coordinator.snapshot.requests[0]!.id, {
+        decision: 'accept',
+      });
+    }
+    await sending;
+    const json = JSON.parse(
+      await readFile(
+        join(root, 'A', name === 'claude' ? 'content.json' : 'prompt.json'),
+        'utf8',
+      ),
+    );
+    const input = name === 'claude' ? json : json.params.input;
+    assert.equal(input[0].type, 'text');
+    assert.ok(input[0].text.includes('Native peer task'));
+    assert.ok(input[0].text.includes((await a.binding()).activation));
+    assert.ok(input[0].text.endsWith(`User request:\n${prompt}`));
+    assert.deepEqual(
+      input.slice(1),
+      name === 'claude'
+        ? [{ type: 'text', text: prompt }]
+        : [{ type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }],
+    );
+  });
+}
+
+await test('switch revokes the old release before native close clears background counts and preserves the reservation', async (t) => {
+  const { start, ledger, registry } = await coordinationFixture(t);
+  const a = await start(),
+    b = await start('B');
+  await a.claim();
+  const claim = (await registry.claims())[0]!,
+    bound = await a.binding();
+  const before = await ledger();
+  const native = a.a.sessions.at(-1)!;
+  native.options.onEvent({
+    type: 'command',
+    command: { id: 'brew', description: 'Work', status: 'running' },
+  });
+  const entered = Promise.withResolvers<void>(),
+    finish = Promise.withResolvers<void>();
+  const close = native.session.close.bind(native.session);
+  native.session.close = async () => {
+    entered.resolve();
+    await finish.promise;
+    await close();
+  };
+  const switching = a.coordinator.newConversation();
+  try {
+    await within(entered.promise, 5000, 'native close');
+    assert.equal(a.coordinator.snapshot.backgroundCommands.length, 0);
+    assert.equal(
+      (await callControl(bound, { kind: 'release', claim: claim.id })).kind,
+      'error',
+    );
+    assert.equal(await ledger(), before);
+    assert.notEqual((await b.claim()).kind, 'claimed');
+  } finally {
+    finish.resolve();
+    await switching;
+  }
+  assert.notEqual((await a.binding()).activation, bound.activation);
+  assert.equal((await b.claim()).kind, 'conflict');
+  await a.coordinator.selectConversation(bound.conversation);
+  assert.deepEqual((await a.query()).ownClaim, claim);
+  assert.equal(
+    (await callControl(bound, { kind: 'release', claim: claim.id })).kind,
+    'error',
+  );
+});
+
+for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
+  await test(`${replacement} replaces native authority without releasing the conversation's task`, async (t) => {
+    const { root, start, registry, ledger } = await coordinationFixture(t);
+    const a = await start();
+    await a.claim();
+    const claim = (await registry.claims())[0]!,
+      bound = await a.binding();
+    const before = await ledger();
+    const native = a.a.sessions.at(-1)!.session;
+    const close = native.close.bind(native);
+    const entered = Promise.withResolvers<void>(),
+      finish = Promise.withResolvers<void>();
+    native.close = async () => {
+      entered.resolve();
+      await finish.promise;
+      await close();
+    };
+    if (replacement === 'origin')
+      await git(
+        '-C',
+        join(root, 'A'),
+        'remote',
+        'set-url',
+        'origin',
+        join(root, 'other'),
+      );
+    if (replacement === 'rollback') a.b.failConnect = true;
+    const replacing =
+      replacement === 'origin'
+        ? a.coordinator.send('New scope')
+        : a.coordinator.switchAgent('b');
+    const settled = replacing.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    try {
+      await within(entered.promise, 5000, 'native replacement');
+      assert.equal(
+        (await callControl(bound, { kind: 'release', claim: claim.id })).kind,
+        'error',
+      );
+      assert.equal(await ledger(), before);
+    } finally {
+      finish.resolve();
+    }
+    const error = await settled;
+    if (replacement === 'rollback') {
+      assert.match(String(error), /Destination unavailable/);
+      await a.coordinator.send('Resume source');
+    } else assert.equal(error, undefined);
+    const current = await a.binding();
+    assert.notEqual(current.activation, bound.activation);
+    assert.equal(current.conversation, bound.conversation);
+    assert.equal(
+      (await callControl(bound, { kind: 'release', claim: claim.id })).kind,
+      'error',
+    );
+    assert.equal(await ledger(), before);
+    await a.coordinator.send('Check current prefix');
+    const active = replacement === 'handoff' ? a.b : a.a;
+    assert.ok(active.inputs.at(-1)!.prompt.includes(current.activation));
+  });
+}
+
+await test('reopening preserves the claim and refuses the prior activation in the new host', async (t) => {
+  const { start } = await coordinationFixture(t);
+  const a = await start();
+  await a.claim();
+  const before = (await a.query()).ownClaim!,
+    bound = await a.binding();
+  await a.coordinator.close();
+  const reopened = await start('A', { conversation: bound.conversation });
+  const current = await reopened.binding();
+  assert.notEqual(current.activation, bound.activation);
+  assert.deepEqual((await reopened.query()).ownClaim, before);
+  const stale = await callControl(
+    { ...bound, directory: current.directory },
+    { kind: 'release', claim: before.id },
+  );
+  assert.equal(stale.kind, 'error');
+  assert.deepEqual((await reopened.query()).ownClaim, before);
+});
+
+await test('target lock and preparation failures keep source authority and free a prepared target lock', async (t) => {
+  const { root, start, store } = await coordinationFixture(t);
+  const a = await start(),
+    bound = await a.binding();
+  const target = await store.create(record(randomUUID(), join(root, 'A')));
+  try {
+    await assert.rejects(
+      a.coordinator.selectConversation(target.record.id),
+      LockedElsewhere,
+    );
+    assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'peers');
+  } finally {
+    await target.close();
+  }
+  const items = ConversationStore.prototype.items;
+  t.mock.method(
+    ConversationStore.prototype,
+    'items',
+    function (this: ConversationStore) {
+      return this.record.id === target.record.id
+        ? Promise.reject(new Error('target history unreadable'))
+        : items.call(this);
+    },
+  );
+  await assert.rejects(
+    a.coordinator.selectConversation(target.record.id),
+    /target history unreadable/,
+  );
+  assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'peers');
+  const acquired = await store.claim(target.record.id);
+  await acquired.close();
+  await a.coordinator.send('Source still usable');
+  assert.equal(a.a.sessions.length, 1);
+  assert.ok(a.a.inputs.at(-1)!.prompt.includes(bound.activation));
+});
+
+for (const boundary of ['write', 'remove'] as const) {
+  await test(`a failed source presence ${boundary} still revokes authority and adopts the prepared target`, async (t) => {
+    const { start, store, registry } = await coordinationFixture(t);
+    const a = await start(),
+      bound = await a.binding();
+    const entered = Promise.withResolvers<void>(),
+      finish = Promise.withResolvers<void>();
+    const publish = CoordinationStore.prototype.publish;
+    let writes = 0;
+    t.mock.method(
+      CoordinationStore.prototype,
+      'publish',
+      async function (
+        this: CoordinationStore,
+        presence: Parameters<typeof publish>[0],
+      ) {
+        if (presence.activation === bound.activation) {
+          writes++;
+          entered.resolve();
+          await finish.promise;
+          if (boundary === 'write') throw new Error('presence flush failed');
+        }
+        return publish.call(this, presence);
+      },
+    );
+    const remove = CoordinationStore.prototype.removePresence;
+    t.mock.method(
+      CoordinationStore.prototype,
+      'removePresence',
+      function (this: CoordinationStore, id: string, activation: string) {
+        if (activation === bound.activation && boundary === 'remove')
+          return Promise.reject(new Error('presence removal failed'));
+        return remove.call(this, id, activation);
+      },
+    );
+    a.a.sessions.at(-1)!.options.onEvent({
+      type: 'request',
+      request: { id: 'q', kind: 'approval', title: 'Wait', detail: '' },
+    });
+    await within(entered.promise, 5000, 'old writer');
+    const switching = a.coordinator.newConversation();
+    finish.resolve();
+    await switching;
+    const current = await a.binding();
+    assert.notEqual(current.conversation, bound.conversation);
+    assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
+    assert.equal((await callControl(current, { kind: 'peers' })).kind, 'peers');
+    assert.match(
+      a.coordinator.snapshot.error ?? '',
+      /presence (flush|removal) failed/,
+    );
+    const old = await store.claim(bound.conversation);
+    await old.close();
+    assert.equal(writes, 1);
+    assert.ok(
+      (await registry.presences()).some(
+        (p) => p.activation === current.activation,
+      ),
+    );
+  });
+}
+
+await test('failed target activation holds its selected lock without starting native work and retries with fresh authority', async (t) => {
+  const { start, store, registry } = await coordinationFixture(t);
+  const a = await start(),
+    bound = await a.binding();
+  await a.claim();
+  const publish = CoordinationStore.prototype.publish;
+  let failing = true,
+    rejected = '';
+  t.mock.method(
+    CoordinationStore.prototype,
+    'publish',
+    async function (
+      this: CoordinationStore,
+      presence: Parameters<typeof publish>[0],
+    ) {
+      await publish.call(this, presence);
+      if (failing && presence.id !== bound.conversation) {
+        rejected = presence.activation;
+        throw new Error('target presence failed');
+      }
+    },
+  );
+  await assert.rejects(
+    a.coordinator.newConversation(),
+    /target presence failed/,
+  );
+  const target = a.coordinator.snapshot.conversation!.id;
+  assert.notEqual(target, bound.conversation);
+  assert.equal(a.a.sessions.length, 1);
+  assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
+  assert.equal(
+    (
+      await callControl(
+        { ...bound, conversation: target, activation: rejected },
+        { kind: 'peers' },
+      )
+    ).kind,
+    'error',
+  );
+  assert.deepEqual(await registry.presences(), []);
+  assert.equal(await registry.isActive(rejected), false);
+  assert.equal(a.coordination.snapshot.ownClaim, undefined);
+  assert.equal(
+    (await registry.claims())[0]!.owner.conversation,
+    bound.conversation,
+  );
+  const source = await store.claim(bound.conversation);
+  await source.close();
+  await assert.rejects(store.claim(target), LockedElsewhere);
+  failing = false;
+  await a.coordinator.send('Retry activation');
+  assert.notEqual((await a.binding()).activation, rejected);
+  assert.equal(a.a.sessions.length, 2);
+  await a.coordinator.close();
+  const released = await store.claim(target);
+  await released.close();
+});

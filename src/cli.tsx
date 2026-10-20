@@ -3,11 +3,17 @@ import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { errorMessage } from './agents/stderr.js';
+import {
+  controlPrefix,
+  parseCommand,
+  runControl,
+  writeControl,
+} from './cli-control.js';
 import { Coordinator } from './core/coordinator.js';
+import { SessionCoordination } from './core/coordination.js';
 import { JobWatch } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
 import { RepositoryWatch } from './core/repository.js';
@@ -35,6 +41,14 @@ Options:
   --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
   -h, --help           show this help
 
+Agent control (use the prefix supplied in the current Witch context):
+  --peers             list this project's sessions and reservations
+  --claim <ref>       claim an issue/pr URL or task:<name>
+  --summary <text>    describe the claimed work
+  --alias <ref>       add a related reference to the claim
+  --release <id>      release this conversation's exact claim
+  --json              print the control result as JSON
+
 Every word that starts with - is read as an option, so quote a prompt that
 contains one, and put -- before a prompt that starts with -.
 Use /help inside the app for controls.
@@ -45,29 +59,30 @@ const handedOver = process.env.WITCH_CONVERSATION;
 delete process.env.WITCH_CONVERSATION;
 let values;
 let positionals;
+let control;
 let store: StateStore | undefined;
 try {
-  ({ values, positionals } = parseArgs({
-    options: {
-      'state-dir': { type: 'string' },
-      continue: { type: 'boolean', short: 'c' },
-      help: { type: 'boolean', short: 'h' },
-    },
-    allowPositionals: true,
-    strict: true,
-  }));
+  ({ values, positionals, control } = parseCommand());
   // parseArgs accepts an empty value, which would put state in the project
   if (values['state-dir'] === '')
     throw new Error("Option '--state-dir' needs a directory");
-  if (!values.help && !(process.stdin.isTTY && process.stdout.isTTY))
+  if (
+    !control &&
+    !values.help &&
+    !(process.stdin.isTTY && process.stdout.isTTY)
+  )
     throw new Error('Witch needs an interactive terminal.');
-  if (!values.help)
+  if (!control && !values.help)
     store = await StateStore.open(resolve(values['state-dir'] ?? defaultState));
 } catch (error) {
-  process.stderr.write(`witch: ${errorMessage(error)}\n`);
+  if (process.argv.includes('--json'))
+    writeControl({ kind: 'error', message: errorMessage(error) }, true);
+  else process.stderr.write(`witch: ${errorMessage(error)}\n`);
   process.exit(1);
 }
-if (!store) {
+if (control) {
+  process.exitCode = await runControl(control);
+} else if (!store) {
   process.stdout.write(usage);
 } else {
   const prompt = positionals.join(' ');
@@ -80,12 +95,22 @@ if (!store) {
     directory: instanceDirectory(join(store.root, 'jobs')),
   });
   // agents and their commands inherit it, so their scratch goes when this instance does
-  process.env.TMPDIR = instanceDirectory(join(store.root, 'scratch'));
+  const scratch = instanceDirectory(join(store.root, 'scratch'));
+  process.env.TMPDIR = scratch;
+  const memory = new Memory(join(store.root, 'memory.git'));
+  const coordination = await SessionCoordination.open(
+    store,
+    memory,
+    join(scratch, 'control'),
+    (binding) => controlPrefix(binding, fileURLToPath(import.meta.url)),
+  );
   const coordinator = new Coordinator(
     store,
-    new Memory(join(store.root, 'memory.git')),
+    memory,
     await installedAgents(),
     jobs,
+    undefined,
+    coordination,
   );
   // straight to the terminal, since the link screen would read image data as printed text
   const graphics = new Graphics((data) => process.stdout.write(data));
@@ -117,6 +142,10 @@ if (!store) {
     shutdown();
   };
   const repository = new RepositoryWatch(process.cwd());
+  const stopCoordinationRepository = repository.subscribe(() =>
+    coordination.updateRepository(repository.snapshot),
+  );
+  coordination.updateRepository(repository.snapshot);
   const stopMerges = watchMerges(repository, coordinator, install);
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
@@ -181,6 +210,7 @@ if (!store) {
     .catch(() => {});
   await application.waitUntilExit();
   stopMerges();
+  stopCoordinationRepository();
   repository.close();
   jobs.close();
   process.removeListener('SIGTERM', shutdown);

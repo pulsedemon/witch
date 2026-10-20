@@ -10,7 +10,7 @@ const session = z.object({
   deliveredProject: z.string().optional(),
 });
 
-const conversationSchema = z.object({
+export const conversationSchema = z.object({
   id: z.string(),
   title: z.string(),
   cwd: z.string(),
@@ -27,7 +27,24 @@ const conversationSchema = z.object({
     .optional(),
 });
 
-const processIdentity = z.object({ pid: z.number(), started: z.string() });
+export const processIdentity = z.object({
+  pid: z.number(),
+  started: z.string(),
+});
+
+export const phaseSchema = z.enum([
+  'starting',
+  'idle',
+  'running',
+  'switching',
+  'recovery',
+  'editing',
+  'cleaning',
+  'closing',
+  'error',
+]);
+
+export type Phase = z.infer<typeof phaseSchema>;
 
 export const conversationRecordSchema = conversationSchema.extend({
   process: processIdentity.optional(),

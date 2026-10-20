@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
+import { basename } from 'node:path';
 import type { BackgroundCommand } from '../agents/types.js';
 import type { TimedSubagent } from '../core/coordinator.js';
+import type { CoordinationSnapshot } from '../core/coordination-state.js';
+import { presenceStatus } from '../core/coordination-state.js';
 import { elapsed } from './activity.js';
-import { oneLine } from './links.js';
+import { hyperlink, oneLine } from './links.js';
+import { peerTitle } from './peers.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
 
@@ -51,17 +55,19 @@ function lineage(
   return lines;
 }
 
-/** the right sidebar: the agent's running background commands and subagents, which Witch calls brews and familiars, and the pentacle at its foot, turning while `spinning`. */
+/** peer sessions precede local work without taking its last heading and count rows or the pentacle's space. */
 export function Sidebar({
   height,
   spinning,
   brews,
   subagents,
+  peers = [],
 }: {
   height: number;
   spinning: boolean;
   brews: readonly BackgroundCommand[];
   subagents: readonly TimedSubagent[];
+  peers?: CoordinationSnapshot['peers'];
 }) {
   const [angle, setAngle] = useState(restAngle);
   const [now, setNow] = useState(Date.now);
@@ -85,7 +91,16 @@ export function Sidebar({
   }, [spinning]);
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
   // brews take the rows above the pentacle first, less a running familiar's heading and count
-  const above = height - rows;
+  const peerRoom = Math.min(
+    8,
+    Math.max(0, height - rows) - (brews.length ? 2 : 0) - (running ? 2 : 0),
+  );
+  const listedPeers = fit(peers, 2, peerRoom - 1);
+  const peerRows =
+    peers.length && peerRoom >= 2
+      ? 1 + (listedPeers.hidden ? 1 : 0) + listedPeers.shown.length * 2
+      : 0;
+  const above = height - rows - peerRows;
   const brewRoom = above - (running ? 2 : 0) - 1;
   const brewing = brews.length > 0 && brewRoom > 0;
   const listedBrews = fit(brews, 1, brewRoom);
@@ -110,6 +125,28 @@ export function Sidebar({
       paddingX={1}
     >
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {peerRows > 0 && (
+          <>
+            <Text color={accent}>SESSIONS</Text>
+            {listedPeers.hidden > 0 && (
+              <Text dimColor>+{listedPeers.hidden} MORE</Text>
+            )}
+            {listedPeers.shown.map((peer) => (
+              <Box key={peer.presence.id} flexDirection="column">
+                <Text wrap="truncate-end">{peerTitle(peer)}</Text>
+                <Text wrap="truncate-end" dimColor>
+                  {oneLine(peer.presence.agent)} |{' '}
+                  {presenceStatus(peer.presence)} |{' '}
+                  {hyperlink(
+                    oneLine(basename(peer.presence.cwd)),
+                    peer.presence.cwd,
+                    peer.presence.cwd,
+                  )}
+                </Text>
+              </Box>
+            ))}
+          </>
+        )}
         {brewing && (
           <>
             <Text color={accent}>BREWS</Text>
