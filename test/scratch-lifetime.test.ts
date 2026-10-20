@@ -19,7 +19,7 @@ import { promisify } from 'node:util';
 import type { ProcessIdentity } from '../src/core/state.js';
 import { ScratchSpace } from '../src/persistence/scratch.js';
 import { scratch } from './fixtures/scratch.js';
-import { within } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 const execute = promisify(execFile);
 const fixture = join(import.meta.dirname, 'fixtures/scratch-lifetime.ts');
@@ -29,10 +29,10 @@ const bootB = '22222222-2222-4222-8222-222222222222';
 const firstBoot = { boot: async () => bootA };
 const laterBoot = { boot: async () => bootB };
 
-async function restart(parent: string, mode = 'restart') {
+async function runFixture(parent: string, mode = 'restart', ...args: string[]) {
   const { stdout } = await execute(
     process.execPath,
-    ['--import', loader, fixture, mode, parent],
+    ['--import', loader, fixture, mode, parent, ...args],
     { env: { ...process.env, NODE_TEST_CONTEXT: undefined }, timeout: 20_000 },
   );
   return stdout
@@ -42,15 +42,16 @@ async function restart(parent: string, mode = 'restart') {
       (line) =>
         JSON.parse(line) as {
           directory: string;
-          identity: ProcessIdentity;
+          identity?: ProcessIdentity;
           resumed: boolean;
+          worker?: number;
         },
     );
 }
 
 await test('scratch resumes in place and fresh scratch can be removed', async () => {
   const parent = await scratch('witch-scratch-');
-  const [before, after] = await restart(parent);
+  const [before, after] = await runFixture(parent);
   assert.ok(before);
   assert.equal(before.resumed, false);
   assert.deepEqual(after, { ...before, resumed: true });
@@ -141,8 +142,9 @@ await test('the first restart adopts its numeric scratch without moving files', 
   const live = join(parent, String(process.pid));
   await mkdir(live);
   await writeFile(join(live, 'marker'), 'another live owner');
-  const [before, after] = await restart(parent, 'legacy');
+  const [before, after] = await runFixture(parent, 'legacy');
   assert.ok(before);
+  assert.ok(before.identity);
   assert.equal(before.directory, join(parent, String(before.identity.pid)));
   assert.deepEqual(after, { ...before, resumed: true });
   assert.equal(
@@ -155,6 +157,68 @@ await test('the first restart adopts its numeric scratch without moving files', 
   );
   assert.equal(existsSync(join(live, '.witch-scratch.json')), false);
 });
+
+for (const [mode, restarts] of [
+  ['survivor', 0],
+  ['survivor', 1],
+  ['survivor', 2],
+  ['survivor-legacy', 2],
+] as const) {
+  await test(`scratch remains usable by a worker and its later child after ${mode} with ${restarts} restarts`, async () => {
+    const parent = await scratch('witch-scratch-worker-');
+    const gone = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+        throw error;
+      }
+    };
+    try {
+      const reports = await runFixture(parent, mode, String(restarts));
+      const first = reports[0]!;
+      assert.equal(reports.length, restarts + 1);
+      assert.ok(first.worker);
+      assert.equal(gone(first.worker), false);
+      for (const report of reports)
+        assert.equal(report.directory, first.directory);
+      await writeFile(join(parent, 'release-worker'), 'release');
+      await until('worker marker read', () =>
+        existsSync(join(parent, 'worker.result')),
+      );
+      assert.equal(
+        await readFile(join(parent, 'worker.result'), 'utf8'),
+        'before restart',
+      );
+      await until('original worker exit', () => gone(first.worker!));
+      const descendant = Number(
+        await readFile(join(parent, 'descendant.pid'), 'utf8'),
+      );
+      assert.equal(gone(descendant), false);
+      const next = await ScratchSpace.open(join(parent, 'scratch'));
+      await next.close();
+      await writeFile(join(parent, 'release-descendant'), 'release');
+      await until('descendant marker read', () =>
+        existsSync(join(parent, 'descendant.result')),
+      );
+      assert.equal(
+        await readFile(join(parent, 'descendant.result'), 'utf8'),
+        'before restart',
+      );
+      await until('descendant exit', () => gone(descendant));
+    } finally {
+      for (const name of ['worker', 'descendant']) {
+        await writeFile(join(parent, `release-${name}`), 'release');
+        const file = join(parent, `${name}.pid`);
+        if (existsSync(file)) {
+          const pid = Number(await readFile(file, 'utf8'));
+          await until(`${name} cleanup`, () => gone(pid));
+        }
+      }
+    }
+  });
+}
 
 await test('uncertain legacy scratch establishes a boot boundary without deleting data', async (t) => {
   const parent = await scratch('witch-scratch-');
