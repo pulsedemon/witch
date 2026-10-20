@@ -240,7 +240,7 @@ await test('the composer takes typing again once a switch fails', async () => {
 for (const [name, keys] of [
   ['Down and Enter', DOWN + ENTER],
   ['a filter and Enter', `sess${ENTER}`],
-  ['a filter, Down past it and Enter', `sess${DOWN}${ENTER}`],
+  ['a filter, Down past it and Enter', `saved${DOWN}${ENTER}`],
 ] as const)
   await test(`${name} in one read pick the selected command`, async () => {
     const { app, calls } = fake({});
