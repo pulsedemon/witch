@@ -1,0 +1,748 @@
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { promisify } from 'node:util';
+import { Coordinator, editorEnvironment } from '../src/core/coordinator.js';
+import { main } from '../src/memory/memory.js';
+import { FixtureAgent, TurnGate } from './fixtures/agent.js';
+import {
+  activity,
+  readRecord,
+  fixture,
+  stranded,
+} from './fixtures/coordinator.js';
+import { passThrough } from './fixtures/git.js';
+import { until, within } from './fixtures/within.js';
+
+await test('a fresh conversation receives committed memory without a handoff', async () => {
+  const { coordinator, a, b } = await fixture();
+  try {
+    await coordinator.send('remember-port');
+    await coordinator.newConversation('b');
+    await coordinator.send('Which port should this project use?');
+    assert.match(b.inputs.at(-1)!.prompt, /Use port 4567/);
+    assert.doesNotMatch(b.inputs.at(-1)!.prompt, /Pending task context/);
+    assert.ok(
+      b.inputs.at(-1)!.prompt.includes(`Put scratch files under ${tmpdir()}`),
+    );
+    assert.equal(a.inputs.length, 1);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('unfinished memory holds a prompt until recovery, which preserves the original attribution', async () => {
+  const { coordinator, memory, a, workspace, note } = await fixture();
+  try {
+    a.interruptNext = true;
+    await coordinator.send('remember-port');
+    assert.equal(coordinator.snapshot.phase, 'recovery');
+    await coordinator.send('unrelated task');
+    assert.deepEqual(coordinator.snapshot.queue, ['unrelated task']);
+    assert.equal(a.inputs.length, 1);
+    await coordinator.recoverMemory('accept');
+    assert.equal(
+      (await memory.history(main, await note()))[0]!.subject,
+      'chore(memory): recover a changes',
+    );
+    assert.equal(await workspace().isDirty(), false);
+    await until(
+      'the held prompt',
+      () => a.inputs.length === 2 && coordinator.snapshot.phase === 'idle',
+    );
+    assert.match(a.inputs[1]!.prompt, /User request:\nunrelated task$/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('memory another conversation publishes refreshes an existing session before its next turn', async () => {
+  const { coordinator, a, note, outsider } = await fixture();
+  try {
+    await coordinator.send('remember-port');
+    const other = await outsider();
+    await writeFile(join(other.root, await note()), 'Use port 9001.');
+    await other.commit('change port');
+    await other.publish();
+    await coordinator.send('Continue');
+    assert.match(a.inputs.at(-1)!.prompt, /Use port 9001/);
+    assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Use port 4567/);
+    assert.equal(a.inputs[0]?.session, a.inputs.at(-1)?.session);
+    await coordinator.send('Again');
+    assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test("a turn after an origin moves the project key resumes the session with the new key's memory and its snapshot", async () => {
+  const { coordinator, memory, a, notes, git } = await fixture();
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    const before = await notes();
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    assert.notEqual(await notes(), before);
+    await coordinator.send('remember:moved');
+    assert.equal(await memory.read(main, await notes()), 'moved');
+    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.equal(a.inputs.at(-1)!.session, a.inputs[0]!.session);
+    await coordinator.send('Again');
+    assert.equal(a.sessions.length, 2);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a turn back on a project key gets its snapshot after an interrupted turn on another key', async () => {
+  const { coordinator, a, git } = await fixture();
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    a.interruptNext = true;
+    await coordinator.send('Moved');
+    await git('remote', 'remove', 'origin');
+    await coordinator.send('Back');
+    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a reopened conversation skips the snapshot it was sent, unless its marker was saved without a project', async () => {
+  const { coordinator, a, root, reopen } = await fixture();
+  const resend = async (prompt: string) => {
+    const reopened = await reopen();
+    try {
+      await reopened.send(prompt);
+    } finally {
+      await reopened.close();
+    }
+    return a.inputs.at(-1)!.prompt;
+  };
+  await coordinator.send('Start');
+  const id = coordinator.snapshot.conversation!.id;
+  await coordinator.close();
+  assert.doesNotMatch(await resend('Same'), /Accepted shared memory/);
+  const file = join(root, 'state', 'conversations', id, 'state.json');
+  const saved = await readRecord(root, id);
+  delete saved.sessions.a!.deliveredProject;
+  await writeFile(file, JSON.stringify(saved));
+  assert.match(await resend('Older'), /Accepted shared memory/);
+});
+
+await test("opening Witch moves the notes keyed by its checkout's path to the origin's project before a turn", async () => {
+  const { coordinator, memory, a, note, git, reopen } = await fixture();
+  await git('init', '--quiet');
+  await coordinator.send('remember-port');
+  await coordinator.close();
+  await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+  const reopened = await reopen();
+  try {
+    assert.equal(await memory.read(main, await note()), 'Use port 4567.');
+    assert.equal(a.inputs.length, 1);
+  } finally {
+    await reopened.close();
+  }
+});
+
+await test('opening Witch on memory that conflicts with main leaves the move to recovery', async () => {
+  const context = await fixture();
+  const { coordinator, a, notes, reopen } = context;
+  const gate = new TurnGate();
+  try {
+    await coordinator.send('Start');
+    a.gate = gate;
+    const sending = coordinator.send('remember:mine');
+    await within(gate.entered, 2000, 'the gated turn');
+    await publishOutside(context, { [await notes()]: 'theirs' });
+    gate.open();
+    await sending;
+    assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+  const reopened = await reopen();
+  try {
+    assert.equal(reopened.snapshot.recovery?.kind, 'conflict');
+    assert.equal(reopened.snapshot.error, undefined);
+  } finally {
+    await reopened.close();
+  }
+});
+
+await test('a git read that fails as Witch opens is reported once and leaves the conversation open', async () => {
+  const { coordinator, project, git, reopen } = await fixture();
+  await git('init', '--quiet');
+  await coordinator.send('Start');
+  const id = coordinator.snapshot.conversation!.id;
+  await coordinator.close();
+  await writeFile(join(project, '.git', 'config'), '[remote "origin"\n', {
+    flag: 'a',
+  });
+  const reopened = await reopen();
+  try {
+    assert.equal(reopened.snapshot.conversation!.id, id);
+    assert.equal(reopened.snapshot.phase, 'idle');
+    assert.equal(reopened.snapshot.error?.match(/bad config/g)?.length, 1);
+  } finally {
+    await reopened.close();
+  }
+});
+
+await test("an interrupt that aborts a moved key's reconnect leaves the prompt queued without an error", async () => {
+  const { coordinator, a, git } = await fixture();
+  try {
+    await git('init', '--quiet');
+    await coordinator.send('Start');
+    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+    const connecting = Promise.withResolvers<void>();
+    a.beforeConnect = (options) =>
+      new Promise((_, reject) => {
+        connecting.resolve();
+        options.signal?.addEventListener('abort', () =>
+          reject(new Error('Connect aborted')),
+        );
+      });
+    const sending = coordinator.send('Moved');
+    await within(connecting.promise, 2000, 'the reconnect');
+    await coordinator.interrupt();
+    await within(sending, 2000, 'the send');
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.deepEqual(coordinator.snapshot.queue, ['Moved']);
+    assert.equal(a.inputs.length, 1);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('recovery has one owner and shutdown waits for its accepted commit', async () => {
+  const { coordinator, memory, a, workspace, note } = await fixture();
+  a.interruptNext = true;
+  await coordinator.send('remember-port');
+  const recovering = coordinator.recoverMemory('accept');
+  await assert.rejects(
+    coordinator.recoverMemory('discard'),
+    /Stop the current operation/,
+  );
+  await Promise.all([recovering, coordinator.close()]);
+  assert.equal(await workspace().isDirty(), false);
+  assert.match(await memory.read(main, await note()), /4567/);
+});
+
+await test("the editor's environment drops TMPDIR and passes Node options under VS Code's names", () => {
+  const environment = editorEnvironment({
+    PATH: '/bin',
+    TMPDIR: '/scratch',
+    NODE_OPTIONS: '--import tsx',
+  });
+  assert.equal(environment.TMPDIR, undefined);
+  assert.equal(environment.VSCODE_NODE_OPTIONS, '--import tsx');
+  assert.equal(environment.PATH, '/bin');
+});
+
+await test('editing a previously committed symlink never opens its external target', async () => {
+  let edits = 0;
+  const {
+    coordinator,
+    root,
+    project,
+    workspace,
+    memory: shared,
+  } = await fixture(async () => {
+    edits++;
+  });
+  try {
+    const memory = workspace();
+    await memory.ensureWorktree();
+    const scope = await memory.scope(project);
+    const target = join(root, 'external.md');
+    const note = join(memory.root, scope.project, 'linked.md');
+    await writeFile(target, 'External content.');
+    await symlink(target, note);
+    // Memory's git commits without the checks a workspace commit makes
+    await shared.git(memory.root, ['add', '--all']);
+    await shared.git(memory.root, ['commit', '-m', 'legacy symlink']);
+    assert.equal(await memory.isDirty(), false);
+    await assert.rejects(coordinator.editMemory(note), /regular file/);
+    assert.equal(edits, 0);
+    assert.equal(await readFile(target, 'utf8'), 'External content.');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('memory edit and restore notices resolve their note against the memory worktree', async () => {
+  const { coordinator, memory, workspace, note } = await fixture(
+    async (path) => {
+      await writeFile(path, 'Use port 9001.');
+    },
+  );
+  try {
+    await coordinator.editMemory();
+    const revision = await memory.resolve(main);
+    await coordinator.restoreMemory(await note(), revision);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter((item) => item.kind === 'notice')
+        .map(({ text, cwd }) => [text, cwd]),
+      [
+        [`Memory edit: ${await note()}`, workspace().root],
+        [
+          `Memory restore: ${await note()} at ${revision.slice(0, 8)}`,
+          workspace().root,
+        ],
+      ],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('memory notices quote a note name on one line with its brackets escaped', async () => {
+  const { coordinator, memory } = await fixture(async (path) => {
+    await writeFile(path, 'Use port 9001.');
+  });
+  try {
+    const name = 'global/a\n[b].md';
+    await coordinator.editMemory(name);
+    const revision = await memory.resolve(main);
+    await coordinator.restoreMemory(name, revision);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter((item) => item.kind === 'notice')
+        .map(({ text }) => text),
+      [
+        'Memory edit: global/a\\[b\\].md',
+        `Memory restore: global/a\\[b\\].md at ${revision.slice(0, 8)}`,
+      ],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+for (const action of ['interrupt', 'close'] as const) {
+  await test(
+    `${action} cancels an open memory editor and preserves pending-write provenance`,
+    { timeout: 5000 },
+    async () => {
+      const opened = Promise.withResolvers<void>();
+      const { coordinator, store, memory, root, project, a, workspace, note } =
+        await fixture(async (path, signal) => {
+          await writeFile(path, 'Pending manual preference.');
+          opened.resolve();
+          await new Promise<void>((_, reject) =>
+            signal.addEventListener(
+              'abort',
+              () =>
+                reject(new DOMException('Editing interrupted', 'AbortError')),
+              { once: true },
+            ),
+          );
+        });
+      const editing = coordinator.editMemory().catch(() => {});
+      await opened.promise;
+      await coordinator[action]();
+      await editing;
+      assert.equal(await workspace().isDirty(), true);
+      if (action === 'interrupt')
+        assert.equal(coordinator.snapshot.phase, 'recovery');
+      await coordinator.close();
+      const id = coordinator.snapshot.conversation!.id;
+      const recovered = new Coordinator(store, memory, [
+        { adapter: a, executable: 'a' },
+      ]);
+      try {
+        assert.equal(
+          (await readRecord(root, id)).activity?.kind,
+          'memory-edit',
+        );
+        await recovered.initialize(project, { continue: true });
+        assert.equal(recovered.snapshot.conversation!.id, id);
+        assert.equal(recovered.snapshot.phase, 'recovery');
+        assert.equal(recovered.snapshot.error, undefined);
+        await recovered.recoverMemory('accept');
+        const [latest] = await memory.history(main, await note());
+        assert.match(latest!.subject, /recover manual changes/);
+        assert.match(
+          await memory.git(memory.root, [
+            'log',
+            '-1',
+            '--format=%b',
+            latest!.revision,
+          ]),
+          new RegExp(`conversation: ${id}`),
+        );
+      } finally {
+        await recovered.close();
+      }
+    },
+  );
+}
+
+/** publishes a change to main from a workspace no conversation owns. */
+async function publishOutside(
+  context: Awaited<ReturnType<typeof fixture>>,
+  files: Record<string, string>,
+) {
+  const other = await context.outsider();
+  for (const [path, text] of Object.entries(files)) {
+    await mkdir(join(other.root, path, '..'), { recursive: true });
+    await writeFile(join(other.root, path), text);
+  }
+  await other.commit('chore(memory): save outside notes');
+  await other.publish();
+}
+
+await test('an agent-created nested repository is refused on accept and removed on discard', async () => {
+  const { coordinator, a, workspace, note } = await fixture();
+  try {
+    a.interruptNext = true;
+    await coordinator.send('remember-port');
+    const nested = join(workspace().root, await note(), '..', 'nested');
+    await mkdir(nested);
+    await promisify(execFile)('git', ['init', '--quiet', nested]);
+    await assert.rejects(
+      coordinator.recoverMemory('accept'),
+      /regular file: .*nested/,
+    );
+    assert.equal(coordinator.snapshot.recovery?.kind, 'pending');
+    await coordinator.recoverMemory('discard');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(await workspace().isDirty(), false);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a publish failure in settle is reported and the phase goes idle', async () => {
+  const { coordinator, hook, memory } = await fixture();
+  try {
+    const before = await memory.resolve(main);
+    hook.current = async (command, run) => {
+      if (command[0] !== 'update-ref') return run();
+      hook.current = passThrough;
+      return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+    };
+    await coordinator.send('remember-port');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
+    assert.equal(await memory.resolve(main), before);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a failed rebase abort stops in the error phase until restart', async () => {
+  const context = await fixture();
+  const { coordinator, hook } = context;
+  try {
+    const target = await stranded(context, { 'global/one.md': 'Mine.\n' });
+    await target.files.close();
+    await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
+    hook.current = async (command, run) => {
+      if (command.join(' ') !== 'rebase --abort') return run();
+      hook.current = passThrough;
+      throw new Error('abort failed');
+    };
+    await assert.rejects(
+      coordinator.selectConversation(target.id),
+      /Restart Witch/,
+    );
+    assert.equal(coordinator.snapshot.phase, 'error');
+    await assert.rejects(coordinator.recoverMemory('accept'), /Restart Witch/);
+  } finally {
+    await coordinator.close().catch(() => {});
+  }
+});
+
+await test('keep mine publishes with the attribution of the conversation that kept its side', async () => {
+  const context = await fixture();
+  const { coordinator, a, memory, notes } = context;
+  const gate = new TurnGate();
+  try {
+    await coordinator.send('Start');
+    a.gate = gate;
+    const sending = coordinator.send('remember:mine');
+    await within(gate.entered, 2000, 'the gated turn');
+    await publishOutside(context, { [await notes()]: 'theirs' });
+    gate.open();
+    await sending;
+    assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
+    await coordinator.recoverMemory('keep');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(await memory.read(main, await notes()), 'mine');
+    assert.match(
+      await memory.git(memory.root, ['log', '-1', '--format=%b', main]),
+      new RegExp(`conversation: ${coordinator.snapshot.conversation!.id}`),
+    );
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test('two coordinators in two directories run turns at once and both publish', async () => {
+  const context = await fixture();
+  const { root, store, memory } = context;
+  const other = join(root, 'other');
+  await mkdir(other);
+  const agents = [context.a, new FixtureAgent('a')];
+  const gates = agents.map((agent) => (agent.gate = new TurnGate()));
+  const coordinators = [
+    context.coordinator,
+    new Coordinator(store, memory, [{ adapter: agents[1]!, executable: 'a' }]),
+  ];
+  try {
+    await coordinators[1]!.initialize(other);
+    const sends = coordinators.map((coordinator, index) =>
+      coordinator.send(`remember:note-${index}`),
+    );
+    await within(
+      Promise.all(gates.map((gate) => gate.entered)),
+      5000,
+      'both turns',
+    );
+    for (const coordinator of coordinators)
+      assert.equal(coordinator.snapshot.phase, 'running');
+    for (const gate of gates) gate.open();
+    await Promise.all(sends);
+    for (const [index, cwd] of [context.project, other].entries()) {
+      const path = `${(await memory.scopePaths(cwd)).project}/notes.md`;
+      assert.equal(await memory.read(main, path), `note-${index}`);
+      assert.match(
+        await memory.git(memory.root, [
+          'log',
+          '-1',
+          '--format=%b',
+          main,
+          '--',
+          path,
+        ]),
+        new RegExp(
+          `conversation: ${coordinators[index]!.snapshot.conversation!.id}`,
+        ),
+      );
+    }
+  } finally {
+    for (const gate of gates) gate.open();
+    for (const coordinator of coordinators) await coordinator.close();
+  }
+});
+
+await test('discard mine after a conflict between two coordinators keeps the other side', async () => {
+  const context = await fixture();
+  const { store, memory, project, notes } = context;
+  const agents = [context.a, new FixtureAgent('a')];
+  const gates = agents.map((agent) => (agent.gate = new TurnGate()));
+  const coordinators = [
+    context.coordinator,
+    new Coordinator(store, memory, [{ adapter: agents[1]!, executable: 'a' }]),
+  ];
+  try {
+    await coordinators[1]!.initialize(project);
+    const sends = coordinators.map((coordinator, index) =>
+      coordinator.send(`remember:text-${index}`),
+    );
+    await within(
+      Promise.all(gates.map((gate) => gate.entered)),
+      5000,
+      'both turns',
+    );
+    gates[0]!.open();
+    await sends[0];
+    gates[1]!.open();
+    await sends[1];
+    const second = coordinators[1]!;
+    assert.equal(second.snapshot.recovery?.kind, 'conflict');
+    await second.recoverMemory('discard');
+    assert.equal(second.snapshot.phase, 'idle');
+    assert.equal(await memory.read(main, await notes()), 'text-0');
+    assert.equal(
+      await context.workspace(second.snapshot.conversation!.id).revision(),
+      await memory.resolve(main),
+    );
+  } finally {
+    for (const gate of gates) gate.open();
+    for (const coordinator of coordinators) await coordinator.close();
+  }
+});
+
+await test('the launch sweep publishes what it can and reports the rest in one message', async () => {
+  const context = await fixture();
+  const { root, memory, store } = context;
+  await context.coordinator.close();
+  const conflict = await stranded(
+    context,
+    { 'global/one.md': 'Mine.\n' },
+    join(root, 'deleted-project'),
+  );
+  await conflict.files.close();
+  await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
+  const unpublished = await stranded(
+    context,
+    { 'global/two.md': 'Two.' },
+    join(root, 'deleted-project'),
+  );
+  await unpublished.files.close();
+  const dirty = await stranded(context, {});
+  dirty.files.record.activity = activity();
+  await dirty.files.save(dirty.files.record);
+  await dirty.files.close();
+  await writeFile(join(dirty.memory.root, 'global', 'three.md'), 'Three.');
+  const stateless = randomUUID();
+  const orphan = await context.outsider(stateless);
+  await writeFile(join(orphan.root, 'global', 'four.md'), 'Four.');
+  await orphan.commit('chore(memory): save outside notes');
+  const fresh = join(root, 'fresh');
+  await mkdir(fresh);
+  for (const launch of [1, 2]) {
+    const coordinator = new Coordinator(store, memory, [
+      { adapter: context.a, executable: 'a' },
+    ]);
+    const reports: (string | undefined)[] = [];
+    coordinator.subscribe(() => {
+      if (coordinator.snapshot.phase !== 'starting')
+        reports.push(coordinator.snapshot.error);
+    });
+    try {
+      await coordinator.initialize(fresh);
+      if (launch === 1)
+        assert.equal(await memory.read(main, 'global/two.md'), 'Two.');
+      assert.ok(reports.length > 0);
+      for (const report of reports) {
+        assert.match(report ?? '', /Open each from \/sessions/);
+        assert.match(
+          report ?? '',
+          new RegExp(
+            `Title ${conflict.id} in .*deleted-project \\(recreate this directory first\\): memory conflicts`,
+          ),
+        );
+        assert.match(
+          report ?? '',
+          new RegExp(`Title ${dirty.id} in [^(\n]*: unfinished`),
+        );
+        assert.doesNotMatch(
+          report ?? '',
+          new RegExp(`Title ${unpublished.id}`),
+        );
+        assert.match(
+          report ?? '',
+          new RegExp(`conversations/${stateless} has unpublished memory`),
+        );
+      }
+    } finally {
+      await coordinator.close();
+    }
+  }
+});
+
+await test('a sweep failure after the claim is reported and releases the claim', async () => {
+  const context = await fixture();
+  const { root, store, memory } = context;
+  await context.coordinator.close();
+  const broken = await stranded(context, { 'global/x.md': 'X.' });
+  broken.files.record.activity = activity();
+  await broken.files.save(broken.files.record);
+  await broken.files.close();
+  await writeFile(join(broken.memory.root, '.git'), 'not a worktree\n');
+  const fresh = join(root, 'fresh');
+  await mkdir(fresh);
+  const coordinator = new Coordinator(store, memory, [
+    { adapter: context.a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(fresh);
+    assert.match(
+      coordinator.snapshot.error ?? '',
+      new RegExp(`Title ${broken.id}`),
+    );
+    await (await store.claim(broken.id)).close();
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a switch target with a broken worktree leaves the current conversation untouched', async () => {
+  const context = await fixture();
+  const { coordinator, store, a } = context;
+  try {
+    await coordinator.send('Start');
+    const current = coordinator.snapshot.conversation!.id;
+    const target = await stranded(context, { 'global/x.md': 'X.' });
+    await target.files.close();
+    await writeFile(join(target.memory.root, '.git'), 'not a worktree\n');
+    await assert.rejects(coordinator.selectConversation(target.id));
+    assert.equal(coordinator.snapshot.conversation!.id, current);
+    assert.equal(a.sessions.at(-1)!.session.closed, false);
+    await assert.rejects(
+      store.claim(current),
+      /open in another Witch instance/,
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('opening a conversation aborts its stopped rebase before classifying it', async () => {
+  const context = await fixture();
+  const { coordinator } = context;
+  try {
+    const target = await stranded(context, { 'global/one.md': 'Mine.\n' });
+    await target.files.close();
+    await publishOutside(context, { 'global/one.md': 'Theirs.\n' });
+    await promisify(execFile)(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@t', 'rebase', main],
+      { cwd: target.memory.root },
+    ).catch(() => {});
+    assert.equal(await target.memory.rebaseStopped(), true);
+    await coordinator.selectConversation(target.id);
+    assert.equal(await target.memory.rebaseStopped(), false);
+    assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a native session that replaces the stored one gets the memory snapshot again', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    await coordinator.send('remember-port');
+    await coordinator.send('Again');
+    // the native agent starts a fresh session instead of resuming
+    a.beforeConnect = async (options) => {
+      options.resume = undefined;
+    };
+    await a.sessions.at(-1)!.session.close();
+    await coordinator.send('Next');
+    assert.match(a.inputs.at(-1)!.prompt, /Use port 4567/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('the memory view reads accepted memory, and links into the worktree only while it holds that revision', async () => {
+  const { coordinator, memory, workspace, notes, outsider } = await fixture();
+  try {
+    const other = await outsider();
+    await writeFile(join(other.root, await notes()), 'Published elsewhere.');
+    await other.commit('save elsewhere');
+    await other.publish();
+    const behind = await coordinator.memoryView();
+    assert.equal(behind.revision, await memory.resolve(main));
+    assert.equal(behind.root, undefined);
+    await coordinator.send('Next');
+    assert.equal((await coordinator.memoryView()).root, workspace().root);
+  } finally {
+    await coordinator.close();
+  }
+});
