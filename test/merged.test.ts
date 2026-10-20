@@ -607,6 +607,17 @@ await test('of two cleanups in one checkout at once, one cleans up and the other
   assert.deepEqual(await branches(checkout), ['main']);
 });
 
+await test('a cleanup that fails before deleting the branch says which merge it was for', async () => {
+  const { root, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(checkout, 'remote', 'set-url', 'origin', join(root, 'missing.git'));
+  await assert.rejects(cleanUpMerge(checkout, pullRequest(tip)), {
+    message:
+      /^#7 merged, but its cleanup failed before deleting feat\/x: Command failed: git .*fetch --prune/,
+  });
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+});
+
 await test('a branch committed to after the tip check stays, and so does its plan', async () => {
   const { checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
