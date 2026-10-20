@@ -7,33 +7,42 @@ import { App } from '../src/ui/app.js';
 import { show, fake } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
-await test('an initial prompt is sent once when the load ends idle with nothing reported', async () => {
-  const { app, coordinator, calls } = fake({ phase: 'starting' });
-  const ui = show(
-    createElement(App, {
-      coordinator: app,
-      onExit: () => {},
-      initialPrompt: 'say hello',
-    }),
-  );
-  try {
-    await delay(60);
-    coordinator.publish({ phase: 'idle' });
-    await until('the send', () => calls.some(([name]) => name === 'send'));
-    assert.ok(ui.text().includes('Ask the agent, or type /help'));
-    assert.ok(!ui.text().includes('say hello'));
-    coordinator.publish({ phase: 'running' });
-    await delay(60);
-    coordinator.publish({ phase: 'idle' });
-    await delay(60);
-    assert.deepEqual(
-      calls.filter(([name]) => name === 'send'),
-      [['send', 'say hello']],
+for (const cleanup of [false, true]) {
+  await test(`an initial prompt is sent once when ${cleanup ? 'merge cleanup' : 'the load'} ends idle with nothing reported`, async () => {
+    const { app, coordinator, calls } = fake({ phase: 'starting' });
+    const ui = show(
+      createElement(App, {
+        coordinator: app,
+        onExit: () => {},
+        initialPrompt: 'say hello',
+      }),
     );
-  } finally {
-    ui.unmount();
-  }
-});
+    try {
+      await delay(60);
+      if (cleanup) {
+        coordinator.publish({ phase: 'cleaning' });
+        await until('cleanup', () => ui.text().startsWith('CLEANING'));
+        await delay(60);
+        assert.deepEqual(calls, []);
+        assert.ok(!ui.text().includes('say hello'));
+      }
+      coordinator.publish({ phase: 'idle' });
+      await until('the send', () => calls.some(([name]) => name === 'send'));
+      assert.ok(ui.text().includes('Ask the agent, or type /help'));
+      assert.ok(!ui.text().includes('say hello'));
+      coordinator.publish({ phase: 'running' });
+      await delay(60);
+      coordinator.publish({ phase: 'idle' });
+      await delay(60);
+      assert.deepEqual(
+        calls.filter(([name]) => name === 'send'),
+        [['send', 'say hello']],
+      );
+    } finally {
+      ui.unmount();
+    }
+  });
+}
 
 await test('a prompt sent while the load connects goes after the initial prompt, which stays out of the draft', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
