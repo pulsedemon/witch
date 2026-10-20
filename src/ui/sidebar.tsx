@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Box, Text } from 'ink';
 import { basename } from 'node:path';
 import type { BackgroundCommand } from '../agents/types.js';
 import type { TimedSubagent } from '../core/coordinator.js';
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
 import { presenceStatus } from '../core/coordination-state.js';
+import type { PentacleActivity } from '../core/pentacle-activity.js';
 import { elapsed } from './activity.js';
 import { hyperlink, oneLine } from './links.js';
 import { peerTitle } from './peers.js';
@@ -58,17 +59,21 @@ function lineage(
 /** peer sessions precede local work without taking its last heading and count rows or the pentacle's space. */
 export function Sidebar({
   height,
-  spinning,
+  activity,
   brews,
   subagents,
   peers = [],
 }: {
   height: number;
-  spinning: boolean;
+  activity: PentacleActivity;
   brews: readonly BackgroundCommand[];
   subagents: readonly TimedSubagent[];
   peers?: CoordinationSnapshot['peers'];
 }) {
+  const spinning = useSyncExternalStore(
+    activity.subscribe,
+    () => activity.active,
+  );
   const [angle, setAngle] = useState(restAngle);
   const [now, setNow] = useState(Date.now);
   const familiars = lineage(

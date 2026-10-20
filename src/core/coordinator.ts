@@ -36,8 +36,9 @@ import { listFiles } from './files.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
 import { cleanUpMerge, refreshInstall } from './merged.js';
+import { PentacleActivity } from './pentacle-activity.js';
 import type { PullRequest } from './repository.js';
-import { applyDisplayUpdate } from './state.js';
+import { agentWorking, applyDisplayUpdate } from './state.js';
 import type {
   Conversation,
   ConversationRecord,
@@ -48,6 +49,7 @@ import type {
 
 const execute = promisify(execFile);
 const untitled = 'New conversation';
+const localActivity = Symbol('local activity');
 // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
 const ranCommand =
   'The user ran this command themselves, and its output is above. Reply to it without running it again.';
@@ -163,6 +165,7 @@ interface Launch {
 }
 
 export class Coordinator {
+  readonly pentacle = new PentacleActivity();
   snapshot: Snapshot;
   private record?: ConversationRecord;
   private files?: ConversationStore;
@@ -209,7 +212,7 @@ export class Coordinator {
         installed: !!executable,
       })),
     };
-    coordination?.update(this.snapshot);
+    this.publish({});
   }
 
   subscribe(listener: () => void): () => void {
@@ -1430,6 +1433,12 @@ export class Coordinator {
 
   private publish(update: Partial<Snapshot>): void {
     this.snapshot = { ...this.snapshot, ...update };
+    this.pentacle.set(
+      localActivity,
+      agentWorking(this.snapshot.phase) ||
+        this.snapshot.subagents.some(({ status }) => status === 'running') ||
+        this.snapshot.backgroundCommands.length > 0,
+    );
     this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();
   }

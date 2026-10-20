@@ -20,6 +20,68 @@ import { readRecord, fixture } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
 
+await test('the pentacle follows foreground work and every running local task', async () => {
+  const { coordinator, a, store, memory } = await fixture();
+  const activity = coordinator.pentacle;
+  const gate = new TurnGate();
+  const source = Symbol('independent work');
+  const switching: boolean[] = [];
+  const unsubscribe = coordinator.subscribe(() => {
+    if (coordinator.snapshot.phase === 'switching')
+      switching.push(activity.active);
+  });
+  const brew = (id: string, status: BackgroundCommand['status']) =>
+    a.sessions[0]!.options.onEvent({
+      type: 'command',
+      command: { id, description: `Run ${id}`, status },
+    });
+  const familiar = (status: Subagent['status']) =>
+    a.sessions[0]!.options.onEvent({
+      type: 'subagent',
+      subagent: { id: 'worker', name: 'Inspect code', kind: 'Explore', status },
+    });
+  try {
+    assert.equal(new Coordinator(store, memory, []).pentacle.active, true);
+    assert.equal(activity.active, false);
+    a.gate = gate;
+    const turn = coordinator.send('hello');
+    await within(gate.entered, 2000, 'the gated turn');
+    assert.equal(activity.active, true);
+    brew('first', 'running');
+    brew('second', 'running');
+    gate.open();
+    await turn;
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(activity.active, true);
+    brew('first', 'completed');
+    assert.equal(activity.active, true);
+    familiar('running');
+    brew('second', 'completed');
+    assert.equal(activity.active, true);
+    familiar('completed');
+    assert.equal(coordinator.snapshot.subagents[0]!.status, 'completed');
+    assert.equal(activity.active, false);
+
+    activity.set(source, true);
+    await coordinator.send('hello again');
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(activity.active, true);
+    activity.set(source, false);
+    assert.equal(activity.active, false);
+
+    await coordinator.switchAgent('b');
+    assert.ok(switching.length > 0);
+    assert.ok(switching.every(Boolean));
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(activity.active, false);
+  } finally {
+    unsubscribe();
+    activity.set(source, false);
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 await test("a session's usage at connect and while it lists its models reaches the snapshot, a closed session's later usage does not, and a failed handoff clears it", async () => {
   const { coordinator, a } = await fixture(undefined, (a, b) => {
     a.connectUsage = { cost: 1 };
@@ -174,7 +236,9 @@ await test('a familiar still running when its session closes ends stopped, with 
         report: 'Halfway.',
       },
     });
+    assert.equal(coordinator.pentacle.active, true);
     await coordinator.switchAgent('b');
+    assert.equal(coordinator.pentacle.active, false);
     assert.deepEqual(rows(), [
       ['Familiar started  Map code  Explore', ''],
       ['Familiar stopped  Map code  2 tools', 'Halfway.'],
@@ -270,7 +334,9 @@ await test("a brew still running when its session closes ends stopped, and the c
     });
   try {
     emit('serve');
+    assert.equal(coordinator.pentacle.active, true);
     await coordinator.switchAgent('b');
+    assert.equal(coordinator.pentacle.active, false);
     assert.deepEqual(
       coordinator.snapshot.items
         .filter(({ title }) => title?.startsWith('Brew'))
@@ -280,6 +346,7 @@ await test("a brew still running when its session closes ends stopped, and the c
     assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
     emit('late');
     assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
+    assert.equal(coordinator.pentacle.active, false);
   } finally {
     await coordinator.close();
   }
@@ -377,8 +444,18 @@ await test('close releases the conversation when its disconnect throws', async (
   const { coordinator, a, store } = await fixture();
   await coordinator.send('Start');
   const id = coordinator.snapshot.conversation!.id;
+  a.sessions[0]!.options.onEvent({
+    type: 'command',
+    command: {
+      id: 'serve',
+      description: 'Start the server',
+      status: 'running',
+    },
+  });
+  assert.equal(coordinator.pentacle.active, true);
   a.failClose = true;
   await assert.rejects(coordinator.close(), /Close failed/);
+  assert.equal(coordinator.pentacle.active, false);
   await (await store.claim(id)).close();
 });
 

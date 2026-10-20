@@ -46,6 +46,10 @@ export const phaseSchema = z.enum([
 
 export type Phase = z.infer<typeof phaseSchema>;
 
+export function agentWorking(phase: Phase): boolean {
+  return ['starting', 'running', 'switching'].includes(phase);
+}
+
 export const conversationRecordSchema = conversationSchema.extend({
   process: processIdentity.optional(),
   // the shell of a running `!` command Witch runs for Claude

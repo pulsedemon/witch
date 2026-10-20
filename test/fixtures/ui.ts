@@ -4,6 +4,7 @@ import { render } from 'ink';
 import type { ReactElement } from 'react';
 import stripAnsi from 'strip-ansi';
 import type { Coordinator, Snapshot } from '../../src/core/coordinator.js';
+import { PentacleActivity } from '../../src/core/pentacle-activity.js';
 import { MouseInput } from '../../src/ui/mouse.js';
 import { until } from './within.js';
 
@@ -86,6 +87,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       calls.push([name, ...args]);
     };
   const coordinator = {
+    pentacle: new PentacleActivity(),
     snapshot: {
       phase: 'idle',
       items: [],

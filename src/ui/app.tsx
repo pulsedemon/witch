@@ -14,6 +14,7 @@ import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
 import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
+import { agentWorking } from '../core/state.js';
 import type { StateStore } from '../persistence/store.js';
 import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
@@ -273,7 +274,7 @@ export function App({
     snapshot.conversation.id !== leaving &&
     !['closing', 'error'].includes(snapshot.phase);
   const composerPhase = composerOpen(state, leaving);
-  const working = ['starting', 'running', 'switching'].includes(state.phase);
+  const working = agentWorking(state.phase);
   const entries = [
     ...commands.map(({ id, label, aliases }) => ({
       name: id,
@@ -1224,7 +1225,7 @@ export function App({
       {sidebar && (
         <Sidebar
           height={height}
-          spinning={working}
+          activity={coordinator.pentacle}
           brews={state.backgroundCommands}
           subagents={state.subagents}
           peers={coordination?.peers}
