@@ -57,9 +57,15 @@ const read = async (cwd: string) =>
     ),
   );
 
-/** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. */
+/** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */
 const ignored = (cwd: string, path: string) =>
-  succeeds(git(cwd, 'check-ignore', '-q', path));
+  git(cwd, 'check-ignore', '-q', path).then(
+    () => true,
+    (error: unknown) => {
+      if ((error as { code?: unknown }).code !== 1) throw error;
+      return false;
+    },
+  );
 
 /**
  * what a switch would carry along or stop at. untracked files don't count, since `git switch` refuses to overwrite
@@ -328,7 +334,7 @@ async function removePlans(
       removed.push(name);
     } catch (error) {
       stayed.push(name);
-      reason ??= errorMessage(error);
+      reason ??= errorMessage(error).trim();
     }
   }
   return { removed, stayed, reason };
