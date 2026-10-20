@@ -139,7 +139,6 @@ if (control) {
     application.unmount();
   };
   let shuttingDown = false;
-  let shutdownComplete = false;
   const shutdown = () => {
     stopTerminal?.();
     // a second request quits without waiting for a stuck agent
@@ -148,17 +147,11 @@ if (control) {
       process.exit(130);
     }
     shuttingDown = true;
-    void coordinator.close().then(
-      () => {
-        shutdownComplete = true;
-        unmount();
-      },
-      (error: unknown) => {
-        unmount();
-        process.stderr.write(`witch: ${errorMessage(error)}\n`);
-        process.exitCode = 1;
-      },
-    );
+    void coordinator.close().then(unmount, (error: unknown) => {
+      unmount();
+      process.stderr.write(`witch: ${errorMessage(error)}\n`);
+      process.exitCode = 1;
+    });
   };
   let restarting = false;
   const restart = () => {
@@ -244,20 +237,7 @@ if (control) {
   process.removeListener('SIGINT', shutdown);
   process.removeListener('SIGHUP', shutdown);
   process.stdout.removeListener('error', shutdown);
-  try {
-    // a replacement watcher can miss inherited jobs, so resumed scratch stays until a later boot
-    if (!restarting && !scratch.resumed && shutdownComplete) {
-      const tracked = await jobs.tracked().catch((error: unknown) => {
-        process.stderr.write(
-          `witch: scratch retained: ${errorMessage(error)}\n`,
-        );
-        return undefined;
-      });
-      if (tracked?.length === 0) await scratch.remove();
-    }
-  } finally {
-    await scratch.close();
-  }
+  await scratch.close();
   if (restarting) {
     // execve fires no exit event; the replacement resets job reports and resumes scratch
     restore();
