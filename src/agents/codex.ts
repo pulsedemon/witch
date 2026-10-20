@@ -317,32 +317,19 @@ class CodexSession implements AgentSession {
       capabilities: { experimentalApi: true },
     });
     this.rpc.notify('initialized');
-    const result = object.parse(
-      await this.rpc.request('config/read', { cwd: this.options.cwd }),
-    );
-    const config = object.parse(result.config);
-    const sandbox =
-      config.sandbox_workspace_write == null
-        ? {}
-        : object.parse(config.sandbox_workspace_write);
-    const roots = [
-      ...new Set([
-        ...z.array(z.string()).parse(sandbox.writable_roots ?? []),
-        ...this.options.memoryDirectories,
-      ]),
-    ];
     const parameters = {
       cwd: this.options.cwd,
       model: this.options.model,
-      config: {
-        'sandbox_workspace_write.writable_roots': roots,
-        // in the thread's config, so app-server's own children stay unmarked
-        ...Object.fromEntries(
-          Object.entries(this.options.mark?.environment ?? {}).map(
-            ([key, value]) => [`shell_environment_policy.set.${key}`, value],
-          ),
+      // an omitted selection restores the thread's saved workspace roots
+      runtimeWorkspaceRoots: [
+        ...new Set([this.options.cwd, ...this.options.memoryDirectories]),
+      ],
+      // in the thread's config, so app-server's own children stay unmarked
+      config: Object.fromEntries(
+        Object.entries(this.options.mark?.environment ?? {}).map(
+          ([key, value]) => [`shell_environment_policy.set.${key}`, value],
         ),
-      },
+      ),
       ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
     this.updateInfo(
