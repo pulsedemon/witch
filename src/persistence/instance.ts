@@ -13,10 +13,10 @@ export function instanceDirectory(parent: string): string {
       /^\d+$/.test(name) &&
       (Number(name) === process.pid || !running(Number(name)))
     )
-      remove(join(parent, name));
+      removeDirectory(join(parent, name));
   const directory = join(parent, String(process.pid));
   mkdirSync(directory, { recursive: true });
-  process.once('exit', () => remove(directory));
+  process.once('exit', () => removeDirectory(directory));
   return directory;
 }
 
@@ -31,7 +31,7 @@ function running(pid: number): boolean {
 }
 
 /** what can't be removed stays for a later launch, since a throw here would end launch or skip later exit listeners. */
-function remove(directory: string): void {
+export function removeDirectory(directory: string): void {
   try {
     rmSync(directory, { recursive: true, force: true });
   } catch {
