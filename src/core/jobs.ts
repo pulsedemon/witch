@@ -131,9 +131,9 @@ export class JobWatch {
   private readonly handed = new Set<number>();
   private generation = 0;
   /** ordinary owned processes and their groups, including peers in temporarily withheld groups. */
-  private members = new Map<string, number>();
+  private members: Map<string, number>;
   /** excluded identities still present at the last successful read. */
-  private excluded = new Set<string>();
+  private excluded: Set<string>;
   /** every process's identity as of the last read, unset until a read succeeds. */
   private seen?: Set<string>;
   private readonly timer: ReturnType<typeof setInterval>;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,11 +15,12 @@ import {
 } from './cli-control.js';
 import { Coordinator } from './core/coordinator.js';
 import { SessionCoordination } from './core/coordination.js';
-import { JobWatch } from './core/jobs.js';
+import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
+import { writeJson } from './persistence/json.js';
 import { ScratchSpace } from './persistence/scratch.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
@@ -59,8 +61,10 @@ Use /help inside the app for controls.
 // the restart hands its conversation over here, and no agent or command may inherit it
 const handedOver = process.env.WITCH_CONVERSATION;
 const handedScratch = process.env.WITCH_SCRATCH;
+const handedJobs = process.env.WITCH_JOBS_RESUME;
 delete process.env.WITCH_CONVERSATION;
 delete process.env.WITCH_SCRATCH;
+delete process.env.WITCH_JOBS_RESUME;
 let values;
 let positionals;
 let control;
@@ -102,10 +106,6 @@ if (control) {
   // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
   // can't hold mouse reporting on
   process.once('exit', restore);
-  // the pid keeps another live instance's mark from matching
-  const jobs = new JobWatch({
-    directory: instanceDirectory(join(store.root, 'jobs')),
-  });
   const scratchParent = join(store.root, 'scratch');
   const scratch = await ScratchSpace.open(scratchParent, {
     resume:
@@ -114,6 +114,20 @@ if (control) {
       process.env.TMPDIR === join(scratchParent, String(process.pid))
         ? process.env.TMPDIR
         : undefined),
+  });
+  const checkpointPath = join(scratch.directory, '.witch-jobs.json');
+  if (handedJobs !== undefined && !scratch.resumed)
+    throw new Error('Restart jobs require resumed scratch.');
+  const resume =
+    handedJobs !== undefined
+      ? jobCheckpointSchema.parse(
+          JSON.parse(await readFile(checkpointPath, 'utf8')),
+        )
+      : undefined;
+  // the pid keeps another live instance's mark from matching
+  const jobs = new JobWatch({
+    directory: instanceDirectory(join(store.root, 'jobs')),
+    resume,
   });
   process.env.TMPDIR = scratch.directory;
   const memory = new Memory(join(store.root, 'memory.git'));
@@ -245,7 +259,17 @@ if (control) {
   process.removeListener('SIGHUP', shutdown);
   process.stdout.removeListener('error', shutdown);
   try {
-    // a replacement watcher can miss inherited jobs, so resumed scratch stays until a later boot
+    if (restarting) {
+      try {
+        await writeJson(checkpointPath, await jobs.checkpoint());
+      } catch (error) {
+        throw new Error(
+          `Preserving jobs for restart failed: ${errorMessage(error)}`,
+          { cause: error },
+        );
+      }
+    }
+    // a restart does not prove retained scratch is unused
     if (!restarting && !scratch.resumed && shutdownComplete) {
       const tracked = await jobs.tracked().catch((error: unknown) => {
         process.stderr.write(
@@ -274,6 +298,7 @@ if (control) {
       {
         ...process.env,
         WITCH_SCRATCH: scratch.directory,
+        WITCH_JOBS_RESUME: '1',
         ...(id ? { WITCH_CONVERSATION: id } : {}),
       },
     );
