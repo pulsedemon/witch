@@ -207,6 +207,73 @@ await test('a merge cleanup leaves a checkout that changed alone, and says nothi
   }
 });
 
+await test('a partial cleanup failure reaches the coordinator without a success notice', async () => {
+  const { coordinator, root, project } = await fixture();
+  const previousPath = process.env.PATH;
+  try {
+    const origin = join(root, 'origin.git');
+    await gitIn(root, 'init', '--bare', origin);
+    await gitIn(root, 'clone', origin, project);
+    await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
+    await gitIn(project, 'push', '-u', 'origin', 'main');
+    await gitIn(project, 'switch', '-c', 'feat/x');
+    await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
+    const tip = await gitIn(project, 'rev-parse', 'HEAD');
+    await gitIn(project, 'push', 'origin', 'feat/x:main');
+    await gitIn(project, 'config', 'branch.feat/x.remote', 'origin');
+    await gitIn(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+    const expectedRevision = await gitIn(origin, 'rev-parse', 'main');
+    const bin = join(root, 'bin');
+    const realGit = (
+      await promisify(execFile)('/usr/bin/which', ['git'])
+    ).stdout.trim();
+    await mkdir(bin);
+    await writeFile(
+      join(bin, 'git'),
+      `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args[0] === 'for-each-ref' && args.includes('--merged')) {
+  process.stderr.write('injected sibling listing failure');
+  process.exit(23);
+}
+process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
+`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}:${previousPath}`;
+    let rejected: Error | undefined;
+    await assert.rejects(
+      coordinator.cleanUpMerge(mergedPullRequest(tip)),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        rejected = error;
+        assert.ok(
+          error.message.startsWith(
+            '#7 merged: switched to main and pulled, deleted branch feat/x, but could not list other merged branches:',
+          ),
+        );
+        assert.match(error.message, /injected sibling listing failure/);
+        assert.equal((error.cause as { code: number }).code, 23);
+        return true;
+      },
+    );
+    assert.equal(coordinator.snapshot.error, rejected!.message);
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(notices(coordinator), []);
+    assert.equal(await gitIn(project, 'branch', '--show-current'), 'main');
+    assert.equal(
+      await gitIn(project, 'branch', '--format=%(refname:short)'),
+      'main',
+    );
+    assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), expectedRevision);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await coordinator.close();
+  }
+});
+
 await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, a cleanup with no install still acts, and a failed or busy rebuild keeps the cleanup's notice", async () => {
   for (const variant of ['b', 'a', 'diverged', 'none', 'busy'] as const) {
     const { coordinator, root, project } = await fixture();
