@@ -732,6 +732,56 @@ await test('Claude edit and write diffs resolve home paths outside the session d
   }
 });
 
+await test('Claude Edit creations keep their reported patch and staged creations keep their text', async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event));
+  try {
+    assert.equal((await session.send('created-edits')).status, 'completed');
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'tool')
+        .filter(({ done }) => done)
+        .map(({ id, text, diff }) => [id, text, diff]),
+      [
+        [
+          'create-edit',
+          '',
+          [
+            {
+              path: join(cwd, 'created.txt'),
+              kind: 'add',
+              hunks: [
+                {
+                  oldStart: 0,
+                  newStart: 1,
+                  lines: Array.from(
+                    { length: 12 },
+                    (_, index) => `+l${index + 1}`,
+                  ),
+                },
+              ],
+            },
+          ],
+        ],
+        [
+          'append-edit',
+          '',
+          [
+            {
+              path: join(cwd, 'append.txt'),
+              kind: 'update',
+              hunks: [{ oldStart: 1, newStart: 1, lines: [' base', '+next'] }],
+            },
+          ],
+        ],
+        ['staged-edit', 'Staged for review.', undefined],
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
 await test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));

@@ -550,6 +550,87 @@ for await (const line of lines) {
       });
       assistant('Done.');
       finish();
+    } else if (lastPrompt === 'created-edits') {
+      const content = Array.from({ length: 12 }, (_, index) => `l${index + 1}`);
+      const reports = [
+        {
+          id: 'create-edit',
+          filePath: 'created.txt',
+          oldString: '',
+          newString: content.join('\n') + '\n',
+          originalFile: '',
+          structuredPatch: [
+            {
+              oldStart: 0,
+              oldLines: 0,
+              newStart: 1,
+              newLines: 12,
+              lines: content.map((line) => `+${line}`),
+            },
+          ],
+        },
+        {
+          id: 'append-edit',
+          filePath: 'append.txt',
+          oldString: 'base\n',
+          newString: 'base\nnext\n',
+          originalFile: 'base\n',
+          structuredPatch: [
+            {
+              oldStart: 1,
+              oldLines: 1,
+              newStart: 1,
+              newLines: 2,
+              lines: [' base', '+next'],
+            },
+          ],
+        },
+        {
+          id: 'staged-edit',
+          filePath: '.claude/settings.json',
+          oldString: '',
+          newString: '{}\n',
+          originalFile: '',
+          structuredPatch: [
+            {
+              oldStart: 0,
+              oldLines: 0,
+              newStart: 1,
+              newLines: 1,
+              lines: ['+{}'],
+            },
+          ],
+          staged: true,
+        },
+      ];
+      for (const { id, ...report } of reports) {
+        assistant('', [
+          {
+            type: 'tool_use',
+            id,
+            name: 'Edit',
+            input: {
+              file_path: report.filePath,
+              old_string: report.oldString,
+              new_string: report.newString,
+            },
+          },
+        ]);
+        toolResult(
+          id,
+          report.staged ? 'Staged for review.' : 'Updated successfully.',
+          null,
+          {
+            tool_use_result: {
+              ...report,
+              userModified: false,
+              replaceAll: false,
+            },
+          },
+        );
+      }
+      assistant('Done.');
+      finish();
     } else if (lastPrompt === 'familiar-work') {
       send({
         type: 'system',
