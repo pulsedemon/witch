@@ -155,7 +155,13 @@ async function clean(
       cleaned: false,
     };
   // a plain switch overwrites an ignored file the base tracks, and that file was never committed
-  await git(cwd, 'switch', '--no-overwrite-ignore', base).catch(stopped);
+  await git(cwd, 'switch', '--no-overwrite-ignore', base).catch(
+    async (error: unknown) => {
+      // a failing post-checkout hook fails the switch after it has moved the checkout
+      if ((await read(cwd).catch(() => undefined))?.branch !== base)
+        stopped(error);
+    },
+  );
   // deleted only while still at the merged commit, since another terminal can commit to it after the tip check. -d
   // would compare against the base before it's brought up to date
   try {
