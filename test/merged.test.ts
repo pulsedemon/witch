@@ -809,6 +809,23 @@ await test('the install pulls, installs and builds when clean on the base, and s
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
 });
 
+await test("a failed rebuild names the install and keeps tsc's errors", async () => {
+  const { root, origin } = await merged();
+  const install = join(root, 'install');
+  await git(root, 'clone', origin, install);
+  const run = async (_: string, args: string[]) => {
+    if (args[0] !== 'build') return { stdout: '' };
+    // as execFile rejects, with the command's stdout beside the message
+    throw Object.assign(new Error('Command failed: pnpm build\n'), {
+      stdout:
+        "src/a.ts(1,7): error TS2322: Type 'number' is not assignable to type 'string'.\n",
+    });
+  };
+  await assert.rejects(refreshInstall(install, 'main', run), {
+    message: `Witch's checkout at ${install} wasn't rebuilt: Command failed: pnpm build\nsrc/a.ts(1,7): error TS2322: Type 'number' is not assignable to type 'string'.`,
+  });
+});
+
 await test("an edit made during the install's fetch keeps it from being pulled and built", async () => {
   const { root, origin, other } = await merged({ 'a.txt': 'a\n' });
   const install = join(root, 'install');
