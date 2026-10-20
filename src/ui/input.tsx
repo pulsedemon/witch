@@ -71,7 +71,7 @@ function rowStops(
   };
   const drawn = rows.find((row) => at < row.to) ?? rows.at(-1)!;
   return {
-    // a prefix cut after a digit of a pasted U+009B sequence strips as a whole sequence, so `offset` can pass the cursor
+    // restored U+009B sequences can make visible prefixes shrink, so `offset` can pass the cursor
     home: Math.min(cursor, offset(drawn.from)),
     back: Math.min(
       cursor,
@@ -199,12 +199,17 @@ export function Input({
     const next = editInput(text, action);
     replace({ value: mark + next.value, cursor: mark.length + next.cursor });
   };
+  /** stored terminal sequences can hide the printable text after them when rendered. */
+  const insert = (text: string) => {
+    const filtered = text.replace(/(?![\t\n\r])\p{Cc}/gu, '');
+    if (filtered) edit({ type: 'insert', text: filtered });
+  };
   useImperativeHandle(ref, () => ({ set: replace }));
   useEffect(() => {
     onChange?.(current.current.value, current.current.cursor);
   }, []);
 
-  usePaste((text) => edit({ type: 'insert', text }), { isActive: active });
+  usePaste(insert, { isActive: active });
   useInput(
     (input, key) => {
       if (
@@ -240,7 +245,7 @@ export function Input({
       }
       if (key.meta || key.super) return;
       if (key.return) {
-        if (key.shift && multiline) edit({ type: 'insert', text: '\n' });
+        if (key.shift && multiline) insert('\n');
         else if (onSubmit(current.current.value))
           replace({ value: '', cursor: 0 });
       } else if (key.leftArrow) edit({ type: 'left' });
@@ -253,11 +258,7 @@ export function Input({
       else if (key.end) edit({ type: 'end' });
       else if (key.backspace) edit({ type: 'backspace' });
       else if (key.delete) edit({ type: 'delete' });
-      else if (input) {
-        // control bytes sharing a read, as a held Cmd+Delete's can, arrive as text: Ink splits out only 0x7f, 0x08 and 0x03
-        const text = input.replace(/(?![\t\n\r])\p{Cc}/gu, '');
-        if (text) edit({ type: 'insert', text });
-      }
+      else if (input) insert(input);
     },
     { isActive: active },
   );
