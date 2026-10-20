@@ -87,7 +87,7 @@ try {
       }
       writeSync(
         1,
-        `${JSON.stringify({ directory, worker, resumed: space?.resumed ?? false })}\n`,
+        `${JSON.stringify({ directory, worker, identity: await identifyProcess(process.pid) })}\n`,
       );
       const restarts = Number(value);
       jobs.close();
@@ -110,10 +110,6 @@ try {
         );
       }
       if (!space) throw new Error('legacy fixture must restart');
-      await jobs.tracked();
-      const tracked = await jobs.tracked();
-      if (!space.resumed && tracked.length === 0) await space.remove();
-      else await space.close();
       process.kill(worker, 0);
     } finally {
       jobs.close();
@@ -145,7 +141,6 @@ try {
       `${JSON.stringify({
         directory,
         identity: await identifyProcess(process.pid),
-        resumed: space?.resumed ?? false,
       })}\n`,
     );
     await space?.close();

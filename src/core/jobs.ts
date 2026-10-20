@@ -169,12 +169,6 @@ export class JobWatch {
     clearInterval(this.timer);
   }
 
-  /** shutdown needs a read begun after the agent closed, even if a background poll was already pending. */
-  async tracked(): Promise<readonly Row[]> {
-    if (this.polling) await this.polling;
-    return this.poll();
-  }
-
   /** tracks a group Witch started itself from the next read, even once its leader has exited. */
   track(group: number): void {
     this.handed.add(group);

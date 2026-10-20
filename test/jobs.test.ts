@@ -12,7 +12,7 @@ import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
 import { ps } from '../src/persistence/process.js';
 import { scratch } from './fixtures/scratch.js';
-import { until, within } from './fixtures/within.js';
+import { until } from './fixtures/within.js';
 
 /** lists until `ready` holds, failing after five seconds. */
 async function listed(
@@ -35,67 +35,6 @@ function gone(pid: number): boolean {
     return true;
   }
 }
-
-await test('a final tracked read waits for the pending poll and then reads again', async () => {
-  const member: Row = {
-    pid: 100002,
-    ppid: 1,
-    pgid: 100001,
-    name: 'node',
-    leadsSession: false,
-    identity: '100002 final',
-  };
-  for (const ending of [false, true]) {
-    const entered = Promise.withResolvers<void>();
-    const old = Promise.withResolvers<Row[]>();
-    let reads = 0;
-    const jobs = new JobWatch({
-      interval: 5,
-      processes: async () => {
-        reads++;
-        if (reads === 1) {
-          entered.resolve();
-          return old.promise;
-        }
-        return ending ? [] : [member];
-      },
-      describe: async () => {
-        assert.fail('a tracked read must not describe commands');
-      },
-    });
-    try {
-      if (ending) jobs.track(member.pgid);
-      await within(entered.promise, 2000, 'pending job poll');
-      jobs.close();
-      if (!ending) jobs.track(member.pgid);
-      const final = jobs.tracked();
-      old.resolve(ending ? [member] : []);
-      assert.deepEqual(await final, ending ? [] : [member]);
-      assert.equal(reads, 2);
-    } finally {
-      old.resolve([]);
-      jobs.close();
-    }
-  }
-});
-
-await test('a failed final tracked read rejects instead of reusing an earlier empty result', async () => {
-  let reads = 0;
-  const failure = new Error('final process read failed');
-  const jobs = new JobWatch({
-    interval: 60_000,
-    processes: async () => {
-      if (++reads === 1) return [];
-      throw failure;
-    },
-  });
-  try {
-    assert.deepEqual(await jobs.tracked(), []);
-    await assert.rejects(jobs.tracked(), (error) => error === failure);
-  } finally {
-    jobs.close();
-  }
-});
 
 /** an agent whose pid is above macOS's highest, since a command with the agent's pid would be its own parent and never end a read. */
 const agentRow: Row = {

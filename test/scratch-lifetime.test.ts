@@ -43,30 +43,26 @@ async function runFixture(parent: string, mode = 'restart', ...args: string[]) {
         JSON.parse(line) as {
           directory: string;
           identity?: ProcessIdentity;
-          resumed: boolean;
           worker?: number;
         },
     );
 }
 
-await test('scratch resumes in place and fresh scratch can be removed', async () => {
+await test('scratch resumes in place, stays private and survives clean close', async () => {
   const parent = await scratch('witch-scratch-');
   const [before, after] = await runFixture(parent);
   assert.ok(before);
-  assert.equal(before.resumed, false);
-  assert.deepEqual(after, { ...before, resumed: true });
+  assert.ok(before.identity);
+  assert.deepEqual(after, before);
   const marker = join(before.directory, 'marker');
   assert.equal(await readFile(marker, 'utf8'), 'before restart');
   const fresh = await ScratchSpace.open(parent);
   try {
-    assert.equal(fresh.resumed, false);
     assert.equal((await stat(fresh.directory)).mode & 0o777, 0o700);
-    const locked = join(fresh.directory, 'readonly');
-    await mkdir(locked);
-    await writeFile(join(locked, 'file'), 'contents');
-    await chmod(locked, 0o500);
-    await fresh.remove();
-    assert.equal(existsSync(fresh.directory), false);
+    const freshMarker = join(fresh.directory, 'marker');
+    await writeFile(freshMarker, 'fresh scratch');
+    await fresh.close();
+    assert.equal(await readFile(freshMarker, 'utf8'), 'fresh scratch');
     assert.equal(await readFile(marker, 'utf8'), 'before restart');
   } finally {
     await fresh.close();
@@ -77,6 +73,10 @@ await test('retained scratch survives its boot and is swept after a different bo
   const parent = await scratch('witch-scratch-');
   const retained = await ScratchSpace.open(parent, firstBoot);
   await writeFile(join(retained.directory, 'marker'), 'survivor');
+  const locked = join(retained.directory, 'readonly');
+  await mkdir(locked);
+  await writeFile(join(locked, 'file'), 'contents');
+  await chmod(locked, 0o500);
   await retained.close();
   const unrelated = join(parent, 'notes');
   await mkdir(unrelated);
@@ -146,7 +146,7 @@ await test('the first restart adopts its numeric scratch without moving files', 
   assert.ok(before);
   assert.ok(before.identity);
   assert.equal(before.directory, join(parent, String(before.identity.pid)));
-  assert.deepEqual(after, { ...before, resumed: true });
+  assert.deepEqual(after, before);
   assert.equal(
     await readFile(join(before.directory, 'marker'), 'utf8'),
     'before restart',
@@ -180,9 +180,12 @@ for (const [mode, restarts] of [
       const first = reports[0]!;
       assert.equal(reports.length, restarts + 1);
       assert.ok(first.worker);
+      assert.ok(first.identity);
       assert.equal(gone(first.worker), false);
-      for (const report of reports)
+      for (const report of reports) {
         assert.equal(report.directory, first.directory);
+        assert.deepEqual(report.identity, first.identity);
+      }
       await writeFile(join(parent, 'release-worker'), 'release');
       await until('worker marker read', () =>
         existsSync(join(parent, 'worker.result')),
