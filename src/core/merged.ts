@@ -221,6 +221,8 @@ async function clean(
     );
   }
   const deleted = [branch];
+  // with the config locked, branch -d deletes a branch and exits 0 with only a warning that its upstream stayed
+  const configured: string[] = [];
   const refs = await git(
     cwd,
     'for-each-ref',
@@ -235,12 +237,22 @@ async function clean(
     // a merged pull request's remote branch is gone and a long-lived branch's isn't; -d refuses a branch checked
     // out in a worktree
     if (!name || track !== '[gone]') continue;
-    if (await succeeds(git(cwd, 'branch', '-d', '--end-of-options', name)))
-      deleted.push(name);
+    if (!(await succeeds(git(cwd, 'branch', '-d', '--end-of-options', name))))
+      continue;
+    deleted.push(name);
+    if (await succeeds(git(cwd, 'config', '--get', `branch.${name}.merge`)))
+      configured.push(`branch.${name}`);
   }
   const branches = `${deleted.length > 1 ? 'branches' : 'branch'} ${list(deleted)}`;
+  const left = [
+    kept,
+    configured.length &&
+      `config ${configured.length > 1 ? 'sections' : 'section'} ${list(configured)} stayed`,
+  ]
+    .filter(Boolean)
+    .join(' and ');
   return {
-    text: `#${number} merged: switched to ${base} and pulled, deleted ${branches}${removed}${kept && `, but ${kept}`}.`,
+    text: `#${number} merged: switched to ${base} and pulled, deleted ${branches}${removed}${left && `, but ${left}`}.`,
     cleaned: true,
   };
 }
