@@ -125,7 +125,7 @@ export function App({
   onRestart?(): void;
   /** puts text on the clipboard, where Cmd+C sends the transcript's selection. */
   copy?(text: string): void;
-  /** sent once the load ends idle with nothing reported and tools unfocused, or ahead of a prompt sent while it connects; otherwise left as the draft. */
+  /** sent once loading and cleanup end idle with nothing reported and tools unfocused, or ahead of a prompt submitted while waiting; otherwise left as the draft. */
   initialPrompt?: string;
 }) {
   const subscription = useMemo(
@@ -721,7 +721,12 @@ export function App({
   }, [state.conversation?.cwd]);
   useEffect(() => {
     const prompt = pendingPrompt.current;
-    if (prompt === undefined || state.phase === 'starting') return;
+    if (
+      prompt === undefined ||
+      state.phase === 'starting' ||
+      state.phase === 'cleaning'
+    )
+      return;
     pendingPrompt.current = undefined;
     if (state.phase !== 'idle' || state.error || !submit(prompt))
       prepend(prompt);
