@@ -117,7 +117,9 @@ function build(
         ? (item.images ?? [])
         : [];
   const images = graphics
-    ? sources.flatMap((source) => graphics.rows(source, item.cwd, width))
+    ? sources
+        .map((source) => graphics.rows(source, item.cwd, width))
+        .filter((rows) => rows.length)
     : [];
   const diff =
     tool && expanded && item.diff?.length
@@ -130,7 +132,7 @@ function build(
   const lines = head.lines.concat(
     rendered?.lines ?? [],
     diff.flat(),
-    images,
+    images.flat(),
     '',
   );
   const anchors = head.anchors.concat(
@@ -139,11 +141,14 @@ function build(
     diff.flatMap((rows, index) =>
       rows.map((_, row) => ({ line: next + index, offset: row })),
     ),
-    // each image row and the closing blank anchor as lines of their own
-    Array.from({ length: images.length + 1 }, (_, index) => ({
-      line: next + diff.length + index,
-      offset: 0,
-    })),
+    // keep each image's anchors together when a resize changes its row count
+    images.flatMap((rows, index) =>
+      rows.map((_, row) => ({
+        line: next + diff.length + index,
+        offset: row,
+      })),
+    ),
+    { line: next + diff.length + images.length, offset: 0 },
   );
   return {
     item,
