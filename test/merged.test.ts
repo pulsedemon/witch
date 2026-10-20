@@ -299,7 +299,7 @@ await test('a head branch that tracks no remote branch stays, and says so', asyn
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
-await test("a plan that can't be read stays, one that can't go with its ledgers stays with them and is named, and so are plans that can't be listed, even when the base can't fast-forward", async () => {
+await test("a dangling plan link stays quietly, a plan that can't be read or go with its ledgers stays with them and is named, and so are plans that can't be listed, even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
@@ -311,11 +311,12 @@ await test("a plan that can't be read stays, one that can't go with its ledgers 
     });
     assert.deepEqual(await readdir(plans(checkout)), ['dangling.md']);
   }
-  // the ledger can't be removed, the ledgers can't be listed, and the plan-path can't be read
+  // the ledger can't be removed, the ledgers can't be listed, the plan-path can't be read, and the plan can't be read
   for (const [locked, mode, restored] of [
     ['.superpowers/sdd', 0o500, 0o700],
     ['.superpowers/sdd', 0o000, 0o700],
     ['.superpowers/sdd/x/plan-path', 0o000, 0o600],
+    ['docs/superpowers/plans/x.md', 0o000, 0o600],
   ] as const) {
     const { checkout, other, tip } = await merged();
     await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`\n');
