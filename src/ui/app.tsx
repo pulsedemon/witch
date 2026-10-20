@@ -26,7 +26,7 @@ import {
 } from './completion.js';
 import { Request } from './request.js';
 import type { Graphics } from './images.js';
-import { TranscriptLayout } from './transcript-layout.js';
+import { isExpanded, TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
 import { markdown } from './markdown.js';
 import { hyperlink, linkify, oneLine, plain } from './links.js';
@@ -167,7 +167,7 @@ export function App({
   const [top, topRef, setTop] = useLiveState<ScrollAnchor | null>(null);
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Map<string, boolean>>(new Map());
   // keys in one read arrive before a render, so ↑ reads the live drafts
   const [drafts, draftsRef, setDrafts] = useLiveState<Record<string, string>>(
     {},
@@ -914,13 +914,10 @@ export function App({
       }
       if (key.end) setTop(null);
       if (key.return && tools[next]) {
-        const id = tools[next]!.id;
-        setExpanded((previous) => {
-          const next = new Set(previous);
-          if (next.has(id)) next.delete(id);
-          else next.add(id);
-          return next;
-        });
+        const item = tools[next]!;
+        setExpanded((previous) =>
+          new Map(previous).set(item.id, !isExpanded(item, previous)),
+        );
       }
     }
   });

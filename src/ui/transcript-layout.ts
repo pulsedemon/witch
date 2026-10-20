@@ -198,15 +198,19 @@ function extend(
   };
 }
 
-/** a `!` command, or a change to a file under the row's cwd, shows expanded until toggled. */
-function opens(item: DisplayItem): boolean {
+/** a later diff must not reverse the user's explicit open or closed choice. */
+export function isExpanded(
+  item: DisplayItem,
+  choices: ReadonlyMap<string, boolean>,
+): boolean {
   // only `/` already ends in a separator
   const root = item.cwd.endsWith('/') ? item.cwd : `${item.cwd}/`;
   const inside = (path: string | undefined) =>
     path === item.cwd || !!path?.startsWith(root);
   return (
-    !!item.shell ||
-    !!item.diff?.some((file) => inside(file.path) || inside(file.movePath))
+    choices.get(item.id) ??
+    (!!item.shell ||
+      !!item.diff?.some((file) => inside(file.path) || inside(file.movePath)))
   );
 }
 
@@ -221,7 +225,7 @@ export class TranscriptLayout {
   render(
     items: readonly DisplayItem[],
     width: number,
-    expanded: ReadonlySet<string>,
+    expanded: ReadonlyMap<string, boolean>,
   ) {
     if (width !== this.width) this.cache = new Map();
     this.width = width;
@@ -232,7 +236,7 @@ export class TranscriptLayout {
     // entries for items no longer shown fall away with the old cache
     const cache = new Map<string, Map<boolean, Block>>();
     for (const item of items) {
-      const open = expanded.has(item.id) !== opens(item);
+      const open = isExpanded(item, expanded);
       const variants = this.cache.get(item.id) ?? new Map<boolean, Block>();
       const previous = variants.get(open);
       const block =
