@@ -20,6 +20,8 @@ cd project && witch
 
 Flags and the state default are in `witch --help`. Use `/help` for keyboard controls and `Ctrl+P` for commands.
 
+Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
+
 Keep the memory repository local or back it up yourself; the app never pushes it. Conversations retain native session IDs, so native session storage must remain available for resume.
 
 The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md).

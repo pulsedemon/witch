@@ -37,12 +37,15 @@ import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
+import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
 import { accent, colors, piped, potion } from './theme.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
   { id: 'sessions', label: 'Saved conversations' },
+  { id: 'peers', label: 'Other sessions in this repository' },
+  { id: 'task', label: 'Current task, or /task release' },
   { id: 'agent', label: 'Switch agent' },
   { id: 'model', label: 'Choose model and reasoning' },
   { id: 'memory', label: 'Browse shared memory' },
@@ -68,6 +71,7 @@ interface Choice {
 }
 type View =
   | { kind: 'chat' }
+  | { kind: 'coordination'; mode: 'peers' | 'task' }
   | {
       kind: 'picker';
       title: string;
@@ -148,6 +152,10 @@ export function App({
   const repositoryStatus = useSyncExternalStore(
     repository?.subscribe ?? unwatched,
     () => repository?.snapshot,
+  );
+  const coordination = useSyncExternalStore(
+    coordinator.coordination?.subscribe ?? unwatched,
+    () => coordinator.coordination?.snapshot,
   );
   const size = useWindowSize();
   const columns = Math.max(30, size.columns);
@@ -517,6 +525,19 @@ export function App({
             (id) => command('agent', id),
           );
         break;
+      case 'peers':
+        setPageScroll(0);
+        setView({ kind: 'coordination', mode: 'peers' });
+        break;
+      case 'task':
+        if (argument === 'release') run(coordinator.releaseTask());
+        else if (argument) {
+          coordinator.report(new Error('Use /task or /task release.'));
+          break;
+        }
+        setPageScroll(0);
+        setView({ kind: 'coordination', mode: 'task' });
+        break;
       case 'model':
         if (argument) {
           const [id, effort] = argument.split(/\s+/);
@@ -761,7 +782,9 @@ export function App({
                 ? dirname(view.link)
                 : null,
           )
-        : '';
+        : view.kind === 'coordination'
+          ? coordinationText(coordination, view.mode)
+          : '';
   const pageLines = wrapAnsi(pageText, bodyWidth, {
     hard: true,
     trim: false,
@@ -822,7 +845,12 @@ export function App({
   // a request scrolls itself, and a picker follows its selection
   useWheel((rows) => {
     if (request) return;
-    if (state.phase === 'recovery' || view.kind === 'page') scrollPageBy(rows);
+    if (
+      state.phase === 'recovery' ||
+      view.kind === 'page' ||
+      view.kind === 'coordination'
+    )
+      scrollPageBy(rows);
     else if (view.kind === 'chat') scrollBy(rows);
   });
 
@@ -886,9 +914,9 @@ export function App({
         setSelection(Math.max(0, Math.min(choices.length - 1, current + 1)));
       return;
     }
-    if (view.kind === 'page') {
+    if (view.kind === 'page' || view.kind === 'coordination') {
       scrollPage(key);
-      if (view.note && !modified) {
+      if (view.kind === 'page' && view.note && !modified) {
         if (input === 'e') {
           setView({ kind: 'chat' });
           run(coordinator.editMemory(view.note));
@@ -1018,18 +1046,29 @@ export function App({
         </Text>
       </Box>
     );
-  } else if (view.kind === 'page') {
+  } else if (view.kind === 'page' || view.kind === 'coordination') {
     // a note's file name is agent-written and can hold a line break, and Ink keeps OSC 8 links
-    const title = oneLine(view.title);
+    const title =
+      view.kind === 'page'
+        ? oneLine(view.title)
+        : view.mode === 'peers'
+          ? 'Repository sessions'
+          : 'Current task';
     body = (
       <Box flexDirection="column" height={bodyHeight}>
-        <Text bold>{view.link ? hyperlink(title, view.link, cwd) : title}</Text>
+        <Text bold>
+          {view.kind === 'page' && view.link
+            ? hyperlink(title, view.link, cwd)
+            : title}
+        </Text>
         <Box height={pageRows} overflow="hidden">
           <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
         </Box>
         <Text dimColor>
           {piped([
-            ...(view.note ? ['e EDIT', 'h HISTORY'] : []),
+            ...(view.kind === 'page' && view.note
+              ? ['e EDIT', 'h HISTORY']
+              : []),
             '↑/↓ SCROLL',
             'ESC BACK',
           ])}
@@ -1191,6 +1230,7 @@ export function App({
           spinning={working}
           brews={state.backgroundCommands}
           subagents={state.subagents}
+          peers={coordination?.peers}
         />
       )}
     </Box>
