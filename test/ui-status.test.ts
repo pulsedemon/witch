@@ -70,7 +70,7 @@ await test('a project name, model and permission mode carrying a link sequence s
   }
 });
 
-await test('the pentacle shows only beside an 80-cell main column, turns while the agent works and returns to its rest angle when idle', async () => {
+await test('the pentacle follows independent activity across sidebar visibility changes and returns to rest', async () => {
   const braille = (text: string) => text.match(/[⠁-⣿]/g)?.join('');
   // the working row's spinner is braille too, so only the sidebar's cells count
   const inSidebar = (text: string) =>
@@ -91,6 +91,7 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
     narrow.unmount();
   }
   const { app, coordinator } = fake({});
+  const source = Symbol('ui activity');
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
     115,
@@ -98,13 +99,34 @@ await test('the pentacle shows only beside an 80-cell main column, turns while t
   try {
     await until('the pentacle', () => !!inSidebar(ui.text()));
     const rest = inSidebar(ui.text());
-    coordinator.publish({ phase: 'running' });
+    coordinator.pentacle.set(source, true);
     await until('a turn', () => inSidebar(ui.text()) !== rest);
-    coordinator.publish({ phase: 'idle' });
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    coordinator.pentacle.set(source, false);
     await until('the rest', () => inSidebar(ui.text()) === rest);
     await delay(200);
     assert.equal(inSidebar(ui.text()), rest);
+
+    coordinator.pentacle.set(source, true);
+    await until('another turn', () => inSidebar(ui.text()) !== rest);
+    ui.resize(114);
+    await until('the hidden sidebar', () => !braille(ui.text()));
+    coordinator.pentacle.set(source, false);
+    ui.resize(115);
+    await until('the restored rest', () => inSidebar(ui.text()) === rest);
+    await delay(200);
+    assert.equal(inSidebar(ui.text()), rest);
+
+    ui.resize(114);
+    await until('the hidden sidebar again', () => !braille(ui.text()));
+    coordinator.pentacle.set(source, true);
+    ui.resize(115);
+    await until(
+      'activity started while hidden',
+      () => !!inSidebar(ui.text()) && inSidebar(ui.text()) !== rest,
+    );
   } finally {
+    coordinator.pentacle.set(source, false);
     ui.unmount();
   }
 });
