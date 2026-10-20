@@ -7,7 +7,7 @@ import { errorMessage } from '../agents/stderr.js';
 import {
   coordinationActionSchema,
   coordinationSnapshotSchema,
-  sessionPresenceSchema,
+  conversationSummarySchema,
   taskClaimSchema,
 } from '../core/coordination-state.js';
 import type { CoordinationAction } from '../core/coordination-state.js';
@@ -37,7 +37,7 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('conflict'),
     claim: taskClaimSchema,
-    owner: sessionPresenceSchema.optional(),
+    owner: conversationSummarySchema.optional(),
     message: z.string(),
   }),
   z.object({ kind: z.literal('error'), message: z.string() }),

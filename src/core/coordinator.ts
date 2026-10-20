@@ -34,6 +34,7 @@ import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
 import { listFiles } from './files.js';
 import type { JobWatch } from './jobs.js';
+import type { SessionCoordination } from './coordination.js';
 import { cleanUpMerge, refreshInstall } from './merged.js';
 import type { PullRequest } from './repository.js';
 import { applyDisplayUpdate } from './state.js';
@@ -189,6 +190,7 @@ export class Coordinator {
     private readonly agents: readonly AgentRegistration[],
     private readonly jobs?: Pick<JobWatch, 'track' | 'environment' | 'script'>,
     private readonly editFile = editInVSCode,
+    readonly coordination?: SessionCoordination,
   ) {
     this.snapshot = {
       phase: 'starting',
@@ -206,6 +208,7 @@ export class Coordinator {
         installed: !!executable,
       })),
     };
+    coordination?.update(this.snapshot);
   }
 
   subscribe(listener: () => void): () => void {
@@ -369,6 +372,11 @@ export class Coordinator {
         openedAt: Date.now(),
       });
       if (failure !== undefined) this.report(failure);
+      if (this.coordination)
+        await this.coordination.activate(
+          this.record,
+          (await this.memory.scopePaths(this.record.cwd)).project,
+        );
     } finally {
       this.opening = false;
     }
@@ -737,13 +745,14 @@ export class Coordinator {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    const quiescing = this.coordination?.quiesce();
     // interrupt() reads the phase before `closing` replaces it
     const interrupting = this.interrupt();
     this.publish({ phase: 'closing' });
     let failure: unknown;
     try {
       try {
-        await interrupting;
+        await Promise.all([interrupting, quiescing]);
       } catch (error) {
         failure = error;
         // Codex's close() interrupts again and would rethrow, so the session ends here
@@ -762,10 +771,20 @@ export class Coordinator {
       try {
         await this.disconnect();
       } finally {
-        await this.files?.close();
+        try {
+          await this.files?.close();
+        } finally {
+          await this.coordination?.close();
+        }
       }
     }
     if (failure !== undefined) throw failure;
+  }
+
+  async releaseTask(): Promise<void> {
+    if (!this.coordination)
+      throw new Error('Session coordination is unavailable.');
+    await this.coordination.releaseTask();
   }
 
   private async handoff(agent: string): Promise<void> {
@@ -863,6 +882,7 @@ export class Coordinator {
       handoff?.activated && handoff.to === conversation.agent
         ? handoff
         : undefined;
+    const coordination = await this.coordination?.context();
     const context = [
       'You are running inside Witch. Follow your native and project instructions.',
       `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
@@ -874,6 +894,7 @@ export class Coordinator {
             `Pending task context from ${pendingHandoff.from}:\n${pendingHandoff.summary}`,
           ]
         : []),
+      ...(coordination ? [coordination] : []),
       `User request:\n${prompt}`,
       ...(command === undefined ? [] : [ranCommand]),
     ].join('\n\n');
@@ -964,13 +985,15 @@ export class Coordinator {
     const live = this.live(agent);
     if (live && (!turnScope || turnScope.project === this.sessionProject))
       return live;
-    await this.disconnect();
+    // an initial connect keeps the activation published when its conversation opened
+    await this.disconnect(!this.session);
     const conversation = this.current();
     const files = this.files!;
     const { adapter, executable } = this.registration(agent);
     const workspace = this.workspace!;
     await workspace.ensureWorktree();
     const scope = turnScope ?? (await workspace.scope(conversation.cwd));
+    await this.coordination?.activate(conversation, scope.project);
     const stored = conversation.sessions[agent];
     const identify =
       (key: 'process' | 'shell') => async (pid: number | undefined) => {
@@ -1034,7 +1057,8 @@ export class Coordinator {
     return session;
   }
 
-  private async disconnect(): Promise<void> {
+  private async disconnect(keepActivation = false): Promise<void> {
+    if (!keepActivation && this.coordination) await this.coordination.quiesce();
     const session = this.session;
     this.session = undefined;
     // closing the session stops its familiars and brews, and their own stops would no longer reach receive()
@@ -1044,10 +1068,14 @@ export class Coordinator {
     for (const command of this.snapshot.backgroundCommands)
       this.brew(this.current(), { ...command, status: 'stopped' });
     this.publish({ skills: [], subagents: [] });
-    await session?.close();
-    if (!this.record) return;
-    delete this.record.process;
-    await this.save();
+    try {
+      await session?.close();
+      if (!this.record) return;
+      delete this.record.process;
+      await this.save();
+    } finally {
+      if (!keepActivation) await this.coordination?.deactivate();
+    }
   }
 
   private receive(
@@ -1381,6 +1409,7 @@ export class Coordinator {
 
   private publish(update: Partial<Snapshot>): void {
     this.snapshot = { ...this.snapshot, ...update };
+    this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();
   }
 }

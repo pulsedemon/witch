@@ -6,8 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { errorMessage } from './agents/stderr.js';
-import { parseCommand, runControl, writeControl } from './cli-control.js';
+import {
+  controlPrefix,
+  parseCommand,
+  runControl,
+  writeControl,
+} from './cli-control.js';
 import { Coordinator } from './core/coordinator.js';
+import { SessionCoordination } from './core/coordination.js';
 import { JobWatch } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
 import { RepositoryWatch } from './core/repository.js';
@@ -89,12 +95,22 @@ if (control) {
     directory: instanceDirectory(join(store.root, 'jobs')),
   });
   // agents and their commands inherit it, so their scratch goes when this instance does
-  process.env.TMPDIR = instanceDirectory(join(store.root, 'scratch'));
+  const scratch = instanceDirectory(join(store.root, 'scratch'));
+  process.env.TMPDIR = scratch;
+  const memory = new Memory(join(store.root, 'memory.git'));
+  const coordination = await SessionCoordination.open(
+    store,
+    memory,
+    join(scratch, 'control'),
+    (binding) => controlPrefix(binding, fileURLToPath(import.meta.url)),
+  );
   const coordinator = new Coordinator(
     store,
-    new Memory(join(store.root, 'memory.git')),
+    memory,
     await installedAgents(),
     jobs,
+    undefined,
+    coordination,
   );
   // straight to the terminal, since the link screen would read image data as printed text
   const graphics = new Graphics((data) => process.stdout.write(data));
@@ -126,6 +142,10 @@ if (control) {
     shutdown();
   };
   const repository = new RepositoryWatch(process.cwd());
+  const stopCoordinationRepository = repository.subscribe(() =>
+    coordination.updateRepository(repository.snapshot),
+  );
+  coordination.updateRepository(repository.snapshot);
   const stopMerges = watchMerges(repository, coordinator, install);
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
@@ -190,6 +210,7 @@ if (control) {
     .catch(() => {});
   await application.waitUntilExit();
   stopMerges();
+  stopCoordinationRepository();
   repository.close();
   jobs.close();
   process.removeListener('SIGTERM', shutdown);

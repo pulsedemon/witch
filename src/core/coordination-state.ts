@@ -26,21 +26,26 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('release'), claim: z.string().uuid() }),
 ]);
 
-export const sessionPresenceSchema = conversationSchema
-  .pick({ id: true, title: true, cwd: true, agent: true })
-  .extend({
-    version: z.literal(1),
-    project: z.string(),
-    activation: z.string().uuid(),
-    process: processIdentity,
-    phase: phaseSchema,
-    requests: z.number().int().nonnegative(),
-    familiars: z.number().int().nonnegative(),
-    brews: z.number().int().nonnegative(),
-    branch: z.string().optional(),
-    openedAt: z.number(),
-    updatedAt: z.number(),
-  });
+export const conversationSummarySchema = conversationSchema.pick({
+  id: true,
+  title: true,
+  cwd: true,
+  agent: true,
+});
+
+export const sessionPresenceSchema = conversationSummarySchema.extend({
+  version: z.literal(1),
+  project: z.string(),
+  activation: z.string().uuid(),
+  process: processIdentity,
+  phase: phaseSchema,
+  requests: z.number().int().nonnegative(),
+  familiars: z.number().int().nonnegative(),
+  brews: z.number().int().nonnegative(),
+  branch: z.string().optional(),
+  openedAt: z.number(),
+  updatedAt: z.number(),
+});
 
 export const coordinationSnapshotSchema = z.object({
   peers: z.array(
@@ -56,9 +61,7 @@ export const coordinationSnapshotSchema = z.object({
       status: z.enum(['unattended', 'owner-outside-project', 'unknown']),
     }),
   ),
-  unregistered: z.array(
-    conversationSchema.pick({ id: true, title: true, cwd: true, agent: true }),
-  ),
+  unregistered: z.array(conversationSummarySchema),
   error: z.string().optional(),
 });
 
@@ -68,6 +71,13 @@ export type TaskClaim = z.infer<typeof taskClaimSchema>;
 export type CoordinationAction = z.infer<typeof coordinationActionSchema>;
 export type SessionPresence = z.infer<typeof sessionPresenceSchema>;
 export type CoordinationSnapshot = z.infer<typeof coordinationSnapshotSchema>;
+
+export function presenceStatus(presence: SessionPresence): string {
+  if (presence.requests) return 'waiting';
+  if (presence.phase === 'idle' && (presence.familiars || presence.brews))
+    return 'background';
+  return presence.phase;
+}
 
 /** named tasks belong to a project; GitHub issue and pr routes share one number. */
 export function taskReference(reference: string, project: string): string {

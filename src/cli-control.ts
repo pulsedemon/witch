@@ -1,7 +1,10 @@
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { errorMessage } from './agents/stderr.js';
-import { coordinationActionSchema } from './core/coordination-state.js';
+import {
+  coordinationActionSchema,
+  presenceStatus,
+} from './core/coordination-state.js';
 import { callControl, controlBindingSchema } from './persistence/control.js';
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
 import { quote } from './shell.js';
@@ -139,7 +142,7 @@ function describe(outcome: ControlOutcome): string {
             : []),
           ...snapshot.peers.map(
             ({ presence, claim }) =>
-              `${claim?.summary ?? presence.title} | ${presence.agent} | ${presence.phase} | ${presence.cwd} | ${presence.id}`,
+              `${claim?.summary ?? presence.title} | ${presence.agent} | ${presenceStatus(presence)} | ${presence.cwd} | ${presence.id}`,
           ),
           ...snapshot.reservations.map(
             ({ claim, status }) =>
