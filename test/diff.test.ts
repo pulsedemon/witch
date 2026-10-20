@@ -4,6 +4,7 @@ import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../src/agents/types.js';
 import { diffRows } from '../src/ui/diff.js';
+import { syntaxSpans } from '../src/ui/syntax.js';
 
 const rows = (files: FileDiff[], width = 30) =>
   diffRows(files, width, '/work').flat();
@@ -177,4 +178,382 @@ await test('a no-newline marker gets no row and leaves the numbering', () => {
     ]).slice(1),
     ['1  a', '2 -b', '2 +B'],
   );
+});
+
+/** `row` without its number and marker colors, so only syntax colors are left. */
+const syntaxOf = (row: string) =>
+  row
+    .replaceAll('\u001b[38;2;80;200;80m', '')
+    .replaceAll('\u001b[38;2;220;90;90m', '');
+
+await test('code reads as the language its extension names, colored as Claude Code colors it, while removed rows stay plain and every row keeps its background and width', () => {
+  const files: FileDiff[] = [
+    {
+      path: '/work/a.ts',
+      kind: 'update',
+      hunks: [
+        {
+          oldStart: 1,
+          newStart: 1,
+          lines: [
+            ' /**',
+            '- * old',
+            '+ * new',
+            ' */',
+            '-let y = 1;',
+            '+const x = "s"; if (x) return; // done',
+          ],
+        },
+      ],
+    },
+  ];
+  const drawn = rows(files, 50);
+  const row = (code: string) =>
+    drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
+  const added = row('// done');
+  assert.ok(added.includes('\u001b[38;2;102;217;239mconst'));
+  assert.ok(added.includes('\u001b[38;2;230;219;116m"s"'));
+  assert.ok(added.includes('\u001b[38;2;249;38;114mif'));
+  assert.ok(added.includes('\u001b[38;2;117;113;94m// done'));
+  for (const code of ['- * old', '-let y = 1;'])
+    assert.ok(!syntaxOf(row(code)).includes('\u001b[38;'), code);
+  assert.ok(added.startsWith(`${green}\u001b[38;2;80;200;80m4 +`));
+  assert.ok(row('-let y = 1;').startsWith(`${red}\u001b[38;2;220;90;90m4 -`));
+  assert.ok(
+    // a reset before the row's end would drop its background for the rest
+    // eslint-disable-next-line no-control-regex
+    !/\u001b\[0?m/.test(added.slice(0, -5)),
+    JSON.stringify(added),
+  );
+  assert.equal(stringWidth(stripAnsi(added)), 50);
+  assert.deepEqual(plainRows(files, 50), [
+    'Update ./a.ts +2 -2',
+    '1  /**',
+    '2 - * old',
+    '2 + * new',
+    '3  */',
+    '4 -let y = 1;',
+    '4 +const x = "s"; if (x) return; // done',
+  ]);
+});
+
+await test('each line reads alone, as Claude Code reads it, so a hunk that opens inside a string colors the code after it as code', () => {
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.py',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 5,
+            newStart: 5,
+            lines: [' the rest of the docs."""', '+import os', ' class A(B):'],
+          },
+        ],
+      },
+    ],
+    40,
+  );
+  const row = (code: string) =>
+    drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
+  assert.ok(row('+import os').includes('\u001b[38;2;249;38;114mimport'));
+  assert.ok(row(' class A(B):').includes('\u001b[38;2;166;226;46mA'));
+});
+
+await test('a line whose colored runs would split a character, such as an emoji or a keycap, or change one, as the CSS grammars change U+2028, draws plain and keeps it whole, while the lines around it keep their colors', () => {
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.pl',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [' my $x = 1;', '+my $😀 = 2;'],
+          },
+        ],
+      },
+      {
+        path: '/work/b.ts',
+        kind: 'update',
+        hunks: [{ oldStart: 1, newStart: 1, lines: ['+f(1\uFE0F\u20E3);'] }],
+      },
+      {
+        path: '/work/c.css',
+        kind: 'update',
+        hunks: [{ oldStart: 1, newStart: 1, lines: ['+a[b\u2028] {}'] }],
+      },
+    ],
+    40,
+  );
+  const row = (code: string) =>
+    drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
+  assert.ok(row('+my $😀 = 2;').includes('my $😀 = 2;'));
+  assert.ok(row('+f(1\uFE0F\u20E3);').includes('f(1\uFE0F\u20E3);'));
+  assert.ok(row('+a[b\u2028] {}').includes('a[b\u2028] {}'));
+  assert.ok(row(' my $x = 1;').includes('\u001b[38;2;249;38;114mmy'));
+});
+
+await test('a line highlight.js fails on draws plain', () => {
+  // an unknown language makes it throw, as a nesting deep enough to overflow the stack does
+  assert.deepEqual(syntaxSpans(['const a = 1;'], 'not-a-language'), [
+    [{ text: 'const a = 1;' }],
+  ]);
+});
+
+await test("the language comes from the file's name ahead of its extension, a move's new name, or a shebang, PHP or XML opening on the file's first line, read only from a context or added row of a first hunk at line 1, and a file that names none draws plain", () => {
+  const colored = (
+    path: string,
+    lines: string[],
+    { start = 1, ...extra }: Partial<FileDiff> & { start?: number } = {},
+  ) =>
+    rows([
+      {
+        path,
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: extra.kind === 'add' ? 0 : start,
+            newStart: start,
+            lines,
+          },
+        ],
+        ...extra,
+      },
+    ])
+      .slice(1)
+      .some((row) => syntaxOf(row).includes('\u001b[38;'));
+  // lowlight registers `txt` as plaintext, so only the name map colors this
+  assert.ok(
+    colored('/work/CMakeLists.txt', [
+      ' project(demo)',
+      '+add_executable(app main.c)',
+    ]),
+  );
+  assert.ok(
+    colored('/work/a.txt', ['+const a = 1'], { movePath: '/work/a.ts' }),
+  );
+  assert.ok(
+    colored('/work/bin/tool.zz', [' #!/usr/bin/env python', '+def f(): pass']),
+  );
+  assert.ok(
+    colored('/work/bin/tool.zz', ['+#!/usr/bin/env python', '+def f(): pass'], {
+      kind: 'add',
+    }),
+  );
+  assert.ok(
+    !colored(
+      '/work/bin/tool.zz',
+      [' #!/usr/bin/env python', '+def f(): pass'],
+      { start: 5 },
+    ),
+  );
+  assert.ok(
+    !colored('/work/bin/tool.zz', ['-#!/usr/bin/env python', '+x = 1']),
+  );
+  assert.ok(colored('/work/x', ['+<?php', '+echo 1;']));
+  assert.ok(
+    colored('/work/x', ['+\uFEFF<?xml version="1.0"?>', '+<a b="c"/>']),
+  );
+  for (const path of ['/work/notes', '/work/a.zz'])
+    assert.ok(!colored(path, [' const a = 1', '+if (a) return']), path);
+});
+
+await test("words a removed row and the added row at its place in the next run changed show brighter, even across a no-newline marker, unless over 40% of their text changed, and a longer run's extra rows pair with nothing", () => {
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.ts',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [
+              ' a;',
+              '-const answer = one;',
+              '+const answer = forty;',
+              ' b;',
+              '-a = 1',
+              '-b = 2',
+              '+a = 3',
+              '+b = 4',
+              ' c;',
+              '-foo bar',
+              '+baz qux',
+              ' d;',
+              '-const n = 1;',
+              '+const n = f(1);',
+              ' e;',
+              '-const z = one;',
+              '\\ No newline at end of file',
+              '+const z = forty;',
+              '\\ No newline at end of file',
+              ' f;',
+              '-const p = one;',
+              '-const q = two;',
+              '+const p = forty;',
+              ' g;',
+              '-const r = one;',
+              '+const r = forty;',
+              '+const s = two;',
+            ],
+          },
+        ],
+      },
+    ],
+    40,
+  );
+  const row = (code: string) =>
+    drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
+  const addedWord = '\u001b[48;2;56;166;96m';
+  const removedWord = '\u001b[48;2;179;89;107m';
+  const count = (text: string, part: string) => text.split(part).length - 1;
+  const removed = row('-const answer = one;');
+  assert.ok(removed.includes(`${removedWord}one\u001b[49m`));
+  assert.equal(count(removed, removedWord), 1);
+  const added = row('+const answer = forty;');
+  assert.ok(added.includes(`${addedWord}forty\u001b[49m`));
+  assert.equal(count(added, addedWord), 1);
+  for (const [code, word] of [
+    ['+a = 3', '3'],
+    ['+b = 4', '4'],
+  ] as const) {
+    assert.ok(
+      row(code).includes(`${addedWord}\u001b[38;2;190;132;255m${word}`),
+      code,
+    );
+    assert.equal(count(row(code), addedWord), 1, code);
+  }
+  assert.ok(row('+const n = f(1);').includes(`${addedWord}(`));
+  assert.ok(row('+const z = forty;').includes(`${addedWord}forty`));
+  assert.ok(row('+const p = forty;').includes(`${addedWord}forty`));
+  assert.ok(!row('-const q = two;').includes(removedWord));
+  assert.ok(row('+const r = forty;').includes(`${addedWord}forty`));
+  assert.ok(!row('+const s = two;').includes(addedWord));
+  assert.ok(
+    // the row's own background comes back after each brighter word
+    // eslint-disable-next-line no-control-regex
+    !/\u001b\[49m(?!\u001b\[48;)/.test(added.slice(0, -5)),
+  );
+  for (const code of ['-foo bar', '+baz qux'])
+    assert.ok(
+      !row(code).includes(addedWord) && !row(code).includes(removedWord),
+      code,
+    );
+});
+
+await test("a long line past the highlighting budget draws plain while shorter lines keep their colors, the budget adds up across a file's hunks, counts a line's indent and starts again in the next file, and a pair needing over 400 token edits gets no word colors, so long lines draw quickly", () => {
+  // each costs about 9,000,000, so the second passes the 16,000,000 budget
+  const long = (name: string) =>
+    `+const ${name} = [` + 'a, '.repeat(1000) + '];';
+  const [, first, second, short, , later, , , next, , , indented] = diffRows(
+    [
+      {
+        path: '/work/a.ts',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [long('x'), long('y'), '+const a = 1;'],
+          },
+          {
+            oldStart: 9,
+            newStart: 12,
+            lines: [`+const z = [${'a, '.repeat(100)}];`],
+          },
+        ],
+      },
+      {
+        path: '/work/b.ts',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [`+const v = [${'a, '.repeat(100)}];`],
+          },
+        ],
+      },
+      {
+        path: '/work/c.ts',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [`+${' '.repeat(4100)}const w = 1;`],
+          },
+        ],
+      },
+    ],
+    100,
+    '/work',
+  );
+  const colored = (drawn: readonly string[]) =>
+    drawn.some((row) => syntaxOf(row).includes('\u001b[38;'));
+  assert.ok(colored(first!));
+  assert.ok(!colored(second!));
+  assert.ok(colored(short!));
+  assert.ok(!colored(later!));
+  assert.ok(!colored(indented!));
+  assert.ok(colored(next!));
+  const words = Array.from({ length: 1200 }, (_, index) => `w${index}`);
+  const changed = words.map((word, index) => (index % 5 ? word : `v${index}`));
+  const paired = rows([
+    {
+      path: '/work/a.txt',
+      kind: 'update',
+      hunks: [
+        {
+          oldStart: 1,
+          newStart: 1,
+          lines: ['-' + words.join(' '), '+' + changed.join(' ')],
+        },
+      ],
+    },
+  ]);
+  assert.ok(!paired.some((row) => row.includes('\u001b[48;2;56;166;96m')));
+});
+
+await test('an html line opening many script tags draws quickly, and script and style content reads only as JavaScript or CSS', () => {
+  const started = performance.now();
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.html',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: [
+              '+' + '<script>'.repeat(20),
+              '+<script>const a = 1;</script>',
+              '+<script><!-- c --></script>',
+              '+<style><!-- c --></style>',
+            ],
+          },
+        ],
+      },
+    ],
+    60,
+  );
+  // reading each tag's content as both xml and handlebars takes seconds
+  assert.ok(performance.now() - started < 500);
+  const row = (code: string) =>
+    drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
+  assert.ok(
+    row('<script>const a = 1;</script>').includes(
+      '\u001b[38;2;102;217;239mconst',
+    ),
+  );
+  // an html comment colors only where xml reads it, directly or through handlebars
+  for (const code of [
+    '<script><!-- c --></script>',
+    '<style><!-- c --></style>',
+  ])
+    assert.ok(!syntaxOf(row(code)).includes('\u001b[38;'), code);
 });
