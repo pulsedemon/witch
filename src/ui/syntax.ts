@@ -2,7 +2,20 @@ import { basename, extname } from 'node:path';
 import { all, createLowlight } from 'lowlight';
 import { syntax, storage } from './theme.js';
 
-const lowlight = createLowlight(all);
+const lowlight = createLowlight({
+  ...all,
+  // `<script>` and `<style>` content never reads as xml or handlebars: both embed xml, so each tag a line opens would
+  // double its time
+  xml: (hljs) => {
+    const language = all.xml!(hljs);
+    for (const mode of language.contains ?? [])
+      if (typeof mode === 'object' && Array.isArray(mode.starts?.subLanguage))
+        mode.starts.subLanguage = mode.starts.subLanguage.filter(
+          (name) => name !== 'xml' && name !== 'handlebars',
+        );
+    return language;
+  },
+});
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 // `@types/hast` isn't a direct dependency, and pnpm doesn't hoist it
 type Root = ReturnType<typeof lowlight.highlight>;
