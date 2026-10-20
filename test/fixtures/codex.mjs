@@ -2,7 +2,7 @@ import { setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -66,6 +66,24 @@ const skill = (name, fields) => ({
   enabled: true,
   ...fields,
 });
+let brewTurn = 0;
+let terminalReads = 0;
+const waitFor = async (name) => {
+  while (!existsSync(file(name))) {
+    if (existsSync(file('exit'))) process.exit(1);
+    await delay(5);
+  }
+};
+if (mode === 'brews')
+  void (async () => {
+    for (let index = 1; ; index++) {
+      await waitFor(`events-${index}.json`);
+      for (const message of JSON.parse(
+        readFileSync(file(`events-${index}.json`), 'utf8'),
+      ))
+        send(message);
+    }
+  })();
 for await (const line of lines) {
   const request = JSON.parse(line);
   const reply = (result) => send({ id: request.id, result });
@@ -85,6 +103,22 @@ for await (const line of lines) {
         sandbox_workspace_write: { writable_roots: ['/already-allowed'] },
       },
     });
+  if (request.method === 'thread/backgroundTerminals/list') {
+    if (mode !== 'brews') reply({ data: [], nextCursor: null });
+    else {
+      const index = ++terminalReads;
+      writeFileSync(file(`list-${index}.json`), JSON.stringify(request));
+      void (async () => {
+        await waitFor(`list-reply-${index}.json`);
+        send({
+          id: request.id,
+          ...JSON.parse(readFileSync(file(`list-reply-${index}.json`), 'utf8')),
+        });
+        writeFileSync(file(`list-replied-${index}`), '');
+      })();
+    }
+    continue;
+  }
   if (request.method === 'model/list') {
     const second = request.params.cursor === 'page-2';
     reply({
@@ -253,6 +287,13 @@ for await (const line of lines) {
     const prompt = request.params.input[0].text;
     lastPrompt = prompt;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
+    if (mode === 'brews') {
+      const turn = { id: `turn-${++brewTurn}`, status: 'inProgress' };
+      reply({ turn });
+      notify('turn/started', { threadId: 'native-thread', turn });
+      writeFileSync(file(`turn-${brewTurn}.json`), JSON.stringify(request));
+      continue;
+    }
     reply({ turn: { id: 'turn-1' } });
     if (
       [
@@ -342,7 +383,10 @@ for await (const line of lines) {
         cwd: process.cwd(),
       };
       item('item/started', 'worker-thread', command);
-      item('item/completed', 'worker-thread', command);
+      item('item/completed', 'worker-thread', {
+        ...command,
+        status: 'completed',
+      });
       item('item/started', 'worker-thread', {
         type: 'imageView',
         id: 'w-2',
@@ -505,13 +549,21 @@ for await (const line of lines) {
           content: [],
         },
       });
-      notify('item/started', { item: { ...item, aggregatedOutput: null } });
+      notify('item/started', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        item: { ...item, status: 'inProgress', aggregatedOutput: null },
+      });
       notify('item/commandExecution/outputDelta', {
+        threadId: 'native-thread',
+        turnId: 'turn-1',
         itemId: 'cmd-1',
         delta: 'a.md\n',
       });
       notify('item/completed', {
-        item: { ...item, aggregatedOutput: 'a.md\n' },
+        threadId: 'native-thread',
+        turnId: 'turn-1',
+        item: { ...item, status: 'completed', aggregatedOutput: 'a.md\n' },
       });
       finish('completed');
       continue;
@@ -753,6 +805,22 @@ for await (const line of lines) {
       });
   }
   if (request.method === 'turn/interrupt') {
+    if (mode === 'brews') {
+      writeFileSync(file('interrupt.json'), JSON.stringify(request));
+      void (async () => {
+        while (
+          !existsSync(file('allow-interrupt')) &&
+          !existsSync(file('release'))
+        )
+          await delay(5);
+        reply({});
+        notify('turn/completed', {
+          threadId: 'native-thread',
+          turn: { id: `turn-${brewTurn}`, status: 'interrupted', error: null },
+        });
+      })();
+      continue;
+    }
     if (lastPrompt === 'die on interrupt') process.exit(1);
     if (lastPrompt === 'refuse interrupt') {
       send({
