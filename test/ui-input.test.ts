@@ -22,7 +22,7 @@ async function mount(element: ReactElement) {
   return ui;
 }
 
-/** writes keys inside act. the yield lets a stream stdin emit them before act returns */
+/** the yield lets a stream stdin emit keys before act returns. */
 const press = (stdin: { write: (data: string) => unknown }, data: string) =>
   act(async () => {
     stdin.write(data);
@@ -64,6 +64,73 @@ await test('the terminal composer keeps a bracketed paste unsent until Enter', a
     assert.match(ui.lastFrame() ?? '', /second/);
     await press(ui.stdin, '\r');
     assert.deepEqual(sent, ['first\nsecond']);
+  } finally {
+    await unmount(ui);
+  }
+});
+
+await test('pasted controls are removed without hiding or dropping following text', async () => {
+  const changes: [string, number][] = [];
+  const sent: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 60,
+      height: 4,
+      active: true,
+      onChange: (value, cursor) => changes.push([value, cursor]),
+      onSubmit: (value) => {
+        sent.push(value);
+        return true;
+      },
+    }),
+  );
+  try {
+    await press(ui.stdin, '\u001b[200~ab\u009bcde\u001b[201~');
+    assert.equal(ui.lastFrame()?.split('\n')[0], 'abcde');
+    assert.deepEqual(changes.at(-1), ['abcde', 5]);
+    assert.deepEqual(sent, []);
+    await press(ui.stdin, '\u001b[13u');
+    assert.deepEqual(sent, ['abcde']);
+  } finally {
+    await unmount(ui);
+  }
+});
+
+await test('filtered pastes preserve Unicode and line breaks at the current cursor', async () => {
+  const changes: [string, number][] = [];
+  const sent: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 60,
+      height: 6,
+      active: true,
+      initialValue: 'LR',
+      onChange: (value, cursor) => changes.push([value, cursor]),
+      onSubmit: (value) => {
+        sent.push(value);
+        return true;
+      },
+    }),
+  );
+  try {
+    const pasted = 'a\u0000b\u009bc\u0007d\t中\r\nr\rs\n👩‍💻';
+    const expected = 'Labcd\t中\nr\ns\n👩‍💻R';
+    await press(ui.stdin, '\u001b[D');
+    await press(ui.stdin, `\u001b[200~${pasted}\u001b[201~`);
+    assert.deepEqual(changes.at(-1), [expected, expected.length - 1]);
+    assert.deepEqual(ui.lastFrame()?.split('\n').slice(0, 4), [
+      'Labcd   中',
+      'r',
+      's',
+      '👩‍💻R',
+    ]);
+    await press(ui.stdin, 'X');
+    assert.deepEqual(changes.at(-1), [
+      'Labcd\t中\nr\ns\n👩‍💻XR',
+      expected.length,
+    ]);
+    await press(ui.stdin, '\u001b[13u');
+    assert.deepEqual(sent, ['Labcd\t中\nr\ns\n👩‍💻XR']);
   } finally {
     await unmount(ui);
   }
@@ -446,7 +513,6 @@ await test('Cmd and Option keys edit by line and word as Ghostty sends them, and
     sent.push(value);
     return true;
   };
-  /** pastes `text`, writes each read on its own, then submits */
   const submit = async (
     ui: Awaited<ReturnType<typeof mount>>,
     text: string,
@@ -549,21 +615,20 @@ await test('Cmd+Delete clears one wrapped row a press, then joins the line to th
   }
 });
 
-await test('Cmd+Delete with the cursor inside a pasted C1 sequence deletes to the row start', async () => {
+await test('Cmd+Delete with the cursor inside a restored C1 sequence deletes to the row start', async () => {
   const values: string[] = [];
   const ui = await mount(
     createElement(Input, {
       width: 10,
       height: 4,
       active: true,
+      initialValue: 'ab\u009b31m\nx',
       onChange: (value) => values.push(value),
       onSubmit: () => true,
     }),
   );
   try {
-    // Ghostty's paste filter keeps U+009B, a one-character CSI the display drops along with `31m`. five ← put the
-    // cursor between the two, on a line that gets no cursor cell, so it sits past every drawn row
-    await press(ui.stdin, '\u001b[200~ab\u009b31m\nx\u001b[201~');
+    // after U+009B on this nonfinal line, the cursor sits past every drawn row
     for (const data of [...Array<string>(5).fill('\u001b[D'), ...CMD_DELETE])
       await press(ui.stdin, data);
     assert.equal(values.at(-1), '31m\nx');
@@ -572,26 +637,25 @@ await test('Cmd+Delete with the cursor inside a pasted C1 sequence deletes to th
   }
 });
 
-await test('Cmd+← and Cmd+Delete inside a pasted C1 sequence never pass the cursor', async () => {
+await test('Cmd+← and Cmd+Delete inside a restored C1 sequence never pass the cursor', async () => {
   const changes: [string, number][] = [];
+  const value = 'abcd\u009b31mxyz';
   const ui = await mount(
     createElement(Input, {
       width: 4,
       height: 4,
       active: true,
+      initialValue: value,
       onChange: (value, cursor) => changes.push([value, cursor]),
       onSubmit: () => true,
     }),
   );
-  /** presses reads and gives the value and cursor then */
   const after = async (reads: readonly string[]) => {
     for (const data of reads) await press(ui.stdin, data);
     return changes.at(-1);
   };
   try {
     // with the cursor after U+009B, a prefix cut after `3` or `31` strips as a whole sequence and draws shorter
-    const value = 'abcd\u009b31mxyz';
-    await press(ui.stdin, `\u001b[200~${value}\u001b[201~`);
     assert.deepEqual(
       await after([...Array<string>(6).fill('\u001b[D'), ...CMD_LEFT]),
       [value, 5],
@@ -604,7 +668,6 @@ await test('Cmd+← and Cmd+Delete inside a pasted C1 sequence never pass the cu
 
 await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is drawn on', async () => {
   const mounted: { unmount: () => void }[] = [];
-  /** mounts an Input `width` cells wide with `text` pasted; `after` presses reads and gives the cursor then */
   const typed = async (width: number, text: string) => {
     const cursors: number[] = [];
     const ui = await mount(
@@ -692,7 +755,6 @@ await test('a shell prompt draws its ! apart from the text, keeps the cursor aft
       },
     }),
   );
-  /** pastes `text`, writes each read on its own, then submits */
   const submit = async (text: string, reads: string[]) => {
     await press(ui.stdin, `\u001b[200~${text}\u001b[201~`);
     for (const data of reads) await press(ui.stdin, data);
