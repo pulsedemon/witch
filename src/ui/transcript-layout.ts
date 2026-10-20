@@ -126,9 +126,9 @@ function build(
       ? diffRows(item.diff, width, item.cwd)
       : [];
   const head = section(title, width, true, 0);
-  // concat, since spreading a long log into push() exceeds the argument limit
   const rendered = body ? section(body, width, false, head.next) : undefined;
   const next = rendered?.next ?? head.next;
+  // concat, since spreading a long log into push() exceeds the argument limit
   const lines = head.lines.concat(
     rendered?.lines ?? [],
     diff.flat(),
@@ -137,17 +137,12 @@ function build(
   );
   const anchors = head.anchors.concat(
     rendered?.anchors ?? [],
-    // a diff line's rows count from it, so a resize keeps the line, and copying breaks between them
-    diff.flatMap((rows, index) =>
-      rows.map((_, row) => ({ line: next + index, offset: row })),
-    ),
-    // keep each image's anchors together when a resize changes its row count
-    images.flatMap((rows, index) =>
-      rows.map((_, row) => ({
-        line: next + diff.length + index,
-        offset: row,
-      })),
-    ),
+    // row offsets preserve each diff line or image across resizes and separate copied diff rows
+    diff
+      .concat(images)
+      .flatMap((rows, index) =>
+        rows.map((_, row) => ({ line: next + index, offset: row })),
+      ),
     { line: next + diff.length + images.length, offset: 0 },
   );
   return {
