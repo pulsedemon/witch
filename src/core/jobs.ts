@@ -2,8 +2,17 @@ import { writeFileSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { z } from 'zod';
 import { ps } from '../persistence/process.js';
 import { quote } from '../shell.js';
+
+export const jobCheckpointSchema = z.object({
+  version: z.literal(1),
+  members: z.array(z.tuple([z.string(), z.number().int().positive()])),
+  excluded: z.array(z.string()),
+});
+
+export type JobCheckpoint = z.infer<typeof jobCheckpointSchema>;
 
 /** a process group one of the agents' commands, or a `!` command Witch runs, started. */
 export interface Job {
@@ -144,9 +153,12 @@ export class JobWatch {
       directory?: string;
       /** the listed processes whose environment holds the mark, from `ps` without it. */
       marked?: (pids: number[]) => Promise<number[]>;
+      resume?: JobCheckpoint;
     } = {},
   ) {
-    const { directory } = options;
+    const { directory, resume } = options;
+    this.members = new Map(resume?.members);
+    this.excluded = new Set(resume?.excluded);
     this.environment = directory ? { WITCH_JOBS: directory } : {};
     if (directory) {
       this.script = join(directory, 'env');
@@ -173,6 +185,16 @@ export class JobWatch {
   async tracked(): Promise<readonly Row[]> {
     if (this.polling) await this.polling;
     return this.poll();
+  }
+
+  /** preserves hidden ordinary members and historical exclusions for the next watcher's identity checks. */
+  async checkpoint(): Promise<JobCheckpoint> {
+    await this.tracked();
+    return {
+      version: 1,
+      members: [...this.members],
+      excluded: [...this.excluded],
+    };
   }
 
   /** tracks a group Witch started itself from the next read, even once its leader has exited. */
