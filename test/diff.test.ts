@@ -12,6 +12,8 @@ const plainRows = (files: FileDiff[], width = 30) =>
   rows(files, width).map((row) => stripAnsi(row).trimEnd());
 const green = '\u001b[48;2;34;92;43m';
 const red = '\u001b[48;2;122;41;54m';
+const addedWord = '\u001b[48;2;56;166;96m';
+const removedWord = '\u001b[48;2;179;89;107m';
 
 await test('an edited file shows under a header counting its lines, each row numbered from its own side, added and removed rows padded on green and red, and hunks apart', () => {
   const files: FileDiff[] = [
@@ -407,8 +409,6 @@ await test("words a removed row and the added row at its place in the next run c
   );
   const row = (code: string) =>
     drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
-  const addedWord = '\u001b[48;2;56;166;96m';
-  const removedWord = '\u001b[48;2;179;89;107m';
   const count = (text: string, part: string) => text.split(part).length - 1;
   const removed = row('-const answer = one;');
   assert.ok(removed.includes(`${removedWord}one\u001b[49m`));
@@ -442,6 +442,105 @@ await test("words a removed row and the added row at its place in the next run c
       !row(code).includes(addedWord) && !row(code).includes(removedWord),
       code,
     );
+});
+
+await test('repeated shared tokens keep a pair at the inclusive edit cap colored, counting emoji tokens rather than their string lengths', () => {
+  const prefix = '+ '.repeat(250) + 'x'.repeat(1200) + ' ';
+  const before = '🧙'.repeat(200);
+  const after = '👻'.repeat(200);
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.zz',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: ['-' + prefix + before, '+' + prefix + after],
+          },
+        ],
+      },
+    ],
+    3000,
+  ).join('\n');
+  for (const [color, text] of [
+    [removedWord, before],
+    [addedWord, after],
+  ] as const) {
+    assert.ok(drawn.includes(`${color}${text}\u001b[49m`));
+    assert.equal(drawn.split(color).length - 1, 1);
+  }
+});
+
+await test('reordered tokens still receive word colors when their occurrence counts match', () => {
+  const prefix = 'x '.repeat(250);
+  const drawn = rows(
+    [
+      {
+        path: '/work/a.zz',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: ['-' + prefix + 'one two', '+' + prefix + 'two one'],
+          },
+        ],
+      },
+    ],
+    1000,
+  ).join('\n');
+  assert.ok(drawn.includes(`${removedWord}one \u001b[49m`));
+  assert.ok(drawn.includes(`${addedWord} one\u001b[49m`));
+});
+
+await test('unrelated large diff lines draw within twice the cost of equally sized colorable lines', () => {
+  const before = Array.from({ length: 1000 }, (_, index) => `old${index}`).join(
+    ' ',
+  );
+  const unrelated = Array.from(
+    { length: 1000 },
+    (_, index) => `new${index}`,
+  ).join(' ');
+  const files = (after: string): FileDiff[] => [
+    {
+      path: '/work/a.zz',
+      kind: 'update',
+      hunks: [
+        {
+          oldStart: 1,
+          newStart: 1,
+          lines: [
+            ...Array<string>(100).fill('-' + before),
+            ...Array<string>(100).fill('+' + after),
+          ],
+        },
+      ],
+    },
+  ];
+  const inputs = [files(unrelated), files(before.replace('old500', 'new500'))];
+  const elapsed: number[][] = [[], []];
+  for (let run = 0; run < 4; run++) {
+    for (const index of run % 2 ? [1, 0] : [0, 1]) {
+      const start = performance.now();
+      const drawn = rows(inputs[index]!, 100);
+      if (run) elapsed[index]!.push(performance.now() - start);
+      assert.equal(
+        drawn.filter((row) => row.includes(addedWord)).length,
+        index ? 100 : 0,
+      );
+      assert.equal(
+        drawn.filter((row) => row.includes(removedWord)).length,
+        index ? 100 : 0,
+      );
+    }
+  }
+  const medians = elapsed.map((samples) => samples.sort((a, b) => a - b)[1]!);
+  assert.ok(
+    medians[0]! < medians[1]! * 2,
+    `${medians[0]} ms unrelated, ${medians[1]} ms colorable`,
+  );
 });
 
 await test("a long line past the highlighting budget draws plain while shorter lines keep their colors, the budget adds up across a file's hunks, counts a line's indent and starts again in the next file, and a pair needing over 400 token edits gets no word colors, so long lines draw quickly", () => {
