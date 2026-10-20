@@ -665,6 +665,21 @@ await test("a merged branch's config section that can't be removed is named, and
   );
 });
 
+await test('a switch whose post-checkout hook fails after moving the checkout still finishes the cleanup', async () => {
+  const { checkout, other, tip } = await merged();
+  await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
+  await merge(other, 'feat/x');
+  const hooks = join(checkout, '.git/hooks');
+  await git(checkout, 'config', 'core.hooksPath', hooks);
+  await write(join(hooks, 'post-checkout'), '#!/bin/sh\nexit 1\n');
+  await execute('chmod', ['+x', join(hooks, 'post-checkout')]);
+  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip)), {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md.',
+    cleaned: true,
+  });
+  assert.deepEqual(await branches(checkout), ['main']);
+});
+
 await test('a base that tracks another remote is brought up to date from it', async () => {
   const { root, origin, checkout, tip } = await merged();
   const upstream = join(root, 'upstream.git');
