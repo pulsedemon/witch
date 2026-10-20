@@ -68,6 +68,7 @@ const fileResult = z.object({
   filePath: z.string(),
   type: z.enum(['create', 'update']).optional(),
   content: z.string().optional(),
+  oldString: z.string().optional(),
   staged: z.boolean().optional(),
   structuredPatch: z.array(
     z.object({
@@ -82,13 +83,19 @@ const fileResult = z.object({
 function reportedDiff(report: unknown, cwd: string): FileDiff[] | undefined {
   const parsed = fileResult.safeParse(report);
   if (!parsed.success || parsed.data.staged) return undefined;
-  const { filePath, type, content, structuredPatch } = parsed.data;
+  const { filePath, type, content, oldString, structuredPatch } = parsed.data;
   const path = filePath.startsWith('~/')
     ? resolve(homedir(), filePath.slice(2))
     : resolve(cwd, filePath);
   if (type === 'create') return [wholeFile(path, 'add', content ?? '')];
   return structuredPatch.length
-    ? [{ path, kind: 'update', hunks: structuredPatch }]
+    ? [
+        {
+          path,
+          kind: oldString === '' ? 'add' : 'update',
+          hunks: structuredPatch,
+        },
+      ]
     : undefined;
 }
 
