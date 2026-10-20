@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import type { Snapshot } from '../src/core/coordinator.js';
+import { runCommand } from '../src/core/command.js';
 import {
   cleanUpMerge,
   refreshInstall,
@@ -1297,6 +1298,31 @@ await test("a failed rebuild names the install and keeps tsc's errors", async ()
   await assert.rejects(refreshInstall(install, 'main', run), {
     message: `Witch's checkout at ${install} wasn't rebuilt: Command failed: pnpm build\nsrc/a.ts(1,7): error TS2322: Type 'number' is not assignable to type 'string'.`,
   });
+  await assert.rejects(
+    refreshInstall(install, 'main', (_, args, options) =>
+      args[0] === 'build'
+        ? runCommand(
+            process.execPath,
+            [
+              '-e',
+              "process.stdout.write('build stdout'); process.stderr.write('build stderr'); setTimeout(() => process.exit(29), 10000)",
+            ],
+            { ...options, timeout: 1500 },
+          )
+        : Promise.resolve({ stdout: '' }),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.ok(
+        error.message.startsWith(
+          `Witch's checkout at ${install} wasn't rebuilt: Timed out after 1500 ms: Command failed:`,
+        ),
+      );
+      assert.match(error.message, /build stderr\nbuild stdout$/);
+      assert.equal((error.cause as { killed: boolean }).killed, true);
+      return true;
+    },
+  );
   const head = await git(origin, 'rev-parse', 'main');
   const calls: string[][] = [];
   assert.equal(
