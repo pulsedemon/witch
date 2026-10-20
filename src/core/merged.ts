@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import { open, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -83,23 +84,28 @@ const list = (items: string[]) =>
 // macOS O_EXLOCK, which Node doesn't export.
 const exclusiveLock = 0x20;
 
+/** skips a checkout another Witch is updating; locking the git directory leaves no file behind. */
+async function lockCheckout(cwd: string): Promise<FileHandle | undefined> {
+  return open(
+    await git(cwd, 'rev-parse', '--absolute-git-dir'),
+    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+  ).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
+    return undefined;
+  });
+}
+
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base, deletes the branch and its
  * gitignored plans with their gitignored ledgers, brings the base up to date, and deletes the other merged branches
  * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing
- * when the checkout left the branch or changed, or another Witch is cleaning it up.
+ * when the checkout left the branch or changed, or another Witch is updating it.
  */
 export async function cleanUpMerge(
   cwd: string,
   pullRequest: PullRequest,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
-  // a lock on the git directory itself leaves no file behind
-  const lock = await open(
-    await git(cwd, 'rev-parse', '--absolute-git-dir'),
-    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
-  ).catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
-  });
+  const lock = await lockCheckout(cwd);
   if (!lock) return undefined;
   try {
     return await clean(cwd, pullRequest);
@@ -399,7 +405,8 @@ async function removePlans(
 
 /**
  * pulls and rebuilds the checkout Witch runs from when it sits clean on `base`, the branch a pull request merged
- * into. running instances keep their code until they restart. returns a sentence saying what it did.
+ * into. holds the checkout lock through the refresh, or skips it with a notice when busy. running instances keep
+ * their code until they restart. returns a sentence saying what it did.
  */
 export async function refreshInstall(
   root: string,
@@ -418,25 +425,32 @@ export async function refreshInstall(
       { cause: error },
     );
   };
-  await fetchRemote(root).catch(failed);
-  // after the fetch, so a switch or an edit made during it isn't pulled and built
-  const status = await read(root).catch(failed);
-  if (status.branch !== base || changed(status))
-    return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
-  // a pull would overwrite an ignored file the incoming commits start tracking
-  await git(
-    root,
-    'merge',
-    '--ff-only',
-    '--no-overwrite-ignore',
-    '@{upstream}',
-  ).catch(failed);
-  await run('pnpm', ['install', '--frozen-lockfile'], {
-    cwd: root,
-    timeout: 300_000,
-  }).catch(failed);
-  await run('pnpm', ['build'], { cwd: root, timeout: 300_000 }).catch(failed);
-  return `Rebuilt Witch at ${await git(root, 'rev-parse', '--short', 'HEAD')}, for its next start.`;
+  const lock = await lockCheckout(root).catch(failed);
+  if (!lock)
+    return `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`;
+  try {
+    await fetchRemote(root).catch(failed);
+    // after the fetch, so a switch or an edit made during it isn't pulled and built
+    const status = await read(root).catch(failed);
+    if (status.branch !== base || changed(status))
+      return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
+    // a pull would overwrite an ignored file the incoming commits start tracking
+    await git(
+      root,
+      'merge',
+      '--ff-only',
+      '--no-overwrite-ignore',
+      '@{upstream}',
+    ).catch(failed);
+    await run('pnpm', ['install', '--frozen-lockfile'], {
+      cwd: root,
+      timeout: 300_000,
+    }).catch(failed);
+    await run('pnpm', ['build'], { cwd: root, timeout: 300_000 }).catch(failed);
+    return `Rebuilt Witch at ${await git(root, 'rev-parse', '--short', 'HEAD')}, for its next start.`;
+  } finally {
+    await lock.close();
+  }
 }
 
 /**
