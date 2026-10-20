@@ -36,6 +36,9 @@ async function run(args: readonly string[] | string) {
     stderr += chunk.toString();
   });
   const [code] = await once(child, 'close');
+  for (const output of [stdout, stderr])
+    for (const marker of ['\u001b]2;', '\u001b]777;', '\u0007'])
+      assert.equal(output.includes(marker), false);
   return { code, stdout, stderr, files: await readdir(directory) };
 }
 
