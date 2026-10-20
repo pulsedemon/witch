@@ -630,6 +630,38 @@ await test('a wrapped title row the wrap changed beyond trimming joins the rows 
   }
 });
 
+await test('a wrapped title can be scrolled to and selected from its first row', async () => {
+  const { app } = fake({
+    items: [
+      {
+        id: 'tool',
+        kind: 'tool',
+        title: `${'a'.repeat(53)} \u00a0\u200b ${'b'.repeat(55)} tail`,
+        text: '',
+        cwd: '/work',
+        done: true,
+      },
+      long,
+    ],
+  });
+  const { ui, copied } = mounted(app);
+  try {
+    await until('the transcript', () => ui.text().includes('row 300'));
+    ui.stdin.write(wheelUp.repeat(400));
+    await until('the title reached', () => ui.text().includes('tail'));
+    assert.equal(ui.text().split('\n')[1]?.trim(), `+ ✓ ${'a'.repeat(53)}`);
+    drag(ui, [1, 1], [4, 3]);
+    await until('the first title row highlighted', () =>
+      ui.frame().includes('\u001b[7m+ ✓ a'),
+    );
+    ui.stdin.write(CMD_C);
+    await until('the copied title', () => copied.length > 0);
+    assert.deepEqual(copied, [`+ ✓ ${'a'.repeat(53)} ${'b'.repeat(55)} tail`]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('a drag past the last transcript row or its right edge selects to the end without wrapping a row', async () => {
   const { app } = fake({
     items: [

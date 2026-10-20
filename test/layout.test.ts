@@ -174,6 +174,26 @@ await test('a reading anchor includes spaces trimmed while wrapping a title', ()
   assert.match(stripAnsi(wide.lines[wide.rowOf(anchor)]!), /^word009/);
 });
 
+await test('a title row changed by wrapping does not take another row’s anchor', () => {
+  const item: DisplayItem = {
+    id: 'tool',
+    kind: 'tool',
+    title: `${'a'.repeat(53)} \u00a0\u200b ${'b'.repeat(55)} tail`,
+    text: '',
+    cwd: '/work',
+    done: true,
+  };
+  const output = new TranscriptLayout().render([item], 58, new Map());
+  assert.deepEqual(
+    output.lines.map((line) => stripAnsi(line)),
+    [`+ ✓ ${'a'.repeat(53)}`, `\u200b${'b'.repeat(55)}`, 'tail', ''],
+  );
+  assert.deepEqual(
+    [0, 1, 2, 3].map((row) => output.rowOf(output.anchorAt(row)!)),
+    [0, 1, 2, 3],
+  );
+});
+
 await test('anchors keep item boundaries and wrapped offsets in their own render frame', () => {
   const items: DisplayItem[] = [
     { id: 'first', kind: 'notice', text: 'first', cwd: '/work' },
