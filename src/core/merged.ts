@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { readFile, readdir, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { errorMessage } from '../agents/stderr.js';
@@ -79,13 +80,35 @@ const list = (items: string[]) =>
     ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
     : items[0]!;
 
+// macOS O_EXLOCK, which Node doesn't export.
+const exclusiveLock = 0x20;
+
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base, deletes the branch and its
  * gitignored plans with their gitignored ledgers, brings the base up to date, and deletes the other merged branches
  * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing
- * when the checkout left the branch or changed.
+ * when the checkout left the branch or changed, or another Witch is cleaning it up.
  */
 export async function cleanUpMerge(
+  cwd: string,
+  pullRequest: PullRequest,
+): Promise<{ text: string; cleaned: boolean } | undefined> {
+  // a lock on the git directory itself leaves no file behind
+  const lock = await open(
+    await git(cwd, 'rev-parse', '--absolute-git-dir'),
+    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+  ).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
+  });
+  if (!lock) return undefined;
+  try {
+    return await clean(cwd, pullRequest);
+  } finally {
+    await lock.close();
+  }
+}
+
+async function clean(
   cwd: string,
   pullRequest: PullRequest,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
@@ -367,8 +390,8 @@ export async function refreshInstall(
 /**
  * cleans up after the merged pull request whose branch the checkout sits on, once nothing staged, modified or
  * conflicted would block it and the conversation is idle with no error or queue on screen. a cleanup that acted,
- * kept the branch or failed isn't tried again; one that found the checkout changed, or another Witch's turn with its
- * agent running in its directory, waits for the next status change.
+ * kept the branch or failed isn't tried again; one that found the checkout changed, another Witch's cleanup, or
+ * another Witch's turn with its agent running in its directory, waits for the next status change.
  */
 export function watchMerges(
   repository: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>,
