@@ -26,6 +26,7 @@ import { Graphics } from './ui/images.js';
 import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
 import type { Cell, Pointer } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
+import { watchTerminal } from './ui/terminal.js';
 
 const defaultState = join(homedir(), '.witch');
 // a built Witch rebuilds the checkout it runs from; Node resolves the bin symlink to the real path
@@ -89,7 +90,15 @@ if (control) {
   process.stdout.write(usage);
 } else {
   const prompt = positionals.join(' ');
-  const restore = () => process.stdout.write(releaseMouse);
+  let stopTerminal: (() => void) | undefined;
+  const restore = () => {
+    process.stdout.write(releaseMouse);
+    if (stopTerminal) {
+      stopTerminal();
+      stopTerminal = undefined;
+      process.stdout.write('\u001b]2;\u001b\\');
+    }
+  };
   // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
   // can't hold mouse reporting on
   process.once('exit', restore);
@@ -132,6 +141,7 @@ if (control) {
   let shuttingDown = false;
   let shutdownComplete = false;
   const shutdown = () => {
+    stopTerminal?.();
     // a second request quits without waiting for a stuck agent
     if (shuttingDown) {
       unmount();
@@ -215,6 +225,9 @@ if (control) {
   // command before anything awaits
   process.on('SIGHUP', shutdown);
   process.stdout.on('error', shutdown);
+  stopTerminal = watchTerminal(coordinator, coordination, (data) =>
+    process.stdout.write(data),
+  );
   void coordinator
     .initialize(process.cwd(), {
       continue: values.continue,

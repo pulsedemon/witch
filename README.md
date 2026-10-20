@@ -22,6 +22,10 @@ Flags and the state default are in `witch --help`. Use `/help` for keyboard cont
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 
+Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns the timing and title selection.
+
+Ghostty controls banners, sound and dock attention. It suppresses notifications for its focused tab in the active window; macOS notification permission and Focus settings also apply. Its shared rate limit can suppress a completion notification when several tabs notify together. Manual tab titles can override Witch's title, and notification forwarding through tmux is not guaranteed.
+
 Keep the memory repository local or back it up yourself; the app never pushes it. Conversations retain native session IDs, so native session storage must remain available for resume.
 
 The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md).
