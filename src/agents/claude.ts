@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -77,12 +78,14 @@ const fileResult = z.object({
   ),
 });
 
-/** the change an Edit or Write result reports, at the path the model wrote, resolved against `cwd`. A staged result, held for review, changed nothing yet. */
+/** a staged result is held for review and has not changed the file. */
 function reportedDiff(report: unknown, cwd: string): FileDiff[] | undefined {
   const parsed = fileResult.safeParse(report);
   if (!parsed.success || parsed.data.staged) return undefined;
   const { filePath, type, content, structuredPatch } = parsed.data;
-  const path = resolve(cwd, filePath);
+  const path = filePath.startsWith('~/')
+    ? resolve(homedir(), filePath.slice(2))
+    : resolve(cwd, filePath);
   if (type === 'create') return [wholeFile(path, 'add', content ?? '')];
   return structuredPatch.length
     ? [{ path, kind: 'update', hunks: structuredPatch }]
