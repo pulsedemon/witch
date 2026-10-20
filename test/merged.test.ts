@@ -703,6 +703,29 @@ await test('a base and a merged branch named like options are switched to and de
   assert.deepEqual(await branches(checkout), ['-base', 'main']);
 });
 
+await test("another merged branch's config section that branch -d leaves is named", async () => {
+  const { checkout, other, tip } = await merged();
+  await git(checkout, 'switch', '-c', 'feat/old', 'main');
+  await git(checkout, 'commit', '--allow-empty', '-m', 'old');
+  await git(checkout, 'push', '-u', 'origin', 'feat/old');
+  await merge(other, 'feat/old');
+  await git(checkout, 'switch', 'feat/x');
+  await merge(other, 'feat/x');
+  // runs after the fast-forward, so only the other branches meet the locked config
+  const hooks = join(checkout, '.git/hooks');
+  await git(checkout, 'config', 'core.hooksPath', hooks);
+  await write(
+    join(hooks, 'post-merge'),
+    `#!/bin/sh\ntouch '${join(checkout, '.git/config.lock')}'\n`,
+  );
+  await execute('chmod', ['+x', join(hooks, 'post-merge')]);
+  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip)), {
+    text: '#7 merged: switched to main and pulled, deleted branches feat/x and feat/old, but config section branch.feat/old stayed.',
+    cleaned: true,
+  });
+  assert.deepEqual(await branches(checkout), ['main']);
+});
+
 await test('a base that tracks another remote is brought up to date from it', async () => {
   const { root, origin, checkout, tip } = await merged();
   const upstream = join(root, 'upstream.git');
