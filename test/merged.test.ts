@@ -428,6 +428,21 @@ await test("a dangling plan link stays quietly, a plan that can't be read or go 
   }
 });
 
+await test('a plan whose ignore check fails stays, and is named', async () => {
+  const { root, checkout, other, tip } = await merged();
+  // git won't check a path beyond a symbolic link
+  const outside = join(root, 'outside');
+  await write(join(outside, 'x.md'), '`git switch -c feat/x`\n');
+  await mkdir(join(checkout, 'docs/superpowers'), { recursive: true });
+  await symlink(outside, plans(checkout));
+  await merge(other, 'feat/x');
+  assert.match(
+    (await cleanUpMerge(checkout, pullRequest(tip)))?.text ?? '',
+    /^#7 merged: switched to main and pulled, deleted branch feat\/x, but plan x\.md stayed: Command failed: git check-ignore .*beyond a symbolic link\.$/s,
+  );
+  assert.deepEqual(await readdir(outside), ['x.md']);
+});
+
 await test('a ledger the repository tracks stays when its plan goes', async () => {
   const { checkout, other, tip } = await merged({
     '.gitignore': 'docs/superpowers/\n',
