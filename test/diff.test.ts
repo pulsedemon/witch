@@ -517,3 +517,26 @@ await test("a long line past the highlighting budget draws plain while shorter l
   ]);
   assert.ok(!paired.some((row) => row.includes('\u001b[48;2;56;166;96m')));
 });
+
+await test('an html line opening many script tags draws quickly, and script content colors as JavaScript', () => {
+  const started = performance.now();
+  const drawn = rows([
+    {
+      path: '/work/a.html',
+      kind: 'update',
+      hunks: [
+        {
+          oldStart: 1,
+          newStart: 1,
+          lines: [
+            '+' + '<script>'.repeat(20),
+            '+<script>const a = 1;</script>',
+          ],
+        },
+      ],
+    },
+  ]);
+  // reading each tag's content as xml again takes seconds
+  assert.ok(performance.now() - started < 500);
+  assert.ok(drawn.some((row) => row.includes('\u001b[38;2;102;217;239mconst')));
+});
