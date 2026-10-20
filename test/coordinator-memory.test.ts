@@ -31,7 +31,7 @@ await test('a fresh conversation receives committed memory without a handoff', a
     );
     assert.match(
       b.inputs.at(-1)!.prompt,
-      /preserves this directory across \/restart and may defer cleanup/,
+      /preserves this directory across \/restart and only considers it for cleanup after a later macOS boot/,
     );
     assert.equal(a.inputs.length, 1);
   } finally {
