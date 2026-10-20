@@ -8,6 +8,10 @@ export interface PullRequest {
   number: number;
   url: string;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
+  /** the branch it merges, that branch's last commit, and the branch it merges into. */
+  branch: string;
+  commit: string;
+  base: string;
   /** an open pull request's checks, pending while it has none. */
   checks?: 'passing' | 'failing' | 'pending';
 }
@@ -56,6 +60,9 @@ const pullRequestView = z.object({
   number: z.number(),
   url: z.string(),
   state: z.enum(['OPEN', 'MERGED', 'CLOSED']),
+  headRefName: z.string(),
+  headRefOid: z.string(),
+  baseRefName: z.string(),
   statusCheckRollup: z
     .array(
       z.union([
@@ -70,12 +77,26 @@ const pullRequestView = z.object({
     .nullish(),
 });
 
-/** reads `gh pr view --json number,state,statusCheckRollup,url`. */
+/** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName`. */
 export function parsePullRequest(json: string): PullRequest {
-  const { number, url, state, statusCheckRollup } = pullRequestView.parse(
-    JSON.parse(json),
-  );
-  if (state !== 'OPEN') return { number, url, state };
+  const {
+    number,
+    url,
+    state,
+    headRefName,
+    headRefOid,
+    baseRefName,
+    statusCheckRollup,
+  } = pullRequestView.parse(JSON.parse(json));
+  const pullRequest = {
+    number,
+    url,
+    state,
+    branch: headRefName,
+    commit: headRefOid,
+    base: baseRefName,
+  };
+  if (state !== 'OPEN') return pullRequest;
   const checks = statusCheckRollup ?? [];
   const failing = checks.some((check) =>
     check.__typename === 'CheckRun'
@@ -89,9 +110,7 @@ export function parsePullRequest(json: string): PullRequest {
       : ['PENDING', 'EXPECTED'].includes(check.state),
   );
   return {
-    number,
-    url,
-    state,
+    ...pullRequest,
     checks:
       !checks.length || (!failing && pending)
         ? 'pending'
@@ -101,7 +120,7 @@ export function parsePullRequest(json: string): PullRequest {
   };
 }
 
-type Run = (
+export type Run = (
   command: string,
   args: string[],
   options: { cwd: string; timeout: number },
@@ -175,7 +194,12 @@ export class RepositoryWatch {
     try {
       const { stdout } = await this.run(
         'gh',
-        ['pr', 'view', '--json', 'number,state,statusCheckRollup,url'],
+        [
+          'pr',
+          'view',
+          '--json',
+          'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName',
+        ],
         { cwd: this.cwd, timeout: 30_000 },
       );
       value = parsePullRequest(stdout);

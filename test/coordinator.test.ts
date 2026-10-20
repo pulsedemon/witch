@@ -11,6 +11,7 @@ import {
   symlink,
   utimes,
 } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -20,7 +21,9 @@ import type {
   FileDiff,
   Subagent,
 } from '../src/agents/types.js';
-import { Coordinator } from '../src/core/coordinator.js';
+import { Coordinator, editorEnvironment } from '../src/core/coordinator.js';
+import { watchMerges } from '../src/core/merged.js';
+import type { PullRequest, Repository } from '../src/core/repository.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory, main } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';
@@ -141,6 +144,9 @@ await test('a fresh conversation receives committed memory without a handoff', a
     await coordinator.send('Which port should this project use?');
     assert.match(b.inputs.at(-1)!.prompt, /Use port 4567/);
     assert.doesNotMatch(b.inputs.at(-1)!.prompt, /Pending task context/);
+    assert.ok(
+      b.inputs.at(-1)!.prompt.includes(`Put scratch files under ${tmpdir()}`),
+    );
     assert.equal(a.inputs.length, 1);
   } finally {
     await coordinator.close();
@@ -3456,4 +3462,268 @@ await test('commands that need idle say familiars or workflows hold the turn, an
     gate.open();
     await coordinator.close();
   }
+});
+
+const gitIn = async (cwd: string, ...args: string[]) =>
+  (
+    await promisify(execFile)(
+      'git',
+      [
+        '-c',
+        'init.defaultBranch=main',
+        '-c',
+        'user.name=t',
+        '-c',
+        'user.email=t@t',
+        ...args,
+      ],
+      { cwd },
+    )
+  ).stdout.trim();
+
+const mergedPullRequest = (commit: string): PullRequest => ({
+  number: 7,
+  url: 'https://x.test/7',
+  state: 'MERGED',
+  branch: 'feat/x',
+  commit,
+  base: 'main',
+});
+
+const kept =
+  "#7 merged, but feat/x's last commit isn't the one it merged, so it stays.";
+
+const notices = (coordinator: Coordinator) =>
+  coordinator.snapshot.items
+    .filter((item) => item.kind === 'notice')
+    .map((item) => item.text);
+
+await test('a merge cleanup holds the phase, a prompt sent during it runs after it, and its notice says what it did', async () => {
+  const { coordinator, a, project } = await fixture();
+  try {
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    let queued = false;
+    let sent: Promise<void> | undefined;
+    coordinator.subscribe(() => {
+      if (coordinator.snapshot.phase !== 'cleaning') return;
+      sent ??= coordinator.send('After');
+      if (coordinator.snapshot.queue.includes('After')) queued = true;
+    });
+    const acted = await coordinator.cleanUpMerge(
+      mergedPullRequest('0'.repeat(40)),
+      project,
+    );
+    assert.equal(acted, true);
+    assert.ok(queued);
+    await sent;
+    await until('the queued prompt', () =>
+      turns(a).some(([prompt]) => prompt === 'After'),
+    );
+    assert.deepEqual(notices(coordinator), [kept]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a turn that ends with a prompt queued runs that prompt before the merge cleanup', async () => {
+  const { coordinator, a, project } = await fixture();
+  await gitIn(project, 'init', '-q', '-b', 'feat/x');
+  await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+  const gate = new TurnGate();
+  const repository = {
+    snapshot: {
+      branch: 'feat/x',
+      ahead: 0,
+      behind: 0,
+      staged: 0,
+      modified: 0,
+      conflicts: 0,
+      untracked: 0,
+      pullRequest: mergedPullRequest('0'.repeat(40)),
+    } as Repository,
+    subscribe: () => () => {},
+  };
+  let stop = () => {};
+  try {
+    a.gate = gate;
+    a.refuseSteer = true;
+    const sending = coordinator.send('first');
+    await within(gate.entered, 2000, 'the gated turn');
+    stop = watchMerges(repository, coordinator);
+    await coordinator.send('second');
+    gate.open();
+    await within(sending, 2000, 'the queued turn');
+    await until('the notice', () => notices(coordinator).length > 0);
+    assert.deepEqual(turns(a), [
+      ['first', undefined],
+      ['second', undefined],
+    ]);
+    const texts = coordinator.snapshot.items.map((item) => item.text);
+    assert.ok(texts.indexOf(kept) > texts.indexOf('second'));
+  } finally {
+    stop();
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+await test("a merge cleanup waits for another Witch's turn in its directory, but not for one whose agent has exited or isn't recorded, or one elsewhere", async () => {
+  const { coordinator, store, memory, project } = await fixture();
+  const agent = new FixtureAgent('a');
+  const other = new Coordinator(store, memory, [
+    { adapter: agent, executable: 'a' },
+  ]);
+  const gate = new TurnGate();
+  const left: ConversationStore[] = [];
+  try {
+    await other.initialize(project);
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    agent.gate = gate;
+    const sending = other.send('Start');
+    await within(gate.entered, 2000, 'the other turn');
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      false,
+    );
+    assert.deepEqual(notices(coordinator), []);
+    gate.open();
+    await within(sending, 2000, 'the other turn');
+    // a turn whose agent has exited, one whose agent isn't recorded, as before a live Witch's agent starts, and a live
+    // agent's turn in another directory
+    for (const [cwd, owner] of [
+      [project, { pid: 1, started: 'never' }],
+      [project, undefined],
+      [join(project, '..'), (await identifyProcess(process.pid))!],
+    ] as const) {
+      const files = await store.create(record(randomUUID(), cwd));
+      left.push(files);
+      files.record.activity = activity();
+      files.record.process = owner;
+      await files.save(files.record);
+    }
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      true,
+    );
+    assert.deepEqual(notices(coordinator), [kept]);
+  } finally {
+    gate.open();
+    for (const files of left) await files.close();
+    await other.close();
+    await coordinator.close();
+  }
+});
+
+await test("a merge cleanup waits while a conversation record can't be read", async () => {
+  const { coordinator, store, project } = await fixture();
+  try {
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    const broken = join(store.root, 'conversations', randomUUID());
+    await mkdir(broken);
+    await writeFile(join(broken, 'state.json'), '{');
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      false,
+    );
+    assert.deepEqual(notices(coordinator), []);
+    await rm(broken, { recursive: true });
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      true,
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a merge cleanup leaves a checkout that changed alone, and says nothing', async () => {
+  const { coordinator, project } = await fixture();
+  try {
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await writeFile(join(project, 'a.txt'), 'a\n');
+    await gitIn(project, 'add', '.');
+    await gitIn(project, 'commit', '-q', '-m', 'one');
+    await writeFile(join(project, 'a.txt'), 'b\n');
+    assert.equal(
+      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      false,
+    );
+    assert.deepEqual(notices(coordinator), []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, a cleanup with no install still acts, and a failed rebuild keeps the cleanup's notice", async () => {
+  for (const variant of ['b', 'a', 'diverged', 'none'] as const) {
+    const { coordinator, root, project } = await fixture();
+    try {
+      const a = join(root, 'a.git');
+      await gitIn(root, 'init', '-q', '--bare', a);
+      await gitIn(root, 'clone', '-q', a, project);
+      await writeFile(join(project, 'a.txt'), 'a\n');
+      await gitIn(project, 'add', '.');
+      await gitIn(project, 'commit', '-q', '-m', 'base');
+      await gitIn(project, 'push', '-q', '-u', 'origin', 'main');
+      await gitIn(project, 'switch', '-q', '-c', 'feat/x');
+      await writeFile(join(project, 'x.txt'), 'x\n');
+      await gitIn(project, 'add', '.');
+      await gitIn(project, 'commit', '-q', '-m', 'x');
+      await gitIn(project, 'push', '-q', '-u', 'origin', 'feat/x');
+      const tip = await gitIn(project, 'rev-parse', 'HEAD');
+      const merger = join(root, 'merger');
+      await gitIn(root, 'clone', '-q', a, merger);
+      await gitIn(merger, 'merge', '-q', '--no-ff', 'origin/feat/x');
+      await gitIn(merger, 'push', '-q');
+      await gitIn(merger, 'push', '-q', 'origin', '--delete', 'feat/x');
+      const install = join(root, 'install');
+      if (variant === 'b') {
+        const b = join(root, 'b.git');
+        await gitIn(root, 'init', '-q', '--bare', b);
+        await gitIn(root, 'clone', '-q', b, install);
+      } else if (variant !== 'none') {
+        await gitIn(root, 'clone', '-q', a, install);
+        if (variant === 'a')
+          await gitIn(install, 'switch', '-q', '-c', 'elsewhere');
+        else {
+          // a commit the merge doesn't have, so the install can't fast-forward
+          await gitIn(install, 'reset', '-q', '--hard', 'HEAD~1');
+          await gitIn(install, 'commit', '-q', '--allow-empty', '-m', 'local');
+        }
+      }
+      const cleanup = coordinator.cleanUpMerge(
+        mergedPullRequest(tip),
+        variant === 'none' ? undefined : install,
+      );
+      if (variant === 'diverged') await assert.rejects(cleanup);
+      else assert.equal(await cleanup, true);
+      const cleaned =
+        '#7 merged: switched to main and pulled, deleted branch feat/x.';
+      assert.deepEqual(
+        notices(coordinator),
+        variant !== 'a'
+          ? [cleaned]
+          : [
+              cleaned,
+              `Witch's checkout at ${install} isn't clean on main, so it wasn't rebuilt.`,
+            ],
+      );
+    } finally {
+      await coordinator.close();
+    }
+  }
+});
+
+await test("the editor's environment drops TMPDIR and passes Node options under VS Code's names", () => {
+  const environment = editorEnvironment({
+    PATH: '/bin',
+    TMPDIR: '/scratch',
+    NODE_OPTIONS: '--import tsx',
+  });
+  assert.equal(environment.TMPDIR, undefined);
+  assert.equal(environment.VSCODE_NODE_OPTIONS, '--import tsx');
+  assert.equal(environment.PATH, '/bin');
 });

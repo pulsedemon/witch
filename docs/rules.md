@@ -9,6 +9,7 @@ Use TypeScript, pnpm, React and Ink in one package. Use strict types, direct imp
 ## Ownership
 
 - UI renders coordinator state and submits typed actions. It owns focus, scrolling and hyperlink rendering, not processes or Git. The status line's Git and pull request fields come from `RepositoryWatch` in [repository.ts](../src/core/repository.ts). `/jobs` lists and stops the process groups the agents' commands and Claude `!` commands start, including what a command leaves under launchd once its shell exits. `JobWatch` in [jobs.ts](../src/core/jobs.ts) tracks and signals them. The composer's ↑/↓ prompt history reads and appends through `StateStore` in [store.ts](../src/persistence/store.ts).
+- What follows a merge belongs to `watchMerges`, `cleanUpMerge` and `refreshInstall` in [merged.ts](../src/core/merged.ts) and `cleanUpMerge` in [coordinator.ts](../src/core/coordinator.ts), which say when and what goes. Moving a checkout never overwrites an uncommitted change or an ignored file. Each instance owns `jobs/<pid>` and `scratch/<pid>` in the state directory, removed when it exits or at a later launch. `scratch/<pid>` is the agents' `TMPDIR`.
 - Coordinator owns logical conversations, native session mappings, turn lifecycle and durable handoffs.
 - Adapters own native protocols, processes, permission requests and capabilities.
 - Memory owns scoped files, accepted revisions, Git commits, publishing and interrupted-write recovery.

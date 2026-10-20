@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
 import { errorMessage } from './agents/stderr.js';
 import { Coordinator } from './core/coordinator.js';
 import { JobWatch } from './core/jobs.js';
+import { watchMerges } from './core/merged.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
+import { instanceDirectory } from './persistence/instance.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
@@ -19,6 +21,10 @@ import type { Cell, Pointer } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
 
 const defaultState = join(homedir(), '.witch');
+// a built Witch rebuilds the checkout it runs from; Node resolves the bin symlink to the real path
+const install = import.meta.url.endsWith('/dist/cli.js')
+  ? dirname(dirname(fileURLToPath(import.meta.url)))
+  : undefined;
 const usage = `Usage: witch [options] [prompt...]
 
 Start a conversation in the current directory on the agent, model and effort
@@ -65,20 +71,16 @@ if (!store) {
   process.stdout.write(usage);
 } else {
   const prompt = positionals.join(' ');
-  // the pid keeps another live instance's mark from matching, so one already here is an earlier instance's
-  const directory = join(store.root, 'jobs', String(process.pid));
-  rmSync(directory, { recursive: true, force: true });
-  mkdirSync(directory, { recursive: true });
-  /**
-   * runs on every exit, including a second Ctrl+C's process.exit and a crash, and releases the mouse first so a
-   * removal that throws still leaves the terminal released.
-   */
-  const restore = () => {
-    process.stdout.write(releaseMouse);
-    rmSync(directory, { recursive: true, force: true });
-  };
+  const restore = () => process.stdout.write(releaseMouse);
+  // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
+  // can't hold mouse reporting on
   process.once('exit', restore);
-  const jobs = new JobWatch({ directory });
+  // the pid keeps another live instance's mark from matching
+  const jobs = new JobWatch({
+    directory: instanceDirectory(join(store.root, 'jobs')),
+  });
+  // agents and their commands inherit it, so their scratch goes when this instance does
+  process.env.TMPDIR = instanceDirectory(join(store.root, 'scratch'));
   const coordinator = new Coordinator(
     store,
     new Memory(join(store.root, 'memory.git')),
@@ -115,6 +117,7 @@ if (!store) {
     shutdown();
   };
   const repository = new RepositoryWatch(process.cwd());
+  const stopMerges = watchMerges(repository, coordinator, install);
   const screen = new Screen(process.stdout);
   const stdin = new MouseInput(process.stdin);
   // output can scroll another link under the pointer before the release, so a click opens the one it pressed
@@ -177,6 +180,7 @@ if (!store) {
     // initialize shows its own failure
     .catch(() => {});
   await application.waitUntilExit();
+  stopMerges();
   repository.close();
   jobs.close();
   process.removeListener('SIGTERM', shutdown);
@@ -184,7 +188,7 @@ if (!store) {
   process.removeListener('SIGHUP', shutdown);
   process.stdout.removeListener('error', shutdown);
   if (restarting) {
-    // execve fires no exit event
+    // execve fires no exit event. it keeps the pid, so the new process removes this one's instance directories
     restore();
     const id = coordinator.snapshot.conversation?.id ?? handedOver;
     process.execve!(

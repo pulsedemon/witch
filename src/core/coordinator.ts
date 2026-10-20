@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -33,6 +34,8 @@ import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
 import { listFiles } from './files.js';
 import type { JobWatch } from './jobs.js';
+import { cleanUpMerge, refreshInstall } from './merged.js';
+import type { PullRequest } from './repository.js';
 import { applyDisplayUpdate } from './state.js';
 import type {
   Conversation,
@@ -92,23 +95,24 @@ function noteName(path: string): string {
 
 /** an error that only a restart clears. */
 class RestartRequired extends Error {}
+/** as VS Code's own launcher does: Electron runs cli.js as Node, and Witch's Node options pass under VS Code's names. */
+export function editorEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const { NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE, ...environment } = env;
+  // VS Code can outlive the scratch directory TMPDIR names
+  delete environment.TMPDIR;
+  return {
+    ...environment,
+    ELECTRON_RUN_AS_NODE: '1',
+    VSCODE_NODE_OPTIONS: NODE_OPTIONS,
+    VSCODE_NODE_REPL_EXTERNAL_MODULE: NODE_REPL_EXTERNAL_MODULE,
+  };
+}
 async function editInVSCode(file: string, signal: AbortSignal): Promise<void> {
   const application = '/Applications/Visual Studio Code.app/Contents';
-  // as VS Code's own launcher does: Electron runs cli.js as Node, and Witch's Node options pass under VS Code's names
-  const { NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE, ...environment } =
-    process.env;
   await execute(
     join(application, 'MacOS/Code'),
     [join(application, 'Resources/app/out/cli.js'), '--wait', file],
-    {
-      signal,
-      env: {
-        ...environment,
-        ELECTRON_RUN_AS_NODE: '1',
-        VSCODE_NODE_OPTIONS: NODE_OPTIONS,
-        VSCODE_NODE_REPL_EXTERNAL_MODULE: NODE_REPL_EXTERNAL_MODULE,
-      },
-    },
+    { signal, env: editorEnvironment(process.env) },
   );
 }
 type Phase =
@@ -118,6 +122,7 @@ type Phase =
   | 'switching'
   | 'recovery'
   | 'editing'
+  | 'cleaning'
   | 'closing'
   | 'error';
 
@@ -675,6 +680,51 @@ export class Coordinator {
     });
   }
 
+  /**
+   * cleans up after the checkout's merged pull request, and rebuilds Witch from `install` when the cleanup finished
+   * and the merge is Witch's own. false when the checkout had left the branch or changed, another Witch was cleaning it
+   * up, a conversation record couldn't be read, or another conversation in its directory was in a turn with its agent
+   * running, so nothing was done. a turn whose agent hasn't started yet doesn't count, since its record names no
+   * process.
+   */
+  async cleanUpMerge(
+    pullRequest: PullRequest,
+    install?: string,
+  ): Promise<boolean> {
+    let acted = false;
+    await this.operate('cleaning', async () => {
+      const { id, cwd } = this.current();
+      // the phase covers only this Witch, and another one's agent would carry on on the base
+      const { records, unreadable } = await this.store.records();
+      // one it can't read could be such a turn. the launch's sweep names it
+      if (unreadable.length) return;
+      for (const record of records) {
+        const agent = record.process;
+        if (
+          record.id !== id &&
+          record.cwd === cwd &&
+          record.activity &&
+          agent &&
+          (await identifyProcess(agent.pid))?.started === agent.started
+        )
+          return;
+      }
+      const outcome = await cleanUpMerge(cwd, pullRequest);
+      if (!outcome) return;
+      acted = true;
+      // first, so a failed rebuild doesn't lose it
+      this.notice(outcome.text);
+      if (
+        outcome.cleaned &&
+        install &&
+        (await this.memory.scopePaths(cwd)).project ===
+          (await this.memory.scopePaths(install)).project
+      )
+        this.notice(await refreshInstall(install, pullRequest.base));
+    });
+    return acted;
+  }
+
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
       this.notice(
@@ -827,6 +877,7 @@ export class Coordinator {
       'You are running inside Witch. Follow your native and project instructions.',
       `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
       `Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in ${indexNote}. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
+      `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch removes that directory when it exits.`,
       ...(snapshot ? [snapshot] : []),
       ...(pendingHandoff?.summary
         ? [

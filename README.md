@@ -4,13 +4,13 @@ A personal terminal app for installed Codex and Claude Code, with Git-backed sha
 
 ## Install
 
-Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing, and a signed-in `gh` adds the branch's pull request to the status line.
+Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing, and a signed-in `gh` adds the branch's pull request to the status line and lets Witch clean up after it merges.
 
 ```sh
 pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
 ```
 
-Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation.
+Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation. When a built Witch finishes cleaning up after a merge into Witch's own repository, it also pulls and rebuilds this checkout, if this one sits on the base branch with nothing staged, modified or conflicted.
 
 ## Usage
 

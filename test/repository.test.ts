@@ -76,7 +76,14 @@ await test('a detached head reads as HEAD, and branch.ab and unmerged entries co
 });
 
 const view = (fields: object) =>
-  JSON.stringify({ number: 4, url: 'https://x.test/4', ...fields });
+  JSON.stringify({
+    number: 4,
+    url: 'https://x.test/4',
+    headRefName: 'feat/x',
+    headRefOid: 'a1b2c3',
+    baseRefName: 'develop',
+    ...fields,
+  });
 
 await test("a pull request's checks fail on a failed run or status, stay pending while any runs or none exist, and pass otherwise", () => {
   const checks = (rollup: object[]) =>
@@ -112,7 +119,14 @@ await test("a pull request's checks fail on a failed run or status, stay pending
   );
   assert.deepEqual(
     parsePullRequest(view({ state: 'MERGED', statusCheckRollup: [] })),
-    { number: 4, url: 'https://x.test/4', state: 'MERGED' },
+    {
+      number: 4,
+      url: 'https://x.test/4',
+      state: 'MERGED',
+      branch: 'feat/x',
+      commit: 'a1b2c3',
+      base: 'develop',
+    },
   );
 });
 
@@ -120,8 +134,12 @@ await test('the watch reads the pull request once per branch, again when the bra
   t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
   let branch = 'main';
   const reads: string[] = [];
-  const watch = new RepositoryWatch('/work', async (command) => {
-    if (command === 'gh') reads.push(branch);
+  let fields: string | undefined;
+  const watch = new RepositoryWatch('/work', async (command, args) => {
+    if (command === 'gh') {
+      reads.push(branch);
+      fields = args.at(-1);
+    }
     return {
       stdout:
         command === 'gh'
@@ -134,6 +152,7 @@ await test('the watch reads the pull request once per branch, again when the bra
   try {
     await delay(20);
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
+    assert.match(fields ?? '', /,headRefName,headRefOid,baseRefName$/);
     const settled = published;
     t.mock.timers.tick(5000);
     await delay(20);
