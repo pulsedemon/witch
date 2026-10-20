@@ -73,11 +73,10 @@ async function sweep(parent: string, boot: string): Promise<void> {
   }
 }
 
-/** scratch survives restart; shutdown decides whether fresh scratch is unused, and later boots sweep retained files. */
+/** scratch survives every exit in its boot; a later launch after another boot sweeps unlocked directories. */
 export class ScratchSpace {
   private constructor(
     readonly directory: string,
-    readonly resumed: boolean,
     private lock: FileHandle | undefined,
   ) {}
 
@@ -112,19 +111,10 @@ export class ScratchSpace {
       }
       await writeJson(join(directory, metadata), { version: 1, boot, owner });
       await sweep(parent, boot);
-      return new ScratchSpace(directory, resumed, lock);
+      return new ScratchSpace(directory, lock);
     } catch (error) {
       await lock.close();
       throw error;
-    }
-  }
-
-  async remove(): Promise<void> {
-    if (!this.lock) return;
-    try {
-      removeDirectory(this.directory);
-    } finally {
-      await this.close();
     }
   }
 

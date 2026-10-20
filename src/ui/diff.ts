@@ -63,13 +63,28 @@ function tokens(text: string): string[] {
 }
 
 /**
- * the ranges each side changed, as Claude Code finds them, or none when over 40% of their text changed. a pair needing
- * over 400 token edits gets none too, since the search's cost grows with both lengths and lines aren't cut.
+ * the ranges each side changed, as Claude Code finds them, or none when over 40% of their text changed.
+ * token counts skip searches that cannot finish within the edit cap; order can only require more edits.
  */
 function changedWords(before: string, after: string): [Range[], Range[]] {
-  const parts = diffArrays(tokens(before), tokens(after), {
-    maxEditLength: 400,
-  });
+  const maxEdits = 400;
+  const oldTokens = tokens(before);
+  const newTokens = tokens(after);
+  let unmatched = oldTokens.length + newTokens.length;
+  if (unmatched > maxEdits) {
+    const counts = new Map<string, number>();
+    for (const token of oldTokens)
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+    for (const token of newTokens) {
+      const count = counts.get(token) ?? 0;
+      if (count) {
+        counts.set(token, count - 1);
+        unmatched -= 2;
+      }
+    }
+    if (unmatched > maxEdits) return [[], []];
+  }
+  const parts = diffArrays(oldTokens, newTokens, { maxEditLength: maxEdits });
   if (!parts) return [[], []];
   const ranges: [Range[], Range[]] = [[], []];
   const at = [0, 0];

@@ -107,16 +107,17 @@ if (control) {
   // can't hold mouse reporting on
   process.once('exit', restore);
   const scratchParent = join(store.root, 'scratch');
+  const scratchResume =
+    handedScratch ??
+    (handedOver &&
+    process.env.TMPDIR === join(scratchParent, String(process.pid))
+      ? process.env.TMPDIR
+      : undefined);
   const scratch = await ScratchSpace.open(scratchParent, {
-    resume:
-      handedScratch ??
-      (handedOver &&
-      process.env.TMPDIR === join(scratchParent, String(process.pid))
-        ? process.env.TMPDIR
-        : undefined),
+    resume: scratchResume,
   });
   const checkpointPath = join(scratch.directory, '.witch-jobs.json');
-  if (handedJobs !== undefined && !scratch.resumed)
+  if (handedJobs !== undefined && scratchResume === undefined)
     throw new Error('Restart jobs require resumed scratch.');
   const resume =
     handedJobs !== undefined
@@ -153,7 +154,6 @@ if (control) {
     application.unmount();
   };
   let shuttingDown = false;
-  let shutdownComplete = false;
   const shutdown = () => {
     stopTerminal?.();
     // a second request quits without waiting for a stuck agent
@@ -162,17 +162,11 @@ if (control) {
       process.exit(130);
     }
     shuttingDown = true;
-    void coordinator.close().then(
-      () => {
-        shutdownComplete = true;
-        unmount();
-      },
-      (error: unknown) => {
-        unmount();
-        process.stderr.write(`witch: ${errorMessage(error)}\n`);
-        process.exitCode = 1;
-      },
-    );
+    void coordinator.close().then(unmount, (error: unknown) => {
+      unmount();
+      process.stderr.write(`witch: ${errorMessage(error)}\n`);
+      process.exitCode = 1;
+    });
   };
   let restarting = false;
   const restart = () => {
@@ -259,26 +253,12 @@ if (control) {
   process.removeListener('SIGHUP', shutdown);
   process.stdout.removeListener('error', shutdown);
   try {
-    if (restarting) {
-      try {
-        await writeJson(checkpointPath, await jobs.checkpoint());
-      } catch (error) {
-        throw new Error(
-          `Preserving jobs for restart failed: ${errorMessage(error)}`,
-          { cause: error },
-        );
-      }
-    }
-    // a restart does not prove retained scratch is unused
-    if (!restarting && !scratch.resumed && shutdownComplete) {
-      const tracked = await jobs.tracked().catch((error: unknown) => {
-        process.stderr.write(
-          `witch: scratch retained: ${errorMessage(error)}\n`,
-        );
-        return undefined;
-      });
-      if (tracked?.length === 0) await scratch.remove();
-    }
+    if (restarting) await writeJson(checkpointPath, await jobs.checkpoint());
+  } catch (error) {
+    throw new Error(
+      `Preserving jobs for restart failed: ${errorMessage(error)}`,
+      { cause: error },
+    );
   } finally {
     await scratch.close();
   }

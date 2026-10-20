@@ -181,15 +181,10 @@ export class JobWatch {
     clearInterval(this.timer);
   }
 
-  /** shutdown needs a read begun after the agent closed, even if a background poll was already pending. */
-  async tracked(): Promise<readonly Row[]> {
-    if (this.polling) await this.polling;
-    return this.poll();
-  }
-
   /** preserves hidden ordinary members and historical exclusions for the next watcher's identity checks. */
   async checkpoint(): Promise<JobCheckpoint> {
-    await this.tracked();
+    if (this.polling) await this.polling;
+    await this.poll();
     return {
       version: 1,
       members: [...this.members],
