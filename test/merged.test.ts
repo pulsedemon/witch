@@ -643,8 +643,8 @@ await test('a base that tracks another remote is brought up to date from it', as
   });
 });
 
-await test("the cleanup fetches through the user's own ssh command, and through ssh in batch mode otherwise", async () => {
-  for (const own of [true, false]) {
+await test("the cleanup fetches through the user's own ssh command, from git's config or GIT_SSH, and through ssh in batch mode otherwise", async () => {
+  for (const own of ['config', 'environment', undefined] as const) {
     const { root, origin, checkout, other, tip } = await merged();
     await merge(other, 'feat/x');
     await git(checkout, 'remote', 'set-url', 'origin', `ssh://x.test${origin}`);
@@ -657,10 +657,11 @@ await test("the cleanup fetches through the user's own ssh command, and through 
     );
     await execute('chmod', ['+x', ssh]);
     const path = process.env.PATH;
-    if (own) {
-      await git(checkout, 'config', 'core.sshCommand', ssh);
-      await git(checkout, 'config', 'ssh.variant', 'simple');
-    } else process.env.PATH = `${dirname(ssh)}:${path}`;
+    // simple, or git would first probe the stand-in with -G
+    if (own) await git(checkout, 'config', 'ssh.variant', 'simple');
+    if (own === 'config') await git(checkout, 'config', 'core.sshCommand', ssh);
+    else if (own) process.env.GIT_SSH = ssh;
+    else process.env.PATH = `${dirname(ssh)}:${path}`;
     try {
       assert.equal(
         (await cleanUpMerge(checkout, pullRequest(tip)))?.cleaned,
@@ -668,6 +669,7 @@ await test("the cleanup fetches through the user's own ssh command, and through 
       );
     } finally {
       process.env.PATH = path;
+      delete process.env.GIT_SSH;
     }
     const calls = (await readFile(log, 'utf8')).trim().split('\n');
     assert.equal(calls.length, 2);
