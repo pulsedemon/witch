@@ -17,9 +17,7 @@ import type {
   DisplayUpdate,
 } from '../core/state.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
-
-// macOS O_EXLOCK, which Node doesn't export.
-const exclusiveLock = 0x20;
+import { exclusiveLock } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
@@ -194,6 +192,23 @@ export class StateStore {
       return files;
     } catch (error) {
       await lock.close();
+      throw error;
+    }
+  }
+
+  /** observes ownership without creating a lock or recovering native processes. */
+  async isOpen(id: string): Promise<boolean> {
+    try {
+      const lock = await open(
+        join(this.directory(id), 'lock'),
+        constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+      );
+      await lock.close();
+      return false;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EAGAIN') return true;
+      if (code === 'ENOENT') return false;
       throw error;
     }
   }

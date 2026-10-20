@@ -5,6 +5,7 @@ import { open, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { errorMessage } from '../agents/stderr.js';
+import { exclusiveLock } from '../persistence/lock.js';
 import type { Coordinator } from './coordinator.js';
 import { parseStatus } from './repository.js';
 import type {
@@ -80,9 +81,6 @@ const list = (items: string[]) =>
   items.length > 1
     ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
     : items[0]!;
-
-// macOS O_EXLOCK, which Node doesn't export.
-const exclusiveLock = 0x20;
 
 /** skips a checkout another Witch is updating; locking the git directory leaves no file behind. */
 async function lockCheckout(cwd: string): Promise<FileHandle | undefined> {

@@ -42,6 +42,7 @@ import type {
   ConversationRecord,
   DisplayItem,
   DisplayUpdate,
+  Phase,
 } from './state.js';
 
 const execute = promisify(execFile);
@@ -115,17 +116,6 @@ async function editInVSCode(file: string, signal: AbortSignal): Promise<void> {
     { signal, env: editorEnvironment(process.env) },
   );
 }
-type Phase =
-  | 'starting'
-  | 'idle'
-  | 'running'
-  | 'switching'
-  | 'recovery'
-  | 'editing'
-  | 'cleaning'
-  | 'closing'
-  | 'error';
-
 export interface Snapshot {
   phase: Phase;
   conversation?: Conversation;
