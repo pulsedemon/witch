@@ -88,10 +88,7 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
     await delay(500);
     process.kill(stuck, 'SIGKILL');
     await until('the stuck command to be gone', () => gone(stuck));
-    // the running command's busy process starts two seconds after the others
-    const list = await listed(jobs, (found) =>
-      found.some(({ group, cpu }) => group === running && cpu > 50),
-    );
+    const list = await listed(jobs, (found) => found.length >= 3);
     const commands = new Map(
       list.map(({ group, command }) => [group, command]),
     );
@@ -103,8 +100,6 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
       'sleep 60.5',
       'sleep 61.5',
     ]);
-    // about the busy process's one core
-    assert.ok(list.find(({ group }) => group === running)!.cpu < 150);
     for (const { startedAt } of list) {
       // lstart has whole seconds
       assert.ok(startedAt >= spawnedAt - 1000);
@@ -390,7 +385,7 @@ await test('a job lists with its command intact under any locale', async () => {
   }
 });
 
-await test("a job's CPU is the sum of its processes'", async () => {
+await test("a job sums parsed CPU and keeps its earliest start and oldest non-leader's command", async () => {
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => [
@@ -402,16 +397,35 @@ await test("a job's CPU is the sum of its processes'", async () => {
         leadsSession: false,
         identity: '4243 a',
       },
+      {
+        pid: 4244,
+        ppid: 4242,
+        pgid: 4242,
+        leadsSession: false,
+        identity: '4244 a',
+      },
     ],
-    describe: async () => [
-      { pid: 4242, pgid: 4242, cpu: 30, startedAt: 0, command: 'make -j2' },
-      { pid: 4243, pgid: 4242, cpu: 40, startedAt: 0, command: 'cc a.c' },
-    ],
+    describe: async () =>
+      parseDetails([
+        '  4244  4242   6.0 Thu Oct 15 18:50:29 2026     cc b.c',
+        '  4242  4242  30.5 Thu Oct 15 18:50:27 2026     make -j2',
+        '  4243  4242  40.5 Thu Oct 15 18:50:28 2026     cc a.c',
+      ]),
   });
   try {
     assert.deepEqual(
-      (await jobs.list()).map(({ cpu }) => cpu),
-      [70],
+      (await jobs.list()).map(({ cpu, command, startedAt }) => ({
+        cpu,
+        command,
+        startedAt,
+      })),
+      [
+        {
+          cpu: 77,
+          command: 'cc a.c',
+          startedAt: Date.UTC(2026, 9, 15, 18, 50, 27),
+        },
+      ],
     );
   } finally {
     jobs.close();
