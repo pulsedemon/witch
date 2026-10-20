@@ -1,11 +1,10 @@
-import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { open, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { errorMessage } from '../agents/stderr.js';
 import { exclusiveLock } from '../persistence/lock.js';
+import { runCommand } from './command.js';
 import type { Coordinator } from './coordinator.js';
 import { parseStatus } from './repository.js';
 import type {
@@ -15,12 +14,10 @@ import type {
   Run,
 } from './repository.js';
 
-const execute = promisify(execFile);
-
 /** a password prompt would draw over the TUI, and nothing could answer it. */
 const git = async (cwd: string, ...args: string[]) =>
   (
-    await execute('git', args, {
+    await runCommand('git', args, {
       cwd,
       timeout: 60_000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
@@ -426,7 +423,7 @@ async function removePlans(
 export async function refreshInstall(
   root: string,
   base: string,
-  run: Run = execute,
+  run: Run = runCommand,
 ): Promise<string> {
   const failed = (error: unknown): never => {
     // tsc reports its errors on stdout, which the message leaves out
