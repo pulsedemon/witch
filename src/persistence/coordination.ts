@@ -1,13 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import {
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  rename,
-  unlink,
-} from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -25,6 +18,7 @@ import type {
   TaskClaim,
 } from '../core/coordination-state.js';
 import { exclusiveLock } from './lock.js';
+import { writeJson } from './json.js';
 
 const ledgerSchema = z.object({
   version: z.literal(1),
@@ -70,7 +64,7 @@ export class CoordinationStore {
   }
 
   async publish(presence: SessionPresence): Promise<void> {
-    await this.write(
+    await writeJson(
       join(this.directory, 'sessions', `${presence.id}.json`),
       sessionPresenceSchema.parse(presence),
     );
@@ -183,7 +177,7 @@ export class CoordinationStore {
       checkDeadline(deadline);
       const result = change(claims);
       if (JSON.stringify(claims) !== before)
-        await this.write(join(this.directory, 'claims.json'), {
+        await writeJson(join(this.directory, 'claims.json'), {
           version: 1,
           claims,
         });
@@ -210,17 +204,5 @@ export class CoordinationStore {
         await delay(Math.min(25, Math.max(0, deadline - Date.now())));
       }
     }
-  }
-
-  private async write(file: string, value: unknown): Promise<void> {
-    const temporary = `${file}.${randomUUID()}.tmp`;
-    const handle = await open(temporary, 'wx', 0o600);
-    try {
-      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temporary, file);
   }
 }

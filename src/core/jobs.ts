@@ -3,6 +3,7 @@ import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ps } from '../persistence/process.js';
+import { quote } from '../shell.js';
 
 /** a process group one of the agents' commands, or a `!` command Witch runs, started. */
 export interface Job {
@@ -90,11 +91,6 @@ async function carrying(entry: string, pids: number[]): Promise<number[]> {
       return pid && ` ${rest} `.includes(` ${entry} `) ? [Number(pid)] : [];
     },
   );
-}
-
-/** `text` in single quotes, for zsh and bash. */
-function quote(text: string): string {
-  return `'${text.replaceAll("'", `'\\''`)}'`;
 }
 
 /**
