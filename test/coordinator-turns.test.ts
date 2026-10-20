@@ -11,6 +11,133 @@ import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
 
+await test('an unfinished tool keeps its original row through idle and later turns', async () => {
+  const { coordinator, a, reopen } = await fixture();
+  const first = new TurnGate();
+  const second = new TurnGate();
+  let reopened: Coordinator | undefined;
+  const emit = (id: string, text: string, done: boolean, append = false) =>
+    a.sessions.at(-1)!.options.onEvent({
+      type: 'tool',
+      id,
+      title: id,
+      text,
+      done,
+      append,
+    });
+  const rows = () =>
+    coordinator.snapshot.items.filter(({ title }) => title === 'command');
+  try {
+    a.gate = first;
+    const firstTurn = coordinator.send('first');
+    await within(first.entered, 2000, 'the first turn');
+    emit('command', 'start\n', false);
+    const originalId = rows()[0]!.id;
+    first.open();
+    await firstTurn;
+    emit('command', 'between\n', false, true);
+    assert.equal(rows().length, 1);
+    assert.equal(rows()[0]!.id, originalId);
+    assert.equal(rows()[0]!.text, 'start\nbetween\n');
+    assert.equal(rows()[0]!.done, false);
+
+    a.gate = second;
+    const secondTurn = coordinator.send('second');
+    await within(second.entered, 2000, 'the second turn');
+    emit('other', 'other\n', false);
+    emit('command', 'start\nbetween\nend\n', true);
+    assert.equal(rows().length, 1);
+    assert.equal(rows()[0]!.id, originalId);
+    assert.equal(rows()[0]!.text, 'start\nbetween\nend\n');
+    assert.equal(rows()[0]!.done, true);
+    const other = coordinator.snapshot.items.find(
+      ({ title }) => title === 'other',
+    )!;
+    assert.equal(other.text, 'other\n');
+    assert.equal(other.done, false);
+    second.open();
+    await secondTurn;
+    await coordinator.close();
+    reopened = await reopen();
+    const saved = reopened.snapshot.items.filter(
+      ({ title }) => title === 'command',
+    );
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0]!.id, originalId);
+    assert.equal(saved[0]!.text, 'start\nbetween\nend\n');
+    assert.equal(saved[0]!.done, true);
+  } finally {
+    first.open();
+    second.open();
+    await coordinator.close();
+    await reopened?.close();
+  }
+});
+
+await test('completed tool IDs and new native connections get their own rows', async () => {
+  const { coordinator, a } = await fixture();
+  const gates = [new TurnGate(), new TurnGate(), new TurnGate()];
+  const emit = (id: string, text: string, done: boolean) =>
+    a.sessions.at(-1)!.options.onEvent({
+      type: 'tool',
+      id,
+      title: id,
+      text,
+      done,
+    });
+  const rows = (title: string) =>
+    coordinator.snapshot.items.filter((row) => row.title === title);
+  try {
+    const conversation = coordinator.snapshot.conversation!.id;
+    a.gate = gates[0]!;
+    const first = coordinator.send('first');
+    await within(gates[0]!.entered, 2000, 'the first turn');
+    emit('reused', 'first', false);
+    emit('reused', 'first complete', true);
+    const completedId = rows('reused')[0]!.id;
+    gates[0]!.open();
+    await first;
+
+    a.gate = gates[1]!;
+    const second = coordinator.send('second');
+    await within(gates[1]!.entered, 2000, 'the second turn');
+    emit('reused', 'second', false);
+    emit('unfinished', 'old connection', false);
+    const unfinishedId = rows('unfinished')[0]!.id;
+    assert.deepEqual(
+      rows('reused').map(({ text, done }) => [text, done]),
+      [
+        ['first complete', true],
+        ['second', false],
+      ],
+    );
+    assert.notEqual(rows('reused')[1]!.id, completedId);
+    gates[1]!.open();
+    await second;
+    await coordinator.newConversation();
+    await coordinator.selectConversation(conversation);
+
+    a.gate = gates[2]!;
+    const third = coordinator.send('third');
+    await within(gates[2]!.entered, 2000, 'the reconnected turn');
+    emit('unfinished', 'new connection', false);
+    assert.deepEqual(
+      rows('unfinished').map(({ text, done }) => [text, done]),
+      [
+        ['old connection', false],
+        ['new connection', false],
+      ],
+    );
+    assert.equal(rows('unfinished')[0]!.id, unfinishedId);
+    assert.notEqual(rows('unfinished')[1]!.id, unfinishedId);
+    gates[2]!.open();
+    await third;
+  } finally {
+    for (const gate of gates) gate.open();
+    await coordinator.close();
+  }
+});
+
 /** holds the snapshot's note listing until released. a turn takes a snapshot only after memory moves. */
 function holdSnapshot(hook: { current: GitHook }) {
   const entered = Promise.withResolvers<void>();
