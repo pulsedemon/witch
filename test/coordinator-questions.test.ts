@@ -258,3 +258,34 @@ await test('a new conversation discards the previous session questions and ignor
     await coordinator.close();
   }
 });
+
+await test('async questions arriving during cancellation are ignored until the next turn', async () => {
+  const { coordinator, a } = await fixture();
+  let gate = new TurnGate();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the active turn');
+    const { onEvent } = a.sessions.at(-1)!.options;
+    const interrupting = coordinator.interrupt();
+    onEvent({ type: 'request', request: question('late') });
+    assert.deepEqual(coordinator.snapshot.requests, []);
+    const blocking = { ...question('blocking'), replyAsPrompt: undefined };
+    onEvent({ type: 'request', request: blocking });
+    assert.deepEqual(coordinator.snapshot.requests, [blocking]);
+    await interrupting;
+    await sending;
+    assert.deepEqual(coordinator.snapshot.requests, []);
+
+    a.gate = gate = new TurnGate();
+    const next = coordinator.send('Next');
+    await within(gate.entered, 2000, 'the next turn');
+    onEvent({ type: 'request', request: question('next') });
+    assert.deepEqual(coordinator.snapshot.requests, [question('next')]);
+    gate.open();
+    await next;
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
