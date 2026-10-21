@@ -274,7 +274,7 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
   }
 });
 
-await test("the install is rebuilt only after a cleanup that moved the checkout, in Witch's own project, a cleanup with no install still acts, and a failed or busy rebuild keeps the cleanup's notice", async () => {
+await test('merge cleanup preserves its notice when the install is absent, belongs to another project, is on another branch, has diverged or is locked', async () => {
   for (const variant of ['b', 'a', 'diverged', 'none', 'busy'] as const) {
     const { coordinator, root, project } = await fixture();
     const previousPath = process.env.PATH;
