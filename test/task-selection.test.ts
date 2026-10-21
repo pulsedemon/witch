@@ -281,6 +281,37 @@ await test('active claims survive reconnect and restart but normal close makes t
   assert.equal((await b.claim()).kind, 'claimed');
 });
 
+await test('restart recovers a departed claim release while preserving other open conversations', async (t) => {
+  const f = await coordinationFixture(t);
+  const a = await f.start(),
+    b = await f.start('B');
+  const binding = await a.binding();
+  await a.claim();
+  const other = await b.claim('task:other');
+  if (other.kind !== 'claimed') assert.fail(JSON.stringify(other));
+  const release = CoordinationStore.prototype.releaseConversation;
+  let failing = true;
+  t.mock.method(
+    CoordinationStore.prototype,
+    'releaseConversation',
+    function (this: CoordinationStore, ...args: Parameters<typeof release>) {
+      if (failing && args[0].conversation === binding.conversation)
+        return Promise.reject(new Error('Claim cleanup unavailable'));
+      return release.apply(this, args);
+    },
+  );
+  await a.coordinator.newConversation().catch(() => {});
+  const next = a.coordinator.snapshot.conversation!.id;
+  assert.notEqual(next, binding.conversation);
+  await a.coordinator.close({ restart: true }).catch(() => {});
+  assert.equal((await f.registry.claims()).length, 2);
+  failing = false;
+  const reopened = await f.start('A', { conversation: next });
+  assert.deepEqual(await f.registry.claims(), [other.claim]);
+  assert.equal((await reopened.claim()).kind, 'claimed');
+  assert.equal((await b.query()).ownClaim?.id, other.claim.id);
+});
+
 await test('failed target preparation keeps a suggestion and a successful switch releases it', async (t) => {
   const f = await coordinationFixture(t);
   const a = await f.start(),
