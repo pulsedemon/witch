@@ -34,6 +34,8 @@ The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md
 
 The development scripts are in [package.json](package.json). `pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
+`pnpm test:integration:codex-brews` checks native child brews with the installed Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
+
 `python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.tsx"` checks scratch retention through the real CLI with fixture agents and no account usage. It requires Python 3 and tmux; pass an absolute built `cli.js` path to check a build.
 
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
