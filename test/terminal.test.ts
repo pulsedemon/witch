@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { TestContext } from 'node:test';
 import { setImmediate as next } from 'node:timers/promises';
+import { join } from 'node:path';
+import { NotificationSchedule } from '../src/persistence/notifications.js';
+import { scratch } from './fixtures/scratch.js';
 import type { UserRequest } from '../src/agents/types.js';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
 import type { Snapshot } from '../src/core/coordinator.js';
@@ -25,7 +29,10 @@ function source<T>(snapshot: T) {
   };
 }
 
-function fixture(initial: Partial<Snapshot> = {}) {
+function fixture(
+  initial: Partial<Snapshot> = {},
+  schedule?: NotificationSchedule,
+) {
   const coordinator = source<Snapshot>({
     phase: 'idle',
     conversation: { ...record('first', '/project'), title: 'First task' },
@@ -40,14 +47,26 @@ function fixture(initial: Partial<Snapshot> = {}) {
     usage: {},
     ...initial,
   });
+  const errors: unknown[] = [];
+  const reporting = Object.assign(coordinator, {
+    report(error: unknown) {
+      errors.push(error);
+      coordinator.publish({ error: String(error) });
+    },
+  });
   const coordination = source<CoordinationSnapshot>({
     peers: [],
     reservations: [],
     unregistered: [],
   });
   const output: string[] = [];
-  const stop = watchTerminal(coordinator, coordination, (data) =>
-    output.push(data),
+  const stop = watchTerminal(
+    reporting,
+    coordination,
+    (data) => {
+      output.push(data);
+    },
+    schedule,
   );
   const notices = () =>
     output
@@ -60,7 +79,14 @@ function fixture(initial: Partial<Snapshot> = {}) {
         assert.doesNotMatch(body, /\p{Cc}/u);
         return body;
       });
-  return { coordinator, coordination, output, stop, notices };
+  return {
+    coordinator: reporting,
+    coordination,
+    output,
+    stop,
+    notices,
+    errors,
+  };
 }
 
 const approval: UserRequest = {
@@ -408,4 +434,187 @@ await test('real compaction emits no ordinary completion notification and the fo
     stop();
     await f.coordinator.close();
   }
+});
+
+async function scheduled(t: TestContext) {
+  const schedule = await NotificationSchedule.open(
+    join(await scratch('witch-terminal-'), 'notifications'),
+  );
+  const attempts: {
+    message: () => string | undefined;
+    write: (data: string) => void;
+    result: PromiseWithResolvers<number | undefined>;
+  }[] = [];
+  t.mock.method(
+    schedule,
+    'attempt',
+    (message: () => string | undefined, write: (data: string) => void) => {
+      const result = Promise.withResolvers<number | undefined>();
+      attempts.push({ message, write, result });
+      return result.promise;
+    },
+  );
+  const f = fixture({}, schedule);
+  t.after(f.stop);
+  const finish = async (index: number) => {
+    const attempt = attempts[index]!;
+    const message = attempt.message();
+    if (message !== undefined) attempt.write(message);
+    attempt.result.resolve(undefined);
+    await next();
+  };
+  const notices = () =>
+    f.output
+      .join('')
+      .split('\u001b]777;notify;Witch;')
+      .slice(1)
+      .map((text) => text.split('\u001b\\', 1)[0]);
+  return { ...f, schedule, attempts, finish, notices };
+}
+
+await test('scheduled waits keep title and bell timing while coalescing pending reminders and reading the latest label', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const f = await scheduled(t);
+  f.coordinator.publish({ phase: 'running', requests: [approval] });
+  assert.equal(f.output.at(-1), '\u0007');
+  assert.ok(f.output.includes('\u001b]2;Witch | waiting | First task\u001b\\'));
+  assert.deepEqual(f.notices(), []);
+  t.mock.timers.tick(15_000);
+  assert.equal(f.output.filter((x) => x === '\u0007').length, 2);
+  assert.equal(f.attempts.length, 1);
+  f.attempts[0]!.result.resolve(1200);
+  await next();
+  t.mock.timers.tick(1199);
+  assert.equal(f.attempts.length, 1);
+  f.coordination.publish({
+    ownClaim: {
+      id: 'claim',
+      owner: { conversation: 'first', project: 'project' },
+      references: [],
+      summary: 'Current label',
+      createdAt: 0,
+    },
+  });
+  f.coordinator.publish({ usage: { cost: 2 } });
+  t.mock.timers.tick(1);
+  assert.equal(f.attempts.length, 2);
+  await f.finish(1);
+  assert.deepEqual(f.notices(), ['Approval required: Current label']);
+  t.mock.timers.tick(13_800);
+  assert.equal(f.attempts.length, 3);
+  await f.finish(2);
+  assert.deepEqual(f.notices(), [
+    'Approval required: Current label',
+    'Approval required: Current label',
+  ]);
+});
+
+for (const action of ['response', 'switch', 'stop', 'closing'] as const)
+  await test(`a scheduled wait cancels in-flight reads and retry timers on ${action}`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+    const f = await scheduled(t);
+    f.coordinator.publish({ phase: 'running', requests: [approval] });
+    f.attempts[0]!.result.resolve(1200);
+    await next();
+    if (action === 'response') f.coordinator.publish({ requests: [] });
+    else if (action === 'switch')
+      f.coordinator.publish({
+        conversation: record('other', '/elsewhere'),
+        requests: [],
+      });
+    else if (action === 'closing') f.coordinator.publish({ phase: 'closing' });
+    else f.stop();
+    const output = f.output.join('');
+    t.mock.timers.tick(1200);
+    assert.equal(f.attempts.length, 1);
+    assert.equal(f.attempts[0]!.message(), undefined);
+    assert.equal(f.output.join(''), output);
+    assert.deepEqual(f.notices(), []);
+  });
+
+await test('an old wait callback stays cancelled when the same request returns', async (t) => {
+  const f = await scheduled(t);
+  f.coordinator.publish({ requests: [approval] });
+  f.coordinator.publish({ requests: [] });
+  f.coordinator.publish({ requests: [approval] });
+  assert.equal(f.attempts.length, 2);
+  await f.finish(0);
+  assert.deepEqual(f.notices(), []);
+  await f.finish(1);
+  assert.deepEqual(f.notices(), ['Approval required: First task']);
+});
+
+await test('scheduled completion is single delivery and reconstruction does not replay it', async (t) => {
+  const f = await scheduled(t);
+  f.coordinator.publish({ completedTurn: 'done' });
+  await next();
+  f.coordinator.publish({ usage: { cost: 2 } });
+  await next();
+  assert.equal(f.attempts.length, 1);
+  assert.equal(f.output.filter((x) => x === '\u0007').length, 1);
+  await f.finish(0);
+  assert.deepEqual(f.notices(), ['Turn complete: First task']);
+  f.coordinator.publish({ usage: { cost: 3 } });
+  await next();
+  assert.equal(f.attempts.length, 1);
+  f.stop();
+  const output: string[] = [];
+  const stop = watchTerminal(
+    f.coordinator,
+    undefined,
+    (data) => {
+      output.push(data);
+    },
+    f.schedule,
+  );
+  t.after(stop);
+  await next();
+  assert.equal(f.attempts.length, 1);
+  assert.equal(
+    output.some((x) => x.includes(']777;') || x.includes('\u0007')),
+    false,
+  );
+  f.coordinator.publish({ requests: [approval] });
+  await f.finish(1);
+  assert.ok(output.some((x) => x.includes('Approval required')));
+});
+
+for (const invalid of [
+  { phase: 'running' },
+  { queue: ['next'] },
+  { requests: [approval] },
+  { phase: 'recovery' },
+  { error: 'failure' },
+  { completedTurn: 'replacement' },
+  { conversation: record('other', '/elsewhere') },
+] satisfies Partial<Snapshot>[])
+  await test(`a delayed completion cancels when ${JSON.stringify(invalid)} replaces its eligible state`, async (t) => {
+    const f = await scheduled(t);
+    f.coordinator.publish({ completedTurn: 'done' });
+    await next();
+    f.coordinator.publish(invalid);
+    assert.equal(f.attempts[0]!.message(), undefined);
+    await f.finish(0);
+    assert.deepEqual(f.notices(), []);
+  });
+
+await test('a scheduling failure reports once without retrying output while bells and titles continue', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const f = await scheduled(t);
+  f.coordinator.publish({ requests: [approval] });
+  const first = f.attempts[0]!;
+  first.write(first.message()!);
+  first.result.reject(new Error('schedule persistence failed'));
+  await next();
+  assert.equal(f.errors.length, 1);
+  assert.deepEqual(f.notices(), ['Approval required: First task']);
+  f.coordinator.publish({ requests: [question] });
+  t.mock.timers.tick(30_000);
+  await next();
+  assert.equal(f.attempts.length, 1);
+  assert.equal(f.errors.length, 1);
+  assert.deepEqual(f.notices(), ['Approval required: First task']);
+  assert.equal(f.output.filter((x) => x === '\u0007').length, 4);
+  f.coordinator.publish({ phase: 'idle', requests: [], error: undefined });
+  assert.equal(f.output.at(-1), '\u001b]2;Witch | idle | First task\u001b\\');
 });
