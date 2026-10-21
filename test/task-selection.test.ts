@@ -426,3 +426,46 @@ await test('a lost recommendation reply reconciles to one claim and one advancem
   assert.equal(next.selection.position, 1);
   assert.equal((await f.registry.claims()).length, 1);
 });
+
+await test('failed suggestion cleanup retries after leaving and cannot remove a later recommendation', async (t) => {
+  const f = await coordinationFixture(t);
+  const a = await f.start();
+  const first = await selectionTurn(t, a),
+    choice = await first.select();
+  const previous = await first.recommend(choice.ticket.id);
+  await first.finish();
+  const release = CoordinationStore.prototype.releaseSuggestion;
+  let failing = true;
+  t.mock.method(
+    CoordinationStore.prototype,
+    'releaseSuggestion',
+    function (this: CoordinationStore, ...args: Parameters<typeof release>) {
+      return failing
+        ? Promise.reject(new Error('Suggestion cleanup unavailable'))
+        : release.apply(this, args);
+    },
+  );
+  await a.coordinator.newConversation().catch(() => {});
+  assert.match(
+    a.coordinator.snapshot.error ?? '',
+    /Suggestion cleanup unavailable/,
+  );
+  assert.notEqual(
+    a.coordinator.snapshot.conversation!.id,
+    first.binding.conversation,
+  );
+  assert.deepEqual(await f.registry.claims(), [previous]);
+  failing = false;
+  await until(
+    'departed suggestion cleanup retried',
+    async () => !(await f.registry.claims()).length,
+  );
+  await a.coordinator.selectConversation(first.binding.conversation);
+  const later = await selectionTurn(t, a),
+    next = await later.select();
+  const current = await later.recommend(next.ticket.id, 18);
+  await later.finish();
+  await a.coordination.endTurn(first.turn);
+  assert.deepEqual((await a.query()).ownClaim, current);
+  assert.deepEqual(await f.registry.claims(), [current]);
+});
