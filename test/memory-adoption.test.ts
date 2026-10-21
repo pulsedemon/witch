@@ -151,6 +151,45 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
   );
 });
 
+await test('migration keeps links to literal filenames that retain their names', async () => {
+  const { memory, open, root } = await fixture();
+  const origin = 'https://example.org/team/project.git';
+  const upstream = await repository(root, 'upstream', origin);
+  const copy = await repository(root, 'copy');
+  const { workspace } = await open('a');
+  const target = (await workspace.begin(upstream)).scope.project;
+  await save(workspace, {
+    [`${target}/deploy.md`]: 'Upstream base.\n',
+    [`${target}/deploy.md#same`]: 'Shared fragment.\n',
+    [`${target}/deploy.md?raw=2`]: 'Shared query.\n',
+  });
+  const source = (await workspace.begin(copy)).scope.project;
+  const index =
+    '[new fragment](./deploy.md#new)\n[new query](<deploy.md?raw=1>)\n' +
+    '[shared fragment](deploy.md#same)\n[shared query](<./deploy.md?raw=2>)\n';
+  await save(workspace, {
+    [`${source}/MEMORY.md`]: index,
+    [`${source}/deploy.md`]: 'Checkout base.\n',
+    [`${source}/deploy.md#new`]: 'New fragment.\n',
+    [`${source}/deploy.md?raw=1`]: 'New query.\n',
+    [`${source}/deploy.md#same`]: 'Shared fragment.\n',
+    [`${source}/deploy.md?raw=2`]: 'Shared query.\n',
+  });
+  await workspace.publish();
+  await git(copy, 'remote', 'add', 'origin', origin);
+  await workspace.begin(copy);
+  assert.equal(await memory.read(main, `${target}/MEMORY.md`), index);
+  for (const [note, text] of [
+    ['deploy.md', 'Upstream base.\n'],
+    ['deploy (copy).md', 'Checkout base.\n'],
+    ['deploy.md#new', 'New fragment.\n'],
+    ['deploy.md?raw=1', 'New query.\n'],
+    ['deploy.md#same', 'Shared fragment.\n'],
+    ['deploy.md?raw=2', 'Shared query.\n'],
+  ])
+    assert.equal(await memory.read(main, `${target}/${note}`), text);
+});
+
 await test("a move that loses to another clone's move is made again on the newer main", async () => {
   const { memory, open, root, project, hook } = await fixture();
   const begin = async (workspace: Workspace, cwd: string, note?: string) => {
