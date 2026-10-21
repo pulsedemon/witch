@@ -192,6 +192,45 @@ await test('migration keeps links to literal filenames that retain their names',
     assert.equal(await memory.read(main, `${target}/${note}`), text);
 });
 
+await test('migration normalizes literal note directories before preserving link suffixes', async () => {
+  const { memory, open, root } = await fixture();
+  const origin = 'https://example.org/team/project.git';
+  const upstream = await repository(root, 'upstream', origin);
+  const copy = await repository(root, 'copy');
+  const { workspace } = await open('a');
+  const target = (await workspace.begin(upstream)).scope.project;
+  await save(workspace, {
+    [`${target}/folder#tag/note.md`]: 'Upstream hash.\n',
+    [`${target}/folder?tag/note.md`]: 'Upstream query.\n',
+  });
+  const source = (await workspace.begin(copy)).scope.project;
+  await save(workspace, {
+    [`${source}/MEMORY.md`]:
+      '[hash](folder#tag/./note.md)\n[query](folder?tag/./note.md)\n' +
+      '[parent](folder#tag/../folder#tag/note.md)\n' +
+      '[suffix](<folder?tag/./note.md#section/../untouched>)\n',
+    [`${source}/folder#tag/note.md`]: 'Checkout hash.\n',
+    [`${source}/folder?tag/note.md`]: 'Checkout query.\n',
+  });
+  await workspace.publish();
+  await git(copy, 'remote', 'add', 'origin', origin);
+  await workspace.begin(copy);
+  assert.equal(
+    await memory.read(main, `${target}/MEMORY.md`),
+    '[hash](<folder#tag/note (copy).md>)\n' +
+      '[query](<folder?tag/note (copy).md>)\n' +
+      '[parent](<folder#tag/note (copy).md>)\n' +
+      '[suffix](<folder?tag/note (copy).md#section/../untouched>)\n',
+  );
+  for (const [note, text] of [
+    ['folder#tag/note.md', 'Upstream hash.\n'],
+    ['folder#tag/note (copy).md', 'Checkout hash.\n'],
+    ['folder?tag/note.md', 'Upstream query.\n'],
+    ['folder?tag/note (copy).md', 'Checkout query.\n'],
+  ])
+    assert.equal(await memory.read(main, `${target}/${note}`), text);
+});
+
 await test("a move that loses to another clone's move is made again on the newer main", async () => {
   const { memory, open, root, project, hook } = await fixture();
   const begin = async (workspace: Workspace, cwd: string, note?: string) => {
