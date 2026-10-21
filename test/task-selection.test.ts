@@ -205,6 +205,45 @@ await test('cancelled status and recommendation never recreate a selection', asy
   assert.equal(await f.ledger(), before);
 });
 
+await test('recommendation keeps the next chooser waiting until a brew ends', async (t) => {
+  const f = await coordinationFixture(t);
+  const a = await f.start(),
+    b = await f.start('B');
+  const first = await selectionTurn(t, a),
+    second = await selectionTurn(t, b);
+  const head = await first.select(),
+    waiting = await second.select();
+  const emit = a.a.sessions.at(-1)!.options.onEvent;
+  const command = { id: 'triage', description: 'Inspect candidate tasks' };
+  emit({ type: 'command', command: { ...command, status: 'running' } });
+  const before = await f.ledger();
+  const action = {
+    kind: 'recommend' as const,
+    selection: head.ticket.id,
+    input: { reference: 'task:chosen', summary: 'Chosen task' },
+  };
+  const blocked = await callControl(first.binding, action);
+  if (blocked.kind !== 'error') assert.fail(JSON.stringify(blocked));
+  assert.match(blocked.message, /familiars and brews/);
+  assert.equal(await f.ledger(), before);
+  const queued = await callControl(second.binding, {
+    kind: 'selection-status',
+    selection: waiting.ticket.id,
+  });
+  if (queued.kind !== 'selection') assert.fail(JSON.stringify(queued));
+  assert.equal(queued.selection.position, 2);
+  emit({ type: 'command', command: { ...command, status: 'completed' } });
+  const recommended = await callControl(first.binding, action);
+  if (recommended.kind !== 'claimed') assert.fail(JSON.stringify(recommended));
+  assert.equal(recommended.claim.suggestion?.selection, head.ticket.id);
+  const ready = await callControl(second.binding, {
+    kind: 'selection-status',
+    selection: waiting.ticket.id,
+  });
+  if (ready.kind !== 'selection') assert.fail(JSON.stringify(ready));
+  assert.equal(ready.selection.position, 1);
+});
+
 await test('normal exit releases a suggestion while restart and native handoff preserve it', async (t) => {
   const f = await coordinationFixture(t);
   const a = await f.start();
