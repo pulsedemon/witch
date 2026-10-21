@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 import { runCommand } from '../src/core/command.js';
 import { cleanUpMerge, refreshInstall } from '../src/core/merged.js';
 import type { PullRequest, Run } from '../src/core/repository.js';
+import { exclusiveLock } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
@@ -680,6 +681,11 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     message:
       /^#7 merged, but its cleanup failed before deleting feat\/x: Command failed: git .*fetch --prune/,
   });
+  const reacquired = await open(
+    join(checkout, '.git'),
+    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+  );
+  await reacquired.close();
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
@@ -1068,7 +1074,7 @@ await test('a busy install is skipped before fetching', async () => {
   await git(install, 'config', 'remote.origin.uploadpack', pack);
   const lock = await open(
     join(install, '.git'),
-    constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
   );
   const calls: string[][] = [];
   try {
@@ -1195,7 +1201,7 @@ const args = process.argv.slice(2);
 if (args.join(' ') === 'rev-parse --short HEAD') {
   let result = 'unlocked';
   try {
-    closeSync(openSync(${JSON.stringify(directory)}, constants.O_RDONLY | constants.O_NONBLOCK | 0x20));
+    closeSync(openSync(${JSON.stringify(directory)}, constants.O_RDONLY | constants.O_NONBLOCK | ${exclusiveLock}));
   } catch (error) {
     result = error.code;
   }
@@ -1234,7 +1240,7 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
       assert.equal(await readFile(marker, 'utf8'), 'EAGAIN');
       const lock = await open(
         directory,
-        constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+        constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
       );
       await lock.close();
     } finally {
