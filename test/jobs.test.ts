@@ -12,7 +12,7 @@ import { JobWatch, parseDetails, parseProcesses } from '../src/core/jobs.js';
 import type { Job, Row } from '../src/core/jobs.js';
 import { ps } from '../src/persistence/process.js';
 import { scratch } from './fixtures/scratch.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 /** lists until `ready` holds, failing after five seconds. */
 async function listed(
@@ -121,6 +121,83 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
         // stopped by the test
       }
     jobs.close();
+  }
+});
+
+await test('the process-tree fixture and its MCP helpers exit after their test parent is killed', async () => {
+  const cwd = await scratch('witch-jobs-fixture-');
+  const parent = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import { spawn } from 'node:child_process';
+        import { createInterface } from 'node:readline';
+        const fixture = spawn(process.execPath, [process.argv[1]], {
+          stdio: ['ignore', 'pipe', 'inherit'],
+        });
+        createInterface({ input: fixture.stdout }).once('line', (line) => {
+          process.send([fixture.pid, ...line.trim().split(' ').map(Number)]);
+        });
+        process.once('disconnect', () => process.exit(0));
+      `,
+      join(import.meta.dirname, 'fixtures/process-tree.mjs'),
+    ],
+    {
+      cwd,
+      env: { ...process.env, NODE_TEST_CONTEXT: undefined },
+      stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+    },
+  );
+  const exited = once(parent, 'exit');
+  const owned = new Set<number>();
+  try {
+    const [ids] = (await within(
+      once(parent, 'message'),
+      3000,
+      'fixture startup',
+    )) as [[number, number, number, number]];
+    const [fixture, , , server] = ids;
+    owned.add(fixture);
+    let helper: number | undefined;
+    await until('the complete fixture tree', async () => {
+      const rows = (await ps('pid=,ppid=')).map((line) =>
+        line.trim().split(/\s+/).map(Number),
+      );
+      for (let size = 0; size !== owned.size;) {
+        size = owned.size;
+        for (const [pid, ppid] of rows) if (owned.has(ppid!)) owned.add(pid!);
+      }
+      helper = rows.find(([, ppid]) => ppid === server)?.[0];
+      return owned.size === 8 && helper !== undefined;
+    });
+    await delay(1500);
+    assert.equal((await ps('pid=', [...owned])).length, owned.size);
+    assert.equal(parent.exitCode, null);
+    assert.equal(parent.signalCode, null);
+
+    parent.kill('SIGKILL');
+    await exited;
+    for (const pid of [fixture, server, helper!])
+      await until(
+        `process ${pid} to exit after its parent`,
+        async () => (await ps('pid=', [pid])).length === 0,
+      );
+  } finally {
+    parent.kill('SIGKILL');
+    await exited;
+    for (const pid of [...owned].reverse())
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch (error) {
+        assert.equal((error as NodeJS.ErrnoException).code, 'ESRCH');
+      }
+    if (owned.size)
+      await until(
+        'fixture cleanup',
+        async () => (await ps('pid=', [...owned])).length === 0,
+      );
   }
 });
 

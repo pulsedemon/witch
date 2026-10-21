@@ -1,5 +1,6 @@
 import type { SessionCoordination } from '../core/coordination.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
+import type { NotificationSchedule } from '../persistence/notifications.js';
 import { oneLine } from './links.js';
 
 function bounded(text: string): string {
@@ -49,9 +50,10 @@ function settled(snapshot: Snapshot): boolean {
 
 /** cancellation writes nothing, so a failed stdout cannot force a second shutdown. */
 export function watchTerminal(
-  coordinator: Pick<Coordinator, 'snapshot' | 'subscribe'>,
+  coordinator: Pick<Coordinator, 'snapshot' | 'subscribe' | 'report'>,
   coordination: Pick<SessionCoordination, 'snapshot' | 'subscribe'> | undefined,
   write: (data: string) => void,
+  schedule?: NotificationSchedule,
 ): () => void {
   let stopped = false;
   let title = '';
@@ -60,11 +62,61 @@ export function watchTerminal(
   let conversationId = coordinator.snapshot.conversation?.id;
   let delivered = coordinator.snapshot.completedTurn;
   let pending: ReturnType<typeof setImmediate> | undefined;
+  let disabled = false;
+  let desktop:
+    | {
+        reason: () => string | undefined;
+        timer?: ReturnType<typeof setTimeout>;
+      }
+    | undefined;
 
-  const notify = (reason: string) =>
-    write(
-      `\u001b]777;notify;Witch;${bounded(`${reason}: ${taskName()}`)}\u001b\\\u0007`,
-    );
+  const message = (reason: string) =>
+    `\u001b]777;notify;Witch;${bounded(`${reason}: ${taskName()}`)}\u001b\\`;
+
+  function cancelDesktop() {
+    clearTimeout(desktop?.timer);
+    desktop = undefined;
+  }
+
+  function notify(reason: () => string | undefined) {
+    const current = reason();
+    if (current === undefined) return;
+    if (!schedule) {
+      write(`${message(current)}\u0007`);
+      return;
+    }
+    write('\u0007');
+    if (disabled || desktop) return;
+    const alert = {
+      reason,
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+    };
+    desktop = alert;
+    const attempt = () => {
+      void schedule
+        .attempt(() => {
+          if (stopped || desktop !== alert) return undefined;
+          const current = reason();
+          return current === undefined ? undefined : message(current);
+        }, write)
+        .then((retry) => {
+          if (desktop !== alert) return;
+          if (retry === undefined) {
+            desktop = undefined;
+          } else {
+            alert.timer = setTimeout(attempt, retry);
+            alert.timer.unref();
+          }
+        })
+        .catch((error: unknown) => {
+          if (stopped || disabled) return;
+          disabled = true;
+          cancelDesktop();
+          coordinator.report(error);
+        });
+    };
+    attempt();
+  }
 
   function taskName(): string {
     const conversation = coordinator.snapshot.conversation;
@@ -85,12 +137,14 @@ export function watchTerminal(
       stop();
       return;
     }
+    if (desktop && desktop.reason() === undefined) cancelDesktop();
     const conversation = snapshot.conversation;
     if (conversation?.id !== conversationId) {
       conversationId = conversation?.id;
       delivered = snapshot.completedTurn;
       clearImmediate(pending);
       pending = undefined;
+      cancelDesktop();
     }
     const status = snapshot.requests.length ? 'waiting' : snapshot.phase;
     const next = bounded(
@@ -106,8 +160,12 @@ export function watchTerminal(
       timer = undefined;
       active = wait?.key;
       if (wait) {
-        notify(wait.reason);
-        timer = setInterval(() => notify(wait.reason), 15_000);
+        const reason = () => {
+          const current = waiting(coordinator.snapshot);
+          return current?.key === wait.key ? current.reason : undefined;
+        };
+        notify(reason);
+        timer = setInterval(() => notify(reason), 15_000);
         timer.unref();
       }
     }
@@ -134,7 +192,14 @@ export function watchTerminal(
         )
           return;
         delivered = completed;
-        notify('Turn complete');
+        notify(() => {
+          const current = coordinator.snapshot;
+          return current.conversation?.id === owner &&
+            current.completedTurn === completed &&
+            settled(current)
+            ? 'Turn complete'
+            : undefined;
+        });
       });
       pending.unref();
     }
@@ -149,6 +214,7 @@ export function watchTerminal(
     unsubscribeCoordination?.();
     clearInterval(timer);
     clearImmediate(pending);
+    cancelDesktop();
   }
   update();
   return stop;

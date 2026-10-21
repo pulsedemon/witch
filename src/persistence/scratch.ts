@@ -1,32 +1,21 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, readFile, readdir } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { z } from 'zod';
 import { processIdentity } from '../core/state.js';
 import { processRunning, removeDirectory } from './instance.js';
 import { writeJson } from './json.js';
 import { exclusiveLock } from './lock.js';
-import { identifyProcess } from './process.js';
+import { bootSession, identifyProcess } from './process.js';
 
-const execute = promisify(execFile);
 const metadata = '.witch-scratch.json';
 const recordSchema = z.object({
   version: z.literal(1),
   boot: z.uuid(),
   owner: processIdentity.optional(),
 });
-
-async function bootSession(): Promise<string> {
-  const { stdout } = await execute('/usr/sbin/sysctl', [
-    '-n',
-    'kern.bootsessionuuid',
-  ]);
-  return stdout.trim();
-}
 
 async function lockDirectory(directory: string): Promise<FileHandle> {
   return open(

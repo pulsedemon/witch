@@ -21,4 +21,6 @@ const server = spawn(
   { stdio: 'ignore' },
 );
 process.stdout.write(`${stuck.pid} ${running.pid} ${server.pid}\n`);
-setInterval(() => {}, 60_000);
+setInterval(() => {
+  if (process.ppid === 1) process.exit(0);
+}, 1000);
