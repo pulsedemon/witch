@@ -3,6 +3,8 @@ import { syncBuiltinESMExports } from 'node:module';
 import process from 'node:process';
 import { promisify } from 'node:util';
 import { setImmediate } from 'node:timers';
+import { subscribe } from 'node:diagnostics_channel';
+import { performance } from 'node:perf_hooks';
 
 Object.defineProperty(process.stdin, 'isTTY', { value: true });
 process.stdin.setRawMode = () => process.stdin;
@@ -56,3 +58,29 @@ Object.defineProperty(childProcess.execFile, promisify.custom, {
   value: execute[promisify.custom],
 });
 syncBuiltinESMExports();
+
+const started = performance.now();
+const diagnostic = (event) =>
+  process.send({
+    diagnostic: JSON.stringify({ at: performance.now() - started, ...event }),
+  });
+diagnostic({ event: 'preload', pid: process.pid });
+subscribe('child_process', ({ process: child }) => {
+  const started = performance.now();
+  child.once('spawn', () =>
+    diagnostic({ event: 'spawn', pid: child.pid, args: child.spawnargs }),
+  );
+  child.once('error', (error) =>
+    diagnostic({ event: 'error', pid: child.pid, message: error.message }),
+  );
+  child.once('close', (code, signal) =>
+    diagnostic({
+      event: 'close',
+      pid: child.pid,
+      args: child.spawnargs,
+      elapsed: performance.now() - started,
+      code,
+      signal,
+    }),
+  );
+});
