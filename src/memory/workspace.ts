@@ -31,7 +31,7 @@ function mergeLines(index: string, added: string): string {
   return `${kept ? `${kept}${eol}` : ''}${missing.join(eol)}${eol}`;
 }
 
-/** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
+/** one conversation's memory: a worktree of the shared bare repository on its own branch. ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
   private readonly branch: string;
 
@@ -147,7 +147,7 @@ export class Workspace {
       });
       if (!moved || (await this.publish()) === 'published')
         return { revision: await this.revision(), scope };
-      // the move derives from main alone, so it is dropped and made again on the main that beat it
+      // discarding this derived move loses no accepted notes
       await this.git(['reset', '--hard', '--quiet', main]);
       if (attempt === 5)
         throw new Error(
@@ -185,8 +185,15 @@ export class Workspace {
           .replace(
             /\]\((?:<([^<>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\))+))/g,
             (link, angled?: string, bare?: string) => {
-              const to = renamed.get(posix.normalize(angled ?? bare!));
-              return to === undefined ? link : `](<${to}>`;
+              const target = angled ?? bare!;
+              const direct = renamed.get(posix.normalize(target));
+              if (direct !== undefined) return `](<${direct}>`;
+              const split = target.search(/[?#]/);
+              if (split < 0) return link;
+              const to = renamed.get(posix.normalize(target.slice(0, split)));
+              return to === undefined
+                ? link
+                : `](<${to}${target.slice(split)}>`;
             },
           );
         const target = await this.checkedPath(posix.join(project, note));
