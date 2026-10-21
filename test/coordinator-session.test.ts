@@ -462,7 +462,7 @@ await test('Codex brew events keep the coordinator active after its reply', asyn
     );
 });
 
-await test('a brew lists from its start until its end and through a turn, its start and end each add a transcript row, and a repeated start or an unlisted end changes nothing', async () => {
+await test('brew lifecycle preserves start order and ignores repeated starts and unlisted ends', async () => {
   const { coordinator, a } = await fixture();
   const emit = (id: string, status: BackgroundCommand['status']) =>
     a.sessions[0]!.options.onEvent({
@@ -493,6 +493,14 @@ await test('a brew lists from its start until its end and through a turn, its st
     emit('ghost', 'failed');
     assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
     assert.equal(rows().length, 1);
+
+    emit('preview', 'running');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, [
+      serve,
+      { ...serve, id: 'preview' },
+    ]);
+    emit('preview', 'completed');
+    assert.deepEqual(coordinator.snapshot.backgroundCommands, [serve]);
 
     emit('serve', 'failed');
     assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
