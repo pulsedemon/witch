@@ -181,6 +181,10 @@ export class Workspace {
       .filter(Boolean);
     if (!files.length) return false;
     const notes = new Set(files.map((file) => posix.relative(checkout, file)));
+    const directories = new Set<string>();
+    for (const note of notes)
+      for (let dir = posix.dirname(note); dir !== '.'; dir = posix.dirname(dir))
+        directories.add(dir);
     const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
     const index = posix.join(checkout, indexNote);
     const renamed = new Map<string, string>();
@@ -197,7 +201,18 @@ export class Workspace {
             /\]\((?:<([^<>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\))+))/g,
             (link, angled?: string, bare?: string) => {
               const target = angled ?? bare!;
-              const split = target.search(/[?#]/);
+              let split = target.search(/[?#]/);
+              // a delimiter inside a known directory is part of the path
+              while (split >= 0) {
+                const slash = target.indexOf('/', split);
+                if (
+                  slash < 0 ||
+                  !directories.has(posix.normalize(target.slice(0, slash)))
+                )
+                  break;
+                split = target.slice(slash + 1).search(/[?#]/);
+                if (split >= 0) split += slash + 1;
+              }
               const literal =
                 split < 0
                   ? posix.normalize(target)
