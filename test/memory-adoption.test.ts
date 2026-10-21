@@ -69,7 +69,8 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
   await begin(second, copy, {
     'MEMORY.md':
       '# Project\n- shared  \n- [deploy](deploy.md)\n- [two](two.md)\n- [two](two.md)\n- [dot](./dot.md)\n- [angled](<angled.md>)\n- [p](p(1).md)\n' +
-      '- [fragment](deploy.md#section)\n- [query](<angled.md?raw=1>)\n- [both](deploy.md?next=../two#section)\n- [literal](literal#part.md)\n- [unmatched](missing.md?raw=1#section)\n',
+      '- [fragment](deploy.md#section)\n- [query](<angled.md?raw=1>)\n- [both](deploy.md?next=../two#section)\n- [literal](literal#part.md)\n- [unmatched](missing.md?raw=1#section)\n' +
+      '- [query path](./deploy.md?next=/../dot.md)\n- [fragment path](<deploy.md#section/../same.md>)\n',
     [long]: 'Long B.\n',
     'deploy.md': 'Deploy with B.\n',
     notes: 'A file named notes.\n',
@@ -123,7 +124,8 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
   assert.equal(
     await memory.read(merged.revision, `${target}/MEMORY.md`),
     '# Project\n- [deploy](deploy.md)\n- shared  \n- [deploy](<deploy (copy).md>)\n- [two](two.md)\n- [dot](<dot (copy).md>)\n- [angled](<angled (copy).md>)\n- [p](<p(1) (copy).md>)\n' +
-      '- [fragment](<deploy (copy).md#section>)\n- [query](<angled (copy).md?raw=1>)\n- [both](<deploy (copy).md?next=../two#section>)\n- [literal](<literal#part (copy).md>)\n- [unmatched](missing.md?raw=1#section)\n',
+      '- [fragment](<deploy (copy).md#section>)\n- [query](<angled (copy).md?raw=1>)\n- [both](<deploy (copy).md?next=../two#section>)\n- [literal](<literal#part (copy).md>)\n- [unmatched](missing.md?raw=1#section)\n' +
+      '- [query path](<deploy (copy).md?next=/../dot.md>)\n- [fragment path](<deploy (copy).md#section/../same.md>)\n',
   );
   assert.equal(
     await memory.read(merged.revision, `${target}/deploy.md`),
