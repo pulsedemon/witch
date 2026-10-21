@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
   mkdir,
@@ -281,6 +281,17 @@ await test('clones of one origin share project memory under its name across dire
     await clone('at-path', 'host:a@b/c'),
     await clone('at-host', 'b:c'),
   );
+  const hash = createHash('sha256')
+    .update('example.org/team/\nproject')
+    .digest('hex')
+    .slice(0, 16);
+  assert.equal(
+    await clone(
+      'newline',
+      `git@example.org:${'/'.repeat(40_000)}team/\nproject.git`,
+    ),
+    `projects/\nproject-${hash}`,
+  );
 });
 
 await test('a local origin names the repository git reaches through it: from the top level, through links, by file URL, by its .git forms, and before it exists', async () => {
@@ -346,6 +357,41 @@ await test('a local origin names the repository git reaches through it: from the
   const missing = await key(later);
   await git(root, 'init', '--quiet', '--bare', 'a/later.git');
   assert.equal(await key(later), missing);
+  const regular = join(root, 'regular');
+  await writeFile(regular, 'not a directory');
+  const child = `${regular}/child`;
+  const underFile = await clone('under-file', child);
+  const hash = createHash('sha256').update(child).digest('hex').slice(0, 16);
+  const expected = `projects/child-${hash}`;
+  assert.equal(await key(underFile), expected);
+  assert.equal(await key(underFile), expected);
+});
+
+await test('a suffixless local origin follows a non-bare .git checkout and reports its unreadable config', async () => {
+  const { memory, root } = await fixture();
+  const upstream = await repository(
+    root,
+    'upstream.git',
+    'https://example.org/another/dotted.git',
+  );
+  const copy = await repository(root, 'copy', join(root, 'upstream'));
+  const hash = createHash('sha256')
+    .update('example.org/another/dotted')
+    .digest('hex')
+    .slice(0, 16);
+  assert.equal(
+    (await memory.scopePaths(copy)).project,
+    `projects/dotted-${hash}`,
+  );
+  await writeFile(join(upstream, '.git', 'config'), '[remote "broken"\n', {
+    flag: 'a',
+  });
+  await assert.rejects(memory.scopePaths(copy), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.ok(error.message.startsWith(`${upstream}: `));
+    assert.match(error.message, /bad config/);
+    return true;
+  });
 });
 
 await test('a project name too long for an APFS name is cut by UTF-16 units to fit beside its hash', async () => {
