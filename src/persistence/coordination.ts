@@ -223,6 +223,21 @@ export class CoordinationStore {
     return (await this.state()).claims;
   }
 
+  /** bind legacy ownership before restart opens a gap in its conversation lock. */
+  async adoptClaim(
+    owner: ClaimOwner,
+    process: ProcessIdentity,
+    deadline: number,
+    verify: () => Promise<void>,
+  ): Promise<void> {
+    await this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) =>
+        sameOwner(claim.owner, owner),
+      );
+      if (claim && !claim.process) claim.process = process;
+    });
+  }
+
   async claim(
     owner: ClaimOwner,
     input: ClaimInput,

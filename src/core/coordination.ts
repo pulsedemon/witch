@@ -143,8 +143,18 @@ export class SessionCoordination {
     this.active = active;
     this.publish(emptySnapshot);
     try {
-      // restart must recover releases for conversations this process has already left.
-      for (const claim of await this.registry.claims())
+      for (const claim of await this.registry.claims()) {
+        if (claim.owner.conversation === conversation.id && !claim.process)
+          await this.registry.adoptClaim(
+            claim.owner,
+            this.process,
+            Date.now() + 1000,
+            async () => {
+              if (this.ending || this.closed || this.active !== active)
+                throw new Error('Coordination is closing.');
+            },
+          );
+        // restart must recover releases for conversations this process has already left.
         if (
           claim.owner.conversation !== conversation.id &&
           claim.process?.pid === this.process.pid &&
@@ -152,6 +162,7 @@ export class SessionCoordination {
           !(await this.store.isOpen(claim.owner.conversation))
         )
           this.claimReleases.add(claim.owner.conversation);
+      }
       await this.retireProject(active);
       const presence = this.presence(active);
       this.projected = JSON.stringify({ ...presence, updatedAt: undefined });
