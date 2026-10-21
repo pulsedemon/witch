@@ -70,7 +70,8 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
     'MEMORY.md':
       '# Project\n- shared  \n- [deploy](deploy.md)\n- [two](two.md)\n- [two](two.md)\n- [dot](./dot.md)\n- [angled](<angled.md>)\n- [p](p(1).md)\n' +
       '- [fragment](deploy.md#section)\n- [query](<angled.md?raw=1>)\n- [both](deploy.md?next=../two#section)\n- [literal](literal#part.md)\n- [unmatched](missing.md?raw=1#section)\n' +
-      '- [query path](./deploy.md?next=/../dot.md)\n- [fragment path](<deploy.md#section/../same.md>)\n',
+      '- [query path](./deploy.md?next=/../dot.md)\n- [fragment path](<deploy.md#section/../same.md>)\n' +
+      '- [query directory](deploy.md?raw/missing)\n- [fragment directory](deploy.md#raw/missing)\n- [literal directory](deploy.md?raw/other.md)\n- [first suffix](deploy.md?raw/other.md#section)\n',
     [long]: 'Long B.\n',
     'deploy.md': 'Deploy with B.\n',
     notes: 'A file named notes.\n',
@@ -80,6 +81,8 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
     'angled.md': 'B.\n',
     'p(1).md': 'B.\n',
     'literal#part.md': 'Literal B.\n',
+    'deploy.md?raw/other.md': 'Other query note.\n',
+    'deploy.md#raw/other.md': 'Other fragment note.\n',
   });
   const origin = 'https://github.com/owner/repo.git';
   await git(project, 'remote', 'add', 'origin', origin);
@@ -107,6 +110,8 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
       'angled.md',
       'deploy (copy).md',
       'deploy.md',
+      'deploy.md#raw/other.md',
+      'deploy.md?raw/other.md',
       'dot (copy).md',
       'dot.md',
       'literal#part (copy).md',
@@ -125,7 +130,8 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
     await memory.read(merged.revision, `${target}/MEMORY.md`),
     '# Project\n- [deploy](deploy.md)\n- shared  \n- [deploy](<deploy (copy).md>)\n- [two](two.md)\n- [dot](<dot (copy).md>)\n- [angled](<angled (copy).md>)\n- [p](<p(1) (copy).md>)\n' +
       '- [fragment](<deploy (copy).md#section>)\n- [query](<angled (copy).md?raw=1>)\n- [both](<deploy (copy).md?next=../two#section>)\n- [literal](<literal#part (copy).md>)\n- [unmatched](missing.md?raw=1#section)\n' +
-      '- [query path](<deploy (copy).md?next=/../dot.md>)\n- [fragment path](<deploy (copy).md#section/../same.md>)\n',
+      '- [query path](<deploy (copy).md?next=/../dot.md>)\n- [fragment path](<deploy (copy).md#section/../same.md>)\n' +
+      '- [query directory](<deploy (copy).md?raw/missing>)\n- [fragment directory](<deploy (copy).md#raw/missing>)\n- [literal directory](deploy.md?raw/other.md)\n- [first suffix](<deploy (copy).md?raw/other.md#section>)\n',
   );
   assert.equal(
     await memory.read(merged.revision, `${target}/deploy.md`),
@@ -204,17 +210,20 @@ await test('migration normalizes literal note directories before preserving link
     [`${target}/folder?tag/note.md`]: 'Upstream query.\n',
   });
   const source = (await workspace.begin(copy)).scope.project;
+  const parent = 'folder#tag/../'.repeat(16_000);
   await save(workspace, {
     [`${source}/MEMORY.md`]:
       '[hash](folder#tag/./note.md)\n[query](folder?tag/./note.md)\n' +
-      '[parent](folder#tag/../folder#tag/note.md)\n' +
+      `[parent](${parent}folder#tag/note.md)\n` +
       '[suffix](<folder?tag/./note.md#section/../untouched>)\n',
     [`${source}/folder#tag/note.md`]: 'Checkout hash.\n',
     [`${source}/folder?tag/note.md`]: 'Checkout query.\n',
   });
   await workspace.publish();
   await git(copy, 'remote', 'add', 'origin', origin);
+  const started = performance.now();
   await workspace.begin(copy);
+  const elapsed = performance.now() - started;
   assert.equal(
     await memory.read(main, `${target}/MEMORY.md`),
     '[hash](<folder#tag/note (copy).md>)\n' +
@@ -229,6 +238,7 @@ await test('migration normalizes literal note directories before preserving link
     ['folder?tag/note (copy).md', 'Checkout query.\n'],
   ])
     assert.equal(await memory.read(main, `${target}/${note}`), text);
+  assert.ok(elapsed < 3000, `migration took ${elapsed} ms`);
 });
 
 await test("a move that loses to another clone's move is made again on the newer main", async () => {
