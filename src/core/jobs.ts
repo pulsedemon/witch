@@ -223,8 +223,9 @@ export class JobWatch {
   }
 
   /**
-   * sends the group SIGTERM, then SIGKILL once `grace` passes, since a Node process stuck in a loop never runs the
-   * handlers it registered. returns once the listed generation is gone, and rejects if it outlasts SIGKILL by a second.
+   * leaves untracked groups and stale generations unsignaled. otherwise sends SIGTERM, then SIGKILL after `grace`,
+   * since a Node process stuck in a loop cannot run its signal handlers. returns once the listed generation is gone,
+   * and rejects if it outlasts SIGKILL by a second.
    */
   async stop(job: Pick<Job, 'group' | 'generation'>): Promise<void> {
     const steps = [
