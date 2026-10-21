@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -11,19 +11,26 @@ const instance = fileURLToPath(
   new URL('../src/persistence/instance.ts', import.meta.url),
 );
 
-await test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone or of an earlier process with its pid, while a live process's stays", async () => {
+await test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone or of an earlier process with its pid, while live and unprobeable processes' directories stay", async () => {
   const parent = await scratch('witch-instance-');
   const exited = spawn('/usr/bin/true');
   await once(exited, 'exit');
   await mkdir(join(parent, String(exited.pid)));
   await mkdir(join(parent, String(process.pid)));
   await mkdir(join(parent, 'notes'));
+  await mkdir(join(parent, '100001'));
+  await writeFile(join(parent, '100001', 'marker'), 'kept');
   const script = `
     import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';
     import { instanceDirectory } from ${JSON.stringify(instance)};
     // what the process this one replaced with execve left
     mkdirSync(join(${JSON.stringify(parent)}, String(process.pid), 'stale'), { recursive: true });
+    const kill = process.kill.bind(process);
+    process.kill = (pid, signal) => {
+      if (pid === 100001) throw Object.assign(new Error('denied'), { code: 'EPERM' });
+      return kill(pid, signal);
+    };
     const directory = instanceDirectory(${JSON.stringify(parent)});
     if (existsSync(join(directory, 'stale'))) throw new Error('stale');
     mkdirSync(join(directory, 'locked'));
@@ -52,8 +59,12 @@ await test("an instance directory goes when its process exits, read-only content
   const [code] = await once(child, 'close');
   assert.equal(code, 0);
   assert.equal(stdout.trim(), join(parent, String(child.pid)));
-  assert.deepEqual((await readdir(parent)).sort(), [
-    String(process.pid),
-    'notes',
-  ]);
+  assert.deepEqual(
+    (await readdir(parent)).sort(),
+    ['100001', String(process.pid), 'notes'].sort(),
+  );
+  assert.equal(
+    await readFile(join(parent, '100001', 'marker'), 'utf8'),
+    'kept',
+  );
 });
