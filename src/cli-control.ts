@@ -1,13 +1,13 @@
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from './agents/stderr.js';
-import {
-  coordinationActionSchema,
-  presenceStatus,
-} from './core/coordination-state.js';
+import { coordinationActionSchema } from './core/coordination-state.js';
 import { callControl, controlBindingSchema } from './persistence/control.js';
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
 import { quote } from './shell.js';
+import { oneLine } from './ui/links.js';
+import { peerStatus } from './ui/peers.js';
 
 export function parseCommand(args = process.argv.slice(2)) {
   const parsed = parseArgs({
@@ -24,6 +24,10 @@ export function parseCommand(args = process.argv.slice(2)) {
       summary: { type: 'string' },
       alias: { type: 'string', multiple: true },
       release: { type: 'string' },
+      'select-next': { type: 'string' },
+      'cancel-selection': { type: 'string' },
+      recommend: { type: 'string' },
+      selection: { type: 'string' },
       json: { type: 'boolean' },
     },
     allowPositionals: true,
@@ -39,6 +43,10 @@ export function parseCommand(args = process.argv.slice(2)) {
     'summary',
     'alias',
     'release',
+    'select-next',
+    'cancel-selection',
+    'recommend',
+    'selection',
     'json',
   ] as const;
   if (!controls.some((name) => values[name] !== undefined))
@@ -47,9 +55,14 @@ export function parseCommand(args = process.argv.slice(2)) {
     !!values.peers,
     values.claim !== undefined,
     values.release !== undefined,
+    values['select-next'] !== undefined,
+    values['cancel-selection'] !== undefined,
+    values.recommend !== undefined,
   ].filter(Boolean).length;
   if (actions !== 1)
-    throw new Error('Choose exactly one of --peers, --claim or --release.');
+    throw new Error(
+      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend or --cancel-selection.',
+    );
   if (
     positionals.length ||
     values.continue ||
@@ -69,9 +82,14 @@ export function parseCommand(args = process.argv.slice(2)) {
     );
   if (
     values.claim === undefined &&
+    values.recommend === undefined &&
     (values.summary !== undefined || values.alias)
   )
-    throw new Error('--summary and --alias require --claim.');
+    throw new Error('--summary and --alias require --claim or --recommend.');
+  if (values.recommend !== undefined && !values.selection)
+    throw new Error('--recommend requires --selection.');
+  if (values.recommend === undefined && values.selection !== undefined)
+    throw new Error('--selection requires --recommend.');
   const binding = controlBindingSchema.parse({
     directory: resolve(values['control-dir']),
     conversation: values['control-conversation'],
@@ -80,16 +98,24 @@ export function parseCommand(args = process.argv.slice(2)) {
   const action = coordinationActionSchema.parse(
     values.peers
       ? { kind: 'peers' }
-      : values.claim !== undefined
+      : values.claim !== undefined || values.recommend !== undefined
         ? {
-            kind: 'claim',
+            kind: values.recommend !== undefined ? 'recommend' : 'claim',
+            selection: values.selection,
             input: {
-              reference: values.claim,
+              reference: values.recommend ?? values.claim,
               summary: values.summary,
               aliases: values.alias,
             },
           }
-        : { kind: 'release', claim: values.release },
+        : values['select-next'] !== undefined
+          ? { kind: 'select-next', turn: values['select-next'] }
+          : values['cancel-selection'] !== undefined
+            ? {
+                kind: 'cancel-selection',
+                selection: values['cancel-selection'],
+              }
+            : { kind: 'release', claim: values.release },
   );
   return { ...parsed, control: { binding, action, json: !!values.json } };
 }
@@ -121,7 +147,11 @@ export function controlPrefix(binding: ControlBinding, entry: string): string {
 function describe(outcome: ControlOutcome): string {
   switch (outcome.kind) {
     case 'claimed':
-      return `Claimed: ${outcome.claim.summary}\nClaim id: ${outcome.claim.id}`;
+      return `${outcome.claim.suggestion ? 'Suggested' : 'Claimed'}: ${oneLine(outcome.claim.summary)}\nClaim id: ${outcome.claim.id}`;
+    case 'selection':
+      return `Selection ${outcome.selection.ticket.id}: ${outcome.selection.position === 1 ? 'ready' : `queued #${outcome.selection.position}`}`;
+    case 'selection-cancelled':
+      return `Selection ${outcome.selection} cancelled.`;
     case 'released':
       return 'Task released.';
     case 'conflict':
@@ -137,19 +167,25 @@ function describe(outcome: ControlOutcome): string {
             : []),
           ...(snapshot.ownClaim
             ? [
-                `Current task: ${snapshot.ownClaim.summary} (${snapshot.ownClaim.id})`,
+                `${snapshot.ownClaim.suggestion ? 'Suggested task' : 'Current task'}: ${oneLine(snapshot.ownClaim.summary)} (${snapshot.ownClaim.id})`,
+              ]
+            : []),
+          ...(snapshot.ownSelection
+            ? [
+                `Selection ${snapshot.ownSelection.ticket.id}: ${snapshot.ownSelection.position === 1 ? 'choosing' : `queued #${snapshot.ownSelection.position}`}`,
               ]
             : []),
           ...snapshot.peers.map(
-            ({ presence, claim }) =>
-              `${claim?.summary ?? presence.title} | ${presence.agent} | ${presenceStatus(presence)} | ${presence.cwd} | ${presence.id}`,
+            (peer) =>
+              `${oneLine(peer.claim?.summary ?? peer.presence.title)} | ${oneLine(peer.presence.agent)} | ${peerStatus(peer)} | ${oneLine(peer.presence.cwd)} | ${oneLine(peer.presence.id)}`,
           ),
           ...snapshot.reservations.map(
             ({ claim, status }) =>
-              `${claim.summary} | ${status} | ${claim.owner.conversation} | ${claim.id}`,
+              `${oneLine(claim.summary)} | ${status} | ${oneLine(claim.owner.conversation)} | ${claim.id}`,
           ),
           ...snapshot.unregistered.map(
-            (peer) => `${peer.title} | unregistered | ${peer.cwd} | ${peer.id}`,
+            (peer) =>
+              `${oneLine(peer.title)} | unregistered | ${oneLine(peer.cwd)} | ${oneLine(peer.id)}`,
           ),
         ].join('\n') || 'No other sessions in this project.'
       );
@@ -168,15 +204,60 @@ export function writeControl(outcome: ControlOutcome, json: boolean): number {
 export async function runControl(
   call: NonNullable<ReturnType<typeof parseCommand>['control']>,
 ): Promise<number> {
+  const stopped = new AbortController();
+  const stop = () => stopped.abort();
+  const waiting = call.action.kind === 'select-next';
+  if (waiting) {
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  }
   try {
-    return writeControl(
-      await callControl(call.binding, call.action),
-      call.json,
-    );
+    let outcome: ControlOutcome = await callControl(call.binding, call.action);
+    let position: number | undefined;
+    let selection: string | undefined;
+    while (waiting && outcome.kind === 'selection') {
+      const { ticket } = outcome.selection;
+      selection = ticket.id;
+      if (stopped.signal.aborted || outcome.selection.position === 1) break;
+      if (position !== outcome.selection.position) {
+        position = outcome.selection.position;
+        process.stderr.write(`Selection ${ticket.id}: queued #${position}\n`);
+      }
+      await delay(1000, undefined, { signal: stopped.signal }).catch(
+        (error: unknown) => {
+          if (!(error instanceof Error) || error.name !== 'AbortError')
+            throw error;
+        },
+      );
+      if (!stopped.signal.aborted)
+        outcome = await callControl(call.binding, {
+          kind: 'selection-status',
+          selection: ticket.id,
+        }).catch((error: unknown): ControlOutcome => ({
+          kind: 'error',
+          message: errorMessage(error),
+        }));
+    }
+    if (stopped.signal.aborted && selection) {
+      writeControl(
+        await callControl(call.binding, {
+          kind: 'cancel-selection',
+          selection,
+        }),
+        call.json,
+      );
+      return 130;
+    }
+    return writeControl(outcome, call.json);
   } catch (error) {
     return writeControl(
       { kind: 'error', message: errorMessage(error) },
       call.json,
     );
+  } finally {
+    if (waiting) {
+      process.off('SIGINT', stop);
+      process.off('SIGTERM', stop);
+    }
   }
 }

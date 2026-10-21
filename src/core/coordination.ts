@@ -14,10 +14,14 @@ import type {
 } from '../persistence/control.js';
 import { identifyProcess } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
-import { conversationSummarySchema } from './coordination-state.js';
+import {
+  conversationSummarySchema,
+  selectionStates,
+} from './coordination-state.js';
 import type {
   CoordinationSnapshot,
   SessionPresence,
+  SelectionScope,
 } from './coordination-state.js';
 import type { Snapshot } from './coordinator.js';
 import type { Repository } from './repository.js';
@@ -59,6 +63,10 @@ export class SessionCoordination {
     promise: Promise<void>;
   };
   private failures = new Map<string, string>();
+  private turn?: SelectionScope;
+  private cancellations = new Map<string, SelectionScope>();
+  private claimReleases = new Set<string>();
+  private maintaining?: Promise<void>;
   private ending = false;
   private closed = false;
 
@@ -92,7 +100,10 @@ export class SessionCoordination {
       (request) => coordination.handle(request),
       (error) => coordination.fail('control', error),
     );
-    coordination.timer = setInterval(() => void coordination.refresh(), 2000);
+    coordination.timer = setInterval(() => {
+      void coordination.maintain();
+      void coordination.refresh();
+    }, 2000);
     coordination.timer.unref();
     return coordination;
   }
@@ -132,6 +143,27 @@ export class SessionCoordination {
     this.active = active;
     this.publish(emptySnapshot);
     try {
+      for (const claim of await this.registry.claims()) {
+        if (claim.owner.conversation === conversation.id && !claim.process)
+          await this.registry.adoptClaim(
+            claim.owner,
+            this.process,
+            Date.now() + 1000,
+            async () => {
+              if (this.ending || this.closed || this.active !== active)
+                throw new Error('Coordination is closing.');
+            },
+          );
+        // restart must recover releases for conversations this process has already left.
+        if (
+          claim.owner.conversation !== conversation.id &&
+          claim.process?.pid === this.process.pid &&
+          claim.process.started === this.process.started &&
+          !(await this.store.isOpen(claim.owner.conversation))
+        )
+          this.claimReleases.add(claim.owner.conversation);
+      }
+      await this.retireProject(active);
       const presence = this.presence(active);
       this.projected = JSON.stringify({ ...presence, updatedAt: undefined });
       await this.write(presence);
@@ -156,7 +188,7 @@ export class SessionCoordination {
   async deactivate(): Promise<void> {
     const active = this.active;
     if (!active) return;
-    const quiescing = this.quiesce();
+    const quiescing = Promise.all([this.endTurn(), this.quiesce()]);
     active.publishing = false;
     clearTimeout(this.scheduled);
     this.scheduled = undefined;
@@ -221,10 +253,98 @@ export class SessionCoordination {
     if (this.state) this.update(this.state);
   }
 
+  beginTurn(turn: string): void {
+    const active = this.admit();
+    this.turn = {
+      owner: { conversation: active.conversation.id, project: active.project },
+      activation: active.binding.activation,
+      turn,
+    };
+  }
+
+  endTurn(turn?: string): Promise<void> {
+    this.revokeTurn(turn);
+    return this.serialize(() => this.finishCleanup());
+  }
+
+  private revokeTurn(turn?: string): void {
+    if (this.turn && (turn === undefined || this.turn.turn === turn)) {
+      this.cancellations.set(this.turn.turn, this.turn);
+      this.turn = undefined;
+    }
+  }
+
+  /** drain releases before reactivation so a retry cannot remove a newer claim. */
+  private async finishCleanup(): Promise<void> {
+    try {
+      for (const [id, scope] of this.cancellations) {
+        await this.registry.cancelSelection(
+          scope,
+          undefined,
+          Date.now() + 1000,
+          async () => {},
+        );
+        this.cancellations.delete(id);
+      }
+      for (const conversation of this.claimReleases) {
+        const claim = (await this.registry.claims()).find(
+          (claim) => claim.owner.conversation === conversation,
+        );
+        if (claim)
+          await this.registry.releaseConversation(
+            claim.owner,
+            this.process,
+            Date.now() + 1000,
+            async () => {},
+          );
+        this.claimReleases.delete(conversation);
+      }
+      this.failures.delete('selection');
+    } catch (error) {
+      this.fail('selection', error);
+      throw error;
+    }
+  }
+
+  private maintain(): Promise<void> {
+    if (this.closed || (!this.cancellations.size && !this.claimReleases.size))
+      return Promise.resolve();
+    this.maintaining ??= this.serialize(() => this.finishCleanup())
+      .catch(() => {})
+      .finally(() => {
+        this.maintaining = undefined;
+      });
+    return this.maintaining;
+  }
+
+  releaseConversation(conversation: string): Promise<void> {
+    this.claimReleases.add(conversation);
+    return this.serialize(() => this.finishCleanup());
+  }
+
+  private async retireProject(active: Activation): Promise<void> {
+    if (this.turn && this.turn.owner.project !== active.project)
+      this.revokeTurn();
+    await this.finishCleanup();
+    const claim = (await this.registry.claims()).find(
+      (claim) =>
+        claim.owner.conversation === active.conversation.id &&
+        claim.suggestion &&
+        claim.owner.project !== active.project,
+    );
+    if (claim) {
+      this.claimReleases.add(claim.owner.conversation);
+      await this.finishCleanup();
+    }
+  }
+
   async context(): Promise<string> {
     const active = this.admit();
     try {
-      await this.refreshProject(active);
+      await this.serialize(async () => {
+        await this.refreshProject(active);
+        await this.retireProject(active);
+      });
     } catch {
       // the recorded error withholds new work while the agent can still explain or finish its existing task
     }
@@ -240,6 +360,14 @@ export class SessionCoordination {
         : []),
       `Control command: ${this.prefix(active.binding)}`,
       'Use --peers --json to inspect sessions; --claim <full GitHub issue/pr URL or task:name> --summary <work> --alias <related reference> to claim; --release <claim-id> to release. --alias is optional and repeatable.',
+      ...(this.turn
+        ? [
+            `Selection turn: ${this.turn.turn}`,
+            `When asked to choose the next task, run --select-next ${this.turn.turn} --json before triage. It waits automatically for your place. Do not claim a generic triage task, end the request because another session is choosing, or ask the user to repeat it.`,
+            'After position 1 is granted, refresh issues, code and reservations. Reserve your recommendation with --recommend <reference> --selection <ticket-id> --summary <work> [--alias <reference>] before presenting it. A specific-task conflict keeps your place: choose another unreserved task. Other sessions may choose as soon as your recommendation is recorded.',
+            'Keep the suggestion reserved while awaiting the user. When the user requests planning, investigation or implementation, use --claim on that reference to promote it. A different named task replaces your suggestion only if its claim succeeds. Another --select-next releases the old suggestion and joins the tail. Cancel with --cancel-selection <ticket-id> when redirected or when no suitable work remains. Do not infer permission from a failed or timed-out command; query peers to reconcile its result.',
+          ]
+        : []),
       'Before starting a new task, query the other sessions and claim its reference. For unnumbered work, compare existing task summaries and reuse a matching reference. A conflict means stop that task and report its owner; do not rename the task to get around the conflict. Keep the summary current, pass this ownership context to delegated workers, and release only after the task and its delegated work have ended. Refresh before changing scope, including after a steered request.',
     ].join('\n');
   }
@@ -264,12 +392,17 @@ export class SessionCoordination {
     );
   }
 
-  async close(): Promise<void> {
+  async close(options: { restart?: boolean } = {}): Promise<void> {
     this.ending = true;
     this.closed = true;
     clearInterval(this.timer);
     try {
-      await this.deactivate();
+      try {
+        await this.deactivate();
+      } finally {
+        if (!options.restart && this.state?.conversation)
+          await this.releaseConversation(this.state.conversation.id);
+      }
     } finally {
       await this.host.close();
       await this.refreshing?.promise;
@@ -281,6 +414,7 @@ export class SessionCoordination {
     return {
       ...conversationSummarySchema.parse(active.conversation),
       version: 1,
+      selectionQueue: 1,
       project: active.project,
       activation: active.binding.activation,
       process: this.process,
@@ -342,17 +476,33 @@ export class SessionCoordination {
       );
   }
 
-  private handle(
-    request: ControlRequest,
-    human = false,
-  ): Promise<ControlOutcome> {
-    this.failures.delete('control');
-    const operation = this.operations.then(() => this.dispatch(request, human));
+  private serialize<T>(work: () => Promise<T>): Promise<T> {
+    const operation = this.operations.then(work);
     this.operations = operation.then(
       () => {},
       () => {},
     );
     return operation;
+  }
+
+  private handle(
+    request: ControlRequest,
+    human = false,
+  ): Promise<ControlOutcome> {
+    this.failures.delete('control');
+    return this.serialize(() => this.dispatch(request, human));
+  }
+
+  private selectionScope(active: Activation, turn?: string): SelectionScope {
+    const scope = this.turn;
+    if (
+      !scope ||
+      scope.activation !== active.binding.activation ||
+      scope.owner.project !== active.project ||
+      (turn !== undefined && scope.turn !== turn)
+    )
+      throw new Error('This selection turn is no longer current.');
+    return scope;
   }
 
   private async dispatch(
@@ -367,57 +517,118 @@ export class SessionCoordination {
         if (snapshot.error) throw new Error(snapshot.error);
         return { kind: 'peers', snapshot };
       }
-      if (action.kind === 'claim') {
-        await this.refreshProject(active);
-        const owner = {
-          conversation: active.conversation.id,
-          project: active.project,
-        };
-        const claim = await this.registry.claim(
-          owner,
-          action.input,
+      if (action.kind === 'release') {
+        const claim = (await this.registry.claims()).find(
+          (entry) => entry.id === action.claim,
+        );
+        await this.registry.release(
+          {
+            conversation: active.conversation.id,
+            project: claim?.owner.project ?? active.project,
+          },
+          action.claim,
           request.deadline,
           async () => {
-            await this.refreshProject(active);
-            const snapshot = await this.discover(active, active.project);
             this.admit(request);
-            if (owner.project !== active.project)
-              throw new Error(
-                'The project changed. Query peers before claiming again.',
-              );
-            if (this.failures.get('presence'))
-              throw new Error(this.failures.get('presence'));
-            if (snapshot.unregistered.length)
-              throw new Error(
-                `Restart or close these unregistered Witch sessions before claiming: ${snapshot.unregistered.map((entry) => `${entry.title} (${entry.id}, ${entry.cwd})`).join('; ')}`,
-              );
-            if (
-              snapshot.ownClaim &&
-              snapshot.ownClaim.owner.project !== active.project
-            )
-              throw new Error(
-                'Release the existing task in its original project before claiming in this project.',
-              );
+            this.canRelease(human);
           },
         );
-        return { kind: 'claimed', claim };
+        return { kind: 'released' };
       }
-      const claim = (await this.registry.claims()).find(
-        (entry) => entry.id === action.claim,
-      );
-      await this.registry.release(
-        {
-          conversation: active.conversation.id,
-          project: claim?.owner.project ?? active.project,
-        },
-        action.claim,
-        request.deadline,
-        async () => {
-          this.admit(request);
-          this.canRelease(human);
-        },
-      );
-      return { kind: 'released' };
+      await this.refreshProject(active);
+      await this.retireProject(active);
+      const owner = {
+        conversation: active.conversation.id,
+        project: active.project,
+      };
+      const scope =
+        action.kind === 'claim'
+          ? undefined
+          : this.selectionScope(
+              active,
+              action.kind === 'select-next' ? action.turn : undefined,
+            );
+      const verify = async () => {
+        await this.refreshProject(active);
+        const snapshot = await this.discover(active, active.project);
+        this.admit(request);
+        if (owner.project !== active.project)
+          throw new Error(
+            'The project changed. Query peers before claiming again.',
+          );
+        if (scope && this.selectionScope(active) !== scope)
+          throw new Error('This selection turn is no longer current.');
+        if (this.failures.get('presence'))
+          throw new Error(this.failures.get('presence'));
+        if (snapshot.unregistered.length)
+          throw new Error(
+            `Restart or close these unregistered Witch sessions before claiming: ${snapshot.unregistered.map((entry) => `${entry.title} (${entry.id}, ${entry.cwd})`).join('; ')}`,
+          );
+        if (
+          snapshot.ownClaim &&
+          snapshot.ownClaim.owner.project !== active.project
+        )
+          throw new Error(
+            'Release the existing task in its original project before claiming in this project.',
+          );
+        if (action.kind === 'select-next') {
+          const older = snapshot.peers.filter(
+            (peer) => !peer.presence.selectionQueue,
+          );
+          if (older.length)
+            throw new Error(
+              `Restart or close these Witch sessions before selecting: ${older.map((peer) => `${peer.presence.title} (${peer.presence.id})`).join('; ')}`,
+            );
+        }
+        if (
+          action.kind === 'select-next' ||
+          action.kind === 'recommend' ||
+          (action.kind === 'claim' && snapshot.ownSelection)
+        )
+          this.canRelease(false);
+      };
+      if (action.kind === 'claim')
+        return {
+          kind: 'claimed',
+          claim: await this.registry.claim(
+            owner,
+            action.input,
+            this.process,
+            request.deadline,
+            verify,
+          ),
+        };
+      if (action.kind === 'recommend')
+        return {
+          kind: 'claimed',
+          claim: await this.registry.recommend(
+            scope!,
+            action.selection,
+            action.input,
+            this.process,
+            request.deadline,
+            verify,
+          ),
+        };
+      if (action.kind === 'cancel-selection') {
+        await this.registry.cancelSelection(
+          scope!,
+          action.selection,
+          request.deadline,
+          verify,
+        );
+        return { kind: 'selection-cancelled', selection: action.selection };
+      }
+      const selection =
+        action.kind === 'select-next'
+          ? await this.registry.beginSelection(scope!, request.deadline, verify)
+          : await this.registry.selection(
+              scope!,
+              action.selection,
+              request.deadline,
+              verify,
+            );
+      return { kind: 'selection', selection, snapshot: await this.inspect() };
     } catch (error) {
       if (!(error instanceof ClaimConflict)) throw error;
       const owner = (await this.store.records()).records.find(
@@ -430,6 +641,7 @@ export class SessionCoordination {
         ...(owner ? { owner: conversationSummarySchema.parse(owner) } : {}),
       };
     } finally {
+      await this.retireProject(active);
       await this.inspect();
     }
   }
@@ -438,6 +650,7 @@ export class SessionCoordination {
     try {
       const { project } = await this.memory.scopePaths(active.conversation.cwd);
       active.project = project;
+      if (this.turn && this.turn.owner.project !== project) this.revokeTurn();
       this.failures.delete('project');
       if (this.state) this.update(this.state);
     } catch (error) {
@@ -494,11 +707,12 @@ export class SessionCoordination {
     active: Activation,
     project: string,
   ): Promise<CoordinationSnapshot> {
-    const [claims, presences, { records, unreadable }] = await Promise.all([
-      this.registry.claims(),
-      this.registry.presences(),
-      this.store.records(),
-    ]);
+    const [{ claims, selections }, presences, { records, unreadable }] =
+      await Promise.all([
+        this.registry.state(),
+        this.registry.presences(),
+        this.store.records(),
+      ]);
     if (unreadable.length)
       throw new Error(
         `Cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
@@ -529,6 +743,10 @@ export class SessionCoordination {
       if ((await this.memory.scopePaths(record.cwd)).project === project)
         unregistered.push(conversationSummarySchema.parse(record));
     }
+    const positions = selectionStates(selections);
+    const ownSelection = positions.find(
+      (state) => state.ticket.owner.conversation === active.conversation.id,
+    );
     const ownClaim = claims.find(
       (claim) => claim.owner.conversation === active.conversation.id,
     );
@@ -546,6 +764,9 @@ export class SessionCoordination {
       .sort((a, b) => a.openedAt - b.openedAt || a.id.localeCompare(b.id))
       .map((presence) => ({
         presence,
+        selection: positions.find(
+          (state) => state.ticket.owner.conversation === presence.id,
+        ),
         claim: projectClaims.find(
           (claim) => claim.owner.conversation === presence.id,
         ),
@@ -565,7 +786,7 @@ export class SessionCoordination {
           },
         ];
       });
-    return { peers, ownClaim, reservations, unregistered };
+    return { peers, ownClaim, ownSelection, reservations, unregistered };
   }
 
   private fail(source: string, error: unknown): void {

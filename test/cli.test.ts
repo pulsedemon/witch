@@ -9,7 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { scratch } from './fixtures/scratch.js';
 import { ControlHost } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import { controlPrefix } from '../src/cli-control.js';
+
+const identity = (await identifyProcess(process.pid))!;
 
 const cli = fileURLToPath(new URL('../src/cli.tsx', import.meta.url));
 
@@ -74,6 +77,7 @@ await test('headless controls preserve quoted paths, JSON and conflicts without 
   const occupied = await store.claim(
     { conversation: 'b', project: 'project-p' },
     { reference: 'task:occupied', summary: 'Other work' },
+    identity,
     Date.now() + 5000,
     async () => {},
   );
@@ -99,11 +103,13 @@ await test('headless controls preserve quoted paths, JSON and conflicts without 
         );
         return { kind: 'released' };
       }
+      if (action.kind !== 'claim') throw new Error('Unexpected test action');
       return {
         kind: 'claimed',
         claim: await store.claim(
           { conversation, project: 'project-p' },
           action.input,
+          identity,
           deadline,
           async () => {},
         ),

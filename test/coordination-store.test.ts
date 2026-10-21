@@ -23,6 +23,7 @@ import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
+const identity = (await identifyProcess(process.pid))!;
 const owner = { conversation: 'a', project: 'project-p' };
 const input = { reference: 'task:shared', summary: 'First task' };
 const verify = async () => {};
@@ -30,7 +31,7 @@ const claim = (
   store: CoordinationStore,
   givenOwner: ClaimOwner = owner,
   givenInput: ClaimInput = input,
-) => store.claim(givenOwner, givenInput, Date.now() + 5000, verify);
+) => store.claim(givenOwner, givenInput, identity, Date.now() + 5000, verify);
 const release = (
   store: CoordinationStore,
   givenOwner: ClaimOwner,
@@ -239,7 +240,7 @@ await test('failed authority verification releases the ledger lock for another p
   const root = await scratch('witch-coordination-authority-');
   const store = await CoordinationStore.open(root);
   await assert.rejects(
-    store.claim(owner, input, Date.now() + 5000, async () => {
+    store.claim(owner, input, identity, Date.now() + 5000, async () => {
       throw new Error('Revoked');
     }),
     /Revoked/,

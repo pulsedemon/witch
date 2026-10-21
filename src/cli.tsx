@@ -51,6 +51,10 @@ Agent control (use the prefix supplied in the current Witch context):
   --summary <text>    describe the claimed work
   --alias <ref>       add a related reference to the claim
   --release <id>      release this conversation's exact claim
+  --select-next <turn> wait for this turn's next-task selection slot
+  --recommend <ref>   reserve a recommendation and advance the queue
+  --selection <id>    identify the selection for --recommend
+  --cancel-selection <id>  leave this turn's queue
   --json              print the control result as JSON
 
 Every word that starts with - is read as an option, so quote a prompt that
@@ -162,11 +166,13 @@ if (control) {
       process.exit(130);
     }
     shuttingDown = true;
-    void coordinator.close().then(unmount, (error: unknown) => {
-      unmount();
-      process.stderr.write(`witch: ${errorMessage(error)}\n`);
-      process.exitCode = 1;
-    });
+    void coordinator
+      .close({ restart: restarting })
+      .then(unmount, (error: unknown) => {
+        unmount();
+        process.stderr.write(`witch: ${errorMessage(error)}\n`);
+        process.exitCode = 1;
+      });
   };
   let restarting = false;
   const restart = () => {

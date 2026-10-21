@@ -10,10 +10,13 @@ import type {
   ControlRequest,
 } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import { writeJson } from '../src/persistence/json.js';
 import { exclusiveLock } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
+
+const identity = (await identifyProcess(process.pid))!;
 
 async function binding(): Promise<ControlBinding> {
   return {
@@ -55,6 +58,7 @@ await test('control requests preserve their binding and action through a real le
         claim: await store.claim(
           { conversation: request.conversation, project: 'project-p' },
           request.action.input,
+          identity,
           request.deadline,
           async () => {},
         ),
@@ -392,6 +396,7 @@ await test('a mutation that expires while waiting for the ledger lock stores no 
       store.claim(
         { conversation: bound.conversation, project: 'project-p' },
         { reference: 'task:expired', summary: 'Expired' },
+        identity,
         Date.now() + 100,
         async () => {},
       ),
@@ -419,6 +424,7 @@ await test('the host reports expiry after asynchronous authority verification wi
         claim: await store.claim(
           { conversation: request.conversation, project: 'project-p' },
           request.action.input,
+          identity,
           request.deadline,
           async () => {
             verified.resolve();

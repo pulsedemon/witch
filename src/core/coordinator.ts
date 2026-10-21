@@ -43,7 +43,12 @@ import type { SessionCoordination } from './coordination.js';
 import { cleanUpMerge, refreshInstall } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import type { PullRequest } from './repository.js';
-import { agentWorking, applyDisplayUpdate } from './state.js';
+import {
+  agentWorking,
+  applyDisplayUpdate,
+  createConversation,
+  untitled,
+} from './state.js';
 import type {
   Conversation,
   ConversationRecord,
@@ -53,7 +58,6 @@ import type {
 } from './state.js';
 
 const execute = promisify(execFile);
-const untitled = 'New conversation';
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
@@ -255,7 +259,7 @@ export class Coordinator {
       installed.find(({ adapter }) => adapter.id === source?.agent) ??
       installed[0] ??
       this.agents[0]!;
-    return this.newRecord(cwd, agent.adapter.id, source);
+    return createConversation(cwd, agent.adapter.id, source);
   }
 
   /** stops orphans, publishes stranded memory and reports what it can't settle in conversations no instance holds. */
@@ -342,6 +346,12 @@ export class Coordinator {
       } catch (error) {
         failure = error;
       } finally {
+        if (this.record)
+          await this.coordination
+            ?.releaseConversation(this.record.id)
+            .catch((error: unknown) => {
+              failure ??= error;
+            });
         await this.files?.close().catch((error: unknown) => {
           failure ??= error;
         });
@@ -503,7 +513,7 @@ export class Coordinator {
       const chosen = agent ?? source.agent;
       this.registration(chosen);
       await this.openConversation({
-        create: this.newRecord(source.cwd, chosen, source),
+        create: createConversation(source.cwd, chosen, source),
       });
       await this.connect();
     });
@@ -598,13 +608,20 @@ export class Coordinator {
     });
     this.connecting?.abort();
     this.editorCancellation?.abort();
-    // a session that is still starting has no turn to interrupt, so stopping it closes it
-    if (this.snapshot.phase === 'starting') await this.session?.close();
-    else {
-      const session = this.session;
-      await session?.interrupt();
-      if (this.changingModel) await session?.close();
-    }
+    const results = await Promise.allSettled([
+      this.coordination?.endTurn(),
+      (async () => {
+        // a session that is still starting has no turn to interrupt, so stopping it closes it
+        if (this.snapshot.phase === 'starting') await this.session?.close();
+        else {
+          const session = this.session;
+          await session?.interrupt();
+          if (this.changingModel) await session?.close();
+        }
+      })(),
+    ]);
+    for (const result of results)
+      if (result.status === 'rejected') throw result.reason;
   }
 
   async respond(id: string, response: UserResponse): Promise<void> {
@@ -761,7 +778,7 @@ export class Coordinator {
     this.publish({ error: errorMessage(error) });
   }
 
-  async close(): Promise<void> {
+  async close(options: { restart?: boolean } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     const quiescing = this.coordination?.quiesce();
@@ -791,9 +808,9 @@ export class Coordinator {
         await this.disconnect();
       } finally {
         try {
-          await this.files?.close();
+          await this.coordination?.close(options);
         } finally {
-          await this.coordination?.close();
+          await this.files?.close();
         }
       }
     }
@@ -878,84 +895,90 @@ export class Coordinator {
         throw error;
       },
     );
-    if (!session) return { status: 'interrupted', text: '' };
-    this.publish({
-      subagents: this.snapshot.subagents.filter(
-        ({ status }) => status === 'running',
-      ),
-    });
-    const command = kind === 'turn' ? shellCommand(prompt) : undefined;
-    const handoff = conversation.handoff;
-    const pendingHandoff =
-      handoff?.activated && handoff.to === conversation.agent
-        ? handoff
-        : undefined;
-    const coordination = await this.coordination?.context();
-    const pendingContext = this.pendingContext.get(conversation.id);
-    const context = () =>
-      nativePrompt({
-        prompt,
-        memory: this.memory,
-        workspace: this.workspace!,
-        scope,
-        revision: activity.baseRevision,
-        reference: conversation.sessions[conversation.agent]!,
-        pendingHandoff,
-        coordination,
-        pendingContext,
-        command,
-      });
-    let input = await context();
-    // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
-    if (this.cancelled || session.closed)
-      return { status: 'interrupted', text: '' };
-    if (kind === 'turn' && conversation.title === untitled)
-      conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
-    this.display({
-      id: randomUUID(),
-      kind: kind === 'handoff' ? 'notice' : 'user',
-      text: prompt,
-      cwd: conversation.cwd,
-    });
-    this.persist(this.save());
-    delivered?.();
-    let result: TurnResult;
-    let generation = this.contextGeneration;
+    if (!session || this.cancelled) return { status: 'interrupted', text: '' };
+    this.coordination?.beginTurn(activity.id);
     try {
-      const ran =
-        command === undefined ? undefined : await session.shell(command);
-      if (ran && ran.status !== 'completed') result = ran;
-      else {
-        if (generation !== this.contextGeneration) input = await context();
-        if (this.cancelled || session.closed)
-          result = { status: 'interrupted', text: '' };
+      this.publish({
+        subagents: this.snapshot.subagents.filter(
+          ({ status }) => status === 'running',
+        ),
+      });
+      const command = kind === 'turn' ? shellCommand(prompt) : undefined;
+      const handoff = conversation.handoff;
+      const pendingHandoff =
+        handoff?.activated && handoff.to === conversation.agent
+          ? handoff
+          : undefined;
+      const coordination = await this.coordination?.context();
+      const pendingContext = this.pendingContext.get(conversation.id);
+      const context = () =>
+        nativePrompt({
+          prompt,
+          memory: this.memory,
+          workspace: this.workspace!,
+          scope,
+          revision: activity.baseRevision,
+          reference: conversation.sessions[conversation.agent]!,
+          pendingHandoff,
+          coordination,
+          pendingContext,
+          command,
+        });
+      let input = await context();
+      // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
+      if (this.cancelled || session.closed)
+        return { status: 'interrupted', text: '' };
+      if (kind === 'turn' && conversation.title === untitled)
+        conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
+      this.display({
+        id: randomUUID(),
+        kind: kind === 'handoff' ? 'notice' : 'user',
+        text: prompt,
+        cwd: conversation.cwd,
+      });
+      this.persist(this.save());
+      delivered?.();
+      let result: TurnResult;
+      let generation = this.contextGeneration;
+      try {
+        const ran =
+          command === undefined ? undefined : await session.shell(command);
+        if (ran && ran.status !== 'completed') result = ran;
         else {
-          this.pendingContext.delete(conversation.id);
-          generation = this.contextGeneration;
-          result = await session.send(
-            input,
-            skillCall(prompt, this.snapshot.skills),
-          );
+          if (generation !== this.contextGeneration) input = await context();
+          if (this.cancelled || session.closed)
+            result = { status: 'interrupted', text: '' };
+          else {
+            this.pendingContext.delete(conversation.id);
+            generation = this.contextGeneration;
+            result = await session.send(
+              input,
+              skillCall(prompt, this.snapshot.skills),
+            );
+          }
         }
+      } catch (error) {
+        result = { status: 'failed', text: '', error: errorMessage(error) };
       }
-    } catch (error) {
-      result = { status: 'failed', text: '', error: errorMessage(error) };
+      if (result.unread?.length)
+        this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
+      if (result.unreadContext?.length)
+        this.pendingContext.set(conversation.id, result.unreadContext);
+      await this.finishActivity(activity, result);
+      if (result.status === 'completed') {
+        if (generation === this.contextGeneration)
+          conversation.sessions[activity.agent]!.deliveredRevision =
+            activity.baseRevision;
+        if (pendingHandoff === conversation.handoff)
+          delete conversation.handoff;
+      }
+      await this.save();
+      if (kind === 'turn' && result.status === 'completed')
+        this.publish({ completedTurn: activity.id });
+      return result;
+    } finally {
+      await this.coordination?.endTurn(activity.id);
     }
-    if (result.unread?.length)
-      this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
-    if (result.unreadContext?.length)
-      this.pendingContext.set(conversation.id, result.unreadContext);
-    await this.finishActivity(activity, result);
-    if (result.status === 'completed') {
-      if (generation === this.contextGeneration)
-        conversation.sessions[activity.agent]!.deliveredRevision =
-          activity.baseRevision;
-      if (pendingHandoff === conversation.handoff) delete conversation.handoff;
-    }
-    await this.save();
-    if (kind === 'turn' && result.status === 'completed')
-      this.publish({ completedTurn: activity.id });
-    return result;
   }
 
   async compact(): Promise<void> {
@@ -1350,33 +1373,6 @@ export class Coordinator {
     const text = `${restart ? 'Restart Witch: ' : ''}${errorMessage(error)}`;
     this.publish({ phase: 'error', error: text });
     return new Error(text, { cause: error });
-  }
-
-  /** copies the source's explicit model and effort when it ran on the same agent. */
-  private newRecord(
-    cwd: string,
-    agent: string,
-    source?: Conversation,
-  ): Conversation {
-    const stored = source?.agent === agent ? source.sessions[agent] : undefined;
-    return {
-      id: randomUUID(),
-      title: untitled,
-      cwd,
-      agent,
-      sessions: stored?.requestedModel
-        ? {
-            [agent]: {
-              id: '',
-              model: stored.model,
-              requestedModel: stored.requestedModel,
-              hasHistory: false,
-              ...(stored.effort ? { effort: stored.effort } : {}),
-            },
-          }
-        : {},
-      createdAt: new Date().toISOString(),
-    };
   }
 
   private current(): ConversationRecord {
