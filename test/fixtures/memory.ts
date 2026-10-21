@@ -1,0 +1,70 @@
+import { execFile } from 'node:child_process';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { Memory } from '../../src/memory/memory.js';
+import type { Workspace } from '../../src/memory/workspace.js';
+import { hookedGit, passThrough } from './git.js';
+import { scratch } from './scratch.js';
+
+// a developer's `url.<base>.insteadOf` would rewrite the origins these tests key
+process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+
+const execute = promisify(execFile);
+
+export async function fixture() {
+  const root = await scratch('witch-memory-');
+  const project = join(root, 'project');
+  await mkdir(project);
+  const hook = { current: passThrough };
+  const memory = new Memory(join(root, 'memory.git'), hookedGit(hook));
+  await memory.initialize();
+  const open = async (id: string) => {
+    const directory = join(root, 'conversations', id);
+    await mkdir(directory, { recursive: true });
+    const workspace = memory.workspace(directory, id);
+    await workspace.ensureWorktree();
+    const scope = await workspace.scope(project);
+    return {
+      workspace,
+      scope: {
+        global: join(workspace.root, scope.global),
+        project: join(workspace.root, scope.project),
+      },
+    };
+  };
+  return { memory, root, project, hook, open };
+}
+
+export async function save(
+  workspace: Workspace,
+  files: Record<string, string | null>,
+  message = 'save',
+) {
+  for (const [path, text] of Object.entries(files)) {
+    const file = join(workspace.root, path);
+    if (text === null) await rm(file);
+    else {
+      await mkdir(join(file, '..'), { recursive: true });
+      await writeFile(file, text);
+    }
+  }
+  await workspace.commit(message);
+}
+
+export async function git(cwd: string, ...args: string[]): Promise<string> {
+  return (await execute('git', args, { cwd })).stdout;
+}
+
+export async function repository(
+  root: string,
+  name: string,
+  origin?: string,
+): Promise<string> {
+  const path = join(root, name);
+  await mkdir(path, { recursive: true });
+  await git(path, 'init', '--quiet');
+  if (origin) await git(path, 'remote', 'add', 'origin', origin);
+  return path;
+}

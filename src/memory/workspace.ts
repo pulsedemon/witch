@@ -9,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { errorMessage } from '../agents/stderr.js';
 import {
   branchOf,
   exists,
@@ -27,11 +28,16 @@ function mergeLines(index: string, added: string): string {
     (line) => line.trim() && !present.has(line),
   );
   if (!missing.length) return index;
-  const kept = index.replace(/(\r?\n)+$/, '');
+  let end = index.length;
+  while (end > 0 && index[end - 1] === '\n') {
+    end--;
+    if (end > 0 && index[end - 1] === '\r') end--;
+  }
+  const kept = index.slice(0, end);
   return `${kept ? `${kept}${eol}` : ''}${missing.join(eol)}${eol}`;
 }
 
-/** one conversation's memory: a worktree of the shared bare repository on its own branch. Ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
+/** one conversation's memory: a worktree of the shared bare repository on its own branch. ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
   private readonly branch: string;
 
@@ -141,13 +147,17 @@ export class Workspace {
       await this.git(['merge', '--ff-only', '--quiet', main]);
       const scope = await this.scope(cwd);
       const moved = await this.adopt(scope).catch(async (error: unknown) => {
-        // a move that fails partway is dropped, so no half-made move waits as pending memory
-        await this.discardPending();
+        await this.discardPending().catch((rollback: unknown) => {
+          throw new Error(
+            `${errorMessage(error)}\n\nCould not discard the failed memory move: ${errorMessage(rollback)}`,
+            { cause: error },
+          );
+        });
         throw error;
       });
       if (!moved || (await this.publish()) === 'published')
         return { revision: await this.revision(), scope };
-      // the move derives from main alone, so it is dropped and made again on the main that beat it
+      // discarding this derived move loses no accepted notes
       await this.git(['reset', '--hard', '--quiet', main]);
       if (attempt === 5)
         throw new Error(
@@ -170,6 +180,11 @@ export class Workspace {
       .split('\0')
       .filter(Boolean);
     if (!files.length) return false;
+    const notes = new Set(files.map((file) => posix.relative(checkout, file)));
+    const directories = new Set<string>();
+    for (const note of notes)
+      for (let dir = posix.dirname(note); dir !== '.'; dir = posix.dirname(dir))
+        directories.add(dir);
     const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
     const index = posix.join(checkout, indexNote);
     const renamed = new Map<string, string>();
@@ -185,8 +200,36 @@ export class Workspace {
           .replace(
             /\]\((?:<([^<>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\))+))/g,
             (link, angled?: string, bare?: string) => {
-              const to = renamed.get(posix.normalize(angled ?? bare!));
-              return to === undefined ? link : `](<${to}>`;
+              const target = angled ?? bare!;
+              let split = target.search(/[?#]/);
+              let directory = '';
+              let start = 0;
+              let rewritten: string | undefined;
+              // only a complete literal note can override the first suffix match
+              while (split >= 0) {
+                const note = posix.join(directory, target.slice(start, split));
+                if (rewritten === undefined && notes.has(note)) {
+                  const to = renamed.get(note);
+                  rewritten =
+                    to === undefined ? link : `](<${to}${target.slice(split)}>`;
+                }
+                const slash = target.indexOf('/', split);
+                if (slash < 0) break;
+                const next = posix.join(directory, target.slice(start, slash));
+                if (!directories.has(next)) break;
+                directory = next;
+                start = slash + 1;
+                split = target.slice(start).search(/[?#]/);
+                if (split >= 0) split += start;
+              }
+              const literal =
+                split < 0
+                  ? posix.normalize(target)
+                  : posix.normalize(target.slice(0, split + 1)) +
+                    target.slice(split + 1);
+              const direct = renamed.get(literal);
+              if (direct !== undefined) return `](<${direct}>`;
+              return notes.has(literal) ? link : (rewritten ?? link);
             },
           );
         const target = await this.checkedPath(posix.join(project, note));

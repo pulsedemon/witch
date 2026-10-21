@@ -254,7 +254,6 @@ export class Coordinator {
     }
     // a failed connect leaves the conversation open, as a failed send does
     const failure = await this.connect().then(() => undefined, errorMessage);
-    // notes keyed by the checkout's path move when Witch opens, so /memory shows them before a turn
     const adoption = await this.workspace!.adoptCheckout(cwd).then(
       () => undefined,
       errorMessage,
@@ -864,7 +863,12 @@ export class Coordinator {
     // an interrupt that aborts this connect interrupts the turn, as one after it does
     const session = await this.connect(conversation.agent, scope).catch(
       (error: unknown) => {
-        if (this.cancelled) return undefined;
+        if (
+          this.cancelled &&
+          error instanceof Error &&
+          error.name === 'AbortError'
+        )
+          return undefined;
         throw error;
       },
     );

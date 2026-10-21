@@ -157,14 +157,16 @@ await test("opening Witch moves the notes keyed by its checkout's path to the or
 
 await test('opening Witch on memory that conflicts with main leaves the move to recovery', async () => {
   const context = await fixture();
-  const { coordinator, a, notes, reopen } = context;
+  const { coordinator, a, notes, reopen, git, memory, workspace } = context;
+  await git('init', '--quiet');
+  const originalNote = await notes();
   const gate = new TurnGate();
   try {
     await coordinator.send('Start');
     a.gate = gate;
     const sending = coordinator.send('remember:mine');
     await within(gate.entered, 2000, 'the gated turn');
-    await publishOutside(context, { [await notes()]: 'theirs' });
+    await publishOutside(context, { [originalNote]: 'theirs' });
     gate.open();
     await sending;
     assert.equal(coordinator.snapshot.recovery?.kind, 'conflict');
@@ -172,10 +174,24 @@ await test('opening Witch on memory that conflicts with main leaves the move to 
     gate.open();
     await coordinator.close();
   }
+  await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
+  const migratedNote = await notes();
+  const inputs = a.inputs.length;
   const reopened = await reopen();
   try {
     assert.equal(reopened.snapshot.recovery?.kind, 'conflict');
     assert.equal(reopened.snapshot.error, undefined);
+    assert.equal(await memory.read(main, originalNote), 'theirs');
+    assert.equal(
+      await readFile(join(workspace().root, originalNote), 'utf8'),
+      'mine',
+    );
+    await assert.rejects(memory.read(main, migratedNote));
+    assert.equal(a.inputs.length, inputs);
+    await reopened.recoverMemory('keep');
+    await reopened.send('Continue');
+    assert.equal(await memory.read(main, migratedNote), 'mine');
+    await assert.rejects(memory.read(main, originalNote));
   } finally {
     await reopened.close();
   }
@@ -211,7 +227,7 @@ await test("an interrupt that aborts a moved key's reconnect leaves the prompt q
       new Promise((_, reject) => {
         connecting.resolve();
         options.signal?.addEventListener('abort', () =>
-          reject(new Error('Connect aborted')),
+          reject(new DOMException('Connect aborted', 'AbortError')),
         );
       });
     const sending = coordinator.send('Moved');
@@ -224,6 +240,48 @@ await test("an interrupt that aborts a moved key's reconnect leaves the prompt q
   } finally {
     await coordinator.close();
   }
+});
+
+await test('an unrelated reconnect failure after interrupt remains visible', async (t) => {
+  for (const interrupt of [true, false])
+    await t.test(
+      interrupt ? 'ordinary failure after interrupt' : 'unsolicited abort',
+      async () => {
+        const { coordinator, a, git } = await fixture();
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const failure = interrupt
+          ? new Error('connection storage failed')
+          : new DOMException('Connection aborted', 'AbortError');
+        try {
+          await git('init', '--quiet');
+          await coordinator.send('Start');
+          await git(
+            'remote',
+            'add',
+            'origin',
+            'https://github.com/owner/repo.git',
+          );
+          a.beforeConnect = async () => {
+            entered.resolve();
+            await release.promise;
+            throw failure;
+          };
+          const sending = coordinator.send('Moved');
+          await within(entered.promise, 2000, 'the reconnect');
+          if (interrupt) await coordinator.interrupt();
+          release.resolve();
+          await within(sending, 2000, 'the send');
+          assert.equal(coordinator.snapshot.error, failure.message);
+          assert.deepEqual(coordinator.snapshot.queue, ['Moved']);
+          assert.equal(a.inputs.length, 1);
+          assert.equal(coordinator.snapshot.phase, 'idle');
+        } finally {
+          release.resolve();
+          await coordinator.close();
+        }
+      },
+    );
 });
 
 await test('recovery has one owner and shutdown waits for its accepted commit', async () => {

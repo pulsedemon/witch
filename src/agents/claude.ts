@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   SpawnOptions,
   Query,
@@ -299,9 +299,12 @@ class ClaudeSession implements AgentSession {
     } catch (error) {
       // the CLI may still be alive, holding its stderr open
       await Promise.race([this.child?.closed, delay(1000)]);
-      throw new Error(withTail(errorMessage(error), this.child?.tail() ?? ''), {
-        cause: error,
-      });
+      const failure = new Error(
+        withTail(errorMessage(error), this.child?.tail() ?? ''),
+        { cause: error },
+      );
+      if (error instanceof AbortError) failure.name = 'AbortError';
+      throw failure;
     }
     this.connected = true;
     await this.registered;
