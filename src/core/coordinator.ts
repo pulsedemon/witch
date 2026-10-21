@@ -173,6 +173,7 @@ export class Coordinator {
   private files?: ConversationStore;
   private workspace?: Workspace;
   private session?: AgentSession;
+  private contextGeneration = 0;
   private readonly pendingContext = new Map<string, string[]>();
   /** the project memory the live session may write; native permissions are fixed at connect. */
   private sessionProject?: string;
@@ -951,6 +952,7 @@ export class Coordinator {
     this.persist(this.save());
     delivered?.();
     let result: TurnResult;
+    let generation = this.contextGeneration;
     try {
       const ran =
         command === undefined ? undefined : await session.shell(command);
@@ -960,6 +962,7 @@ export class Coordinator {
         result = { status: 'interrupted', text: '' };
       else {
         this.pendingContext.delete(conversation.id);
+        generation = this.contextGeneration;
         result = await session.send(
           context,
           skillCall(prompt, this.snapshot.skills),
@@ -977,8 +980,9 @@ export class Coordinator {
       await workspace.commit(
         `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
       );
-      conversation.sessions[activity.agent]!.deliveredRevision =
-        activity.baseRevision;
+      if (generation === this.contextGeneration)
+        conversation.sessions[activity.agent]!.deliveredRevision =
+          activity.baseRevision;
       delete conversation.activity;
       if (pendingHandoff === conversation.handoff) delete conversation.handoff;
     } else {
@@ -1135,6 +1139,12 @@ export class Coordinator {
       this.persist(this.save());
       if (conversation.agent === agent)
         this.publish({ native: event.info, conversation });
+    } else if (event.type === 'compacted') {
+      this.contextGeneration++;
+      const reference = conversation.sessions[agent];
+      if (reference) delete reference.deliveredRevision;
+      this.persist(this.save());
+      this.notice('Conversation compacted');
     } else if (event.type === 'request') {
       if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
