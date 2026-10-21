@@ -214,19 +214,11 @@ export async function runControl(
   try {
     let outcome: ControlOutcome = await callControl(call.binding, call.action);
     let position: number | undefined;
+    let selection: string | undefined;
     while (waiting && outcome.kind === 'selection') {
       const { ticket } = outcome.selection;
-      if (stopped.signal.aborted) {
-        writeControl(
-          await callControl(call.binding, {
-            kind: 'cancel-selection',
-            selection: ticket.id,
-          }),
-          call.json,
-        );
-        return 130;
-      }
-      if (outcome.selection.position === 1) break;
+      selection = ticket.id;
+      if (stopped.signal.aborted || outcome.selection.position === 1) break;
       if (position !== outcome.selection.position) {
         position = outcome.selection.position;
         process.stderr.write(`Selection ${ticket.id}: queued #${position}\n`);
@@ -241,7 +233,20 @@ export async function runControl(
         outcome = await callControl(call.binding, {
           kind: 'selection-status',
           selection: ticket.id,
-        });
+        }).catch((error: unknown): ControlOutcome => ({
+          kind: 'error',
+          message: errorMessage(error),
+        }));
+    }
+    if (stopped.signal.aborted && selection) {
+      writeControl(
+        await callControl(call.binding, {
+          kind: 'cancel-selection',
+          selection,
+        }),
+        call.json,
+      );
+      return 130;
     }
     return writeControl(outcome, call.json);
   } catch (error) {
