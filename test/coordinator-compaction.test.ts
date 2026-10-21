@@ -274,3 +274,197 @@ await test('compaction preserves active background records and pending handoff c
     await f.coordinator.close();
   }
 });
+
+for (const usage of [79, 80, undefined]) {
+  await test(`queued work at ${usage ?? 'unknown'} percent makes one scheduling decision before delivery`, async () => {
+    const f = await fixture();
+    try {
+      await f.coordinator.send('seed');
+      const session = f.a.sessions[0]!.session;
+      session.contextUsage = async () => usage;
+      const order: string[] = [];
+      const compact = session.compact.bind(session),
+        send = session.send.bind(session);
+      session.compact = () => {
+        order.push('compact');
+        return compact();
+      };
+      session.send = (...args) => {
+        order.push('send');
+        return send(...args);
+      };
+      await f.coordinator.refreshModels();
+      assert.deepEqual(order, []);
+      await f.coordinator.send('next');
+      assert.deepEqual(order, usage === 80 ? ['compact', 'send'] : ['send']);
+      assert.equal(f.a.inputs.length, 2);
+      assert.match(f.a.inputs[1]!.prompt, /User request:\nnext$/);
+    } finally {
+      await f.coordinator.close();
+    }
+  });
+}
+
+await test('automatic compaction awaits fresh usage and preserves original input when interrupted during the read', async () => {
+  const f = await fixture();
+  const read = Promise.withResolvers<number>();
+  const entered = Promise.withResolvers<void>();
+  try {
+    await f.coordinator.send('seed');
+    f.a.sessions[0]!.session.contextUsage = () => {
+      entered.resolve();
+      return read.promise;
+    };
+    const sending = f.coordinator.send('original');
+    await within(entered.promise, 3000, 'fresh usage read');
+    assert.equal(f.a.inputs.length, 1);
+    assert.deepEqual(f.a.compactions, []);
+    await f.coordinator.send('later');
+    await f.coordinator.interrupt();
+    read.resolve(80);
+    await sending;
+    assert.deepEqual(f.coordinator.snapshot.queue, ['original', 'later']);
+    assert.equal(f.a.inputs.length, 1);
+    assert.deepEqual(f.a.compactions, []);
+  } finally {
+    read.resolve(80);
+    await f.coordinator.close();
+  }
+});
+
+for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
+  await test(`automatic compaction ${outcome} preserves delivery order for input received meanwhile`, async () => {
+    const f = await fixture();
+    const gate = new TurnGate();
+    try {
+      await f.coordinator.send('seed');
+      f.a.sessions[0]!.session.contextUsage = async () => 80;
+      f.a.gate = gate;
+      const sending = f.coordinator.send('original');
+      await within(gate.entered, 3000, 'automatic compaction');
+      await f.coordinator.send('later');
+      if (outcome === 'cancelled') await f.coordinator.interrupt();
+      else {
+        f.a.failNext = outcome === 'failed';
+        gate.open();
+      }
+      await sending;
+      if (outcome === 'completed') {
+        assert.deepEqual(
+          f.a.inputs.slice(1).map((i) => i.prompt.split('User request:\n')[1]),
+          ['original', 'later'],
+        );
+        assert.deepEqual(f.coordinator.snapshot.queue, []);
+        assert.equal(f.a.compactions.length, 2);
+      } else {
+        assert.equal(f.a.inputs.length, 1);
+        assert.deepEqual(f.coordinator.snapshot.queue, ['original', 'later']);
+        assert.equal(f.a.compactions.length, 1);
+        assert.deepEqual(f.a.steers, []);
+      }
+    } finally {
+      gate.open();
+      await f.coordinator.close();
+    }
+  });
+}
+
+await test('automatic compaction does not deliver its batch over a memory publication conflict', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('remember:initial');
+    const other = await f.outsider(),
+      native = f.a.sessions[0]!.session;
+    native.contextUsage = async () => 80;
+    const compact = native.compact.bind(native);
+    native.compact = async () => {
+      await writeFile(join(f.workspace().root, await f.notes()), 'hook edit');
+      await writeFile(join(other.root, await f.notes()), 'accepted outside');
+      await other.commit('outside edit');
+      await other.publish();
+      return compact();
+    };
+    await f.coordinator.send('blocked batch');
+    assert.equal(f.coordinator.snapshot.recovery?.kind, 'conflict');
+    assert.equal(f.a.inputs.length, 1);
+    assert.deepEqual(f.coordinator.snapshot.queue, ['blocked batch']);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+for (const prompt of ['/review exact target', '!printf exact-command']) {
+  await test(`${prompt} compacts before its native delivery`, async () => {
+    const f = await fixture(undefined, (a) => {
+      a.skills = [{ name: 'review', description: 'Review' }];
+    });
+    try {
+      await f.coordinator.send('seed');
+      const native = f.a.sessions[0]!.session;
+      native.contextUsage = async () => 80;
+      const compact = native.compact.bind(native),
+        shell = native.shell.bind(native),
+        send = native.send.bind(native);
+      const order: string[] = [];
+      native.compact = () => {
+        order.push('compact');
+        return compact();
+      };
+      native.shell = (...args) => {
+        order.push('shell');
+        return shell(...args);
+      };
+      native.send = (...args) => {
+        order.push('send');
+        return send(...args);
+      };
+      await f.coordinator.send(prompt);
+      assert.deepEqual(
+        order,
+        prompt.startsWith('!')
+          ? ['compact', 'shell', 'send']
+          : ['compact', 'send'],
+      );
+      assert.equal(f.a.inputs.length, 2);
+      if (prompt.startsWith('!'))
+        assert.deepEqual(f.a.shells, ['printf exact-command']);
+      else
+        assert.deepEqual(f.a.inputs.at(-1)!.skill, {
+          name: 'review',
+          args: 'exact target',
+        });
+    } finally {
+      await f.coordinator.close();
+    }
+  });
+}
+
+await test('a resumed native context sample schedules compaction and a model with no sample does not', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('seed');
+    const id = f.a.sessions[0]!.session.info.id;
+    await f.coordinator.close();
+    f.a.connectUsage = { context: 80 };
+    const reopened = await f.reopen();
+    try {
+      await reopened.send('resumed');
+      assert.deepEqual(f.a.compactions, [id]);
+      assert.equal(f.a.inputs.at(-1)!.session, id);
+      const native = f.a.sessions.at(-1)!.session;
+      const select = native.selectModel.bind(native);
+      native.selectModel = async (...args) => {
+        await select(...args);
+        native.contextUsage = async () => undefined;
+      };
+      await reopened.selectModel('a-big');
+      await reopened.send('different model');
+      assert.deepEqual(f.a.compactions, [id]);
+      assert.equal(f.a.inputs.length, 3);
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    await f.coordinator.close();
+  }
+});
