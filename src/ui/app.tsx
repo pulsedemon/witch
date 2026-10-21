@@ -26,6 +26,7 @@ import {
   tokenKey,
 } from './completion.js';
 import { Request } from './request.js';
+import { canExpandDiff } from './diff.js';
 import type { Graphics } from './images.js';
 import { isExpanded, TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
@@ -177,6 +178,7 @@ export function App({
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Map<string, boolean>>(new Map());
+  const [fullDiffs, setFullDiffs] = useState<Set<string>>(new Set());
   // keys in one read arrive before a render, so ↑ reads the live drafts
   const [drafts, draftsRef, setDrafts] = useLiveState<Record<string, string>>(
     {},
@@ -202,8 +204,8 @@ export function App({
   const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout(graphics));
   const transcript = useMemo(
-    () => layout.render(state.items, bodyWidth, expanded),
-    [layout, state.items, bodyWidth, expanded],
+    () => layout.render(state.items, bodyWidth, expanded, fullDiffs),
+    [layout, state.items, bodyWidth, expanded, fullDiffs],
   );
   // a drag's ends are anchored to their text, so they follow it when output above grows
   const [range, rangeRef, setRange] = useLiveState<
@@ -318,10 +320,18 @@ export function App({
     Math.min(listIndexRef.current, open.items.length - 1);
   const list = listFor(buffer);
   const listSelected = list ? selectedIn(list) : 0;
+  const tools = state.items.filter((item) => item.kind === 'tool');
+  const selectedTool = tools[toolSelection];
+  const diffHint =
+    toolFocus && selectedTool?.diff && canExpandDiff(selectedTool.diff)
+      ? fullDiffs.has(selectedTool.id)
+        ? 'CTRL+O SHOW PREVIEW'
+        : 'CTRL+O SHOW ALL LINES'
+      : undefined;
   const listRows = list
     ? Math.min(8, list.items.length, Math.max(1, bodyHeight - 7))
     : toolFocus
-      ? 1
+      ? 1 + Number(!!diffHint)
       : 0;
   const listFirst = Math.max(0, listSelected - listRows + 1);
   // the composer grows with its text until it would take half the body
@@ -351,7 +361,6 @@ export function App({
       const next = Math.min(maxTop, Math.max(0, topRow(previous) + rows));
       return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
     });
-  const tools = state.items.filter((item) => item.kind === 'tool');
   /** an exact ID goes first, so Enter never picks a longer ID that contains it. */
   const filter = (entries: Choice[], text: string) =>
     entries
@@ -569,7 +578,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing else is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing else is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an interrupt. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it. Ctrl+O switches new or deleted files between their preview and all lines.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues.\nCtrl+C interrupts active work or exits while idle, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects an explicit model.\n/agent <id> switches agents with a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'restart':
@@ -723,6 +732,7 @@ export function App({
   useEffect(() => {
     setTop(null);
     setToolSelection(0);
+    setFullDiffs(new Set());
     const id = state.conversation?.id ?? '';
     return () => {
       // the shown prompt became this conversation's draft, so the one typed before browsing goes back
@@ -942,6 +952,19 @@ export function App({
         scrollTo(transcript.starts.get(tools[next]?.id ?? '') ?? null);
       }
       if (key.end) setTop(null);
+      if (key.ctrl && input === 'o') {
+        const item = tools[next];
+        if (item?.diff && canExpandDiff(item.diff)) {
+          setFullDiffs((previous) => {
+            const full = new Set(previous);
+            if (full.has(item.id)) full.delete(item.id);
+            else full.add(item.id);
+            return full;
+          });
+          setExpanded((previous) => new Map(previous).set(item.id, true));
+          scrollTo(transcript.starts.get(item.id) ?? null);
+        }
+      }
       if (key.return && tools[next]) {
         const item = tools[next]!;
         setExpanded((previous) =>
@@ -1172,15 +1195,18 @@ export function App({
           </Box>
         ) : (
           toolFocus && (
-            <Text dimColor>
-              {piped([
-                '↑/↓ TOOLS',
-                'ENTER TOGGLE',
-                'TAB COMPOSE',
-                'END LIVE OUTPUT',
-                'ESC LEAVE TOOLS',
-              ])}
-            </Text>
+            <Box flexDirection="column">
+              <Text dimColor>
+                {piped([
+                  '↑/↓ TOOLS',
+                  'ENTER TOGGLE',
+                  'TAB COMPOSE',
+                  'END LIVE OUTPUT',
+                  'ESC LEAVE TOOLS',
+                ])}
+              </Text>
+              {diffHint && <Text dimColor>{diffHint}</Text>}
+            </Box>
           )
         )}
       </Box>
