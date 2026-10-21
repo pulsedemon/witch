@@ -29,7 +29,6 @@ export async function selectionTurn(t: TestContext, client: Client) {
     prefix,
     binding,
     sending,
-    gate,
     async select() {
       const result = await callControl(binding, { kind: 'select-next', turn });
       if (result.kind !== 'selection') assert.fail(JSON.stringify(result));
