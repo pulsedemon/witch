@@ -365,7 +365,7 @@ await test("the language comes from the file's name ahead of its extension, a mo
         kind: 'update',
         hunks: [
           {
-            oldStart: extra.kind === 'add' ? 0 : start,
+            oldStart: start,
             newStart: start,
             lines,
           },
@@ -384,14 +384,6 @@ await test("the language comes from the file's name ahead of its extension, a mo
   );
   assert.ok(
     colored('/work/a.txt', ['+const a = 1'], { movePath: '/work/a.ts' }),
-  );
-  assert.ok(
-    colored('/work/bin/tool.zz', [' #!/usr/bin/env python', '+def f(): pass']),
-  );
-  assert.ok(
-    colored('/work/bin/tool.zz', ['+#!/usr/bin/env python', '+def f(): pass'], {
-      kind: 'add',
-    }),
   );
   assert.ok(
     !colored(
@@ -493,32 +485,37 @@ await test("words a removed row and the added row at its place in the next run c
     );
 });
 
-await test('repeated shared tokens keep a pair at the inclusive edit cap colored, counting emoji tokens rather than their string lengths', () => {
+await test('repeated shared tokens keep a pair at 400 token edits colored and 401 uncolored, counting emoji tokens rather than their string lengths', () => {
   const prefix = '+ '.repeat(250) + 'x'.repeat(1200) + ' ';
   const before = '🧙'.repeat(200);
-  const after = '👻'.repeat(200);
-  const drawn = rows(
-    [
-      {
-        path: '/work/a.zz',
-        kind: 'update',
-        hunks: [
-          {
-            oldStart: 1,
-            newStart: 1,
-            lines: ['-' + prefix + before, '+' + prefix + after],
-          },
-        ],
-      },
-    ],
-    3000,
-  ).join('\n');
-  for (const [color, text] of [
-    [removedWord, before],
-    [addedWord, after],
+  for (const [suffix, colored] of [
+    ['', true],
+    ['!', false],
   ] as const) {
-    assert.ok(drawn.includes(`${color}${text}\u001b[49m`));
-    assert.equal(drawn.split(color).length - 1, 1);
+    const after = '👻'.repeat(200) + suffix;
+    const drawn = rows(
+      [
+        {
+          path: '/work/a.zz',
+          kind: 'update',
+          hunks: [
+            {
+              oldStart: 1,
+              newStart: 1,
+              lines: ['-' + prefix + before, '+' + prefix + after],
+            },
+          ],
+        },
+      ],
+      3000,
+    ).join('\n');
+    for (const [color, text] of [
+      [removedWord, before],
+      [addedWord, after],
+    ] as const) {
+      assert.equal(drawn.includes(`${color}${text}\u001b[49m`), colored);
+      assert.equal(drawn.split(color).length - 1, colored ? 1 : 0);
+    }
   }
 });
 
@@ -666,7 +663,7 @@ await test("a long line past the highlighting budget draws plain while shorter l
   assert.ok(!paired.some((row) => row.includes('\u001b[48;2;56;166;96m')));
 });
 
-await test('an html line opening many script tags draws quickly, and script and style content reads only as JavaScript or CSS', () => {
+await test('an html line opening many script tags draws quickly, with JavaScript and CSS colors and no XML comment colors', () => {
   const started = performance.now();
   const drawn = rows(
     [
@@ -682,6 +679,7 @@ await test('an html line opening many script tags draws quickly, and script and 
               '+<script>const a = 1;</script>',
               '+<script><!-- c --></script>',
               '+<style><!-- c --></style>',
+              '+<style>p { color: red; }</style>',
             ],
           },
         ],
@@ -698,10 +696,148 @@ await test('an html line opening many script tags draws quickly, and script and 
       '\u001b[38;2;102;217;239mconst',
     ),
   );
+  assert.ok(
+    row('<style>p { color: red; }</style>').includes(
+      '\u001b[38;2;166;226;46mcolor\u001b[39m',
+    ),
+  );
   // an html comment colors only where xml reads it, directly or through handlebars
   for (const code of [
     '<script><!-- c --></script>',
     '<style><!-- c --></style>',
   ])
     assert.ok(!syntaxOf(row(code)).includes('\u001b[38;'), code);
+});
+
+for (const [name, before, after, oldWord, newWord] of [
+  ['Unicode identifiers', 'const café = 1;', 'const cafè = 1;', 'café', 'cafè'],
+  ['changed graphemes', 'const icon = "👍🏻";', 'const icon = "👍🏽";', '👍🏻', '👍🏽'],
+] as const) {
+  await test(`word colors cover whole ${name} and preserve their text`, () => {
+    const [, removed, added] = rows(
+      [
+        {
+          path: '/work/a.zz',
+          kind: 'update',
+          hunks: [
+            { oldStart: 1, newStart: 1, lines: ['-' + before, '+' + after] },
+          ],
+        },
+      ],
+      80,
+    );
+    assert.ok(removed!.includes(`${removedWord}${oldWord}\u001b[49m`));
+    assert.ok(added!.includes(`${addedWord}${newWord}\u001b[49m`));
+    assert.equal(removed!.split(removedWord).length - 1, 1);
+    assert.equal(added!.split(addedWord).length - 1, 1);
+    assert.equal(stripAnsi(removed!).trimEnd(), '1 -' + before);
+    assert.equal(stripAnsi(added!).trimEnd(), '1 +' + after);
+  });
+}
+
+await test('word colors include exactly 40 percent changed text and exclude one additional changed character', () => {
+  for (const [after, colored] of [
+    ['bbbb', true],
+    ['bbbbb', false],
+  ] as const) {
+    // the changed proportions are 8/20 and 9/21; the shared prefix is six characters
+    const [, removed, added] = rows([
+      {
+        path: '/work/a.zz',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: ['-keep: aaaa', '+keep: ' + after],
+          },
+        ],
+      },
+    ]);
+    for (const [row, color, word] of [
+      [removed!, removedWord, 'aaaa'],
+      [added!, addedWord, after],
+    ] as const) {
+      assert.equal(row.includes(`${color}${word}\u001b[49m`), colored);
+      assert.equal(row.split(color).length - 1, colored ? 1 : 0);
+    }
+  }
+});
+
+await test('syntax coloring includes the exact file budget and charges only lines longer than 256 characters', () => {
+  const line = (length: number) =>
+    'const x = "' + 'a'.repeat(length - 13) + '";';
+  const inputs = [line(4000), line(4001), line(256), line(257)];
+  assert.deepEqual(
+    inputs.map((text) => text.length),
+    [4000, 4001, 256, 257],
+  );
+  const within = syntaxSpans([inputs[0]!], 'javascript');
+  const exhausted = syntaxSpans(inputs.slice(1), 'javascript');
+  const rendered = [...within, ...exhausted];
+  assert.deepEqual(
+    rendered.map((spans) =>
+      spans.some(({ text, color }) => text === 'const' && color === '#66d9ef'),
+    ),
+    [true, false, true, false],
+  );
+  assert.deepEqual(
+    rendered.map((spans) => spans.map(({ text }) => text).join('')),
+    inputs,
+  );
+});
+
+await test('a declaration word used as a function name keeps its title color', () => {
+  const [, row] = rows([
+    {
+      path: '/work/a.py',
+      kind: 'update',
+      hunks: [{ oldStart: 1, newStart: 1, lines: ['+def type(): pass'] }],
+    },
+  ]);
+  assert.ok(row!.includes('\u001b[38;2;102;217;239mdef\u001b[39m'));
+  assert.ok(row!.includes('\u001b[38;2;166;226;46mtype\u001b[39m'));
+  assert.equal(stripAnsi(row!).trimEnd(), '1 +def type(): pass');
+});
+
+await test('a Python shebang selects Python syntax for code in updates and added files', () => {
+  for (const kind of ['update', 'add'] as const) {
+    const [, , code] = rows([
+      {
+        path: '/work/bin/tool.zz',
+        kind,
+        hunks: [
+          {
+            oldStart: kind === 'add' ? 0 : 1,
+            newStart: 1,
+            lines: [
+              (kind === 'add' ? '+' : ' ') + '#!/usr/bin/env python',
+              '+def f(): pass',
+            ],
+          },
+        ],
+      },
+    ]);
+    assert.ok(code!.includes('\u001b[38;2;102;217;239mdef\u001b[39m'));
+    assert.ok(code!.includes('\u001b[38;2;249;38;114mpass\u001b[39m'));
+    assert.equal(stripAnsi(code!).trimEnd(), '2 +def f(): pass');
+  }
+});
+
+await test('a later hunk retains syntax colors while the file has budget', () => {
+  const drawn = rows([
+    {
+      path: '/work/a.ts',
+      kind: 'update',
+      hunks: [
+        { oldStart: 1, newStart: 1, lines: ['+const a = 1;'] },
+        { oldStart: 9, newStart: 9, lines: ['+const b = 2;'] },
+      ],
+    },
+  ]);
+  assert.ok(drawn[3]!.includes('\u001b[38;2;102;217;239mconst\u001b[39m'));
+  assert.deepEqual(
+    drawn.map((row) => stripAnsi(row).trimEnd()),
+    ['Update ./a.ts +2 -0', '1 +const a = 1;', '...', '9 +const b = 2;'],
+  );
 });
