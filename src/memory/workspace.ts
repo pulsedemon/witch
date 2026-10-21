@@ -202,16 +202,25 @@ export class Workspace {
             (link, angled?: string, bare?: string) => {
               const target = angled ?? bare!;
               let split = target.search(/[?#]/);
-              // a delimiter inside a known directory is part of the path
+              let directory = '';
+              let start = 0;
+              let rewritten: string | undefined;
+              // only a complete literal note can override the first suffix match
               while (split >= 0) {
+                const note = posix.join(directory, target.slice(start, split));
+                if (rewritten === undefined && notes.has(note)) {
+                  const to = renamed.get(note);
+                  rewritten =
+                    to === undefined ? link : `](<${to}${target.slice(split)}>`;
+                }
                 const slash = target.indexOf('/', split);
-                if (
-                  slash < 0 ||
-                  !directories.has(posix.normalize(target.slice(0, slash)))
-                )
-                  break;
-                split = target.slice(slash + 1).search(/[?#]/);
-                if (split >= 0) split += slash + 1;
+                if (slash < 0) break;
+                const next = posix.join(directory, target.slice(start, slash));
+                if (!directories.has(next)) break;
+                directory = next;
+                start = slash + 1;
+                split = target.slice(start).search(/[?#]/);
+                if (split >= 0) split += start;
               }
               const literal =
                 split < 0
@@ -220,11 +229,7 @@ export class Workspace {
                     target.slice(split + 1);
               const direct = renamed.get(literal);
               if (direct !== undefined) return `](<${direct}>`;
-              if (split < 0 || notes.has(literal)) return link;
-              const to = renamed.get(posix.normalize(target.slice(0, split)));
-              return to === undefined
-                ? link
-                : `](<${to}${target.slice(split)}>`;
+              return notes.has(literal) ? link : (rewritten ?? link);
             },
           );
         const target = await this.checkedPath(posix.join(project, note));
