@@ -246,6 +246,8 @@ await test('a plan that also creates another branch stays whichever git command 
     ['continued.md', 'git checkout \\\n  -b feat/y'],
     ['track.md', 'git checkout --track -b feat/y origin/feat/y'],
     ['orphan.md', 'git switch --orphan feat/y'],
+    ['checkout-orphan.md', 'git checkout --orphan feat/y'],
+    ['short-track.md', 'git checkout -t origin/feat/y'],
     ['branch.md', 'git branch feat/y'],
     ['reset.md', 'git branch -f feat/y main'],
     ['copy.md', 'git branch -c feat/x feat/y'],
@@ -257,6 +259,14 @@ await test('a plan that also creates another branch stays whichever git command 
       join(plans(checkout), name),
       `\`git switch -c feat/x\`\n\nlater\n\n\`${command}\`\n`,
     );
+  for (const [name, separator] of [
+    ['semicolon.md', ';'],
+    ['or.md', '||'],
+  ] as const)
+    await write(
+      join(plans(checkout), name),
+      `git switch -c feat/x ${separator} git switch -c feat/y\n`,
+    );
   await write(
     join(plans(checkout), 'upper.md'),
     '```sh\ngit switch main && git pull --ff-only && git switch -C feat/x\ngit worktree add -fb feat/x ../x\n```\n\n`git branch --show-current` and `git branch -a` show it, and `git constructor x` is no command\n\nafter the merge\n\n`git branch -d feat/x`, since `git checkout -b` would fail\n',
@@ -266,6 +276,7 @@ await test('a plan that also creates another branch stays whichever git command 
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
     'branch.md',
     'bundled.md',
+    'checkout-orphan.md',
     'checkout.md',
     'config.md',
     'continued.md',
@@ -276,11 +287,14 @@ await test('a plan that also creates another branch stays whichever git command 
     'gitdir.md',
     'lower.md',
     'move.md',
+    'or.md',
     'orphan.md',
     'path.md',
     'quiet.md',
     'remote.md',
     'reset.md',
+    'semicolon.md',
+    'short-track.md',
     'space.md',
     'track.md',
     'unnamed.md',
