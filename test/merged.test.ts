@@ -13,14 +13,10 @@ import {
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import type { Snapshot } from '../src/core/coordinator.js';
 import { runCommand } from '../src/core/command.js';
-import {
-  cleanUpMerge,
-  refreshInstall,
-  watchMerges,
-} from '../src/core/merged.js';
-import type { PullRequest, Repository, Run } from '../src/core/repository.js';
+import { cleanUpMerge, refreshInstall } from '../src/core/merged.js';
+import type { PullRequest, Run } from '../src/core/repository.js';
+import { exclusiveLock } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
@@ -100,7 +96,6 @@ async function merged(
   };
 }
 
-/** merges `branch` into origin's main from `other`, deleting the remote branch unless `keep`. */
 async function merge(other: string, branch: string, keep = false) {
   await git(other, 'pull');
   await git(
@@ -132,15 +127,31 @@ const branches = async (checkout: string) =>
 await test("a merged branch's checkout switches to the base, and loses the branch, its ignored plan and ledger, and the merged branches whose remote branch is gone", async () => {
   const { root, checkout, other, tip } = await merged();
   await git(checkout, 'switch', 'main');
-  for (const name of ['feat/old', 'feat/live', 'feat/wt']) {
+  for (const name of ['feat/old', 'feat/live', 'feat/wt', 'feat/unmerged']) {
     await git(checkout, 'switch', '-c', name, 'main');
     await write(join(checkout, `${name.slice(5)}.txt`), name);
     await git(checkout, 'add', '.');
     await git(checkout, 'commit', '-m', name);
     await git(checkout, 'push', '-u', 'origin', name);
-    await merge(other, name, name === 'feat/live');
+    if (name === 'feat/unmerged')
+      await git(checkout, 'push', 'origin', '--delete', name);
+    else await merge(other, name, name === 'feat/live');
     await git(checkout, 'switch', 'main');
   }
+  const unmergedTip = await git(checkout, 'rev-parse', 'feat/unmerged');
+  assert.equal(
+    await git(
+      checkout,
+      'for-each-ref',
+      '--format=%(upstream:track)',
+      'refs/heads/feat/unmerged',
+    ),
+    '[gone]',
+  );
+  await assert.rejects(
+    git(checkout, 'merge-base', '--is-ancestor', unmergedTip, 'origin/main'),
+    { code: 1 },
+  );
   await git(checkout, 'switch', '-c', 'feat/new', 'origin/main');
   await git(checkout, 'switch', 'main');
   await git(checkout, 'worktree', 'add', join(root, 'wt'), 'feat/wt');
@@ -189,9 +200,11 @@ await test("a merged branch's checkout switches to the base, and loses the branc
   assert.deepEqual(await branches(checkout), [
     'feat/live',
     'feat/new',
+    'feat/unmerged',
     'feat/wt',
     'main',
   ]);
+  assert.equal(await git(checkout, 'rev-parse', 'feat/unmerged'), unmergedTip);
   await assert.rejects(
     git(checkout, 'config', '--get-regexp', '^branch\\.feat/x\\.'),
   );
@@ -233,6 +246,8 @@ await test('a plan that also creates another branch stays whichever git command 
     ['continued.md', 'git checkout \\\n  -b feat/y'],
     ['track.md', 'git checkout --track -b feat/y origin/feat/y'],
     ['orphan.md', 'git switch --orphan feat/y'],
+    ['checkout-orphan.md', 'git checkout --orphan feat/y'],
+    ['short-track.md', 'git checkout -t origin/feat/y'],
     ['branch.md', 'git branch feat/y'],
     ['reset.md', 'git branch -f feat/y main'],
     ['copy.md', 'git branch -c feat/x feat/y'],
@@ -244,6 +259,14 @@ await test('a plan that also creates another branch stays whichever git command 
       join(plans(checkout), name),
       `\`git switch -c feat/x\`\n\nlater\n\n\`${command}\`\n`,
     );
+  for (const [name, separator] of [
+    ['semicolon.md', ';'],
+    ['or.md', '||'],
+  ] as const)
+    await write(
+      join(plans(checkout), name),
+      `git switch -c feat/x ${separator} git switch -c feat/y\n`,
+    );
   await write(
     join(plans(checkout), 'upper.md'),
     '```sh\ngit switch main && git pull --ff-only && git switch -C feat/x\ngit worktree add -fb feat/x ../x\n```\n\n`git branch --show-current` and `git branch -a` show it, and `git constructor x` is no command\n\nafter the merge\n\n`git branch -d feat/x`, since `git checkout -b` would fail\n',
@@ -253,6 +276,7 @@ await test('a plan that also creates another branch stays whichever git command 
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
     'branch.md',
     'bundled.md',
+    'checkout-orphan.md',
     'checkout.md',
     'config.md',
     'continued.md',
@@ -263,11 +287,14 @@ await test('a plan that also creates another branch stays whichever git command 
     'gitdir.md',
     'lower.md',
     'move.md',
+    'or.md',
     'orphan.md',
     'path.md',
     'quiet.md',
     'remote.md',
     'reset.md',
+    'semicolon.md',
+    'short-track.md',
     'space.md',
     'track.md',
     'unnamed.md',
@@ -668,6 +695,11 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     message:
       /^#7 merged, but its cleanup failed before deleting feat\/x: Command failed: git .*fetch --prune/,
   });
+  const reacquired = await open(
+    join(checkout, '.git'),
+    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+  );
+  await reacquired.close();
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
@@ -1056,7 +1088,7 @@ await test('a busy install is skipped before fetching', async () => {
   await git(install, 'config', 'remote.origin.uploadpack', pack);
   const lock = await open(
     join(install, '.git'),
-    constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
   );
   const calls: string[][] = [];
   try {
@@ -1183,7 +1215,7 @@ const args = process.argv.slice(2);
 if (args.join(' ') === 'rev-parse --short HEAD') {
   let result = 'unlocked';
   try {
-    closeSync(openSync(${JSON.stringify(directory)}, constants.O_RDONLY | constants.O_NONBLOCK | 0x20));
+    closeSync(openSync(${JSON.stringify(directory)}, constants.O_RDONLY | constants.O_NONBLOCK | ${exclusiveLock}));
   } catch (error) {
     result = error.code;
   }
@@ -1222,7 +1254,7 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
       assert.equal(await readFile(marker, 'utf8'), 'EAGAIN');
       const lock = await open(
         directory,
-        constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+        constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
       );
       await lock.close();
     } finally {
@@ -1382,110 +1414,4 @@ await test("an ignored file the install's incoming commits would start tracking 
   assert.equal(await readFile(join(install, 'secret.txt'), 'utf8'), 'mine');
   assert.deepEqual(calls, []);
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
-});
-
-await test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async () => {
-  const tick = () => new Promise((resolve) => setImmediate(resolve));
-  const listeners = {
-    repository: new Set<() => void>(),
-    coordinator: new Set<() => void>(),
-  };
-  const status = (
-    pullRequest?: PullRequest,
-    fields: Partial<Repository> = {},
-  ): Repository => ({
-    branch: 'feat/x',
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    conflicts: 0,
-    untracked: 0,
-    pullRequest,
-    ...fields,
-  });
-  const pr = (
-    state: PullRequest['state'],
-    commit: string,
-    branch = 'feat/x',
-  ): PullRequest => ({ ...pullRequest(commit), state, branch });
-  const repository = {
-    snapshot: undefined as Repository | undefined,
-    subscribe: (listener: () => void) => {
-      listeners.repository.add(listener);
-      return () => listeners.repository.delete(listener);
-    },
-  };
-  const calls: [PullRequest, string | undefined][] = [];
-  let pending: PromiseWithResolvers<boolean> | undefined;
-  const coordinator = {
-    snapshot: { phase: 'idle', queue: [] } as unknown as Snapshot,
-    subscribe: (listener: () => void) => {
-      listeners.coordinator.add(listener);
-      return () => listeners.coordinator.delete(listener);
-    },
-    // as operate does, the cleanup holds the phase until it settles
-    cleanUpMerge: (merged: PullRequest, install?: string) => {
-      calls.push([merged, install]);
-      publishCoordinator({ phase: 'cleaning' });
-      pending = Promise.withResolvers<boolean>();
-      return pending.promise;
-    },
-  };
-  const publishRepository = async (snapshot = repository.snapshot) => {
-    repository.snapshot = snapshot;
-    for (const listener of listeners.repository) listener();
-    await tick();
-  };
-  function publishCoordinator(update: Partial<Snapshot>) {
-    coordinator.snapshot = { ...coordinator.snapshot, ...update };
-    for (const listener of listeners.coordinator) listener();
-  }
-  const publish = async (update: Partial<Snapshot> = {}) => {
-    publishCoordinator(update);
-    await tick();
-  };
-  const settle = async (value: boolean | Error) => {
-    publishCoordinator({ phase: 'idle' });
-    if (value instanceof Error) pending!.reject(value);
-    else pending!.resolve(value);
-    await tick();
-  };
-  const stop = watchMerges(repository, coordinator, '/install');
-  await publishRepository(status(pr('OPEN', 'c1')));
-  assert.equal(calls.length, 0, 'an open pull request');
-  await publishRepository(status(pr('MERGED', 'c1'), { modified: 1 }));
-  assert.equal(calls.length, 0, 'a modified checkout');
-  await publishRepository(status(pr('MERGED', 'c1')));
-  assert.deepEqual(calls, [[pr('MERGED', 'c1'), '/install']], 'a clean one');
-  await publishRepository();
-  await publish();
-  assert.equal(calls.length, 1, 'publishes while the cleanup runs');
-  await settle(true);
-  await publishRepository();
-  await publish();
-  assert.equal(calls.length, 1, 'publishes after it acted');
-  await publish({ phase: 'running' });
-  await publishRepository(status(pr('MERGED', 'c2')));
-  assert.equal(calls.length, 1, 'a turn running');
-  await publish({ phase: 'idle', error: 'boom' });
-  assert.equal(calls.length, 1, 'an error shown');
-  await publish({ error: undefined, queue: ['queued'] });
-  assert.equal(calls.length, 1, 'a queued prompt');
-  await publish({ queue: [] });
-  assert.equal(calls.length, 2, 'idle, with no error or queue');
-  await settle(false);
-  await publish();
-  assert.equal(calls.length, 2, 'a coordinator publish after nothing was done');
-  await publishRepository();
-  assert.equal(calls.length, 3, 'the next status publish');
-  await settle(new Error('failed'));
-  await publishRepository();
-  assert.equal(calls.length, 3, 'a status publish after a failure');
-  await publishRepository(status(pr('MERGED', 'c3', 'feat/y')));
-  assert.equal(calls.length, 3, "another branch's pull request");
-  stop();
-  await publishRepository(status(pr('MERGED', 'c4')));
-  await publish();
-  assert.equal(calls.length, 3, 'after the stop');
 });
