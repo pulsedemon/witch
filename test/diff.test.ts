@@ -493,32 +493,37 @@ await test("words a removed row and the added row at its place in the next run c
     );
 });
 
-await test('repeated shared tokens keep a pair at the inclusive edit cap colored, counting emoji tokens rather than their string lengths', () => {
+await test('repeated shared tokens keep a pair at 400 token edits colored and 401 uncolored, counting emoji tokens rather than their string lengths', () => {
   const prefix = '+ '.repeat(250) + 'x'.repeat(1200) + ' ';
   const before = '🧙'.repeat(200);
-  const after = '👻'.repeat(200);
-  const drawn = rows(
-    [
-      {
-        path: '/work/a.zz',
-        kind: 'update',
-        hunks: [
-          {
-            oldStart: 1,
-            newStart: 1,
-            lines: ['-' + prefix + before, '+' + prefix + after],
-          },
-        ],
-      },
-    ],
-    3000,
-  ).join('\n');
-  for (const [color, text] of [
-    [removedWord, before],
-    [addedWord, after],
+  for (const [suffix, colored] of [
+    ['', true],
+    ['!', false],
   ] as const) {
-    assert.ok(drawn.includes(`${color}${text}\u001b[49m`));
-    assert.equal(drawn.split(color).length - 1, 1);
+    const after = '👻'.repeat(200) + suffix;
+    const drawn = rows(
+      [
+        {
+          path: '/work/a.zz',
+          kind: 'update',
+          hunks: [
+            {
+              oldStart: 1,
+              newStart: 1,
+              lines: ['-' + prefix + before, '+' + prefix + after],
+            },
+          ],
+        },
+      ],
+      3000,
+    ).join('\n');
+    for (const [color, text] of [
+      [removedWord, before],
+      [addedWord, after],
+    ] as const) {
+      assert.equal(drawn.includes(`${color}${text}\u001b[49m`), colored);
+      assert.equal(drawn.split(color).length - 1, colored ? 1 : 0);
+    }
   }
 });
 
@@ -704,4 +709,59 @@ await test('an html line opening many script tags draws quickly, and script and 
     '<style><!-- c --></style>',
   ])
     assert.ok(!syntaxOf(row(code)).includes('\u001b[38;'), code);
+});
+
+for (const [name, before, after, oldWord, newWord] of [
+  ['Unicode identifiers', 'const café = 1;', 'const cafè = 1;', 'café', 'cafè'],
+  ['changed graphemes', 'const icon = "👍🏻";', 'const icon = "👍🏽";', '👍🏻', '👍🏽'],
+] as const) {
+  await test(`word colors cover whole ${name} and preserve their text`, () => {
+    const [, removed, added] = rows(
+      [
+        {
+          path: '/work/a.zz',
+          kind: 'update',
+          hunks: [
+            { oldStart: 1, newStart: 1, lines: ['-' + before, '+' + after] },
+          ],
+        },
+      ],
+      80,
+    );
+    assert.ok(removed!.includes(`${removedWord}${oldWord}\u001b[49m`));
+    assert.ok(added!.includes(`${addedWord}${newWord}\u001b[49m`));
+    assert.equal(removed!.split(removedWord).length - 1, 1);
+    assert.equal(added!.split(addedWord).length - 1, 1);
+    assert.equal(stripAnsi(removed!).trimEnd(), '1 -' + before);
+    assert.equal(stripAnsi(added!).trimEnd(), '1 +' + after);
+  });
+}
+
+await test('word colors include exactly 40 percent changed text and exclude one additional changed character', () => {
+  for (const [after, colored] of [
+    ['bbbb', true],
+    ['bbbbb', false],
+  ] as const) {
+    // the changed proportions are 8/20 and 9/21; the shared prefix is six characters
+    const [, removed, added] = rows([
+      {
+        path: '/work/a.zz',
+        kind: 'update',
+        hunks: [
+          {
+            oldStart: 1,
+            newStart: 1,
+            lines: ['-keep: aaaa', '+keep: ' + after],
+          },
+        ],
+      },
+    ]);
+    for (const [row, color, word] of [
+      [removed!, removedWord, 'aaaa'],
+      [added!, addedWord, after],
+    ] as const) {
+      assert.equal(row.includes(`${color}${word}\u001b[49m`), colored);
+      assert.equal(row.split(color).length - 1, colored ? 1 : 0);
+    }
+  }
 });
