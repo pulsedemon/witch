@@ -14,6 +14,7 @@ import { StateStore } from '../src/persistence/store.js';
 import { Screen } from '../src/ui/screen.js';
 
 interface DesktopEvent {
+  diagnostic?: string;
   file?: string;
   args?: string[];
   text?: string;
@@ -57,6 +58,7 @@ await test('the CLI opens the pressed link, copies selected text and reports des
     ).join('\n'),
   });
   await files.close();
+  const spawned = performance.now();
   const child = spawn(
     process.execPath,
     [
@@ -100,9 +102,16 @@ await test('the CLI opens the pressed link, copies selected text and reports des
     screen.write(chunk.toString());
   });
   child.stderr!.on('data', (chunk) => (stderr += chunk.toString()));
-  child.on('message', (message) => messages.push(message as DesktopEvent));
-  const wait = (name: string, check: () => unknown) =>
-    until(name, () => {
+  const diagnostics: string[] = [];
+  child.on('message', (message: DesktopEvent) => {
+    if (message.diagnostic !== undefined) {
+      diagnostics.push(message.diagnostic);
+      if (diagnostics.length > 64) diagnostics.shift();
+    } else messages.push(message);
+  });
+  const wait = (name: string, check: () => unknown) => {
+    const started = performance.now();
+    return until(name, () => {
       assert.equal(
         child.exitCode,
         null,
@@ -110,10 +119,19 @@ await test('the CLI opens the pressed link, copies selected text and reports des
       );
       return Boolean(check());
     }).catch((error: unknown) => {
-      throw new Error(`${name}: ${stripAnsi(output)}\n${stderr}`, {
-        cause: error,
-      });
+      throw new Error(
+        `${name}: ${stripAnsi(output)}\n${stderr}\n${JSON.stringify({
+          pid: child.pid,
+          exitCode: child.exitCode,
+          signalCode: child.signalCode,
+          sinceSpawn: performance.now() - spawned,
+          waiting: performance.now() - started,
+          diagnostics,
+        })}`,
+        { cause: error },
+      );
     });
+  };
   const mouse = (
     kind: 'press' | 'drag' | 'release',
     column: number,
