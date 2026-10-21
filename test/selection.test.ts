@@ -108,3 +108,32 @@ await test('selected text drops trailing spaces in time linear in a long run of 
   // a trim that backtracks over the run takes seconds
   assert.ok(performance.now() - started < 500);
 });
+
+await test('selection keeps complete emoji clusters containing variation selectors and joiners', () => {
+  for (const cluster of ['⚠️', '👩‍💻']) {
+    const text = `a${cluster}b`;
+    assert.equal(highlight(text, 1, 3), `a${inverse(cluster)}b`);
+    assert.equal(
+      selectedText(
+        [text],
+        { row: 0, column: 2 },
+        { row: 0, column: 2 },
+        () => '\n',
+      ),
+      cluster,
+    );
+  }
+});
+
+await test('a selection starting on image rows joins only after its first copied row', () => {
+  const calls: number[] = [];
+  const lines = [placeholder, placeholder, 'alpha', 'beta'];
+  assert.equal(
+    selectedText(lines, { row: 0, column: 0 }, { row: 3, column: 3 }, (row) => {
+      calls.push(row);
+      return '|';
+    }),
+    'alpha|beta',
+  );
+  assert.deepEqual(calls, [3]);
+});
