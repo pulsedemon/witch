@@ -362,7 +362,7 @@ export class Coordinator {
       } finally {
         if (this.record)
           await this.coordination
-            ?.releaseSuggestion(this.record.id)
+            ?.releaseConversation(this.record.id)
             .catch((error: unknown) => {
               failure ??= error;
             });

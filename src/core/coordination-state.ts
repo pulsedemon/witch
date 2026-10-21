@@ -33,10 +33,10 @@ export const taskClaimSchema = z.object({
   references: z.array(z.string()).min(1),
   summary: z.string(),
   createdAt: z.number(),
+  process: processIdentity.optional(),
   suggestion: z
     .object({
       selection: z.string().uuid(),
-      process: processIdentity,
     })
     .optional(),
 });

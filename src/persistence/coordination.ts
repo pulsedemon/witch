@@ -26,6 +26,7 @@ import type { ProcessIdentity } from '../core/state.js';
 import { identifyProcess } from './process.js';
 import { exclusiveLock, isLocked } from './lock.js';
 import { writeJson } from './json.js';
+import { StateStore } from './store.js';
 
 const ledgerSchema = z.discriminatedUnion('version', [
   z.object({ version: z.literal(1), claims: z.array(taskClaimSchema) }),
@@ -74,6 +75,7 @@ function reserve(
   ledger: Ledger,
   owner: ClaimOwner,
   input: ReturnType<typeof claimInput>,
+  process: ProcessIdentity,
 ): TaskClaim {
   const conflict = ledger.claims.find(
     (claim) =>
@@ -93,6 +95,7 @@ function reserve(
         ...new Set([...existing.references, ...input.references]),
       ];
       existing.summary = input.summary;
+      existing.process = process;
       delete existing.suggestion;
       return existing;
     }
@@ -105,6 +108,7 @@ function reserve(
     owner,
     ...input,
     createdAt: Date.now(),
+    process,
   };
   ledger.claims.push(claim);
   return claim;
@@ -136,12 +140,15 @@ export function checkDeadline(deadline: number): void {
 }
 
 export class CoordinationStore {
-  private constructor(private readonly directory: string) {}
+  private constructor(
+    private readonly directory: string,
+    private readonly store: StateStore,
+  ) {}
 
   static async open(root: string): Promise<CoordinationStore> {
     const directory = join(root, 'coordination');
     await mkdir(join(directory, 'sessions'), { recursive: true, mode: 0o700 });
-    return new CoordinationStore(directory);
+    return new CoordinationStore(directory, await StateStore.open(root));
   }
 
   async presences(): Promise<SessionPresence[]> {
@@ -219,12 +226,13 @@ export class CoordinationStore {
   async claim(
     owner: ClaimOwner,
     input: ClaimInput,
+    process: ProcessIdentity,
     deadline: number,
     verify: () => Promise<void>,
   ): Promise<TaskClaim> {
     const normalized = claimInput(owner, input);
     return this.mutate(deadline, verify, (ledger) => {
-      const claim = reserve(ledger, owner, normalized);
+      const claim = reserve(ledger, owner, normalized, process);
       ledger.selections = ledger.selections.filter(
         (ticket) => ticket.owner.conversation !== owner.conversation,
       );
@@ -296,7 +304,8 @@ export class CoordinationStore {
       if (recorded) {
         if (
           !sameOwner(recorded.owner, scope.owner) ||
-          !sameProcess(recorded.suggestion!.process, process) ||
+          !recorded.process ||
+          !sameProcess(recorded.process, process) ||
           recorded.summary !== normalized.summary ||
           recorded.references.length !== normalized.references.length ||
           !recorded.references.every((value) =>
@@ -310,8 +319,8 @@ export class CoordinationStore {
       }
       if (selection(ledger, scope, id).position !== 1)
         throw new Error('Wait for first position before recommending a task.');
-      const claim = reserve(ledger, scope.owner, normalized);
-      claim.suggestion = { selection: id, process };
+      const claim = reserve(ledger, scope.owner, normalized, process);
+      claim.suggestion = { selection: id };
       ledger.selections = ledger.selections.filter(
         (ticket) => ticket.id !== id,
       );
@@ -335,7 +344,7 @@ export class CoordinationStore {
     });
   }
 
-  async releaseSuggestion(
+  async releaseConversation(
     owner: ClaimOwner,
     process: ProcessIdentity,
     deadline: number,
@@ -346,8 +355,7 @@ export class CoordinationStore {
         (claim) =>
           !(
             sameOwner(claim.owner, owner) &&
-            claim.suggestion &&
-            sameProcess(claim.suggestion.process, process)
+            (!claim.process || sameProcess(claim.process, process))
           ),
       );
     });
@@ -373,9 +381,10 @@ export class CoordinationStore {
     const claims: TaskClaim[] = [];
     for (const claim of ledger.claims) {
       if (
-        !claim.suggestion ||
-        (await identifyProcess(claim.suggestion.process.pid))?.started ===
-          claim.suggestion.process.started
+        claim.process
+          ? (await identifyProcess(claim.process.pid))?.started ===
+            claim.process.started
+          : await this.store.isOpen(claim.owner.conversation)
       )
         claims.push(claim);
     }
