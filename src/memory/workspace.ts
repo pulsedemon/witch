@@ -9,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { errorMessage } from '../agents/stderr.js';
 import {
   branchOf,
   exists,
@@ -146,8 +147,12 @@ export class Workspace {
       await this.git(['merge', '--ff-only', '--quiet', main]);
       const scope = await this.scope(cwd);
       const moved = await this.adopt(scope).catch(async (error: unknown) => {
-        // a move that fails partway is dropped, so no half-made move waits as pending memory
-        await this.discardPending();
+        await this.discardPending().catch((rollback: unknown) => {
+          throw new Error(
+            `${errorMessage(error)}\n\nCould not discard the failed memory move: ${errorMessage(rollback)}`,
+            { cause: error },
+          );
+        });
         throw error;
       });
       if (!moved || (await this.publish()) === 'published')
