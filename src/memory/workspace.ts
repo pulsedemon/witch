@@ -27,7 +27,12 @@ function mergeLines(index: string, added: string): string {
     (line) => line.trim() && !present.has(line),
   );
   if (!missing.length) return index;
-  const kept = index.replace(/(\r?\n)+$/, '');
+  let end = index.length;
+  while (end > 0 && index[end - 1] === '\n') {
+    end--;
+    if (end > 0 && index[end - 1] === '\r') end--;
+  }
+  const kept = index.slice(0, end);
   return `${kept ? `${kept}${eol}` : ''}${missing.join(eol)}${eol}`;
 }
 
