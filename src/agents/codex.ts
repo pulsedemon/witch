@@ -89,6 +89,12 @@ const questionList = z.array(
     options: z.array(z.object({ label: z.string() })).nullable(),
   }),
 );
+const messageQuestions = z.array(
+  z.object({
+    title: z.string(),
+    options: z.array(z.string()).nullish(),
+  }),
+);
 
 /** lines a unified diff adds and removes; only lines inside a hunk count, so file headers stay out. */
 function diffLines(diff: string): { added: number; removed: number } {
@@ -317,6 +323,7 @@ class CodexSession implements AgentSession {
       this.stopBackgroundCommands();
       this.proposals.clear();
       this.closed = true;
+      if (this.connected) this.options.onEvent({ type: 'closed' });
       this.finish(
         this.turn?.interrupted ? 'interrupted' : 'failed',
         error.message,
@@ -939,6 +946,27 @@ class CodexSession implements AgentSession {
               text: item.text,
               replace: true,
             });
+          }
+          if (message.method === 'item/completed' && item.questions != null) {
+            const questions = messageQuestions
+              .parse(item.questions)
+              .map((question, index) => ({
+                id: String(index),
+                title: question.title,
+                options: question.options ?? [],
+              }));
+            if (questions.length)
+              this.options.onEvent({
+                type: 'request',
+                request: {
+                  id: `question/${id}`,
+                  kind: 'question',
+                  title: 'Questions',
+                  detail: '',
+                  questions,
+                  replyAsPrompt: true,
+                },
+              });
           }
         } else if (!untooled.includes(type)) {
           const images = itemImages(type, item);

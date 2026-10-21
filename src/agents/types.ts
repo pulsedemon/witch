@@ -93,6 +93,8 @@ export interface UserRequest {
   detail: string;
   diff?: FileDiff[];
   questions?: Question[];
+  /** the native question already returned; its answer continues through normal prompt delivery. */
+  replyAsPrompt?: boolean;
   schema?: Record<string, unknown>;
   url?: string;
 }
@@ -139,6 +141,7 @@ export type AgentEvent =
     }
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
+  | { type: 'closed' }
   | { type: 'info'; info: SessionInfo }
   | { type: 'usage'; usage: Usage }
   /** the native skill list changed; it replaces the one `skills()` gave. */
