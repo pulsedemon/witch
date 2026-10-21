@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
     "test:integration": "node --import tsx scripts/integration.ts",
+    "test:integration:codex-brews": "node --import tsx scripts/check-codex-brews.ts",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write ."
   },
