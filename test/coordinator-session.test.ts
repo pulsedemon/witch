@@ -1011,7 +1011,7 @@ for (const stop of ['interrupt', 'close'] as const)
     });
 
 await test('interrupting a pending replied model change preserves unread Claude prompts', async () => {
-  const { cwd, children, connect } = await launcher('pending-model');
+  const { cwd, children, connect, adapter } = await launcher('pending-model');
   const store = await StateStore.open(join(cwd, 'state'));
   const memory = new Memory(join(cwd, 'state', 'memory.git'));
   let session: AgentSession | undefined;
@@ -1020,6 +1020,7 @@ await test('interrupting a pending replied model change preserves unread Claude 
       adapter: {
         id: 'claude',
         label: 'Claude',
+        models: (options) => adapter.models(options),
         connect: async (options) => (session = await connect(options)),
       },
       executable: '/fake/claude',

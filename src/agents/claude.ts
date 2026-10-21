@@ -23,6 +23,7 @@ import type {
   AgentSession,
   BackgroundCommand,
   Model,
+  ModelDiscoveryOptions,
   SessionInfo,
   SessionOptions,
   Skill,
@@ -83,11 +84,69 @@ const questions = z.object({
   ),
 });
 
+function modelsOf(models: readonly ModelInfo[]): Model[] {
+  return models.map((model) => ({
+    id: model.value,
+    label: model.displayName,
+    efforts: model.supportedEffortLevels ?? [],
+  }));
+}
+
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
   readonly label = 'Claude Code';
 
   constructor(private readonly start: Launch = launch) {}
+
+  async models(options: ModelDiscoveryOptions): Promise<Model[]> {
+    const input = new InputQueue<SDKUserMessage>();
+    const abort = new AbortController();
+    const cancel = () => abort.abort();
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) cancel();
+    let child: ChildExit | undefined;
+    let discovery: Query | undefined;
+    let reading: Promise<void> | undefined;
+    try {
+      discovery = query({
+        prompt: input,
+        options: {
+          cwd: options.cwd,
+          pathToClaudeCodeExecutable: options.executable,
+          abortController: abort,
+          settingSources: ['user', 'project', 'local'],
+          persistSession: false,
+          settings: { disableAllHooks: true },
+          strictMcpConfig: true,
+          mcpServers: {},
+          spawnClaudeCodeProcess: (settings) => {
+            const process = this.start(settings);
+            child = watchChild(process);
+            return process;
+          },
+        },
+      });
+      const stream = discovery;
+      reading = (async () => {
+        for await (const message of stream) void message;
+      })().catch(() => {});
+      return modelsOf(await discovery.supportedModels());
+    } catch (error) {
+      await Promise.race([child?.closed, delay(1000)]);
+      const failure = new Error(
+        withTail(errorMessage(error), child?.tail() ?? ''),
+        { cause: error },
+      );
+      if (error instanceof AbortError) failure.name = 'AbortError';
+      throw failure;
+    } finally {
+      input.close();
+      discovery?.close();
+      await reading;
+      await child?.closed;
+      options.signal?.removeEventListener('abort', cancel);
+    }
+  }
 
   async connect(options: SessionOptions): Promise<AgentSession> {
     const session = new ClaudeSession(options, this.start);
@@ -333,11 +392,7 @@ class ClaudeSession implements AgentSession {
     const models: ModelInfo[] = refresh
       ? (await this.query.reinitialize()).models
       : await this.query.supportedModels();
-    return models.map((model) => ({
-      id: model.value,
-      label: model.displayName,
-      efforts: model.supportedEffortLevels ?? [],
-    }));
+    return modelsOf(models);
   }
 
   /** the SDK keeps this cache current from the CLI's `commands_changed` pushes, so reading it sends nothing. */
