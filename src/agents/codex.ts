@@ -1019,6 +1019,7 @@ class CodexSession implements AgentSession {
         if (usage.modelContextWindow)
           this.report({
             context: (usage.last.totalTokens / usage.modelContextWindow) * 100,
+            contextWindow: usage.modelContextWindow,
           });
         break;
       }

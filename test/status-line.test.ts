@@ -6,13 +6,14 @@ import { statusLines } from '../src/ui/status-line.js';
 const now = Date.parse('2026-10-13T12:00:00Z');
 const seconds = now / 1000;
 
-await test('the status line shows every reported field in the order and format statusline.sh draws', () => {
+await test('the status line shows reported fields with the context capacity beside its percentage', () => {
   const [first, second] = statusLines(
     {
       model: 'GPT-5.5-Codex',
       effort: 'xhigh',
       usage: {
         context: 45.8,
+        contextWindow: 828400,
         cost: 1.234,
         limits: [
           { window: '5H', percent: 23.4, resetsAt: seconds + 2 * 3600 + 600 },
@@ -49,7 +50,7 @@ await test('the status line shows every reported field in the order and format s
   );
   assert.equal(
     stripAnsi(second),
-    'CTX 45% ████░░░░░░ | witch | feat/x ↑1 ↓2 +3 ~4 !1 ?5 | PR#7 ✓ | 12+/3-',
+    'CTX 45% (828.4K) ████░░░░░░ | witch | feat/x ↑1 ↓2 +3 ~4 !1 ?5 | PR#7 ✓ | 12+/3-',
   );
   assert.ok(
     second.includes(

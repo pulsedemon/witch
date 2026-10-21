@@ -1293,8 +1293,8 @@ await test("reports context, lines summed over the thread's turns, limits merged
     assert.equal((await session.send('usage')).status, 'completed');
     await until('the cost', () => session.usage.cost === 1.5);
     assert.deepEqual(session.usage, {
-      // 64000 of a 256000-token window
       context: 25,
+      contextWindow: 256000,
       lines: { added: 4, removed: 2 },
       limits: [
         { window: '5H', percent: 15, resetsAt: 2000000100 },
