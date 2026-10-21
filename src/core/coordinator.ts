@@ -598,6 +598,11 @@ export class Coordinator {
 
   async interrupt(): Promise<void> {
     this.cancelled = true;
+    this.publish({
+      requests: this.snapshot.requests.filter(
+        (request) => !request.replyAsPrompt,
+      ),
+    });
     this.connecting?.abort();
     this.editorCancellation?.abort();
     // a session that is still starting has no turn to interrupt, so stopping it closes it
@@ -610,23 +615,31 @@ export class Coordinator {
   }
 
   async respond(id: string, response: UserResponse): Promise<void> {
-    const questions = this.snapshot.requests.find(
-      (request) => request.id === id,
-    )?.questions;
-    this.session?.respond(id, response);
-    // the request view closes on answering, so the transcript keeps what was asked and chosen
-    if (questions && response.decision === 'accept')
-      this.display({
-        id: randomUUID(),
-        kind: 'user',
-        text: questions
-          .map(
-            ({ id, title, secret }) =>
-              `**${title}**\n→ ${secret ? '(hidden)' : (response.answers?.[id] ?? []).join(', ')}`,
-          )
-          .join('\n\n'),
-        cwd: this.current().cwd,
+    const request = this.snapshot.requests.find((request) => request.id === id);
+    if (!request) return;
+    const { questions, replyAsPrompt } = request;
+    if (replyAsPrompt)
+      this.publish({
+        requests: this.snapshot.requests.filter((request) => request.id !== id),
       });
+    else this.session?.respond(id, response);
+    // the request view closes on answering, so the transcript keeps what was asked and chosen
+    if (questions && response.decision === 'accept') {
+      const text = questions
+        .map(
+          ({ id, title, secret }) =>
+            `**${title}**\n→ ${secret ? '(hidden)' : (response.answers?.[id] ?? []).join(', ')}`,
+        )
+        .join('\n\n');
+      if (replyAsPrompt) await this.send(text);
+      else
+        this.display({
+          id: randomUUID(),
+          kind: 'user',
+          text,
+          cwd: this.current().cwd,
+        });
+    }
     if (response.decision === 'cancel') await this.interrupt();
   }
 
@@ -1100,7 +1113,7 @@ export class Coordinator {
         this.familiar(this.current(), { ...subagent, status: 'stopped' });
     for (const command of this.snapshot.backgroundCommands)
       this.brew(this.current(), { ...command, status: 'stopped' });
-    this.publish({ skills: [], subagents: [] });
+    this.publish({ skills: [], subagents: [], requests: [] });
     try {
       await session?.close();
       if (!this.record) return;
@@ -1123,7 +1136,10 @@ export class Coordinator {
       if (conversation.agent === agent)
         this.publish({ native: event.info, conversation });
     } else if (event.type === 'request') {
+      if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
+    } else if (event.type === 'closed') {
+      this.publish({ requests: [] });
     } else if (event.type === 'request-resolved') {
       this.publish({
         requests: this.snapshot.requests.filter(
@@ -1400,7 +1416,9 @@ export class Coordinator {
     this.publish({
       phase: recovery ? 'recovery' : 'idle',
       recovery,
-      requests: [],
+      requests: this.snapshot.requests.filter(
+        (request) => request.replyAsPrompt,
+      ),
       ...(error ? { error } : {}),
     });
   }
