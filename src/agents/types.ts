@@ -228,5 +228,6 @@ export interface SessionOptions {
 export interface AgentAdapter {
   id: string;
   label: string;
+  /** cancellation rejects with an `Error` named `AbortError`. */
   connect(options: SessionOptions): Promise<AgentSession>;
 }
