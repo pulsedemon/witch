@@ -1,5 +1,4 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createInterface } from 'node:readline';
 import { z } from 'zod';
 import { watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
@@ -29,26 +28,21 @@ export class JsonRpc {
 
   constructor(private readonly process: ChildProcessWithoutNullStreams) {
     this.child = watchChild(process);
-    const lines = createInterface({ input: process.stdout });
-    lines.on('line', (line) => {
-      try {
-        const message = envelope.parse(JSON.parse(line));
-        if (message.method) {
-          this.onMessage(message);
-        } else if (typeof message.id === 'number') {
-          const request = this.pending.get(message.id);
-          this.pending.delete(message.id);
-          if (message.error) request?.reject(new Error(message.error.message));
-          else request?.resolve(message.result);
-        }
-      } catch (error) {
-        this.fail(error instanceof Error ? error : new Error(String(error)));
-      }
+    let pending = '';
+    process.stdout.setEncoding('utf8');
+    process.stdout.on('data', (chunk: string) => {
+      // readline also splits Unicode separators that JSON strings may contain
+      const lines = chunk.split('\n');
+      lines[0] = pending + lines[0];
+      pending = lines.pop()!;
+      for (const line of lines) this.receive(line);
+    });
+    process.stdout.on('end', () => {
+      if (pending) this.receive(pending);
     });
     process.stdin.on('error', (error) => this.fail(error));
     process.on('error', (error) => this.fail(error));
     process.on('close', (code, signal) => {
-      lines.close();
       this.fail(
         new Error(
           withTail(
@@ -96,6 +90,22 @@ export class JsonRpc {
   private write(message: RpcMessage): void {
     if (this.failure) throw this.failure;
     this.process.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  private receive(line: string): void {
+    try {
+      const message = envelope.parse(JSON.parse(line));
+      if (message.method) {
+        this.onMessage(message);
+      } else if (typeof message.id === 'number') {
+        const request = this.pending.get(message.id);
+        this.pending.delete(message.id);
+        if (message.error) request?.reject(new Error(message.error.message));
+        else request?.resolve(message.result);
+      }
+    } catch (error) {
+      this.fail(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private fail(error: Error): void {
