@@ -8,8 +8,9 @@ export const releaseMouse = '\u001b[?1006l\u001b[?1003l';
 
 // eslint-disable-next-line no-control-regex
 const report = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/g;
+// reject each Escape run once to keep non-mouse input linear
 // eslint-disable-next-line no-control-regex
-const partial = /\u001b+\[?$|\u001b\[<[\d;]*$/;
+const partial = /(?<!\u001b)\u001b+\[?$|\u001b\[<[\d;]*$/;
 
 export interface Cell {
   /** zero-based cell. */
