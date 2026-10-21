@@ -71,8 +71,6 @@ for (const task of [undefined, 'mcp_task', 'remote_agent', 'monitor_mcp']) {
             {
               task_id: 'background',
               task_type: task,
-              status: 'running',
-              is_backgrounded: true,
               description: 'Background work',
             },
           ],
@@ -170,8 +168,12 @@ for (const singular of [false, true]) {
   });
 }
 
-for (const laterReport of [false, true]) {
-  await test(`missing terminal events cannot hang a failed input${laterReport ? ' or let a later report erase its failure' : ''}`, async () => {
+for (const [laterReport, error] of [
+  [false, 'Provider rejected follow-up.'],
+  [true, 'Provider rejected follow-up.'],
+  [true, ''],
+] as const) {
+  await test(`missing terminal events cannot hang a failed input${laterReport ? ' or let a later report erase its failure' : ''}${error ? '' : ' with empty error text'}`, async () => {
     const f = await background();
     try {
       const uuid = await f.steer('failing follow-up');
@@ -179,7 +181,7 @@ for (const laterReport of [false, true]) {
         type: 'result',
         subtype: 'error_during_execution',
         is_error: true,
-        errors: ['Provider rejected follow-up.'],
+        errors: error ? [error] : [],
         ...(laterReport ? { user_message_uuids: [uuid] } : {}),
       });
       if (laterReport)
@@ -187,7 +189,7 @@ for (const laterReport of [false, true]) {
       await f.emit(state('idle'));
       const outcome = await within(f.turn, 2000, 'failed follow-up');
       assert.equal(outcome.status, 'failed');
-      assert.equal(outcome.error, 'Provider rejected follow-up.');
+      assert.equal(outcome.error, error);
     } finally {
       await f.session.close();
     }
