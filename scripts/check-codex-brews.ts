@@ -773,10 +773,9 @@ supports_websockets = false
       code: 'ENOENT',
     });
     if (version === 'v2')
-      assert.equal(
-        steps.get('delta'),
-        1,
-        'Eviction spawns the fourth real child',
+      await until(
+        'Delta reaches the model fixture after eviction',
+        () => steps.get('delta') === 1,
       );
     checks.push('shutdown isolation');
 
