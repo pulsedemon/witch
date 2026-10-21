@@ -1,11 +1,10 @@
-import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { open, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { errorMessage } from '../agents/stderr.js';
 import { exclusiveLock } from '../persistence/lock.js';
+import { runCommand } from './command.js';
 import type { Coordinator } from './coordinator.js';
 import { parseStatus } from './repository.js';
 import type {
@@ -15,12 +14,10 @@ import type {
   Run,
 } from './repository.js';
 
-const execute = promisify(execFile);
-
 /** a password prompt would draw over the TUI, and nothing could answer it. */
 const git = async (cwd: string, ...args: string[]) =>
   (
-    await execute('git', args, {
+    await runCommand('git', args, {
       cwd,
       timeout: 60_000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
@@ -103,7 +100,12 @@ export async function cleanUpMerge(
   cwd: string,
   pullRequest: PullRequest,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
-  const lock = await lockCheckout(cwd);
+  const lock = await lockCheckout(cwd).catch((error: unknown) => {
+    throw new Error(
+      `#${pullRequest.number} merged, but its cleanup failed while locking ${pullRequest.branch}: ${errorMessage(error).trim()}`,
+      { cause: error },
+    );
+  });
   if (!lock) return undefined;
   try {
     return await clean(cwd, pullRequest);
@@ -188,19 +190,26 @@ async function clean(
     `branch.${branch}`,
   ).then(
     () => '',
-    (error: unknown) => errorMessage(error).trim(),
+    (error: unknown) =>
+      `config section branch.${branch} stayed: ${errorMessage(error).trim()}`,
   );
-  const { removed: plans, stayed, reason } = await removePlans(cwd, branch);
+  const {
+    removed: plans,
+    stayed,
+    reason,
+  } = await removePlans(cwd, branch).catch((error: unknown) => {
+    throw new Error(
+      `#${number} merged: switched to ${base} and deleted branch ${branch}${unset && ` (${unset})`}, but could not locate its plans: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  });
   // none is named when the plans couldn't be listed
   const named = (names: string[]) =>
     names.length
       ? `${names.length > 1 ? 'plans' : 'plan'} ${list(names)}`
       : 'plans';
   const removed = plans.length ? `, and ${named(plans)}` : '';
-  const kept = [
-    unset && `config section branch.${branch} stayed: ${unset}`,
-    reason && `${named(stayed)} stayed: ${reason}`,
-  ]
+  const kept = [unset, reason && `${named(stayed)} stayed: ${reason}`]
     .filter(Boolean)
     .join(' and ');
   // after the branch and its plans go, so a base that can't fast-forward still deletes them
@@ -236,7 +245,12 @@ async function clean(
     // :short would print heads/<name> for a branch a tag shares a name with
     '--format=%(refname:lstrip=2)%09%(upstream:track)%09%(worktreepath)',
     'refs/heads',
-  );
+  ).catch((error: unknown) => {
+    throw new Error(
+      `#${number} merged: switched to ${base} and pulled, deleted branch ${branch}${removed}${kept && ` (${kept})`}, but could not list other merged branches: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  });
   for (const line of refs.split('\n')) {
     const [name, track, worktree] = line.split('\t');
     // a merged pull request's remote branch is gone and a long-lived branch's isn't
@@ -409,7 +423,7 @@ async function removePlans(
 export async function refreshInstall(
   root: string,
   base: string,
-  run: Run = execute,
+  run: Run = runCommand,
 ): Promise<string> {
   const failed = (error: unknown): never => {
     // tsc reports its errors on stdout, which the message leaves out
