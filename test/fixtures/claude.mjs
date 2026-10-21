@@ -226,7 +226,7 @@ for await (const line of lines) {
       };
     }
     if (request.subtype === 'get_context_usage')
-      response = { percentage: 12.5 };
+      response = { percentage: 12.5, maxTokens: 200000 };
     if (request.subtype === 'get_usage')
       response = {
         session: {

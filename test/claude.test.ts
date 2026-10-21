@@ -1036,6 +1036,7 @@ await test('reports the cost from each result, and context, the 5H and 7D limits
     assert.deepEqual(session.usage, {
       cost: 0.25,
       context: 12.5,
+      contextWindow: 200000,
       lines: { added: 4, removed: 1 },
       limits: [
         { window: '5H', percent: 23.5, resetsAt: 2000000000 },
