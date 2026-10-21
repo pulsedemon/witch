@@ -34,7 +34,25 @@ The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md
 
 ## Development
 
-The development scripts are in [package.json](package.json). `pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
+Local checks require macOS and Git, with no native agent login. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. With nvm, run from the repository root:
+
+```sh
+nvm install
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm check
+```
+
+`pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Running the app and native checks requires the [installation prerequisites](#install).
+
+Run one test file or one named test with:
+
+```sh
+pnpm exec node --import tsx --test test/memory.test.ts
+pnpm exec node --import tsx --test --test-name-pattern='invalid effort' test/claude.test.ts
+```
+
+`pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
 `pnpm test:integration:codex-brews` checks native child brews with the installed Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
 

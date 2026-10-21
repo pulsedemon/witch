@@ -6,12 +6,7 @@ Witch is a full-screen Ink terminal app that drives the installed Codex and Clau
 
 ## Commands
 
-The scripts are in `package.json`. One file or one test runs with:
-
-```sh
-pnpm exec node --import tsx --test test/memory.test.ts
-pnpm exec node --import tsx --test --test-name-pattern='invalid effort' test/claude.test.ts
-```
+Setup, local checks and focused test commands are in [README.md](README.md#development).
 
 `pnpm dev` opens this repo, takes the same arguments as `witch`, and needs an interactive terminal. Confirm before running `pnpm test:integration`.
 
