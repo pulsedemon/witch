@@ -21,6 +21,7 @@ import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
 import { writeJson } from './persistence/json.js';
+import { NotificationSchedule } from './persistence/notifications.js';
 import { ScratchSpace } from './persistence/scratch.js';
 import { StateStore } from './persistence/store.js';
 import { App } from './ui/app.js';
@@ -142,6 +143,9 @@ if (control) {
     join(scratch.directory, 'control'),
     (binding) => controlPrefix(binding, fileURLToPath(import.meta.url)),
   );
+  const notifications = await NotificationSchedule.open(
+    join(store.root, 'notifications'),
+  );
   const coordinator = new Coordinator(
     store,
     memory,
@@ -239,8 +243,11 @@ if (control) {
   // command before anything awaits
   process.on('SIGHUP', shutdown);
   process.stdout.on('error', shutdown);
-  stopTerminal = watchTerminal(coordinator, coordination, (data) =>
-    process.stdout.write(data),
+  stopTerminal = watchTerminal(
+    coordinator,
+    coordination,
+    (data) => process.stdout.write(data),
+    notifications,
   );
   void coordinator
     .initialize(process.cwd(), {

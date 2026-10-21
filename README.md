@@ -24,9 +24,9 @@ Use `/compact` while idle to compact the current native conversation. Automatic 
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 
-Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns the timing and title selection.
+Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns eligibility and title selection. [Desktop scheduling](src/persistence/notifications.ts) spaces alerts across sessions sharing a state directory; bursts can wait, and stale alerts cancel. Titles and bells keep their timing.
 
-Ghostty controls banners, sound and dock attention. It suppresses notifications for its focused tab in the active window; macOS notification permission and Focus settings also apply. Its shared rate limit can suppress a completion notification when several tabs notify together. Manual tab titles can override Witch's title, and notification forwarding through tmux is not guaranteed.
+Ghostty controls banners, sound and dock attention. It suppresses notifications for its focused tab in the active window; macOS notification permission and Focus settings also apply. Other state directories and unrelated programs can still collide with Witch's sends. Terminal buffering or a crash between output and schedule persistence can also defeat spacing. Manual tab titles can override Witch's title, and notification forwarding through tmux is not guaranteed.
 
 Keep the memory repository local or back it up yourself; the app never pushes it. Conversations retain native session IDs, so native session storage must remain available for resume.
 
