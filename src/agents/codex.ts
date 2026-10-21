@@ -657,7 +657,8 @@ class CodexSession implements AgentSession {
       return;
     const data = object.parse(message.params);
     if (message.method === 'turn/completed') {
-      const completed = turnId.parse(data).turn.id;
+      const completed = turnId.safeParse(data).data?.turn.id;
+      if (completed === undefined) return;
       for (const [key, proposal] of this.proposals)
         if (
           proposal.threadId === data.threadId &&
