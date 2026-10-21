@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../src/agents/types.js';
-import { diffRows } from '../src/ui/diff.js';
+import { canExpandDiff, diffRows } from '../src/ui/diff.js';
 import { syntaxSpans } from '../src/ui/syntax.js';
 
 const rows = (files: FileDiff[], width = 30) =>
@@ -14,6 +14,55 @@ const green = '\u001b[48;2;34;92;43m';
 const red = '\u001b[48;2;122;41;54m';
 const addedWord = '\u001b[48;2;56;166;96m';
 const removedWord = '\u001b[48;2;179;89;107m';
+
+await test('whole-file expansion exposes every supplied line without changing updates or stored hunks', () => {
+  for (const kind of ['add', 'delete'] as const) {
+    const marker = kind === 'add' ? '+' : '-';
+    const file: FileDiff = {
+      path: '/work/long.txt',
+      kind,
+      hunks: [
+        {
+          oldStart: 1,
+          newStart: 1,
+          lines: Array.from({ length: 12 }, (_, i) => `${marker}line_${i + 1}`),
+        },
+      ],
+    };
+    const original = structuredClone(file);
+    const preview = plainRows([file]).join('\n');
+    assert.match(preview, /line_10/);
+    assert.doesNotMatch(preview, /line_11|line_12/);
+    assert.match(preview, /… \+2 lines/);
+    assert.equal(canExpandDiff([file]), true);
+    const full = stripAnsi(
+      diffRows([file], 30, '/work', true).flat().join('\n'),
+    );
+    assert.match(full, /line_11[\s\S]*line_12/);
+    assert.doesNotMatch(full, /… \+2 lines/);
+    assert.deepEqual(file, original);
+    const update: FileDiff = { ...file, kind: 'update' };
+    assert.equal(canExpandDiff([update]), false);
+    assert.deepEqual(
+      diffRows([update], 30, '/work', true),
+      diffRows([update], 30, '/work'),
+    );
+    const short: FileDiff = {
+      ...file,
+      hunks: [
+        {
+          ...file.hunks[0]!,
+          lines: [
+            ...file.hunks[0]!.lines.slice(0, 10),
+            '\\ No newline at end of file',
+          ],
+        },
+      ],
+    };
+    assert.equal(canExpandDiff([short]), false);
+  }
+  assert.equal(canExpandDiff([]), false);
+});
 
 await test('an edited file shows under a header counting its lines, each row numbered from its own side, added and removed rows padded on green and red, and hunks apart', () => {
   const files: FileDiff[] = [
