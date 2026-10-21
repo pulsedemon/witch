@@ -180,7 +180,7 @@ export class Workspace {
       .split('\0')
       .filter(Boolean);
     if (!files.length) return false;
-    const notes = new Set(files);
+    const notes = new Set(files.map((file) => posix.relative(checkout, file)));
     const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
     const index = posix.join(checkout, indexNote);
     const renamed = new Map<string, string>();
@@ -197,11 +197,15 @@ export class Workspace {
             /\]\((?:<([^<>\n]*)>|((?:[^\s()<>]|\([^\s()<>]*\))+))/g,
             (link, angled?: string, bare?: string) => {
               const target = angled ?? bare!;
-              const direct = renamed.get(posix.normalize(target));
-              if (direct !== undefined) return `](<${direct}>`;
               const split = target.search(/[?#]/);
-              if (split < 0 || notes.has(posix.join(checkout, target)))
-                return link;
+              const literal =
+                split < 0
+                  ? posix.normalize(target)
+                  : posix.normalize(target.slice(0, split + 1)) +
+                    target.slice(split + 1);
+              const direct = renamed.get(literal);
+              if (direct !== undefined) return `](<${direct}>`;
+              if (split < 0 || notes.has(literal)) return link;
               const to = renamed.get(posix.normalize(target.slice(0, split)));
               return to === undefined
                 ? link
