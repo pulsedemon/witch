@@ -9,7 +9,7 @@ export const releaseMouse = '\u001b[?1006l\u001b[?1003l';
 // eslint-disable-next-line no-control-regex
 const report = /\u001b\[<(\d+);(\d+);(\d+)([Mm])/g;
 // eslint-disable-next-line no-control-regex
-const partial = /\u001b\[<[\d;]*$/;
+const partial = /\u001b+\[?$|\u001b\[<[\d;]*$/;
 
 export interface Cell {
   /** zero-based cell. */
@@ -31,14 +31,15 @@ interface Source {
 /**
  * the stdin Ink reads, with mouse reports taken out: the left button emits `pointer` with what it did and the cell,
  * a release on its press's cell with no drag or wheel step between emits `click`, and a wheel step emits `wheel`
- * with the rows to scroll, -1 up and 1 down. Any other report, such as motion with no button or another button held,
- * emits `hover` with the cell. Ink drops any report that reaches it, so nothing leaks into the composer.
+ * with the rows to scroll, -1 up and 1 down. any other report, such as motion with no button or another button held,
+ * emits `hover` with the cell. ambiguous escape prefixes wait 20 ms for mouse input before reaching Ink;
+ * slower early fragments can reach Ink as keys.
  */
 export class MouseInput extends EventEmitter {
   readonly isTTY = true;
   private text = '';
-  /** the start of a report the next read completes. */
   private pending = '';
+  private escapeTimer: ReturnType<typeof setTimeout> | undefined;
   /** the cell the left button went down on, until it moves or scrolls what is under it. */
   private pressed: Cell | undefined;
 
@@ -58,6 +59,11 @@ export class MouseInput extends EventEmitter {
   setEncoding(): void {}
 
   setRawMode(mode: boolean): void {
+    if (!mode) {
+      clearTimeout(this.escapeTimer);
+      this.escapeTimer = undefined;
+      this.pending = '';
+    }
     this.source.setRawMode(mode);
   }
 
@@ -70,8 +76,19 @@ export class MouseInput extends EventEmitter {
   }
 
   private receive(chunk: string): void {
+    clearTimeout(this.escapeTimer);
+    this.escapeTimer = undefined;
     let data = this.pending + chunk;
     this.pending = partial.exec(data)?.[0] ?? '';
+    if (this.pending && !this.pending.includes('<')) {
+      this.escapeTimer = setTimeout(() => {
+        this.escapeTimer = undefined;
+        this.text += this.pending;
+        this.pending = '';
+        this.emit('readable');
+      }, 20);
+      this.escapeTimer.unref();
+    }
     data = data.slice(0, data.length - this.pending.length);
     let end = 0;
     for (const match of data.matchAll(report)) {
@@ -122,12 +139,12 @@ function useMouse<T extends unknown[]>(
   }, [stdin, event, handler]);
 }
 
-/** runs `handler` for each wheel step. Outside a MouseInput the wheel never turns. */
+/** runs `handler` for each wheel step. outside a MouseInput the wheel never turns. */
 export function useWheel(handler: (rows: number) => void): void {
   useMouse('wheel', handler);
 }
 
-/** runs `handler` for each left press, drag and release. Outside a MouseInput none arrive. */
+/** runs `handler` for each left press, drag and release. outside a MouseInput none arrive. */
 export function usePointer(
   handler: (pointer: Pointer, cell: Cell) => void,
 ): void {
