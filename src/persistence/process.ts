@@ -6,6 +6,14 @@ import type { ProcessIdentity } from '../core/state.js';
 
 const execute = promisify(execFile);
 
+export async function bootSession(): Promise<string> {
+  const { stdout } = await execute('/usr/sbin/sysctl', [
+    '-n',
+    'kern.bootsessionuuid',
+  ]);
+  return stdout.trim();
+}
+
 /**
  * `ps -o format` for the listed processes, or every process without a list, with each command's environment after it
  * when `environment` is set. Dates and decimals are C's, which Date and Number parse, and dates are in UTC so a time
