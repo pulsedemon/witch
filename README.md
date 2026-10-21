@@ -1,6 +1,5 @@
 # Witch
 
-
 A personal terminal app for installed Codex and Claude Code, with Git-backed shared memory.
 
 ## Install
