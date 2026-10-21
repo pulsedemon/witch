@@ -361,7 +361,10 @@ await test('/memory reads one commit even when main moves during the action', as
     await delay(60);
     await openCommand(ui, '/memory', 'global/other.md');
     // only the launch's connect report, no error from reading memory
-    assert.match(coordinator.snapshot.error ?? '', /^a is not installed\./);
+    assert.equal(
+      coordinator.snapshot.error,
+      'a is not installed. Install its native CLI and sign in before using it.',
+    );
   } finally {
     ui.unmount();
     await coordinator.close();
