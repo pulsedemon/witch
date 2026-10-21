@@ -450,10 +450,12 @@ await test('a job lists with its command intact under any locale', async () => {
     interval: 60_000,
     processes: async () => commandRows(group, `${group} a`),
   });
-  const locale = { LC_ALL: process.env.LC_ALL, LANG: process.env.LANG };
-  // German writes lstart's names and %cpu's decimal its own way. LC_ALL reaches ps unless it's removed, and LANG
-  // fills in the categories left unset
-  process.env.LC_ALL = process.env.LANG = 'de_DE.UTF-8';
+  const locale = {
+    LC_ALL: process.env.LC_ALL,
+    LANG: process.env.LANG,
+    LC_TIME: process.env.LC_TIME,
+  };
+  process.env.LC_ALL = process.env.LANG = process.env.LC_TIME = 'de_DE.UTF-8';
   try {
     assert.deepEqual(
       (await jobs.list()).map((job) => job.command),
