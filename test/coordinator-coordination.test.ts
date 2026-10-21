@@ -394,3 +394,35 @@ await test('failed target activation holds its selected lock without starting na
   const released = await store.claim(target);
   await released.close();
 });
+
+await test('compaction publishes a running presence and refuses a held native turn', async (t) => {
+  const { start } = await coordinationFixture(t);
+  const a = await start(),
+    b = await start('B');
+  await a.coordinator.send('seed');
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const compact = a.coordinator.compact();
+  try {
+    await within(gate.entered, 3000, 'native compaction');
+    assert.equal(a.coordinator.snapshot.phase, 'compacting');
+    await until(
+      'compatible presence',
+      async () => (await b.query()).peers[0]?.presence.phase === 'running',
+    );
+  } finally {
+    gate.open();
+    await compact;
+  }
+  a.a.gate = new TurnGate();
+  const sending = a.coordinator.send('held turn');
+  try {
+    await within(a.a.gate.entered, 3000, 'held native turn');
+    a.a.replied = true;
+    await assert.rejects(a.coordinator.compact(), /familiars or workflows/);
+    assert.equal(a.a.compactions.length, 1);
+  } finally {
+    a.a.gate.open();
+    await sending;
+  }
+});
