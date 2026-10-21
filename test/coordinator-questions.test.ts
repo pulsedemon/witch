@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { CodexAdapter } from '../src/agents/codex.js';
 import type { UserRequest } from '../src/agents/types.js';
+import { Coordinator } from '../src/core/coordinator.js';
+import { Memory } from '../src/memory/memory.js';
+import { StateStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { fixture, turns } from './fixtures/coordinator.js';
-import { within } from './fixtures/within.js';
+import { scratch } from './fixtures/scratch.js';
+import { until, within } from './fixtures/within.js';
 
 const question = (id = 'choice'): UserRequest => ({
   id,
@@ -26,6 +36,89 @@ const response = {
 };
 const answer =
   '**Which target?**\n→ Preview\n\n**Any constraints?**\n→ Keep logs, please';
+
+for (const completed of [false, true])
+  await test(`a native connection exit clears async questions ${completed ? 'after' : 'during'} their turn`, async () => {
+    const root = await scratch('witch-question-exit-');
+    const project = join(root, 'project');
+    await mkdir(project);
+    const store = await StateStore.open(join(root, 'state'));
+    const adapter = new CodexAdapter((_, cwd, signal) =>
+      spawn(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url)),
+          'file-approvals',
+        ],
+        { cwd, stdio: 'pipe', signal },
+      ),
+    );
+    const coordinator = new Coordinator(
+      store,
+      new Memory(join(root, 'state', 'memory.git')),
+      [{ adapter, executable: 'fixture' }],
+    );
+    try {
+      await coordinator.initialize(project);
+      const sending = coordinator.send('Start');
+      await until('the native turn', () =>
+        existsSync(join(project, 'prompt.json')),
+      );
+      const frames = [
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'native-thread',
+            turnId: 'turn-1',
+            item: {
+              type: 'agentMessage',
+              id: 'choice',
+              text: 'Which target?',
+              phase: 'final_answer',
+              delivery: 'async',
+              memoryCitation: null,
+              questions: [{ title: 'Which target?', options: ['Preview'] }],
+            },
+          },
+        },
+        ...(completed
+          ? [
+              {
+                method: 'turn/completed',
+                params: {
+                  threadId: 'native-thread',
+                  turn: { id: 'turn-1', status: 'completed', error: null },
+                },
+              },
+            ]
+          : []),
+      ];
+      await writeFile(join(project, 'events.next'), JSON.stringify(frames));
+      await rename(
+        join(project, 'events.next'),
+        join(project, 'events-1.json'),
+      );
+      await until('the async question', () =>
+        coordinator.snapshot.requests.some(
+          (request) => request.id === 'question/choice',
+        ),
+      );
+      if (completed) await within(sending, 3000, 'the completed turn');
+      assert.equal(coordinator.snapshot.phase, completed ? 'idle' : 'running');
+      await writeFile(join(project, 'exit'), '');
+      await within(sending, 3000, 'the exited turn');
+      await until('the native exit notice', () =>
+        coordinator.snapshot.items.some(
+          (item) =>
+            item.kind === 'notice' &&
+            item.text.includes('Agent process exited'),
+        ),
+      );
+      assert.deepEqual(coordinator.snapshot.requests, []);
+    } finally {
+      await coordinator.close();
+    }
+  });
 
 await test('an async question survives turn completion and its answer starts one normal turn', async () => {
   const { coordinator, a } = await fixture();
