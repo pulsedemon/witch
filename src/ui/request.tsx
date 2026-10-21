@@ -41,9 +41,10 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   const options = question?.options ?? approvals.map(({ label }) => label);
   const expandable = !!request.diff && canExpandDiff(request.diff);
   const bodyHeight = Math.max(2, height - 7 - Number(expandable));
+  const fields = `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
-    : `${request.title}\n\n${request.url ?? ''}\n${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
+    : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
   const lines = useMemo(() => {
     const wrap = (text: string) =>
       wrapAnsi(linkify(text, cwd), width, { hard: true, trim: false }).split(
@@ -54,11 +55,9 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
       ...diffRows(request.diff, width, cwd, full).flat(),
       '',
-      ...wrap(
-        `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`,
-      ),
+      ...wrap(fields),
     ];
-  }, [request, detail, question, width, cwd, full]);
+  }, [request, detail, fields, question, width, cwd, full]);
   const last = Math.max(0, lines.length - bodyHeight);
   const top = Math.min(scroll, last);
   /** steps from the shown top, so a move past either end is felt at once. */
