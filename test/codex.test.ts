@@ -562,7 +562,10 @@ await test('an aborted connect rejects', async () => {
     signal: controller.signal,
   });
   controller.abort();
-  await assert.rejects(within(connecting, 3000, 'connect'), /aborted/);
+  await assert.rejects(within(connecting, 3000, 'connect'), {
+    name: 'AbortError',
+    message: /aborted/,
+  });
 });
 
 await test('a missing stored thread fails the connect with no exit notice', async () => {

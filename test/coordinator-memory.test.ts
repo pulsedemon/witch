@@ -227,7 +227,7 @@ await test("an interrupt that aborts a moved key's reconnect leaves the prompt q
       new Promise((_, reject) => {
         connecting.resolve();
         options.signal?.addEventListener('abort', () =>
-          reject(new Error('Connect aborted')),
+          reject(new DOMException('Connect aborted', 'AbortError')),
         );
       });
     const sending = coordinator.send('Moved');
@@ -240,6 +240,48 @@ await test("an interrupt that aborts a moved key's reconnect leaves the prompt q
   } finally {
     await coordinator.close();
   }
+});
+
+await test('an unrelated reconnect failure after interrupt remains visible', async (t) => {
+  for (const interrupt of [true, false])
+    await t.test(
+      interrupt ? 'ordinary failure after interrupt' : 'unsolicited abort',
+      async () => {
+        const { coordinator, a, git } = await fixture();
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const failure = interrupt
+          ? new Error('connection storage failed')
+          : new DOMException('Connection aborted', 'AbortError');
+        try {
+          await git('init', '--quiet');
+          await coordinator.send('Start');
+          await git(
+            'remote',
+            'add',
+            'origin',
+            'https://github.com/owner/repo.git',
+          );
+          a.beforeConnect = async () => {
+            entered.resolve();
+            await release.promise;
+            throw failure;
+          };
+          const sending = coordinator.send('Moved');
+          await within(entered.promise, 2000, 'the reconnect');
+          if (interrupt) await coordinator.interrupt();
+          release.resolve();
+          await within(sending, 2000, 'the send');
+          assert.equal(coordinator.snapshot.error, failure.message);
+          assert.deepEqual(coordinator.snapshot.queue, ['Moved']);
+          assert.equal(a.inputs.length, 1);
+          assert.equal(coordinator.snapshot.phase, 'idle');
+        } finally {
+          release.resolve();
+          await coordinator.close();
+        }
+      },
+    );
 });
 
 await test('recovery has one owner and shutdown waits for its accepted commit', async () => {

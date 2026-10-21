@@ -4,6 +4,7 @@ import { access, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { AbortError } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
 import {
   launcher,
@@ -972,7 +973,16 @@ await test('an aborted connect rejects', async () => {
   const connecting = connect({ signal: controller.signal });
   controller.abort();
   try {
-    await assert.rejects(within(connecting, 3000, 'connect'), /aborted/);
+    await assert.rejects(
+      within(connecting, 3000, 'connect'),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.name, 'AbortError');
+        assert.match(error.message, /aborted/);
+        assert.ok(error.cause instanceof AbortError);
+        return true;
+      },
+    );
   } finally {
     for (const child of children) child.kill('SIGKILL');
   }
@@ -981,10 +991,10 @@ await test('an aborted connect rejects', async () => {
 await test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
   const { children, connect } = await launcher('init-error');
   try {
-    await assert.rejects(
-      within(connect(), 3000, 'connect'),
-      /init failed text/,
-    );
+    await assert.rejects(within(connect(), 3000, 'connect'), {
+      name: 'Error',
+      message: /init failed text/,
+    });
   } finally {
     for (const child of children) child.kill('SIGKILL');
   }
