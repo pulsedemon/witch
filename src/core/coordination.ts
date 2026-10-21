@@ -65,6 +65,7 @@ export class SessionCoordination {
   private failures = new Map<string, string>();
   private turn?: SelectionScope;
   private cancellations = new Map<string, SelectionScope>();
+  private suggestionReleases = new Set<string>();
   private maintaining?: Promise<void>;
   private ending = false;
   private closed = false;
@@ -243,7 +244,7 @@ export class SessionCoordination {
 
   endTurn(turn?: string): Promise<void> {
     this.revokeTurn(turn);
-    return this.serialize(() => this.cancelSelections());
+    return this.serialize(() => this.finishCleanup());
   }
 
   private revokeTurn(turn?: string): void {
@@ -253,7 +254,8 @@ export class SessionCoordination {
     }
   }
 
-  private async cancelSelections(): Promise<void> {
+  /** drain releases before reactivation so a retry cannot remove a newer suggestion. */
+  private async finishCleanup(): Promise<void> {
     try {
       for (const [id, scope] of this.cancellations) {
         await this.registry.cancelSelection(
@@ -264,6 +266,20 @@ export class SessionCoordination {
         );
         this.cancellations.delete(id);
       }
+      for (const conversation of this.suggestionReleases) {
+        const claim = (await this.registry.claims()).find(
+          (claim) =>
+            claim.owner.conversation === conversation && claim.suggestion,
+        );
+        if (claim)
+          await this.registry.releaseSuggestion(
+            claim.owner,
+            this.process,
+            Date.now() + 1000,
+            async () => {},
+          );
+        this.suggestionReleases.delete(conversation);
+      }
       this.failures.delete('selection');
     } catch (error) {
       this.fail('selection', error);
@@ -272,8 +288,12 @@ export class SessionCoordination {
   }
 
   private maintain(): Promise<void> {
-    if (this.closed || !this.cancellations.size) return Promise.resolve();
-    this.maintaining ??= this.serialize(() => this.cancelSelections())
+    if (
+      this.closed ||
+      (!this.cancellations.size && !this.suggestionReleases.size)
+    )
+      return Promise.resolve();
+    this.maintaining ??= this.serialize(() => this.finishCleanup())
       .catch(() => {})
       .finally(() => {
         this.maintaining = undefined;
@@ -281,39 +301,25 @@ export class SessionCoordination {
     return this.maintaining;
   }
 
-  async releaseSuggestion(conversation: string): Promise<void> {
-    await this.serialize(async () => {
-      const claim = (await this.registry.claims()).find(
-        (claim) =>
-          claim.owner.conversation === conversation && claim.suggestion,
-      );
-      if (claim)
-        await this.registry.releaseSuggestion(
-          claim.owner,
-          this.process,
-          Date.now() + 1000,
-          async () => {},
-        );
-    });
+  releaseSuggestion(conversation: string): Promise<void> {
+    this.suggestionReleases.add(conversation);
+    return this.serialize(() => this.finishCleanup());
   }
 
   private async retireProject(active: Activation): Promise<void> {
     if (this.turn && this.turn.owner.project !== active.project)
       this.revokeTurn();
-    await this.cancelSelections();
+    await this.finishCleanup();
     const claim = (await this.registry.claims()).find(
       (claim) =>
         claim.owner.conversation === active.conversation.id &&
         claim.suggestion &&
         claim.owner.project !== active.project,
     );
-    if (claim)
-      await this.registry.releaseSuggestion(
-        claim.owner,
-        this.process,
-        Date.now() + 1000,
-        async () => {},
-      );
+    if (claim) {
+      this.suggestionReleases.add(claim.owner.conversation);
+      await this.finishCleanup();
+    }
   }
 
   async context(): Promise<string> {
