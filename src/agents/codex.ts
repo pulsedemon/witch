@@ -133,6 +133,20 @@ function fileDiffs(changes: z.infer<typeof fileChanges>): FileDiff[] {
   );
 }
 
+function fileChangeKey(
+  threadId: string,
+  turnId: string,
+  itemId: string,
+): string {
+  return JSON.stringify([threadId, turnId, itemId]);
+}
+
+const fileChangeIdentity = z.object({
+  threadId: z.string(),
+  turnId: z.string(),
+  itemId: z.string(),
+});
+
 /** `5H` for 300 minutes, `7D` for 10080. */
 function windowName(minutes: number): string {
   return minutes % 1440 === 0
@@ -249,6 +263,10 @@ class CodexSession implements AgentSession {
     command?: string;
   };
   private requests = new Map<string, RpcMessage>();
+  private readonly proposals = new Map<
+    string,
+    { threadId: string; turnId: string; diff: FileDiff[] }
+  >();
   private closing = false;
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
@@ -297,6 +315,7 @@ class CodexSession implements AgentSession {
       const reported = !!(this.turn || this.settings);
       this.settings?.reject(error);
       this.stopBackgroundCommands();
+      this.proposals.clear();
       this.closed = true;
       this.finish(
         this.turn?.interrupted ? 'interrupted' : 'failed',
@@ -611,9 +630,10 @@ class CodexSession implements AgentSession {
     }
     const child = this.childThread(message);
     try {
+      const diff = this.fileChangeDiff(message);
       this.commandNotification(message);
       if (child) this.subagentNotification(message, child);
-      else this.notification(message);
+      else this.notification(message, diff);
     } catch (error) {
       const text = `Witch could not read Codex's ${message.method} notification: ${errorMessage(error)}`;
       // a subagent's notification settles nothing of this thread's
@@ -625,6 +645,40 @@ class CodexSession implements AgentSession {
       this.malformed.add(message.method!);
       this.options.onEvent({ type: 'notice', text });
     }
+  }
+
+  /** familiar approvals need their proposal even when no main transcript row owns it. */
+  private fileChangeDiff(message: RpcMessage): FileDiff[] | undefined {
+    if (
+      !['item/started', 'item/completed', 'turn/completed'].includes(
+        message.method ?? '',
+      )
+    )
+      return;
+    const data = object.parse(message.params);
+    if (message.method === 'turn/completed') {
+      const completed = turnId.parse(data).turn.id;
+      for (const [key, proposal] of this.proposals)
+        if (
+          proposal.threadId === data.threadId &&
+          proposal.turnId === completed
+        )
+          this.proposals.delete(key);
+      return;
+    }
+    const item = object.parse(data.item);
+    if (item.type !== 'fileChange') return;
+    const changes = fileChanges.safeParse(item.changes);
+    const diff = changes.success ? fileDiffs(changes.data) : undefined;
+    const identity = fileChangeIdentity.safeParse({ ...data, itemId: item.id });
+    if (identity.success) {
+      const { threadId, turnId, itemId } = identity.data;
+      const key = fileChangeKey(threadId, turnId, itemId);
+      if (message.method === 'item/started' && diff)
+        this.proposals.set(key, { threadId, turnId, diff });
+      else this.proposals.delete(key);
+    }
+    return diff;
   }
 
   /** late command ends belong to their original turn, even after a familiar starts its next one. */
@@ -843,7 +897,7 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'subagent', subagent });
   }
 
-  private notification(message: RpcMessage): void {
+  private notification(message: RpcMessage, diff?: FileDiff[]): void {
     const data = message.params == null ? {} : object.parse(message.params);
     switch (message.method) {
       case 'thread/settings/updated': {
@@ -903,11 +957,6 @@ class CodexSession implements AgentSession {
           // Codex titles a user's command with its shell wrapper
           const command =
             item.source === 'userShell' ? this.turn?.command : undefined;
-          const changes =
-            type === 'fileChange'
-              ? fileChanges.safeParse(item.changes)
-              : undefined;
-          const diff = changes?.success ? fileDiffs(changes.data) : undefined;
           this.options.onEvent({
             type: 'tool',
             id,
@@ -1065,10 +1114,22 @@ class CodexSession implements AgentSession {
           ? object.parse(data.requestedSchema)
           : undefined,
       };
+    if (message.method === 'item/fileChange/requestApproval') {
+      const identity = fileChangeIdentity.safeParse(data);
+      const diff = identity.success
+        ? this.proposals.get(
+            fileChangeKey(
+              identity.data.threadId,
+              identity.data.turnId,
+              identity.data.itemId,
+            ),
+          )?.diff
+        : undefined;
+      return { ...request, kind: 'approval', ...(diff ? { diff } : {}) };
+    }
     if (
       [
         'item/commandExecution/requestApproval',
-        'item/fileChange/requestApproval',
         'item/permissions/requestApproval',
       ].includes(message.method ?? '')
     )
