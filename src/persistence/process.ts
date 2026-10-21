@@ -16,7 +16,7 @@ export async function bootSession(): Promise<string> {
 
 /**
  * `ps -o format` for the listed processes, or every process without a list, with each command's environment after it
- * when `environment` is set. Dates and decimals are C's, which Date and Number parse, and dates are in UTC so a time
+ * when `environment` is set. dates and decimals are C's, which Date and Number parse, and dates are in UTC so a time
  * zone change keeps every identity. LC_ALL goes, since it overrides both; LC_ALL=C instead would escape non-ASCII in
  * commands.
  */

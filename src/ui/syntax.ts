@@ -4,8 +4,8 @@ import { syntax, storage } from './theme.js';
 
 const lowlight = createLowlight({
   ...all,
-  // `<script>` and `<style>` content never reads as xml or handlebars: both embed xml, so each tag a line opens would
-  // double its time
+  // exclude XML and Handlebars from direct script/style detection to avoid repeated recursive XML parsing.
+  // JavaScript still embeds XML for JSX and tagged HTML templates.
   xml: (hljs) => {
     const language = all.xml!(hljs);
     for (const mode of language.contains ?? [])

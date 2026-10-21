@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { ps } from '../persistence/process.js';
 import { quote } from '../shell.js';
 
+const mark = 'WITCH_JOBS';
+
 export const jobCheckpointSchema = z.object({
   version: z.literal(1),
   members: z.array(z.tuple([z.string(), z.number().int().positive()])),
@@ -159,14 +161,14 @@ export class JobWatch {
     const { directory, resume } = options;
     this.members = new Map(resume?.members);
     this.excluded = new Set(resume?.excluded);
-    this.environment = directory ? { WITCH_JOBS: directory } : {};
+    this.environment = directory ? { [mark]: directory } : {};
     if (directory) {
       this.script = join(directory, 'env');
       // a failed report must not stop commands under errexit; >| also tolerates noclobber.
       // nested Claude sessions must not reuse this report script
       writeFileSync(
         this.script,
-        `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport WITCH_JOBS=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
+        `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport ${mark}=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
       );
     }
     // a failed read leaves the groups as they were, and the next tick reads again
@@ -341,7 +343,7 @@ export class JobWatch {
         const marked = new Set(
           await (
             this.options.marked ??
-            ((pids) => carrying(`WITCH_JOBS=${directory}`, pids))
+            ((pids) => carrying(`${mark}=${directory}`, pids))
           )(candidates.map(({ pid }) => pid)),
         );
         // an unmarked root can sit above a command's session in a group that isn't the command's
