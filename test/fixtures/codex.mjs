@@ -2,7 +2,12 @@ import { setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -86,6 +91,7 @@ if (['brews', 'file-approvals', 'compaction'].includes(mode))
   })();
 for await (const line of lines) {
   const request = JSON.parse(line);
+  if (mode === 'catalog') appendFileSync(file('wire.jsonl'), `${line}\n`);
   if (mode === 'file-approvals' && request.method === undefined) {
     writeFileSync(file(`response-${request.id}.json`), JSON.stringify(request));
     continue;
