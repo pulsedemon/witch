@@ -97,12 +97,6 @@ for await (const line of lines) {
       process.stderr.write('init exit text\n', () => process.exit(1));
     else reply({ userAgent: 'fixture' });
   }
-  if (request.method === 'config/read')
-    reply({
-      config: {
-        sandbox_workspace_write: { writable_roots: ['/already-allowed'] },
-      },
-    });
   if (request.method === 'thread/backgroundTerminals/list') {
     if (mode !== 'brews') reply({ data: [], nextCursor: null });
     else {
@@ -185,15 +179,22 @@ for await (const line of lines) {
         estimatedUsageUsdMicros: usageMicros,
       },
     });
-  if (request.method === 'thread/resume')
+  if (
+    request.method === 'thread/resume' &&
+    request.params.threadId !== 'native-thread'
+  )
     send({
       id: request.id,
       error: {
         message: `no rollout found for thread id ${request.params.threadId}`,
       },
     });
-  if (request.method === 'thread/start') {
-    writeFileSync(file('start.json'), JSON.stringify(request));
+  if (
+    request.method === 'thread/start' ||
+    (request.method === 'thread/resume' &&
+      request.params.threadId === 'native-thread')
+  ) {
+    writeFileSync(file('connect.json'), JSON.stringify(request));
     model = request.params.model ?? model;
     reply(session());
   }

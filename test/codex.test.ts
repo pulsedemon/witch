@@ -469,40 +469,50 @@ await test('closing or losing Codex clears brews and ignores pending discovery',
     });
 });
 
-await test('loads every model page and preserves native roots without overriding instructions', async () => {
-  const { session, cwd } = await fixture();
-  try {
-    assert.deepEqual(
-      (await session.models()).map((model) => [model.id, model.efforts]),
-      [
-        ['model-a', ['low']],
-        ['model-b', ['high']],
-      ],
-    );
-    const start = JSON.parse(await readFile(join(cwd, 'start.json'), 'utf8'));
-    assert.equal(start.params.baseInstructions, undefined);
-    assert.equal(start.params.developerInstructions, undefined);
-    assert.deepEqual(
-      start.params.config['sandbox_workspace_write.writable_roots'],
-      ['/already-allowed', '/shared/global', '/shared/project'],
-    );
-  } finally {
-    await close(session, cwd);
-  }
-});
+for (const resume of [undefined, 'native-thread']) {
+  await test(`${resume ? 'resumed' : 'new'} threads receive current roots and load every model page without native overrides`, async () => {
+    const { session, cwd } = await fixture(undefined, { resume });
+    try {
+      assert.deepEqual(
+        (await session.models()).map((model) => [model.id, model.efforts]),
+        [
+          ['model-a', ['low']],
+          ['model-b', ['high']],
+        ],
+      );
+      const request = JSON.parse(
+        await readFile(join(cwd, 'connect.json'), 'utf8'),
+      );
+      assert.equal(request.method, resume ? 'thread/resume' : 'thread/start');
+      assert.equal(request.params.threadId, resume);
+      assert.deepEqual(request.params.runtimeWorkspaceRoots, [
+        cwd,
+        '/shared/global',
+        '/shared/project',
+      ]);
+      assert.deepEqual(request.params.config, {});
+      for (const key of [
+        'baseInstructions',
+        'developerInstructions',
+        'sandbox',
+        'permissions',
+        'approvalPolicy',
+        'approvalsReviewer',
+      ])
+        assert.equal(request.params[key], undefined);
+    } finally {
+      await close(session, cwd);
+    }
+  });
+}
 
 await test("threads start with the mark in Codex's shell environment policy", async () => {
   const { session, cwd } = await fixture(undefined, {
     mark: { environment: { WITCH_JOBS: '/x/jobs' } },
   });
   try {
-    const start = JSON.parse(await readFile(join(cwd, 'start.json'), 'utf8'));
+    const start = JSON.parse(await readFile(join(cwd, 'connect.json'), 'utf8'));
     assert.deepEqual(start.params.config, {
-      'sandbox_workspace_write.writable_roots': [
-        '/already-allowed',
-        '/shared/global',
-        '/shared/project',
-      ],
       'shell_environment_policy.set.WITCH_JOBS': '/x/jobs',
     });
   } finally {
@@ -555,7 +565,7 @@ await test('an aborted connect rejects', async () => {
   await assert.rejects(within(connecting, 3000, 'connect'), /aborted/);
 });
 
-await test('a stored thread resumes by its id, and a missing one fails the connect with no exit notice', async () => {
+await test('a missing stored thread fails the connect with no exit notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(
     fixture((event) => events.push(event), { resume: 'stored-thread' }).then(
