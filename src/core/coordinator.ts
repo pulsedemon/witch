@@ -54,6 +54,7 @@ import type {
 
 const execute = promisify(execFile);
 const untitled = 'New conversation';
+const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
@@ -466,6 +467,17 @@ export class Coordinator {
         try {
           await this.operate('running', async () => {
             try {
+              const session = await this.connect();
+              const usage = session.info.hasHistory
+                ? await session.contextUsage()
+                : undefined;
+              if (this.cancelled || session.closed || this.session !== session)
+                return;
+              if (usage !== undefined && usage >= compactAt) {
+                this.publish({ phase: 'compacting' });
+                if (!(await this.performCompaction())) return;
+                this.publish({ phase: 'running' });
+              }
               await this.performTurn(batch.join('\n'), 'turn', () => {
                 delivered = true;
               });
