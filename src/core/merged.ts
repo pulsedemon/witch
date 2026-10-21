@@ -25,8 +25,7 @@ const git = async (cwd: string, ...args: string[]) =>
   ).stdout.trim();
 
 /**
- * ssh's passphrase and host key prompts would too, so a fetch runs ssh in batch mode, unless the user set their own
- * ssh command, which this would replace.
+ * uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command.
  */
 const fetchRemote = async (cwd: string, ...args: string[]) => {
   const own =
@@ -362,8 +361,8 @@ const absent =
 
 /**
  * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
- * `plan-path` names it. returns those removed, and those it failed to read or remove with the first reason, or only a
- * reason when it couldn't list the plans.
+ * `plan-path` names it. returns those removed, and those it failed to read, check or remove with the first reason,
+ * or only a reason when it couldn't list the plans.
  */
 async function removePlans(
   cwd: string,
