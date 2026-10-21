@@ -30,6 +30,8 @@ A prompt sent during a turn steers that turn: Claude Code folds it in at its nex
 
 Claude result alone does not establish idle; completion must follow native lifecycle.
 
+Native compaction scheduling, queue preservation and memory invalidation belong to `Coordinator.compact`, `drain` and `receive` in [coordinator.ts](../src/core/coordinator.ts). [nativePrompt](../src/core/prompts.ts) supplies accepted memory after confirmed history replacement. Native sessions, settings, hooks and Witch's transcript persist across compaction.
+
 Codex commands that outlive their originating native turn become brews through [CodexSession](../src/agents/codex.ts); later turns leave them visible until completion. [Coordinator](../src/core/coordinator.ts) keeps unfinished tool output on its original transcript row throughout that native connection.
 
 ## Terminal UI and persistence

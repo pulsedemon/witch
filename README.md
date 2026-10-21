@@ -20,6 +20,8 @@ cd project && witch
 
 Flags and the state default are in `witch --help`. Use `/help` for keyboard controls and `Ctrl+P` for commands.
 
+Use `/compact` while idle to compact the current native conversation. Automatic compaction follows the [coordinator's pre-turn policy](src/core/coordinator.ts).
+
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 
 Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns the timing and title selection.
