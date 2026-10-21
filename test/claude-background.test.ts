@@ -34,8 +34,11 @@ const result = (text: string, uuids?: string[]) => ({
 async function background() {
   const events: AgentEvent[] = [];
   const f = await fixture((e) => events.push(e), 'background');
-  const emit = frameWriter(f.cwd, (name) =>
-    events.some((e) => e.type === 'skills' && e.skills[0]?.name === name),
+  const emit = frameWriter(
+    f.cwd,
+    (name) =>
+      events.some((e) => e.type === 'skills' && e.skills[0]?.name === name),
+    f.child,
   );
   let completions = 0;
   const turn = f.session.send('initial').then((outcome) => {

@@ -83,7 +83,7 @@ await test('an unread shell result survives reconnect as context without rerunni
 });
 
 async function backgroundCoordinator() {
-  const { adapter, cwd } = await launcher('background');
+  const { adapter, cwd, children } = await launcher('background');
   const store = await StateStore.open(join(cwd, 'state'));
   const memory = new Memory(join(cwd, 'state', 'memory.git'));
   const coordinator = new Coordinator(store, memory, [
@@ -100,6 +100,7 @@ async function backgroundCoordinator() {
   const emit = frameWriter(
     cwd,
     (name) => coordinator.snapshot.skills[0]?.name === name,
+    children[0]!,
   );
   const id = coordinator.snapshot.conversation!.id;
   const record = () => readRecord(cwd, id);
