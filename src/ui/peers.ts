@@ -1,5 +1,6 @@
 import type {
   CoordinationSnapshot,
+  SelectionState,
   TaskClaim,
 } from '../core/coordination-state.js';
 import { presenceStatus } from '../core/coordination-state.js';
@@ -14,14 +15,30 @@ function referenceTarget(reference: string): string | undefined {
 
 export function peerTitle(peer: CoordinationSnapshot['peers'][number]): string {
   const title = oneLine(
-    peer.claim?.summary ?? `${peer.presence.title} (unclaimed)`,
+    peer.claim?.summary ??
+      `${peer.presence.title}${peer.selection ? '' : ' (unclaimed)'}`,
   );
   const target = peer.claim?.references.map(referenceTarget).find(Boolean);
   return target ? hyperlink(title, target, peer.presence.cwd) : title;
 }
 
+export function peerStatus(
+  peer: CoordinationSnapshot['peers'][number],
+): string {
+  if (peer.selection)
+    return peer.selection.position === 1
+      ? 'choosing'
+      : `queued #${peer.selection.position}`;
+  return peer.claim?.suggestion ? 'suggested' : presenceStatus(peer.presence);
+}
+
+function selectionText(selection: SelectionState): string {
+  return `${selection.position === 1 ? 'Choosing next task' : `Queued #${selection.position} for task selection`}\nSelection: ${oneLine(selection.ticket.id)}`;
+}
+
 function claimText(claim: TaskClaim): string {
   return [
+    ...(claim.suggestion ? ['Suggested task'] : []),
     plain(claim.summary),
     ...claim.references.map((reference) => {
       const target = referenceTarget(reference);
@@ -44,17 +61,22 @@ export function coordinationText(
     : [];
   if (mode === 'task') {
     sections.push(
-      snapshot.ownClaim ? claimText(snapshot.ownClaim) : 'No task claimed.',
+      snapshot.ownSelection
+        ? selectionText(snapshot.ownSelection)
+        : snapshot.ownClaim
+          ? claimText(snapshot.ownClaim)
+          : 'No task claimed.',
     );
     return sections.join('\n\n');
   }
-  for (const { presence, claim } of snapshot.peers) {
+  for (const peer of snapshot.peers) {
+    const { presence, claim, selection } = peer;
     sections.push(
       [
         claim
           ? claimText(claim)
-          : `${oneLine(presence.title)}\nUnclaimed\nConversation: ${oneLine(presence.id)}`,
-        `${oneLine(presence.agent)} | ${presenceStatus(presence)} | ${oneLine(presence.branch ?? 'No branch')}`,
+          : `${oneLine(presence.title)}\n${selection ? selectionText(selection) : 'Unclaimed'}\nConversation: ${oneLine(presence.id)}`,
+        `${oneLine(presence.agent)} | ${peerStatus(peer)}${selection || claim?.suggestion ? ` | ${presence.phase}` : ''} | ${oneLine(presence.branch ?? 'No branch')}`,
         hyperlink(oneLine(presence.cwd), presence.cwd, presence.cwd),
       ].join('\n'),
     );

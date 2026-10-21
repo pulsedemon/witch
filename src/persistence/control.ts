@@ -9,6 +9,7 @@ import {
   coordinationSnapshotSchema,
   conversationSummarySchema,
   taskClaimSchema,
+  selectionStateSchema,
 } from '../core/coordination-state.js';
 import type { CoordinationAction } from '../core/coordination-state.js';
 import { ClaimConflict, checkDeadline } from './coordination.js';
@@ -36,6 +37,12 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('peers'), snapshot: coordinationSnapshotSchema }),
   z.object({ kind: z.literal('claimed'), claim: taskClaimSchema }),
   z.object({ kind: z.literal('released') }),
+  z.object({
+    kind: z.literal('selection'),
+    selection: selectionStateSchema,
+    snapshot: coordinationSnapshotSchema,
+  }),
+  z.object({ kind: z.literal('selection-cancelled'), selection: idSchema }),
   z.object({
     kind: z.literal('conflict'),
     claim: taskClaimSchema,

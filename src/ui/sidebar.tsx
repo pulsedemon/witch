@@ -4,11 +4,10 @@ import { basename } from 'node:path';
 import type { BackgroundCommand } from '../agents/types.js';
 import type { TimedSubagent } from '../core/coordinator.js';
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
-import { presenceStatus } from '../core/coordination-state.js';
 import type { PentacleActivity } from '../core/pentacle-activity.js';
 import { elapsed } from './activity.js';
 import { hyperlink, oneLine } from './links.js';
-import { peerTitle } from './peers.js';
+import { peerStatus, peerTitle } from './peers.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
 
@@ -140,8 +139,7 @@ export function Sidebar({
               <Box key={peer.presence.id} flexDirection="column">
                 <Text wrap="truncate-end">{peerTitle(peer)}</Text>
                 <Text wrap="truncate-end" dimColor>
-                  {oneLine(peer.presence.agent)} |{' '}
-                  {presenceStatus(peer.presence)} |{' '}
+                  {oneLine(peer.presence.agent)} | {peerStatus(peer)} |{' '}
                   {hyperlink(
                     oneLine(basename(peer.presence.cwd)),
                     peer.presence.cwd,

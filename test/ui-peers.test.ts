@@ -8,6 +8,7 @@ import { callControl } from '../src/persistence/control.js';
 import { App } from '../src/ui/app.js';
 import { TurnGate } from './fixtures/agent.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
+import { selectionTurn } from './fixtures/task-selection.js';
 import { fake, forgedLink, show } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
 
@@ -244,7 +245,7 @@ await test('the narrow peers page stays live and read-only during work and descr
   }
 });
 
-await test('a real peer updates its summary, leaves the sidebar after an origin change, and keeps its reservation on the open page', async (t) => {
+await test('a real peer updates its summary and keeps its reservation across an origin change until closing', async (t) => {
   const { root, start, registry } = await coordinationFixture(t);
   const a = await start(),
     b = await start('B');
@@ -285,8 +286,9 @@ await test('a real peer updates its summary, leaves the sidebar after an origin 
       () => !ui.text().includes('SESSIONS') && ui.text().includes(owned.id),
     );
     await a.coordinator.close();
-    await until('owner removed live', () => ui.text().includes('unattended'));
-    assert.ok(ui.text().includes('Updated live task'));
+    await until('claim removed live', () => !ui.text().includes(owned.id));
+    assert.ok(!ui.text().includes('Updated live task'));
+    assert.equal((await b.claim('task:original')).kind, 'claimed');
   } finally {
     ui.unmount();
   }
@@ -346,6 +348,107 @@ await test('task release refuses running or background work without changing pha
   } finally {
     gate.open();
     await sending;
+    ui.unmount();
+  }
+});
+
+await test('queue and suggestion rows preserve task links and detailed native phase', async () => {
+  const choosing = peer(1),
+    queued = peer(2),
+    suggested = peer(3);
+  for (const [entry, position] of [
+    [choosing, 1],
+    [queued, 2],
+  ] as const) {
+    delete entry.claim;
+    entry.presence.phase = 'running';
+    entry.selection = {
+      ticket: {
+        id: randomUUID(),
+        owner: {
+          conversation: entry.presence.id,
+          project: entry.presence.project,
+        },
+        activation: entry.presence.activation,
+        turn: randomUUID(),
+      },
+      position,
+    };
+  }
+  suggested.presence.requests = 0;
+  suggested.claim!.process = suggested.presence.process;
+  suggested.claim!.suggestion = { selection: randomUUID() };
+  const fixture = peersApp(snapshot([choosing, queued, suggested]));
+  const ui = show(
+    createElement(App, { coordinator: fixture.app, onExit() {} }),
+    115,
+    40,
+  );
+  try {
+    await until('queue sidebar', () => ui.text().includes('queued #2'));
+    assert.deepEqual(sidebar(ui.text()).slice(0, 7), [
+      'SESSIONS',
+      'Conversation 1',
+      'agent-1 | choosing | checkout-1',
+      'Conversation 2',
+      'agent-2 | queued #2 | checkout-2',
+      'Task 3',
+      'agent-3 | suggested | checkout-3',
+    ]);
+    enter(ui, '/peers');
+    await until('detailed queue', () =>
+      ui.text().includes('Repository sessions'),
+    );
+    assert.ok(ui.text().includes('agent-1 | choosing | running'));
+    assert.ok(ui.text().includes('agent-2 | queued #2 | running'));
+    assert.ok(ui.text().includes('agent-3 | suggested | idle'));
+    assert.ok(ui.text().includes('Suggested task'));
+    assert.ok(ui.frame().includes('https://github.com/example/demo/issues/4'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
+  const f = await coordinationFixture(t);
+  await git('clone', join(f.root, 'origin'), join(f.root, 'D'));
+  const a = await f.start(),
+    b = await f.start('B'),
+    c = await f.start('D');
+  const first = await selectionTurn(t, a),
+    second = await selectionTurn(t, b),
+    third = await selectionTurn(t, c);
+  const head = await first.select(),
+    queued = await second.select();
+  await third.select();
+  await b.query();
+  const ui = show(
+    createElement(App, { coordinator: b.coordinator, onExit() {} }),
+    115,
+    40,
+  );
+  try {
+    enter(ui, '/task');
+    await until('queued task view', () => ui.text().includes('Queued #2'));
+    assert.ok(ui.text().includes(queued.ticket.id));
+    await first.recommend(head.ticket.id);
+    await first.finish();
+    await b.query();
+    await until('live advancement', () =>
+      ui.text().includes('Choosing next task'),
+    );
+    assert.ok(ui.text().includes(queued.ticket.id));
+    ui.stdin.write('\x1b');
+    await until('task page closed', () => !ui.text().includes('Current task'));
+    enter(ui, '/peers');
+    await until('suggested peer', () => ui.text().includes('Suggested task'));
+    assert.ok(ui.text().includes('queued #2'));
+    assert.ok(ui.frame().includes('https://github.com/acme/queue/issues/17'));
+    ui.resize(100);
+    await until('narrow peers', () => !ui.text().includes('SESSIONS'));
+    assert.ok(ui.text().includes('Suggested task'));
+    assert.ok(ui.text().includes('Issue 17'));
+  } finally {
     ui.unmount();
   }
 });

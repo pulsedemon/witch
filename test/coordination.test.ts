@@ -147,7 +147,7 @@ await test('a live legacy owner blocks new work until its lock closes, and a reu
   assert.deepEqual((await a.query()).peers, []);
 });
 
-await test('a dead owner leaves a blocking unattended claim even if its stale presence says it runs', async (t) => {
+await test('closing a conversation releases its claim even if its stale presence says it runs', async (t) => {
   const { start, registry } = await coordinationFixture(t);
   const a = await start(),
     b = await start('B');
@@ -160,11 +160,8 @@ await test('a dead owner leaves a blocking unattended claim even if its stale pr
   await registry.publish(stale);
   const snapshot = await b.query();
   assert.deepEqual(snapshot.peers, []);
-  assert.deepEqual(
-    snapshot.reservations.map((r) => [r.claim.owner.conversation, r.status]),
-    [[stale.id, 'unattended']],
-  );
-  assert.equal((await b.claim()).kind, 'conflict');
+  assert.deepEqual(snapshot.reservations, []);
+  assert.equal((await b.claim()).kind, 'claimed');
 });
 
 await test('a failed presence removal cannot register a later legacy lock owner', async (t) => {
@@ -316,7 +313,7 @@ await test('closing rejects a mutation waiting for the ledger and drains one alr
   finish.resolve();
   assert.equal((await committing).kind, 'claimed');
   await within(draining, 5000, 'commit drain');
-  assert.equal((await registry.claims()).length, 1);
+  assert.deepEqual(await registry.claims(), []);
   assert.deepEqual(await registry.presences(), []);
 });
 
