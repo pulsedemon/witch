@@ -74,12 +74,54 @@ export async function jsonLines(file: string): Promise<unknown[]> {
 export const content = async (cwd: string) =>
   JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
 
-export function frameWriter(cwd: string, received: (name: string) => boolean) {
+export function frameWriter(
+  cwd: string,
+  received: (name: string) => boolean,
+  child: ChildProcessWithoutNullStreams,
+) {
+  let stdout = '';
+  let stderr = '';
+  const captureOut = (chunk: Buffer) => {
+    stdout = (stdout + chunk.toString()).slice(-16384);
+  };
+  const captureErr = (chunk: Buffer) => {
+    stderr = (stderr + chunk.toString()).slice(-16384);
+  };
+  child.stdout.on('data', captureOut);
+  child.stderr.on('data', captureErr);
+  child.once('close', () => {
+    child.stdout.off('data', captureOut);
+    child.stderr.off('data', captureErr);
+  });
   let sequence = 0;
   return async (...frames: object[]) => {
     const index = ++sequence;
     await writeFile(join(cwd, 'events.next'), JSON.stringify(frames));
     await rename(join(cwd, 'events.next'), join(cwd, `events-${index}.json`));
-    await until('native frame barrier', () => received(`barrier-${index}`));
+    const started = performance.now();
+    try {
+      await until('native frame barrier', () => received(`barrier-${index}`));
+    } catch (cause) {
+      throw new Error(
+        JSON.stringify(
+          {
+            expected: `barrier-${index}`,
+            file: join(cwd, `events-${index}.json`),
+            frames,
+            elapsedMs: performance.now() - started,
+            child: {
+              pid: child.pid,
+              exitCode: child.exitCode,
+              signalCode: child.signalCode,
+            },
+            stdout,
+            stderr,
+          },
+          null,
+          2,
+        ),
+        { cause },
+      );
+    }
   };
 }
