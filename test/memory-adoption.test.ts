@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir } from 'node:fs/promises';
+import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { main } from '../src/memory/memory.js';
 import type { Workspace } from '../src/memory/workspace.js';
+import { passThrough } from './fixtures/git.js';
 import { fixture, save, git, repository } from './fixtures/memory.js';
 
 await test('a subdirectory of a repository shares its project memory, and its notes move once the repository has an origin', async () => {
@@ -234,6 +235,69 @@ await test("a note with no free path in the project stays under the checkout's k
   await git(app, 'remote', 'add', 'origin', origin);
   await workspace.begin(app);
   assert.equal(await memory.read(main, `${key}/x.md`), 'Stays.\n');
+});
+
+await test('a failed memory move preserves its error and reports a failed rollback', async (t) => {
+  for (const rollbackFails of [false, true])
+    await t.test(
+      rollbackFails ? 'failed rollback' : 'successful rollback',
+      async () => {
+        const { memory, open, root, hook } = await fixture();
+        const copy = await repository(root, 'copy');
+        const { workspace } = await open('a');
+        const source = (await workspace.begin(copy)).scope.project;
+        await save(workspace, { [`${source}/note.md`]: 'Original.\n' });
+        await workspace.publish();
+        const accepted = await memory.resolve(main);
+        await git(
+          copy,
+          'remote',
+          'add',
+          'origin',
+          'https://example.org/team/project.git',
+        );
+        const target = (await memory.scopePaths(copy)).project;
+        const adoption = new Error('adoption failed');
+        const rollback = new Error('rollback failed');
+        hook.current = async (command, run) => {
+          if (command[0] === 'add') throw adoption;
+          if (rollbackFails && command[0] === 'reset') throw rollback;
+          return run();
+        };
+        try {
+          await assert.rejects(workspace.begin(copy), (error: unknown) => {
+            if (rollbackFails) {
+              assert.ok(error instanceof Error);
+              assert.equal(
+                error.message,
+                'adoption failed\n\nCould not discard the failed memory move: rollback failed',
+              );
+              assert.equal(error.cause, adoption);
+            } else assert.equal(error, adoption);
+            return true;
+          });
+        } finally {
+          hook.current = passThrough;
+        }
+        assert.equal(await memory.resolve(main), accepted);
+        assert.equal(
+          await memory.read(main, `${source}/note.md`),
+          'Original.\n',
+        );
+        await assert.rejects(memory.read(main, `${target}/note.md`));
+        assert.equal(await workspace.isDirty(), rollbackFails);
+        const present = rollbackFails ? target : source;
+        const absent = rollbackFails ? source : target;
+        assert.equal(
+          await readFile(join(workspace.root, present, 'note.md'), 'utf8'),
+          'Original.\n',
+        );
+        await assert.rejects(
+          readFile(join(workspace.root, absent, 'note.md')),
+          { code: 'ENOENT' },
+        );
+      },
+    );
 });
 
 await test('a move that fails on an OS error fails the turn and leaves every note where it was', async () => {
