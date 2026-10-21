@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { parseCommand } from '../src/cli-control.js';
+import { controlPrefix, parseCommand } from '../src/cli-control.js';
+import { ControlHost, callControl } from '../src/persistence/control.js';
 import type { ControlOutcome } from '../src/persistence/control.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { selectionTurn } from './fixtures/task-selection.js';
@@ -199,6 +201,66 @@ await test('SIGTERM cancels the waiting helper ticket with one final result', as
   assert.deepEqual((await f.registry.state()).selections, [head.ticket]);
   assert.equal(b.coordinator.snapshot.phase, 'running');
 });
+
+for (const [failure, signal] of [
+  ['error', 'SIGINT'],
+  ['malformed', 'SIGTERM'],
+] as const)
+  await test(`${signal} cancels a known ticket after the ${failure} status reply`, async (t) => {
+    const f = await coordinationFixture(t);
+    const a = await f.start(),
+      b = await f.start('B');
+    const first = await selectionTurn(t, a),
+      second = await selectionTurn(t, b);
+    const head = await first.select();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    t.after(() => release.resolve());
+    const binding = { ...second.binding, directory: join(f.root, 'proxy') };
+    const actions: string[] = [];
+    const failures: unknown[] = [];
+    const host = await ControlHost.open(
+      binding.directory,
+      async (request) => {
+        actions.push(request.action.kind);
+        if (request.action.kind === 'selection-status') {
+          entered.resolve();
+          await release.promise;
+          return failure === 'error'
+            ? { kind: 'error', message: 'Temporary status failure' }
+            : ({ kind: 'malformed-status' } as unknown as ControlOutcome);
+        }
+        return callControl(second.binding, request.action);
+      },
+      (error) => failures.push(error),
+    );
+    t.after(() => host.close());
+    const prefix = controlPrefix(
+      binding,
+      fileURLToPath(new URL('../src/cli.tsx', import.meta.url)),
+    );
+    const waiting = invoke(t, prefix, f.root, `--select-next ${second.turn}`);
+    await within(entered.promise, 5000, 'status request');
+    const queued = (await f.registry.state()).selections[1]!;
+    waiting.child.kill(signal);
+    await delay(100);
+    release.resolve();
+    const result = await within(waiting.result, 5000, 'helper cancellation');
+    assert.equal(result.code, 130);
+    assert.equal(result.outcome.kind, 'selection-cancelled');
+    if (result.outcome.kind !== 'selection-cancelled')
+      assert.fail(JSON.stringify(result));
+    assert.equal(result.outcome.selection, queued.id);
+    assert.equal(result.stdout.trim().split('\n').length, 1);
+    assert.deepEqual((await f.registry.state()).selections, [head.ticket]);
+    assert.equal(b.coordinator.snapshot.phase, 'running');
+    assert.deepEqual(actions, [
+      'select-next',
+      'selection-status',
+      'cancel-selection',
+    ]);
+    assert.deepEqual(failures, []);
+  });
 
 await test('selection commands validate bindings and action-specific arguments before startup', () => {
   const turn = randomUUID(),
