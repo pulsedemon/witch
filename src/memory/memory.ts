@@ -39,7 +39,7 @@ export type GitRunner = (
 // like git, it reads a remote with a slash before any colon as a local path and an scp host up to its colon. a URL's port is dropped, a port inside an scp host's brackets stays.
 // a leading slash is dropped, so `host:/srv/a` matches `ssh://host/srv/a` as `host:a` matches `https://host/a`
 const remote =
-  /^(?=[^/]*:)(?:[a-zA-Z][\w+.-]*:\/\/(?:[^/]*@)?(\[[^\]]*\]|[^/:@]+)(?::\d*)?\/|(?:[^/:]*@)?(\[[^\]]*\]|[^/:@]+):)\/*(.+?)(?:\.git)?\/?$/;
+  /^(?=[^/]*:)(?:[a-zA-Z][\w+.-]*:\/\/(?:[^/]*@)?(\[[^\]]*\]|[^/:@]+)(?::\d*)?\/|(?:[^/:]*@)?(\[[^\]]*\]|[^/:@]+):)\/*(.+?)(?:\.git)?\/?$/s;
 
 /** a full refname, so a note named `main` at the worktree root can't make a revision ambiguous. */
 export const main = 'refs/heads/main';
