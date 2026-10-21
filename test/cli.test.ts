@@ -99,6 +99,7 @@ await test('headless controls preserve quoted paths, JSON and conflicts without 
         );
         return { kind: 'released' };
       }
+      if (action.kind !== 'claim') throw new Error('Unexpected test action');
       return {
         kind: 'claimed',
         claim: await store.claim(
