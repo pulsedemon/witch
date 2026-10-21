@@ -143,6 +143,15 @@ export class SessionCoordination {
     this.active = active;
     this.publish(emptySnapshot);
     try {
+      // restart must recover releases for conversations this process has already left.
+      for (const claim of await this.registry.claims())
+        if (
+          claim.owner.conversation !== conversation.id &&
+          claim.process?.pid === this.process.pid &&
+          claim.process.started === this.process.started &&
+          !(await this.store.isOpen(claim.owner.conversation))
+        )
+          this.claimReleases.add(claim.owner.conversation);
       await this.retireProject(active);
       const presence = this.presence(active);
       this.projected = JSON.stringify({ ...presence, updatedAt: undefined });
