@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { JsonRpc } from '../src/agents/json-rpc.js';
+import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
@@ -17,6 +18,90 @@ function server() {
     { cwd: tmpdir(), stdio: 'pipe' },
   );
 }
+
+/** waits for each chunk to arrive so pipe buffering cannot hide a split. */
+async function write(
+  child: ReturnType<typeof server>,
+  rpc: JsonRpc,
+  bytes: Buffer,
+) {
+  const received = once(child.stdout, 'data');
+  rpc.notify('write', { bytes: [...bytes] });
+  await within(received, 2000, 'the output chunk');
+}
+
+await test('preserves Unicode separators across fragmented UTF-8 messages', async () => {
+  const child = server();
+  const rpc = new JsonRpc(child);
+  const messages: RpcMessage[] = [];
+  rpc.onMessage = (message) => messages.push(message);
+  const text = String.fromCodePoint(0x2028, 0x2029, 0x1f600);
+  const frames = Buffer.from(
+    `${JSON.stringify({ method: 'text', params: { text } })}\n` +
+      `${JSON.stringify({ id: 1, result: { text: `reply ${text}` } })}\r\n` +
+      `${JSON.stringify({ method: 'after', params: { value: 'last' } })}\n`,
+  );
+  const first = frames.indexOf(Buffer.from(String.fromCodePoint(0x2028))) + 1;
+  const second = frames.indexOf(Buffer.from(String.fromCodePoint(0x1f600))) + 2;
+  const reply = rpc.request('hold', {});
+  void reply.catch(() => {});
+  try {
+    await write(child, rpc, frames.subarray(0, first));
+    assert.deepEqual(messages, []);
+    await write(child, rpc, frames.subarray(first, second));
+    assert.deepEqual(messages, []);
+    await write(child, rpc, frames.subarray(second));
+    assert.deepEqual(await within(reply, 2000, 'the reply'), {
+      text: `reply ${text}`,
+    });
+    assert.deepEqual(messages, [
+      { method: 'text', params: { text } },
+      { method: 'after', params: { value: 'last' } },
+    ]);
+    const next = rpc.request('hold', {});
+    void next.catch(() => {});
+    await write(child, rpc, Buffer.from('{"id":2,"result":"continued"}\n'));
+    assert.equal(await within(next, 2000, 'the next reply'), 'continued');
+  } finally {
+    await rpc.close();
+  }
+});
+
+await test('reads a final reply without a newline when stdout ends', async () => {
+  const child = server();
+  const rpc = new JsonRpc(child);
+  const reply = rpc.request('hold', {});
+  let settled = false;
+  void reply.then(
+    () => {
+      settled = true;
+    },
+    () => {},
+  );
+  try {
+    await write(child, rpc, Buffer.from('{"id":1,"result":"final"}'));
+    assert.equal(settled, false);
+    rpc.notify('end', {});
+    assert.equal(await within(reply, 2000, 'the final reply'), 'final');
+  } finally {
+    await rpc.close();
+  }
+});
+
+await test('rejects a truncated reply when stdout ends', async () => {
+  const child = server();
+  const rpc = new JsonRpc(child);
+  const rejected = assert.rejects(rpc.request('hold', {}), SyntaxError);
+  try {
+    await write(child, rpc, Buffer.from('{"id":1,"result":"partial'));
+    rpc.notify('end', {});
+    await within(rejected, 2000, 'the truncated reply');
+    await within(once(child, 'close'), 2000, 'the failed agent');
+    assert.equal(child.signalCode, 'SIGTERM');
+  } finally {
+    await rpc.close();
+  }
+});
 
 await test('pairs out-of-order replies with the original request', async () => {
   const rpc = new JsonRpc(server());
