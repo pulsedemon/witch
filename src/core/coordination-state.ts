@@ -45,6 +45,20 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('peers') }),
   z.object({ kind: z.literal('claim'), input: claimInputSchema }),
   z.object({ kind: z.literal('release'), claim: z.string().uuid() }),
+  z.object({ kind: z.literal('select-next'), turn: z.string().uuid() }),
+  z.object({
+    kind: z.literal('selection-status'),
+    selection: z.string().uuid(),
+  }),
+  z.object({
+    kind: z.literal('recommend'),
+    selection: z.string().uuid(),
+    input: claimInputSchema,
+  }),
+  z.object({
+    kind: z.literal('cancel-selection'),
+    selection: z.string().uuid(),
+  }),
 ]);
 
 export const conversationSummarySchema = conversationSchema.pick({

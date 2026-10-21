@@ -360,6 +360,12 @@ export class Coordinator {
       } catch (error) {
         failure = error;
       } finally {
+        if (this.record)
+          await this.coordination
+            ?.releaseSuggestion(this.record.id)
+            .catch((error: unknown) => {
+              failure ??= error;
+            });
         await this.files?.close().catch((error: unknown) => {
           failure ??= error;
         });
@@ -600,13 +606,20 @@ export class Coordinator {
     this.cancelled = true;
     this.connecting?.abort();
     this.editorCancellation?.abort();
-    // a session that is still starting has no turn to interrupt, so stopping it closes it
-    if (this.snapshot.phase === 'starting') await this.session?.close();
-    else {
-      const session = this.session;
-      await session?.interrupt();
-      if (this.changingModel) await session?.close();
-    }
+    const results = await Promise.allSettled([
+      this.coordination?.endTurn(),
+      (async () => {
+        // a session that is still starting has no turn to interrupt, so stopping it closes it
+        if (this.snapshot.phase === 'starting') await this.session?.close();
+        else {
+          const session = this.session;
+          await session?.interrupt();
+          if (this.changingModel) await session?.close();
+        }
+      })(),
+    ]);
+    for (const result of results)
+      if (result.status === 'rejected') throw result.reason;
   }
 
   async respond(id: string, response: UserResponse): Promise<void> {
@@ -755,7 +768,7 @@ export class Coordinator {
     this.publish({ error: errorMessage(error) });
   }
 
-  async close(): Promise<void> {
+  async close(options: { restart?: boolean } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     const quiescing = this.coordination?.quiesce();
@@ -785,9 +798,9 @@ export class Coordinator {
         await this.disconnect();
       } finally {
         try {
-          await this.files?.close();
+          await this.coordination?.close(options);
         } finally {
-          await this.coordination?.close();
+          await this.files?.close();
         }
       }
     }
@@ -872,111 +885,117 @@ export class Coordinator {
         throw error;
       },
     );
-    if (!session) return { status: 'interrupted', text: '' };
-    this.publish({
-      subagents: this.snapshot.subagents.filter(
-        ({ status }) => status === 'running',
-      ),
-    });
-    const reference = conversation.sessions[conversation.agent]!;
-    const workspace = this.workspace!;
-    // a project other than the last one delivered gets a full snapshot. the marker moves before the send,
-    // since a sent snapshot supersedes the marked one even if this turn fails
-    if (reference.deliveredProject !== scope.project) {
-      delete reference.deliveredRevision;
-      reference.deliveredProject = scope.project;
-    }
-    const snapshot =
-      reference.deliveredRevision === activity.baseRevision
-        ? undefined
-        : await this.memory.snapshot(
-            activity.baseRevision,
-            workspace.root,
-            scope,
-            reference.deliveredRevision,
-          );
-    const command = kind === 'turn' ? shellCommand(prompt) : undefined;
-    const handoff = conversation.handoff;
-    const pendingHandoff =
-      handoff?.activated && handoff.to === conversation.agent
-        ? handoff
-        : undefined;
-    const coordination = await this.coordination?.context();
-    const pendingContext = this.pendingContext.get(conversation.id);
-    const context = [
-      'You are running inside Witch. Follow your native and project instructions.',
-      `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
-      `Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in ${indexNote}. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
-      `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart and only considers it for cleanup after a later macOS boot.`,
-      ...(snapshot ? [snapshot] : []),
-      ...(pendingHandoff?.summary
-        ? [
-            `Pending task context from ${pendingHandoff.from}:\n${pendingHandoff.summary}`,
-          ]
-        : []),
-      ...(coordination ? [coordination] : []),
-      ...(pendingContext
-        ? [
-            'These commands already ran before an interrupt. Use their output as context without running them again:',
-            ...pendingContext,
-          ]
-        : []),
-      `User request:\n${prompt}`,
-      ...(command === undefined ? [] : [ranCommand]),
-    ].join('\n\n');
-    // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
-    if (this.cancelled || session.closed)
-      return { status: 'interrupted', text: '' };
-    if (kind === 'turn' && conversation.title === untitled)
-      conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
-    this.display({
-      id: randomUUID(),
-      kind: kind === 'handoff' ? 'notice' : 'user',
-      text: prompt,
-      cwd: conversation.cwd,
-    });
-    this.persist(this.save());
-    delivered?.();
-    let result: TurnResult;
+    if (!session || this.cancelled) return { status: 'interrupted', text: '' };
+    this.coordination?.beginTurn(activity.id);
     try {
-      const ran =
-        command === undefined ? undefined : await session.shell(command);
-      if (ran && ran.status !== 'completed') result = ran;
-      // an interrupt that lands as a fast command finishes still sends no reply
-      else if (ran && this.cancelled)
-        result = { status: 'interrupted', text: '' };
-      else {
-        this.pendingContext.delete(conversation.id);
-        result = await session.send(
-          context,
-          skillCall(prompt, this.snapshot.skills),
-        );
+      this.publish({
+        subagents: this.snapshot.subagents.filter(
+          ({ status }) => status === 'running',
+        ),
+      });
+      const reference = conversation.sessions[conversation.agent]!;
+      const workspace = this.workspace!;
+      // a project other than the last one delivered gets a full snapshot. the marker moves before the send,
+      // since a sent snapshot supersedes the marked one even if this turn fails
+      if (reference.deliveredProject !== scope.project) {
+        delete reference.deliveredRevision;
+        reference.deliveredProject = scope.project;
       }
-    } catch (error) {
-      result = { status: 'failed', text: '', error: errorMessage(error) };
+      const snapshot =
+        reference.deliveredRevision === activity.baseRevision
+          ? undefined
+          : await this.memory.snapshot(
+              activity.baseRevision,
+              workspace.root,
+              scope,
+              reference.deliveredRevision,
+            );
+      const command = kind === 'turn' ? shellCommand(prompt) : undefined;
+      const handoff = conversation.handoff;
+      const pendingHandoff =
+        handoff?.activated && handoff.to === conversation.agent
+          ? handoff
+          : undefined;
+      const coordination = await this.coordination?.context();
+      const pendingContext = this.pendingContext.get(conversation.id);
+      const context = [
+        'You are running inside Witch. Follow your native and project instructions.',
+        `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
+        `Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in ${indexNote}. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
+        `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart and only considers it for cleanup after a later macOS boot.`,
+        ...(snapshot ? [snapshot] : []),
+        ...(pendingHandoff?.summary
+          ? [
+              `Pending task context from ${pendingHandoff.from}:\n${pendingHandoff.summary}`,
+            ]
+          : []),
+        ...(coordination ? [coordination] : []),
+        ...(pendingContext
+          ? [
+              'These commands already ran before an interrupt. Use their output as context without running them again:',
+              ...pendingContext,
+            ]
+          : []),
+        `User request:\n${prompt}`,
+        ...(command === undefined ? [] : [ranCommand]),
+      ].join('\n\n');
+      // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
+      if (this.cancelled || session.closed)
+        return { status: 'interrupted', text: '' };
+      if (kind === 'turn' && conversation.title === untitled)
+        conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
+      this.display({
+        id: randomUUID(),
+        kind: kind === 'handoff' ? 'notice' : 'user',
+        text: prompt,
+        cwd: conversation.cwd,
+      });
+      this.persist(this.save());
+      delivered?.();
+      let result: TurnResult;
+      try {
+        const ran =
+          command === undefined ? undefined : await session.shell(command);
+        if (ran && ran.status !== 'completed') result = ran;
+        // an interrupt that lands as a fast command finishes still sends no reply
+        else if (ran && this.cancelled)
+          result = { status: 'interrupted', text: '' };
+        else {
+          this.pendingContext.delete(conversation.id);
+          result = await session.send(
+            context,
+            skillCall(prompt, this.snapshot.skills),
+          );
+        }
+      } catch (error) {
+        result = { status: 'failed', text: '', error: errorMessage(error) };
+      }
+      if (result.unread?.length)
+        this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
+      if (result.unreadContext?.length)
+        this.pendingContext.set(conversation.id, result.unreadContext);
+      await this.files!.flush();
+      if (result.status === 'completed') {
+        await workspace.commit(
+          `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
+        );
+        conversation.sessions[activity.agent]!.deliveredRevision =
+          activity.baseRevision;
+        delete conversation.activity;
+        if (pendingHandoff === conversation.handoff)
+          delete conversation.handoff;
+      } else {
+        this.notice(result.error ?? 'Turn interrupted');
+        if (result.status === 'failed') this.turnFailed = true;
+        if (!(await workspace.isDirty())) delete conversation.activity;
+      }
+      await this.save();
+      if (kind === 'turn' && result.status === 'completed')
+        this.publish({ completedTurn: activity.id });
+      return result;
+    } finally {
+      await this.coordination?.endTurn(activity.id);
     }
-    if (result.unread?.length)
-      this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
-    if (result.unreadContext?.length)
-      this.pendingContext.set(conversation.id, result.unreadContext);
-    await this.files!.flush();
-    if (result.status === 'completed') {
-      await workspace.commit(
-        `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
-      );
-      conversation.sessions[activity.agent]!.deliveredRevision =
-        activity.baseRevision;
-      delete conversation.activity;
-      if (pendingHandoff === conversation.handoff) delete conversation.handoff;
-    } else {
-      this.notice(result.error ?? 'Turn interrupted');
-      if (result.status === 'failed') this.turnFailed = true;
-      if (!(await workspace.isDirty())) delete conversation.activity;
-    }
-    await this.save();
-    if (kind === 'turn' && result.status === 'completed')
-      this.publish({ completedTurn: activity.id });
-    return result;
   }
 
   private async beginActivity(
