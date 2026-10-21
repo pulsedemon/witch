@@ -122,8 +122,10 @@ function replacementText(
   replacement: string,
 ): string {
   if (old === matched) return replacement;
+  const doubleQuotes = /[“”]/.test(matched);
+  const singleQuotes = /[‘’]/.test(matched);
   replacement = replacement.replace(/["']/g, (quote, index: number) => {
-    if (!(quote === '"' ? /[“”]/ : /[‘’]/).test(matched)) return quote;
+    if (!(quote === '"' ? doubleQuotes : singleQuotes)) return quote;
     const opening =
       index === 0 || ' \t\n\r([{\u2014\u2013'.includes(replacement[index - 1]!);
     return quote === '"' ? (opening ? '“' : '”') : opening ? '‘' : '’';
