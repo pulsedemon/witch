@@ -892,18 +892,20 @@ export class Coordinator {
         : undefined;
     const coordination = await this.coordination?.context();
     const pendingContext = this.pendingContext.get(conversation.id);
-    const context = await nativePrompt({
-      prompt,
-      memory: this.memory,
-      workspace: this.workspace!,
-      scope,
-      revision: activity.baseRevision,
-      reference: conversation.sessions[conversation.agent]!,
-      pendingHandoff,
-      coordination,
-      pendingContext,
-      command,
-    });
+    const context = () =>
+      nativePrompt({
+        prompt,
+        memory: this.memory,
+        workspace: this.workspace!,
+        scope,
+        revision: activity.baseRevision,
+        reference: conversation.sessions[conversation.agent]!,
+        pendingHandoff,
+        coordination,
+        pendingContext,
+        command,
+      });
+    let input = await context();
     // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
     if (this.cancelled || session.closed)
       return { status: 'interrupted', text: '' };
@@ -923,16 +925,18 @@ export class Coordinator {
       const ran =
         command === undefined ? undefined : await session.shell(command);
       if (ran && ran.status !== 'completed') result = ran;
-      // an interrupt that lands as a fast command finishes still sends no reply
-      else if (ran && this.cancelled)
-        result = { status: 'interrupted', text: '' };
       else {
-        this.pendingContext.delete(conversation.id);
-        generation = this.contextGeneration;
-        result = await session.send(
-          context,
-          skillCall(prompt, this.snapshot.skills),
-        );
+        if (generation !== this.contextGeneration) input = await context();
+        if (this.cancelled || session.closed)
+          result = { status: 'interrupted', text: '' };
+        else {
+          this.pendingContext.delete(conversation.id);
+          generation = this.contextGeneration;
+          result = await session.send(
+            input,
+            skillCall(prompt, this.snapshot.skills),
+          );
+        }
       }
     } catch (error) {
       result = { status: 'failed', text: '', error: errorMessage(error) };

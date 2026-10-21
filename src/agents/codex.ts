@@ -447,9 +447,8 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'info', info: this.info });
   }
 
-  async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
+  private beginTurn(): NonNullable<CodexSession['turn']> {
     if (this.turn) throw new Error('This agent is already running');
-    const path = skill && this.skillPaths.get(skill.name);
     const turn = {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
@@ -457,6 +456,12 @@ class CodexSession implements AgentSession {
       interrupted: false,
     };
     this.turn = turn;
+    return turn;
+  }
+
+  async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
+    const path = skill && this.skillPaths.get(skill.name);
+    const turn = this.beginTurn();
     try {
       const response = turnId.parse(
         await this.rpc.request('turn/start', {
@@ -488,15 +493,8 @@ class CodexSession implements AgentSession {
 
   async compact(): Promise<TurnResult> {
     if (this.closed) throw new Error('The Codex session is closed');
-    if (this.turn) throw new Error('This agent is already running');
-    const turn = {
-      started: Promise.withResolvers<string>(),
-      finished: Promise.withResolvers<TurnResult>(),
-      messages: new Map<string, string>(),
-      interrupted: false,
-      compaction: { completed: false },
-    };
-    this.turn = turn;
+    const turn = this.beginTurn();
+    turn.compaction = { completed: false };
     try {
       await this.rpc.request('thread/compact/start', {
         threadId: this.info.id,
@@ -509,16 +507,8 @@ class CodexSession implements AgentSession {
 
   /** Codex records the command and its output in the thread, and its turn ends without a reply. */
   async shell(command: string): Promise<TurnResult> {
-    if (this.turn) throw new Error('This agent is already running');
-    const turn = {
-      // the turn's id comes with `turn/started`, since the request answers with nothing
-      started: Promise.withResolvers<string>(),
-      finished: Promise.withResolvers<TurnResult>(),
-      messages: new Map<string, string>(),
-      interrupted: false,
-      command,
-    };
-    this.turn = turn;
+    const turn = this.beginTurn();
+    turn.command = command;
     try {
       await this.rpc.request('thread/shellCommand', {
         threadId: this.info.id,

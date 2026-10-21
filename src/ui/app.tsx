@@ -376,14 +376,7 @@ export function App({
   const choices = view.kind === 'picker' ? filter(view.choices, query) : [];
   const selected = Math.min(selection, Math.max(0, choices.length - 1));
   const request = state.requests[0];
-  const busy = [
-    'starting',
-    'running',
-    'compacting',
-    'switching',
-    'editing',
-    'closing',
-  ].includes(state.phase);
+  const busy = working || ['editing', 'closing'].includes(state.phase);
 
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => coordinator.report(error));
