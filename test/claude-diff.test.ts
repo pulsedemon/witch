@@ -191,6 +191,35 @@ for (const example of examples)
     else assert.equal(await fs.readFile(path, 'utf8'), example.original);
   });
 
+await test('previews preserve quote styles without stalling on long replacements', async () => {
+  const cwd = await scratch('witch-claude-preview-');
+  const path = join(cwd, 'quotes.txt');
+  for (const [opening, straight, other, replacement] of [
+    ['‘', "'", '"', '‘changed’'],
+    ['“', '"', "'", '“changed”'],
+  ] as const) {
+    const tail = other.repeat(128000);
+    await fs.writeFile(path, opening + tail + '\n');
+    const started = performance.now();
+    const diff = await proposedDiff(
+      'Edit',
+      {
+        file_path: path,
+        old_string: straight + tail,
+        new_string: straight + 'changed' + straight + tail,
+      },
+      cwd,
+      new AbortController().signal,
+    );
+    const elapsed = performance.now() - started;
+    assert.deepEqual(diff?.[0]?.hunks[0]?.lines, [
+      '-' + opening + tail,
+      '+' + replacement + tail,
+    ]);
+    assert.ok(elapsed < 1000, `quote preview took ${elapsed} ms`);
+  }
+});
+
 await test('replace_all previews both distant changes', async () => {
   const cwd = await scratch('witch-claude-preview-');
   const path = join(cwd, 'distant.txt');
