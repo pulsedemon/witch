@@ -1132,6 +1132,7 @@ export class Coordinator {
       if (conversation.agent === agent)
         this.publish({ native: event.info, conversation });
     } else if (event.type === 'request') {
+      if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
     } else if (event.type === 'closed') {
       this.publish({ requests: [] });
