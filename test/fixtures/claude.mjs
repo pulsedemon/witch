@@ -321,7 +321,15 @@ for await (const line of lines) {
               )
             : [...held],
         };
-        if (!response.still_queued.length) setTimeout(() => state('idle'));
+        if (!response.still_queued.length)
+          setTimeout(() => {
+            result({
+              subtype: 'error_during_execution',
+              is_error: true,
+              errors: ['Turn interrupted.'],
+            });
+            state('idle');
+          });
       } else if (
         (mode === 'hold-initial' || lastPrompt === 'reporting familiar') &&
         held.length
