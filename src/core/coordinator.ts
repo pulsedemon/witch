@@ -1133,6 +1133,8 @@ export class Coordinator {
         this.publish({ native: event.info, conversation });
     } else if (event.type === 'request') {
       this.publish({ requests: [...this.snapshot.requests, event.request] });
+    } else if (event.type === 'closed') {
+      this.publish({ requests: [] });
     } else if (event.type === 'request-resolved') {
       this.publish({
         requests: this.snapshot.requests.filter(

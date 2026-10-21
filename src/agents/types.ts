@@ -141,6 +141,7 @@ export type AgentEvent =
     }
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
+  | { type: 'closed' }
   | { type: 'info'; info: SessionInfo }
   | { type: 'usage'; usage: Usage }
   /** the native skill list changed; it replaces the one `skills()` gave. */

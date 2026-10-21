@@ -323,6 +323,7 @@ class CodexSession implements AgentSession {
       this.stopBackgroundCommands();
       this.proposals.clear();
       this.closed = true;
+      if (this.connected) this.options.onEvent({ type: 'closed' });
       this.finish(
         this.turn?.interrupted ? 'interrupted' : 'failed',
         error.message,
