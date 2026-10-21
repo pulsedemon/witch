@@ -12,7 +12,11 @@ const scope = {
 const release = await store.holdActivation(scope.activation);
 const identity = (await identifyProcess(process.pid))!;
 let ticket: string;
-const timer = setTimeout(() => process.exit(1), 30_000);
+// keep the activation lock reachable until the child exits.
+setTimeout(() => {
+  void release();
+  process.exit(1);
+}, 30_000);
 process.on('message', (message: { kind: string; issue?: number }) => {
   void (async () => {
     const deadline = Date.now() + 5000;
@@ -47,11 +51,6 @@ process.on('message', (message: { kind: string; issue?: number }) => {
         deadline,
         verify,
       );
-    } else if (message.kind === 'end') {
-      await release();
-      clearTimeout(timer);
-      process.disconnect();
-      return;
     }
     process.send!({ value });
   })().catch((error: unknown) => process.send!({ error: String(error) }));
