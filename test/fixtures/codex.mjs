@@ -74,7 +74,7 @@ const waitFor = async (name) => {
     await delay(5);
   }
 };
-if (mode === 'brews' || mode === 'file-approvals')
+if (['brews', 'file-approvals', 'compaction'].includes(mode))
   void (async () => {
     for (let index = 1; ; index++) {
       await waitFor(`events-${index}.json`);
@@ -92,6 +92,10 @@ for await (const line of lines) {
   }
 
   const reply = (result) => send({ id: request.id, result });
+  if (request.method === 'thread/compact/start') {
+    writeFileSync(file('compact.json'), JSON.stringify(request.params));
+    reply({});
+  }
   if (request.method === 'initialize') {
     if (mode === 'hang-on-init') {
       // bounded, so an ignored abort fails the test instead of hanging it
