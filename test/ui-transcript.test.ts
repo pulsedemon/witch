@@ -714,6 +714,7 @@ await test('a selection that runs past the bottom of the view stays drawn as the
     ui.stdin.write(wheelUp);
     await until('a row up', () => first(ui) === bottom - 1);
     assert.ok(ui.frame().includes(`\u001b[7mrow ${bottom}`));
+    assert.ok(ui.frame().split('\n')[last + 1]!.includes('\u001b[7mrow 300'));
   } finally {
     ui.unmount();
   }
@@ -1204,6 +1205,80 @@ await test('Ctrl+O expands only the selected tool without editing the draft', as
       'new conversation preview',
       () => ui.text().includes('alpha_10') && !ui.text().includes('alpha_11'),
     );
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a composer press while scrolled above more transcript text cannot start a selection', async () => {
+  const { app } = fake({ items: [long] });
+  const { ui, copied } = mounted(app);
+  try {
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
+    ui.stdin.write(wheelUp.repeat(20));
+    await until('twenty rows up', () => first(ui) === bottom - 20);
+    drag(ui, [5, 15], [5, 2]);
+    ui.stdin.write(CMD_C);
+    assert.deepEqual(copied, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('selection starts on the last text column and visible row but not the right padding', async () => {
+  const { app } = fake({
+    items: [
+      {
+        ...long,
+        text: Array.from(
+          { length: 50 },
+          (_, n) => `row ${n + 1}`.padEnd(57, '.') + 'Z',
+        ).join('\n'),
+      },
+    ],
+  });
+  const { ui, copied } = mounted(app);
+  try {
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
+    ui.stdin.write(wheelUp.repeat(20));
+    await until('twenty rows up', () => first(ui) === bottom - 20);
+    drag(ui, [58, 4], [57, 4]);
+    ui.stdin.write(CMD_C);
+    assert.deepEqual(copied, ['.Z']);
+    drag(ui, [59, 4], [57, 4]);
+    ui.stdin.write(CMD_C);
+    assert.deepEqual(copied, ['.Z']);
+    const last = ui
+      .text()
+      .split('\n')
+      .findLastIndex((row) => /row \d+/.test(row));
+    assert.equal(last, 13);
+    drag(ui, [1, last], [2, last]);
+    ui.stdin.write(CMD_C);
+    assert.deepEqual(copied, ['.Z', 'ro']);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('a wheel step while the left button is held preserves the press anchor for later dragging', async () => {
+  const { app } = fake({ items: [long] });
+  const { ui, copied } = mounted(app);
+  try {
+    await until('the transcript', () => first(ui) > 0);
+    const bottom = first(ui);
+    ui.stdin.write(wheelUp.repeat(20));
+    await until('twenty rows up', () => first(ui) === bottom - 20);
+    const before = first(ui);
+    ui.stdin.write(left('press', 1, 5));
+    ui.stdin.write(wheelUp);
+    await until('one more row up', () => first(ui) === before - 1);
+    ui.stdin.write(left('drag', 5, 7) + left('release', 5, 7) + CMD_C);
+    assert.deepEqual(copied, [
+      `row ${before + 4}\n${`row ${before + 5}`.slice(0, 5)}`,
+    ]);
   } finally {
     ui.unmount();
   }

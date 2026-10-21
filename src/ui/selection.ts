@@ -54,7 +54,7 @@ export function highlight(line: string, start: number, end: number): string {
   return `${styledCharsToString(before)}${gap}${colors.inverse(styledCharsToString(selected) + blank)}${styledCharsToString(after)}`;
 }
 
-/** the plain text from `start` through `end`, each row after the first joined on by what `joint` gives for it. */
+/** plain text from `start` through `end`, skipping images and joining each copied row after the first with `joint`. */
 export function selectedText(
   lines: readonly string[],
   start: Point,
