@@ -309,3 +309,39 @@ await test('Escape declines a question and the turn continues', async () => {
     ui.unmount();
   }
 });
+
+await test('Ctrl+C cancels an idle question without exiting Witch', async () => {
+  const { app, calls } = fake({
+    phase: 'idle',
+    requests: [
+      {
+        id: 'q',
+        kind: 'question',
+        title: 'Questions',
+        detail: '',
+        questions: [
+          { id: 'target', title: 'Which target?', options: ['Preview'] },
+        ],
+        replyAsPrompt: true,
+      },
+    ],
+  });
+  let exited = false;
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {
+        exited = true;
+      },
+    }),
+  );
+  try {
+    await until('the idle question', () => ui.text().includes('Which target?'));
+    ui.stdin.write('\u0003');
+    await until('the interrupt', () => calls.length > 0 || exited);
+    assert.equal(exited, false);
+    assert.deepEqual(calls, [['interrupt']]);
+  } finally {
+    ui.unmount();
+  }
+});
