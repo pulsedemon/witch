@@ -245,7 +245,7 @@ await test('the narrow peers page stays live and read-only during work and descr
   }
 });
 
-await test('a real peer updates its summary, leaves the sidebar after an origin change, and keeps its reservation on the open page', async (t) => {
+await test('a real peer updates its summary and keeps its reservation across an origin change until closing', async (t) => {
   const { root, start, registry } = await coordinationFixture(t);
   const a = await start(),
     b = await start('B');
@@ -286,8 +286,9 @@ await test('a real peer updates its summary, leaves the sidebar after an origin 
       () => !ui.text().includes('SESSIONS') && ui.text().includes(owned.id),
     );
     await a.coordinator.close();
-    await until('owner removed live', () => ui.text().includes('unattended'));
-    assert.ok(ui.text().includes('Updated live task'));
+    await until('claim removed live', () => !ui.text().includes(owned.id));
+    assert.ok(!ui.text().includes('Updated live task'));
+    assert.equal((await b.claim('task:original')).kind, 'claimed');
   } finally {
     ui.unmount();
   }
@@ -375,10 +376,8 @@ await test('queue and suggestion rows preserve task links and detailed native ph
     };
   }
   suggested.presence.requests = 0;
-  suggested.claim!.suggestion = {
-    selection: randomUUID(),
-    process: suggested.presence.process,
-  };
+  suggested.claim!.process = suggested.presence.process;
+  suggested.claim!.suggestion = { selection: randomUUID() };
   const fixture = peersApp(snapshot([choosing, queued, suggested]));
   const ui = show(
     createElement(App, { coordinator: fixture.app, onExit() {} }),

@@ -222,6 +222,65 @@ await test('normal exit releases a suggestion while restart and native handoff p
   assert.deepEqual(await f.registry.claims(), []);
 });
 
+await test('replacing a conversation releases every active alias and preserves another open owner', async (t) => {
+  const f = await coordinationFixture(t);
+  const a = await f.start(),
+    b = await f.start('B');
+  const binding = await a.binding();
+  const held = await callControl(binding, {
+    kind: 'claim',
+    input: {
+      reference: 'https://github.com/acme/queue/issues/17',
+      aliases: ['https://github.com/acme/queue/pull/19'],
+      summary: 'Active work',
+    },
+  });
+  assert.equal(held.kind, 'claimed');
+  assert.equal(
+    (await b.claim('https://github.com/acme/queue/issues/19')).kind,
+    'conflict',
+  );
+  const other = await b.claim('task:other');
+  if (other.kind !== 'claimed') assert.fail(JSON.stringify(other));
+  await assert.rejects(
+    a.coordinator.selectConversation(b.coordinator.snapshot.conversation!.id),
+    LockedElsewhere,
+  );
+  assert.equal((await f.registry.claims()).length, 2);
+  await a.coordinator.newConversation();
+  assert.notEqual(
+    a.coordinator.snapshot.conversation!.id,
+    binding.conversation,
+  );
+  assert.deepEqual(await f.registry.claims(), [other.claim]);
+  await b.coordination.releaseTask();
+  assert.equal(
+    (await b.claim('https://github.com/acme/queue/issues/19')).kind,
+    'claimed',
+  );
+});
+
+await test('active claims survive reconnect and restart but normal close makes them available', async (t) => {
+  const f = await coordinationFixture(t);
+  const a = await f.start(),
+    b = await f.start('B');
+  const binding = await a.binding();
+  const first = await a.claim();
+  if (first.kind !== 'claimed') assert.fail(JSON.stringify(first));
+  assert.equal((await b.claim()).kind, 'conflict');
+  await a.coordinator.switchAgent('b');
+  assert.notEqual((await a.binding()).activation, binding.activation);
+  assert.deepEqual(await f.registry.claims(), [first.claim]);
+  await a.coordinator.close({ restart: true });
+  assert.deepEqual(await f.registry.claims(), [first.claim]);
+  assert.equal((await b.claim()).kind, 'conflict');
+  const reopened = await f.start('A', { conversation: binding.conversation });
+  assert.equal((await reopened.query()).ownClaim?.id, first.claim.id);
+  await reopened.coordinator.close();
+  assert.deepEqual(await f.registry.claims(), []);
+  assert.equal((await b.claim()).kind, 'claimed');
+});
+
 await test('failed target preparation keeps a suggestion and a successful switch releases it', async (t) => {
   const f = await coordinationFixture(t);
   const a = await f.start(),
@@ -427,45 +486,51 @@ await test('a lost recommendation reply reconciles to one claim and one advancem
   assert.equal((await f.registry.claims()).length, 1);
 });
 
-await test('failed suggestion cleanup retries after leaving and cannot remove a later recommendation', async (t) => {
-  const f = await coordinationFixture(t);
-  const a = await f.start();
-  const first = await selectionTurn(t, a),
-    choice = await first.select();
-  const previous = await first.recommend(choice.ticket.id);
-  await first.finish();
-  const release = CoordinationStore.prototype.releaseSuggestion;
-  let failing = true;
-  t.mock.method(
-    CoordinationStore.prototype,
-    'releaseSuggestion',
-    function (this: CoordinationStore, ...args: Parameters<typeof release>) {
-      return failing
-        ? Promise.reject(new Error('Suggestion cleanup unavailable'))
-        : release.apply(this, args);
-    },
-  );
-  await a.coordinator.newConversation().catch(() => {});
-  assert.match(
-    a.coordinator.snapshot.error ?? '',
-    /Suggestion cleanup unavailable/,
-  );
-  assert.notEqual(
-    a.coordinator.snapshot.conversation!.id,
-    first.binding.conversation,
-  );
-  assert.deepEqual(await f.registry.claims(), [previous]);
-  failing = false;
-  await until(
-    'departed suggestion cleanup retried',
-    async () => !(await f.registry.claims()).length,
-  );
-  await a.coordinator.selectConversation(first.binding.conversation);
-  const later = await selectionTurn(t, a),
-    next = await later.select();
-  const current = await later.recommend(next.ticket.id, 18);
-  await later.finish();
-  await a.coordination.endTurn(first.turn);
-  assert.deepEqual((await a.query()).ownClaim, current);
-  assert.deepEqual(await f.registry.claims(), [current]);
-});
+for (const active of [false, true])
+  await test(`failed ${active ? 'active claim' : 'suggestion'} cleanup retries without removing a later recommendation`, async (t) => {
+    const f = await coordinationFixture(t);
+    const a = await f.start();
+    const first = await selectionTurn(t, a),
+      choice = await first.select();
+    let previous = await first.recommend(choice.ticket.id);
+    await first.finish();
+    if (active) {
+      const promoted = await a.claim('https://github.com/acme/queue/issues/17');
+      if (promoted.kind !== 'claimed') assert.fail(JSON.stringify(promoted));
+      previous = promoted.claim;
+    }
+    const release = CoordinationStore.prototype.releaseConversation;
+    let failing = true;
+    t.mock.method(
+      CoordinationStore.prototype,
+      'releaseConversation',
+      function (this: CoordinationStore, ...args: Parameters<typeof release>) {
+        return failing
+          ? Promise.reject(new Error('Suggestion cleanup unavailable'))
+          : release.apply(this, args);
+      },
+    );
+    await a.coordinator.newConversation().catch(() => {});
+    assert.match(
+      a.coordinator.snapshot.error ?? '',
+      /Suggestion cleanup unavailable/,
+    );
+    assert.notEqual(
+      a.coordinator.snapshot.conversation!.id,
+      first.binding.conversation,
+    );
+    assert.deepEqual(await f.registry.claims(), [previous]);
+    failing = false;
+    await until(
+      'departed suggestion cleanup retried',
+      async () => !(await f.registry.claims()).length,
+    );
+    await a.coordinator.selectConversation(first.binding.conversation);
+    const later = await selectionTurn(t, a),
+      next = await later.select();
+    const current = await later.recommend(next.ticket.id, 18);
+    await later.finish();
+    await a.coordination.endTurn(first.turn);
+    assert.deepEqual((await a.query()).ownClaim, current);
+    assert.deepEqual(await f.registry.claims(), [current]);
+  });

@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { identifyProcess } from '../../src/persistence/process.js';
 import {
   ClaimConflict,
   CoordinationStore,
@@ -7,13 +8,15 @@ import {
 
 const [root, conversation] = process.argv.slice(2);
 const store = await CoordinationStore.open(root!);
-const timer = setTimeout(() => process.exit(1), 10_000);
+const identity = (await identifyProcess(process.pid))!;
+setTimeout(() => process.exit(1), 30_000);
 process.once('message', () => {
   void (async () => {
     try {
       const claim = await store.claim(
         { conversation: conversation!, project: 'project-p' },
         { reference: 'task:shared', summary: `Work ${conversation}` },
+        identity,
         Date.now() + 5000,
         async () => {},
       );
@@ -25,9 +28,6 @@ process.once('message', () => {
           ? { kind: 'conflict', claim: error.claim }
           : { kind: 'error', message: String(error) },
       );
-    } finally {
-      clearTimeout(timer);
-      process.disconnect();
     }
   })();
 });

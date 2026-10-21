@@ -111,7 +111,7 @@ for (const name of ['claude', 'codex'] as const) {
   });
 }
 
-await test('switch revokes the old release before native close clears background counts and preserves the reservation', async (t) => {
+await test('switch revokes old authority before native close and releases the departed claim', async (t) => {
   const { start, ledger, registry } = await coordinationFixture(t);
   const a = await start(),
     b = await start('B');
@@ -147,9 +147,9 @@ await test('switch revokes the old release before native close clears background
     await switching;
   }
   assert.notEqual((await a.binding()).activation, bound.activation);
-  assert.equal((await b.claim()).kind, 'conflict');
+  assert.equal((await b.claim()).kind, 'claimed');
   await a.coordinator.selectConversation(bound.conversation);
-  assert.deepEqual((await a.query()).ownClaim, claim);
+  assert.equal((await a.query()).ownClaim, undefined);
   assert.equal(
     (await callControl(bound, { kind: 'release', claim: claim.id })).kind,
     'error',
@@ -220,7 +220,7 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
   });
 }
 
-await test('reopening preserves the claim and refuses the prior activation in the new host', async (t) => {
+await test('reopening starts without a claim and old authority cannot release newly claimed work', async (t) => {
   const { start } = await coordinationFixture(t);
   const a = await start();
   await a.claim();
@@ -230,13 +230,16 @@ await test('reopening preserves the claim and refuses the prior activation in th
   const reopened = await start('A', { conversation: bound.conversation });
   const current = await reopened.binding();
   assert.notEqual(current.activation, bound.activation);
-  assert.deepEqual((await reopened.query()).ownClaim, before);
+  assert.equal((await reopened.query()).ownClaim, undefined);
+  const next = await reopened.claim();
+  if (next.kind !== 'claimed') assert.fail(JSON.stringify(next));
+  assert.notEqual(next.claim.id, before.id);
   const stale = await callControl(
     { ...bound, directory: current.directory },
-    { kind: 'release', claim: before.id },
+    { kind: 'release', claim: next.claim.id },
   );
   assert.equal(stale.kind, 'error');
-  assert.deepEqual((await reopened.query()).ownClaim, before);
+  assert.deepEqual((await reopened.query()).ownClaim, next.claim);
 });
 
 await test('target lock and preparation failures keep source authority and free a prepared target lock', async (t) => {
@@ -379,10 +382,7 @@ await test('failed target activation holds its selected lock without starting na
   assert.deepEqual(await registry.presences(), []);
   assert.equal(await registry.isActive(rejected), false);
   assert.equal(a.coordination.snapshot.ownClaim, undefined);
-  assert.equal(
-    (await registry.claims())[0]!.owner.conversation,
-    bound.conversation,
-  );
+  assert.deepEqual(await registry.claims(), []);
   const source = await store.claim(bound.conversation);
   await source.close();
   await assert.rejects(store.claim(target), LockedElsewhere);

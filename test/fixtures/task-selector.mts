@@ -36,6 +36,17 @@ process.on('message', (message: { kind: string; issue?: number }) => {
         deadline,
         verify,
       );
+    } else if (message.kind === 'claim') {
+      value = await store.claim(
+        scope.owner,
+        {
+          reference: `https://github.com/acme/queue/issues/${message.issue}`,
+          summary: 'Active work',
+        },
+        identity,
+        deadline,
+        verify,
+      );
     } else if (message.kind === 'end') {
       await release();
       clearTimeout(timer);

@@ -16,6 +16,8 @@ import {
   CoordinationStore,
 } from '../src/persistence/coordination.js';
 import { identifyProcess } from '../src/persistence/process.js';
+import { StateStore } from '../src/persistence/store.js';
+import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
@@ -51,7 +53,7 @@ async function fixture(t: TestContext) {
     recommend: (scope: SelectionScope, id: string, number: number) =>
       store.recommend(scope, id, input(number), identity, deadline(), verify),
     claim: (scope: SelectionScope, number: number) =>
-      store.claim(scope.owner, input(number), deadline(), verify),
+      store.claim(scope.owner, input(number), identity, deadline(), verify),
   };
 }
 
@@ -142,7 +144,7 @@ await test('three processes advance in enqueue order and reserve distinct tasks'
   assert.deepEqual(state.selections, []);
 });
 
-await test('a dead head advances the next process without pruning active work', async (t) => {
+await test('a dead head advances the next process while other live claims remain', async (t) => {
   const f = await fixture(t);
   const a = contender(t, f.root, 'A');
   const b = contender(t, f.root, 'B');
@@ -150,14 +152,33 @@ await test('a dead head advances the next process without pruning active work', 
   await a.call('begin');
   assert.equal(((await b.call('begin')) as SelectionState).position, 2);
   const active = await f.store.claim(
-    { conversation: 'closed', project: 'project-p' },
+    { conversation: 'other-live', project: 'project-p' },
     input(90),
+    f.identity,
     deadline(),
     verify,
   );
   await a.stop();
   assert.equal(((await b.call('status')) as SelectionState).position, 1);
   assert.deepEqual(await f.store.claims(), [active]);
+});
+
+await test('a crashed active owner releases its task while another process keeps its claim', async (t) => {
+  const f = await fixture(t);
+  const a = contender(t, f.root, 'A'),
+    b = contender(t, f.root, 'B');
+  await Promise.all([a.ready, b.ready]);
+  await a.call('claim', 90);
+  const live = await b.call('claim', 91);
+  assert.equal((await f.store.claims()).length, 2);
+  await a.stop();
+  assert.deepEqual(await f.store.claims(), [live]);
+  const next = await f.scope('C');
+  await f.claim(next, 90);
+  assert.deepEqual(
+    (await f.store.claims()).map((claim) => claim.references[0]),
+    ['github:acme/queue#91', 'github:acme/queue#90'],
+  );
 });
 
 await test('non-head and alias-conflicting recommendations preserve every byte and ticket', async (t) => {
@@ -169,6 +190,7 @@ await test('non-head and alias-conflicting recommendations preserve every byte a
   await f.store.claim(
     { conversation: 'other', project: 'project-q' },
     input(18),
+    f.identity,
     deadline(),
     verify,
   );
@@ -278,9 +300,8 @@ await test('promotion keeps identity and aliases while different work replaces a
   ]);
   assert.equal(promoted.suggestion, undefined);
   await assert.rejects(f.begin(a), /Release the current task/);
-  await f.store.releaseSuggestion(a.owner, f.identity, deadline(), verify);
-  assert.deepEqual(await f.store.claims(), [promoted]);
-  await f.store.release(a.owner, promoted.id, deadline(), verify);
+  await f.store.releaseConversation(a.owner, f.identity, deadline(), verify);
+  assert.deepEqual(await f.store.claims(), []);
   const second = await f.begin(a);
   const old = await f.recommend(a, second.ticket.id, 18);
   const replacement = await f.claim(a, 19);
@@ -299,6 +320,7 @@ await test('failed replacement preserves a suggestion and reselect releases it a
   await f.store.claim(
     { conversation: 'other', project: 'project-p' },
     input(18),
+    f.identity,
     deadline(),
     verify,
   );
@@ -328,45 +350,47 @@ await test('only a successful direct claim removes its selection', async (t) => 
   assert.deepEqual((await f.store.state()).selections, []);
 });
 
-await test('a suggestion survives activation loss but not a different process incarnation', async (t) => {
-  const f = await fixture(t);
-  const a = {
-    owner: { conversation: 'A', project: 'project-p' },
-    activation: randomUUID(),
-    turn: randomUUID(),
-  };
-  const release = await f.store.holdActivation(a.activation);
-  t.after(release);
-  const first = await f.begin(a);
-  const suggestion = await f.recommend(a, first.ticket.id, 17);
-  await release();
-  assert.deepEqual(await f.store.claims(), [suggestion]);
-  await f.store.releaseSuggestion(
-    a.owner,
-    { ...f.identity, started: 'wrong' },
-    deadline(),
-    verify,
-  );
-  assert.deepEqual(await f.store.claims(), [suggestion]);
-  await f.store.releaseSuggestion(
-    { ...a.owner, project: 'wrong' },
-    f.identity,
-    deadline(),
-    verify,
-  );
-  assert.deepEqual(await f.store.claims(), [suggestion]);
-  const bytes = JSON.parse(await readFile(f.file, 'utf8'));
-  bytes.claims[0].suggestion.process.started = 'previous incarnation';
-  await writeFile(f.file, JSON.stringify(bytes));
-  const before = await readFile(f.file, 'utf8');
-  assert.deepEqual(await f.store.claims(), []);
-  assert.equal(await readFile(f.file, 'utf8'), before);
-  await f.claim(a, 18);
-  assert.deepEqual(
-    (await f.store.claims()).map((claim) => claim.references),
-    [['github:acme/queue#18']],
-  );
-});
+for (const active of [false, true])
+  await test(`a ${active ? 'claim' : 'suggestion'} survives activation loss but not a different process incarnation`, async (t) => {
+    const f = await fixture(t);
+    const a = {
+      owner: { conversation: 'A', project: 'project-p' },
+      activation: randomUUID(),
+      turn: randomUUID(),
+    };
+    const release = await f.store.holdActivation(a.activation);
+    t.after(release);
+    const first = await f.begin(a);
+    const reserved = await f.recommend(a, first.ticket.id, 17);
+    const suggestion = active ? await f.claim(a, 17) : reserved;
+    await release();
+    assert.deepEqual(await f.store.claims(), [suggestion]);
+    await f.store.releaseConversation(
+      a.owner,
+      { ...f.identity, started: 'wrong' },
+      deadline(),
+      verify,
+    );
+    assert.deepEqual(await f.store.claims(), [suggestion]);
+    await f.store.releaseConversation(
+      { ...a.owner, project: 'wrong' },
+      f.identity,
+      deadline(),
+      verify,
+    );
+    assert.deepEqual(await f.store.claims(), [suggestion]);
+    const bytes = JSON.parse(await readFile(f.file, 'utf8'));
+    bytes.claims[0].process.started = 'previous incarnation';
+    await writeFile(f.file, JSON.stringify(bytes));
+    const before = await readFile(f.file, 'utf8');
+    assert.deepEqual(await f.store.claims(), []);
+    assert.equal(await readFile(f.file, 'utf8'), before);
+    await f.claim(a, 18);
+    assert.deepEqual(
+      (await f.store.claims()).map((claim) => claim.references),
+      [['github:acme/queue#18']],
+    );
+  });
 
 await test('deadline and unknown activation failures preserve the ledger', async (t) => {
   const f = await fixture(t);
@@ -402,6 +426,9 @@ await test('deadline and unknown activation failures preserve the ledger', async
 
 await test('version one migrates only on a change and unsupported ledgers stay untouched', async (t) => {
   const f = await fixture(t);
+  const conversations = await StateStore.open(f.root);
+  const opened = await conversations.create(record('old', f.root));
+  t.after(() => opened.close());
   const old = {
     id: randomUUID(),
     owner: { conversation: 'old', project: 'project-p' },
@@ -414,10 +441,28 @@ await test('version one migrates only on a change and unsupported ledgers stay u
   assert.deepEqual(await f.store.state(), { claims: [old], selections: [] });
   assert.equal(await readFile(f.file, 'utf8'), original);
   const a = await f.scope('A');
+  const lock = join(f.root, 'conversations', 'old', 'lock');
+  await chmod(lock, 0o000);
+  try {
+    await assert.rejects(f.store.state(), /EACCES/);
+    await assert.rejects(f.begin(a), /EACCES/);
+    assert.equal(await readFile(f.file, 'utf8'), original);
+  } finally {
+    await chmod(lock, 0o600);
+  }
   await f.begin(a);
   const migrated = JSON.parse(await readFile(f.file, 'utf8'));
   assert.equal(migrated.version, 2);
   assert.deepEqual(migrated.claims, [old]);
+  await opened.close();
+  await writeFile(f.file, original);
+  assert.deepEqual(await f.store.claims(), []);
+  assert.equal(await readFile(f.file, 'utf8'), original);
+  await f.claim(a, 90);
+  assert.deepEqual(
+    (await f.store.claims()).map((claim) => claim.owner),
+    [a.owner],
+  );
   for (const invalid of [
     '{"version":3,"claims":[],"selections":[]}',
     '{"version":2,"claims":[],"selections":[{}]}',
