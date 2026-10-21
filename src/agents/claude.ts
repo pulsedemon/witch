@@ -1045,14 +1045,14 @@ class ClaudeSession implements AgentSession {
   private finishIdle(turn: Turn): void {
     if (
       turn.idle &&
-      (turn.result || turn.inputError) &&
+      (turn.result || turn.inputError !== undefined) &&
       !turn.held &&
       (!this.messageLifecycle ||
         ![...turn.steered.values()].some(({ pending }) => pending))
     ) {
       this.finish(
         turn,
-        turn.inputError
+        turn.inputError !== undefined
           ? {
               status: 'failed',
               text: turn.result?.text ?? '',
