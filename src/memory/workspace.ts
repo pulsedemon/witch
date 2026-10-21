@@ -180,6 +180,7 @@ export class Workspace {
       .split('\0')
       .filter(Boolean);
     if (!files.length) return false;
+    const notes = new Set(files);
     const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
     const index = posix.join(checkout, indexNote);
     const renamed = new Map<string, string>();
@@ -199,7 +200,8 @@ export class Workspace {
               const direct = renamed.get(posix.normalize(target));
               if (direct !== undefined) return `](<${direct}>`;
               const split = target.search(/[?#]/);
-              if (split < 0) return link;
+              if (split < 0 || notes.has(posix.join(checkout, target)))
+                return link;
               const to = renamed.get(posix.normalize(target.slice(0, split)));
               return to === undefined
                 ? link
