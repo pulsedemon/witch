@@ -264,6 +264,43 @@ await test('PageDown in the recovery view starts at the first row it hid', async
   }
 });
 
+await test('entering a later recovery resets its page to the first row', async () => {
+  const recovery = (label: string) => ({
+    kind: 'pending' as const,
+    paths: [],
+    diff: Array.from({ length: 60 }, (_, n) => `+${label} ${n + 1}`).join('\n'),
+    root: '/m',
+  });
+  const { app, coordinator } = fake({
+    phase: 'recovery',
+    recovery: recovery('old'),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    100,
+    24,
+  );
+  const shown = (label: string) =>
+    [...ui.text().matchAll(new RegExp(`${label} (\\d+)`, 'g'))].map((match) =>
+      Number(match[1]),
+    );
+  try {
+    await until('the first recovery page', () => shown('old')[0] === 1);
+    ui.stdin.write('\u001b[6~');
+    await until('the scrolled recovery', () => (shown('old')[0] ?? 0) > 1);
+    coordinator.publish({ phase: 'idle', recovery: undefined });
+    await until('the composer', () => !ui.text().includes('d DISCARD'));
+    coordinator.publish({ phase: 'recovery', recovery: recovery('new') });
+    await until(
+      'the new recovery starts at row one',
+      () => shown('new')[0] === 1,
+    );
+    assert.equal(shown('new')[0], 1);
+  } finally {
+    ui.unmount();
+  }
+});
+
 await test('an error shows in the recovery view', async () => {
   const { app } = fake({
     phase: 'recovery',

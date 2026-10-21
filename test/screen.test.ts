@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { Box, Text, render } from 'ink';
 import { createElement } from 'react';
 import { hyperlink } from '../src/ui/links.js';
 import { Screen, recorded } from '../src/ui/screen.js';
+import { until } from './fixtures/within.js';
 
 /** a terminal Ink treats as interactive, so it draws with cursor movement and erasing. */
 class Tty extends EventEmitter {
@@ -61,16 +61,14 @@ await test('a link Ink draws is found at its cells, and a redraw that moves it l
     patchConsole: false,
   });
   try {
-    for (let attempt = 0; attempt < 50 && !screen.linkAt(8, 2); attempt++)
-      await delay(20);
+    await until('the first link', () => screen.linkAt(8, 2) === docs);
     // `see ` starts at column 4, so the link fills columns 8 to 11
     assert.equal(screen.linkAt(7, 2), undefined);
     assert.equal(screen.linkAt(8, 2), docs);
     assert.equal(screen.linkAt(11, 2), docs);
     assert.equal(screen.linkAt(12, 2), undefined);
     instance.rerender(frame(3));
-    for (let attempt = 0; attempt < 50 && !screen.linkAt(8, 4); attempt++)
-      await delay(20);
+    await until('the moved link', () => screen.linkAt(8, 4) === docs);
     assert.equal(screen.linkAt(8, 4), docs);
     assert.equal(screen.linkAt(8, 2), undefined);
   } finally {

@@ -27,6 +27,44 @@ await test('a subdirectory of a repository shares its project memory, and its no
   assert.equal(await memory.read(main, `${moved.scope.project}/x.md`), 'X.\n');
 });
 
+await test('checkout adoption preserves unpublished notes until they are published', async () => {
+  const { memory, open, project } = await fixture();
+  await git(project, 'init', '--quiet');
+  const { workspace } = await open('a');
+  const before = await workspace.begin(project);
+  const original = `${before.scope.project}/private.md`;
+  await save(workspace, { [original]: 'Private note.\n' });
+  const unpublished = await workspace.revision();
+  const accepted = await memory.resolve(main);
+  assert.notEqual(unpublished, accepted);
+  assert.equal(await workspace.isDirty(), false);
+  await git(project, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
+  const scope = await memory.scopePaths(project);
+  const migrated = `${scope.project}/private.md`;
+  assert.notEqual(original, migrated);
+
+  await workspace.adoptCheckout(project);
+  assert.equal(await memory.resolve(main), accepted);
+  assert.equal(await workspace.revision(), unpublished);
+  assert.equal(
+    await readFile(join(workspace.root, original), 'utf8'),
+    'Private note.\n',
+  );
+  await assert.rejects(readFile(join(workspace.root, migrated)), {
+    code: 'ENOENT',
+  });
+  assert.equal(await workspace.isDirty(), false);
+
+  await workspace.publish();
+  await workspace.adoptCheckout(project);
+  assert.equal(await memory.read(main, migrated), 'Private note.\n');
+  await assert.rejects(readFile(join(workspace.root, original)), {
+    code: 'ENOENT',
+  });
+  assert.equal(await workspace.revision(), await memory.resolve(main));
+  assert.equal(await workspace.isDirty(), false);
+});
+
 await test("a turn merges the notes keyed by a checkout's path into its origin's project, keeping both versions of a note", async () => {
   const { memory, open, root, project } = await fixture();
   const begin = async (
