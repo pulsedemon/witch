@@ -144,6 +144,7 @@ export type AgentEvent =
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }
   | { type: 'closed' }
+  | { type: 'compacted' }
   | { type: 'info'; info: SessionInfo }
   | { type: 'usage'; usage: Usage }
   /** the native skill list changed; it replaces the one `skills()` gave. */
@@ -174,6 +175,10 @@ export interface AgentSession {
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
   skills(): Promise<Skill[]>;
+  /** current native context percentage, or undefined when no usable sample is available. */
+  contextUsage(): Promise<number | undefined>;
+  /** replaces native history in place; resolves after native completion, independently of replacement events. */
+  compact(): Promise<TurnResult>;
   /** `skill` runs that native skill with the prompt as its context. */
   send(prompt: string, skill?: SkillCall): Promise<TurnResult>;
   /**

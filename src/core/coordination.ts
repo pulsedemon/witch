@@ -418,7 +418,10 @@ export class SessionCoordination {
       project: active.project,
       activation: active.binding.activation,
       process: this.process,
-      phase: state?.phase ?? 'starting',
+      phase:
+        state?.phase === 'compacting'
+          ? 'running'
+          : (state?.phase ?? 'starting'),
       requests: state?.requests.length ?? 0,
       familiars:
         state?.subagents.filter((entry) => entry.status === 'running').length ??

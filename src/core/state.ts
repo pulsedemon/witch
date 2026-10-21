@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 const session = z.object({
@@ -36,6 +37,7 @@ export const phaseSchema = z.enum([
   'starting',
   'idle',
   'running',
+  'compacting',
   'switching',
   'recovery',
   'editing',
@@ -47,7 +49,7 @@ export const phaseSchema = z.enum([
 export type Phase = z.infer<typeof phaseSchema>;
 
 export function agentWorking(phase: Phase): boolean {
-  return ['starting', 'running', 'switching'].includes(phase);
+  return ['starting', 'running', 'switching', 'compacting'].includes(phase);
 }
 
 export const conversationRecordSchema = conversationSchema.extend({
@@ -138,4 +140,33 @@ export function foldDisplayUpdates(
     } else items[index] = merge(items[index], update);
   }
   return items;
+}
+
+export const untitled = 'New conversation';
+
+/** copies the source's explicit model and effort when it ran on the same agent. */
+export function createConversation(
+  cwd: string,
+  agent: string,
+  source?: Conversation,
+): Conversation {
+  const stored = source?.agent === agent ? source.sessions[agent] : undefined;
+  return {
+    id: randomUUID(),
+    title: untitled,
+    cwd,
+    agent,
+    sessions: stored?.requestedModel
+      ? {
+          [agent]: {
+            id: '',
+            model: stored.model,
+            requestedModel: stored.requestedModel,
+            hasHistory: false,
+            ...(stored.effort ? { effort: stored.effort } : {}),
+          },
+        }
+      : {},
+    createdAt: new Date().toISOString(),
+  };
 }

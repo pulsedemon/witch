@@ -105,6 +105,7 @@ interface Turn {
   idle: boolean;
   /** the completed command's reply, waiting to go. */
   answer?: string;
+  compaction?: { uuid: string; replaced: boolean; error?: string };
 }
 
 /** everything but Claude Code's own commands, including unmarked rows a built-in shadows, since `/name` runs the built-in. */
@@ -335,6 +336,8 @@ class ClaudeSession implements AgentSession {
       throw new Error('Stop the current turn before changing models');
     const level = effort == null ? effort : effortLevel.parse(effort);
     await this.query.setModel(model);
+    if (model !== this.info.model)
+      this.report({ context: undefined, contextWindow: undefined });
     if (level !== undefined)
       await this.query.applyFlagSettings({ effortLevel: level });
     this.info = {
@@ -348,9 +351,24 @@ class ClaudeSession implements AgentSession {
   }
 
   async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
+    const turn = this.beginTurn();
+    const records = this.records;
+    const uuid = this.push(this.content(prompt, skill));
+    turn.commandRecords.set(uuid, records);
+    return turn.finished.promise;
+  }
+
+  async compact(): Promise<TurnResult> {
+    if (this.command) throw new Error('This agent is already running');
+    const turn = this.beginTurn();
+    turn.compaction = { uuid: this.push('/compact'), replaced: false };
+    return turn.finished.promise;
+  }
+
+  private beginTurn(): Turn {
     if (this.closed) throw new Error('The Claude session is closed');
     if (this.turn) throw new Error('This agent is already running');
-    const turn = {
+    const turn: Turn = {
       finished: Promise.withResolvers<TurnResult>(),
       interrupted: false,
       messages: new Map<string, string>(),
@@ -360,10 +378,7 @@ class ClaudeSession implements AgentSession {
       idle: false,
     };
     this.turn = turn;
-    const records = this.records;
-    const uuid = this.push(this.content(prompt, skill));
-    turn.commandRecords.set(uuid, records);
-    return turn.finished.promise;
+    return turn;
   }
 
   /** the SDK has no request that runs a `!` command, so Witch runs it and keeps its record for the next prompt. */
@@ -434,7 +449,14 @@ class ClaudeSession implements AgentSession {
     { command }: { command?: string } = {},
   ): Promise<boolean> {
     const turn = this.turn;
-    if (this.closed || !turn || turn.interrupted || turn.held) return false;
+    if (
+      this.closed ||
+      !turn ||
+      turn.interrupted ||
+      turn.held ||
+      turn.compaction
+    )
+      return false;
     // after the result, a familiar or workflow running in the background holds off idle. without one, a prompt could
     // land after idle and run outside any turn
     if (turn.result && !this.replied) return false;
@@ -451,6 +473,7 @@ class ClaudeSession implements AgentSession {
     return (
       !this.closed &&
       !!turn?.result &&
+      !turn.compaction &&
       !turn.interrupted &&
       !turn.held &&
       this.holding
@@ -637,6 +660,18 @@ class ClaudeSession implements AgentSession {
               : (message.effort ?? undefined),
         };
         this.options.onEvent({ type: 'info', info: this.info });
+      } else if (message.subtype === 'compact_boundary') {
+        if (message.session_id !== this.info.id) return;
+        if (
+          this.turn?.compaction &&
+          message.compact_metadata.trigger === 'manual'
+        )
+          this.turn.compaction.replaced = true;
+        this.options.onEvent({ type: 'compacted' });
+      } else if (message.subtype === 'status' && this.turn?.compaction) {
+        if (message.compact_result === 'failed')
+          this.turn.compaction.error =
+            message.compact_error ?? 'Claude compaction failed';
       } else if (message.subtype === 'commands_changed') {
         this.options.onEvent({
           type: 'skills',
@@ -816,6 +851,28 @@ class ClaudeSession implements AgentSession {
       // the session's running total, which a resumed session continues
       this.report({ cost: message.total_cost_usd });
       if (!this.turn) return;
+      const compact = this.turn.compaction;
+      if (compact) {
+        const uuids = message.user_message_uuids ?? [message.user_message_uuid];
+        if (!uuids.includes(compact.uuid)) return;
+        const success =
+          message.subtype === 'success' &&
+          !message.is_error &&
+          compact.replaced &&
+          !compact.error;
+        this.turn.result = {
+          status: success ? 'completed' : 'failed',
+          text: '',
+          ...(!success
+            ? {
+                error:
+                  compact.error ??
+                  'Claude ended compaction without confirming history replacement',
+              }
+            : {}),
+        };
+        return;
+      }
       const success = message.subtype === 'success' && !message.is_error;
       this.turn.result = {
         status: success ? 'completed' : 'failed',
@@ -856,21 +913,32 @@ class ClaudeSession implements AgentSession {
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
+  async contextUsage(): Promise<number | undefined> {
+    const model = this.info.model;
+    try {
+      const context = await this.query.getContextUsage({ detail: 'summary' });
+      if (this.closed || this.info.model !== model) return;
+      const percentage = z.number().safeParse(context.percentage);
+      const capacity = z.number().safeParse(context.maxTokens);
+      const update: Usage = {};
+      if (percentage.success) update.context = percentage.data;
+      if (capacity.success) update.contextWindow = capacity.data;
+      if (Object.keys(update).length) this.report(update);
+      return percentage.success ? percentage.data : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** context from the CLI's estimate, and limits and lines from the usage report Claude Code's `/usage` reads. */
   private async readUsage(): Promise<void> {
-    const [context, report] = await Promise.allSettled([
-      this.query.getContextUsage({ detail: 'summary' }),
+    const [, report] = await Promise.allSettled([
+      this.contextUsage(),
       this.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
         skipBehaviors: true,
       }),
     ]);
     const update: Usage = {};
-    if (context.status === 'fulfilled') {
-      const percentage = z.number().safeParse(context.value.percentage);
-      if (percentage.success) update.context = percentage.data;
-      const capacity = z.number().safeParse(context.value.maxTokens);
-      if (capacity.success) update.contextWindow = capacity.data;
-    }
     const usage =
       report.status === 'fulfilled'
         ? usageReport.safeParse(report.value)

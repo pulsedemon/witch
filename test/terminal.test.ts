@@ -5,7 +5,10 @@ import type { UserRequest } from '../src/agents/types.js';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
 import type { Snapshot } from '../src/core/coordinator.js';
 import { watchTerminal } from '../src/ui/terminal.js';
-import { record } from './fixtures/coordinator.js';
+import {
+  record,
+  fixture as coordinatorFixture,
+} from './fixtures/coordinator.js';
 
 function source<T>(snapshot: T) {
   const listeners = new Set<() => void>();
@@ -379,3 +382,30 @@ for (const condition of [
       [],
     );
   });
+
+await test('real compaction emits no ordinary completion notification and the following turn still does', async () => {
+  const f = await coordinatorFixture();
+  await f.coordinator.send('seed');
+  const output: string[] = [];
+  const stop = watchTerminal(f.coordinator, undefined, (text) =>
+    output.push(text),
+  );
+  try {
+    await f.coordinator.compact();
+    await next();
+    assert.equal(f.a.compactions.length, 1);
+    assert.equal(
+      output.filter((text) => text.includes('Turn complete')).length,
+      0,
+    );
+    await f.coordinator.send('following turn');
+    await next();
+    assert.equal(
+      output.filter((text) => text.includes('Turn complete')).length,
+      1,
+    );
+  } finally {
+    stop();
+    await f.coordinator.close();
+  }
+});

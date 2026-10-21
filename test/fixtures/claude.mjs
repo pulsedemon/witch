@@ -44,6 +44,22 @@ const state = (state) =>
   });
 const task = (subtype, fields) =>
   send({ type: 'system', subtype, ...fields, uuid: randomUUID(), session_id });
+if (mode === 'compaction') {
+  const read = (index) =>
+    once(`events-${index}.json`, () => {
+      for (const frame of JSON.parse(
+        readFileSync(join(process.cwd(), `events-${index}.json`), 'utf8'),
+      ))
+        send({ uuid: randomUUID(), session_id, ...frame });
+      task('commands_changed', {
+        commands: [
+          { name: `barrier-${index}`, description: '', argumentHint: '' },
+        ],
+      });
+      read(index + 1);
+    });
+  read(1);
+}
 /** the live background tasks, as `background_tasks_changed` lists them. */
 const level = (tasks) => task('background_tasks_changed', { tasks });
 const streamEvent = (event, parent) =>
@@ -225,6 +241,26 @@ for await (const line of lines) {
         ],
       };
     }
+    if (
+      request.subtype === 'get_context_usage' &&
+      existsSync(join(process.cwd(), 'hold-context'))
+    ) {
+      writeFileSync(
+        join(process.cwd(), 'context-request.json'),
+        JSON.stringify(message),
+      );
+      continue;
+    }
+    if (
+      request.subtype === 'get_usage' &&
+      existsSync(join(process.cwd(), 'hold-usage'))
+    ) {
+      writeFileSync(
+        join(process.cwd(), 'usage-request.json'),
+        JSON.stringify(message),
+      );
+      continue;
+    }
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
     if (request.subtype === 'get_usage')
@@ -300,6 +336,13 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    if (mode === 'compaction' && message.message.content === '/compact') {
+      writeFileSync(
+        join(process.cwd(), 'compact.json'),
+        JSON.stringify(message),
+      );
+      continue;
+    }
     if (mode === 'hold-initial') {
       held.push(message.uuid);
       writeFileSync(join(process.cwd(), 'held.json'), JSON.stringify(message));

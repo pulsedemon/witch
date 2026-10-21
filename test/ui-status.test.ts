@@ -6,6 +6,9 @@ import type { Snapshot } from '../src/core/coordinator.js';
 import { App } from '../src/ui/app.js';
 import { show, forgedLink, fake } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
+import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
+import { TurnGate } from './fixtures/agent.js';
+import { ENTER } from './fixtures/ui.js';
 
 await test('the status line shows the stored model until the session reports one, and the phase row its permission mode', async () => {
   const { app, coordinator } = fake({
@@ -509,3 +512,69 @@ await test('while the agent works, a row above the composer names a verb and cou
     ui.unmount();
   }
 });
+
+for (const [key, label] of [
+  ['\u001b', 'Escape'],
+  ['\u0003', 'Ctrl+C'],
+] as const) {
+  await test(`compacting stays visible without a sidebar and ${label} restores queued input for editing`, async () => {
+    const f = await coordinatorFixture();
+    await f.coordinator.send('existing transcript');
+    const gate = new TurnGate();
+    f.a.gate = gate;
+    let exited = false;
+    const ui = show(
+      createElement(App, {
+        coordinator: f.coordinator,
+        onExit: () => {
+          exited = true;
+        },
+      }),
+      80,
+      30,
+    );
+    try {
+      await delay(60);
+      ui.stdin.write('/compact');
+      await delay(30);
+      ui.stdin.write(ENTER);
+      await until('compacting phase', () => ui.text().startsWith('COMPACTING'));
+      assert.ok(ui.text().includes('existing transcript'));
+      ui.resize(130);
+      await until(
+        'compacting after resize',
+        () => ui.text().startsWith('COMPACTING') && ui.text().includes('┃'),
+      );
+      ui.stdin.write('distinct queued input' + ENTER);
+      await until(
+        'queued prompt',
+        () => f.coordinator.snapshot.queue.length === 1,
+      );
+      ui.stdin.write(key);
+      await until(
+        'editable input',
+        () =>
+          f.coordinator.snapshot.phase === 'idle' &&
+          f.coordinator.snapshot.queue.length === 0 &&
+          ui.text().includes('distinct queued input'),
+      );
+      assert.equal(exited, false);
+      assert.equal(f.a.inputs.length, 1);
+      f.a.gate = undefined;
+      ui.stdin.write(ENTER);
+      await until(
+        'explicit resubmission',
+        () =>
+          f.a.inputs.length === 2 && f.coordinator.snapshot.phase === 'idle',
+      );
+      assert.match(
+        f.a.inputs[1]!.prompt,
+        /User request:\ndistinct queued input$/,
+      );
+    } finally {
+      ui.unmount();
+      gate.open();
+      await f.coordinator.close();
+    }
+  });
+}

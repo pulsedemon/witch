@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -13,7 +12,6 @@ import type {
   Model,
   SessionInfo,
   Skill,
-  SkillCall,
   Subagent,
   TurnResult,
   Usage,
@@ -33,12 +31,24 @@ import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
 import { listFiles } from './files.js';
+import {
+  alone,
+  shellCommand,
+  skillCall,
+  ranCommand,
+  nativePrompt,
+} from './prompts.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
 import { cleanUpMerge, refreshInstall } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import type { PullRequest } from './repository.js';
-import { agentWorking, applyDisplayUpdate } from './state.js';
+import {
+  agentWorking,
+  applyDisplayUpdate,
+  createConversation,
+  untitled,
+} from './state.js';
 import type {
   Conversation,
   ConversationRecord,
@@ -48,34 +58,9 @@ import type {
 } from './state.js';
 
 const execute = promisify(execFile);
-const untitled = 'New conversation';
+const compactAt = 80;
 const localActivity = Symbol('local activity');
-// an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
-const ranCommand =
-  'The user ran this command themselves, and its output is above. Reply to it without running it again.';
-
-/** splits `/name args` as Claude Code does: the name ends at the first whitespace. */
-function skillCall(
-  prompt: string,
-  skills: readonly Skill[],
-): SkillCall | undefined {
-  const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
-  if (!match || !skills.some(({ name }) => name === match[1])) return;
-  return { name: match[1]!, args: match[2]!.trim() };
-}
-
-/** a slash command or `!` command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, Claude Code would run any other slash command as its own, and a `!` command's reply is a turn of its own. */
-function alone(prompt: string): boolean {
-  return (
-    prompt.trimStart().startsWith('/') || shellCommand(prompt) !== undefined
-  );
-}
-
-/** the command a `!` prompt runs. */
-function shellCommand(prompt: string): string | undefined {
-  return prompt.startsWith('!') ? prompt.slice(1) : undefined;
-}
-
+type Activity = NonNullable<ConversationRecord['activity']>;
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
   startedAt: number;
@@ -173,6 +158,7 @@ export class Coordinator {
   private files?: ConversationStore;
   private workspace?: Workspace;
   private session?: AgentSession;
+  private contextGeneration = 0;
   private readonly pendingContext = new Map<string, string[]>();
   /** the project memory the live session may write; native permissions are fixed at connect. */
   private sessionProject?: string;
@@ -273,7 +259,7 @@ export class Coordinator {
       installed.find(({ adapter }) => adapter.id === source?.agent) ??
       installed[0] ??
       this.agents[0]!;
-    return this.newRecord(cwd, agent.adapter.id, source);
+    return createConversation(cwd, agent.adapter.id, source);
   }
 
   /** stops orphans, publishes stranded memory and reports what it can't settle in conversations no instance holds. */
@@ -491,6 +477,17 @@ export class Coordinator {
         try {
           await this.operate('running', async () => {
             try {
+              const session = await this.connect();
+              const usage = session.info.hasHistory
+                ? await session.contextUsage()
+                : undefined;
+              if (this.cancelled || session.closed || this.session !== session)
+                return;
+              if (usage !== undefined && usage >= compactAt) {
+                this.publish({ phase: 'compacting' });
+                if (!(await this.performCompaction())) return;
+                this.publish({ phase: 'running' });
+              }
               await this.performTurn(batch.join('\n'), 'turn', () => {
                 delivered = true;
               });
@@ -516,7 +513,7 @@ export class Coordinator {
       const chosen = agent ?? source.agent;
       this.registration(chosen);
       await this.openConversation({
-        create: this.newRecord(source.cwd, chosen, source),
+        create: createConversation(source.cwd, chosen, source),
       });
       await this.connect();
     });
@@ -906,23 +903,6 @@ export class Coordinator {
           ({ status }) => status === 'running',
         ),
       });
-      const reference = conversation.sessions[conversation.agent]!;
-      const workspace = this.workspace!;
-      // a project other than the last one delivered gets a full snapshot. the marker moves before the send,
-      // since a sent snapshot supersedes the marked one even if this turn fails
-      if (reference.deliveredProject !== scope.project) {
-        delete reference.deliveredRevision;
-        reference.deliveredProject = scope.project;
-      }
-      const snapshot =
-        reference.deliveredRevision === activity.baseRevision
-          ? undefined
-          : await this.memory.snapshot(
-              activity.baseRevision,
-              workspace.root,
-              scope,
-              reference.deliveredRevision,
-            );
       const command = kind === 'turn' ? shellCommand(prompt) : undefined;
       const handoff = conversation.handoff;
       const pendingHandoff =
@@ -931,27 +911,20 @@ export class Coordinator {
           : undefined;
       const coordination = await this.coordination?.context();
       const pendingContext = this.pendingContext.get(conversation.id);
-      const context = [
-        'You are running inside Witch. Follow your native and project instructions.',
-        `Shared memory directories: ${join(workspace.root, scope.global)} and ${join(workspace.root, scope.project)}.`,
-        `Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in ${indexNote}. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
-        `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart and only considers it for cleanup after a later macOS boot.`,
-        ...(snapshot ? [snapshot] : []),
-        ...(pendingHandoff?.summary
-          ? [
-              `Pending task context from ${pendingHandoff.from}:\n${pendingHandoff.summary}`,
-            ]
-          : []),
-        ...(coordination ? [coordination] : []),
-        ...(pendingContext
-          ? [
-              'These commands already ran before an interrupt. Use their output as context without running them again:',
-              ...pendingContext,
-            ]
-          : []),
-        `User request:\n${prompt}`,
-        ...(command === undefined ? [] : [ranCommand]),
-      ].join('\n\n');
+      const context = () =>
+        nativePrompt({
+          prompt,
+          memory: this.memory,
+          workspace: this.workspace!,
+          scope,
+          revision: activity.baseRevision,
+          reference: conversation.sessions[conversation.agent]!,
+          pendingHandoff,
+          coordination,
+          pendingContext,
+          command,
+        });
+      let input = await context();
       // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
       if (this.cancelled || session.closed)
         return { status: 'interrupted', text: '' };
@@ -966,19 +939,23 @@ export class Coordinator {
       this.persist(this.save());
       delivered?.();
       let result: TurnResult;
+      let generation = this.contextGeneration;
       try {
         const ran =
           command === undefined ? undefined : await session.shell(command);
         if (ran && ran.status !== 'completed') result = ran;
-        // an interrupt that lands as a fast command finishes still sends no reply
-        else if (ran && this.cancelled)
-          result = { status: 'interrupted', text: '' };
         else {
-          this.pendingContext.delete(conversation.id);
-          result = await session.send(
-            context,
-            skillCall(prompt, this.snapshot.skills),
-          );
+          if (generation !== this.contextGeneration) input = await context();
+          if (this.cancelled || session.closed)
+            result = { status: 'interrupted', text: '' };
+          else {
+            this.pendingContext.delete(conversation.id);
+            generation = this.contextGeneration;
+            result = await session.send(
+              input,
+              skillCall(prompt, this.snapshot.skills),
+            );
+          }
         }
       } catch (error) {
         result = { status: 'failed', text: '', error: errorMessage(error) };
@@ -987,20 +964,13 @@ export class Coordinator {
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
       if (result.unreadContext?.length)
         this.pendingContext.set(conversation.id, result.unreadContext);
-      await this.files!.flush();
+      await this.finishActivity(activity, result);
       if (result.status === 'completed') {
-        await workspace.commit(
-          `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
-        );
-        conversation.sessions[activity.agent]!.deliveredRevision =
-          activity.baseRevision;
-        delete conversation.activity;
+        if (generation === this.contextGeneration)
+          conversation.sessions[activity.agent]!.deliveredRevision =
+            activity.baseRevision;
         if (pendingHandoff === conversation.handoff)
           delete conversation.handoff;
-      } else {
-        this.notice(result.error ?? 'Turn interrupted');
-        if (result.status === 'failed') this.turnFailed = true;
-        if (!(await workspace.isDirty())) delete conversation.activity;
       }
       await this.save();
       if (kind === 'turn' && result.status === 'completed')
@@ -1011,10 +981,57 @@ export class Coordinator {
     }
   }
 
-  private async beginActivity(
-    kind: NonNullable<ConversationRecord['activity']>['kind'],
-  ): Promise<{
-    activity: NonNullable<ConversationRecord['activity']>;
+  async compact(): Promise<void> {
+    await this.operate('compacting', async () => {
+      await this.performCompaction();
+    });
+  }
+
+  private async performCompaction(): Promise<boolean> {
+    const conversation = this.current();
+    const { activity, scope } = await this.beginActivity('turn');
+    let result: TurnResult = { status: 'interrupted', text: '' };
+    try {
+      const session = await this.connect(conversation.agent, scope);
+      if (!this.cancelled && !session.closed) {
+        if (session.info.hasHistory) result = await session.compact();
+        else {
+          this.notice('No conversation history to compact');
+          result = { status: 'completed', text: '' };
+        }
+      }
+    } catch (error) {
+      result = { status: 'failed', text: '', error: errorMessage(error) };
+    }
+    if (this.cancelled) result = { status: 'interrupted', text: '' };
+    this.turnFailed = result.status !== 'completed';
+    await this.finishActivity(activity, result);
+    await this.save();
+    this.turnFailed ||= this.cancelled;
+    return !this.turnFailed;
+  }
+
+  private async finishActivity(
+    activity: Activity,
+    result: TurnResult,
+  ): Promise<void> {
+    const conversation = this.current();
+    const workspace = this.workspace!;
+    await this.files!.flush();
+    if (result.status === 'completed') {
+      await workspace.commit(
+        `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
+      );
+      delete conversation.activity;
+    } else {
+      this.notice(result.error ?? 'Turn interrupted');
+      if (result.status === 'failed') this.turnFailed = true;
+      if (!(await workspace.isDirty())) delete conversation.activity;
+    }
+  }
+
+  private async beginActivity(kind: Activity['kind']): Promise<{
+    activity: Activity;
     scope: MemoryScope;
   }> {
     const conversation = this.current();
@@ -1154,6 +1171,12 @@ export class Coordinator {
       this.persist(this.save());
       if (conversation.agent === agent)
         this.publish({ native: event.info, conversation });
+    } else if (event.type === 'compacted') {
+      this.contextGeneration++;
+      const reference = conversation.sessions[agent];
+      if (reference) delete reference.deliveredRevision;
+      this.persist(this.save());
+      this.notice('Conversation compacted');
     } else if (event.type === 'request') {
       if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
@@ -1350,33 +1373,6 @@ export class Coordinator {
     const text = `${restart ? 'Restart Witch: ' : ''}${errorMessage(error)}`;
     this.publish({ phase: 'error', error: text });
     return new Error(text, { cause: error });
-  }
-
-  /** copies the source's explicit model and effort when it ran on the same agent. */
-  private newRecord(
-    cwd: string,
-    agent: string,
-    source?: Conversation,
-  ): Conversation {
-    const stored = source?.agent === agent ? source.sessions[agent] : undefined;
-    return {
-      id: randomUUID(),
-      title: untitled,
-      cwd,
-      agent,
-      sessions: stored?.requestedModel
-        ? {
-            [agent]: {
-              id: '',
-              model: stored.model,
-              requestedModel: stored.requestedModel,
-              hasHistory: false,
-              ...(stored.effort ? { effort: stored.effort } : {}),
-            },
-          }
-        : {},
-      createdAt: new Date().toISOString(),
-    };
   }
 
   private current(): ConversationRecord {

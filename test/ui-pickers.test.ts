@@ -9,6 +9,7 @@ import {
   forgedLink,
   fake,
   ENTER,
+  SHIFT_ENTER,
   DOWN,
   openCommand,
   commands,
@@ -435,6 +436,46 @@ await test('/jobs reports a list that fails', async () => {
     ui.stdin.write(`jobs${ENTER}`);
     await until('the report', () => calls.length > 0);
     assert.deepEqual(calls, [['report', 'Error: ps failed']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('/compact dispatches a local operation and refuses arguments without sending a prompt', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/compact');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('local compaction', () => calls.length === 1);
+    assert.deepEqual(calls, [['compact']]);
+    ui.stdin.write('/compact instructions');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('argument refusal', () => calls.length === 2);
+    assert.equal(calls[1]![0], 'report');
+    assert.match(String(calls[1]![1]), /\/compact without arguments/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('/compact refuses multiline arguments without sending a prompt', async () => {
+  const { app, calls } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/compact first');
+    ui.stdin.write(SHIFT_ENTER);
+    ui.stdin.write('second');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('argument refusal', () => calls.length > 0);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]![0], 'report');
+    assert.match(String(calls[0]![1]), /\/compact without arguments/);
   } finally {
     ui.unmount();
   }

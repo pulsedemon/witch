@@ -48,6 +48,7 @@ export class FixtureAgent implements AgentAdapter {
   readonly steers: string[] = [];
   /** the `!` commands sessions ran. */
   readonly shells: string[] = [];
+  readonly compactions: string[] = [];
   /** a gated command finishes as the interrupt lands, as a fast one can. */
   finishShellOnInterrupt = false;
   /** an interrupt reports the turn's steered prompts unread, as Claude Code does for those it still holds. */
@@ -134,6 +135,21 @@ export class FixtureAgent implements AgentAdapter {
       },
       get replied() {
         return replied();
+      },
+      contextUsage: async () => usage.context,
+      compact: async () => {
+        if (closed) throw new Error('Session closed');
+        this.compactions.push(info.id);
+        turn = Promise.withResolvers<TurnResult>();
+        const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
+        turn = undefined;
+        if (held) return held;
+        if (this.failNext) {
+          this.failNext = false;
+          return { status: 'failed', text: '', error: 'Compaction failed' };
+        }
+        options.onEvent({ type: 'compacted' });
+        return { status: 'completed', text: '' };
       },
       skills: async () => {
         if (this.failSkills) throw new Error('Skills unavailable');

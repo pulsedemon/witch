@@ -119,6 +119,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       for (const listener of listeners) listener();
     },
     send: record('send'),
+    compact: record('compact'),
     unqueue: () => {
       calls.push(['unqueue']);
       const { queue } = coordinator.snapshot;
