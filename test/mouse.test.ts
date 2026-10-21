@@ -217,6 +217,17 @@ await test('non-mouse escape sequences pass through unchanged', (t) => {
   }
 });
 
+await test('long Escape runs before a key keep input responsive', () => {
+  const found = input();
+  const sequence = '\u001b'.repeat(32_768) + 'b';
+  const started = process.cpuUsage();
+  found.source.emit('data', sequence);
+  const { user, system } = process.cpuUsage(started);
+  assert.ok(user + system < 100_000, `input used ${user + system} µs of CPU`);
+  assert.deepEqual(found.read, [sequence]);
+  noMouse(found);
+});
+
 await test('disabling raw mode cancels a pending prefix', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   for (const prefix of ['\u001b', '\u001b[<0;4']) {
