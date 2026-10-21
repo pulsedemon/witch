@@ -613,7 +613,7 @@ export function App({
       /^!\s*$/.test(text)
     )
       return false;
-    const match = /^\/(\S+)(?:\s+(.*))?$/.exec(text.trim());
+    const match = /^\/(\S+)(?:\s+(.*))?$/s.exec(text.trim());
     const found =
       match &&
       commands.find(
