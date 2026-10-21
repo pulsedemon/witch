@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
@@ -11,6 +11,7 @@ import { linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
 import { piped } from './theme.js';
+import { canExpandDiff, diffRows } from './diff.js';
 
 interface Props {
   request: UserRequest;
@@ -33,18 +34,30 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   const answers = useRef<Record<string, string[]>>({});
   const [scroll, scrollRef, setScroll] = useLiveState(0);
   const [error, setError] = useState('');
+  const [full, setFull] = useState(false);
   // Request mounts per request, so the guard counts from when this one appeared
   const ready = useKeysReady(true);
   const question = request.questions?.[questionIndex];
   const options = question?.options ?? approvals.map(({ label }) => label);
-  const bodyHeight = Math.max(2, height - 7);
+  const expandable = !!request.diff && canExpandDiff(request.diff);
+  const bodyHeight = Math.max(2, height - 7 - Number(expandable));
+  const fields = `${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
   const detail = question
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
-    : `${request.title}\n\n${request.url ?? ''}\n${request.detail}${request.schema ? `\n\nRequested fields:\n${JSON.stringify(request.schema, null, 2)}` : ''}`;
-  const lines = wrapAnsi(linkify(detail, cwd), width, {
-    hard: true,
-    trim: false,
-  }).split('\n');
+    : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
+  const lines = useMemo(() => {
+    const wrap = (text: string) =>
+      wrapAnsi(linkify(text, cwd), width, { hard: true, trim: false }).split(
+        '\n',
+      );
+    if (question || !request.diff?.length) return wrap(detail);
+    return [
+      ...wrap(`${request.title}\n\n${request.url ?? ''}`),
+      ...diffRows(request.diff, width, cwd, full).flat(),
+      '',
+      ...wrap(fields),
+    ];
+  }, [request, detail, fields, question, width, cwd, full]);
   const last = Math.max(0, lines.length - bodyHeight);
   const top = Math.min(scroll, last);
   /** steps from the shown top, so a move past either end is felt at once. */
@@ -59,6 +72,11 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     if (key.eventType === 'release') return;
     if (key.pageUp) scrollBy(-bodyHeight);
     if (key.pageDown) scrollBy(bodyHeight);
+    if (key.ctrl && input === 'o' && expandable) {
+      setFull((previous) => !previous);
+      setScroll(0);
+      return;
+    }
     if (!ready) return;
     if (key.escape) {
       respond({ decision: 'decline' });
@@ -71,8 +89,9 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     if (key.downArrow)
       setSelection(Math.min(count - 1, selectionRef.current + 1));
     if (request.kind === 'approval') {
-      if (input === 'y') respond({ decision: 'accept' });
-      if (input === 'n') respond({ decision: 'decline' });
+      const plain = !key.ctrl && !key.meta && !key.super;
+      if (plain && input === 'y') respond({ decision: 'accept' });
+      if (plain && input === 'n') respond({ decision: 'decline' });
       if (key.return)
         respond({ decision: approvals[selectionRef.current]!.decision });
     }
@@ -147,6 +166,11 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       <Box height={bodyHeight} overflow="hidden">
         <Text>{lines.slice(top, top + bodyHeight).join('\n')}</Text>
       </Box>
+      {expandable && (
+        <Text dimColor>
+          {full ? 'CTRL+O SHOW PREVIEW' : 'CTRL+O SHOW ALL LINES'}
+        </Text>
+      )}
       {request.kind === 'approval' ? (
         <Box flexDirection="column">
           <Text>

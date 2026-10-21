@@ -11,6 +11,7 @@ import {
   fake,
   ENTER,
   DOWN,
+  TAB,
   openCommand,
   tools,
   approval,
@@ -1119,6 +1120,90 @@ await test('Escape while tools are focused during a turn leaves focus without in
     ui.stdin.write('\u001b');
     await until('the composer', () => !ui.text().includes('ESC LEAVE TOOLS'));
     assert.ok(!calls.some(([call]) => call === 'interrupt'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('Ctrl+O expands only the selected tool without editing the draft', async () => {
+  const items = ['alpha', 'beta'].map((name) => ({
+    id: name,
+    kind: 'tool' as const,
+    title: `Write ${name}`,
+    text: '',
+    cwd: '/work',
+    done: true,
+    diff: [
+      {
+        path: `/work/${name}.txt`,
+        kind: 'add' as const,
+        hunks: [
+          {
+            oldStart: 0,
+            newStart: 1,
+            lines: Array.from({ length: 12 }, (_, i) => `+${name}_${i + 1}`),
+          },
+        ],
+      },
+    ],
+  }));
+  const { app, coordinator, calls } = fake({ items });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text) => copied.push(text),
+    }),
+  );
+  const expand = '\u001b[111;5u';
+  try {
+    await until(
+      'the previews',
+      () => ui.text().includes('alpha_10') && ui.text().includes('beta_10'),
+    );
+    ui.stdin.write('draft stays');
+    await until('the draft', () => ui.text().includes('draft stays'));
+    ui.stdin.write(TAB + expand);
+    await until('full alpha', () => ui.text().includes('alpha_12'));
+    assert.doesNotMatch(ui.text(), /beta_11|beta_12/);
+    assert.match(ui.text(), /CTRL\+O SHOW PREVIEW/);
+    const rows = ui.text().split('\n');
+    drag(
+      ui,
+      [1, rows.findIndex((row) => row.includes('alpha_11'))],
+      [98, rows.findIndex((row) => row.includes('alpha_12'))],
+    );
+    await until('the selection', () => ui.frame().includes('\u001b[7m'));
+    ui.stdin.write('\u001b[99;9u');
+    await until('the numbered copy', () => copied.length > 0);
+    assert.deepEqual(copied, ['11 +alpha_11\n12 +alpha_12']);
+    ui.stdin.write(ENTER);
+    await until('alpha closed', () => !ui.text().includes('alpha_1'));
+    ui.stdin.write(ENTER);
+    await until('full choice retained', () => ui.text().includes('alpha_12'));
+    ui.stdin.write(expand);
+    await until('preview restored', () => !ui.text().includes('alpha_11'));
+    ui.resize(120);
+    await until('narrower body', () => ui.text().includes('alpha_10'));
+    ui.stdin.write(ENTER);
+    await until(
+      'closed before expansion',
+      () => !ui.text().includes('alpha_1'),
+    );
+    ui.stdin.write(expand);
+    await until('Ctrl+O opens the full diff', () =>
+      ui.text().includes('alpha_12'),
+    );
+    assert.match(ui.text(), /draft stays/);
+    assert.deepEqual(calls, []);
+    coordinator.publish({
+      conversation: { ...coordinator.snapshot.conversation!, id: 'next' },
+    });
+    await until(
+      'new conversation preview',
+      () => ui.text().includes('alpha_10') && !ui.text().includes('alpha_11'),
+    );
   } finally {
     ui.unmount();
   }

@@ -16,8 +16,19 @@ import {
   diffRemovedWord,
 } from './theme.js';
 
-/** how many lines of a new or deleted file show. */
 const preview = 10;
+
+export function canExpandDiff(files: readonly FileDiff[]): boolean {
+  return files.some((file) => {
+    if (file.kind === 'update') return false;
+    let lines = 0;
+    for (const hunk of file.hunks)
+      for (const line of hunk.lines)
+        if (['+', '-', ' '].includes(line[0] ?? '') && ++lines > preview)
+          return true;
+    return false;
+  });
+}
 
 const verbs = { add: 'Create', delete: 'Delete', update: 'Update' };
 
@@ -150,7 +161,12 @@ function paint(
   return text;
 }
 
-function fileRows(file: FileDiff, width: number, cwd: string): string[][] {
+function fileRows(
+  file: FileDiff,
+  width: number,
+  cwd: string,
+  full: boolean,
+): string[][] {
   // undefined separates hunks
   const rows: (Row | undefined)[] = [];
   const whole = file.kind !== 'update';
@@ -179,7 +195,7 @@ function fileRows(file: FileDiff, width: number, cwd: string): string[][] {
       const number = marker === '-' ? old : now;
       if (marker !== '+') old++;
       if (marker !== '-') now++;
-      if (whole && shown === preview) hidden++;
+      if (whole && !full && shown === preview) hidden++;
       else {
         shown++;
         const code = plain(line.slice(1)).replaceAll('\r', '');
@@ -256,9 +272,10 @@ export function diffRows(
   files: readonly FileDiff[],
   width: number,
   cwd: string,
+  full = false,
 ): string[][] {
   return files.flatMap((file, index) => [
     ...(index ? [['']] : []),
-    ...fileRows(file, width, cwd),
+    ...fileRows(file, width, cwd, full),
   ]);
 }

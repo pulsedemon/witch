@@ -10,6 +10,77 @@ import type { DisplayItem } from '../src/core/state.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
+await test('full diff choices survive cached renders and resizes', () => {
+  const item: DisplayItem = {
+    id: 'full',
+    kind: 'tool',
+    title: 'Write',
+    text: '',
+    cwd: '/work',
+    done: true,
+    diff: [
+      {
+        path: '/work/a.txt',
+        kind: 'add',
+        hunks: [
+          {
+            oldStart: 0,
+            newStart: 1,
+            lines: [
+              '+' + 'wide '.repeat(20),
+              ...Array.from({ length: 11 }, (_, i) => `+line_${i + 2}`),
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const following: DisplayItem = {
+    id: 'after',
+    kind: 'tool',
+    title: 'Following tool',
+    text: '',
+    cwd: '/work',
+    done: true,
+  };
+  const items = [item, following];
+  const layout = new TranscriptLayout();
+  for (const full of [false, true, false, true]) {
+    const rendered = layout.render(
+      items,
+      40,
+      new Map(),
+      new Set(full ? ['full'] : []),
+    );
+    assert.equal(
+      rendered.lines.some((line) => line.includes('line_12')),
+      full,
+    );
+  }
+  const full = new Set(['full']);
+  const initial = layout.render(items, 40, new Map(), full);
+  const last = initial.anchorAt(
+    initial.lines.findIndex((line) => line.includes('line_12')),
+  )!;
+  const after = initial.anchorAt(initial.starts.get('after')!)!;
+  for (const width of [100, 30]) {
+    const resized = layout.render(items, width, new Map(), full);
+    assert.equal(
+      stripAnsi(resized.lines[resized.rowOf(last)]!).trim(),
+      '12 +line_12',
+    );
+    assert.equal(
+      stripAnsi(resized.lines[resized.rowOf(after)]!),
+      '+ ✓ Following tool',
+    );
+  }
+  const closed = layout.render(items, 30, new Map([['full', false]]), full);
+  assert.equal(
+    closed.lines.some((line) => line.includes('line_12')),
+    false,
+  );
+});
+
 await test('expanding a tool shows its complete output without losing links', () => {
   const item: DisplayItem = {
     id: 'tool',

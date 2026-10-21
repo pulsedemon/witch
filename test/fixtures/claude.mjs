@@ -2,7 +2,12 @@ import { setInterval, clearInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
-import { appendFileSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  appendFileSync,
+  writeFileSync,
+  existsSync,
+  readFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -379,6 +384,30 @@ for await (const line of lines) {
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
     state('running');
+    if (lastPrompt === 'preview' || lastPrompt === 'preview-withdrawn') {
+      const { tool, input } = JSON.parse(
+        readFileSync(join(process.cwd(), 'preview.json'), 'utf8'),
+      );
+      send({
+        type: 'control_request',
+        request_id: 'preview-request',
+        request: {
+          subtype: 'can_use_tool',
+          tool_name: tool,
+          input,
+          tool_use_id: 'preview-tool',
+        },
+      });
+      if (lastPrompt === 'preview-withdrawn')
+        once('withdraw-preview', () => {
+          send({
+            type: 'control_cancel_request',
+            request_id: 'preview-request',
+          });
+          finish();
+        });
+      continue;
+    }
     if (lastPrompt === 'approval')
       send({
         type: 'control_request',
@@ -971,7 +1000,9 @@ for await (const line of lines) {
     } else finish();
   } else if (
     message.type === 'control_response' &&
-    ['permit-1', 'elicit-1'].includes(message.response.request_id)
+    ['permit-1', 'elicit-1', 'preview-request'].includes(
+      message.response.request_id,
+    )
   ) {
     const { response } = message.response;
     if (lastPrompt !== 'approval')

@@ -74,7 +74,7 @@ const waitFor = async (name) => {
     await delay(5);
   }
 };
-if (mode === 'brews')
+if (mode === 'brews' || mode === 'file-approvals')
   void (async () => {
     for (let index = 1; ; index++) {
       await waitFor(`events-${index}.json`);
@@ -86,6 +86,11 @@ if (mode === 'brews')
   })();
 for await (const line of lines) {
   const request = JSON.parse(line);
+  if (mode === 'file-approvals' && request.method === undefined) {
+    writeFileSync(file(`response-${request.id}.json`), JSON.stringify(request));
+    continue;
+  }
+
   const reply = (result) => send({ id: request.id, result });
   if (request.method === 'initialize') {
     if (mode === 'hang-on-init') {

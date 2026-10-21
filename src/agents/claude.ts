@@ -1,8 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -14,8 +12,8 @@ import type {
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { wholeFile } from './file-diff.js';
 import { InputQueue } from './input-queue.js';
+import { proposedDiff, reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
 import { toolTitle } from './tool-title.js';
@@ -24,7 +22,6 @@ import type {
   AgentAdapter,
   AgentSession,
   BackgroundCommand,
-  FileDiff,
   Model,
   SessionInfo,
   SessionOptions,
@@ -63,42 +60,6 @@ const usageReport = z.object({
     .object({ five_hour: limitWindow, seven_day: limitWindow })
     .nullable(),
 });
-/** what Claude Code's Edit and Write report of the file they changed. */
-const fileResult = z.object({
-  filePath: z.string(),
-  type: z.enum(['create', 'update']).optional(),
-  content: z.string().optional(),
-  oldString: z.string().optional(),
-  staged: z.boolean().optional(),
-  structuredPatch: z.array(
-    z.object({
-      oldStart: z.number(),
-      newStart: z.number(),
-      lines: z.array(z.string()),
-    }),
-  ),
-});
-
-/** a staged result is held for review and has not changed the file. */
-function reportedDiff(report: unknown, cwd: string): FileDiff[] | undefined {
-  const parsed = fileResult.safeParse(report);
-  if (!parsed.success || parsed.data.staged) return undefined;
-  const { filePath, type, content, oldString, structuredPatch } = parsed.data;
-  const path = filePath.startsWith('~/')
-    ? resolve(homedir(), filePath.slice(2))
-    : resolve(cwd, filePath);
-  if (type === 'create') return [wholeFile(path, 'add', content ?? '')];
-  return structuredPatch.length
-    ? [
-        {
-          path,
-          kind: oldString === '' ? 'add' : 'update',
-          hunks: structuredPatch,
-        },
-      ]
-    : undefined;
-}
-
 const questions = z.object({
   questions: z.array(
     z.object({
@@ -262,6 +223,21 @@ class ClaudeSession implements AgentSession {
                 options: question.options?.map((option) => option.label) ?? [],
                 multiple: question.multiSelect,
               }));
+          }
+          if (toolName === 'Edit' || toolName === 'Write') {
+            const diff = await proposedDiff(
+              toolName,
+              input,
+              options.cwd,
+              context.signal,
+            );
+            if (context.signal.aborted || this.closed)
+              return {
+                behavior: 'deny',
+                message: 'Request cancelled',
+                interrupt: true,
+              };
+            if (diff) request.diff = diff;
           }
           const response = await this.ask(request, context.signal);
           if (response.decision !== 'accept')

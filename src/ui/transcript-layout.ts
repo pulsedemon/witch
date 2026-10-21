@@ -15,6 +15,7 @@ export interface ScrollAnchor {
 }
 
 type Anchor = Omit<ScrollAnchor, 'item'>;
+type Expansion = 'closed' | 'preview' | 'full';
 
 interface Block {
   /** the item this block was built from; a block is reused as is only for that object. */
@@ -89,10 +90,11 @@ function tailOf(
 function build(
   item: DisplayItem,
   width: number,
-  expanded: boolean,
+  expansion: Expansion,
   graphics: Graphics | undefined,
 ): Block {
   const tool = item.kind === 'tool';
+  const expanded = expansion !== 'closed';
   const title =
     item.kind === 'user'
       ? colors.hex(accent).bold('You')
@@ -123,7 +125,7 @@ function build(
     : [];
   const diff =
     tool && expanded && item.diff?.length
-      ? diffRows(item.diff, width, item.cwd)
+      ? diffRows(item.diff, width, item.cwd, expansion === 'full')
       : [];
   const head = section(title, width, true, 0);
   const rendered = body ? section(body, width, false, head.next) : undefined;
@@ -216,7 +218,7 @@ export function isExpanded(
 
 export class TranscriptLayout {
   /** blocks by item id, then by expanded state, all at `width`. */
-  private cache = new Map<string, Map<boolean, Block>>();
+  private cache = new Map<string, Map<Expansion, Block>>();
   private width = 0;
 
   /** without `graphics`, images stay out of the transcript. */
@@ -226,6 +228,7 @@ export class TranscriptLayout {
     items: readonly DisplayItem[],
     width: number,
     expanded: ReadonlyMap<string, boolean>,
+    full?: ReadonlySet<string>,
   ) {
     if (width !== this.width) this.cache = new Map();
     this.width = width;
@@ -234,17 +237,21 @@ export class TranscriptLayout {
     const starts = new Map<string, number>();
     const rendered = new Map<string, Block>();
     // entries for items no longer shown fall away with the old cache
-    const cache = new Map<string, Map<boolean, Block>>();
+    const cache = new Map<string, Map<Expansion, Block>>();
     for (const item of items) {
-      const open = isExpanded(item, expanded);
-      const variants = this.cache.get(item.id) ?? new Map<boolean, Block>();
-      const previous = variants.get(open);
+      const expansion = !isExpanded(item, expanded)
+        ? 'closed'
+        : full?.has(item.id)
+          ? 'full'
+          : 'preview';
+      const variants = this.cache.get(item.id) ?? new Map<Expansion, Block>();
+      const previous = variants.get(expansion);
       const block =
         previous?.item === item
           ? previous
           : ((previous && extend(previous, item, width)) ??
-            build(item, width, open, this.graphics));
-      variants.set(open, block);
+            build(item, width, expansion, this.graphics));
+      variants.set(expansion, block);
       cache.set(item.id, variants);
       starts.set(item.id, lines.length);
       for (const line of block.lines) lines.push(line);
