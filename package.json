@@ -14,7 +14,7 @@
     "dev": "node --import tsx src/cli.tsx",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-concurrency=2 test/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=\"$(node -p 'Math.min(4, require(\"node:os\").availableParallelism())')\" test/*.test.ts",
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:integration:codex-brews": "node --import tsx scripts/check-codex-brews.ts",
     "lint": "eslint . && prettier --check .",
