@@ -12,12 +12,33 @@ export const claimOwnerSchema = z.object({
   project: z.string(),
 });
 
+export const selectionScopeSchema = z.object({
+  owner: claimOwnerSchema,
+  activation: z.string().uuid(),
+  turn: z.string().uuid(),
+});
+
+export const selectionTicketSchema = selectionScopeSchema.extend({
+  id: z.string().uuid(),
+});
+
+export const selectionStateSchema = z.object({
+  ticket: selectionTicketSchema,
+  position: z.number().int().positive(),
+});
+
 export const taskClaimSchema = z.object({
   id: z.string().uuid(),
   owner: claimOwnerSchema,
   references: z.array(z.string()).min(1),
   summary: z.string(),
   createdAt: z.number(),
+  suggestion: z
+    .object({
+      selection: z.string().uuid(),
+      process: processIdentity,
+    })
+    .optional(),
 });
 
 export const coordinationActionSchema = z.discriminatedUnion('kind', [
@@ -35,6 +56,7 @@ export const conversationSummarySchema = conversationSchema.pick({
 
 export const sessionPresenceSchema = conversationSummarySchema.extend({
   version: z.literal(1),
+  selectionQueue: z.literal(1).optional(),
   project: z.string(),
   activation: z.string().uuid(),
   process: processIdentity,
@@ -52,9 +74,11 @@ export const coordinationSnapshotSchema = z.object({
     z.object({
       presence: sessionPresenceSchema,
       claim: taskClaimSchema.optional(),
+      selection: selectionStateSchema.optional(),
     }),
   ),
   ownClaim: taskClaimSchema.optional(),
+  ownSelection: selectionStateSchema.optional(),
   reservations: z.array(
     z.object({
       claim: taskClaimSchema,
@@ -68,9 +92,21 @@ export const coordinationSnapshotSchema = z.object({
 export type ClaimInput = z.infer<typeof claimInputSchema>;
 export type ClaimOwner = z.infer<typeof claimOwnerSchema>;
 export type TaskClaim = z.infer<typeof taskClaimSchema>;
+export type SelectionScope = z.infer<typeof selectionScopeSchema>;
+export type SelectionTicket = z.infer<typeof selectionTicketSchema>;
+export type SelectionState = z.infer<typeof selectionStateSchema>;
 export type CoordinationAction = z.infer<typeof coordinationActionSchema>;
 export type SessionPresence = z.infer<typeof sessionPresenceSchema>;
 export type CoordinationSnapshot = z.infer<typeof coordinationSnapshotSchema>;
+
+export function selectionStates(tickets: SelectionTicket[]): SelectionState[] {
+  const positions = new Map<string, number>();
+  return tickets.map((ticket) => {
+    const position = (positions.get(ticket.owner.project) ?? 0) + 1;
+    positions.set(ticket.owner.project, position);
+    return { ticket, position };
+  });
+}
 
 export function presenceStatus(presence: SessionPresence): string {
   if (presence.requests) return 'waiting';

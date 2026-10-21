@@ -8,6 +8,8 @@ import { z } from 'zod';
 import {
   claimInputSchema,
   sessionPresenceSchema,
+  selectionTicketSchema,
+  selectionStates,
   taskClaimSchema,
   taskReference,
 } from '../core/coordination-state.js';
@@ -15,15 +17,111 @@ import type {
   ClaimInput,
   ClaimOwner,
   SessionPresence,
+  SelectionScope,
+  SelectionState,
+  SelectionTicket,
   TaskClaim,
 } from '../core/coordination-state.js';
+import type { ProcessIdentity } from '../core/state.js';
+import { identifyProcess } from './process.js';
 import { exclusiveLock, isLocked } from './lock.js';
 import { writeJson } from './json.js';
 
-const ledgerSchema = z.object({
-  version: z.literal(1),
-  claims: z.array(taskClaimSchema),
-});
+const ledgerSchema = z.discriminatedUnion('version', [
+  z.object({ version: z.literal(1), claims: z.array(taskClaimSchema) }),
+  z.object({
+    version: z.literal(2),
+    claims: z.array(taskClaimSchema),
+    selections: z.array(selectionTicketSchema),
+  }),
+]);
+
+type Ledger = { claims: TaskClaim[]; selections: SelectionTicket[] };
+
+function sameOwner(left: ClaimOwner, right: ClaimOwner): boolean {
+  return (
+    left.conversation === right.conversation && left.project === right.project
+  );
+}
+
+function sameScope(left: SelectionScope, right: SelectionScope): boolean {
+  return (
+    sameOwner(left.owner, right.owner) &&
+    left.activation === right.activation &&
+    left.turn === right.turn
+  );
+}
+
+function sameProcess(left: ProcessIdentity, right: ProcessIdentity): boolean {
+  return left.pid === right.pid && left.started === right.started;
+}
+
+function claimInput(owner: ClaimOwner, input: ClaimInput) {
+  const { reference, aliases = [], summary } = claimInputSchema.parse(input);
+  return {
+    references: [
+      ...new Set(
+        [reference, ...aliases].map((value) =>
+          taskReference(value, owner.project),
+        ),
+      ),
+    ],
+    summary,
+  };
+}
+
+function reserve(
+  ledger: Ledger,
+  owner: ClaimOwner,
+  input: ReturnType<typeof claimInput>,
+): TaskClaim {
+  const conflict = ledger.claims.find(
+    (claim) =>
+      claim.owner.conversation !== owner.conversation &&
+      claim.references.some((value) => input.references.includes(value)),
+  );
+  if (conflict) throw new ClaimConflict(conflict);
+  const existing = ledger.claims.find(
+    (claim) => claim.owner.conversation === owner.conversation,
+  );
+  if (existing) {
+    if (
+      sameOwner(existing.owner, owner) &&
+      input.references.some((value) => existing.references.includes(value))
+    ) {
+      existing.references = [
+        ...new Set([...existing.references, ...input.references]),
+      ];
+      existing.summary = input.summary;
+      delete existing.suggestion;
+      return existing;
+    }
+    if (!existing.suggestion)
+      throw new Error('Release the current task before claiming another.');
+    ledger.claims.splice(ledger.claims.indexOf(existing), 1);
+  }
+  const claim: TaskClaim = {
+    id: randomUUID(),
+    owner,
+    ...input,
+    createdAt: Date.now(),
+  };
+  ledger.claims.push(claim);
+  return claim;
+}
+
+function selection(
+  ledger: Ledger,
+  scope: SelectionScope,
+  id: string,
+): SelectionState {
+  const state = selectionStates(ledger.selections).find(
+    (state) => state.ticket.id === id,
+  );
+  if (!state || !sameScope(state.ticket, scope))
+    throw new Error('This selection is no longer current.');
+  return state;
+}
 
 export class ClaimConflict extends Error {
   constructor(readonly claim: TaskClaim) {
@@ -110,15 +208,12 @@ export class CoordinationStore {
     }
   }
 
+  async state(): Promise<Ledger> {
+    return this.reconcile(await this.read());
+  }
+
   async claims(): Promise<TaskClaim[]> {
-    try {
-      return ledgerSchema.parse(
-        JSON.parse(await readFile(join(this.directory, 'claims.json'), 'utf8')),
-      ).claims;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw error;
-    }
+    return (await this.state()).claims;
   }
 
   async claim(
@@ -127,44 +222,12 @@ export class CoordinationStore {
     deadline: number,
     verify: () => Promise<void>,
   ): Promise<TaskClaim> {
-    const { reference, aliases = [], summary } = claimInputSchema.parse(input);
-    const references = [
-      ...new Set(
-        [reference, ...aliases].map((value) =>
-          taskReference(value, owner.project),
-        ),
-      ),
-    ];
-    return this.mutate(deadline, verify, (claims) => {
-      const conflict = claims.find(
-        (claim) =>
-          claim.owner.conversation !== owner.conversation &&
-          claim.references.some((value) => references.includes(value)),
+    const normalized = claimInput(owner, input);
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = reserve(ledger, owner, normalized);
+      ledger.selections = ledger.selections.filter(
+        (ticket) => ticket.owner.conversation !== owner.conversation,
       );
-      if (conflict) throw new ClaimConflict(conflict);
-      const existing = claims.find(
-        (claim) => claim.owner.conversation === owner.conversation,
-      );
-      if (existing) {
-        if (
-          existing.owner.project !== owner.project ||
-          !references.some((value) => existing.references.includes(value))
-        )
-          throw new Error('Release the current task before claiming another.');
-        existing.references = [
-          ...new Set([...existing.references, ...references]),
-        ];
-        existing.summary = summary;
-        return existing;
-      }
-      const claim: TaskClaim = {
-        id: randomUUID(),
-        owner,
-        references,
-        summary,
-        createdAt: Date.now(),
-      };
-      claims.push(claim);
       return claim;
     });
   }
@@ -175,35 +238,170 @@ export class CoordinationStore {
     deadline: number,
     verify: () => Promise<void>,
   ): Promise<void> {
-    await this.mutate(deadline, verify, (claims) => {
-      const index = claims.findIndex((claim) => claim.id === id);
+    await this.mutate(deadline, verify, (ledger) => {
+      const index = ledger.claims.findIndex((claim) => claim.id === id);
       if (index < 0) return;
-      const claim = claims[index]!;
-      if (
-        claim.owner.conversation !== owner.conversation ||
-        claim.owner.project !== owner.project
-      )
+      if (!sameOwner(ledger.claims[index]!.owner, owner))
         throw new Error('Only the owning conversation can release this task.');
-      claims.splice(index, 1);
+      ledger.claims.splice(index, 1);
     });
+  }
+
+  async beginSelection(
+    scope: SelectionScope,
+    deadline: number,
+    verify: () => Promise<void>,
+  ): Promise<SelectionState> {
+    return this.mutate(deadline, verify, (ledger) => {
+      const existing = ledger.selections.find(
+        (ticket) => ticket.owner.conversation === scope.owner.conversation,
+      );
+      if (existing) return selection(ledger, scope, existing.id);
+      const claim = ledger.claims.find(
+        (claim) => claim.owner.conversation === scope.owner.conversation,
+      );
+      if (claim && !claim.suggestion)
+        throw new Error('Release the current task before choosing another.');
+      if (claim) ledger.claims.splice(ledger.claims.indexOf(claim), 1);
+      const ticket = { ...scope, id: randomUUID() };
+      ledger.selections.push(ticket);
+      return selection(ledger, scope, ticket.id);
+    });
+  }
+
+  async selection(
+    scope: SelectionScope,
+    id: string,
+    deadline: number,
+    verify: () => Promise<void>,
+  ): Promise<SelectionState> {
+    return this.mutate(deadline, verify, (ledger) =>
+      selection(ledger, scope, id),
+    );
+  }
+
+  async recommend(
+    scope: SelectionScope,
+    id: string,
+    input: ClaimInput,
+    process: ProcessIdentity,
+    deadline: number,
+    verify: () => Promise<void>,
+  ): Promise<TaskClaim> {
+    const normalized = claimInput(scope.owner, input);
+    return this.mutate(deadline, verify, (ledger) => {
+      const recorded = ledger.claims.find(
+        (claim) => claim.suggestion?.selection === id,
+      );
+      if (recorded) {
+        if (
+          !sameOwner(recorded.owner, scope.owner) ||
+          !sameProcess(recorded.suggestion!.process, process) ||
+          recorded.summary !== normalized.summary ||
+          recorded.references.length !== normalized.references.length ||
+          !recorded.references.every((value) =>
+            normalized.references.includes(value),
+          )
+        )
+          throw new Error(
+            'This recommendation does not match the recorded selection.',
+          );
+        return recorded;
+      }
+      if (selection(ledger, scope, id).position !== 1)
+        throw new Error('Wait for first position before recommending a task.');
+      const claim = reserve(ledger, scope.owner, normalized);
+      claim.suggestion = { selection: id, process };
+      ledger.selections = ledger.selections.filter(
+        (ticket) => ticket.id !== id,
+      );
+      return claim;
+    });
+  }
+
+  async cancelSelection(
+    scope: SelectionScope,
+    id: string | undefined,
+    deadline: number,
+    verify: () => Promise<void>,
+  ): Promise<void> {
+    await this.mutate(deadline, verify, (ledger) => {
+      if (id && ledger.selections.some((ticket) => ticket.id === id))
+        selection(ledger, scope, id);
+      ledger.selections = ledger.selections.filter(
+        (ticket) =>
+          !(sameScope(ticket, scope) && (id === undefined || ticket.id === id)),
+      );
+    });
+  }
+
+  async releaseSuggestion(
+    owner: ClaimOwner,
+    process: ProcessIdentity,
+    deadline: number,
+    verify: () => Promise<void>,
+  ): Promise<void> {
+    await this.mutate(deadline, verify, (ledger) => {
+      ledger.claims = ledger.claims.filter(
+        (claim) =>
+          !(
+            sameOwner(claim.owner, owner) &&
+            claim.suggestion &&
+            sameProcess(claim.suggestion.process, process)
+          ),
+      );
+    });
+  }
+
+  private async read(): Promise<Ledger> {
+    try {
+      const ledger = ledgerSchema.parse(
+        JSON.parse(await readFile(join(this.directory, 'claims.json'), 'utf8')),
+      );
+      return {
+        claims: ledger.claims,
+        selections: ledger.version === 2 ? ledger.selections : [],
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return { claims: [], selections: [] };
+      throw error;
+    }
+  }
+
+  private async reconcile(ledger: Ledger): Promise<Ledger> {
+    const claims: TaskClaim[] = [];
+    for (const claim of ledger.claims) {
+      if (
+        !claim.suggestion ||
+        (await identifyProcess(claim.suggestion.process.pid))?.started ===
+          claim.suggestion.process.started
+      )
+        claims.push(claim);
+    }
+    const selections: SelectionTicket[] = [];
+    for (const ticket of ledger.selections)
+      if (await this.isActive(ticket.activation)) selections.push(ticket);
+    return { claims, selections };
   }
 
   private async mutate<T>(
     deadline: number,
     verify: () => Promise<void>,
-    change: (claims: TaskClaim[]) => T,
+    change: (ledger: Ledger) => T,
   ): Promise<T> {
     const lock = await this.lock(deadline);
     try {
-      const claims = await this.claims();
-      const before = JSON.stringify(claims);
+      const stored = await this.read();
+      const before = JSON.stringify(stored);
+      const ledger = await this.reconcile(stored);
       await verify();
       checkDeadline(deadline);
-      const result = change(claims);
-      if (JSON.stringify(claims) !== before)
+      const result = change(ledger);
+      if (JSON.stringify(ledger) !== before)
         await writeJson(join(this.directory, 'claims.json'), {
-          version: 1,
-          claims,
+          version: 2,
+          ...ledger,
         });
       return result;
     } finally {
