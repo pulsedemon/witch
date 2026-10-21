@@ -2,13 +2,12 @@ import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from './agents/stderr.js';
-import {
-  coordinationActionSchema,
-  presenceStatus,
-} from './core/coordination-state.js';
+import { coordinationActionSchema } from './core/coordination-state.js';
 import { callControl, controlBindingSchema } from './persistence/control.js';
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
 import { quote } from './shell.js';
+import { oneLine } from './ui/links.js';
+import { peerStatus } from './ui/peers.js';
 
 export function parseCommand(args = process.argv.slice(2)) {
   const parsed = parseArgs({
@@ -148,7 +147,7 @@ export function controlPrefix(binding: ControlBinding, entry: string): string {
 function describe(outcome: ControlOutcome): string {
   switch (outcome.kind) {
     case 'claimed':
-      return `Claimed: ${outcome.claim.summary}\nClaim id: ${outcome.claim.id}`;
+      return `${outcome.claim.suggestion ? 'Suggested' : 'Claimed'}: ${oneLine(outcome.claim.summary)}\nClaim id: ${outcome.claim.id}`;
     case 'selection':
       return `Selection ${outcome.selection.ticket.id}: ${outcome.selection.position === 1 ? 'ready' : `queued #${outcome.selection.position}`}`;
     case 'selection-cancelled':
@@ -168,19 +167,25 @@ function describe(outcome: ControlOutcome): string {
             : []),
           ...(snapshot.ownClaim
             ? [
-                `Current task: ${snapshot.ownClaim.summary} (${snapshot.ownClaim.id})`,
+                `${snapshot.ownClaim.suggestion ? 'Suggested task' : 'Current task'}: ${oneLine(snapshot.ownClaim.summary)} (${snapshot.ownClaim.id})`,
+              ]
+            : []),
+          ...(snapshot.ownSelection
+            ? [
+                `Selection ${snapshot.ownSelection.ticket.id}: ${snapshot.ownSelection.position === 1 ? 'choosing' : `queued #${snapshot.ownSelection.position}`}`,
               ]
             : []),
           ...snapshot.peers.map(
-            ({ presence, claim }) =>
-              `${claim?.summary ?? presence.title} | ${presence.agent} | ${presenceStatus(presence)} | ${presence.cwd} | ${presence.id}`,
+            (peer) =>
+              `${oneLine(peer.claim?.summary ?? peer.presence.title)} | ${oneLine(peer.presence.agent)} | ${peerStatus(peer)} | ${oneLine(peer.presence.cwd)} | ${oneLine(peer.presence.id)}`,
           ),
           ...snapshot.reservations.map(
             ({ claim, status }) =>
-              `${claim.summary} | ${status} | ${claim.owner.conversation} | ${claim.id}`,
+              `${oneLine(claim.summary)} | ${status} | ${oneLine(claim.owner.conversation)} | ${claim.id}`,
           ),
           ...snapshot.unregistered.map(
-            (peer) => `${peer.title} | unregistered | ${peer.cwd} | ${peer.id}`,
+            (peer) =>
+              `${oneLine(peer.title)} | unregistered | ${oneLine(peer.cwd)} | ${oneLine(peer.id)}`,
           ),
         ].join('\n') || 'No other sessions in this project.'
       );
