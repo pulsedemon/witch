@@ -91,6 +91,7 @@ export interface UserRequest {
   kind: 'approval' | 'question' | 'elicitation';
   title: string;
   detail: string;
+  diff?: FileDiff[];
   questions?: Question[];
   schema?: Record<string, unknown>;
   url?: string;
