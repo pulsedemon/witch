@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../../src/agents/claude.js';
 import type { AgentEvent, SessionOptions } from '../../src/agents/types.js';
 import { scratch } from './scratch.js';
+import { until } from './within.js';
 
 const claude = fileURLToPath(new URL('claude.mjs', import.meta.url));
 
@@ -72,3 +73,13 @@ export async function jsonLines(file: string): Promise<unknown[]> {
 
 export const content = async (cwd: string) =>
   JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as unknown;
+
+export function frameWriter(cwd: string, received: (name: string) => boolean) {
+  let sequence = 0;
+  return async (...frames: object[]) => {
+    const index = ++sequence;
+    await writeFile(join(cwd, 'events.next'), JSON.stringify(frames));
+    await rename(join(cwd, 'events.next'), join(cwd, `events-${index}.json`));
+    await until('native frame barrier', () => received(`barrier-${index}`));
+  };
+}

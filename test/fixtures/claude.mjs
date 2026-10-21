@@ -44,13 +44,23 @@ const state = (state) =>
   });
 const task = (subtype, fields) =>
   send({ type: 'system', subtype, ...fields, uuid: randomUUID(), session_id });
-if (mode === 'compaction') {
+if (mode === 'compaction' || mode === 'background') {
   const read = (index) =>
     once(`events-${index}.json`, () => {
       for (const frame of JSON.parse(
         readFileSync(join(process.cwd(), `events-${index}.json`), 'utf8'),
-      ))
-        send({ uuid: randomUUID(), session_id, ...frame });
+      )) {
+        if (mode === 'background' && frame.type === 'result') result(frame);
+        else send({ uuid: randomUUID(), session_id, ...frame });
+        if (
+          frame.type === 'command_lifecycle' &&
+          frame.state !== 'queued' &&
+          (!frame.session_id || frame.session_id === session_id)
+        ) {
+          const index = held.indexOf(frame.command_uuid);
+          if (index !== -1) held.splice(index, 1);
+        }
+      }
       task('commands_changed', {
         commands: [
           { name: `barrier-${index}`, description: '', argumentHint: '' },
@@ -180,6 +190,8 @@ const finish = () => {
 };
 for await (const line of lines) {
   const message = JSON.parse(line);
+  if (mode === 'background')
+    appendFileSync(join(process.cwd(), 'wire.jsonl'), `${line}\n`);
   if (mode === 'pending-model' && message.type === 'user')
     message.message.content = message.message.content
       .split('User request:\n')
@@ -301,7 +313,24 @@ for await (const line of lines) {
     }
     if (request.subtype === 'interrupt') {
       appendFileSync(join(process.cwd(), 'interrupts.log'), 'interrupt\n');
-      if (
+      if (mode === 'background') {
+        response = {
+          still_queued: existsSync(join(process.cwd(), 'receipt.json'))
+            ? JSON.parse(
+                readFileSync(join(process.cwd(), 'receipt.json'), 'utf8'),
+              )
+            : [...held],
+        };
+        if (!response.still_queued.length)
+          setTimeout(() => {
+            result({
+              subtype: 'error_during_execution',
+              is_error: true,
+              errors: ['Turn interrupted.'],
+            });
+            state('idle');
+          });
+      } else if (
         (mode === 'hold-initial' || lastPrompt === 'reporting familiar') &&
         held.length
       )
@@ -336,6 +365,13 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    if (mode === 'background') {
+      appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
+      if (lastPrompt) {
+        held.push(message.uuid);
+        continue;
+      }
+    }
     if (mode === 'compaction' && message.message.content === '/compact') {
       writeFileSync(
         join(process.cwd(), 'compact.json'),
@@ -424,9 +460,18 @@ for await (const line of lines) {
       plugins: [],
       uuid: randomUUID(),
       claude_code_version: '2.1.296',
+      ...(mode === 'background' ? { capabilities: ['msg_lifecycle_v1'] } : {}),
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
     state('running');
+    if (mode === 'background') {
+      assistant('Initial reply.');
+      result({
+        user_message_uuid: message.uuid,
+        user_message_uuids: [message.uuid],
+      });
+      continue;
+    }
     if (lastPrompt === 'preview' || lastPrompt === 'preview-withdrawn') {
       const { tool, input } = JSON.parse(
         readFileSync(join(process.cwd(), 'preview.json'), 'utf8'),
