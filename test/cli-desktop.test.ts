@@ -104,6 +104,10 @@ await test('the CLI opens the pressed link, copies selected text and reports des
         `${name}: exited ${child.exitCode}; ${stderr}`,
       );
       return Boolean(check());
+    }).catch((error: unknown) => {
+      throw new Error(`${name}: ${stripAnsi(output)}\n${stderr}`, {
+        cause: error,
+      });
     });
   const mouse = (
     kind: 'press' | 'drag' | 'release',
