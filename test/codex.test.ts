@@ -1,66 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
-import { CodexAdapter } from '../src/agents/codex.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-import type {
-  AgentEvent,
-  AgentSession,
-  CommandMark,
-  Usage,
-} from '../src/agents/types.js';
-import { scratch } from './fixtures/scratch.js';
+import type { AgentEvent, Usage } from '../src/agents/types.js';
 import { until, within } from './fixtures/within.js';
-
-const codex = fileURLToPath(new URL('fixtures/codex.mjs', import.meta.url));
-
-async function fixture(
-  onEvent: (event: AgentEvent) => void = () => {},
-  {
-    effort,
-    resume,
-    mode,
-    signal,
-    mark,
-  }: {
-    effort?: string;
-    resume?: string;
-    mode?: string;
-    signal?: AbortSignal;
-    mark?: CommandMark;
-  } = {},
-) {
-  const cwd = await scratch('witch-codex-');
-  const adapter = new CodexAdapter((_, directory, signal) =>
-    spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
-      cwd: directory,
-      stdio: 'pipe',
-      signal,
-    }),
-  );
-  const session = await adapter.connect({
-    cwd,
-    executable: 'codex',
-    effort,
-    resume,
-    signal,
-    memoryDirectories: ['/shared/global', '/shared/project'],
-    onEvent,
-    onProcess: async () => {},
-    mark,
-  });
-  return { session, cwd };
-}
-
-/** lets a held fixture event go, so a reverted guard can't hang cleanup. */
-async function close(session: AgentSession, cwd: string) {
-  await writeFile(join(cwd, 'release'), 'yes');
-  await session.close();
-}
+import { fixture, close } from './fixtures/codex-adapter.js';
 
 async function appears(path: string) {
   await until(path, () =>
