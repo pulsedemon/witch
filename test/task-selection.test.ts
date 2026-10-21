@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import {
   ConversationStore,
   LockedElsewhere,
 } from '../src/persistence/store.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
+import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
@@ -279,6 +283,54 @@ await test('active claims survive reconnect and restart but normal close makes t
   await reopened.coordinator.close();
   assert.deepEqual(await f.registry.claims(), []);
   assert.equal((await b.claim()).kind, 'claimed');
+});
+
+await test('adopting a legacy claim preserves its aliases through restart without binding another legacy owner', async (t) => {
+  const f = await coordinationFixture(t);
+  const id = randomUUID();
+  const files = await f.store.create(record(id, join(f.root, 'A')));
+  const other = await f.store.create(record('older-peer', join(f.root, 'B')));
+  t.after(() => other.close());
+  const { project } = await f.memory.scopePaths(join(f.root, 'A'));
+  const original = {
+    id: randomUUID(),
+    owner: { conversation: id, project },
+    references: ['github:acme/queue#17', 'github:acme/queue#19'],
+    summary: 'Legacy work',
+    createdAt: 1,
+  };
+  const otherClaim = {
+    ...original,
+    id: randomUUID(),
+    owner: { conversation: other.record.id, project },
+    references: ['github:acme/queue#90'],
+  };
+  await writeFile(
+    join(f.store.root, 'coordination', 'claims.json'),
+    JSON.stringify({ version: 1, claims: [original, otherClaim] }),
+  );
+  await files.close();
+  const a = await f.start('A', { conversation: id });
+  const adopted = { ...original, process: await identifyProcess(process.pid) };
+  const migrated = JSON.parse(await f.ledger());
+  assert.equal(migrated.version, 2);
+  assert.deepEqual(migrated.claims, [adopted, otherClaim]);
+  await a.coordinator.switchAgent('b');
+  await other.close();
+  const b = await f.start('B');
+  await a.coordinator.close({ restart: true });
+  assert.equal(await f.store.isOpen(id), false);
+  const refused = await b.claim('https://github.com/acme/queue/issues/19');
+  assert.equal(refused.kind, 'conflict');
+  assert.deepEqual(await f.registry.claims(), [adopted]);
+  const resumed = await f.start('A', { conversation: id });
+  assert.deepEqual((await resumed.query()).ownClaim, adopted);
+  await resumed.coordinator.close();
+  assert.deepEqual(await f.registry.claims(), []);
+  assert.equal(
+    (await b.claim('https://github.com/acme/queue/issues/19')).kind,
+    'claimed',
+  );
 });
 
 await test('restart recovers a departed claim release while preserving other open conversations', async (t) => {
