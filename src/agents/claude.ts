@@ -865,11 +865,12 @@ class ClaudeSession implements AgentSession {
       }),
     ]);
     const update: Usage = {};
-    const percentage =
-      context.status === 'fulfilled'
-        ? z.number().safeParse(context.value.percentage)
-        : undefined;
-    if (percentage?.success) update.context = percentage.data;
+    if (context.status === 'fulfilled') {
+      const percentage = z.number().safeParse(context.value.percentage);
+      if (percentage.success) update.context = percentage.data;
+      const capacity = z.number().safeParse(context.value.maxTokens);
+      if (capacity.success) update.contextWindow = capacity.data;
+    }
     const usage =
       report.status === 'fulfilled'
         ? usageReport.safeParse(report.value)

@@ -33,6 +33,8 @@ export interface SessionInfo {
 export interface Usage {
   /** percent of the context window in use. */
   context?: number;
+  /** the native agent's context capacity in tokens. */
+  contextWindow?: number;
   /** the session's estimated cost in US dollars. */
   cost?: number;
   /** the account's usage limits, shortest window first. */

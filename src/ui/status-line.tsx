@@ -17,6 +17,10 @@ export interface Status {
 }
 
 const white = colors.whiteBright;
+const tokenCount = new Intl.NumberFormat('en', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
 
 /** white until 40%, then warming through yellow to red by 60%. */
 function bar(percent: number): string {
@@ -93,10 +97,13 @@ function pullRequest({ pullRequest: request }: Repository): string | undefined {
   }`;
 }
 
-/** the two rows `~/.claude/statusline.sh` draws, with its defaults for what isn't reported yet. */
 export function statusLines(status: Status, now: number): [string, string] {
   const { usage, repository } = status;
   const context = Math.floor(usage.context ?? 0);
+  const capacity =
+    usage.contextWindow === undefined
+      ? ''
+      : ` (${tokenCount.format(usage.contextWindow)})`;
   const limits = (usage.limits ?? [])
     .map(({ window, percent, resetsAt }) => {
       const rounded = Math.round(percent);
@@ -114,7 +121,7 @@ export function statusLines(status: Status, now: number): [string, string] {
       ...(limits ? [limits] : []),
     ]),
     piped([
-      `${white('CTX')} ${context}% ${bar(context)}`,
+      `${white('CTX')} ${context}%${capacity} ${bar(context)}`,
       white(hyperlink(oneLine(basename(status.cwd)), status.cwd, status.cwd)),
       ...(repository ? [white(git(repository))] : []),
       ...(request ? [white(request)] : []),
