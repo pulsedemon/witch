@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import stripAnsi from 'strip-ansi';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 import { StateStore } from '../src/persistence/store.js';
@@ -27,6 +28,10 @@ await test('the CLI opens the pressed link, copies selected text and reports des
   const bin = join(root, 'bin');
   await mkdir(project, { recursive: true });
   await mkdir(bin, { recursive: true });
+  const git = (
+    await promisify(execFile)('/usr/bin/which', ['git'])
+  ).stdout.trim();
+  await symlink(git, join(bin, 'git'));
   await writeFile(
     join(bin, 'codex'),
     `#!/bin/sh\nexec '${process.execPath}' '${repository}/test/fixtures/codex.mjs'\n`,
