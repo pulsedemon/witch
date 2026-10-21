@@ -468,3 +468,34 @@ await test('a resumed native context sample schedules compaction and a model wit
     await f.coordinator.close();
   }
 });
+
+for (const interrupted of [false, true]) {
+  await test(`a command whose native history changes refreshes memory before its reply${interrupted ? ' and still honors interruption' : ''}`, async () => {
+    const f = await fixture();
+    try {
+      await f.coordinator.send('remember-port');
+      await f.coordinator.send('latest revision');
+      const entry = f.a.sessions.at(-1)!,
+        shell = entry.session.shell.bind(entry.session);
+      entry.session.shell = async (...args) => {
+        entry.options.onEvent({ type: 'compacted' });
+        return shell(...args);
+      };
+      if (interrupted) {
+        const snapshot = f.memory.snapshot.bind(f.memory);
+        f.memory.snapshot = async (...args) => {
+          await f.coordinator.interrupt();
+          return snapshot(...args);
+        };
+      }
+      await f.coordinator.send('!printf distinct-command');
+      assert.deepEqual(f.a.shells, ['printf distinct-command']);
+      assert.equal(f.a.inputs.length, interrupted ? 2 : 3);
+      if (!interrupted)
+        assert.match(f.a.inputs.at(-1)!.prompt, /Use port 4567/);
+      assert.equal(f.coordinator.snapshot.phase, 'idle');
+    } finally {
+      await f.coordinator.close();
+    }
+  });
+}
