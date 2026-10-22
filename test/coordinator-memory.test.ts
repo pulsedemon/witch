@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -80,6 +80,173 @@ await test('memory another conversation publishes refreshes an existing session 
     assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
   } finally {
     await coordinator.close();
+  }
+});
+
+await test('a successful irrelevant memory update advances its delivery cursor without a snapshot', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('Initial task');
+    const id = f.coordinator.snapshot.conversation!.id;
+    const previous = (await readRecord(f.root, id)).sessions.a!
+      .deliveredRevision;
+    await publishOutside(f, {
+      'projects/unrelated/note.md': 'Other project 71.',
+    });
+    const accepted = await f.memory.resolve(main);
+    assert.notEqual(accepted, previous);
+    await f.coordinator.send('Continue');
+    assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.equal(
+      (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
+      accepted,
+    );
+    await f.coordinator.close();
+    const reopened = await f.reopen();
+    try {
+      await reopened.send('Continue after reopening');
+      assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+      assert.equal(
+        (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
+        accepted,
+      );
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+for (const result of ['interrupted', 'failed'] as const) {
+  await test(`a reversed scoped update is corrected after the ${result} turn`, async () => {
+    const f = await fixture();
+    try {
+      const note = await f.note();
+      await publishOutside(f, { [note]: 'Project preference 29.' });
+      await f.coordinator.send('Initial task');
+      const id = f.coordinator.snapshot.conversation!.id;
+      const previous = (await readRecord(f.root, id)).sessions.a!
+        .deliveredRevision!;
+      const native = f.a.inputs.at(-1)!.session;
+      await publishOutside(f, { [note]: 'Intermediate preference 41.' });
+      if (result === 'interrupted') f.a.interruptNext = true;
+      else f.a.failNext = true;
+      await f.coordinator.send('Attempt task');
+      assert.match(f.a.inputs.at(-1)!.prompt, /Intermediate preference 41/);
+      assert.equal(
+        (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
+        previous,
+      );
+      await f.coordinator.restoreMemory(note, previous);
+      const restored = await f.memory.resolve(main);
+      assert.notEqual(restored, previous);
+      assert.equal(
+        (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
+        previous,
+      );
+      await f.coordinator.send('Retry task');
+      assert.match(f.a.inputs.at(-1)!.prompt, /Project preference 29/);
+      assert.doesNotMatch(
+        f.a.inputs.at(-1)!.prompt,
+        /Intermediate preference 41/,
+      );
+      assert.equal(f.a.inputs.at(-1)!.session, native);
+      assert.equal(
+        (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
+        restored,
+      );
+    } finally {
+      await f.coordinator.close();
+    }
+  });
+}
+
+await test('compaction rehydrates both scopes and invalidates references after partial updates', async () => {
+  const f = await fixture();
+  try {
+    const note = await f.note();
+    await publishOutside(f, {
+      'global/MEMORY.md': 'Global preference 17.',
+      [note]: 'Project preference 29.',
+      'global/reference.md': 'Reference detail 53.',
+    });
+    await f.coordinator.send('Initial task');
+    assert.match(f.a.inputs.at(-1)!.prompt, /Global preference 17/);
+    assert.match(f.a.inputs.at(-1)!.prompt, /Project preference 29/);
+    const native = f.a.inputs.at(-1)!.session;
+    await publishOutside(f, { [note]: 'Project preference 41.' });
+    await f.coordinator.send('Partial update');
+    assert.match(f.a.inputs.at(-1)!.prompt, /Project preference 41/);
+    assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Global preference 17/);
+    const other = await f.outsider();
+    await unlink(join(other.root, 'global/reference.md'));
+    await other.commit('remove reference');
+    await other.publish();
+    await f.coordinator.compact();
+    const id = f.coordinator.snapshot.conversation!.id;
+    assert.equal(
+      (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
+      undefined,
+    );
+    await f.coordinator.close();
+    const reopened = await f.reopen();
+    try {
+      await reopened.send('Continue after compaction');
+      const prompt = f.a.inputs.at(-1)!.prompt;
+      assert.match(prompt, /Global preference 17/);
+      assert.match(prompt, /Project preference 41/);
+      assert.match(
+        prompt,
+        /This baseline supersedes all earlier shared-memory snapshots/,
+      );
+      assert.match(
+        prompt,
+        /Treat all previously read reference notes as stale/,
+      );
+      assert.match(prompt, /missing notes no longer apply/);
+      assert.equal(f.a.inputs.at(-1)!.session, native);
+      await reopened.send('Unchanged memory');
+      assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+await test('overflow and concise writing guidance reach the active native prompt', async () => {
+  const f = await fixture();
+  try {
+    const note = await f.note();
+    const body = 'é'.repeat(3001);
+    await publishOutside(f, {
+      'global/MEMORY.md': 'Global preference 17.',
+      [note]: body,
+    });
+    const request = 'Calculate 17 + 29.';
+    await f.coordinator.send(request);
+    const prompt = f.a.inputs.at(-1)!.prompt;
+    assert.ok(
+      prompt.includes(`${join(f.workspace().root, note)}\n(6002 bytes)`),
+    );
+    assert.match(
+      prompt,
+      /Read the complete file at the path above before acting/,
+    );
+    assert.match(prompt, /Global preference 17/);
+    assert.ok(!prompt.includes(body.slice(0, 100)));
+    assert.equal(await readFile(join(f.workspace().root, note), 'utf8'), body);
+    assert.match(prompt, /When nothing durable changed, write nothing/);
+    assert.match(prompt, /MEMORY\.md within 6000 UTF-8 bytes/);
+    assert.match(
+      prompt,
+      /Keep planning, test, commit, publication and review progress out of the indexes/,
+    );
+    assert.ok(prompt.endsWith(`User request:\n${request}`));
+  } finally {
+    await f.coordinator.close();
   }
 });
 
