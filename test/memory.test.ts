@@ -230,6 +230,11 @@ await test('global memory crosses projects while project notes remain scoped', a
   );
   assert.match(snapshot, /Use concise replies/);
   assert.doesNotMatch(snapshot, /4567/);
+  assert.match(
+    snapshot,
+    /This baseline supersedes all earlier shared-memory snapshots/,
+  );
+  assert.match(snapshot, /Only the global and project scopes named here apply/);
 });
 
 await test('clones of one origin share project memory under its name across directories, URL and scp forms, users and host case', async () => {
@@ -550,7 +555,11 @@ await test('restore recreates a deleted directory, produces a new accepted revis
     restored,
   );
   assert.doesNotMatch(removed, /Use value A/);
-  assert.ok(removed.includes(`since the previous snapshot:\nD\t${note}`));
+  assert.ok(
+    removed.includes(
+      `since the previous snapshot:\nD\t${JSON.stringify(join(workspace.root, note))}`,
+    ),
+  );
 });
 
 await test('a changed note with a non-ASCII name reaches the agent as written', async () => {
@@ -565,10 +574,9 @@ await test('a changed note with a non-ASCII name reaches the agent as written', 
     before,
   );
   assert.ok(
-    snapshot.includes('since the previous snapshot:\nA\tglobal/café.md'),
-  );
-  assert.ok(
-    snapshot.split('\n').includes(join(workspace.root, 'global/café.md')),
+    snapshot.includes(
+      `since the previous snapshot:\nA\t${JSON.stringify(join(workspace.root, 'global/café.md'))}`,
+    ),
   );
 });
 
