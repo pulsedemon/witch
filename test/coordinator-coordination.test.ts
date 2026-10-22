@@ -16,6 +16,7 @@ import {
 import { TurnGate } from './fixtures/agent.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
+import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
 await test('coordination context stays before the exact user request and raw steered spells', async (t) => {
@@ -158,8 +159,10 @@ await test('switch revokes old authority before native close and releases the de
 
 for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
   await test(`${replacement} replaces native authority without releasing the conversation's task`, async (t) => {
-    const { root, start, registry, ledger } = await coordinationFixture(t);
+    const { root, start, registry, ledger, store } =
+      await coordinationFixture(t);
     const a = await start();
+    const peer = replacement === 'rollback' ? await start('B') : undefined;
     await a.claim();
     const claim = (await registry.claims())[0]!,
       bound = await a.binding();
@@ -202,10 +205,9 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
       finish.resolve();
     }
     const error = await settled;
-    if (replacement === 'rollback') {
+    if (replacement === 'rollback')
       assert.match(String(error), /Destination unavailable/);
-      await a.coordinator.send('Resume source');
-    } else assert.equal(error, undefined);
+    else assert.equal(error, undefined);
     const current = await a.binding();
     assert.notEqual(current.activation, bound.activation);
     assert.equal(current.conversation, bound.conversation);
@@ -214,11 +216,109 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
       'error',
     );
     assert.equal(await ledger(), before);
+    if (peer) {
+      assert.equal(a.coordinator.snapshot.phase, 'idle');
+      assert.equal(a.coordinator.snapshot.conversation!.agent, 'a');
+      assert.equal(await store.isOpen(bound.conversation), true);
+      assert.deepEqual((await peer.query()).unregistered, []);
+      assert.equal(a.a.sessions.length, 1);
+      assert.deepEqual(a.a.inputs, []);
+      assert.deepEqual(a.b.inputs, []);
+      assert.equal((await peer.claim('task:independent')).kind, 'claimed');
+      assert.deepEqual((await a.query()).ownClaim, claim);
+    }
     await a.coordinator.send('Check current prefix');
     const active = replacement === 'handoff' ? a.b : a.a;
     assert.ok(active.inputs.at(-1)!.prompt.includes(current.activation));
+    if (replacement === 'rollback')
+      assert.equal(active.inputs.at(-1)!.session, native.info.id);
   });
 }
+
+await test('an interrupted handoff summary restores registration before source resume', async (t) => {
+  const { start, store } = await coordinationFixture(t);
+  const a = await start(),
+    peer = await start('B');
+  await a.coordinator.send('Seed source history');
+  assert.equal((await a.claim('task:source')).kind, 'claimed');
+  const claim = (await a.query()).ownClaim!,
+    bound = await a.binding(),
+    source = a.a.sessions.at(-1)!.session.info.id;
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const switching = a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
+  const rejected = assert.rejects(switching, /interrupted/);
+  try {
+    await within(gate.entered, 5000, 'handoff summary');
+    const inputs = a.a.inputs.length;
+    await a.coordinator.interrupt();
+    await rejected;
+    assert.equal(a.coordinator.snapshot.phase, 'idle');
+    assert.equal(a.coordinator.snapshot.conversation!.agent, 'a');
+    assert.equal(await store.isOpen(bound.conversation), true);
+    assert.deepEqual((await peer.query()).unregistered, []);
+    const current = await a.binding();
+    assert.notEqual(current.activation, bound.activation);
+    assert.equal(current.conversation, bound.conversation);
+    assert.equal(
+      (await callControl(bound, { kind: 'release', claim: claim.id })).kind,
+      'error',
+    );
+    assert.deepEqual((await a.query()).ownClaim, claim);
+    assert.equal(a.a.sessions.length, 1);
+    assert.equal(a.a.inputs.length, inputs);
+    assert.deepEqual(a.b.inputs, []);
+    const choosing = await selectionTurn(t, peer);
+    assert.equal((await choosing.select()).position, 1);
+    await choosing.finish();
+    assert.equal((await peer.claim('task:independent')).kind, 'claimed');
+    assert.deepEqual((await a.query()).ownClaim, claim);
+    a.a.gate = undefined;
+    await a.coordinator.send('Resume source');
+    assert.equal(a.a.inputs.at(-1)!.session, source);
+    assert.ok(a.a.inputs.at(-1)!.prompt.includes(current.activation));
+  } finally {
+    gate.open();
+    await switching.catch(() => {});
+  }
+});
+
+await test('closing during a handoff summary does not restore registration', async (t) => {
+  const { start, store, registry } = await coordinationFixture(t);
+  const a = await start(),
+    peer = await start('B');
+  await a.coordinator.send('Seed source history');
+  assert.equal((await a.claim('task:source')).kind, 'claimed');
+  const bound = await a.binding();
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const switching = a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
+  const rejected = assert.rejects(switching, /interrupted/);
+  try {
+    await within(gate.entered, 5000, 'handoff summary');
+    await a.coordinator.close();
+    await rejected;
+    assert.equal(
+      (await registry.presences()).some(
+        (entry) => entry.id === bound.conversation,
+      ),
+      false,
+    );
+    assert.equal(await registry.isActive(bound.activation), false);
+    assert.equal(
+      (await registry.claims()).some(
+        (entry) => entry.owner.conversation === bound.conversation,
+      ),
+      false,
+    );
+    const acquired = await store.claim(bound.conversation);
+    await acquired.close();
+    assert.equal((await peer.claim('task:independent')).kind, 'claimed');
+  } finally {
+    gate.open();
+    await switching.catch(() => {});
+  }
+});
 
 await test('reopening starts without a claim and old authority cannot release newly claimed work', async (t) => {
   const { start } = await coordinationFixture(t);
