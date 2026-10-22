@@ -796,6 +796,69 @@ await test('keep mine wins conflicting lines and merges every other change, and 
   }
 });
 
+for (const [name, conflictingPath, myFiles, theirFiles, keptFiles] of [
+  [
+    'keep mine keeps its directory at a file/directory conflict',
+    'global/x',
+    { 'global/x/y.md': 'mine\n' },
+    { 'global/x': 'theirs\n' },
+    { 'global/x/y.md': 'mine\n' },
+  ],
+  [
+    'keep mine keeps its file at a file/directory conflict',
+    'global/x',
+    { 'global/x': 'mine\n' },
+    { 'global/x/y.md': 'theirs\n' },
+    { 'global/x': 'mine\n' },
+  ],
+  [
+    'keep mine preserves literal paths and existing tilde names',
+    'global/x[1]',
+    {
+      'global/x[1]': 'mine\n',
+      'global/x[1]~HEAD': 'user-named\n',
+    },
+    {
+      'global/x[1]/y.md': 'theirs\n',
+      'global/x1': 'literal-neighbor\n',
+    },
+    {
+      'global/x[1]': 'mine\n',
+      'global/x[1]~HEAD': 'user-named\n',
+      'global/x1': 'literal-neighbor\n',
+    },
+  ],
+] as const) {
+  await test(name, async () => {
+    const { memory, open } = await fixture();
+    const { workspace: theirs } = await open('theirs');
+    const { workspace: mine } = await open('mine');
+    await save(mine, { ...myFiles, 'global/mine.md': 'mine-only\n' });
+    await save(theirs, { ...theirFiles, 'global/theirs.md': 'theirs-only\n' });
+    await theirs.publish();
+    assert.equal(await mine.publish(), 'conflict');
+    assert.deepEqual((await mine.conflict()).paths, [conflictingPath]);
+    await mine.keepMine();
+    assert.equal(await mine.publish(), 'published');
+    const expectedFiles = {
+      ...keptFiles,
+      'global/mine.md': 'mine-only\n',
+      'global/theirs.md': 'theirs-only\n',
+    };
+    for (const [path, text] of Object.entries(expectedFiles)) {
+      assert.equal(await readFile(join(mine.root, path), 'utf8'), text);
+      assert.equal(await memory.read(main, path), text);
+    }
+    assert.deepEqual(
+      (await git(memory.root, 'ls-tree', '-r', '--name-only', '-z', main))
+        .split('\0')
+        .filter(Boolean)
+        .sort(),
+      ['global/MEMORY.md', ...Object.keys(expectedFiles)].sort(),
+    );
+  });
+}
+
 await test('keep mine carries no markers through a rename on either side', async () => {
   for (const renamer of ['theirs', 'mine'] as const) {
     const { memory, open, project } = await fixture();
@@ -885,26 +948,41 @@ await test('keep mine merges against the main it read even when main moves', asy
 });
 
 await test('a crash inside keep mine before its reset leaves the worktree clean and the conflict standing', async () => {
-  const { open, hook } = await fixture();
-  const { workspace: theirs } = await open('theirs');
-  const { workspace: mine } = await open('mine');
-  // their extra note puts the merged tree ahead of my HEAD, which a real index would stage
-  await save(theirs, {
-    'global/one.md': 'Theirs.\n',
-    'global/theirs.md': 'Theirs only.',
-  });
-  await save(mine, { 'global/one.md': 'Mine.\n' });
-  await theirs.publish();
-  assert.equal(await mine.publish(), 'conflict');
-  hook.current = async (command, run) => {
-    const result = await run();
-    if (command[0] === 'commit-tree') throw new Error('crashed');
-    return result;
-  };
-  await assert.rejects(mine.keepMine(), /crashed/);
-  hook.current = passThrough;
-  assert.equal(await mine.isDirty(), false);
-  assert.equal(await mine.publish(), 'conflict');
+  for (const theirPath of ['global/one.md', 'global/one.md/child.md']) {
+    const { memory, open, hook } = await fixture();
+    const { workspace: theirs } = await open('theirs');
+    const { workspace: mine } = await open('mine');
+    // their extra note puts the merged tree ahead of my HEAD, which a real index would stage
+    await save(theirs, {
+      [theirPath]: 'Theirs.\n',
+      'global/theirs.md': 'Theirs only.',
+    });
+    await save(mine, { 'global/one.md': 'Mine.\n' });
+    await theirs.publish();
+    assert.equal(await mine.publish(), 'conflict');
+    const head = await mine.revision();
+    const accepted = await memory.resolve(main);
+    const index = (
+      await git(mine.root, 'rev-parse', '--git-path', 'index')
+    ).trim();
+    const indexBefore = await readFile(index);
+    hook.current = async (command, run) => {
+      const result = await run();
+      if (command[0] === 'commit-tree') throw new Error('crashed');
+      return result;
+    };
+    await assert.rejects(mine.keepMine(), /crashed/);
+    hook.current = passThrough;
+    assert.equal(await mine.revision(), head);
+    assert.equal(await memory.resolve(main), accepted);
+    assert.deepEqual(await readFile(index), indexBefore);
+    assert.equal(
+      await readFile(join(mine.root, 'global/one.md'), 'utf8'),
+      'Mine.\n',
+    );
+    assert.equal(await mine.isDirty(), false);
+    assert.equal(await mine.publish(), 'conflict');
+  }
 });
 
 await test('a deleted worktree directory comes back on its branch with its unpublished commit', async () => {
