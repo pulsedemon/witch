@@ -57,6 +57,7 @@ export class SessionCoordination {
   private pending?: SessionPresence;
   private projected?: string;
   private writing: Promise<void> = Promise.resolve();
+  private retrying?: Promise<void>;
   private operations: Promise<void> = Promise.resolve();
   private refreshing?: {
     active: Activation;
@@ -107,6 +108,7 @@ export class SessionCoordination {
     coordination.timer = setInterval(() => {
       void coordination.maintain();
       void coordination.refresh();
+      void coordination.retryPresence();
     }, 2000);
     coordination.timer.unref();
     return coordination;
@@ -447,6 +449,32 @@ export class SessionCoordination {
       (error: unknown) => this.fail('presence', error),
     );
     return written;
+  }
+
+  private retryPresence(): Promise<void> {
+    if (this.closed || !this.failures.has('presence')) return Promise.resolve();
+    const active = this.active;
+    const writing = this.writing;
+    this.retrying ??= writing
+      .then(async () => {
+        if (
+          this.closed ||
+          this.ending ||
+          !active?.accepting ||
+          !active.publishing ||
+          this.active !== active ||
+          this.scheduled ||
+          this.writing !== writing ||
+          !this.failures.has('presence')
+        )
+          return;
+        await this.write(this.presence(active));
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.retrying = undefined;
+      });
+    return this.retrying;
   }
 
   private admit(request?: ControlRequest): Activation {
