@@ -724,6 +724,7 @@ class ClaudeSession implements AgentSession {
       this.closed = true;
       for (const request of this.requests.values())
         request.resolve({ decision: 'cancel' });
+      if (this.connected) this.options.onEvent({ type: 'closed' });
     }
   }
 

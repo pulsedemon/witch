@@ -59,7 +59,15 @@ async function background() {
     });
     return uuid;
   };
-  return { ...f, emit, turn, steer, inputs, completions: () => completions };
+  return {
+    ...f,
+    events,
+    emit,
+    turn,
+    steer,
+    inputs,
+    completions: () => completions,
+  };
 }
 
 for (const task of [undefined, 'mcp_task', 'remote_agent', 'monitor_mcp']) {
@@ -244,9 +252,13 @@ await test('an interrupt after the idle gap recovers only native-unread prompts'
       (await f.inputs()).map((input) => input.message.content),
       ['initial', 'consumed A', 'unread B'],
     );
+    await until('closure notification', () =>
+      f.events.some((event) => event.type === 'closed'),
+    );
   } finally {
     await f.session.close();
   }
+  assert.equal(f.events.filter((event) => event.type === 'closed').length, 1);
 });
 
 await test('an interrupt after admission cannot overtake accepted input', async () => {

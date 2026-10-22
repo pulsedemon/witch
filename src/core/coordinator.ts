@@ -1153,12 +1153,7 @@ export class Coordinator {
     if (!keepActivation && this.coordination) await this.coordination.quiesce();
     const session = this.session;
     this.session = undefined;
-    // closing the session stops its familiars and brews, and their own stops would no longer reach receive()
-    for (const subagent of this.snapshot.subagents)
-      if (subagent.status === 'running')
-        this.familiar(this.current(), { ...subagent, status: 'stopped' });
-    for (const command of this.snapshot.backgroundCommands)
-      this.brew(this.current(), { ...command, status: 'stopped' });
+    this.stopBackgroundActivity();
     this.publish({ skills: [], subagents: [], requests: [] });
     try {
       await session?.close();
@@ -1168,6 +1163,14 @@ export class Coordinator {
     } finally {
       if (!keepActivation) await this.coordination?.deactivate();
     }
+  }
+
+  private stopBackgroundActivity(): void {
+    for (const subagent of this.snapshot.subagents)
+      if (subagent.status === 'running')
+        this.familiar(this.current(), { ...subagent, status: 'stopped' });
+    for (const command of this.snapshot.backgroundCommands)
+      this.brew(this.current(), { ...command, status: 'stopped' });
   }
 
   private receive(
@@ -1191,6 +1194,7 @@ export class Coordinator {
       if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
     } else if (event.type === 'closed') {
+      this.stopBackgroundActivity();
       this.publish({ requests: [] });
     } else if (event.type === 'request-resolved') {
       this.publish({
