@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
+import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type { UserRequest } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
@@ -37,27 +38,70 @@ const response = {
 const answer =
   '**Which target?**\n→ Preview\n\n**Any constraints?**\n→ Keep logs, please';
 
-for (const completed of [false, true])
-  await test(`a native connection exit clears async questions ${completed ? 'after' : 'during'} their turn`, async () => {
-    const root = await scratch('witch-question-exit-');
-    const project = join(root, 'project');
-    await mkdir(project);
-    const store = await StateStore.open(join(root, 'state'));
-    const adapter = new CodexAdapter((_, cwd, signal) =>
-      spawn(
-        process.execPath,
-        [
-          fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url)),
-          'file-approvals',
-        ],
-        { cwd, stdio: 'pipe', signal },
+async function codexFixture() {
+  const root = await scratch('witch-codex-requests-');
+  const project = join(root, 'project');
+  await mkdir(project);
+  const store = await StateStore.open(join(root, 'state'));
+  const adapter = new CodexAdapter((_, cwd, signal) =>
+    spawn(
+      process.execPath,
+      [
+        fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url)),
+        'file-approvals',
+      ],
+      { cwd, stdio: 'pipe', signal },
+    ),
+  );
+  const coordinator = new Coordinator(
+    store,
+    new Memory(join(root, 'state', 'memory.git')),
+    [{ adapter, executable: 'fixture' }],
+  );
+  let sequence = 0;
+  const emit = async (...frames: RpcMessage[]) => {
+    const index = ++sequence;
+    const barrier = `request barrier ${index}`;
+    await writeFile(
+      join(project, 'events.next'),
+      JSON.stringify([
+        ...frames,
+        {
+          method: 'error',
+          params: { willRetry: true, error: { message: barrier } },
+        },
+      ]),
+    );
+    await rename(
+      join(project, 'events.next'),
+      join(project, `events-${index}.json`),
+    );
+    await until(barrier, () =>
+      coordinator.snapshot.items.some(
+        (item) => item.kind === 'notice' && item.text === barrier,
       ),
     );
-    const coordinator = new Coordinator(
-      store,
-      new Memory(join(root, 'state', 'memory.git')),
-      [{ adapter, executable: 'fixture' }],
+  };
+  const receipt = async (id: number): Promise<unknown> => {
+    const file = join(project, `response-${id}.json`);
+    await until(`response ${id}`, () =>
+      readFile(file).then(
+        () => true,
+        () => false,
+      ),
     );
+    return JSON.parse(await readFile(file, 'utf8')) as unknown;
+  };
+  const close = async () => {
+    await writeFile(join(project, 'release'), 'yes');
+    await coordinator.close();
+  };
+  return { project, coordinator, emit, receipt, close };
+}
+
+for (const completed of [false, true])
+  await test(`a native connection exit clears async questions ${completed ? 'after' : 'during'} their turn`, async () => {
+    const { project, coordinator, emit, close } = await codexFixture();
     try {
       await coordinator.initialize(project);
       const sending = coordinator.send('Start');
@@ -93,11 +137,7 @@ for (const completed of [false, true])
             ]
           : []),
       ];
-      await writeFile(join(project, 'events.next'), JSON.stringify(frames));
-      await rename(
-        join(project, 'events.next'),
-        join(project, 'events-1.json'),
-      );
+      await emit(...frames);
       await until('the async question', () =>
         coordinator.snapshot.requests.some(
           (request) => request.id === 'question/choice',
@@ -116,7 +156,119 @@ for (const completed of [false, true])
       );
       assert.deepEqual(coordinator.snapshot.requests, []);
     } finally {
-      await coordinator.close();
+      await close();
+    }
+  });
+
+for (const ending of ['answer', 'resolve', 'exit'])
+  await test(`Codex requests remain answerable after coordinator settlement (${ending})`, async () => {
+    const { project, coordinator, emit, receipt, close } = await codexFixture();
+    try {
+      await coordinator.initialize(project);
+      const sending = coordinator.send('Start');
+      await until('the main request', () =>
+        coordinator.snapshot.requests.some((request) => request.id === '77'),
+      );
+      await emit(
+        {
+          id: 902,
+          method: 'item/fileChange/requestApproval',
+          params: {
+            threadId: 'child-thread',
+            turnId: 'turn-1',
+            itemId: 'child-patch',
+            startedAtMs: 1,
+            reason: 'Child approval',
+            grantRoot: null,
+          },
+        },
+        {
+          id: 903,
+          method: 'mcpServer/elicitation/request',
+          params: {
+            threadId: 'native-thread',
+            turnId: null,
+            serverName: 'fixture-mcp',
+            mode: 'form',
+            _meta: null,
+            message: 'Provide a label',
+            requestedSchema: {
+              type: 'object',
+              properties: { label: { type: 'string' } },
+              required: ['label'],
+            },
+          },
+        },
+        {
+          method: 'turn/completed',
+          params: {
+            threadId: 'native-thread',
+            turn: { id: 'turn-1', status: 'completed', error: null },
+          },
+        },
+      );
+      await within(sending, 3000, 'the settled turn');
+      assert.equal(coordinator.snapshot.phase, 'idle');
+      assert.deepEqual(
+        coordinator.snapshot.requests.map((request) => request.id),
+        ['902', '903'],
+      );
+      if (ending === 'exit') {
+        await writeFile(join(project, 'exit'), '');
+        await until('the native exit', () =>
+          coordinator.snapshot.items.some(
+            (item) =>
+              item.kind === 'notice' &&
+              item.text.includes('Agent process exited'),
+          ),
+        );
+        assert.deepEqual(coordinator.snapshot.requests, []);
+        await coordinator.respond('902', { decision: 'accept' });
+        await coordinator.respond('903', {
+          decision: 'accept',
+          content: { label: 'late' },
+        });
+        for (const id of [902, 903])
+          await assert.rejects(readFile(join(project, `response-${id}.json`)), {
+            code: 'ENOENT',
+          });
+      } else {
+        if (ending === 'resolve') {
+          await emit({
+            method: 'serverRequest/resolved',
+            params: { threadId: 'child-thread', requestId: 902 },
+          });
+          assert.deepEqual(
+            coordinator.snapshot.requests.map((request) => request.id),
+            ['903'],
+          );
+        }
+        await coordinator.respond('902', { decision: 'accept' });
+        await coordinator.respond('903', {
+          decision: 'accept',
+          content: { label: 'accepted' },
+        });
+        assert.deepEqual(await receipt(903), {
+          id: 903,
+          result: {
+            action: 'accept',
+            content: { label: 'accepted' },
+            _meta: null,
+          },
+        });
+        if (ending === 'answer')
+          assert.deepEqual(await receipt(902), {
+            id: 902,
+            result: { decision: 'accept' },
+          });
+        else
+          await assert.rejects(readFile(join(project, 'response-902.json')), {
+            code: 'ENOENT',
+          });
+        assert.deepEqual(coordinator.snapshot.requests, []);
+      }
+    } finally {
+      await close();
     }
   });
 

@@ -1096,13 +1096,19 @@ class CodexSession implements AgentSession {
         const status = z.string().parse(turn.status);
         const error =
           turn.error == null ? undefined : object.parse(turn.error).message;
+        const completed = turnId.safeParse(data).data?.turn.id;
         if (['completed', 'interrupted', 'failed'].includes(status))
           this.finish(
             status as TurnResult['status'],
             typeof error === 'string' ? error : undefined,
+            completed,
           );
         else
-          this.finish('failed', `Codex ended the turn with status ${status}`);
+          this.finish(
+            'failed',
+            `Codex ended the turn with status ${status}`,
+            completed,
+          );
         break;
       }
       case 'model/rerouted':
@@ -1163,6 +1169,7 @@ class CodexSession implements AgentSession {
         data.reason ?? data.message ?? data.command ?? message.method,
       ),
       detail: JSON.stringify(data, null, 2),
+      survivesTurn: true,
     };
     if (message.method === 'item/tool/requestUserInput')
       return {
@@ -1272,7 +1279,11 @@ class CodexSession implements AgentSession {
     });
   }
 
-  private finish(status: TurnResult['status'], error?: string): void {
+  private finish(
+    status: TurnResult['status'],
+    error?: string,
+    completedTurnId = this.turn?.id,
+  ): void {
     const turn = this.turn;
     if (turn?.compaction) {
       if (turn.interrupted) status = 'interrupted';
@@ -1284,9 +1295,18 @@ class CodexSession implements AgentSession {
     this.turn = undefined;
     // a shell command's turn that never reported its start would hold an interrupt waiting for it
     turn?.started.resolve('');
-    for (const id of this.requests.keys())
-      this.options.onEvent({ type: 'request-resolved', id });
-    this.requests.clear();
+    for (const [id, request] of this.requests) {
+      const { threadId, turnId } = object.parse(request.params);
+      if (
+        this.closed ||
+        (completedTurnId !== undefined &&
+          threadId === this.info.id &&
+          turnId === completedTurnId)
+      ) {
+        this.requests.delete(id);
+        this.options.onEvent({ type: 'request-resolved', id });
+      }
+    }
     turn?.finished.resolve({
       status,
       text: turn.compaction ? '' : [...turn.messages.values()].join('\n\n'),

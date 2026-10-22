@@ -70,7 +70,6 @@ export interface TimedSubagent extends Subagent {
   rows: { start: string; end?: string };
 }
 
-/** replaces the subagent with the same id in place, so the list keeps start order. */
 function withSubagent(
   subagents: readonly TimedSubagent[],
   subagent: TimedSubagent,
@@ -84,7 +83,6 @@ function noteName(path: string): string {
   return printable(path).replace(/[\\[\]]/g, '\\$&');
 }
 
-/** an error that only a restart clears. */
 class RestartRequired extends Error {}
 /** as VS Code's own launcher does: Electron runs cli.js as Node, and Witch's Node options pass under VS Code's names. */
 export function editorEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -730,11 +728,8 @@ export class Coordinator {
   }
 
   /**
-   * cleans up after the checkout's merged pull request, and rebuilds Witch from `install` when the cleanup finished
-   * and the merge is Witch's own. false when the checkout had left the branch or changed, another Witch was cleaning it
-   * up, a conversation record couldn't be read, or another conversation in its directory was in a turn with its agent
-   * running, so nothing was done. a turn whose agent hasn't started yet doesn't count, since its record names no
-   * process.
+   * returns whether merge cleanup acted, refreshing `install` after Witch's own cleanup.
+   * skips unreadable records and this directory's peer turns with a running native process.
    */
   async cleanUpMerge(
     pullRequest: PullRequest,
@@ -894,6 +889,11 @@ export class Coordinator {
         native: this.session?.info,
         usage: this.session?.usage ?? {},
       });
+      if (!activated && this.coordination) {
+        const { project } = await this.memory.scopePaths(conversation.cwd);
+        if (!this.closed)
+          await this.coordination.activate(conversation, project);
+      }
       throw failure;
     }
   }
@@ -1437,7 +1437,7 @@ export class Coordinator {
       phase: recovery ? 'recovery' : 'idle',
       recovery,
       requests: this.snapshot.requests.filter(
-        (request) => request.replyAsPrompt,
+        (request) => request.replyAsPrompt || request.survivesTurn,
       ),
       ...(error ? { error } : {}),
     });
