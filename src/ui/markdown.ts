@@ -1,3 +1,4 @@
+import { decodeHTMLStrict } from 'entities';
 import { Marked, Renderer } from 'marked';
 import type { Token } from 'marked';
 import stripAnsi from 'strip-ansi';
@@ -18,7 +19,7 @@ export function markdown(
   renderer.text = (token) =>
     'tokens' in token && token.tokens
       ? renderer.parser.parseInline(token.tokens)
-      : linkify(token.text, cwd);
+      : linkify(decodeHTMLStrict(token.text), cwd);
   renderer.paragraph = ({ tokens }) =>
     `${renderer.parser.parseInline(tokens)}\n\n`;
   renderer.heading = ({ tokens }) =>
@@ -40,9 +41,12 @@ export function markdown(
   };
   renderer.code = ({ text }) => `${linkify(text, cwd)}\n\n`;
   renderer.link = ({ href, tokens }) =>
-    link(stripAnsi(renderer.parser.parseInline(tokens)), href);
+    link(
+      stripAnsi(renderer.parser.parseInline(tokens)),
+      decodeHTMLStrict(href),
+    );
   renderer.image = ({ href, text }) =>
-    link(`[${plain(text || 'Image')}]`, href);
+    link(`[${plain(decodeHTMLStrict(text) || 'Image')}]`, href);
   renderer.br = () => '\n';
   renderer.hr = () => '────────\n';
   renderer.html = ({ text }) => linkify(text, cwd);
@@ -63,7 +67,11 @@ export function markdown(
         checkbox = token.checked ? '[x] ' : '[ ] ';
         continue;
       }
-      blocks.push(checkbox + renderer.parser.parse([token]).trim());
+      const block = renderer.parser.parse([token]);
+      // code keeps its leading indentation; other blocks can start with the spaces left by a tab after the bullet
+      blocks.push(
+        checkbox + (token.type === 'code' ? block.trimEnd() : block.trim()),
+      );
       checkbox = '';
     }
     if (checkbox) blocks.push(checkbox.trimEnd());
