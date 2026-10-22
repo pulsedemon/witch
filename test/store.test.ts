@@ -42,31 +42,51 @@ async function detachedShell(seconds: string) {
   return { child, background: Number(String(data).trim()) };
 }
 
-await test('one app owns a conversation until its process exits, including a crash', async () => {
+await test('a real holder stays exclusive until close or crash', async (t) => {
   const root = await scratch('witch-lock-');
   const store = await StateStore.open(root);
   await (await store.create(conversation('held'))).close();
-  const child = spawn(
-    process.execPath,
-    [
-      '--import',
-      import.meta.resolve('tsx'),
-      fileURLToPath(new URL('fixtures/lock.ts', import.meta.url)),
-      root,
-      'held',
-    ],
-    { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] },
-  );
-  try {
-    await once(child.stdout, 'data');
+  for (const exit of ['close', 'crash']) {
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        import.meta.resolve('tsx'),
+        fileURLToPath(new URL('fixtures/lock.ts', import.meta.url)),
+        root,
+        'held',
+      ],
+      { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+    const ended = new Promise<void>((resolve) =>
+      child.once('close', () => resolve()),
+    );
+    t.after(async () => {
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill('SIGKILL');
+      await ended;
+    });
+    await within(once(child.stdout, 'data'), 5000, 'holder ready');
+    assert.equal(await store.isOpen('held'), true);
     await assert.rejects(store.claim('held'), /open in another Witch instance/);
-    const exited = once(child, 'exit');
-    child.kill('SIGKILL');
-    await exited;
+    if (exit === 'close') child.stdin.end('close');
+    else child.kill('SIGKILL');
+    await within(ended, 5000, 'holder stopped');
+    assert.equal(await store.isOpen('held'), false);
     await (await store.claim('held')).close();
-  } finally {
-    child.kill();
   }
+});
+
+await test('conversation batches return the matching IDs', async (t) => {
+  const root = await scratch('witch-conversation-batch-');
+  const store = await StateStore.open(root);
+  const held = await store.create(conversation('A'));
+  t.after(() => held.close());
+  await (await store.create(conversation('B'))).close();
+  assert.deepEqual(
+    await store.openConversations(['B', 'C', 'A']),
+    new Set(['A']),
+  );
 });
 
 await test('a second claim of a conversation is refused while another conversation claims fine', async () => {

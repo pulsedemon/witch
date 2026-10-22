@@ -17,7 +17,7 @@ import type {
   DisplayUpdate,
 } from '../core/state.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
-import { exclusiveLock, isLocked } from './lock.js';
+import { exclusiveLock, lockedFiles } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
@@ -197,8 +197,14 @@ export class StateStore {
   }
 
   /** observes ownership without creating a lock or recovering native processes. */
-  isOpen(id: string): Promise<boolean> {
-    return isLocked(join(this.directory(id), 'lock'));
+  async isOpen(id: string): Promise<boolean> {
+    return (await this.openConversations([id])).has(id);
+  }
+
+  async openConversations(ids: readonly string[]): Promise<Set<string>> {
+    const paths = ids.map((id) => join(this.directory(id), 'lock'));
+    const locked = await lockedFiles(paths);
+    return new Set(ids.filter((_, index) => locked.has(paths[index]!)));
   }
 
   private directory(id: string): string {

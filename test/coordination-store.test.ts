@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { chmod, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, chmod, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
@@ -37,6 +37,32 @@ const release = (
   givenOwner: ClaimOwner,
   id: string,
 ) => store.release(givenOwner, id, Date.now() + 5000, verify);
+
+await test('activation observation follows release without retaining ownership', async () => {
+  const root = await scratch('witch-activation-observation-');
+  const store = await CoordinationStore.open(root);
+  const activation = randomUUID();
+  const close = await store.holdActivation(activation);
+  try {
+    assert.deepEqual(
+      await Promise.all([
+        store.isActive(activation),
+        store.isActive(activation),
+      ]),
+      [true, true],
+    );
+  } finally {
+    await close();
+  }
+  assert.deepEqual(
+    await Promise.all([store.isActive(activation), store.isActive(activation)]),
+    [false, false],
+  );
+  await assert.rejects(
+    access(join(root, 'coordination', 'sessions', `${activation}.lock`)),
+    { code: 'ENOENT' },
+  );
+});
 
 function contender(t: TestContext, root: string, conversation: string) {
   const child = fork(
