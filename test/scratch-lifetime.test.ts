@@ -3,7 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import {
+import files, {
   chmod,
   mkdir,
   readFile,
@@ -12,11 +12,16 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
+import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { test } from 'node:test';
+import type { TestContext } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
+import { z } from 'zod';
 import type { ProcessIdentity } from '../src/core/state.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import { ScratchSpace } from '../src/persistence/scratch.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
@@ -47,6 +52,131 @@ async function runFixture(parent: string, mode = 'restart', ...args: string[]) {
         },
     );
 }
+
+async function holdFixture(
+  t: TestContext,
+  parent: string,
+  mode: 'hold' | 'hold-unowned' = 'hold',
+) {
+  const child = spawn(
+    process.execPath,
+    ['--import', loader, fixture, mode, parent, bootA],
+    {
+      env: { ...process.env, NODE_TEST_CONTEXT: undefined },
+      stdio: ['pipe', 'pipe', 'inherit'],
+    },
+  );
+  const ended = once(child, 'close');
+  const output = createInterface({ input: child.stdout });
+  const close = async () => {
+    output.close();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await ended;
+  };
+  t.after(close);
+  const [directory] = (await within(
+    once(output, 'line'),
+    5000,
+    'scratch lock',
+  )) as [string];
+  return {
+    directory,
+    pid: child.pid!,
+    async release() {
+      try {
+        child.stdin.end('release');
+        const [code] = await within(ended, 5000, 'scratch holder exit');
+        assert.equal(code, 0);
+      } finally {
+        await close();
+      }
+    },
+  };
+}
+
+await test('fresh scratch waits for a competing sweep and records its owner', async (t) => {
+  const parent = await scratch('witch-scratch-contention-');
+  const created = Promise.withResolvers<string>();
+  const mkdir = files.mkdir;
+  let holder: Awaited<ReturnType<typeof holdFixture>> | undefined;
+  let opening: Promise<ScratchSpace> | undefined;
+  try {
+    t.mock.method(
+      files,
+      'mkdir',
+      async (...args: Parameters<typeof files.mkdir>) => {
+        const result = await mkdir(...args);
+        const directory = String(args[0]);
+        if (dirname(directory) === parent) {
+          holder = await holdFixture(t, directory, 'hold-unowned');
+          created.resolve(directory);
+        }
+        return result;
+      },
+    );
+    syncBuiltinESMExports();
+    opening = ScratchSpace.open(parent, firstBoot);
+    let settled = false;
+    void opening.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    const directory = await within(created.promise, 5000, 'competing sweep');
+    await delay(150);
+    if (settled) await opening;
+    assert.equal(settled, false);
+    await holder!.release();
+    holder = undefined;
+    const space = await within(opening, 5000, 'fresh scratch acquisition');
+    assert.equal(space.directory, directory);
+    assert.equal((await stat(directory)).mode & 0o777, 0o700);
+    const owner = await identifyProcess(process.pid);
+    assert.ok(owner);
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
+      ),
+      { version: 1, boot: bootA, owner },
+    );
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    try {
+      await holder?.release();
+    } finally {
+      await opening?.then(
+        (space) => space.close(),
+        () => {},
+      );
+    }
+  }
+});
+
+await test('concurrent scratch opens retain distinct owned directories', async (t) => {
+  const parent = await scratch('witch-scratch-concurrent-');
+  const holders = await Promise.all(
+    Array.from({ length: 8 }, () => holdFixture(t, parent)),
+  );
+  assert.equal(new Set(holders.map(({ directory }) => directory)).size, 8);
+  for (const { directory, pid } of holders) {
+    assert.equal(dirname(directory), parent);
+    assert.equal(z.uuid().safeParse(basename(directory)).success, true);
+    assert.equal((await stat(directory)).mode & 0o777, 0o700);
+    const owner = await identifyProcess(pid);
+    assert.ok(owner);
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
+      ),
+      { version: 1, boot: bootA, owner },
+    );
+  }
+  await Promise.all(holders.map((holder) => holder.release()));
+});
 
 await test('scratch resumes in place, stays private and survives clean close', async () => {
   const parent = await scratch('witch-scratch-');
@@ -103,38 +233,19 @@ await test('retained scratch survives its boot and is swept after a different bo
   }
 });
 
-await test("a held directory remains untouched during another instance's sweep", async () => {
+await test("a held directory remains untouched during another instance's sweep", async (t) => {
   const parent = await scratch('witch-scratch-');
-  const child = spawn(
-    process.execPath,
-    ['--import', loader, fixture, 'hold', parent, bootA],
-    {
-      env: { ...process.env, NODE_TEST_CONTEXT: undefined },
-      stdio: ['pipe', 'pipe', 'inherit'],
-    },
+  const holder = await holdFixture(t, parent);
+  const contender = await ScratchSpace.open(parent, laterBoot);
+  await contender.close();
+  assert.equal(
+    await readFile(join(holder.directory, 'marker'), 'utf8'),
+    'held',
   );
-  const ended = once(child, 'close');
-  const output = createInterface({ input: child.stdout });
-  try {
-    const [directory] = (await within(
-      once(output, 'line'),
-      5000,
-      'scratch lock',
-    )) as [string];
-    const contender = await ScratchSpace.open(parent, laterBoot);
-    await contender.close();
-    assert.equal(await readFile(join(directory, 'marker'), 'utf8'), 'held');
-    child.stdin.end('release');
-    const [code] = await within(ended, 5000, 'scratch holder exit');
-    assert.equal(code, 0);
-    const later = await ScratchSpace.open(parent, laterBoot);
-    await later.close();
-    assert.equal(existsSync(directory), false);
-  } finally {
-    output.close();
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-    await ended;
-  }
+  await holder.release();
+  const later = await ScratchSpace.open(parent, laterBoot);
+  await later.close();
+  assert.equal(existsSync(holder.directory), false);
 });
 
 await test('the first restart adopts its numeric scratch without moving files', async () => {
@@ -269,11 +380,26 @@ await test('uncertain legacy scratch establishes a boot boundary without deletin
 await test('scratch resume rejects a different owner or an invalid location', async () => {
   const parent = await scratch('witch-scratch-');
   const original = await ScratchSpace.open(parent, firstBoot);
-  await writeFile(join(original.directory, 'marker'), 'untouched');
-  await assert.rejects(
-    ScratchSpace.open(parent, { ...firstBoot, resume: original.directory }),
-  );
-  await original.close();
+  let resuming: Promise<ScratchSpace> | undefined;
+  try {
+    await writeFile(join(original.directory, 'marker'), 'untouched');
+    resuming = ScratchSpace.open(parent, {
+      ...firstBoot,
+      resume: original.directory,
+    });
+    await assert.rejects(within(resuming, 5000, 'busy scratch resume'), {
+      code: 'EAGAIN',
+    });
+  } finally {
+    try {
+      await original.close();
+    } finally {
+      await resuming?.then(
+        (space) => space.close(),
+        () => {},
+      );
+    }
+  }
   const recordFile = join(original.directory, '.witch-scratch.json');
   const record = JSON.parse(await readFile(recordFile, 'utf8')) as {
     version: number;
