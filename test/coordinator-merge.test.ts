@@ -407,3 +407,71 @@ await test('merge cleanup preserves its notice when the install is absent, belon
     }
   }
 });
+
+await test("a merge cleanup stops before switching when another Witch's turn starts in its checkout during the fetch", async () => {
+  const { coordinator, store, memory, root, project } = await fixture();
+  const agent = new FixtureAgent('a');
+  const other = new Coordinator(store, memory, [
+    { adapter: agent, executable: 'a' },
+  ]);
+  const gate = new TurnGate();
+  const previousPath = process.env.PATH;
+  let sending: Promise<void> | undefined;
+  try {
+    const origin = join(root, 'origin.git');
+    await gitIn(root, 'init', '--bare', origin);
+    await gitIn(root, 'clone', origin, project);
+    await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
+    await gitIn(project, 'push', '-u', 'origin', 'main');
+    await gitIn(project, 'switch', '-c', 'feat/x');
+    await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
+    const tip = await gitIn(project, 'rev-parse', 'HEAD');
+    await gitIn(project, 'push', 'origin', 'feat/x:main');
+    await gitIn(project, 'config', 'branch.feat/x.remote', 'origin');
+    await gitIn(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+    await other.initialize(project);
+    const bin = join(root, 'bin');
+    const realGit = (
+      await promisify(execFile)('/usr/bin/which', ['git'])
+    ).stdout.trim();
+    await mkdir(bin);
+    // a node shim's startup on every git call would push the peer's turn past its deadline under load
+    await writeFile(
+      join(bin, 'git'),
+      `#!/bin/sh
+for arg; do
+  if [ "$arg" = fetch ]; then
+    : > '${join(root, 'fetching')}'
+    while [ ! -e '${join(root, 'release')}' ]; do sleep 0.02; done
+  fi
+done
+exec '${realGit}' "$@"
+`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}:${previousPath}`;
+    const cleanup = coordinator.cleanUpMerge(mergedPullRequest(tip));
+    await until('the fetch', () =>
+      readFile(join(root, 'fetching')).then(
+        () => true,
+        () => false,
+      ),
+    );
+    agent.gate = gate;
+    sending = other.send('Start');
+    await within(gate.entered, 2000, 'the other turn');
+    await writeFile(join(root, 'release'), '');
+    assert.equal(await cleanup, false);
+    assert.deepEqual(notices(coordinator), []);
+    assert.equal(await gitIn(project, 'branch', '--show-current'), 'feat/x');
+    assert.equal(await gitIn(project, 'rev-parse', 'feat/x'), tip);
+  } finally {
+    await writeFile(join(root, 'release'), '');
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    gate.open();
+    if (sending) await within(sending, 2000, 'the other turn');
+    await other.close();
+    await coordinator.close();
+  }
+});

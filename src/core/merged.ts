@@ -4,6 +4,8 @@ import { open, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import { exclusiveLock } from '../persistence/lock.js';
+import { identifyProcess } from '../persistence/process.js';
+import type { StateStore } from '../persistence/store.js';
 import { runCommand } from './command.js';
 import type { Coordinator } from './coordinator.js';
 import { parseStatus } from './repository.js';
@@ -24,8 +26,30 @@ const git = async (cwd: string, ...args: string[]) =>
     })
   ).stdout.trim();
 
-export const topLevel = (cwd: string) =>
-  git(cwd, 'rev-parse', '--show-toplevel');
+const topLevel = (cwd: string) => git(cwd, 'rev-parse', '--show-toplevel');
+
+/** whether another conversation's turn runs in `cwd`'s checkout, or a record that could be one is unreadable. */
+export async function peerTurnIn(
+  store: StateStore,
+  id: string,
+  cwd: string,
+): Promise<boolean> {
+  const { records, unreadable } = await store.records();
+  // the launch's sweep names it
+  if (unreadable.length) return true;
+  const top = await topLevel(cwd);
+  for (const record of records)
+    if (
+      record.id !== id &&
+      (record.cwd === top || record.cwd.startsWith(`${top}/`)) &&
+      record.activity &&
+      record.process &&
+      (await identifyProcess(record.process.pid))?.started ===
+        record.process.started
+    )
+      return true;
+  return false;
+}
 
 /**
  * uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command.
@@ -96,12 +120,14 @@ async function lockCheckout(cwd: string): Promise<FileHandle | undefined> {
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base, deletes the branch and its
  * gitignored plans with their gitignored ledgers, brings the base up to date, and deletes the other merged branches
  * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing
- * when the checkout left the branch or changed, or another Witch is updating it.
+ * when the checkout left the branch or changed, or another Witch is updating it or `blocked` says one is working in it.
  */
 export async function cleanUpMerge(
   cwd: string,
   pullRequest: PullRequest,
+  blocked: () => Promise<boolean>,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
+  if (await blocked()) return undefined;
   const lock = await lockCheckout(cwd).catch((error: unknown) => {
     throw new Error(
       `#${pullRequest.number} merged, but its cleanup failed while locking ${pullRequest.branch}: ${errorMessage(error).trim()}`,
@@ -110,7 +136,7 @@ export async function cleanUpMerge(
   });
   if (!lock) return undefined;
   try {
-    return await clean(cwd, pullRequest);
+    return await clean(cwd, pullRequest, blocked);
   } finally {
     await lock.close();
   }
@@ -119,6 +145,7 @@ export async function cleanUpMerge(
 async function clean(
   cwd: string,
   pullRequest: PullRequest,
+  blocked: () => Promise<boolean>,
 ): Promise<{ text: string; cleaned: boolean } | undefined> {
   const { number, branch, commit, base } = pullRequest;
   const stopped = (error: unknown): never => {
@@ -162,6 +189,8 @@ async function clean(
       text: `#${number} merged, but ${branch} is still on its remote, so it stays.`,
       cleaned: false,
     };
+  // again: a turn that started during the fetch changes nothing the status shows
+  if (await blocked()) return undefined;
   // a plain switch overwrites an ignored file the base tracks, and that file was never committed
   await git(
     cwd,
