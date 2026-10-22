@@ -24,6 +24,9 @@ const git = async (cwd: string, ...args: string[]) =>
     })
   ).stdout.trim();
 
+export const topLevel = (cwd: string) =>
+  git(cwd, 'rev-parse', '--show-toplevel');
+
 /**
  * uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command.
  */
@@ -368,7 +371,7 @@ async function removePlans(
   cwd: string,
   branch: string,
 ): Promise<{ removed: string[]; stayed: string[]; reason?: string }> {
-  const top = await git(cwd, 'rev-parse', '--show-toplevel');
+  const top = await topLevel(cwd);
   const plans = join(top, 'docs/superpowers/plans');
   const ledgers = join(top, '.superpowers/sdd');
   const removed: string[] = [];
