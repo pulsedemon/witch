@@ -74,15 +74,16 @@ export class ModelCatalog {
         }),
       );
       discovery.signal.throwIfAborted();
-      return results.flatMap((result, index) => {
+      const errors: string[] = [];
+      const models = results.flatMap((result, index) => {
         if (result.status === 'fulfilled') return result.value;
-        this.report(
-          new Error(
-            `${installed[index]!.adapter.label}: ${errorMessage(result.reason)}`,
-          ),
+        errors.push(
+          `${installed[index]!.adapter.label}: ${errorMessage(result.reason)}`,
         );
         return [];
       });
+      if (errors.length) this.report(new Error(errors.join('\n')));
+      return models;
     } finally {
       this.discovery = undefined;
     }
