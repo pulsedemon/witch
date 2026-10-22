@@ -449,6 +449,7 @@ export class Memory {
     path: string,
   ): Promise<{ revision: string; subject: string }[]> {
     const log = await this.git(this.root, [
+      '--literal-pathspecs',
       'log',
       '--format=%H%x09%s',
       '--diff-filter=AM',
