@@ -37,6 +37,23 @@ const approval = (
     grantRoot: '/work',
   },
 });
+const elicitation = (id: number): RpcMessage => ({
+  id,
+  method: 'mcpServer/elicitation/request',
+  params: {
+    threadId: 'native-thread',
+    turnId: null,
+    serverName: 'fixture-mcp',
+    mode: 'form',
+    _meta: null,
+    message: 'Provide a label',
+    requestedSchema: {
+      type: 'object',
+      properties: { label: { type: 'string' } },
+      required: ['label'],
+    },
+  },
+});
 
 async function approvalsFixture() {
   const events: AgentEvent[] = [];
@@ -271,3 +288,147 @@ await test('completed proposals cannot leak into a later approval', async () => 
     await close(f.session, f.cwd);
   }
 });
+
+for (const status of ['completed', 'interrupted', 'failed'])
+  await test(`a turn ending ${status} resolves only requests owned by that thread and turn`, async () => {
+    const f = await approvalsFixture();
+    try {
+      await f.emit(
+        approval(901, 'native-thread', 'turn-a', 'main'),
+        approval(902, 'child-thread', 'turn-a', 'child'),
+        approval(903, 'native-thread', 'turn-b', 'later'),
+        elicitation(904),
+        {
+          method: 'turn/completed',
+          params: {
+            threadId: 'native-thread',
+            turn: {
+              id: 'turn-a',
+              status,
+              error: status === 'failed' ? { message: 'Turn failed' } : null,
+            },
+          },
+        },
+      );
+      assert.deepEqual(
+        f.events.flatMap((event) =>
+          event.type === 'request-resolved' ? [event.id] : [],
+        ),
+        ['901'],
+      );
+      f.session.respond('901', { decision: 'accept' });
+      f.session.respond('902', { decision: 'decline' });
+      f.session.respond('903', { decision: 'accept' });
+      f.session.respond('904', {
+        decision: 'accept',
+        content: { label: 'retained' },
+      });
+      assert.deepEqual(await f.receipt(902), {
+        id: 902,
+        result: { decision: 'decline' },
+      });
+      assert.deepEqual(await f.receipt(903), {
+        id: 903,
+        result: { decision: 'accept' },
+      });
+      assert.deepEqual(await f.receipt(904), {
+        id: 904,
+        result: {
+          action: 'accept',
+          content: { label: 'retained' },
+          _meta: null,
+        },
+      });
+      await assert.rejects(readFile(join(f.cwd, 'response-901.json')), {
+        code: 'ENOENT',
+      });
+    } finally {
+      await close(f.session, f.cwd);
+    }
+  });
+
+await test('native resolution retires a retained request after the main turn ends', async () => {
+  const f = await approvalsFixture();
+  try {
+    await f.emit(
+      approval(920, 'child-thread', 'turn-a', 'child'),
+      elicitation(921),
+      {
+        method: 'turn/completed',
+        params: {
+          threadId: 'native-thread',
+          turn: { id: 'turn-a', status: 'completed', error: null },
+        },
+      },
+      {
+        method: 'serverRequest/resolved',
+        params: { threadId: 'child-thread', requestId: 920 },
+      },
+    );
+    assert.deepEqual(
+      f.events.flatMap((event) =>
+        event.type === 'request-resolved' ? [event.id] : [],
+      ),
+      ['920'],
+    );
+    f.session.respond('920', { decision: 'accept' });
+    f.session.respond('921', {
+      decision: 'accept',
+      content: { label: 'still pending' },
+    });
+    assert.deepEqual(await f.receipt(921), {
+      id: 921,
+      result: {
+        action: 'accept',
+        content: { label: 'still pending' },
+        _meta: null,
+      },
+    });
+    await assert.rejects(readFile(join(f.cwd, 'response-920.json')), {
+      code: 'ENOENT',
+    });
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+for (const loss of [false, true])
+  await test(`${loss ? 'process exit' : 'close'} retires requests retained after the main turn`, async () => {
+    const f = await approvalsFixture();
+    try {
+      await f.emit(
+        approval(930, 'child-thread', 'turn-a', 'child'),
+        elicitation(931),
+        {
+          method: 'turn/completed',
+          params: {
+            threadId: 'native-thread',
+            turn: { id: 'turn-a', status: 'completed', error: null },
+          },
+        },
+      );
+      assert.equal(
+        f.events.some((event) => event.type === 'request-resolved'),
+        false,
+      );
+      if (loss) await writeFile(join(f.cwd, 'exit'), '');
+      else await f.session.close();
+      await until('the closed session', () => f.session.closed);
+      assert.deepEqual(
+        f.events.flatMap((event) =>
+          event.type === 'request-resolved' ? [event.id] : [],
+        ),
+        ['930', '931'],
+      );
+      for (const id of [930, 931]) {
+        assert.doesNotThrow(() =>
+          f.session.respond(String(id), { decision: 'accept' }),
+        );
+        await assert.rejects(readFile(join(f.cwd, `response-${id}.json`)), {
+          code: 'ENOENT',
+        });
+      }
+    } finally {
+      await close(f.session, f.cwd);
+    }
+  });

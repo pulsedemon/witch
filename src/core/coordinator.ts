@@ -1437,7 +1437,7 @@ export class Coordinator {
       phase: recovery ? 'recovery' : 'idle',
       recovery,
       requests: this.snapshot.requests.filter(
-        (request) => request.replyAsPrompt,
+        (request) => request.replyAsPrompt || request.survivesTurn,
       ),
       ...(error ? { error } : {}),
     });
