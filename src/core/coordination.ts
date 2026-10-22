@@ -741,7 +741,8 @@ export class SessionCoordination {
     const unregistered: CoordinationSnapshot['unregistered'] = [];
     const processes = new Map<number, Promise<ProcessIdentity | undefined>>();
     for (const record of records) {
-      if (!opened.has(record.id)) continue;
+      const holder = opened.get(record.id);
+      if (!holder) continue;
       const presence = presences.find((entry) => entry.id === record.id);
       if (
         presence &&
@@ -758,6 +759,8 @@ export class SessionCoordination {
           continue;
         }
       }
+      // a current Witch opening, reconnecting or closing this conversation
+      if (holder.coordinated) continue;
       try {
         if ((await this.memory.scopePaths(record.cwd)).project === project)
           unregistered.push(conversationSummarySchema.parse(record));

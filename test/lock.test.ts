@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { exclusiveLock, lockedFiles } from '../src/persistence/lock.js';
+import {
+  exclusiveLock,
+  lockedFiles,
+  sharedLock,
+} from '../src/persistence/lock.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
@@ -101,6 +105,7 @@ await test('observation never prevents a free conversation from opening', async 
 await test('batch observation preserves path identity and filesystem failures', async (t) => {
   const root = await scratch('witch-lock-batch-');
   const heldPath = join(root, 'présence λ[]\nlock');
+  const sharedPath = join(root, 'shared');
   const free = join(root, 'free');
   const missing = join(root, 'missing');
   await Promise.all([writeFile(heldPath, ''), writeFile(free, '')]);
@@ -109,9 +114,18 @@ await test('batch observation preserves path identity and filesystem failures', 
     constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
   );
   t.after(() => held.close());
+  const shared = await open(
+    sharedPath,
+    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | sharedLock,
+    0o600,
+  );
+  t.after(() => shared.close());
   assert.deepEqual(
-    await lockedFiles([free, heldPath, missing]),
-    new Set([heldPath]),
+    await lockedFiles([free, heldPath, missing, sharedPath]),
+    new Map([
+      [heldPath, 'exclusive'],
+      [sharedPath, 'shared'],
+    ]),
   );
   await assert.rejects(access(missing), { code: 'ENOENT' });
   await chmod(free, 0o000);
@@ -147,5 +161,5 @@ await test('query failure never reports an unlocked file', async () => {
       else process.env[key] = value;
     }
   }
-  assert.deepEqual(await lockedFiles([file]), new Set());
+  assert.deepEqual(await lockedFiles([file]), new Map());
 });
