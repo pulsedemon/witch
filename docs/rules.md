@@ -48,6 +48,8 @@ Persist native IDs and display history. Each instance has one conversation open,
 
 ## Session coordination
 
+GitHub assignment after an active claim belongs to [assignGitHubTask](../src/core/github-assignment.ts); [SessionCoordination](../src/core/coordination.ts) retains the local claim and returns a warning when assignment fails.
+
 Witches sharing a state directory discover this repository's other open sessions, including its other checkouts. `/peers` shows their tasks and details without switching or messaging them. The sidebar reserves space for local brews and familiars before allocating peer rows; [Sidebar](../src/ui/sidebar.tsx) owns that budget.
 
 Agents receive a fresh peer snapshot and a bound control command before each normal prompt. They query and claim a full GitHub issue/pr URL or `task:name` before starting work. Matching references and explicit aliases have one owner; differently named descriptions of the same work still require the agent to recognize the overlap. Every claim lasts only while its Witch conversation stays open. Switching conversations, normal exit and process death release it; idle time, native reconnect and restart preserve it. `/task` shows this conversation's claim or selection position; `/task release` requires idle, resolved memory recovery and no running familiars or brews. An origin change leaves its existing reservation in the original project until release.
