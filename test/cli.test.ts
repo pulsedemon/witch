@@ -158,6 +158,53 @@ await test('headless controls preserve quoted paths, JSON and conflicts without 
   }
 });
 
+await test('claim warnings survive the control transport in JSON and plain output without failing local ownership', async () => {
+  const root = await scratch('witch-cli-assignment-');
+  const binding = {
+    directory: join(root, 'control'),
+    conversation: 'a',
+    activation: randomUUID(),
+  };
+  const registry = await CoordinationStore.open(root);
+  const failures: unknown[] = [];
+  const warning = 'GitHub assignment failed: permission denied';
+  const host = await ControlHost.open(
+    binding.directory,
+    async ({ action, deadline }) => {
+      if (action.kind !== 'claim') throw new Error('Unexpected test action');
+      return {
+        kind: 'claimed',
+        claim: await registry.claim(
+          { conversation: 'a', project: 'project-p' },
+          action.input,
+          identity,
+          deadline,
+          async () => {},
+        ),
+        warning,
+      };
+    },
+    (error) => failures.push(error),
+  );
+  try {
+    const command = `${controlPrefix(binding, cli)} --claim https://github.com/acme/widget/issues/42 --summary 'Current work'`;
+    const json = await run(`${command} --json`);
+    assert.equal(json.code, 0);
+    assert.equal(json.stderr, '');
+    assert.equal(JSON.parse(json.stdout).warning, warning);
+    assert.deepEqual(await registry.claims(), [JSON.parse(json.stdout).claim]);
+    const plain = await run(command);
+    assert.equal(plain.code, 0);
+    assert.equal(plain.stderr, '');
+    assert.match(plain.stdout, /Claimed: Current work/);
+    assert.ok(plain.stdout.includes(`Warning: ${warning}`));
+    assert.equal((await registry.claims()).length, 1);
+    assert.deepEqual(failures, []);
+  } finally {
+    await host.close();
+  }
+});
+
 await test('an unavailable control host reports JSON failure without opening state', async () => {
   const root = await scratch('witch-cli-unavailable-');
   const result = await run([
