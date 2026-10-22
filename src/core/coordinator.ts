@@ -165,7 +165,7 @@ export class Coordinator {
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
-  /** a turn in the current operation failed, which stops the queue as a report does. */
+  /** memory recovery must keep a failed turn's queue held for the composer. */
   private turnFailed = false;
   private closed = false;
   /** a model change accepted after the reply can outlive the native turn. */
@@ -1451,7 +1451,7 @@ export class Coordinator {
               : 'Stop the current operation first',
       );
     this.cancelled = false;
-    this.turnFailed = false;
+    if (expected === 'idle') this.turnFailed = false;
     this.publish({ phase, error: undefined });
     this.task = (async () => {
       let failure: unknown;
