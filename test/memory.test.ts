@@ -485,7 +485,11 @@ await test('a git or OS that fails reading a checkout or its origin fails the pr
   await git(project, 'init', '--quiet');
   hook.current = async (command, run) =>
     command[0] === 'remote'
-      ? { stdout: '', stderr: 'fatal: unreadable config', code: 1 }
+      ? {
+          stdout: Buffer.alloc(0),
+          stderr: 'fatal: unreadable config',
+          code: 1,
+        }
       : run();
   await assert.rejects(memory.scopePaths(project), /unreadable config/);
   hook.current = async (command, run) => {
@@ -560,6 +564,30 @@ await test('restore recreates a deleted directory, produces a new accepted revis
       `since the previous snapshot:\nD\t${JSON.stringify(join(workspace.root, note))}`,
     ),
   );
+});
+
+await test('restore preserves note bytes in the working file and new commit', async () => {
+  const { open } = await fixture();
+  const { workspace } = await open('a');
+  const note = 'global/note.bin';
+  const destination = join(workspace.root, note);
+  const expected = Buffer.from('89504e470d0a1a0afffe0080636166e9', 'hex');
+  await writeFile(destination, expected);
+  await workspace.commit('original note');
+  const originalRevision = await workspace.revision();
+  await writeFile(destination, 'Replacement content.');
+  await workspace.commit('replace note');
+  const replacementRevision = await workspace.revision();
+
+  await workspace.restore(note, originalRevision);
+
+  assert.deepEqual(await readFile(destination), expected);
+  assert.notEqual(await workspace.revision(), replacementRevision);
+  const { stdout } = await execute('git', ['show', 'HEAD:global/note.bin'], {
+    cwd: workspace.root,
+    encoding: 'buffer',
+  });
+  assert.deepEqual(stdout, expected);
 });
 
 await test('a changed note with a non-ASCII name reaches the agent as written', async () => {

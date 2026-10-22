@@ -378,7 +378,11 @@ export class Workspace {
     );
     const base = (await this.git(['merge-base', 'HEAD', latest])).trim();
     return {
-      paths: merged.stdout.split('\0').slice(1).filter(Boolean),
+      paths: merged.stdout
+        .toString('utf8')
+        .split('\0')
+        .slice(1)
+        .filter(Boolean),
       diff: await this.git([
         'diff',
         '--no-ext-diff',
@@ -414,7 +418,7 @@ export class Workspace {
       ],
       { codes: [0, 1] },
     );
-    const [tree, ...listed] = merged.stdout.split('\0');
+    const [tree, ...listed] = merged.stdout.toString('utf8').split('\0');
     const base = (await this.git(['merge-base', 'HEAD', latest])).trim();
     const index = resolve(
       this.root,
@@ -469,7 +473,7 @@ export class Workspace {
   async restore(path: string, revision: string): Promise<void> {
     const file = this.path(path);
     const destination = await this.checkedPath(file);
-    const content = await this.memory.read(revision, file);
+    const content = await this.memory.readBytes(revision, file);
     await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, content);
     await this.commit(`chore(memory): restore ${file}`);
