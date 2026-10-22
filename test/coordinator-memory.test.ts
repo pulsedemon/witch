@@ -14,6 +14,7 @@ import {
   readRecord,
   fixture,
   stranded,
+  turns,
 } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
@@ -63,6 +64,64 @@ await test('unfinished memory holds a prompt until recovery, which preserves the
     await coordinator.close();
   }
 });
+
+await test('discarding interrupted-turn memory resumes queued prompts', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    a.interruptNext = true;
+    await coordinator.send('remember-port');
+    assert.equal(coordinator.snapshot.recovery?.kind, 'pending');
+    await coordinator.send('queued followup');
+    assert.deepEqual(coordinator.snapshot.queue, ['queued followup']);
+    await coordinator.recoverMemory('discard');
+    await until(
+      'the held prompt completes',
+      () => a.inputs.length > 1 && coordinator.snapshot.phase === 'idle',
+    );
+    assert.deepEqual(turns(a), [
+      ['remember-port', undefined],
+      ['queued followup', undefined],
+    ]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+for (const decision of ['accept', 'discard'] as const) {
+  await test(`failed-turn ${decision} recovery holds queued prompts until resubmission`, async () => {
+    const { coordinator, a } = await fixture();
+    const gate = new TurnGate();
+    try {
+      a.gate = gate;
+      a.failNext = true;
+      const sending = coordinator.send('remember-port');
+      await within(gate.entered, 3000, 'the gated turn');
+      await coordinator.send('/review');
+      await coordinator.send('queued followup');
+      gate.open();
+      await sending;
+      assert.equal(coordinator.snapshot.recovery?.kind, 'pending');
+      await coordinator.recoverMemory(decision);
+      assert.equal(coordinator.snapshot.phase, 'idle');
+      assert.equal(coordinator.snapshot.recovery, undefined);
+      assert.deepEqual(coordinator.snapshot.queue, [
+        '/review',
+        'queued followup',
+      ]);
+      assert.deepEqual(turns(a), [['remember-port', undefined]]);
+      const queued = coordinator.unqueue();
+      assert.deepEqual(queued, ['/review', 'queued followup']);
+      await coordinator.send(queued.join('\n'));
+      assert.deepEqual(turns(a), [
+        ['remember-port', undefined],
+        ['/review\nqueued followup', undefined],
+      ]);
+    } finally {
+      gate.open();
+      await coordinator.close();
+    }
+  });
+}
 
 await test('memory another conversation publishes refreshes an existing session before its next turn', async () => {
   const { coordinator, a, note, outsider } = await fixture();

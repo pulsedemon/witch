@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../src/ui/app.js';
+import { TurnGate } from './fixtures/agent.js';
+import { fixture, turns } from './fixtures/coordinator.js';
 import {
   show,
   fake,
@@ -13,7 +15,7 @@ import {
   UP,
   tools,
 } from './fixtures/ui.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 await test('Enter during a turn sends the draft and empties the composer', async () => {
   const { app, calls } = fake({ phase: 'running' });
@@ -69,6 +71,55 @@ await test('queued prompts show above the activity row with a hint, and ↑ on t
     );
   } finally {
     ui.unmount();
+  }
+});
+
+await test('accepting failed-turn memory returns queued prompts ahead of the draft', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    await until('the composer', () => ui.text().includes('┃ Ask the agent'));
+    a.gate = gate;
+    a.failNext = true;
+    const sending = coordinator.send('remember-port');
+    await within(gate.entered, 3000, 'the gated turn');
+    await coordinator.send('/review');
+    await coordinator.send('queued followup');
+    ui.stdin.write('unsent draft');
+    await until('the draft', () => ui.text().includes('┃ unsent draft'));
+    gate.open();
+    await sending;
+    await until('the recovery page', () =>
+      ui.text().includes('Unfinished memory changes'),
+    );
+    await delay(550);
+    ui.stdin.write('a');
+    const rows = ['┃ /review', '┃ queued followup', '┃ unsent draft'];
+    await until('the restored draft', () =>
+      rows.every((row) => ui.text().includes(row)),
+    );
+    const offsets = rows.map((row) => ui.text().indexOf(row));
+    assert.ok(
+      offsets.every((offset, index) => offset > (offsets[index - 1] ?? -1)),
+      ui.text(),
+    );
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    assert.deepEqual(turns(a), [['remember-port', undefined]]);
+    ui.stdin.write(ENTER);
+    await until(
+      'the explicit submission completes',
+      () => a.inputs.length > 1 && coordinator.snapshot.phase === 'idle',
+    );
+    assert.deepEqual(turns(a), [
+      ['remember-port', undefined],
+      ['/review\nqueued followup\nunsent draft', undefined],
+    ]);
+  } finally {
+    gate.open();
+    ui.unmount();
+    await coordinator.close();
   }
 });
 
