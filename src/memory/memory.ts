@@ -50,6 +50,11 @@ export const branchOf = (id: string) => `${branches}${id}`;
 
 /** the note that indexes the rest of its scope. */
 export const indexNote = 'MEMORY.md';
+export const indexByteLimit = 6_000;
+
+const changeListByteLimit = 2_000;
+const staleReferences =
+  'Treat all previously read reference notes as stale. Rediscover relevant notes in the current shared-memory directories before relying on them; missing notes no longer apply.';
 
 const overrides = [
   '-c',
@@ -312,6 +317,7 @@ export class Memory {
       .map(([branch]) => branch!.slice(branches.length));
   }
 
+  /** reverted paths still need delivery after an unsuccessful turn received an intermediate revision. */
   async snapshot(
     revision: string,
     root: string,
@@ -319,34 +325,49 @@ export class Memory {
     previous?: string,
   ): Promise<string> {
     const paths = [scope.global, scope.project];
-    const files = await this.files(revision, scope);
+    const changed = previous
+      ? new Set(await this.touchedPaths(`${previous}..${revision}`, scope))
+      : undefined;
+    if (changed?.size === 0) return '';
+    const files = new Set(await this.files(revision, scope));
     const essentials = await Promise.all(
-      paths.map(async (path) => {
-        const index = `${path}/${indexNote}`;
-        const content = files.includes(index)
-          ? await this.read(revision, index)
-          : '(No saved essentials.)';
-        return `${join(root, index)}\n${content}`;
-      }),
+      paths
+        .map((path) => `${path}/${indexNote}`)
+        .filter((index) => !changed || changed.has(index))
+        .map(async (index) => {
+          const content = files.has(index)
+            ? await this.read(revision, index)
+            : '(No saved essentials.)';
+          const bytes = Buffer.byteLength(content, 'utf8');
+          const body =
+            bytes <= indexByteLimit
+              ? content
+              : `(${bytes} bytes)\nThis index exceeds the inline budget. Read the complete file at the path above before acting. It replaces the previous index for this scope; do not rely on an older copy. Preserve its details in linked notes before shortening it.`;
+          return `${join(root, index)}\n${body}`;
+        }),
     );
-    const changes = previous
-      ? await this.git(this.root, [
-          'diff',
-          '--name-status',
-          previous,
-          revision,
-          '--',
-          ...paths,
-        ])
-      : '';
+    let changes: string | undefined;
+    if (previous && changed) {
+      const before = new Set(await this.files(previous, scope));
+      const list = [...changed]
+        .sort()
+        .map((path) => {
+          const status = !files.has(path) ? 'D' : before.has(path) ? 'M' : 'A';
+          return `${status}\t${JSON.stringify(join(root, path))}`;
+        })
+        .join('\n');
+      changes =
+        Buffer.byteLength(list, 'utf8') > changeListByteLimit
+          ? staleReferences
+          : `Changed or deleted notes since the previous snapshot:\n${list}`;
+    }
     return [
       `Accepted shared memory, revision ${revision}.`,
-      'This snapshot supersedes earlier shared-memory snapshots. Removed facts are no longer active preferences. Re-read changed reference notes before relying on them.',
+      previous
+        ? 'The index blocks below replace only their named scopes. Other current scopes are unchanged. Removed index facts and deleted notes are no longer active. Re-read changed reference notes before relying on them.'
+        : `This baseline supersedes all earlier shared-memory snapshots. Only the global and project scopes named here apply. Removed facts are no longer active preferences. ${staleReferences}`,
       ...essentials,
-      `Available reference notes:\n${files.map((file) => join(root, file)).join('\n') || '(none)'}`,
-      ...(changes
-        ? [`Changed or deleted notes since the previous snapshot:\n${changes}`]
-        : []),
+      ...(changes ? [changes] : []),
     ].join('\n\n');
   }
 
@@ -391,20 +412,28 @@ export class Memory {
     scope: MemoryScope,
   ): Promise<{ path: string; deleted: boolean }[]> {
     const present = new Set(await this.files(revision, scope));
+    const history = await this.touchedPaths(revision, scope);
+    return [...new Set([...present, ...history])]
+      .sort()
+      .map((path) => ({ path, deleted: !present.has(path) }));
+  }
+
+  private async touchedPaths(
+    revisions: string,
+    scope: MemoryScope,
+  ): Promise<string[]> {
     const history = await this.git(this.root, [
       'log',
       '--format=',
       '--name-only',
       '-z',
       '--no-renames',
-      revision,
+      revisions,
       '--',
       scope.global,
       scope.project,
     ]);
-    return [...new Set([...present, ...history.split('\0').filter(Boolean)])]
-      .sort()
-      .map((path) => ({ path, deleted: !present.has(path) }));
+    return history.split('\0').filter(Boolean);
   }
 
   async history(
