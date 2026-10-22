@@ -12,6 +12,7 @@ import { callControl } from '../src/persistence/control.js';
 import { exclusiveLock } from '../src/persistence/lock.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
+import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
 await test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
@@ -146,6 +147,83 @@ await test('a live legacy owner blocks new work until its lock closes, and a reu
   assert.equal((await a.claim()).kind, 'claimed');
   assert.deepEqual((await a.query()).peers, []);
 });
+
+for (const name of ['B', 'C']) {
+  await test(`a missing directory in ${name === 'B' ? 'the same' : 'another'} project preserves claims without blocking discovery or selection`, async (t) => {
+    const { root, start, store, memory, registry } =
+      await coordinationFixture(t);
+    const a = await start();
+    const choosing = await selectionTurn(t, a);
+    const cwd = join(root, name);
+    const { project } = await memory.scopePaths(cwd);
+    const legacy = await store.create(record(randomUUID(), cwd));
+    t.after(() => legacy.close());
+    const reference = 'https://github.com/acme/queue/issues/17';
+    const held = await registry.claim(
+      { conversation: legacy.record.id, project },
+      { reference, summary: 'Existing task' },
+      (await registry.presences())[0]!.process,
+      Date.now() + 1000,
+      async () => {},
+    );
+    await files.rename(cwd, `${cwd}-moved`);
+
+    const snapshot = await a.query();
+    assert.deepEqual(snapshot.unregistered, []);
+    assert.deepEqual(
+      snapshot.reservations,
+      name === 'B' ? [{ claim: held, status: 'unknown' }] : [],
+    );
+    const duplicate = await a.claim(reference);
+    if (duplicate.kind !== 'conflict') assert.fail(JSON.stringify(duplicate));
+    assert.deepEqual(duplicate.claim, held);
+    const available = await a.claim('task:available');
+    if (available.kind !== 'claimed') assert.fail(JSON.stringify(available));
+    assert.deepEqual(await registry.claims(), [held, available.claim]);
+    const released = await callControl(choosing.binding, {
+      kind: 'release',
+      claim: available.claim.id,
+    });
+    assert.equal(released.kind, 'released');
+    const selection = await choosing.select();
+    assert.equal(selection.position, 1);
+    assert.deepEqual((await registry.state()).selections, [selection.ticket]);
+    assert.deepEqual(await registry.claims(), [held]);
+    assert.equal(await store.isOpen(legacy.record.id), true);
+  });
+}
+
+for (const failure of [
+  { code: 'EACCES', syscall: 'realpath' },
+  { code: 'ENOENT', syscall: 'spawn git' },
+]) {
+  await test(`${failure.code} from ${failure.syscall} still blocks discovery and new ownership`, async (t) => {
+    const { root, start, store, memory, registry } =
+      await coordinationFixture(t);
+    const a = await start();
+    const choosing = await selectionTurn(t, a);
+    const cwd = join(root, 'B');
+    const legacy = await store.create(record(randomUUID(), cwd));
+    t.after(() => legacy.close());
+    const scopePaths = memory.scopePaths.bind(memory);
+    const error = Object.assign(new Error('Cannot determine project'), failure);
+    t.mock.method(memory, 'scopePaths', (directory: string) =>
+      directory === cwd ? Promise.reject(error) : scopePaths(directory),
+    );
+
+    const query = await callControl(await a.binding(), { kind: 'peers' });
+    assert.equal(query.kind, 'error');
+    if (query.kind === 'error')
+      assert.match(query.message, /Cannot determine project/);
+    assert.equal((await a.claim()).kind, 'error');
+    const selection = await callControl(choosing.binding, {
+      kind: 'select-next',
+      turn: choosing.turn,
+    });
+    assert.equal(selection.kind, 'error');
+    assert.deepEqual(await registry.state(), { claims: [], selections: [] });
+  });
+}
 
 await test('closing a conversation releases its claim even if its stale presence says it runs', async (t) => {
   const { start, registry } = await coordinationFixture(t);

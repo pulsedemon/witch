@@ -757,8 +757,13 @@ export class SessionCoordination {
           continue;
         }
       }
-      if ((await this.memory.scopePaths(record.cwd)).project === project)
-        unregistered.push(conversationSummarySchema.parse(record));
+      try {
+        if ((await this.memory.scopePaths(record.cwd)).project === project)
+          unregistered.push(conversationSummarySchema.parse(record));
+      } catch (error) {
+        const { code, syscall } = error as NodeJS.ErrnoException;
+        if (code !== 'ENOENT' || syscall !== 'realpath') throw error;
+      }
     }
     const positions = selectionStates(selections);
     const ownSelection = positions.find(
