@@ -163,6 +163,8 @@ export interface TurnResult {
   unread?: string[];
   /** already executed command records to include as context with the next prompt, never to enqueue. */
   unreadContext?: string[];
+  /** the input passed to send() is proven unwritten; absent when delivery is uncertain. */
+  inputUnsent?: boolean;
 }
 
 export interface AgentSession {

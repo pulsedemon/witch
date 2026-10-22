@@ -514,9 +514,7 @@ export class Coordinator {
     return this.store.conversations(this.current().cwd);
   }
 
-  /**
-   * false when the picker refresh is canceled. replied turns keep the cached list because refreshing reinitializes Claude Code.
-   */
+  /** returns false when canceled; a replied turn keeps its catalog because reinitialization needs idle. */
   async refreshModels(): Promise<boolean> {
     if (this.replied) return true;
     const refresh = { cancelled: false };
@@ -972,6 +970,8 @@ export class Coordinator {
       }
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
+      if (result.inputUnsent)
+        this.retainContext(conversation.id, pendingContext);
       this.retainContext(conversation.id, result.unreadContext);
       await this.finishActivity(activity, result);
       if (result.status === 'completed') {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentSession } from '../src/agents/types.js';
+import type { AgentSession, TurnResult } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
@@ -26,6 +26,142 @@ async function claudeCoordinator(mode: string) {
     { adapter, executable: '/fake/claude' },
   ]);
   return { ...launched, coordinator, memory };
+}
+
+for (const [entry, route, failures] of [
+  ['initial', 'reconnect', 1],
+  ['initial', 'switch', 1],
+  ['steered', 'reconnect', 1],
+  ['steered', 'switch', 1],
+  ['initial', 'reconnect', 2],
+] as const) {
+  await test(
+    failures === 2
+      ? 'a recovered command record survives another proven-unsent dispatch'
+      : `an unsent command record survives failed native dispatch (${entry}, ${route})`,
+    async () => {
+      const { coordinator, adapter, cwd, children, args } =
+        await claudeCoordinator('coordinator-reporting');
+      const command =
+        'printf "once\\n" >> executions; printf "retained-output\\n"';
+      const record = `<bash-input>${command}</bash-input>\n<bash-stdout>retained-output\n</bash-stdout><bash-stderr></bash-stderr>`;
+      const connect = adapter.connect.bind(adapter);
+      const results: TurnResult[] = [];
+      const writes: SDKUserMessage[][] = [];
+      adapter.connect = async (options) => {
+        const index = children.length;
+        const session = await connect({
+          ...options,
+          onShell: async (pid) => {
+            await options.onShell?.(pid);
+            if (entry === 'steered' && index === 0 && pid === undefined)
+              assert.equal(children[index]!.kill('SIGTERM'), true);
+          },
+        });
+        const child = children[index]!;
+        const write = child.stdin.write.bind(child.stdin);
+        writes[index] = [];
+        child.stdin.write = (...args) => {
+          const frame = JSON.parse(String(args[0])) as SDKUserMessage;
+          if (frame.type === 'user') writes[index]!.push(frame);
+          return Reflect.apply(write, child.stdin, args) as boolean;
+        };
+        const send = session.send.bind(session);
+        session.send = async (...input) => {
+          if (entry === 'initial' && index < failures)
+            assert.equal(child.kill('SIGTERM'), true);
+          const result = await send(...input);
+          results.push(result);
+          return result;
+        };
+        return session;
+      };
+      try {
+        await coordinator.initialize(cwd);
+        const original = coordinator.snapshot.conversation!.id;
+        let turn: Promise<void>;
+        if (entry === 'steered') {
+          turn = coordinator.send('reporting familiar');
+          await until(
+            'the first reply',
+            () => coordinator.snapshot.usage.cost === 0.25,
+          );
+          await coordinator.send(`!${command}`);
+        } else turn = coordinator.send(`!${command}`);
+        await within(turn, 5000, 'the failed dispatch');
+        const native = coordinator.snapshot.native!.id;
+        const frames = [
+          ...(await jsonLines(join(cwd, 'content.json'))),
+          ...(await jsonLines(join(cwd, 'steered.jsonl'))),
+        ];
+        assert.equal(JSON.stringify(frames).includes('<bash-input>'), false);
+        assert.equal(results[0]!.status, 'failed');
+        assert.deepEqual(results[0]!.unreadContext, [record]);
+        assert.equal(
+          results[0]!.inputUnsent,
+          entry === 'initial' ? true : undefined,
+        );
+        if (failures === 2) {
+          await coordinator.send('first recovery');
+          assert.equal(results[1]!.status, 'failed');
+          assert.equal(results[1]!.inputUnsent, true);
+          assert.equal(results[1]!.unreadContext, undefined);
+        }
+        assert.equal(
+          writes
+            .slice(0, failures)
+            .flat()
+            .filter((frame) =>
+              JSON.stringify(frame.message.content).includes('<bash-input>'),
+            ).length,
+          0,
+        );
+        if (route === 'switch') {
+          await coordinator.newConversation();
+          await coordinator.send('other');
+          assert.equal(
+            ((await content(cwd)) as string).includes(record),
+            false,
+          );
+          await coordinator.selectConversation(original);
+        }
+        await coordinator.send('next');
+        if (entry === 'steered')
+          assert.ok(args.at(-1)!.includes(`--resume=${native}`));
+        else
+          assert.equal(
+            args.at(-1)!.some((arg) => arg.startsWith('--resume=')),
+            false,
+          );
+        const next = (await content(cwd)) as string;
+        assert.equal(next.split(record).length - 1, 1);
+        assert.ok(next.indexOf(record) < next.indexOf('User request:\nnext'));
+        assert.deepEqual(coordinator.snapshot.queue, []);
+        assert.equal(
+          coordinator.snapshot.items.filter(
+            (item) => item.kind === 'user' && item.text === `!${command}`,
+          ).length,
+          1,
+        );
+        assert.equal(
+          coordinator.snapshot.items.filter(
+            (item) => item.kind === 'tool' && item.title === command,
+          ).length,
+          1,
+        );
+        await coordinator.send('again');
+        assert.equal(((await content(cwd)) as string).includes(record), false);
+        assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
+      } finally {
+        await coordinator.close();
+        assert.ok(
+          children.every(
+            (child) => child.exitCode !== null || child.signalCode !== null,
+          ),
+        );
+      }
+    },
+  );
 }
 
 await test('an unread shell result survives reconnect as context without rerunning its command', async () => {
