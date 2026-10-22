@@ -734,13 +734,14 @@ export class SessionCoordination {
       throw new Error(
         `Cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
       );
-    const opened = new Set<string>();
+    const opened = await this.store.openConversations(
+      records.map((record) => record.id),
+    );
     const live = new Map<string, SessionPresence>();
     const unregistered: CoordinationSnapshot['unregistered'] = [];
     const processes = new Map<number, Promise<ProcessIdentity | undefined>>();
     for (const record of records) {
-      if (!(await this.store.isOpen(record.id))) continue;
-      opened.add(record.id);
+      if (!opened.has(record.id)) continue;
       const presence = presences.find((entry) => entry.id === record.id);
       if (
         presence &&

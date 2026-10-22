@@ -6,6 +6,8 @@ A personal terminal app for installed Codex and Claude Code, with Git-backed sha
 
 Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing, and a signed-in `gh` adds the branch's pull request to the status line and lets Witch clean up after it merges.
 
+Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` and `JSON::PP` modules.
+
 ```sh
 pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
 ```

@@ -15,6 +15,32 @@ import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
+await test('discovery batches conversation ownership and keeps only open peers', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { root, start, store } = await coordinationFixture(t);
+  t.after(() => t.mock.timers.reset());
+  const a = await start('A'),
+    b = await start('B');
+  for (const id of ['closed-a', 'closed-b'])
+    await (await store.create(record(id, join(root, 'A')))).close();
+  const own = a.coordinator.snapshot.conversation!.id;
+  const peer = b.coordinator.snapshot.conversation!.id;
+  const batch = t.mock.method(store, 'openConversations');
+  await a.coordination.context();
+  assert.equal(batch.mock.callCount(), 1);
+  const call = batch.mock.calls[0]!;
+  assert.deepEqual(
+    new Set(call.arguments[0]),
+    new Set([own, peer, 'closed-a', 'closed-b']),
+  );
+  assert.deepEqual(await call.result, new Set([own, peer]));
+  assert.deepEqual(
+    a.coordination.snapshot.peers.map(({ presence }) => presence.id),
+    [peer],
+  );
+  assert.deepEqual(a.coordination.snapshot.unregistered, []);
+});
+
 await test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
   const { root, start, registry } = await coordinationFixture(t);
   const a = await start();
