@@ -190,11 +190,11 @@ for (const [mode, restarts] of [
       await until('worker marker read', () =>
         existsSync(join(parent, 'worker.result')),
       );
+      await until('original worker exit', () => gone(first.worker!));
       assert.equal(
         await readFile(join(parent, 'worker.result'), 'utf8'),
         'before restart',
       );
-      await until('original worker exit', () => gone(first.worker!));
       const descendant = Number(
         await readFile(join(parent, 'descendant.pid'), 'utf8'),
       );
@@ -205,11 +205,11 @@ for (const [mode, restarts] of [
       await until('descendant marker read', () =>
         existsSync(join(parent, 'descendant.result')),
       );
+      await until('descendant exit', () => gone(descendant));
       assert.equal(
         await readFile(join(parent, 'descendant.result'), 'utf8'),
         'before restart',
       );
-      await until('descendant exit', () => gone(descendant));
     } finally {
       for (const name of ['worker', 'descendant']) {
         await writeFile(join(parent, `release-${name}`), 'release');
