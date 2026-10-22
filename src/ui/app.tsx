@@ -1249,7 +1249,9 @@ export function App({
         <StatusLine
           model={
             state.models.find(
-              ({ id, agent }) => id === model && agent === state.native?.agent,
+              ({ id, agent }) =>
+                id === model &&
+                agent === (state.native?.agent ?? state.conversation?.agent),
             )?.label ?? model
           }
           effort={state.native?.effort ?? state.native?.nativeEffort}
