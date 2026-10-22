@@ -783,7 +783,7 @@ await test('a model chosen to keep the current effort stores the effort in force
   }
 });
 
-await test('catalog refresh preserves the active session, process, transcript, usage and skills', async () => {
+await test('catalog refresh preserves the active session, process, transcript, usage and skills and reports each failed runtime', async () => {
   const { coordinator, a, b, root } = await fixture(undefined, (a) => {
     a.connectUsage = { cost: 0.75 };
     a.skills = [{ name: 'spell', description: 'Current spell' }];
@@ -820,6 +820,13 @@ await test('catalog refresh preserves the active session, process, transcript, u
     );
     assert.match(coordinator.snapshot.error!, /b: Discovery failed/);
     assert.equal(coordinator.snapshot.native!.id, before.native!.id);
+    a.failModels = true;
+    await coordinator.refreshModels();
+    assert.deepEqual(coordinator.snapshot.models, []);
+    assert.equal(
+      coordinator.snapshot.error,
+      'a: model/list failed\nb: Discovery failed',
+    );
   } finally {
     await coordinator.close();
   }
