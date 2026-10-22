@@ -558,6 +558,79 @@ await test('legacy peers block selection until closed while other projects selec
   assert.equal((await turn.select()).position, 1);
 });
 
+await test('a recommendation survives final cleanup failure and advances the next waiter once', async (t) => {
+  const f = await coordinationFixture(t);
+  const a = await f.start(),
+    b = await f.start('B');
+  const first = await selectionTurn(t, a),
+    second = await selectionTurn(t, b);
+  const choice = await first.select(),
+    queued = await second.select();
+  assert.equal(choice.position, 1);
+  assert.equal(queued.position, 2);
+  const recommend = CoordinationStore.prototype.recommend;
+  const claims = CoordinationStore.prototype.claims;
+  let failRead = false;
+  const recommending = t.mock.method(
+    CoordinationStore.prototype,
+    'recommend',
+    async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof recommend>
+    ) {
+      const claim = await recommend.apply(this, args);
+      failRead = true;
+      return claim;
+    },
+  );
+  const reading = t.mock.method(
+    CoordinationStore.prototype,
+    'claims',
+    async function (this: CoordinationStore) {
+      if (failRead) {
+        failRead = false;
+        throw new Error('Injected project cleanup read failure');
+      }
+      return claims.call(this);
+    },
+  );
+  try {
+    const result = await callControl(first.binding, {
+      kind: 'recommend',
+      selection: choice.ticket.id,
+      input: {
+        reference: 'https://github.com/acme/queue/issues/17',
+        summary: 'Issue 17',
+      },
+    });
+    if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+    assert.equal(result.claim.suggestion?.selection, choice.ticket.id);
+    assert.deepEqual(await f.registry.state(), {
+      claims: [result.claim],
+      selections: [queued.ticket],
+    });
+    assert.deepEqual(a.coordination.snapshot.ownClaim, result.claim);
+    assert.equal(
+      a.coordination.snapshot.error,
+      'Injected project cleanup read failure',
+    );
+    assert.equal(failRead, false);
+    const next = await callControl(second.binding, {
+      kind: 'selection-status',
+      selection: queued.ticket.id,
+    });
+    if (next.kind !== 'selection') assert.fail(JSON.stringify(next));
+    assert.deepEqual(next.selection, { ticket: queued.ticket, position: 1 });
+    assert.deepEqual(await f.registry.state(), {
+      claims: [result.claim],
+      selections: [queued.ticket],
+    });
+  } finally {
+    recommending.mock.restore();
+    reading.mock.restore();
+  }
+});
+
 await test('a lost recommendation reply reconciles to one claim and one advancement', async (t) => {
   const f = await coordinationFixture(t);
   const a = await f.start(),
