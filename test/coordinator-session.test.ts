@@ -792,7 +792,7 @@ await test('catalog refresh preserves the active session, process, transcript, u
     await coordinator.send('Keep this conversation');
     const before = structuredClone(coordinator.snapshot);
     const saved = await readRecord(root, before.conversation!.id);
-    await coordinator.refreshModels();
+    assert.equal(await coordinator.refreshModels(), true);
     assert.deepEqual(
       coordinator.snapshot.models.map(({ agent, id }) => [agent, id]),
       [
@@ -813,7 +813,7 @@ await test('catalog refresh preserves the active session, process, transcript, u
     assert.equal(a.sessions[0]!.session.closed, false);
     assert.equal(b.sessions.length, 0);
     b.failDiscovery = true;
-    await coordinator.refreshModels();
+    assert.equal(await coordinator.refreshModels(), true);
     assert.deepEqual(
       coordinator.snapshot.models.map((model) => model.agent),
       ['a', 'a'],
@@ -821,7 +821,7 @@ await test('catalog refresh preserves the active session, process, transcript, u
     assert.match(coordinator.snapshot.error!, /b: Discovery failed/);
     assert.equal(coordinator.snapshot.native!.id, before.native!.id);
     a.failModels = true;
-    await coordinator.refreshModels();
+    assert.equal(await coordinator.refreshModels(), true);
     assert.deepEqual(coordinator.snapshot.models, []);
     assert.equal(
       coordinator.snapshot.error,

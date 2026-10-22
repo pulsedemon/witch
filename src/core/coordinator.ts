@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
 import type {
@@ -25,10 +23,11 @@ import {
   printable,
 } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
-import type { Workspace } from '../memory/workspace.js';
+import type { MemoryConflict, Workspace } from '../memory/workspace.js';
 import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
+import { editInVSCode } from './editor.js';
 import { listFiles } from './files.js';
 import {
   alone,
@@ -59,7 +58,6 @@ import type {
   Phase,
 } from './state.js';
 
-const execute = promisify(execFile);
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
@@ -84,26 +82,6 @@ function noteName(path: string): string {
 }
 
 class RestartRequired extends Error {}
-/** as VS Code's own launcher does: Electron runs cli.js as Node, and Witch's Node options pass under VS Code's names. */
-export function editorEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const { NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE, ...environment } = env;
-  // VS Code can outlive the scratch directory TMPDIR names
-  delete environment.TMPDIR;
-  return {
-    ...environment,
-    ELECTRON_RUN_AS_NODE: '1',
-    VSCODE_NODE_OPTIONS: NODE_OPTIONS,
-    VSCODE_NODE_REPL_EXTERNAL_MODULE: NODE_REPL_EXTERNAL_MODULE,
-  };
-}
-async function editInVSCode(file: string, signal: AbortSignal): Promise<void> {
-  const application = '/Applications/Visual Studio Code.app/Contents';
-  await execute(
-    join(application, 'MacOS/Code'),
-    [join(application, 'Resources/app/out/cli.js'), '--wait', file],
-    { signal, env: editorEnvironment(process.env) },
-  );
-}
 export interface Snapshot {
   phase: Phase;
   conversation?: Conversation;
@@ -171,6 +149,7 @@ export class Coordinator {
   /** a model change accepted after the reply can outlive the native turn. */
   private changingModel?: Promise<void>;
   private selectingModel = false;
+  private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
   private draining = false;
   private opening = false;
@@ -296,7 +275,7 @@ export class Coordinator {
           await workspace.ensureWorktree();
           pending = await workspace.isDirty();
           if (pending) reason = 'unfinished memory changes';
-          else if ((await workspace.publish()) === 'conflict')
+          else if ((await workspace.publish()) !== 'published')
             reason = 'memory conflicts with another conversation';
         }
         if (!pending && files.record.activity) {
@@ -446,12 +425,10 @@ export class Coordinator {
     return true;
   }
 
-  /** the live session's turn has replied and stays open only for its familiars or workflows. */
   private get replied(): boolean {
     return this.snapshot.phase === 'running' && !!this.session?.replied;
   }
 
-  /** runs what was sent during an operation once it ends, unless that would run over a report or failed turn. */
   private drainAfter(): void {
     if (this.halted()) return;
     this.drain().catch((error: unknown) => this.report(error));
@@ -537,15 +514,33 @@ export class Coordinator {
     return this.store.conversations(this.current().cwd);
   }
 
-  async refreshModels(): Promise<void> {
-    // a replied turn keeps the list from its connect, since a refresh reinitializes Claude Code
-    if (this.replied) return;
-    await this.operate('starting', async () => {
-      const { cwd, agent } = this.current();
-      this.publish({
-        models: await this.catalog.read(cwd, this.live(agent), true),
+  /**
+   * false when the picker refresh is canceled. replied turns keep the cached list because refreshing reinitializes Claude Code.
+   */
+  async refreshModels(): Promise<boolean> {
+    if (this.replied) return true;
+    const refresh = { cancelled: false };
+    try {
+      await this.operate('starting', async () => {
+        this.modelRefresh = refresh;
+        const { cwd, agent } = this.current();
+        try {
+          const models = await this.catalog.read(cwd, this.live(agent), true);
+          if (!refresh.cancelled) this.publish({ models });
+        } catch (error) {
+          if (
+            !refresh.cancelled ||
+            this.closed ||
+            !(error instanceof Error) ||
+            error.name !== 'AbortError'
+          )
+            throw error;
+        }
       });
-    });
+      return !refresh.cancelled;
+    } finally {
+      if (this.modelRefresh === refresh) this.modelRefresh = undefined;
+    }
   }
 
   /** an omitted effort keeps the one in force, except on a model that lists none. */
@@ -610,6 +605,9 @@ export class Coordinator {
   }
 
   async interrupt(): Promise<void> {
+    const refresh =
+      this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
+    if (refresh) refresh.cancelled = true;
     this.cancelled = true;
     this.publish({
       requests: this.snapshot.requests.filter(
@@ -622,6 +620,7 @@ export class Coordinator {
     const results = await Promise.allSettled([
       this.coordination?.endTurn(),
       (async () => {
+        if (refresh && !this.closed) return;
         // a session that is still starting has no turn to interrupt, so stopping it closes it
         if (this.snapshot.phase === 'starting' || this.connecting)
           await this.session?.close();
@@ -1400,13 +1399,14 @@ export class Coordinator {
     await this.files!.flush();
     const workspace = this.workspace!;
     let dirty = false;
-    let conflict = false;
+    let conflict: MemoryConflict | undefined;
     let failure: string | undefined;
     if (await workspace.exists()) {
       dirty = await workspace.isDirty();
       if (!dirty)
         try {
-          conflict = (await workspace.publish()) === 'conflict';
+          const result = await workspace.publish();
+          if (result !== 'published') conflict = result;
         } catch (error) {
           failure = errorMessage(error);
         }
@@ -1428,7 +1428,7 @@ export class Coordinator {
       : conflict
         ? {
             kind: 'conflict',
-            ...(await workspace.conflict()),
+            ...conflict,
             root: workspace.root,
           }
         : undefined;

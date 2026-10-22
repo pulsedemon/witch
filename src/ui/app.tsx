@@ -554,7 +554,8 @@ export function App({
           run(selectModel(id!, effort));
         } else
           run(
-            coordinator.refreshModels().then(() =>
+            coordinator.refreshModels().then((refreshed) => {
+              if (!refreshed) return;
               picker(
                 'Models · type an ID or choose one',
                 coordinator.snapshot.models.map((model) => ({
@@ -564,8 +565,8 @@ export function App({
                 })),
                 (id) => run(selectModel(id, undefined, true)),
                 true,
-              ),
-            ),
+              );
+            }),
           );
         break;
       case 'compact':
@@ -785,7 +786,7 @@ export function App({
     state.phase === 'recovery'
       ? linkify(
           conflict
-            ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nYour changes:\n${recovery.diff}`
+            ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:\n${recovery.diff}`
             : (recovery?.diff ?? ''),
           recovery?.root ?? cwd,
         )
@@ -1006,7 +1007,7 @@ export function App({
         </Text>
         <Text>
           {conflict
-            ? 'Another conversation published changes to the same notes.'
+            ? 'Another conversation published changes to the same notes. Keep mine merges your current changes.'
             : 'Accept these changes with their original attribution, or discard them.'}
         </Text>
         <Box height={pageRows} overflow="hidden">

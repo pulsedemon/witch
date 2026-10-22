@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { Coordinator, editorEnvironment } from '../src/core/coordinator.js';
+import { Coordinator } from '../src/core/coordinator.js';
+import { editorEnvironment } from '../src/core/editor.js';
 import { main } from '../src/memory/memory.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import {
@@ -830,6 +831,34 @@ await test('a failed rebase abort stops in the error phase until restart', async
     await coordinator.close().catch(() => {});
   }
 });
+
+for (const decision of ['keep', 'discard'] as const) {
+  await test(`recovery shows the blocked commit after a later local revert (${decision})`, async () => {
+    const f = await fixture();
+    try {
+      await publishOutside(f, { 'global/n.md': 'one\n' });
+      const target = await stranded(f, { 'global/n.md': 'a-change\n' });
+      try {
+        await writeFile(join(target.memory.root, 'global/n.md'), 'one\n');
+        await target.memory.commit('revert');
+      } finally {
+        await target.files.close();
+      }
+      await publishOutside(f, { 'global/n.md': 'b-change\n' });
+      await f.coordinator.selectConversation(target.id);
+      const recovery = f.coordinator.snapshot.recovery;
+      assert.equal(recovery?.kind, 'conflict');
+      assert.deepEqual(recovery.paths, ['global/n.md']);
+      assert.match(recovery.diff, /^-one$/m);
+      assert.match(recovery.diff, /^\+a-change$/m);
+      await f.coordinator.recoverMemory(decision);
+      assert.equal(f.coordinator.snapshot.phase, 'idle');
+      assert.equal(await f.memory.read(main, 'global/n.md'), 'b-change\n');
+    } finally {
+      await f.coordinator.close();
+    }
+  });
+}
 
 await test('keep mine publishes with the attribution of the conversation that kept its side', async () => {
   const context = await fixture();
