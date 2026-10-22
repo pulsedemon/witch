@@ -7,6 +7,7 @@ import { Graphics, placeholder } from '../src/ui/images.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import type { FileDiff } from '../src/agents/types.js';
 import type { DisplayItem } from '../src/core/state.js';
+import { applyDisplayUpdate } from '../src/core/state.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
@@ -373,6 +374,73 @@ const tool = (text: string, done = false): DisplayItem => ({
 });
 const early =
   'PASS src/a.ts:1 https://example.com/a\nPASS test/b.test.ts:2\nrun';
+
+await test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
+  for (const stable of ['', 'stable\n']) {
+    const prefix =
+      stable +
+      '\u001b]8;x\u0007\n' +
+      'earlier line\n'.repeat(stable ? 2000 : 1);
+    let items = applyDisplayUpdate([], tool(prefix));
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    const before = layout.render(items, 100, expanded);
+    const saved = before.lines.slice();
+    items = applyDisplayUpdate(items, tool(';https://x.test/\u0007one\ntwo'));
+    const frame = layout.render(items, 100, expanded);
+    assert.deepEqual(
+      frame.lines.slice(1, -1).map(stripAnsi),
+      stable ? ['stable', 'one', 'two'] : ['one', 'two'],
+    );
+    for (const row of frame.lines.slice(-3, -1)) {
+      assert.ok(row.includes('\u001b]8;;https://x.test/\u0007'));
+      assert.ok(row.includes('\u001b[4m'));
+      assert.ok(!row.includes('https://x.test/one'));
+    }
+    for (const row of [1, 2])
+      assert.deepEqual(frame.anchorAt(row + Number(!!stable)), {
+        item: 'tool',
+        line: row + Number(!!stable),
+        offset: 0,
+      });
+    const fresh = new TranscriptLayout().render(items, 100, expanded);
+    assert.deepEqual(frame.lines, fresh.lines);
+    for (let row = 0; row < frame.lines.length; row++)
+      assert.deepEqual(frame.anchorAt(row), fresh.anchorAt(row));
+    assert.deepEqual(before.lines, saved);
+  }
+});
+
+for (const [name, prefix, suffix, body, target] of [
+  [
+    'URL',
+    'see https://exa',
+    'mple.com/a\nnext',
+    ['see https://example.com/a', 'next'],
+    'https://example.com/a',
+  ],
+  [
+    'quoted path near a link chunk boundary',
+    'x'.repeat(1980) + '\n"src/notes ',
+    'chapter.md"\nnext',
+    ['x'.repeat(1980), '"src/notes chapter.md"', 'next'],
+    'vscode://file/work/src/notes%20chapter.md',
+  ],
+  ['grapheme', 'a\ud83d', '\ude00z', ['a😀z'], undefined],
+] as const)
+  await test(`an append completes a ${name} without changing earlier output`, () => {
+    let items = applyDisplayUpdate([], tool(prefix));
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    layout.render(items, 2200, expanded);
+    items = applyDisplayUpdate(items, tool(suffix));
+    const frame = layout.render(items, 2200, expanded);
+    assert.deepEqual(frame.lines.slice(1, -1).map(stripAnsi), body);
+    if (target)
+      assert.ok(frame.lines.join('\n').includes(`\u001b]8;;${target}\u0007`));
+    const fresh = new TranscriptLayout().render(items, 2200, expanded);
+    assert.deepEqual(frame.lines, fresh.lines);
+  });
 
 for (const [name, frames] of [
   [

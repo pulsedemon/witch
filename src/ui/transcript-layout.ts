@@ -6,7 +6,8 @@ import { markdown } from './markdown.js';
 import { accent, colors } from './theme.js';
 import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
-import { linkify } from './links.js';
+import { linkify, linkifyAppend } from './links.js';
+import type { LinkedAppend } from './links.js';
 
 export interface ScrollAnchor {
   item: string;
@@ -20,18 +21,26 @@ type Expansion = 'closed' | 'preview' | 'full';
 interface Block {
   /** the item this block was built from; a block is reused as is only for that object. */
   item: DisplayItem;
+  headRows: number;
   lines: string[];
   anchors: Anchor[];
-  /** where the last body line starts, for an expanded tool whose output can grow. */
-  tail?: { row: number; line: number; start: number };
+  tail?: { row: number; line: number } & Pick<
+    LinkedAppend,
+    'pending' | 'target'
+  >;
 }
 
-/** wraps each source line on its own, as wrap-ansi does, recording where every row starts. */
-function section(text: string, width: number, trim: boolean, first: number) {
+/** anchors count source lines so resizing keeps the selected text. */
+function section(
+  text: readonly string[],
+  width: number,
+  trim: boolean,
+  first: number,
+) {
   const lines: string[] = [];
   const anchors: Anchor[] = [];
   let sourceLine = first;
-  for (const line of text.split('\n')) {
+  for (const line of text) {
     const source = trim
       ? stripAnsi(wrapAnsi(line, Infinity, { trim: false }))
       : undefined;
@@ -46,45 +55,6 @@ function section(text: string, width: number, trim: boolean, first: number) {
     sourceLine++;
   }
   return { lines, anchors, next: sourceLine };
-}
-
-/** whether an OSC 8 link opened in `text` is still open at its end. */
-function linkOpen(text: string): boolean {
-  const targets = [
-    // eslint-disable-next-line no-control-regex
-    ...text.matchAll(/\u001b]8;[^;\u0007\u001b]*;([^\u0007\u001b]*)/g),
-  ];
-  return !!targets.at(-1)?.[1];
-}
-
-/** whether `text` ends inside an OSC string, which the tokenizer drops whole, newlines included. */
-function oscOpen(text: string): boolean {
-  const open = Math.max(
-    text.lastIndexOf('\u001b]'),
-    text.lastIndexOf('\u009b]'),
-  );
-  const close = Math.max(
-    text.lastIndexOf('\u0007'),
-    text.lastIndexOf('\u009c'),
-    text.lastIndexOf('\u001b\\'),
-  );
-  return open > close;
-}
-
-/** the tail of a body that can grow, unless an earlier link or OSC string would carry into it. */
-function tailOf(
-  item: DisplayItem,
-  anchors: Anchor[],
-  bodyRow: number,
-): Block['tail'] {
-  const start = item.text.lastIndexOf('\n') + 1;
-  const prefix = item.text.slice(0, start);
-  if (linkOpen(prefix) || oscOpen(prefix)) return undefined;
-  const line = anchors.at(-2)!.line;
-  const row = anchors.findIndex(
-    (anchor, index) => index >= bodyRow && anchor.line === line,
-  );
-  return { row, line, start };
 }
 
 function build(
@@ -105,13 +75,9 @@ function build(
               `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkify(item.title ?? 'Tool', item.cwd)}`,
             )
           : colors.dim('Notice');
-  const body =
-    tool && !expanded
-      ? ''
-      : tool
-        ? linkify(item.text, item.cwd)
-        : markdown(item.text, item.cwd);
-  // a tool's images show with its output; a message shows the images it names
+  const linked =
+    tool && expanded ? linkifyAppend(item.text, item.cwd) : undefined;
+  const body = tool ? '' : markdown(item.text, item.cwd);
   const sources =
     item.kind === 'user'
       ? imagePaths(item.text)
@@ -127,18 +93,27 @@ function build(
     tool && expanded && item.diff?.length
       ? diffRows(item.diff, width, item.cwd, expansion === 'full')
       : [];
-  const head = section(title, width, true, 0);
-  const rendered = body ? section(body, width, false, head.next) : undefined;
-  const next = rendered?.next ?? head.next;
+  const head = section(title.split('\n'), width, true, 0);
+  const complete = section(linked?.complete ?? [], width, false, head.next);
+  const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
+  const rendered = section(
+    hasBody ? (linked?.tail ?? body).split('\n') : [],
+    width,
+    false,
+    complete.next,
+  );
+  const next = rendered.next;
   // concat, since spreading a long log into push() exceeds the argument limit
   const lines = head.lines.concat(
-    rendered?.lines ?? [],
+    complete.lines,
+    rendered.lines,
     diff.flat(),
     images.flat(),
     '',
   );
   const anchors = head.anchors.concat(
-    rendered?.anchors ?? [],
+    complete.anchors,
+    rendered.anchors,
     // row offsets preserve each diff line or image across resizes and separate copied diff rows
     diff
       .concat(images)
@@ -149,54 +124,72 @@ function build(
   );
   return {
     item,
+    headRows: head.lines.length,
     lines,
     anchors,
     // output grows above the diff and images, so a block with either is rebuilt whole
     tail:
-      tool && body && !diff.length && !images.length
-        ? tailOf(item, anchors, head.lines.length)
+      linked && !diff.length && !images.length
+        ? {
+            row: head.lines.length + complete.lines.length,
+            line: complete.next,
+            pending: linked.pending,
+            target: linked.target,
+          }
         : undefined,
   };
 }
 
-/** re-renders only the last body line onward when a tool's output grew and nothing else changed. */
 function extend(
   block: Block,
   item: DisplayItem,
   width: number,
 ): Block | undefined {
   const previous = block.item;
+  const tail = block.tail;
   if (
-    !block.tail ||
+    !tail ||
     item.kind !== 'tool' ||
     item.title !== previous.title ||
     item.done !== previous.done ||
     item.cwd !== previous.cwd ||
     item.diff !== previous.diff ||
+    item.images !== previous.images ||
     !item.text.startsWith(previous.text)
   )
     return undefined;
+  const linked = linkifyAppend(
+    tail.pending + item.text.slice(previous.text.length),
+    item.cwd,
+    tail.target,
+  );
+  const complete = section(linked.complete, width, false, tail.line);
+  const hasBody =
+    tail.row > block.headRows || linked.complete.length > 0 || !!linked.tail;
   const rendered = section(
-    linkify(item.text.slice(block.tail.start), item.cwd),
+    hasBody ? linked.tail.split('\n') : [],
     width,
     false,
-    block.tail.line,
+    complete.next,
   );
-  const lines = [
-    ...block.lines.slice(0, block.tail.row),
-    ...rendered.lines,
-    '',
-  ];
-  const anchors = [
-    ...block.anchors.slice(0, block.tail.row),
-    ...rendered.anchors,
-    { line: rendered.next, offset: 0 },
-  ];
   return {
     item,
-    lines,
-    anchors,
-    tail: tailOf(item, anchors, block.tail.row),
+    headRows: block.headRows,
+    lines: block.lines
+      .slice(0, tail.row)
+      .concat(complete.lines, rendered.lines, ''),
+    anchors: block.anchors
+      .slice(0, tail.row)
+      .concat(complete.anchors, rendered.anchors, {
+        line: rendered.next,
+        offset: 0,
+      }),
+    tail: {
+      row: tail.row + complete.lines.length,
+      line: complete.next,
+      pending: linked.pending,
+      target: linked.target,
+    },
   };
 }
 
