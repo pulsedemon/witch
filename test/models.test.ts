@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { setImmediate } from 'node:timers/promises';
 import { ModelCatalog, modelKey, modelTarget } from '../src/core/models.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { scratch } from './fixtures/scratch.js';
@@ -106,7 +107,7 @@ await test('catalog cancellation waits for every discovery to finish cleanup bef
     catalog.cancel();
     assert.ok(signals.every((signal) => signal.aborted));
     closed[0]!.resolve();
-    await Promise.resolve();
+    await setImmediate();
     assert.equal(settled, false);
     closed[1]!.resolve();
     await rejected;
