@@ -96,6 +96,85 @@ await test('clones expose current task metadata without themselves or another pr
   );
 });
 
+for (const assignmentFails of [false, true]) {
+  await test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
+    let failRead = false;
+    const { start, registry } = await coordinationFixture(t, async () => {
+      failRead = true;
+      if (assignmentFails) throw new Error('Injected assignment failure');
+    });
+    const owner = await start(),
+      contender = await start('B');
+    const claims = CoordinationStore.prototype.claims;
+    const reading = t.mock.method(
+      CoordinationStore.prototype,
+      'claims',
+      async function (this: CoordinationStore) {
+        if (failRead) {
+          failRead = false;
+          throw new Error('Injected project cleanup read failure');
+        }
+        return claims.call(this);
+      },
+    );
+    try {
+      const reference = 'https://github.com/acme/queue/issues/17';
+      const result = await owner.claim(reference);
+      if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+      assert.deepEqual(await registry.claims(), [result.claim]);
+      assert.deepEqual(owner.coordination.snapshot.ownClaim, result.claim);
+      assert.equal(
+        owner.coordination.snapshot.error,
+        'Injected project cleanup read failure',
+      );
+      assert.equal(failRead, false);
+      if (assignmentFails) {
+        assert.match(result.warning ?? '', /GitHub assignment failed/);
+        assert.match(result.warning ?? '', /Injected assignment failure/);
+      } else assert.equal(result.warning, undefined);
+      const duplicate = await contender.claim(reference);
+      if (duplicate.kind !== 'conflict') assert.fail(JSON.stringify(duplicate));
+      assert.deepEqual(duplicate.claim, result.claim);
+      await owner.coordination.context();
+      assert.equal(owner.coordination.snapshot.error, undefined);
+      assert.deepEqual(owner.coordination.snapshot.ownClaim, result.claim);
+      assert.deepEqual(await registry.claims(), [result.claim]);
+    } finally {
+      reading.mock.restore();
+    }
+  });
+}
+
+await test('pre-claim cleanup failure still refuses new ownership', async (t) => {
+  let assignments = 0;
+  const { start, registry } = await coordinationFixture(t, async () => {
+    assignments++;
+  });
+  const owner = await start();
+  const claims = CoordinationStore.prototype.claims;
+  let failed = false;
+  const reading = t.mock.method(
+    CoordinationStore.prototype,
+    'claims',
+    async function (this: CoordinationStore) {
+      if (!failed) {
+        failed = true;
+        throw new Error('Injected project cleanup read failure');
+      }
+      return claims.call(this);
+    },
+  );
+  try {
+    const result = await owner.claim('https://github.com/acme/queue/issues/17');
+    if (result.kind !== 'error') assert.fail(JSON.stringify(result));
+    assert.equal(result.message, 'Injected project cleanup read failure');
+    assert.deepEqual(await registry.claims(), []);
+    assert.equal(assignments, 0);
+  } finally {
+    reading.mock.restore();
+  }
+});
+
 for (const failures of [1, 2]) {
   await test(`presence publication recovers after ${failures} failed ${failures === 1 ? 'write' : 'writes'} without another state update`, async (t) => {
     const { start, registry } = await coordinationFixture(t);

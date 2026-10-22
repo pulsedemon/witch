@@ -686,7 +686,9 @@ export class SessionCoordination {
         ...(owner ? { owner: conversationSummarySchema.parse(owner) } : {}),
       };
     } finally {
-      await this.retireProject(active);
+      await this.retireProject(active).catch((error: unknown) =>
+        this.fail('selection', error),
+      );
       await this.inspect();
     }
   }
