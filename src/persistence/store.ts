@@ -44,10 +44,10 @@ function historyPath(directory: string): string {
 
 export class LockedElsewhere extends Error {}
 
-async function tryLock(directory: string): Promise<FileHandle> {
+async function tryLock(file: string): Promise<FileHandle> {
   try {
     return await open(
-      join(directory, 'lock'),
+      file,
       constants.O_RDWR |
         constants.O_CREAT |
         constants.O_NONBLOCK |
@@ -62,6 +62,25 @@ async function tryLock(directory: string): Promise<FileHandle> {
       );
     throw error;
   }
+}
+
+/** `coordinated` is taken first and released last, so discovery never sees a current Witch's lock without it. */
+async function hold(directory: string): Promise<() => Promise<void>> {
+  const coordinated = await tryLock(join(directory, 'coordinated'));
+  let lock: FileHandle;
+  try {
+    lock = await tryLock(join(directory, 'lock'));
+  } catch (error) {
+    await coordinated.close();
+    throw error;
+  }
+  return async () => {
+    try {
+      await lock.close();
+    } finally {
+      await coordinated.close();
+    }
+  };
 }
 
 async function readRecord(directory: string): Promise<ConversationRecord> {
@@ -164,8 +183,8 @@ export class StateStore {
   async create(conversation: Conversation): Promise<ConversationStore> {
     const directory = this.directory(conversation.id);
     await mkdir(directory, { mode: 0o700 });
-    const lock = await tryLock(directory);
-    const files = new ConversationStore(directory, lock, conversation);
+    const unlock = await hold(directory);
+    const files = new ConversationStore(directory, unlock, conversation);
     try {
       await files.save(conversation);
     } catch (error) {
@@ -177,10 +196,10 @@ export class StateStore {
 
   async claim(id: string): Promise<ConversationStore> {
     const directory = this.directory(id);
-    const lock = await tryLock(directory);
+    const unlock = await hold(directory);
     try {
       const record = await readRecord(directory);
-      const files = new ConversationStore(directory, lock, record);
+      const files = new ConversationStore(directory, unlock, record);
       if (record.shell || record.process) {
         // the shell goes first, so a CLI that won't stop still leaves the command killed
         if (record.shell) await stopPreviousShell(record.shell);
@@ -191,7 +210,7 @@ export class StateStore {
       }
       return files;
     } catch (error) {
-      await lock.close();
+      await unlock();
       throw error;
     }
   }
@@ -201,10 +220,20 @@ export class StateStore {
     return (await this.openConversations([id])).has(id);
   }
 
-  async openConversations(ids: readonly string[]): Promise<Set<string>> {
-    const paths = ids.map((id) => join(this.directory(id), 'lock'));
-    const locked = await lockedFiles(paths);
-    return new Set(ids.filter((_, index) => locked.has(paths[index]!)));
+  /** reads each `lock` just before its `coordinated`, so a current Witch is misread only if it fully closes in between. */
+  async openConversations(
+    ids: readonly string[],
+  ): Promise<Map<string, { coordinated: boolean }>> {
+    const paths = ids.map((id) => {
+      const directory = this.directory(id);
+      return [join(directory, 'lock'), join(directory, 'coordinated')] as const;
+    });
+    const locked = await lockedFiles(paths.flat());
+    const open = new Map<string, { coordinated: boolean }>();
+    for (const [index, [lock, coordinated]] of paths.entries())
+      if (locked.has(lock))
+        open.set(ids[index]!, { coordinated: locked.has(coordinated) });
+    return open;
   }
 
   private directory(id: string): string {
@@ -224,7 +253,7 @@ export class ConversationStore {
 
   constructor(
     readonly directory: string,
-    private readonly lock: FileHandle,
+    private readonly unlock: () => Promise<void>,
     readonly record: ConversationRecord,
   ) {}
 
@@ -293,9 +322,12 @@ export class ConversationStore {
     try {
       await this.flush();
     } finally {
-      await this.historyFile?.close();
-      this.historyFile = undefined;
-      await this.lock.close();
+      try {
+        await this.historyFile?.close();
+      } finally {
+        this.historyFile = undefined;
+        await this.unlock();
+      }
     }
   }
 

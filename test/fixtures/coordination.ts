@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, readFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +13,7 @@ import { SessionCoordination } from '../../src/core/coordination.js';
 import { Memory } from '../../src/memory/memory.js';
 import { CoordinationStore } from '../../src/persistence/coordination.js';
 import { callControl } from '../../src/persistence/control.js';
+import { exclusiveLock } from '../../src/persistence/lock.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { FixtureAgent } from './agent.js';
 import { scratch } from './scratch.js';
@@ -18,6 +21,14 @@ import { scratch } from './scratch.js';
 const execute = promisify(execFile);
 export const git = (...args: string[]) => execute('git', args);
 const entry = fileURLToPath(new URL('../../src/cli.tsx', import.meta.url));
+
+/** holds an existing conversation's `lock` without `coordinated`, as a Witch from before registration locks does. */
+export function legacyLock(store: StateStore, id: string): Promise<FileHandle> {
+  return open(
+    join(store.root, 'conversations', id, 'lock'),
+    constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
+  );
+}
 
 export async function coordinationFixture(
   t: TestContext,

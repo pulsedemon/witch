@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { constants } from 'node:fs';
 import {
   appendFile,
   access,
   chmod,
   mkdir,
+  open,
   readFile,
   utimes,
   writeFile,
@@ -13,6 +15,7 @@ import {
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { exclusiveLock } from '../src/persistence/lock.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { foldDisplayUpdates } from '../src/core/state.js';
@@ -77,16 +80,38 @@ await test('a real holder stays exclusive until close or crash', async (t) => {
   }
 });
 
-await test('conversation batches return the matching IDs', async (t) => {
-  const root = await scratch('witch-conversation-batch-');
-  const store = await StateStore.open(root);
-  const held = await store.create(conversation('A'));
-  t.after(() => held.close());
-  await (await store.create(conversation('B'))).close();
-  assert.deepEqual(
-    await store.openConversations(['B', 'C', 'A']),
-    new Set(['A']),
+await test('conversation locks carry a registration lock that a lost race releases', async () => {
+  const store = await StateStore.open(
+    await scratch('witch-conversation-batch-'),
   );
+  const held = await store.create(conversation('current'));
+  await (await store.create(conversation('older'))).close();
+  // an older Witch takes only `lock`
+  const older = await open(
+    join(store.root, 'conversations', 'older', 'lock'),
+    constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
+  );
+  assert.deepEqual(
+    await store.openConversations(['older', 'closed', 'current']),
+    new Map([
+      ['current', { coordinated: true }],
+      ['older', { coordinated: false }],
+    ]),
+  );
+  await assert.rejects(store.claim('older'), LockedElsewhere);
+  await older.close();
+  const reclaimed = await store.claim('older');
+  assert.deepEqual(
+    await store.openConversations(['older']),
+    new Map([['older', { coordinated: true }]]),
+  );
+  await reclaimed.close();
+  await held.close();
+  assert.deepEqual(
+    await store.openConversations(['current', 'older']),
+    new Map(),
+  );
+  await (await store.claim('current')).close();
 });
 
 await test('a second claim of a conversation is refused while another conversation claims fine', async () => {

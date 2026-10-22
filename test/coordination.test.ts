@@ -10,7 +10,12 @@ import { presenceStatus } from '../src/core/coordination-state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { exclusiveLock } from '../src/persistence/lock.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import { ConversationStore } from '../src/persistence/store.js';
+import {
+  coordinationFixture,
+  git,
+  legacyLock,
+} from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
@@ -33,7 +38,13 @@ await test('discovery batches conversation ownership and keeps only open peers',
     new Set(call.arguments[0]),
     new Set([own, peer, 'closed-a', 'closed-b']),
   );
-  assert.deepEqual(await call.result, new Set([own, peer]));
+  assert.deepEqual(
+    await call.result,
+    new Map([
+      [own, { coordinated: true }],
+      [peer, { coordinated: true }],
+    ]),
+  );
   assert.deepEqual(
     a.coordination.snapshot.peers.map(({ presence }) => presence.id),
     [peer],
@@ -148,28 +159,39 @@ await test('waiting and idle background work stay visible and retain ownership t
 await test('a live legacy owner blocks new work until its lock closes, and a reused identity is never treated as registered', async (t) => {
   const { root, start, store, registry } = await coordinationFixture(t);
   const a = await start();
-  const legacy = await store.create(record(randomUUID(), join(root, 'B')));
-  t.after(() => legacy.close());
+  // select-next refuses while the legacy lock is held, so the ticket comes first
+  const choosing = await selectionTurn(t, a);
+  const { ticket } = await choosing.select();
+  const legacy = record(randomUUID(), join(root, 'B'));
+  await (await store.create(legacy)).close();
+  const lock = await legacyLock(store, legacy.id);
+  t.after(() => lock.close());
   const snapshot = await a.query();
   assert.deepEqual(
     snapshot.unregistered.map((p) => p.id),
-    [legacy.record.id],
+    [legacy.id],
   );
+  const waiting = await callControl(choosing.binding, {
+    kind: 'selection-status',
+    selection: ticket.id,
+  });
+  if (waiting.kind !== 'error') assert.fail(JSON.stringify(waiting));
+  assert.match(waiting.message, /unregistered/);
   const blocked = await a.claim();
   assert.equal(blocked.kind, 'error');
   assert.deepEqual(await registry.claims(), []);
   const own = (await registry.presences())[0]!;
   await registry.publish({
     ...own,
-    id: legacy.record.id,
-    cwd: legacy.record.cwd,
+    id: legacy.id,
+    cwd: legacy.cwd,
     process: { ...own.process, started: 'wrong start time' },
   });
   assert.deepEqual(
     (await a.query()).unregistered.map((p) => p.id),
-    [legacy.record.id],
+    [legacy.id],
   );
-  await legacy.close();
+  await lock.close();
   assert.equal((await a.claim()).kind, 'claimed');
   assert.deepEqual((await a.query()).peers, []);
 });
@@ -182,11 +204,13 @@ for (const name of ['B', 'C']) {
     const choosing = await selectionTurn(t, a);
     const cwd = join(root, name);
     const { project } = await memory.scopePaths(cwd);
-    const legacy = await store.create(record(randomUUID(), cwd));
-    t.after(() => legacy.close());
+    const legacy = record(randomUUID(), cwd);
+    await (await store.create(legacy)).close();
+    const lock = await legacyLock(store, legacy.id);
+    t.after(() => lock.close());
     const reference = 'https://github.com/acme/queue/issues/17';
     const held = await registry.claim(
-      { conversation: legacy.record.id, project },
+      { conversation: legacy.id, project },
       { reference, summary: 'Existing task' },
       (await registry.presences())[0]!.process,
       Date.now() + 1000,
@@ -215,7 +239,7 @@ for (const name of ['B', 'C']) {
     assert.equal(selection.position, 1);
     assert.deepEqual((await registry.state()).selections, [selection.ticket]);
     assert.deepEqual(await registry.claims(), [held]);
-    assert.equal(await store.isOpen(legacy.record.id), true);
+    assert.equal(await store.isOpen(legacy.id), true);
   });
 }
 
@@ -229,8 +253,10 @@ for (const failure of [
     const a = await start();
     const choosing = await selectionTurn(t, a);
     const cwd = join(root, 'B');
-    const legacy = await store.create(record(randomUUID(), cwd));
-    t.after(() => legacy.close());
+    const legacy = record(randomUUID(), cwd);
+    await (await store.create(legacy)).close();
+    const lock = await legacyLock(store, legacy.id);
+    t.after(() => lock.close());
     const scopePaths = memory.scopePaths.bind(memory);
     const error = Object.assign(new Error('Cannot determine project'), failure);
     t.mock.method(memory, 'scopePaths', (directory: string) =>
@@ -288,7 +314,7 @@ await test('a failed presence removal cannot register a later legacy lock owner'
     (await registry.presences()).some((p) => p.id === old.conversation),
   );
   assert.equal(await registry.isActive(old.activation), false);
-  const legacy = await store.claim(old.conversation);
+  const legacy = await legacyLock(store, old.conversation);
   try {
     assert.equal((await b.claim('task:other')).kind, 'error');
     const snapshot = await b.query();
@@ -303,6 +329,65 @@ await test('a failed presence removal cannot register a later legacy lock owner'
   }
   assert.equal((await b.claim('task:other')).kind, 'claimed');
 });
+
+for (const window of ['opening', 'closing'] as const) {
+  await test(`a peer ${window} a conversation neither refuses a claim nor ends a selection wait`, async (t) => {
+    const { start, store, registry } = await coordinationFixture(t);
+    const a = await start(),
+      b = await start('B');
+    const choosing = await selectionTurn(t, a);
+    const { ticket } = await choosing.select();
+    const id = b.coordinator.snapshot.conversation!.id;
+    const gate = Promise.withResolvers<void>();
+    let pending: Promise<void>;
+    if (window === 'opening') {
+      const activate = b.coordination.activate.bind(b.coordination);
+      t.mock.method(
+        b.coordination,
+        'activate',
+        async (...args: Parameters<typeof activate>) => {
+          await gate.promise;
+          return activate(...args);
+        },
+      );
+      pending = b.coordinator.newConversation();
+    } else {
+      const close = ConversationStore.prototype.close;
+      t.mock.method(
+        ConversationStore.prototype,
+        'close',
+        async function (this: ConversationStore) {
+          if (this.record.id === id) await gate.promise;
+          return close.call(this);
+        },
+      );
+      pending = b.coordinator.close();
+    }
+    // the fixture's teardown would close B while it waits on the gate
+    try {
+      // opening holds the new conversation, closing the original one
+      const held = () => b.coordinator.snapshot.conversation!.id;
+      await until('B holding a conversation without presence', async () => {
+        const presences = await registry.presences();
+        return (
+          (window === 'closing' || held() !== id) &&
+          presences.every((p) => p.id !== id && p.id !== held())
+        );
+      });
+      assert.equal(await store.isOpen(held()), true);
+      assert.deepEqual((await a.query()).unregistered, []);
+      const waiting = await callControl(choosing.binding, {
+        kind: 'selection-status',
+        selection: ticket.id,
+      });
+      assert.equal(waiting.kind, 'selection', JSON.stringify(waiting));
+      assert.equal((await a.claim(`task:${window}`)).kind, 'claimed');
+    } finally {
+      gate.resolve();
+      await pending;
+    }
+  });
+}
 
 await test('unknown discovery refuses both a successful query and new ownership', async (t) => {
   const { start, store, registry } = await coordinationFixture(t);
