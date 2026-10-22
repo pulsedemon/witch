@@ -22,7 +22,9 @@ for (const [choice, keys, effort, outcome] of [
 ] as const)
   await test(`/model with ${choice} selects the model ${outcome}`, async () => {
     const { app, calls } = fake({
-      models: [{ id: 'm', label: 'Model M', efforts: ['low', 'high'] }],
+      models: [
+        { agent: 'a', id: 'm', label: 'Model M', efforts: ['low', 'high'] },
+      ],
     });
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
@@ -38,7 +40,7 @@ for (const [choice, keys, effort, outcome] of [
       await until('the selection', () => calls.length === 2);
       assert.deepEqual(calls, [
         ['refreshModels'],
-        ['selectModel', 'm', effort],
+        ['selectModel', { agent: 'a', id: 'm', effort }],
       ]);
     } finally {
       ui.unmount();
@@ -49,6 +51,7 @@ await test('a model id carrying a link sequence shows as plain text in the effor
   const { app } = fake({
     models: [
       {
+        agent: 'a',
         id: forgedLink('x-evil:payload', 'm'),
         label: 'Model M',
         efforts: ['low', 'high'],
@@ -77,6 +80,7 @@ for (const typed of ['gpt-5.1', 'gpt-6'])
   await test(`typing ${typed} in the model picker selects exactly it`, async () => {
     const { app, calls } = fake({
       models: ['gpt-5.1-codex', 'gpt-5.1'].map((id) => ({
+        agent: 'a',
         id,
         label: id,
         efforts: [],
@@ -89,7 +93,10 @@ for (const typed of ['gpt-5.1', 'gpt-6'])
       await delay(30);
       ui.stdin.write(`${typed}${ENTER}`);
       await until('the selection', () => calls.length === 2);
-      assert.deepEqual(calls, [['refreshModels'], ['selectModel', typed]]);
+      assert.deepEqual(calls, [
+        ['refreshModels'],
+        ['selectModel', { agent: 'a', id: typed, effort: undefined }],
+      ]);
     } finally {
       ui.unmount();
     }
@@ -98,6 +105,7 @@ for (const typed of ['gpt-5.1', 'gpt-6'])
 await test('a long picker shows as many choices as its rows hold', async () => {
   const { app } = fake({
     models: Array.from({ length: 40 }, (_, n) => ({
+      agent: 'a',
       id: `model-${n + 1}`,
       label: `model-${n + 1}`,
       efforts: [],
@@ -114,7 +122,7 @@ await test('a long picker shows as many choices as its rows hold', async () => {
     const shown = ui
       .text()
       .split('\n')
-      .filter((row) => row.trim().startsWith('model-'));
+      .filter((row) => row.trim().startsWith('a · model-'));
     // 24 rows less the phase row, title, filter, hint, the row every view leaves free and the status line's two
     assert.equal(shown.length, 17);
   } finally {
@@ -123,9 +131,14 @@ await test('a long picker shows as many choices as its rows hold', async () => {
 });
 
 for (const [typed, call] of [
-  ['/model m high', ['selectModel', 'm', 'high']],
-  ['/agent b', ['switchAgent', 'b']],
+  ['/model m high', ['selectModel', { agent: 'a', id: 'm', effort: 'high' }]],
+  ['/model b:m high', ['selectModel', { agent: 'b', id: 'm', effort: 'high' }]],
   ['/new b', ['newConversation', 'b']],
+  [
+    '/model vendor:model',
+    ['selectModel', { agent: 'a', id: 'vendor:model', effort: undefined }],
+  ],
+  ['/agent b', ['send', '/agent b']],
 ] as const)
   await test(`${typed} passes its arguments`, async () => {
     const { app, calls } = fake({});
@@ -141,6 +154,65 @@ for (const [typed, call] of [
       ui.unmount();
     }
   });
+
+for (const effort of ['low', undefined])
+  await test(`duplicate model IDs select the chosen runtime with ${effort ?? 'omitted'} effort`, async () => {
+    const { app, calls } = fake({
+      models: [
+        { agent: 'a', id: 'shared', label: 'Same', efforts: ['high'] },
+        { agent: 'b', id: 'shared', label: 'Same', efforts: ['low'] },
+      ],
+    });
+    const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+    try {
+      await delay(60);
+      await openCommand(ui, '/model', 'b · Same');
+      assert.match(ui.text(), /a · Same/);
+      await delay(30);
+      ui.stdin.write(DOWN);
+      ui.stdin.write(ENTER);
+      await until('destination effort', () =>
+        ui.text().includes("Use b's current/default effort"),
+      );
+      assert.match(ui.text(), /low/);
+      assert.doesNotMatch(ui.text(), /high/);
+      await delay(30);
+      ui.stdin.write(`${effort ?? ''}${ENTER}`);
+      await until('selection', () => calls.length === 2);
+      assert.deepEqual(calls, [
+        ['refreshModels'],
+        ['selectModel', { agent: 'b', id: 'shared', effort }],
+      ]);
+    } finally {
+      ui.unmount();
+    }
+  });
+
+await test('closing the combined picker sends no selection and help advertises no agent command', async () => {
+  const { app, calls } = fake({
+    models: [{ agent: 'a', id: 'm', label: 'M', efforts: [] }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    assert.match(ui.text(), /Use \/model/);
+    await openCommand(ui, '/model', 'a · M');
+    await delay(30);
+    ui.stdin.write('\u001b');
+    await until('picker closed', () => !ui.text().includes('Models ·'));
+    assert.deepEqual(calls, [['refreshModels']]);
+    await openCommand(ui, '/help', 'Keyboard help');
+    assert.match(ui.text(), /\/model/);
+    assert.doesNotMatch(ui.text(), /\/agent/);
+    ui.stdin.write('\u001b');
+    await delay(60);
+    await commands(ui);
+    assert.match(ui.text(), /Choose model and reasoning/);
+    assert.doesNotMatch(ui.text(), /Switch agent/);
+  } finally {
+    ui.unmount();
+  }
+});
 
 await test('the composer takes no typing while a switch shows the conversation it leaves, also after a second switch is refused, and takes it once the next one opens', async () => {
   const { coordinator, app, calls } = fake({});

@@ -24,6 +24,7 @@ import type {
   SelectionScope,
 } from './coordination-state.js';
 import type { Snapshot } from './coordinator.js';
+import { assignGitHubTask } from './github-assignment.js';
 import type { Repository } from './repository.js';
 import type { Conversation, ProcessIdentity } from './state.js';
 
@@ -77,6 +78,7 @@ export class SessionCoordination {
     private readonly directory: string,
     private readonly prefix: (binding: ControlBinding) => string,
     private readonly process: ProcessIdentity,
+    private readonly assign: typeof assignGitHubTask,
   ) {}
 
   static async open(
@@ -84,6 +86,7 @@ export class SessionCoordination {
     memory: Memory,
     directory: string,
     prefix: (binding: ControlBinding) => string,
+    assign: typeof assignGitHubTask = assignGitHubTask,
   ): Promise<SessionCoordination> {
     const identity = await identifyProcess(process.pid);
     if (!identity) throw new Error('Witch process identity is unavailable.');
@@ -94,6 +97,7 @@ export class SessionCoordination {
       directory,
       prefix,
       identity,
+      assign,
     );
     coordination.host = await ControlHost.open(
       directory,
@@ -587,17 +591,30 @@ export class SessionCoordination {
         )
           this.canRelease(false);
       };
-      if (action.kind === 'claim')
-        return {
-          kind: 'claimed',
-          claim: await this.registry.claim(
-            owner,
-            action.input,
-            this.process,
-            request.deadline,
-            verify,
-          ),
-        };
+      if (action.kind === 'claim') {
+        const claim = await this.registry.claim(
+          owner,
+          action.input,
+          this.process,
+          request.deadline,
+          verify,
+        );
+        try {
+          await this.assign(
+            claim.references,
+            active.conversation.cwd,
+            // leave time to refresh peers and write the control reply.
+            request.deadline - 1000,
+          );
+          return { kind: 'claimed', claim };
+        } catch (error) {
+          return {
+            kind: 'claimed',
+            claim,
+            warning: `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${errorMessage(error)}`,
+          };
+        }
+      }
       if (action.kind === 'recommend')
         return {
           kind: 'claimed',

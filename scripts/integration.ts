@@ -16,6 +16,7 @@ const root = await mkdtemp(join(tmpdir(), 'witch-live-'));
 const project = join(root, 'project');
 const otherProject = join(root, 'other-project');
 const state = join(root, 'state');
+const claudeModel = process.env.WITCH_CLAUDE_MODEL ?? 'default';
 const codexModel = process.env.WITCH_CODEX_MODEL ?? 'gpt-6.1-sol';
 const memory = new Memory(join(state, 'memory.git'));
 const agents = await installedAgents();
@@ -126,7 +127,11 @@ async function steer(): Promise<void> {
 let coordinator = await open(project);
 console.log(`Live artifacts: ${root}`);
 try {
-  await coordinator.selectModel(codexModel, 'medium');
+  await coordinator.selectModel({
+    agent: 'codex',
+    id: codexModel,
+    effort: 'medium',
+  });
   await send(
     'What is the native instruction marker? Reply with only the marker. Do not change files.',
     nativeRule,
@@ -154,7 +159,11 @@ try {
     'saved',
   );
   await coordinator.newConversation('codex');
-  await coordinator.selectModel(codexModel, 'medium');
+  await coordinator.selectModel({
+    agent: 'codex',
+    id: codexModel,
+    effort: 'medium',
+  });
   await send(
     'What is my preferred test label? Use shared memory and reply only with the label. Do not change files.',
     globalFact,
@@ -162,7 +171,11 @@ try {
   const conversationId = coordinator.snapshot.conversation!.id;
   await coordinator.close();
   coordinator = await open(otherProject);
-  await coordinator.selectModel(codexModel, 'medium');
+  await coordinator.selectModel({
+    agent: 'codex',
+    id: codexModel,
+    effort: 'medium',
+  });
   const isolated = await send(
     'Read only the shared-memory snapshot supplied above. Report my preferred test label and this project’s acceptance phrase. Use UNKNOWN for a missing value. Do not search other projects or change files.',
     globalFact,
@@ -176,7 +189,7 @@ try {
     'Create sum.mjs exporting sum(values), which sums numbers. Do not create tests yet. The next agent will add sum.test.mjs using node:test, covering empty, negative and mixed numbers, and run node --test. Stop after creating sum.mjs. Do not commit project files.',
   );
   const sourceId = coordinator.snapshot.conversation!.sessions.codex!.id;
-  await coordinator.switchAgent('claude');
+  await coordinator.selectModel({ agent: 'claude', id: claudeModel });
   assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
   assert.ok(
     (await readFile(join(project, 'sum.test.mjs'), 'utf8')).includes('test'),
@@ -188,7 +201,7 @@ try {
       })
     ).stdout,
   );
-  await coordinator.switchAgent('codex');
+  await coordinator.selectModel({ agent: 'codex', id: codexModel });
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
   const sourceConversation = coordinator.snapshot.conversation!.id;
   await coordinator.close();

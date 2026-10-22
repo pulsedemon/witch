@@ -186,7 +186,7 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
     const replacing =
       replacement === 'origin'
         ? a.coordinator.send('New scope')
-        : a.coordinator.switchAgent('b');
+        : a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
     const settled = replacing.then(
       () => undefined,
       (error: unknown) => error,

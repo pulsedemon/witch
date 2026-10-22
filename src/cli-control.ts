@@ -147,7 +147,7 @@ export function controlPrefix(binding: ControlBinding, entry: string): string {
 function describe(outcome: ControlOutcome): string {
   switch (outcome.kind) {
     case 'claimed':
-      return `${outcome.claim.suggestion ? 'Suggested' : 'Claimed'}: ${oneLine(outcome.claim.summary)}\nClaim id: ${outcome.claim.id}`;
+      return `${outcome.claim.suggestion ? 'Suggested' : 'Claimed'}: ${oneLine(outcome.claim.summary)}\nClaim id: ${outcome.claim.id}${outcome.warning ? `\nWarning: ${outcome.warning}` : ''}`;
     case 'selection':
       return `Selection ${outcome.selection.ticket.id}: ${outcome.selection.position === 1 ? 'ready' : `queued #${outcome.selection.position}`}`;
     case 'selection-cancelled':

@@ -502,7 +502,7 @@ await test('a failed first connect keeps the remembered model, and a model chose
       'a-big',
     );
     a.failConnect = false;
-    await coordinator.selectModel('a-new');
+    await coordinator.selectModel({ agent: 'a', id: 'a-new' });
     const { options } = a.sessions.at(-1)!;
     assert.deepEqual([options.model, options.effort], ['a-new', 'high']);
   } finally {

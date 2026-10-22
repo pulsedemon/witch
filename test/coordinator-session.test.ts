@@ -80,7 +80,7 @@ await test('the pentacle follows foreground work and every running local task', 
     activity.set(source, false);
     assert.equal(activity.active, false);
 
-    await coordinator.switchAgent('b');
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
     assert.ok(switching.length > 0);
     assert.ok(switching.every(Boolean));
     assert.equal(coordinator.snapshot.phase, 'idle');
@@ -101,13 +101,13 @@ await test("a session's usage at connect and while it lists its models reaches t
   });
   try {
     assert.deepEqual(coordinator.snapshot.usage, { cost: 1 });
-    await coordinator.switchAgent('b');
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
     assert.deepEqual(coordinator.snapshot.usage, { cost: 3 });
     a.sessions[0]!.options.onEvent({ type: 'usage', usage: { cost: 9 } });
     assert.deepEqual(coordinator.snapshot.usage, { cost: 3 });
     a.failConnect = true;
     await assert.rejects(
-      coordinator.switchAgent('a'),
+      coordinator.selectModel({ agent: 'a', id: 'a-model' }),
       /Destination unavailable/,
     );
     assert.deepEqual(coordinator.snapshot.usage, {});
@@ -154,7 +154,7 @@ await test("the live session's subagents update in place, a turn drops the finis
     assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
     emit(a.sessions[0]!, 'outer', 'completed');
     assert.deepEqual(listed(), [subagent('inner', 'running', 'outer')]);
-    await coordinator.switchAgent('b');
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
     assert.deepEqual(listed(), []);
     emit(a.sessions[0]!, 'late', 'running');
     assert.deepEqual(listed(), []);
@@ -248,7 +248,7 @@ await test('a familiar still running when its session closes ends stopped, with 
       },
     });
     assert.equal(coordinator.pentacle.active, true);
-    await coordinator.switchAgent('b');
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
     assert.equal(coordinator.pentacle.active, false);
     assert.deepEqual(rows(), [
       ['Familiar started  Map code  Explore', ''],
@@ -524,7 +524,7 @@ await test("a brew still running when its session closes ends stopped, and the c
   try {
     emit('serve');
     assert.equal(coordinator.pentacle.active, true);
-    await coordinator.switchAgent('b');
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
     assert.equal(coordinator.pentacle.active, false);
     assert.deepEqual(
       coordinator.snapshot.items
@@ -770,9 +770,9 @@ await test('a git failure in settle shows its own message without a restart', as
 await test('a model chosen to keep the current effort stores the effort in force', async () => {
   const { coordinator, root } = await fixture();
   try {
-    await coordinator.selectModel('first', 'high');
-    await coordinator.selectModel('second');
-    await coordinator.selectModel('a-big');
+    await coordinator.selectModel({ agent: 'a', id: 'first', effort: 'high' });
+    await coordinator.selectModel({ agent: 'a', id: 'second' });
+    await coordinator.selectModel({ agent: 'a', id: 'a-big' });
     const record = await readRecord(
       root,
       coordinator.snapshot.conversation!.id,
@@ -783,14 +783,124 @@ await test('a model chosen to keep the current effort stores the effort in force
   }
 });
 
+await test('catalog refresh preserves the active session, process, transcript, usage and skills and reports each failed runtime', async () => {
+  const { coordinator, a, b, root } = await fixture(undefined, (a) => {
+    a.connectUsage = { cost: 0.75 };
+    a.skills = [{ name: 'spell', description: 'Current spell' }];
+  });
+  try {
+    await coordinator.send('Keep this conversation');
+    const before = structuredClone(coordinator.snapshot);
+    const saved = await readRecord(root, before.conversation!.id);
+    await coordinator.refreshModels();
+    assert.deepEqual(
+      coordinator.snapshot.models.map(({ agent, id }) => [agent, id]),
+      [
+        ['a', 'a-model'],
+        ['a', 'a-big'],
+        ['b', 'b-model'],
+        ['b', 'b-big'],
+      ],
+    );
+    assert.deepEqual(coordinator.snapshot.native, before.native);
+    assert.deepEqual(coordinator.snapshot.items, before.items);
+    assert.deepEqual(coordinator.snapshot.usage, before.usage);
+    assert.deepEqual(coordinator.snapshot.skills, before.skills);
+    const after = await readRecord(root, before.conversation!.id);
+    assert.deepEqual(after.sessions, saved.sessions);
+    assert.deepEqual(after.process, saved.process);
+    assert.equal(a.sessions.length, 1);
+    assert.equal(a.sessions[0]!.session.closed, false);
+    assert.equal(b.sessions.length, 0);
+    b.failDiscovery = true;
+    await coordinator.refreshModels();
+    assert.deepEqual(
+      coordinator.snapshot.models.map((model) => model.agent),
+      ['a', 'a'],
+    );
+    assert.match(coordinator.snapshot.error!, /b: Discovery failed/);
+    assert.equal(coordinator.snapshot.native!.id, before.native!.id);
+    a.failModels = true;
+    await coordinator.refreshModels();
+    assert.deepEqual(coordinator.snapshot.models, []);
+    assert.equal(
+      coordinator.snapshot.error,
+      'a: model/list failed\nb: Discovery failed',
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('standalone catalogs recover from a failed active startup without reconnecting it', async () => {
+  const { coordinator, a, b } = await fixture(undefined, (a) => {
+    a.failConnect = true;
+  });
+  try {
+    assert.match(coordinator.snapshot.error!, /Destination unavailable/);
+    await coordinator.refreshModels();
+    assert.deepEqual(
+      coordinator.snapshot.models.map((model) => model.agent),
+      ['a', 'a', 'b', 'b'],
+    );
+    assert.equal(a.sessions.length, 0);
+    assert.equal(b.sessions.length, 0);
+    await coordinator.selectModel({ agent: 'b', id: 'b-big', effort: 'high' });
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.equal(coordinator.snapshot.native!.model, 'b-big');
+    assert.equal(coordinator.snapshot.native!.effort, 'high');
+    assert.deepEqual(b.inputs, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('closing during catalog discovery cancels and joins its cleanup', async () => {
+  const { coordinator, a, b } = await fixture();
+  const entered = Promise.withResolvers<AbortSignal>();
+  const aborted = Promise.withResolvers<void>();
+  const cleaned = Promise.withResolvers<void>();
+  b.models = async (options) => {
+    entered.resolve(options.signal!);
+    options.signal!.addEventListener('abort', () => aborted.resolve(), {
+      once: true,
+    });
+    await aborted.promise;
+    await cleaned.promise;
+    options.signal!.throwIfAborted();
+    return b.catalog;
+  };
+  const refreshing = coordinator.refreshModels();
+  const rejected = assert.rejects(refreshing, { name: 'AbortError' });
+  let closing: Promise<void> | undefined;
+  try {
+    const signal = await within(entered.promise, 2000, 'inactive discovery');
+    let closed = false;
+    closing = coordinator.close().then(() => {
+      closed = true;
+    });
+    assert.equal(signal.aborted, true);
+    await until('active shutdown', () => a.sessions.at(-1)!.session.closed);
+    assert.equal(closed, false);
+    cleaned.resolve();
+    await within(Promise.all([closing, rejected]), 2000, 'catalog shutdown');
+    assert.equal(b.sessions.length, 0);
+  } finally {
+    aborted.resolve();
+    cleaned.resolve();
+    await Promise.allSettled([refreshing, rejected, closing]);
+    await coordinator.close();
+  }
+});
+
 await test('an effort the agent rejects while disconnected keeps the stored one, so the next turn still connects', async () => {
   const { coordinator, a, root } = await fixture();
   try {
-    await coordinator.selectModel('a-big', 'high');
+    await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
     a.invalidEffort = 'hgih';
     await a.sessions.at(-1)!.session.close();
     await assert.rejects(
-      coordinator.selectModel('a-big', 'hgih'),
+      coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'hgih' }),
       /Invalid effort/,
     );
     const id = coordinator.snapshot.conversation!.id;
@@ -808,8 +918,8 @@ await test('an effort the agent rejects while disconnected keeps the stored one,
 await test('a model that lists no efforts resets the effort', async () => {
   const { coordinator, a, root } = await fixture();
   try {
-    await coordinator.selectModel('first', 'high');
-    await coordinator.selectModel('a-model');
+    await coordinator.selectModel({ agent: 'a', id: 'first', effort: 'high' });
+    await coordinator.selectModel({ agent: 'a', id: 'a-model' });
     assert.deepEqual(a.selections.at(-1), ['a-model', null]);
     const record = await readRecord(
       root,
@@ -878,7 +988,7 @@ await test("a model list that fails at connect is reported, and the session's sk
     a.failModels = true;
   });
   try {
-    assert.equal(coordinator.snapshot.error, 'model/list failed');
+    assert.equal(coordinator.snapshot.error, 'a: model/list failed');
     assert.deepEqual(
       coordinator.snapshot.skills.map((skill) => skill.name),
       ['review'],
@@ -904,7 +1014,7 @@ for (const stop of ['interrupt', 'close'] as const)
           await delay(10);
         throw new Error(session.closed ? 'Session closed' : 'Still open');
       };
-      const selecting = coordinator.selectModel('next');
+      const selecting = coordinator.selectModel({ agent: 'a', id: 'next' });
       await within(entered.promise, 2000, 'the model change');
       // close() awaits the change, so its rejection needs a handler first
       const rejected = assert.rejects(selecting, /Session closed/);
@@ -952,9 +1062,16 @@ for (const stop of ['interrupt', 'close'] as const)
         await within(gate.entered, 2000, 'the first turn');
         a.replied = true;
         selecting = assert
-          .rejects(coordinator.selectModel('a-big', 'high'), {
-            message: 'Selection cancelled',
-          })
+          .rejects(
+            coordinator.selectModel({
+              agent: 'a',
+              id: 'a-big',
+              effort: 'high',
+            }),
+            {
+              message: 'Selection cancelled',
+            },
+          )
           .then(() => {
             order.push('selection settled');
           });
@@ -1011,7 +1128,7 @@ for (const stop of ['interrupt', 'close'] as const)
     });
 
 await test('interrupting a pending replied model change preserves unread Claude prompts', async () => {
-  const { cwd, children, connect } = await launcher('pending-model');
+  const { cwd, children, connect, adapter } = await launcher('pending-model');
   const store = await StateStore.open(join(cwd, 'state'));
   const memory = new Memory(join(cwd, 'state', 'memory.git'));
   let session: AgentSession | undefined;
@@ -1020,6 +1137,7 @@ await test('interrupting a pending replied model change preserves unread Claude 
       adapter: {
         id: 'claude',
         label: 'Claude',
+        models: (options) => adapter.models(options),
         connect: async (options) => (session = await connect(options)),
       },
       executable: '/fake/claude',
@@ -1033,7 +1151,11 @@ await test('interrupting a pending replied model change preserves unread Claude 
     sending = coordinator.send('reporting familiar');
     await until('the replied turn', () => !!session?.replied);
     selecting = assert.rejects(
-      coordinator.selectModel('claude-next', 'high'),
+      coordinator.selectModel({
+        agent: 'claude',
+        id: 'claude-next',
+        effort: 'high',
+      }),
       /Query closed/,
     );
     await until('the held model request', () =>

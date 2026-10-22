@@ -19,7 +19,10 @@ const execute = promisify(execFile);
 export const git = (...args: string[]) => execute('git', args);
 const entry = fileURLToPath(new URL('../../src/cli.tsx', import.meta.url));
 
-export async function coordinationFixture(t: TestContext) {
+export async function coordinationFixture(
+  t: TestContext,
+  assign: Parameters<typeof SessionCoordination.open>[4] = async () => {},
+) {
   const root = await scratch('witch-coordination-');
   await git('init', '--bare', join(root, 'origin'));
   await git('init', '--bare', join(root, 'other'));
@@ -47,6 +50,7 @@ export async function coordinationFixture(t: TestContext) {
       memory,
       directory,
       (binding) => controlPrefix(binding, entry),
+      assign,
     );
     const a = new FixtureAgent('a');
     const b = new FixtureAgent('b');

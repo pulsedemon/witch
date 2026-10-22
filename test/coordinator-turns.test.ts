@@ -694,7 +694,7 @@ await test('a failed handoff continuation leaves what was queued during the swit
     await coordinator.send('Start');
     b.gate = gate;
     b.failNext = true;
-    const switching = coordinator.switchAgent('b');
+    const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(gate.entered, 2000, 'the continuation');
     await coordinator.send('/review');
     gate.open();
@@ -895,20 +895,33 @@ await test('after the reply, a listed spell steers trimmed, and an unlisted slas
 });
 
 await test("a model change runs during a replied turn without waiting, and is refused during one that hasn't replied", async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a, b } = await fixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
-    await assert.rejects(coordinator.selectModel('a-big', 'high'), {
-      message: 'Stop the current operation first',
-    });
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' }),
+      {
+        message: 'Stop the current operation first',
+      },
+    );
     a.replied = true;
-    await coordinator.selectModel('a-big', 'high');
+    await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
     assert.equal(coordinator.snapshot.phase, 'running');
     assert.deepEqual(a.selections.at(-1), ['a-big', 'high']);
     assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
+    const discoveries = b.discoveries.length;
+    const sourceInputs = a.inputs.length;
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'b', id: 'b-big' }),
+      /Wait for the running familiars or workflows/,
+    );
+    assert.equal(a.inputs.length, sourceInputs);
+    assert.equal(a.sessions.at(-1)!.session.closed, false);
+    assert.equal(b.sessions.length, 0);
+    assert.equal(b.discoveries.length, discoveries);
     gate.open();
     await within(sending, 2000, 'the turn');
   } finally {
@@ -937,9 +950,13 @@ await test('a model change during a replied turn refuses another until it finish
     await within(gate.entered, 2000, 'the gated turn');
     a.replied = true;
     const before = a.selections.length;
-    first = coordinator.selectModel('a-big', 'high');
+    first = coordinator.selectModel({
+      agent: 'a',
+      id: 'a-big',
+      effort: 'high',
+    });
     await within(entered.promise, 2000, 'the model change');
-    duplicate = coordinator.selectModel('a-model');
+    duplicate = coordinator.selectModel({ agent: 'a', id: 'a-model' });
     await within(
       assert.rejects(duplicate, {
         message: 'Stop the current operation first',
@@ -951,7 +968,7 @@ await test('a model change during a replied turn refuses another until it finish
     await first;
     assert.deepEqual(a.selections.slice(before), [['a-big', 'high']]);
     assert.equal(coordinator.snapshot.conversation!.sessions.a!.model, 'a-big');
-    await coordinator.selectModel('a-model');
+    await coordinator.selectModel({ agent: 'a', id: 'a-model' });
     assert.equal(
       coordinator.snapshot.conversation!.sessions.a!.model,
       'a-model',
@@ -1005,7 +1022,11 @@ for (const rejected of [false, true])
         sending = coordinator.send('Start');
         await within(gate.entered, 2000, 'the first turn');
         a.replied = true;
-        const change = coordinator.selectModel('a-big', 'high');
+        const change = coordinator.selectModel({
+          agent: 'a',
+          id: 'a-big',
+          effort: 'high',
+        });
         selecting = rejected
           ? assert.rejects(change, { message: 'Model rejected' })
           : change;

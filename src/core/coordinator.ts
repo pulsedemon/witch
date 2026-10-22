@@ -9,7 +9,6 @@ import type {
   AgentEvent,
   AgentSession,
   BackgroundCommand,
-  Model,
   SessionInfo,
   Skill,
   Subagent,
@@ -42,11 +41,14 @@ import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
 import { cleanUpMerge, refreshInstall } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
+import { ModelCatalog, modelEffort } from './models.js';
+import type { ModelChoice, ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
 import {
   agentWorking,
   applyDisplayUpdate,
   createConversation,
+  recordSession,
   untitled,
 } from './state.js';
 import type {
@@ -111,7 +113,7 @@ export interface Snapshot {
   /** prompts waiting for a turn, oldest first. */
   queue: readonly string[];
   requests: readonly UserRequest[];
-  models: readonly Model[];
+  models: readonly ModelChoice[];
   /** the live session's skills, empty while none is connected. */
   skills: readonly Skill[];
   /** the live session's subagents in start order; a turn drops the finished ones. */
@@ -170,6 +172,8 @@ export class Coordinator {
   private closed = false;
   /** a model change accepted after the reply can outlive the native turn. */
   private changingModel?: Promise<void>;
+  private selectingModel = false;
+  private readonly catalog: ModelCatalog;
   private draining = false;
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
@@ -184,6 +188,7 @@ export class Coordinator {
     private readonly editFile = editInVSCode,
     readonly coordination?: SessionCoordination,
   ) {
+    this.catalog = new ModelCatalog(agents, (error) => this.report(error));
     this.snapshot = {
       phase: 'starting',
       items: [],
@@ -539,18 +544,25 @@ export class Coordinator {
     // a replied turn keeps the list from its connect, since a refresh reinitializes Claude Code
     if (this.replied) return;
     await this.operate('starting', async () => {
-      const session = await this.connect();
-      this.publish({ models: await session.models(true) });
+      const { cwd, agent } = this.current();
+      this.publish({
+        models: await this.catalog.read(cwd, this.live(agent), true),
+      });
     });
   }
 
   /** an omitted effort keeps the one in force, except on a model that lists none. */
-  async selectModel(model: string, effort?: string): Promise<void> {
+  async selectModel(selection: ModelSelection): Promise<void> {
     if (this.changingModel) throw new Error('Stop the current operation first');
+    if (selection.agent !== this.current().agent)
+      return this.operate('switching', async () => {
+        this.registration(selection.agent);
+        await this.handoff(selection);
+      });
     // a familiar or workflow holding a replied turn open doesn't stop Claude Code taking the change
     if (!this.replied)
-      return this.operate('starting', () => this.changeModel(model, effort));
-    this.changingModel = this.changeModel(model, effort);
+      return this.operate('starting', () => this.changeModel(selection));
+    this.changingModel = this.changeModel(selection);
     try {
       await this.changingModel;
     } catch (error) {
@@ -561,42 +573,43 @@ export class Coordinator {
     }
   }
 
-  private async changeModel(model: string, effort?: string): Promise<void> {
+  private async changeModel(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
+    const { agent, id } = selection;
     if (!this.live(conversation.agent)) {
       // so a model that fails to connect can be replaced. the effort waits for the session to accept it, since a stored one every connect rejects can't be replaced
       conversation.sessions[conversation.agent] = {
         id: '',
         hasHistory: false,
         ...conversation.sessions[conversation.agent],
-        model,
-        requestedModel: model,
+        model: id,
+        requestedModel: id,
       };
       await this.save();
     }
     const session = await this.connect();
-    const listed = this.snapshot.models.find((item) => item.id === model);
-    // a kept effort would reach a model that takes none on the next connect
-    await session.selectModel(
-      model,
-      listed && !listed.efforts.length ? null : effort,
-    );
-    conversation.sessions[conversation.agent] = {
-      ...conversation.sessions[conversation.agent]!,
-      model: session.info.model,
-      requestedModel: model,
-      effort: session.info.effort,
-    };
+    conversation.sessions[agent] = await this.applyModel(session, selection);
     await this.save();
     this.publish({ conversation, native: session.info });
   }
 
-  async switchAgent(agent: string): Promise<void> {
-    if (agent === this.current().agent) return;
-    await this.operate('switching', async () => {
-      this.registration(agent);
-      await this.handoff(agent);
-    });
+  private async applyModel(session: AgentSession, selection: ModelSelection) {
+    const { agent, id } = selection;
+    this.selectingModel = true;
+    try {
+      await session.selectModel(
+        id,
+        modelEffort(selection, this.snapshot.models),
+      );
+    } finally {
+      this.selectingModel = false;
+    }
+    return {
+      ...this.current().sessions[agent]!,
+      model: session.info.model,
+      requestedModel: id,
+      effort: session.info.effort,
+    };
   }
 
   async interrupt(): Promise<void> {
@@ -607,16 +620,18 @@ export class Coordinator {
       ),
     });
     this.connecting?.abort();
+    this.catalog.cancel();
     this.editorCancellation?.abort();
     const results = await Promise.allSettled([
       this.coordination?.endTurn(),
       (async () => {
         // a session that is still starting has no turn to interrupt, so stopping it closes it
-        if (this.snapshot.phase === 'starting') await this.session?.close();
+        if (this.snapshot.phase === 'starting' || this.connecting)
+          await this.session?.close();
         else {
           const session = this.session;
           await session?.interrupt();
-          if (this.changingModel) await session?.close();
+          if (this.changingModel || this.selectingModel) await session?.close();
         }
       })(),
     ]);
@@ -823,10 +838,11 @@ export class Coordinator {
     await this.coordination.releaseTask();
   }
 
-  private async handoff(agent: string): Promise<void> {
+  private async handoff(selection: ModelSelection): Promise<void> {
+    const { agent } = selection;
     const conversation = this.current();
-    const from = conversation.agent;
-    const previousHandoff = conversation.handoff;
+    const { agent: from, handoff: previousHandoff } = conversation;
+    const previous = conversation.sessions[agent];
     let activated = false;
     try {
       let summary = '';
@@ -842,11 +858,13 @@ export class Coordinator {
       conversation.handoff = { from, to: agent, summary, activated: false };
       await this.save();
       if (this.cancelled) throw new Error('Handoff was interrupted');
-      await this.connect(agent);
+      const session = await this.connect(agent, undefined, selection);
+      const selected = await this.applyModel(session, selection);
       if (this.cancelled) {
         throw new Error('Handoff was interrupted');
       }
       conversation.agent = agent;
+      conversation.sessions[agent] = selected;
       conversation.handoff.activated = true;
       await this.save();
       activated = true;
@@ -859,11 +877,16 @@ export class Coordinator {
       else delete conversation.handoff;
       await this.save();
     } catch (error) {
+      let failure = error;
       if (!activated) {
         conversation.agent = from;
         if (conversation.handoff !== previousHandoff)
           delete conversation.handoff;
-        await this.disconnect();
+        await this.disconnect().catch((closeError: unknown) => {
+          failure = closeError;
+        });
+        if (previous) conversation.sessions[agent] = previous;
+        else delete conversation.sessions[agent];
       }
       await this.save();
       this.publish({
@@ -871,7 +894,7 @@ export class Coordinator {
         native: this.session?.info,
         usage: this.session?.usage ?? {},
       });
-      throw error;
+      throw failure;
     }
   }
 
@@ -1062,6 +1085,7 @@ export class Coordinator {
   private async connect(
     agent = this.current().agent,
     turnScope?: MemoryScope,
+    selection?: ModelSelection,
   ): Promise<AgentSession> {
     const live = this.live(agent);
     if (live && (!turnScope || turnScope.project === this.sessionProject))
@@ -1086,14 +1110,16 @@ export class Coordinator {
         await files.save(conversation);
       };
     this.connecting = new AbortController();
-    let session: AgentSession;
     try {
-      session = await adapter.connect({
+      const session = await adapter.connect({
         cwd: conversation.cwd,
         executable: executable!,
         resume: stored?.hasHistory ? stored.id : undefined,
-        model: stored?.requestedModel,
-        effort: stored?.effort,
+        model: selection?.id ?? stored?.requestedModel,
+        effort: selection
+          ? (modelEffort(selection, this.snapshot.models, stored?.effort) ??
+            undefined)
+          : stored?.effort,
         memoryDirectories: [scope.global, scope.project].map((path) =>
           join(workspace.root, path),
         ),
@@ -1109,34 +1135,30 @@ export class Coordinator {
         },
         mark: this.jobs,
       });
+      this.session = session;
+      this.sessionProject = scope.project;
+      recordSession(conversation, agent, session.info);
+      await this.save();
+      if (this.connecting.signal.aborted)
+        throw new Error('Connection was interrupted');
+      const models = await this.catalog.read(conversation.cwd, session);
+      // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
+      let skills: Skill[] = [];
+      try {
+        skills = await session.skills();
+      } catch (error) {
+        this.report(error);
+      }
+      this.publish({
+        native: session.info,
+        usage: session.usage,
+        models,
+        skills,
+      });
+      return session;
     } finally {
       this.connecting = undefined;
     }
-    this.session = session;
-    this.sessionProject = scope.project;
-    this.saveInfo(conversation, agent, session.info);
-    await this.save();
-    // a failed list is reported, and the session's skills and usage still publish
-    let models: Model[] = [];
-    try {
-      models = await session.models();
-    } catch (error) {
-      this.report(error);
-    }
-    // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
-    let skills: Skill[] = [];
-    try {
-      skills = await session.skills();
-    } catch (error) {
-      this.report(error);
-    }
-    this.publish({
-      native: session.info,
-      usage: session.usage,
-      models,
-      skills,
-    });
-    return session;
   }
 
   private async disconnect(keepActivation = false): Promise<void> {
@@ -1167,7 +1189,7 @@ export class Coordinator {
     tools: Map<string, string>,
   ): void {
     if (event.type === 'info') {
-      this.saveInfo(conversation, agent, event.info);
+      recordSession(conversation, agent, event.info);
       this.persist(this.save());
       if (conversation.agent === agent)
         this.publish({ native: event.info, conversation });
@@ -1317,23 +1339,6 @@ export class Coordinator {
       done: true,
       cwd: conversation.cwd,
     });
-  }
-
-  private saveInfo(
-    conversation: Conversation,
-    agent: string,
-    info: SessionInfo,
-  ): void {
-    const previous = conversation.sessions[agent];
-    conversation.sessions[agent] = {
-      ...previous,
-      id: info.id,
-      model: info.model,
-      hasHistory: info.hasHistory,
-      // a new native session has seen no memory snapshot yet
-      deliveredRevision:
-        previous?.id === info.id ? previous.deliveredRevision : undefined,
-    };
   }
 
   private display(update: DisplayUpdate): void {

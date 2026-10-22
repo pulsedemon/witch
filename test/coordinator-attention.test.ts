@@ -132,7 +132,7 @@ await test('conversation adoption clears completion and the internal handoff sum
     signals.clear();
     a.gate = summary;
     b.gate = continuation;
-    const switching = coordinator.switchAgent('b');
+    const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(summary.entered, 5000, 'the summary');
     summary.open();
     await within(continuation.entered, 5000, 'the continuation');
@@ -215,7 +215,7 @@ await test('clearing a publication report without another turn does not replay c
       output.filter((data) => data.startsWith('\u001b]777;')),
       [],
     );
-    await coordinator.selectModel('a-big');
+    await coordinator.selectModel({ agent: 'a', id: 'a-big' });
     await next();
     assert.equal(coordinator.snapshot.error, undefined);
     assert.equal(coordinator.snapshot.completedTurn, completed);
