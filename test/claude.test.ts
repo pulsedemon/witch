@@ -300,6 +300,26 @@ await test('a mid-turn interrupt ends the turn with the native result', async ()
   }
 });
 
+await test('a connection cancellation keeps its native abort diagnostic', async () => {
+  const { connect } = await launcher();
+  const { seen, onEvent } = working();
+  const controller = new AbortController();
+  const session = await connect({ signal: controller.signal, onEvent });
+  try {
+    const turn = session.send('wait');
+    await within(seen, 2000, 'first output');
+    controller.abort();
+    const result = await within(turn, 3000, 'connection cancellation');
+    assert.equal(result.status, 'failed');
+    assert.match(
+      result.error ?? '',
+      /^(Operation aborted|Claude Code process aborted by user)$/,
+    );
+  } finally {
+    await session.close();
+  }
+});
+
 await test('an interrupt that leaves the prompt queued closes the session', async () => {
   const { seen, onEvent } = working();
   const { session, child } = await fixture(onEvent);
@@ -492,6 +512,20 @@ await test('an interrupt that leaves steered prompts queued closes the session a
       unread: ['and this'],
     });
     await within(exited, 1000, 'CLI exit');
+  } finally {
+    await session.close();
+  }
+});
+
+await test('a dispatch failure reports its transport cause', async () => {
+  const { session, child } = await fixture();
+  try {
+    assert.equal(child.kill('SIGTERM'), true);
+    assert.deepEqual(await within(session.send('hello'), 3000, 'dispatch'), {
+      status: 'failed',
+      text: '',
+      error: 'Cannot write to terminated process',
+    });
   } finally {
     await session.close();
   }

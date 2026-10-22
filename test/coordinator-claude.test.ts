@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentSession } from '../src/agents/types.js';
+import type { AgentSession, TurnResult } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
@@ -27,6 +27,69 @@ async function claudeCoordinator(mode: string) {
   ]);
   return { ...launched, coordinator, memory };
 }
+
+for (const dispatch of [true, false])
+  await test(
+    dispatch
+      ? 'a Claude dispatch failure displays its transport cause once'
+      : 'a Claude user interruption retains its result and notice',
+    async () => {
+      const { coordinator, adapter, cwd, children } = await claudeCoordinator(
+        'coordinator-reporting',
+      );
+      const connect = adapter.connect.bind(adapter);
+      let session: AgentSession | undefined;
+      let result: TurnResult | undefined;
+      adapter.connect = async (options) => {
+        session = await connect(options);
+        const send = session.send.bind(session);
+        session.send = async (prompt, skill) => {
+          if (dispatch) assert.equal(children.at(-1)!.kill('SIGTERM'), true);
+          result = await send(prompt, skill);
+          return result;
+        };
+        return session;
+      };
+      try {
+        await coordinator.initialize(cwd);
+        assert.equal(coordinator.snapshot.error, undefined);
+        const turn = coordinator.send('reporting familiar');
+        if (!dispatch) {
+          await until('replied turn', () => session?.replied === true);
+          await within(coordinator.interrupt(), 4000, 'interrupt');
+        }
+        await within(turn, 5000, 'turn');
+        assert.deepEqual(
+          result,
+          dispatch
+            ? {
+                status: 'failed',
+                text: '',
+                error: 'Cannot write to terminated process',
+              }
+            : { status: 'interrupted', text: 'Finished.' },
+        );
+        assert.deepEqual(
+          coordinator.snapshot.items
+            .filter((item) => item.kind === 'notice')
+            .map((item) => item.text),
+          [
+            dispatch
+              ? 'Cannot write to terminated process'
+              : 'Turn interrupted',
+          ],
+        );
+        assert.equal(coordinator.snapshot.phase, 'idle');
+      } finally {
+        await coordinator.close();
+        assert.ok(
+          children.every(
+            (child) => child.exitCode !== null || child.signalCode !== null,
+          ),
+        );
+      }
+    },
+  );
 
 await test('an unread shell result survives reconnect as context without rerunning its command', async () => {
   const { coordinator, cwd, args } = await claudeCoordinator(
