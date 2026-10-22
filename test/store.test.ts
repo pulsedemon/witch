@@ -349,6 +349,7 @@ await test('a failed history close still releases both ownership locks', async (
   try {
     await held.append({ id: 'n', kind: 'notice', text: 'kept', cwd: '/p' });
     await assert.rejects(held.close(), failure);
+    assert.equal(await store.isOpen('current'), false);
     await (await store.claim('current')).close();
   } finally {
     t.mock.restoreAll();
