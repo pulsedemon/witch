@@ -35,7 +35,11 @@ export const controlRequestSchema = controlBindingSchema
 
 const controlOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('peers'), snapshot: coordinationSnapshotSchema }),
-  z.object({ kind: z.literal('claimed'), claim: taskClaimSchema }),
+  z.object({
+    kind: z.literal('claimed'),
+    claim: taskClaimSchema,
+    warning: z.string().optional(),
+  }),
   z.object({ kind: z.literal('released') }),
   z.object({
     kind: z.literal('selection'),
