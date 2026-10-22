@@ -39,7 +39,7 @@ import {
 } from './prompts.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
-import { cleanUpMerge, refreshInstall } from './merged.js';
+import { cleanUpMerge, refreshInstall, topLevel } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import type { ModelChoice, ModelSelection } from './models.js';
@@ -729,7 +729,7 @@ export class Coordinator {
 
   /**
    * returns whether merge cleanup acted, refreshing `install` after Witch's own cleanup.
-   * skips unreadable records and this directory's peer turns with a running native process.
+   * skips unreadable records and peer turns with a running native process anywhere in this checkout.
    */
   async cleanUpMerge(
     pullRequest: PullRequest,
@@ -742,17 +742,17 @@ export class Coordinator {
       const { records, unreadable } = await this.store.records();
       // one it can't read could be such a turn. the launch's sweep names it
       if (unreadable.length) return;
-      for (const record of records) {
-        const agent = record.process;
+      const top = await topLevel(cwd);
+      for (const record of records)
         if (
           record.id !== id &&
-          record.cwd === cwd &&
+          (record.cwd === top || record.cwd.startsWith(`${top}/`)) &&
           record.activity &&
-          agent &&
-          (await identifyProcess(agent.pid))?.started === agent.started
+          record.process &&
+          (await identifyProcess(record.process.pid))?.started ===
+            record.process.started
         )
           return;
-      }
       const outcome = await cleanUpMerge(cwd, pullRequest);
       if (!outcome) return;
       acted = true;

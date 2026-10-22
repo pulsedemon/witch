@@ -166,6 +166,50 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
   }
 });
 
+await test("a merge cleanup waits for another Witch's turn anywhere in its checkout, but not in a sibling directory that shares its name's prefix", async () => {
+  const { coordinator, store, memory, project } = await fixture();
+  const other = new Coordinator(store, memory, [
+    { adapter: new FixtureAgent('a'), executable: 'a' },
+  ]);
+  const left: ConversationStore[] = [];
+  try {
+    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await mkdir(join(project, 'src'));
+    await other.initialize(join(project, 'src'));
+    const live = (await identifyProcess(process.pid))!;
+    const running = async (cwd: string) => {
+      const files = await store.create(record(randomUUID(), cwd));
+      left.push(files);
+      files.record.activity = activity();
+      files.record.process = live;
+      await files.save(files.record);
+      return files;
+    };
+    await running(`${project}-sibling`);
+    for (const [cleaner, cwd] of [
+      [coordinator, join(project, 'src')],
+      [other, project],
+    ] as const) {
+      const files = await running(cwd);
+      assert.equal(
+        await cleaner.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+        false,
+      );
+      delete files.record.activity;
+      await files.save(files.record);
+      assert.equal(
+        await cleaner.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+        true,
+      );
+    }
+  } finally {
+    for (const files of left) await files.close();
+    await other.close();
+    await coordinator.close();
+  }
+});
+
 await test("a merge cleanup waits while a conversation record can't be read", async () => {
   const { coordinator, store, project } = await fixture();
   try {
