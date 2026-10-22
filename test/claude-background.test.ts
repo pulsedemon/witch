@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -69,6 +69,121 @@ async function background() {
     completions: () => completions,
   };
 }
+
+async function commandReply(f: Awaited<ReturnType<typeof background>>) {
+  await f.emit({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'helper',
+    task_type: 'local_agent',
+    description: 'Helper',
+    tool_use_id: 'helper-tool',
+  });
+  const command = "printf 'once\\n' >> executions; printf 'command-output\\n'";
+  const prompt = `!${command}\n\nReply without running it again.`;
+  const record = `<bash-input>${command}</bash-input>\n<bash-stdout>command-output\n</bash-stdout><bash-stderr></bash-stderr>`;
+  assert.equal(await f.session.steer(prompt, { command }), true);
+  let uuid = '';
+  await until('command reply input', async () => {
+    uuid = (await f.inputs())[1]?.uuid ?? '';
+    return !!uuid;
+  });
+  assert.deepEqual((await f.inputs())[1]!.message.content, [
+    { type: 'text', text: record },
+    { type: 'text', text: prompt },
+  ]);
+  await f.emit(lifecycle(uuid, 'queued'), {
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: 'helper',
+    status: 'completed',
+    output_file: '',
+    summary: 'Complete',
+  });
+  return { uuid, record };
+}
+
+await test('a steered command reply waits for consumption and a fresh result', async () => {
+  const f = await background();
+  try {
+    const { uuid } = await commandReply(f);
+    await f.emit(state('idle'));
+    assert.equal(f.completions(), 0, 'idle must retain the command reply');
+    await f.emit(state('running'), lifecycle(uuid, 'started'), state('idle'));
+    assert.equal(f.completions(), 0, 'consumption must clear the old result');
+    await f.emit(
+      state('running'),
+      result('Fresh command reply.'),
+      state('idle'),
+    );
+    assert.deepEqual(await within(f.turn, 2000, 'command reply'), {
+      status: 'completed',
+      text: 'Fresh command reply.',
+    });
+    assert.equal(f.completions(), 1);
+    assert.equal((await f.inputs()).length, 2);
+    assert.equal(await readFile(join(f.cwd, 'executions'), 'utf8'), 'once\n');
+  } finally {
+    await f.session.close();
+  }
+});
+
+for (const singular of [false, true]) {
+  await test(`a correlated result consumes a steered command reply (${singular ? 'single UUID' : 'UUID list'})`, async () => {
+    const f = await background();
+    try {
+      const { uuid } = await commandReply(f);
+      await f.emit(result('Unrelated.', [randomUUID()]), state('idle'));
+      assert.equal(f.completions(), 0);
+      await f.emit(
+        state('running'),
+        {
+          ...result('Correlated command reply.'),
+          ...(singular
+            ? { user_message_uuid: uuid }
+            : { user_message_uuids: [uuid] }),
+        },
+        state('idle'),
+      );
+      assert.deepEqual(await within(f.turn, 2000, 'correlated command reply'), {
+        status: 'completed',
+        text: 'Correlated command reply.',
+      });
+    } finally {
+      await f.session.close();
+    }
+  });
+}
+
+await test('a refused steered command reply fails the Witch turn', async () => {
+  const f = await background();
+  try {
+    const { uuid } = await commandReply(f);
+    await f.emit(lifecycle(uuid, 'refused'), state('idle'));
+    const outcome = await within(f.turn, 2000, 'refused command reply');
+    assert.equal(outcome.status, 'failed');
+    assert.equal(outcome.error, 'Claude refused a steered prompt');
+  } finally {
+    await f.session.close();
+  }
+});
+
+await test('an interrupted command reply recovers output without replaying the command', async () => {
+  const f = await background();
+  try {
+    const { record } = await commandReply(f);
+    await f.steer('ordinary follow-up');
+    await within(f.session.interrupt(), 3000, 'interrupt');
+    const outcome = await within(f.turn, 2000, 'interrupted command reply');
+    assert.equal(outcome.status, 'interrupted');
+    assert.deepEqual(outcome.unread, ['ordinary follow-up']);
+    assert.deepEqual(outcome.unreadContext, [record]);
+    assert.equal(f.session.closed, true);
+    assert.equal(await readFile(join(f.cwd, 'executions'), 'utf8'), 'once\n');
+  } finally {
+    await f.session.close();
+  }
+});
 
 for (const task of [undefined, 'mcp_task', 'remote_agent', 'monitor_mcp']) {
   await test(`a post-result prompt remains in the Witch turn across native idle (${task ?? 'no task frame'})`, async () => {
