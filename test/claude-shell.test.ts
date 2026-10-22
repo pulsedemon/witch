@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { once } from 'node:events';
 import { access, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { setImmediate as tick } from 'node:timers/promises';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import type { AgentEvent } from '../src/agents/types.js';
 import {
@@ -136,6 +138,95 @@ await test('closing the session during a shell command kills it, and the shell s
     if (!session.closed) await session.close();
   }
 });
+
+await test('close waits for the interrupted command record when a detached child holds its output pipe', async () => {
+  let output = '';
+  const { session, cwd } = await fixture((event) => {
+    if (event.type === 'tool') output += event.text;
+  });
+  const command = `'${process.execPath.replaceAll("'", "'\\''")}' pipe-holder.cjs`;
+  let shell: ReturnType<typeof session.shell> | undefined;
+  let pipePid: number | undefined;
+  try {
+    await writeFile(
+      join(cwd, 'pipe-holder.cjs'),
+      `const { spawn } = require('node:child_process');
+const { writeFileSync } = require('node:fs');
+const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 700)'], {
+  detached: true,
+  stdio: ['ignore', 'inherit', 'inherit'],
+});
+writeFileSync('pipe.pid', String(child.pid));
+child.unref();
+process.stdout.write('partial-output\\n');
+setInterval(() => {}, 1000);
+`,
+    );
+    shell = session.shell(command);
+    await until('the command output', () => output.includes('partial-output'));
+    pipePid = Number(await readFile(join(cwd, 'pipe.pid'), 'utf8'));
+    await within(session.close(), 3000, 'session close');
+    assert.deepEqual(session.takeUnreadContext!(), [
+      `<bash-input>${command}</bash-input>\n<bash-stdout></bash-stdout><bash-stderr>partial-output\n[Request interrupted by user]</bash-stderr>`,
+    ]);
+    assert.equal((await shell).status, 'interrupted');
+    assert.deepEqual(session.takeUnreadContext!(), []);
+  } finally {
+    await session.close();
+    if (shell) await within(shell, 3000, 'the interrupted command');
+    const pid = pipePid;
+    if (pid)
+      await until('the pipe holder exits', () => {
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+          throw error;
+        }
+      });
+  }
+});
+
+for (const fails of [false, true]) {
+  await test(`close waits for the final shell report to ${fails ? 'reject' : 'finish'} before clearing the native process`, async () => {
+    const reporting = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const reports: string[] = [];
+    const { connect, children } = await launcher();
+    const session = await connect({
+      onShell: async (pid) => {
+        if (pid !== undefined) return;
+        reporting.resolve();
+        await release.promise;
+        reports.push('shell');
+        if (fails) throw new Error('shell report failed');
+      },
+      onProcess: async (pid) => {
+        if (pid === undefined) reports.push('native');
+      },
+    });
+    const nativeClosed = once(children[0]!, 'close');
+    const shell = session.shell('printf reported');
+    const result = fails
+      ? assert.rejects(shell, /shell report failed/)
+      : shell.then((result) => assert.equal(result.status, 'completed'));
+    try {
+      await within(reporting.promise, 3000, 'the final shell report');
+      const closing = session.close();
+      await within(nativeClosed, 3000, 'the native process exit');
+      await tick();
+      assert.deepEqual(reports, []);
+      release.resolve();
+      await within(Promise.all([closing, result]), 3000, 'session close');
+      assert.deepEqual(reports, ['shell', 'native']);
+    } finally {
+      release.resolve();
+      await session.close();
+      await result;
+    }
+  });
+}
 
 await test("a shell command reports its shell's pid as it starts and undefined once it ends, after the start's report settles", async () => {
   const done = Promise.withResolvers<void>();
