@@ -52,6 +52,24 @@ await test('image alt text renders as plain text, and HTML gets the link checks 
   );
 });
 
+await test('character references render as their characters in text and link targets, while code and backslash escapes keep them literal', () => {
+  for (const [input, expected] of [
+    ['Tom &amp; Jerry &lt;T&gt;', 'Tom & Jerry <T>'],
+    ['a&nbsp;b it&#x27;s', "a\u00a0b it's"],
+    ['&copy 2026', '&copy 2026'],
+    ['`a &amp;&amp; b` \\&amp;', 'a &amp;&amp; b &amp;'],
+    ['```\n&amp;\n```', '&amp;'],
+    ['![x &amp; y](a.png)', '[x & y]'],
+  ] as const)
+    assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
+  assert.equal(markdown('&#27;[31mred', '/work'), 'red');
+  assert.ok(
+    markdown('see https://e.com/?a=1&amp;b=2', '/work').includes(
+      '\u001b]8;;https://e.com/?a=1&b=2\u0007',
+    ),
+  );
+});
+
 await test('a URL in inline code links to itself, alone, after a command or after a quoted path', () => {
   for (const input of [
     'Run `curl http://localhost:3000/api` to check.',
