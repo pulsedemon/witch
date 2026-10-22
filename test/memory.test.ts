@@ -106,8 +106,7 @@ await test('memory works under user Git configuration with no identity, an empty
        await theirs.publish();
        await note(mine, 'global/preference.md', 'New preference.');
        await mine.commit('my preference');
-       if ((await mine.publish()) !== 'conflict') throw new Error('expected a conflict');
-       await mine.conflict();
+       if ((await mine.publish()) === 'published') throw new Error('expected a conflict');
        await mine.keepMine();
        await mine.publish();
        console.log(await memory.read('refs/heads/main', 'global/preference.md'));
@@ -744,6 +743,108 @@ await test('two workspaces publish different notes, each with its own attributio
   assert.match(bodies, /conversation: second/);
 });
 
+await test('publication reports the conflicting commit even when a later commit reverted it', async () => {
+  const { memory, open } = await fixture();
+  const { workspace: theirs } = await open('theirs');
+  await save(theirs, { 'global/n.md': 'one\n' });
+  await theirs.publish();
+  const { workspace: mine } = await open('mine');
+  await save(mine, { 'global/n.md': 'a-change\n' });
+  await save(mine, { 'global/n.md': 'one\n' });
+  await save(theirs, { 'global/n.md': 'b-change\n' });
+  await theirs.publish();
+  const head = await mine.revision();
+  const accepted = await memory.resolve(main);
+  const index = await git(mine.root, 'write-tree');
+
+  const result = await mine.publish();
+  assert.ok(result !== 'published');
+  assert.deepEqual(result.paths, ['global/n.md']);
+  assert.match(result.diff, /^-one$/m);
+  assert.match(result.diff, /^\+a-change$/m);
+  assert.equal(await mine.revision(), head);
+  assert.equal(await memory.resolve(main), accepted);
+  assert.equal(await git(mine.root, 'write-tree'), index);
+  assert.equal(await readFile(join(mine.root, 'global/n.md'), 'utf8'), 'one\n');
+  assert.equal(await mine.isDirty(), false);
+  assert.equal(await mine.rebaseStopped(), false);
+});
+
+await test('publication previews a later conflict against the already replayed commits', async () => {
+  const { open } = await fixture();
+  const { workspace: theirs } = await open('theirs');
+  await save(theirs, { 'global/a.md': 'zero\n', 'global/n.md': 'one\n' });
+  await theirs.publish();
+  const { workspace: mine } = await open('mine');
+  await save(mine, { 'global/a.md': 'first\n' });
+  await save(mine, { 'global/a.md': 'second\n', 'global/n.md': 'a-change\n' });
+  await save(theirs, { 'global/n.md': 'b-change\n' });
+  await theirs.publish();
+
+  const result = await mine.publish();
+  assert.ok(result !== 'published');
+  assert.deepEqual(result.paths, ['global/n.md']);
+  assert.match(result.diff, /^-first$/m);
+  assert.match(result.diff, /^\+second$/m);
+  assert.match(result.diff, /^\+a-change$/m);
+  assert.doesNotMatch(result.diff, /^-zero$/m);
+});
+
+await test('publication retains its conflict preview when main advances during abort', async () => {
+  const { memory, open, hook } = await fixture();
+  const { workspace: theirs } = await open('theirs');
+  await save(theirs, { 'global/n.md': 'one\n' });
+  await theirs.publish();
+  const { workspace: mine } = await open('mine');
+  await save(mine, { 'global/n.md': 'a-change\n' });
+  await save(theirs, { 'global/n.md': 'b-change\n' });
+  await theirs.publish();
+  hook.current = async (command, run) => {
+    const result = await run();
+    if (command.join(' ') === 'rebase --abort') {
+      hook.current = passThrough;
+      await save(theirs, { 'global/n.md': 'one\n' });
+      await theirs.publish();
+    }
+    return result;
+  };
+
+  const result = await mine.publish();
+  assert.ok(result !== 'published');
+  assert.deepEqual(result.paths, ['global/n.md']);
+  assert.match(result.diff, /^\+a-change$/m);
+  assert.equal(await memory.read(main, 'global/n.md'), 'one\n');
+});
+
+await test('a failed conflict preview aborts the rebase without changing either branch', async () => {
+  const { memory, open, hook } = await fixture();
+  const { workspace: theirs } = await open('theirs');
+  await save(theirs, { 'global/n.md': 'one\n' });
+  await theirs.publish();
+  const { workspace: mine } = await open('mine');
+  await save(mine, { 'global/n.md': 'a-change\n' });
+  await save(theirs, { 'global/n.md': 'b-change\n' });
+  await theirs.publish();
+  const head = await mine.revision();
+  const accepted = await memory.resolve(main);
+  const index = await git(mine.root, 'write-tree');
+  hook.current = (command, run) => {
+    if (command[0] === 'merge-tree') throw new Error('preview failed');
+    return run();
+  };
+
+  await assert.rejects(mine.publish(), /preview failed/);
+  assert.equal(await mine.revision(), head);
+  assert.equal(await memory.resolve(main), accepted);
+  assert.equal(await git(mine.root, 'write-tree'), index);
+  assert.equal(
+    await readFile(join(mine.root, 'global/n.md'), 'utf8'),
+    'a-change\n',
+  );
+  assert.equal(await mine.isDirty(), false);
+  assert.equal(await mine.rebaseStopped(), false);
+});
+
 await test('keep mine wins conflicting lines and merges every other change, and discard mine takes main', async () => {
   for (const decision of ['keep', 'discard'] as const) {
     const { memory, open, project } = await fixture();
@@ -766,8 +867,8 @@ await test('keep mine wins conflicting lines and merges every other change, and 
       'global/two.md': lines({ 3: 'mine 3' }),
       'global/three.md': 'Mine only.',
     });
-    assert.equal(await mine.publish(), 'conflict');
-    const conflict = await mine.conflict();
+    const conflict = await mine.publish();
+    assert.ok(conflict !== 'published');
     assert.deepEqual(conflict.paths, ['global/one.md']);
     assert.match(conflict.diff, /^--- global\/one\.md$/m);
     assert.match(conflict.diff, /^\+mine 1$/m);
@@ -836,8 +937,9 @@ for (const [name, conflictingPath, myFiles, theirFiles, keptFiles] of [
     await save(mine, { ...myFiles, 'global/mine.md': 'mine-only\n' });
     await save(theirs, { ...theirFiles, 'global/theirs.md': 'theirs-only\n' });
     await theirs.publish();
-    assert.equal(await mine.publish(), 'conflict');
-    assert.deepEqual((await mine.conflict()).paths, [conflictingPath]);
+    const conflict = await mine.publish();
+    assert.ok(conflict !== 'published');
+    assert.deepEqual(conflict.paths, [conflictingPath]);
     await mine.keepMine();
     assert.equal(await mine.publish(), 'published');
     const expectedFiles = {
@@ -883,7 +985,7 @@ await test('keep mine carries no markers through a rename on either side', async
       });
     }
     await theirs.publish();
-    assert.equal(await mine.publish(), 'conflict');
+    assert.notEqual(await mine.publish(), 'published');
     await mine.keepMine();
     assert.equal(await mine.publish(), 'published');
     await memory.run(memory.root, ['grep', '-q', '<<<<<<<', main], {
@@ -932,7 +1034,7 @@ await test('keep mine merges against the main it read even when main moves', asy
   await save(mine, { 'global/one.md': 'Mine.\n' });
   await save(other, { 'global/other.md': 'Other.' });
   await theirs.publish();
-  assert.equal(await mine.publish(), 'conflict');
+  assert.notEqual(await mine.publish(), 'published');
   hook.current = async (command, run) => {
     const result = await run();
     if (command[0] === 'merge-tree') {
@@ -959,7 +1061,7 @@ await test('a crash inside keep mine before its reset leaves the worktree clean 
     });
     await save(mine, { 'global/one.md': 'Mine.\n' });
     await theirs.publish();
-    assert.equal(await mine.publish(), 'conflict');
+    assert.notEqual(await mine.publish(), 'published');
     const head = await mine.revision();
     const accepted = await memory.resolve(main);
     const index = (
@@ -981,7 +1083,7 @@ await test('a crash inside keep mine before its reset leaves the worktree clean 
       'Mine.\n',
     );
     assert.equal(await mine.isDirty(), false);
-    assert.equal(await mine.publish(), 'conflict');
+    assert.notEqual(await mine.publish(), 'published');
   }
 });
 
@@ -1037,7 +1139,7 @@ for (const [name, mineChange, theirChange, expected] of [
     await save(theirs, { 'global/one.md': theirChange });
     await save(mine, { 'global/one.md': mineChange });
     await theirs.publish();
-    assert.equal(await mine.publish(), 'conflict');
+    assert.notEqual(await mine.publish(), 'published');
     await mine.keepMine();
     await mine.publish();
     if (expected === undefined)
@@ -1057,7 +1159,7 @@ await test('keep mine keeps their renamed copy of a note I deleted', async () =>
   await save(theirs, { 'global/one.md': null, 'global/renamed.md': lines() });
   await save(mine, { 'global/one.md': null });
   await theirs.publish();
-  assert.equal(await mine.publish(), 'conflict');
+  assert.notEqual(await mine.publish(), 'published');
   await mine.keepMine();
   await mine.publish();
   assert.equal(await memory.read(main, 'global/renamed.md'), lines());

@@ -20,6 +20,11 @@ import {
 } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
 
+export interface MemoryConflict {
+  paths: string[];
+  diff: string;
+}
+
 /** an index with each non-blank line of `added` it lacks appended once, in its own line endings. */
 function mergeLines(index: string, added: string): string {
   const eol = index.includes('\r\n') ? '\r\n' : '\n';
@@ -161,7 +166,7 @@ export class Workspace {
   async begin(cwd: string): Promise<{ revision: string; scope: MemoryScope }> {
     if (await this.isDirty())
       throw new Error('Resolve pending memory before running another task');
-    if ((await this.publish()) === 'conflict')
+    if ((await this.publish()) !== 'published')
       throw new Error(
         'Your memory changes conflict with another conversation. Keep yours or discard them.',
       );
@@ -314,7 +319,7 @@ export class Workspace {
     return undefined;
   }
 
-  async publish(): Promise<'published' | 'conflict'> {
+  async publish(): Promise<'published' | MemoryConflict> {
     for (let attempt = 0; attempt < 50; attempt++) {
       const latest = await this.latest();
       // an idle worktree behind main stays where its last turn left it
@@ -329,8 +334,11 @@ export class Workspace {
         if (rebase.code !== 0) {
           if (!(await this.rebaseStopped()))
             throw new Error(rebase.stderr.trim() || 'Memory rebase failed');
-          await this.git(['rebase', '--abort']);
-          return 'conflict';
+          try {
+            return await this.rebaseConflict();
+          } finally {
+            await this.git(['rebase', '--abort']);
+          }
         }
       }
       const update = await this.memory.run(
@@ -382,9 +390,10 @@ export class Workspace {
     return [tracked, ...additions].filter(Boolean).join('\n\n');
   }
 
-  /** the paths that conflict with `main`, content conflicts included, and this branch's changes. */
-  async conflict(): Promise<{ paths: string[]; diff: string }> {
-    const latest = await this.latest();
+  /** the original branch can undo the commit that stopped replay. */
+  private async rebaseConflict(): Promise<MemoryConflict> {
+    const blocked = (await this.git(['rev-parse', 'REBASE_HEAD'])).trim();
+    const replayed = await this.revision();
     const merged = await this.memory.run(
       this.root,
       [
@@ -393,21 +402,21 @@ export class Workspace {
         '--messages',
         '-z',
         '--name-only',
-        latest,
-        'HEAD',
+        `--merge-base=${blocked}^`,
+        replayed,
+        blocked,
       ],
       { codes: [0, 1] },
     );
     const { paths, relocated } = mergeResult(merged.stdout);
-    const base = (await this.git(['merge-base', 'HEAD', latest])).trim();
     return {
       paths: [...new Set(paths.map((path) => relocated.get(path) ?? path))],
       diff: await this.git([
         'diff',
         '--no-ext-diff',
         '--no-prefix',
-        base,
-        'HEAD',
+        `${blocked}^`,
+        blocked,
         '--',
       ]),
     };

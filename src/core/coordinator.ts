@@ -25,7 +25,7 @@ import {
   printable,
 } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
-import type { Workspace } from '../memory/workspace.js';
+import type { MemoryConflict, Workspace } from '../memory/workspace.js';
 import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
@@ -296,7 +296,7 @@ export class Coordinator {
           await workspace.ensureWorktree();
           pending = await workspace.isDirty();
           if (pending) reason = 'unfinished memory changes';
-          else if ((await workspace.publish()) === 'conflict')
+          else if ((await workspace.publish()) !== 'published')
             reason = 'memory conflicts with another conversation';
         }
         if (!pending && files.record.activity) {
@@ -1395,13 +1395,14 @@ export class Coordinator {
     await this.files!.flush();
     const workspace = this.workspace!;
     let dirty = false;
-    let conflict = false;
+    let conflict: MemoryConflict | undefined;
     let failure: string | undefined;
     if (await workspace.exists()) {
       dirty = await workspace.isDirty();
       if (!dirty)
         try {
-          conflict = (await workspace.publish()) === 'conflict';
+          const result = await workspace.publish();
+          if (result !== 'published') conflict = result;
         } catch (error) {
           failure = errorMessage(error);
         }
@@ -1423,7 +1424,7 @@ export class Coordinator {
       : conflict
         ? {
             kind: 'conflict',
-            ...(await workspace.conflict()),
+            ...conflict,
             root: workspace.root,
           }
         : undefined;

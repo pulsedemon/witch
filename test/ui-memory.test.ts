@@ -120,6 +120,9 @@ await test('the conflict view resolves with k and d, ignores a and Option+K, and
         .text()
         .includes('k KEEP MINE (YOUR SIDE OF EACH CONFLICTING CHANGE WINS)'),
     );
+    assert.match(ui.text(), /Commit that could not be published:/);
+    assert.match(ui.text(), /\+mine in global\/one\.md/);
+    assert.match(ui.text(), /Keep mine merges your current changes/);
     assert.ok(
       ui
         .frame()
