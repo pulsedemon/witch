@@ -96,6 +96,247 @@ await test('clones expose current task metadata without themselves or another pr
   );
 });
 
+for (const failures of [1, 2]) {
+  await test(`presence publication recovers after ${failures} failed ${failures === 1 ? 'write' : 'writes'} without another state update`, async (t) => {
+    const { start, registry } = await coordinationFixture(t);
+    const a = await start(),
+      b = await start('B');
+    const bound = await a.binding();
+    await until('initial idle presence', async () =>
+      (await registry.presences()).some(
+        (p) => p.activation === bound.activation && p.phase === 'idle',
+      ),
+    );
+    const publish = CoordinationStore.prototype.publish;
+    let attempts = 0;
+    const publication = t.mock.method(
+      CoordinationStore.prototype,
+      'publish',
+      async function (
+        this: CoordinationStore,
+        presence: Parameters<typeof publish>[0],
+      ) {
+        if (presence.activation === bound.activation && ++attempts <= failures)
+          throw new Error('Temporary presence write failure');
+        return publish.call(this, presence);
+      },
+    );
+    const failed = Promise.withResolvers<void>(),
+      recovered = Promise.withResolvers<void>();
+    const unsubscribe = a.coordination.subscribe(() => {
+      if (a.coordination.snapshot.error?.includes('Temporary presence'))
+        failed.resolve();
+      else if (attempts > failures) recovered.resolve();
+    });
+    try {
+      a.a.sessions.at(-1)!.options.onEvent({
+        type: 'request',
+        request: { id: 'q', kind: 'approval', title: 'Wait', detail: '' },
+      });
+      await within(failed.promise, 3000, 'presence write failure');
+      await within(recovered.promise, 7000, 'automatic presence recovery');
+      assert.equal(a.coordination.snapshot.error, undefined);
+      assert.equal(attempts, failures + 1);
+      const peer = (await b.query()).peers.find(
+        ({ presence }) => presence.id === bound.conversation,
+      );
+      assert.equal(peer?.presence.requests, 1);
+      const result = await a.claim();
+      if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+      assert.deepEqual(await registry.claims(), [result.claim]);
+
+      const before = await registry.presences();
+      a.a.sessions
+        .at(-1)!
+        .options.onEvent({ type: 'usage', usage: { cost: 42 } });
+      await delay(2100);
+      assert.equal(attempts, failures + 1);
+      assert.deepEqual(await registry.presences(), before);
+    } finally {
+      unsubscribe();
+      publication.mock.restore();
+      if (a.coordination.snapshot.error) {
+        a.coordination.updateRepository(parseStatus('# branch.head cleanup'));
+        await until(
+          'cleanup presence write',
+          () => !a.coordination.snapshot.error,
+        );
+      }
+    }
+  });
+}
+
+await test('a slow presence retry preserves newer state without accumulating retries', async (t) => {
+  const { start, registry } = await coordinationFixture(t);
+  const a = await start(),
+    b = await start('B');
+  const bound = await a.binding();
+  await until('initial idle presence', async () =>
+    (await registry.presences()).some(
+      (p) => p.activation === bound.activation && p.phase === 'idle',
+    ),
+  );
+  const entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>(),
+    latest = Promise.withResolvers<void>();
+  const publish = CoordinationStore.prototype.publish;
+  const requests: number[] = [];
+  let inFlight = 0,
+    peak = 0;
+  const publication = t.mock.method(
+    CoordinationStore.prototype,
+    'publish',
+    async function (
+      this: CoordinationStore,
+      presence: Parameters<typeof publish>[0],
+    ) {
+      if (presence.activation !== bound.activation)
+        return publish.call(this, presence);
+      requests.push(presence.requests);
+      if (requests.length === 1)
+        throw new Error('Temporary presence write failure');
+      peak = Math.max(peak, ++inFlight);
+      try {
+        if (requests.length === 2) {
+          entered.resolve();
+          await release.promise;
+        }
+        await publish.call(this, presence);
+        if (presence.requests === 2) latest.resolve();
+      } finally {
+        inFlight--;
+      }
+    },
+  );
+  try {
+    const emit = a.a.sessions.at(-1)!.options.onEvent;
+    emit({
+      type: 'request',
+      request: { id: 'first', kind: 'approval', title: 'First', detail: '' },
+    });
+    await within(entered.promise, 5000, 'presence retry');
+    await delay(4100);
+    assert.deepEqual(requests, [1, 1]);
+    const query = await within(
+      callControl(bound, { kind: 'peers' }),
+      3000,
+      'control reply during a slow presence write',
+    );
+    assert.equal(query.kind, 'error');
+    emit({
+      type: 'request',
+      request: { id: 'second', kind: 'approval', title: 'Second', detail: '' },
+    });
+    await delay(150);
+    release.resolve();
+    await within(latest.promise, 3000, 'newer presence write');
+    await delay(2100);
+    const peer = (await b.query()).peers.find(
+      ({ presence }) => presence.id === bound.conversation,
+    );
+    assert.equal(peer?.presence.requests, 2);
+    assert.equal(
+      (await registry.presences()).find(
+        (p) => p.activation === bound.activation,
+      )?.requests,
+      2,
+    );
+    assert.equal(peak, 1);
+    assert.deepEqual(requests, [1, 1, 2]);
+    assert.equal(a.coordination.snapshot.error, undefined);
+  } finally {
+    release.resolve();
+    publication.mock.restore();
+    if (a.coordination.snapshot.error) {
+      a.coordination.updateRepository(parseStatus('# branch.head cleanup'));
+      await until(
+        'cleanup presence write',
+        () => !a.coordination.snapshot.error,
+      );
+    }
+  }
+});
+
+for (const action of ['switch', 'close'] as const) {
+  await test(`a presence retry cannot republish an activation after ${action}`, async (t) => {
+    const { start, registry } = await coordinationFixture(t);
+    const a = await start();
+    const bound = await a.binding();
+    await until('initial idle presence', async () =>
+      (await registry.presences()).some(
+        (p) => p.activation === bound.activation && p.phase === 'idle',
+      ),
+    );
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    const publish = CoordinationStore.prototype.publish;
+    let attempts = 0;
+    const publication = t.mock.method(
+      CoordinationStore.prototype,
+      'publish',
+      async function (
+        this: CoordinationStore,
+        presence: Parameters<typeof publish>[0],
+      ) {
+        if (presence.activation === bound.activation) {
+          attempts++;
+          if (attempts === 1)
+            throw new Error('Temporary presence write failure');
+          if (attempts === 2) {
+            entered.resolve();
+            await release.promise;
+          }
+        }
+        return publish.call(this, presence);
+      },
+    );
+    let transitioning: Promise<void> | undefined;
+    try {
+      a.a.sessions.at(-1)!.options.onEvent({
+        type: 'request',
+        request: { id: 'q', kind: 'approval', title: 'Wait', detail: '' },
+      });
+      await within(entered.promise, 5000, 'presence retry');
+      let finished = false;
+      transitioning = (
+        action === 'switch'
+          ? a.coordinator.newConversation()
+          : a.coordinator.close()
+      ).then(() => {
+        finished = true;
+      });
+      assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
+      assert.equal(finished, false);
+      release.resolve();
+      await within(transitioning, 5000, 'activation retirement');
+      const retiredAttempts = attempts;
+      const next = action === 'switch' ? await a.binding() : undefined;
+      await delay(2100);
+      assert.equal(attempts, retiredAttempts);
+      assert.equal(await registry.isActive(bound.activation), false);
+      assert.deepEqual(
+        (await registry.presences()).map((p) => p.activation),
+        next ? [next.activation] : [],
+      );
+      if (next) assert.notEqual(next.activation, bound.activation);
+    } finally {
+      release.resolve();
+      publication.mock.restore();
+      await transitioning?.catch(() => {});
+      if (
+        a.coordinator.snapshot.phase !== 'closing' &&
+        a.coordination.snapshot.error
+      ) {
+        a.coordination.updateRepository(parseStatus('# branch.head cleanup'));
+        await until(
+          'cleanup presence write',
+          () => !a.coordination.snapshot.error,
+        );
+      }
+    }
+  });
+}
+
 await test('waiting and idle background work stay visible and retain ownership through refusal, failure and interruption', async (t) => {
   const { start, ledger } = await coordinationFixture(t);
   const a = await start(),
