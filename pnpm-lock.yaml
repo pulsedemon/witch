@@ -26,6 +26,9 @@ importers:
       diff:
         specifier: 9.0.0
         version: 9.0.0
+      entities:
+        specifier: 8.1.0
+        version: 8.1.0
       ink:
         specifier: 8.0.0
         version: 8.0.0(@types/react@19.3.0)(react@19.3.0)
@@ -105,21 +108,25 @@ packages:
     resolution: {integrity: sha512-8DEazoBU4I8HsPrXgSJ1Vq30nCBF7PaKjHz1o/igCz+HZu3qepHztWpoKJKQee5Mt4XsvZLwtKuxQo1F+SC6yQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.296':
     resolution: {integrity: sha512-+tC1KlUlp/3BQS+EfG8RBrmru4xKwF6hNEm15gNct8k9tNVRLYOftbkNCGJPTKkoBoq0sQ+Omojzwr/W2Dg60A==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.296':
     resolution: {integrity: sha512-lMquemenM5CDNZv6g1+xBSfQpat2xiwOQUnY2mwSQKjT+IfE5/F8CgRd38ZBljwGnedPIuKs/DAZMt4YslLF5w==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.296':
     resolution: {integrity: sha512-TStCnbg2iBtWJBQeMdO7Xwpx5IYWICmdcf7J9eXhIi4JbahWD+VLRaH5sxB+LLZjdBXekp8piKv6Ne2+arag0w==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.296':
     resolution: {integrity: sha512-/epluPyoLm1NQAcHV0LUierKog7c9yyU8BgpZOtGWiM54nqTZKKBuCwANraV3ROfXYFfJdMV4Vehk/8fqxoOqQ==}
@@ -651,6 +658,10 @@ packages:
   encodeurl@2.0.0:
     resolution: {integrity: sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg==}
     engines: {node: '>= 0.8'}
+
+  entities@8.1.0:
+    resolution: {integrity: sha512-kxL7msIffSuh9aaFAMD7rxAIuTRMAHMeBtgHW2yUdWw732ZNh4MehkF2gdjvtdmikkaIP9bFDDJOPlsvm7avrA==}
+    engines: {node: '>=20.19.0'}
 
   environment@1.1.0:
     resolution: {integrity: sha512-xUtoPkMggbz0MPyPiIWr1Kp4aeWJjDZ6SMvURhimjdZgsRuDplF5/s9hcgGhyXMhs+6vpnuoiZ2kFiu3FMnS8Q==}
@@ -1800,6 +1811,8 @@ snapshots:
   ee-first@1.1.1: {}
 
   encodeurl@2.0.0: {}
+
+  entities@8.1.0: {}
 
   environment@1.1.0: {}
 
