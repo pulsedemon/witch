@@ -525,6 +525,7 @@ await test('a dispatch failure reports its transport cause', async () => {
       status: 'failed',
       text: '',
       error: 'Cannot write to terminated process',
+      inputUnsent: true,
     });
   } finally {
     await session.close();

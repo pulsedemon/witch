@@ -168,7 +168,8 @@ interface Turn {
   /** retain consumed input for interrupt receipts; omit command replies' text to prevent replay. */
   steered: Map<string, { prompt?: string; pending: boolean }>;
   inputError?: string;
-  commandRecords: Map<string, string[]>;
+  commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
+  initialInput?: string;
   /**
    * a command steered after the reply hasn't ended, or its reply hasn't gone, and Claude Code's idle doesn't end the
    * turn meanwhile.
@@ -275,6 +276,16 @@ class ClaudeSession implements AgentSession {
         },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
+          const write = child.stdin.write;
+          child.stdin.write = (...args) => {
+            const message = JSON.parse(args[0] as string) as SDKUserMessage;
+            if (message.type === 'user' && message.uuid) {
+              const input = this.turn?.commandRecords.get(message.uuid);
+              // a writer can throw after accepting bytes, so record the attempt first
+              if (input) input.writeAttempted = true;
+            }
+            return Reflect.apply(write, child.stdin, args) as boolean;
+          };
           this.child = watchChild(child);
           this.registered = options.onProcess(child.pid);
           // initialize() awaits it, but may fail before it does
@@ -424,7 +435,8 @@ class ClaudeSession implements AgentSession {
     const turn = this.beginTurn();
     const records = this.records;
     const uuid = this.push(this.content(prompt, skill));
-    turn.commandRecords.set(uuid, records);
+    turn.initialInput = uuid;
+    turn.commandRecords.set(uuid, { records, writeAttempted: false });
     return turn.finished.promise;
   }
 
@@ -443,7 +455,7 @@ class ClaudeSession implements AgentSession {
       interrupted: false,
       messages: new Map<string, string>(),
       steered: new Map(),
-      commandRecords: new Map<string, string[]>(),
+      commandRecords: new Map(),
       held: false,
       idle: false,
     };
@@ -599,7 +611,7 @@ class ClaudeSession implements AgentSession {
       const records = this.records;
       const uuid = this.push(this.content(answer));
       turn.steered.set(uuid, { pending: true });
-      turn.commandRecords.set(uuid, records);
+      turn.commandRecords.set(uuid, { records, writeAttempted: false });
     } else if (!this.closed) this.finishIdle(turn);
   }
 
@@ -640,7 +652,7 @@ class ClaudeSession implements AgentSession {
     // the CLI would run what it still holds after this turn, outside any turn
     if (receipt?.still_queued?.length) {
       const unreadContext = receipt.still_queued.flatMap(
-        (uuid) => turn.commandRecords.get(uuid) ?? [],
+        (uuid) => turn.commandRecords.get(uuid)?.records ?? [],
       );
       this.closed = true;
       this.finish(turn, {
@@ -1112,7 +1124,21 @@ class ClaudeSession implements AgentSession {
     this.query.close();
     await this.child?.closed;
     const text = withTail(error, this.child?.tail() ?? '');
-    if (turn) this.finish(turn, { status: 'failed', text: '', error: text });
+    if (turn) {
+      const unreadContext = [...turn.commandRecords.values()].flatMap(
+        ({ records, writeAttempted }) => (writeAttempted ? [] : records),
+      );
+      const inputUnsent =
+        turn.initialInput !== undefined &&
+        turn.commandRecords.get(turn.initialInput)?.writeAttempted === false;
+      this.finish(turn, {
+        status: 'failed',
+        text: '',
+        error: text,
+        ...(unreadContext.length ? { unreadContext } : {}),
+        ...(inputUnsent ? { inputUnsent } : {}),
+      });
+    }
     // a turn reports the error through its result
     if (!turn && this.connected && !closed)
       this.options.onEvent({ type: 'notice', text });

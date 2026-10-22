@@ -6,6 +6,10 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setImmediate as tick } from 'node:timers/promises';
 import { isDeepStrictEqual, promisify } from 'node:util';
+import type {
+  SDKControlRequest,
+  SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '../src/agents/types.js';
 import {
   launcher,
@@ -77,6 +81,115 @@ for (const closed of [false, true]) {
     }
   });
 }
+
+for (const condition of [
+  'written',
+  'backpressure',
+  'throwing writer',
+  'control before input',
+]) {
+  await test(`dispatch failure recovers only unwritten command context (${condition})`, async () => {
+    const { session, cwd, child } = await fixture(undefined, 'hold-initial');
+    const command = "printf 'boundary-output\\n'";
+    const record = `<bash-input>${command}</bash-input>\n<bash-stdout>boundary-output\n</bash-stdout><bash-stderr></bash-stderr>`;
+    try {
+      await session.shell(command);
+      const write = child.stdin.write.bind(child.stdin);
+      child.stdin.write = (...args) => {
+        const frame = JSON.parse(String(args[0])) as
+          SDKControlRequest | SDKUserMessage;
+        const result = Reflect.apply(write, child.stdin, args) as boolean;
+        if (
+          condition === 'control before input' &&
+          frame.type === 'control_request' &&
+          frame.request.subtype === 'get_context_usage'
+        )
+          assert.equal(child.kill('SIGTERM'), true);
+        return condition === 'backpressure' && frame.type === 'user'
+          ? false
+          : result;
+      };
+      if (condition === 'throwing writer') {
+        const write = child.stdin._write.bind(child.stdin);
+        child.stdin._write = (chunk, encoding, callback) => {
+          const frame = JSON.parse(String(chunk)) as SDKUserMessage;
+          if (frame.type === 'user') throw new Error('fixture write failure');
+          write(chunk, encoding, callback);
+        };
+      }
+      const turn = session.send('reply');
+      if (condition === 'control before input') await session.contextUsage();
+      else if (condition !== 'throwing writer') {
+        await until('the written command frame', async () => {
+          const frames = (await jsonLines(
+            join(cwd, 'held.json'),
+          )) as SDKUserMessage[];
+          return frames.some((frame) =>
+            JSON.stringify(frame.message.content).includes('<bash-input>'),
+          );
+        });
+        assert.equal(child.kill('SIGTERM'), true);
+      }
+      const result = await within(turn, 5000, 'the failed command reply');
+      assert.equal(result.status, 'failed');
+      assert.deepEqual(
+        result.unreadContext ?? [],
+        condition === 'control before input' ? [record] : [],
+      );
+      assert.equal(
+        result.inputUnsent,
+        condition === 'control before input' ? true : undefined,
+      );
+      assert.deepEqual(session.takeUnreadContext!(), []);
+    } finally {
+      await session.close();
+      assert.ok(child.exitCode !== null || child.signalCode !== null);
+    }
+  });
+}
+
+await test('dispatch failure recovers only the later unsent command in a turn', async () => {
+  const { connect, children, cwd } = await launcher();
+  let commands = 0;
+  const session = await connect({
+    onShell: async (pid) => {
+      if (pid === undefined && ++commands === 2)
+        assert.equal(children[0]!.kill('SIGTERM'), true);
+    },
+  });
+  try {
+    const turn = session.send('reporting familiar');
+    await until('the first reply', () => session.replied);
+    assert.equal(
+      await session.steer('first reply', { command: 'printf alpha' }),
+      true,
+    );
+    await until(
+      'the written first command',
+      async () => (await jsonLines(join(cwd, 'steered.jsonl'))).length === 1,
+    );
+    await session.contextUsage();
+    assert.equal(
+      await session.steer('second reply', { command: 'printf beta' }),
+      true,
+    );
+    const result = await within(turn, 5000, 'the failed second reply');
+    assert.equal(result.status, 'failed');
+    assert.equal(result.inputUnsent, undefined);
+    assert.deepEqual(result.unreadContext, [
+      '<bash-input>printf beta</bash-input>\n<bash-stdout>beta</bash-stdout><bash-stderr></bash-stderr>',
+    ]);
+    assert.deepEqual(session.takeUnreadContext!(), []);
+    assert.equal((await jsonLines(join(cwd, 'steered.jsonl'))).length, 1);
+  } finally {
+    await session.close();
+    assert.ok(
+      children.every(
+        (child) => child.exitCode !== null || child.signalCode !== null,
+      ),
+    );
+  }
+});
 
 await test("a shell command refuses steering, and an interrupt kills it, ends it interrupted and keeps its record for the next prompt with the next command's", async () => {
   const output: string[] = [];
