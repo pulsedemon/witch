@@ -37,6 +37,28 @@ function mergeLines(index: string, added: string): string {
   return `${kept ? `${kept}${eol}` : ''}${missing.join(eol)}${eol}`;
 }
 
+/** git's conflict list uses generated names; file/directory messages retain their original paths. */
+function mergeResult(output: Buffer): {
+  tree: string;
+  paths: string[];
+  relocated: Map<string, string>;
+} {
+  const fields = output.toString('utf8').split('\0');
+  const separator = fields.indexOf('', 1);
+  const relocated = new Map<string, string>();
+  for (let cursor = separator + 1; cursor < fields.length - 1;) {
+    const count = Number(fields[cursor++]);
+    if (fields[cursor + count] === 'CONFLICT (file/directory)')
+      relocated.set(fields[cursor]!, fields[cursor + 1]!);
+    cursor += count + 2;
+  }
+  return {
+    tree: fields[0]!,
+    paths: fields.slice(1, separator),
+    relocated,
+  };
+}
+
 /** one conversation's memory: a worktree of the shared bare repository on its own branch. ignore rules never apply, so no `.gitignore` or user excludes file can hide a note. */
 export class Workspace {
   private readonly branch: string;
@@ -368,7 +390,7 @@ export class Workspace {
       [
         'merge-tree',
         '--write-tree',
-        '--no-messages',
+        '--messages',
         '-z',
         '--name-only',
         latest,
@@ -376,13 +398,10 @@ export class Workspace {
       ],
       { codes: [0, 1] },
     );
+    const { paths, relocated } = mergeResult(merged.stdout);
     const base = (await this.git(['merge-base', 'HEAD', latest])).trim();
     return {
-      paths: merged.stdout
-        .toString('utf8')
-        .split('\0')
-        .slice(1)
-        .filter(Boolean),
+      paths: [...new Set(paths.map((path) => relocated.get(path) ?? path))],
       diff: await this.git([
         'diff',
         '--no-ext-diff',
@@ -410,7 +429,7 @@ export class Workspace {
         '--write-tree',
         '-X',
         'ours',
-        '--no-messages',
+        '--messages',
         '-z',
         '--name-only',
         'HEAD',
@@ -418,7 +437,7 @@ export class Workspace {
       ],
       { codes: [0, 1] },
     );
-    const [tree, ...listed] = merged.stdout.toString('utf8').split('\0');
+    const { tree, paths, relocated } = mergeResult(merged.stdout);
     const base = (await this.git(['merge-base', 'HEAD', latest])).trim();
     const index = resolve(
       this.root,
@@ -433,12 +452,29 @@ export class Workspace {
     const env = { GIT_INDEX_FILE: index };
     let commit: string;
     try {
-      await this.git(['read-tree', tree!], { env });
-      for (const path of listed.filter(Boolean))
-        if ((await this.has(base, path)) && !(await this.has('HEAD', path)))
+      await this.git(['read-tree', tree], { env });
+      for (const path of paths)
+        if (
+          !relocated.has(path) &&
+          (await this.has(base, path)) &&
+          !(await this.has('HEAD', path))
+        )
           await this.git(['update-index', '--force-remove', '--', path], {
             env,
           });
+      for (const [renamed, original] of relocated)
+        await this.git(
+          [
+            '--literal-pathspecs',
+            'reset',
+            '--quiet',
+            'HEAD',
+            '--',
+            renamed,
+            original,
+          ],
+          { env },
+        );
       const written = (await this.git(['write-tree'], { env })).trim();
       const messages = await this.git([
         'log',
