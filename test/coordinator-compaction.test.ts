@@ -246,7 +246,7 @@ await test('compaction preserves active background records and pending handoff c
   try {
     await f.coordinator.send('seed');
     f.b.failNext = true;
-    await f.coordinator.switchAgent('b');
+    await f.coordinator.selectModel({ agent: 'b', id: 'b-model' });
     const handoff = f.coordinator.snapshot.conversation!.handoff;
     assert.ok(handoff?.summary);
     const native = f.b.sessions.at(-1)!;
@@ -457,7 +457,7 @@ await test('a resumed native context sample schedules compaction and a model wit
         await select(...args);
         native.contextUsage = async () => undefined;
       };
-      await reopened.selectModel('a-big');
+      await reopened.selectModel({ agent: 'a', id: 'a-big' });
       await reopened.send('different model');
       assert.deepEqual(f.a.compactions, [id]);
       assert.equal(f.a.inputs.length, 3);

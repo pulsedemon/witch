@@ -442,7 +442,10 @@ await test("the status line shows the model's label, the effort the agent runs, 
       hasHistory: true,
       nativeEffort: 'medium',
     },
-    models: [{ id: 'gpt-x-2026', label: 'GPT-X', efforts: [] }],
+    models: [
+      { agent: 'b', id: 'gpt-x-2026', label: 'Wrong runtime', efforts: [] },
+      { agent: 'a', id: 'gpt-x-2026', label: 'GPT-X', efforts: [] },
+    ],
     usage: {
       cost: 0.5,
       context: 30,

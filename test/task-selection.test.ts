@@ -252,7 +252,7 @@ await test('normal exit releases a suggestion while restart and native handoff p
   const suggestion = await turn.recommend(choice.ticket.id);
   await turn.finish();
   a.a.gate = undefined;
-  await a.coordinator.switchAgent('b');
+  await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
   assert.notEqual((await a.binding()).activation, turn.binding.activation);
   assert.deepEqual(await f.registry.claims(), [suggestion]);
   await a.coordinator.close({ restart: true });
@@ -311,7 +311,7 @@ await test('active claims survive reconnect and restart but normal close makes t
   const first = await a.claim();
   if (first.kind !== 'claimed') assert.fail(JSON.stringify(first));
   assert.equal((await b.claim()).kind, 'conflict');
-  await a.coordinator.switchAgent('b');
+  await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
   assert.notEqual((await a.binding()).activation, binding.activation);
   assert.deepEqual(await f.registry.claims(), [first.claim]);
   await a.coordinator.close({ restart: true });
@@ -354,7 +354,7 @@ await test('adopting a legacy claim preserves its aliases through restart withou
   const migrated = JSON.parse(await f.ledger());
   assert.equal(migrated.version, 2);
   assert.deepEqual(migrated.claims, [adopted, otherClaim]);
-  await a.coordinator.switchAgent('b');
+  await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
   await other.close();
   const b = await f.start('B');
   await a.coordinator.close({ restart: true });

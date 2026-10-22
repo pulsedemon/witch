@@ -98,7 +98,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       subagents: [],
       backgroundCommands: [],
       usage: {},
-      agents: [],
+      agents: ['a', 'b'].map((id) => ({ id, label: id, installed: true })),
       conversation: {
         id: 'c',
         title: 't',
@@ -133,7 +133,6 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     selectConversation: record('selectConversation'),
     refreshModels: record('refreshModels'),
     selectModel: record('selectModel'),
-    switchAgent: record('switchAgent'),
     report: (error: unknown) => calls.push(['report', String(error)]),
     conversations: async () => [
       { id: 'c2', title: 'Other', agent: 'a', cwd: '/work' },
