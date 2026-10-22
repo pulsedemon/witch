@@ -730,7 +730,16 @@ class ClaudeSession implements AgentSession {
       for await (const message of this.query) this.receive(message);
       if (this.turn) await this.end('Claude exited before reporting idle');
     } catch (error) {
-      await this.end(errorMessage(error));
+      const reason: unknown = this.abort.signal.reason;
+      // preserve the dispatch cause when the SDK masks it with AbortError.
+      const failure =
+        error instanceof AbortError &&
+        reason instanceof Error &&
+        !(reason instanceof AbortError) &&
+        reason.name !== 'AbortError'
+          ? reason
+          : error;
+      await this.end(errorMessage(failure));
     } finally {
       this.closed = true;
       for (const request of this.requests.values())
