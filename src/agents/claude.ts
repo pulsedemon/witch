@@ -212,8 +212,8 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
-  /** the user's `!` command while it runs. */
-  private command?: AbortController;
+  /** the user's `!` command until its record and process reports settle. */
+  private command?: { controller: AbortController; finished: Promise<void> };
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
@@ -461,52 +461,57 @@ class ClaudeSession implements AgentSession {
 
   private async run(command: string): Promise<TurnResult> {
     const abort = new AbortController();
-    this.command = abort;
-    const id = randomUUID();
-    const row = (text: string, done = false) =>
+    const finished = Promise.withResolvers<void>();
+    this.command = { controller: abort, finished: finished.promise };
+    try {
+      const id = randomUUID();
+      const row = (text: string, done = false) =>
+        this.options.onEvent({
+          type: 'tool',
+          id,
+          title: '',
+          text,
+          done,
+          append: true,
+        });
       this.options.onEvent({
         type: 'tool',
         id,
-        title: '',
-        text,
-        done,
-        append: true,
-      });
-    this.options.onEvent({
-      type: 'tool',
-      id,
-      title: command,
-      text: '',
-      done: false,
-      shell: true,
-    });
-    let started: Promise<void> | undefined;
-    try {
-      const run = await runShell(command, {
-        cwd: this.options.cwd,
-        env: this.options.mark?.environment,
-        signal: abort.signal,
-        onOutput: (text) => row(text),
-        onSpawn: (pid) => {
-          started = this.options.onShell?.(pid);
-          // awaited once the command ends, which can be long after a failed report
-          started?.catch(() => {});
-        },
-      });
-      this.records.push(bashRecord(command, run));
-      return {
-        status: run.interrupted ? 'interrupted' : 'completed',
+        title: command,
         text: '',
-      };
-    } catch (error) {
-      return { status: 'failed', text: '', error: errorMessage(error) };
+        done: false,
+        shell: true,
+      });
+      let started: Promise<void> | undefined;
+      try {
+        const run = await runShell(command, {
+          cwd: this.options.cwd,
+          env: this.options.mark?.environment,
+          signal: abort.signal,
+          onOutput: (text) => row(text),
+          onSpawn: (pid) => {
+            started = this.options.onShell?.(pid);
+            // awaited once the command ends, which can be long after a failed report
+            started?.catch(() => {});
+          },
+        });
+        this.records.push(bashRecord(command, run));
+        return {
+          status: run.interrupted ? 'interrupted' : 'completed',
+          text: '',
+        };
+      } catch (error) {
+        return { status: 'failed', text: '', error: errorMessage(error) };
+      } finally {
+        row('', true);
+        if (started) {
+          await started;
+          await this.options.onShell?.(undefined);
+        }
+      }
     } finally {
       this.command = undefined;
-      row('', true);
-      if (started) {
-        await started;
-        await this.options.onShell?.(undefined);
-      }
+      finished.resolve();
     }
   }
 
@@ -603,7 +608,7 @@ class ClaudeSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
-    this.command?.abort();
+    this.command?.controller.abort();
     const turn = this.turn;
     if (!turn) return;
     turn.interrupted = true;
@@ -652,14 +657,22 @@ class ClaudeSession implements AgentSession {
   }
 
   async close(): Promise<void> {
-    this.command?.abort();
+    const command = this.command;
+    command?.controller.abort();
     this.closed = true;
     this.input.close();
     this.query.close();
     await this.reading;
     await this.child?.closed;
+    await command?.finished;
     this.options.signal?.removeEventListener('abort', this.cancelConnection);
     await this.options.onProcess(undefined);
+  }
+
+  takeUnreadContext(): string[] {
+    const records = this.records;
+    this.records = [];
+    return records;
   }
 
   /**
@@ -671,11 +684,10 @@ class ClaudeSession implements AgentSession {
     skill?: SkillCall,
   ): SDKUserMessage['message']['content'] {
     const blocks = [
-      ...this.records,
+      ...this.takeUnreadContext(),
       prompt,
       ...(skill ? [`/${skill.name}${skill.args ? ` ${skill.args}` : ''}`] : []),
     ];
-    this.records = [];
     return blocks.length > 1
       ? blocks.map((text) => ({ type: 'text' as const, text }))
       : prompt;
@@ -1086,7 +1098,7 @@ class ClaudeSession implements AgentSession {
     this.closed = true;
     const turn = this.turn;
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI
-    if (turn) this.command?.abort();
+    if (turn) this.command?.controller.abort();
     // this also covers a receive() throw while the CLI lives; the SDK's SIGTERM bounds the wait
     this.query.close();
     await this.child?.closed;

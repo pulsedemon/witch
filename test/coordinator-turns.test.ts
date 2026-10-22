@@ -159,8 +159,17 @@ const savedCommand =
 async function recoverCommandContext(
   coordinator: Coordinator,
   agent: FixtureAgent,
+  via: 'turn' | 'disconnect' = 'turn',
 ) {
   const session = agent.sessions.at(-1)!.session;
+  if (via === 'disconnect') {
+    const pending = [savedCommand];
+    session.takeUnreadContext = () => pending.splice(0);
+    const id = coordinator.snapshot.conversation!.id;
+    await coordinator.newConversation();
+    await coordinator.selectConversation(id);
+    return;
+  }
   const send = session.send;
   session.send = async () => ({
     status: 'interrupted',
@@ -192,55 +201,112 @@ await test('pending command context stays with its conversation', async () => {
   }
 });
 
-await test('pending command context waits until a prompt is dispatched', async (t) => {
-  for (const failure of ['connect', 'snapshot', 'shell']) {
-    await t.test(failure, async () => {
-      const { coordinator, a, hook } = await fixture(undefined, (a) => {
-        a.skills = [{ name: 'review', description: 'Review' }];
-      });
-      try {
-        await recoverCommandContext(coordinator, a);
-        const before = a.inputs.length;
-        if (failure === 'connect') {
-          await a.sessions.at(-1)!.session.close();
-          a.failConnect = true;
-          await coordinator.send('blocked');
-          assert.deepEqual(coordinator.unqueue(), ['blocked']);
-          a.failConnect = false;
-        } else if (failure === 'snapshot') {
-          const snapshot = holdSnapshot(hook);
-          const sending = coordinator.send('blocked');
-          try {
-            await within(snapshot.entered, 3000, 'the snapshot');
-            await coordinator.interrupt();
-          } finally {
-            snapshot.release();
-          }
-          await within(sending, 3000, 'the cancelled send');
-          assert.deepEqual(coordinator.unqueue(), ['blocked']);
-        } else {
-          a.failNext = true;
-          await coordinator.send('!fails');
-          assert.deepEqual(a.shells, ['fails']);
-        }
-        assert.equal(a.inputs.length, before);
-        const next = failure === 'connect' ? '/review now' : 'fresh';
-        await coordinator.send(next);
-        const received = a.inputs.at(-1)!;
-        assert.equal(received.prompt.split(savedCommand).length - 1, 1);
+for (const identical of [false, true]) {
+  await test(`disconnect appends local records to recovered conversation context (${identical ? 'identical records' : 'distinct records'})`, async () => {
+    const { coordinator, a } = await fixture();
+    const localCommand = identical
+      ? savedCommand
+      : '<bash-input>also-ran</bash-input>\n<bash-stdout>later-output</bash-stdout><bash-stderr></bash-stderr>';
+    try {
+      await recoverCommandContext(coordinator, a);
+      const pending = [localCommand];
+      a.sessions.at(-1)!.session.takeUnreadContext = () => pending.splice(0);
+      const id = coordinator.snapshot.conversation!.id;
+      await coordinator.newConversation();
+      await coordinator.send('other');
+      assert.equal(a.inputs.at(-1)!.prompt.includes('<bash-input>'), false);
+      await coordinator.selectConversation(id);
+      await coordinator.send('original');
+      const received = a.inputs.at(-1)!.prompt;
+      assert.equal(received.split(savedCommand).length - 1, identical ? 2 : 1);
+      if (!identical) {
+        assert.equal(received.split(localCommand).length - 1, 1);
         assert.ok(
-          received.prompt.indexOf(savedCommand) <
-            received.prompt.indexOf('User request:'),
+          received.indexOf(savedCommand) < received.indexOf(localCommand),
         );
-        assert.ok(received.prompt.endsWith(`User request:\n${next}`));
-        if (failure === 'connect')
-          assert.deepEqual(received.skill, { name: 'review', args: 'now' });
-        await coordinator.send('again');
-        assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
-      } finally {
-        await coordinator.close();
       }
-    });
+      await coordinator.send('again');
+      assert.equal(a.inputs.at(-1)!.prompt.includes('<bash-input>'), false);
+    } finally {
+      await coordinator.close();
+    }
+  });
+}
+
+await test('a failed close preserves outgoing command context', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    const pending = [savedCommand];
+    a.sessions.at(-1)!.session.takeUnreadContext = () => pending.splice(0);
+    const id = coordinator.snapshot.conversation!.id;
+    a.failClose = true;
+    await coordinator.newConversation();
+    assert.match(coordinator.snapshot.error ?? '', /Close failed/);
+    a.failClose = false;
+    await coordinator.send('other');
+    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+    await coordinator.selectConversation(id);
+    await coordinator.send('original');
+    assert.equal(a.inputs.at(-1)!.prompt.split(savedCommand).length - 1, 1);
+    await coordinator.send('again');
+    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+  } finally {
+    a.failClose = false;
+    await coordinator.close();
+  }
+});
+
+await test('pending command context waits until a prompt is dispatched', async (t) => {
+  for (const via of ['turn', 'disconnect'] as const) {
+    for (const failure of ['connect', 'snapshot', 'shell']) {
+      await t.test(`${via}: ${failure}`, async () => {
+        const { coordinator, a, hook } = await fixture(undefined, (a) => {
+          a.skills = [{ name: 'review', description: 'Review' }];
+        });
+        try {
+          await recoverCommandContext(coordinator, a, via);
+          const before = a.inputs.length;
+          if (failure === 'connect') {
+            await a.sessions.at(-1)!.session.close();
+            a.failConnect = true;
+            await coordinator.send('blocked');
+            assert.deepEqual(coordinator.unqueue(), ['blocked']);
+            a.failConnect = false;
+          } else if (failure === 'snapshot') {
+            const snapshot = holdSnapshot(hook);
+            const sending = coordinator.send('blocked');
+            try {
+              await within(snapshot.entered, 3000, 'the snapshot');
+              await coordinator.interrupt();
+            } finally {
+              snapshot.release();
+            }
+            await within(sending, 3000, 'the cancelled send');
+            assert.deepEqual(coordinator.unqueue(), ['blocked']);
+          } else {
+            a.failNext = true;
+            await coordinator.send('!fails');
+            assert.deepEqual(a.shells, ['fails']);
+          }
+          assert.equal(a.inputs.length, before);
+          const next = failure === 'connect' ? '/review now' : 'fresh';
+          await coordinator.send(next);
+          const received = a.inputs.at(-1)!;
+          assert.equal(received.prompt.split(savedCommand).length - 1, 1);
+          assert.ok(
+            received.prompt.indexOf(savedCommand) <
+              received.prompt.indexOf('User request:'),
+          );
+          assert.ok(received.prompt.endsWith(`User request:\n${next}`));
+          if (failure === 'connect')
+            assert.deepEqual(received.skill, { name: 'review', args: 'now' });
+          await coordinator.send('again');
+          assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+        } finally {
+          await coordinator.close();
+        }
+      });
+    }
   }
 });
 

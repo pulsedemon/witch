@@ -208,6 +208,8 @@ export interface AgentSession {
    * after an interrupt, and the coordinator then reconnects with resume.
    */
   interrupt(): Promise<void>;
+  /** transfers unsent command records to the conversation on disconnect; valid after close. */
+  takeUnreadContext?(): string[];
   close(): Promise<void>;
 }
 
