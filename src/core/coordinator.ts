@@ -401,7 +401,6 @@ export class Coordinator {
     if (!(await admitted) && !(during && this.halted())) await this.drain();
   }
 
-  /** takes back every queued prompt, oldest first, to edit. */
   unqueue(): string[] {
     const queue = [...this.snapshot.queue];
     this.publish({ queue: [] });
@@ -846,9 +845,7 @@ export class Coordinator {
       if (this.cancelled) throw new Error('Handoff was interrupted');
       const session = await this.connect(agent, undefined, selection);
       const selected = await this.applyModel(session, selection);
-      if (this.cancelled) {
-        throw new Error('Handoff was interrupted');
-      }
+      if (this.cancelled) throw new Error('Handoff was interrupted');
       conversation.agent = agent;
       conversation.sessions[agent] = selected;
       conversation.handoff.activated = true;
@@ -976,8 +973,7 @@ export class Coordinator {
       }
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
-      if (result.unreadContext?.length)
-        this.pendingContext.set(conversation.id, result.unreadContext);
+      this.retainContext(conversation.id, result.unreadContext);
       await this.finishActivity(activity, result);
       if (result.status === 'completed') {
         if (generation === this.contextGeneration)
@@ -1152,8 +1148,15 @@ export class Coordinator {
     }
   }
 
+  private retainContext(id: string, context?: readonly string[]): void {
+    if (!context?.length) return;
+    const pending = this.pendingContext.get(id) ?? [];
+    this.pendingContext.set(id, [...pending, ...context]);
+  }
+
   private async disconnect(keepActivation = false): Promise<void> {
     if (!keepActivation && this.coordination) await this.coordination.quiesce();
+    const conversationId = this.record?.id;
     const session = this.session;
     this.session = undefined;
     this.stopBackgroundActivity();
@@ -1164,6 +1167,8 @@ export class Coordinator {
       delete this.record.process;
       await this.save();
     } finally {
+      if (conversationId)
+        this.retainContext(conversationId, session?.takeUnreadContext?.());
       if (!keepActivation) await this.coordination?.deactivate();
     }
   }

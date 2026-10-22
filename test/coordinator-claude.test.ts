@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentSession } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
@@ -16,13 +17,21 @@ import {
 import { readRecord } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 
-await test('an unread shell result survives reconnect as context without rerunning its command', async () => {
-  const { adapter, cwd, args } = await launcher('coordinator-reporting');
+async function claudeCoordinator(mode: string) {
+  const launched = await launcher(mode);
+  const { adapter, cwd } = launched;
   const store = await StateStore.open(join(cwd, 'state'));
   const memory = new Memory(join(cwd, 'state', 'memory.git'));
   const coordinator = new Coordinator(store, memory, [
     { adapter, executable: '/fake/claude' },
   ]);
+  return { ...launched, coordinator, memory };
+}
+
+await test('an unread shell result survives reconnect as context without rerunning its command', async () => {
+  const { coordinator, cwd, args } = await claudeCoordinator(
+    'coordinator-reporting',
+  );
   const command = 'printf "once\\n" >> executions; printf "retained-output\\n"';
   const record = `<bash-input>${command}</bash-input>\n<bash-stdout>retained-output\n</bash-stdout><bash-stderr></bash-stderr>`;
   try {
@@ -82,13 +91,134 @@ await test('an unread shell result survives reconnect as context without rerunni
   }
 });
 
+for (const mode of [
+  'held reply',
+  'completed command',
+  'interrupted shell',
+  'native reconnect',
+]) {
+  await test(
+    mode === 'native reconnect'
+      ? 'an unsent command record survives native reconnect'
+      : `an unsent command record survives conversation replacement (${mode})`,
+    async () => {
+      const { coordinator, adapter, cwd, args, children } =
+        await claudeCoordinator('coordinator-reporting');
+      const connect = adapter.connect.bind(adapter);
+      let session: AgentSession;
+      adapter.connect = async (options) => {
+        session = await connect(options);
+        if (mode === 'completed command') {
+          const shell = session.shell.bind(session);
+          session.shell = async (command) => {
+            const result = await shell(command);
+            await coordinator.interrupt();
+            return result;
+          };
+        }
+        return session;
+      };
+      const held = mode === 'held reply' || mode === 'native reconnect';
+      const interrupted = mode === 'interrupted shell';
+      const command =
+        'printf "once\\n" >> executions; ' +
+        (held ? 'while [ ! -f go ]; do sleep 0.01; done; ' : '') +
+        'printf "retained-output\\n"' +
+        (interrupted ? '; sleep 60.163' : '');
+      const record =
+        `<bash-input>${command}</bash-input>\n` +
+        (interrupted
+          ? '<bash-stdout></bash-stdout><bash-stderr>retained-output\n[Request interrupted by user]</bash-stderr>'
+          : '<bash-stdout>retained-output\n</bash-stdout><bash-stderr></bash-stderr>');
+      try {
+        await coordinator.initialize(cwd);
+        const original = coordinator.snapshot.conversation!.id;
+        let turn: Promise<void>;
+        if (held) {
+          turn = coordinator.send('reporting familiar');
+          await until(
+            'the first reply',
+            () => coordinator.snapshot.usage.cost === 0.25,
+          );
+          await coordinator.send(`!${command}`);
+          await until('the shell starts', async () => {
+            try {
+              return (
+                (await readFile(join(cwd, 'executions'), 'utf8')) === 'once\n'
+              );
+            } catch {
+              return false;
+            }
+          });
+          await writeFile(join(cwd, 'allow-report'), '');
+          await until('the familiar completes', () =>
+            coordinator.snapshot.subagents.some(
+              ({ status }) => status === 'completed',
+            ),
+          );
+          await writeFile(join(cwd, 'go'), '');
+          await until('the shell completes', () =>
+            coordinator.snapshot.items.some(
+              (item) =>
+                item.kind === 'tool' && item.title === command && item.done,
+            ),
+          );
+          assert.deepEqual(await jsonLines(join(cwd, 'steered.jsonl')), []);
+          assert.deepEqual(await jsonLines(join(cwd, 'early.jsonl')), []);
+          await within(coordinator.interrupt(), 5000, 'interrupt');
+        } else {
+          turn = coordinator.send(`!${command}`);
+          if (interrupted) {
+            await until('the shell output', () =>
+              coordinator.snapshot.items.some(
+                (item) =>
+                  item.kind === 'tool' && item.text.includes('retained-output'),
+              ),
+            );
+            await within(coordinator.interrupt(), 5000, 'interrupt');
+          }
+        }
+        await within(turn, 5000, 'the interrupted turn');
+        assert.equal(coordinator.snapshot.phase, 'idle');
+        assert.deepEqual(coordinator.snapshot.queue, []);
+        const native = coordinator.snapshot.native!.id;
+        if (mode === 'native reconnect') await session!.close();
+        else {
+          await coordinator.newConversation();
+          await coordinator.send('other');
+          assert.equal(
+            ((await content(cwd)) as string).includes(record),
+            false,
+          );
+          await coordinator.selectConversation(original);
+        }
+        await coordinator.send('next');
+        if (mode === 'native reconnect') {
+          assert.equal(args.length, 2);
+          assert.ok(args[1]!.includes(`--resume=${native}`));
+        }
+        const received = (await content(cwd)) as string;
+        assert.equal(received.split(record).length - 1, 1);
+        assert.ok(
+          received.indexOf(record) < received.indexOf('User request:\nnext'),
+        );
+        assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
+        assert.deepEqual(coordinator.snapshot.queue, []);
+        await coordinator.send('again');
+        assert.equal(((await content(cwd)) as string).includes(record), false);
+        assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
+      } finally {
+        await writeFile(join(cwd, 'go'), '');
+        await coordinator.close();
+        assert.ok(children.every((child) => child.exitCode === 0));
+      }
+    },
+  );
+}
+
 async function backgroundCoordinator() {
-  const { adapter, cwd, children } = await launcher('background');
-  const store = await StateStore.open(join(cwd, 'state'));
-  const memory = new Memory(join(cwd, 'state', 'memory.git'));
-  const coordinator = new Coordinator(store, memory, [
-    { adapter, executable: '/fake/claude' },
-  ]);
+  const { coordinator, memory, cwd, children } =
+    await claudeCoordinator('background');
   await coordinator.initialize(cwd);
   const completed: (string | undefined)[] = [];
   const unsubscribe = coordinator.subscribe(() => {

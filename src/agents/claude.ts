@@ -662,6 +662,12 @@ class ClaudeSession implements AgentSession {
     await this.options.onProcess(undefined);
   }
 
+  takeUnreadContext(): string[] {
+    const records = this.records;
+    this.records = [];
+    return records;
+  }
+
   /**
    * the records of commands run since the last prompt go ahead of it, and a skill goes last, since the CLI dispatches a
    * command only from the last text block and the rest become its context.
@@ -671,11 +677,10 @@ class ClaudeSession implements AgentSession {
     skill?: SkillCall,
   ): SDKUserMessage['message']['content'] {
     const blocks = [
-      ...this.records,
+      ...this.takeUnreadContext(),
       prompt,
       ...(skill ? [`/${skill.name}${skill.args ? ` ${skill.args}` : ''}`] : []),
     ];
-    this.records = [];
     return blocks.length > 1
       ? blocks.map((text) => ({ type: 'text' as const, text }))
       : prompt;

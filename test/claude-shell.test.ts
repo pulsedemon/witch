@@ -54,6 +54,28 @@ await test("a shell command runs in the session's directory as one open tool row
   }
 });
 
+for (const closed of [false, true]) {
+  await test(`unsent command context can be taken once ${closed ? 'after close' : 'before the next prompt'}`, async () => {
+    const { session, cwd } = await fixture();
+    try {
+      await session.shell('printf alpha');
+      await session.shell('printf beta');
+      if (closed) await session.close();
+      assert.deepEqual(session.takeUnreadContext!(), [
+        '<bash-input>printf alpha</bash-input>\n<bash-stdout>alpha</bash-stdout><bash-stderr></bash-stderr>',
+        '<bash-input>printf beta</bash-input>\n<bash-stdout>beta</bash-stdout><bash-stderr></bash-stderr>',
+      ]);
+      assert.deepEqual(session.takeUnreadContext!(), []);
+      if (!closed) {
+        await session.send('next');
+        assert.equal(await content(cwd), 'next');
+      }
+    } finally {
+      await session.close();
+    }
+  });
+}
+
 await test("a shell command refuses steering, and an interrupt kills it, ends it interrupted and keeps its record for the next prompt with the next command's", async () => {
   const output: string[] = [];
   const { session, cwd } = await fixture((event) => {
@@ -434,6 +456,7 @@ for (const mode of [undefined, 'first-reply-read']) {
         assert.equal(result.status, 'interrupted');
         assert.deepEqual(result.unread, ['between']);
         assert.deepEqual(result.unreadContext, mode ? [records[1]] : records);
+        assert.deepEqual(session.takeUnreadContext!(), []);
         assert.equal(session.closed, true);
       } finally {
         await session.close();
@@ -468,6 +491,7 @@ await test('an interrupt recovers a completed idle command from its initial repl
     assert.equal(result.status, 'interrupted');
     assert.deepEqual(result.unread, []);
     assert.deepEqual(result.unreadContext, [record]);
+    assert.deepEqual(session.takeUnreadContext!(), []);
     assert.equal(await readFile(join(cwd, 'executions'), 'utf8'), 'once\n');
     assert.equal(session.closed, true);
   } finally {
