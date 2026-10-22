@@ -67,7 +67,11 @@ export function markdown(
         checkbox = token.checked ? '[x] ' : '[ ] ';
         continue;
       }
-      blocks.push(checkbox + renderer.parser.parse([token]).trim());
+      const block = renderer.parser.parse([token]);
+      // code keeps its leading indentation; other blocks can start with the spaces left by a tab after the bullet
+      blocks.push(
+        checkbox + (token.type === 'code' ? block.trimEnd() : block.trim()),
+      );
       checkbox = '';
     }
     if (checkbox) blocks.push(checkbox.trimEnd());

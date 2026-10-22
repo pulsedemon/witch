@@ -84,10 +84,16 @@ await test('a URL in inline code links to itself, alone, after a command or afte
     );
 });
 
-await test('ordered items number from their start, and a continuation line indents under its item text', () => {
+await test('ordered items number from their start, and continuation lines and code indent under their item text', () => {
   for (const [input, expected] of [
     ['- line1\n  line2', '• line1\n  line2'],
     ['9. a\n10. b\n    more', '9. a\n10. b\n    more'],
+    [
+      '1. Set:\n\n   ```yaml\n     key: value\n   top: 1\n   ```',
+      '1. Set:\n     key: value\n   top: 1',
+    ],
+    ['- a\n\n  ```\n\n  x\n  ```', '• a\n  \n  x'],
+    ['-\ta', '• a'],
   ] as const)
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
