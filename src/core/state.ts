@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import type { SessionInfo } from '../agents/types.js';
 
 const session = z.object({
   id: z.string(),
@@ -101,6 +102,23 @@ export type ConversationRecord = z.infer<typeof conversationRecordSchema>;
 export type ProcessIdentity = z.infer<typeof processIdentity>;
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
+
+export function recordSession(
+  conversation: Conversation,
+  agent: string,
+  info: SessionInfo,
+): void {
+  const previous = conversation.sessions[agent];
+  conversation.sessions[agent] = {
+    ...previous,
+    id: info.id,
+    model: info.model,
+    hasHistory: info.hasHistory,
+    // a new native session has seen no memory snapshot yet
+    deliveredRevision:
+      previous?.id === info.id ? previous.deliveredRevision : undefined,
+  };
+}
 
 function merge(
   previous: DisplayItem | undefined,
