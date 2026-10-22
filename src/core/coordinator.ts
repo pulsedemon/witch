@@ -690,6 +690,9 @@ export class Coordinator {
           else throw new Error('Accept these memory changes or discard them.');
           delete this.current().activity;
         }
+        if (decision === 'discard')
+          for (const reference of Object.values(this.current().sessions))
+            delete reference.deliveredRevision;
         await this.save();
       },
       'recovery',

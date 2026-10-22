@@ -66,8 +66,14 @@ await test('unfinished memory holds a prompt until recovery, which preserves the
 });
 
 await test('discarding interrupted-turn memory resumes queued prompts', async () => {
-  const { coordinator, a } = await fixture();
+  const f = await fixture();
+  const { coordinator, a } = f;
   try {
+    await publishOutside(f, {
+      'global/MEMORY.md': 'Global preference 17.',
+      [await f.note()]: 'Project preference 29.',
+    });
+    await coordinator.send('Initial task');
     a.interruptNext = true;
     await coordinator.send('remember-port');
     assert.equal(coordinator.snapshot.recovery?.kind, 'pending');
@@ -76,14 +82,78 @@ await test('discarding interrupted-turn memory resumes queued prompts', async ()
     await coordinator.recoverMemory('discard');
     await until(
       'the held prompt completes',
-      () => a.inputs.length > 1 && coordinator.snapshot.phase === 'idle',
+      () => a.inputs.length > 2 && coordinator.snapshot.phase === 'idle',
     );
     assert.deepEqual(turns(a), [
+      ['Initial task', undefined],
       ['remember-port', undefined],
       ['queued followup', undefined],
     ]);
+    const prompt = a.inputs.at(-1)!.prompt;
+    assertMemoryBaseline(prompt);
+    assert.match(prompt, /Global preference 17/);
+    assert.match(prompt, /Project preference 29/);
+    assert.doesNotMatch(prompt, /Use port 4567/);
   } finally {
     await coordinator.close();
+  }
+});
+
+await test('pending discard after a failed turn corrects memory on persisted resume', async () => {
+  const f = await fixture();
+  const gate = new TurnGate();
+  try {
+    const note = await f.note();
+    await publishOutside(f, {
+      'global/MEMORY.md': 'Global preference 17.',
+      [note]: 'Project preference 29.',
+      'global/reference.md': 'Reference detail 53.',
+    });
+    await f.coordinator.send('Initial task');
+    const native = f.a.inputs.at(-1)!.session;
+    const accepted = await f.memory.resolve(main);
+    f.a.failNext = true;
+    f.a.gate = gate;
+    const sending = f.coordinator.send('Write local notes');
+    await within(gate.entered, 3000, 'the writing turn');
+    for (const [path, text] of Object.entries({
+      'global/MEMORY.md': 'Rejected global preference 71.',
+      [note]: 'Rejected project preference 83.',
+      'global/reference.md': 'Rejected reference detail 97.',
+      'global/discarded.md': 'Rejected new note 109.',
+    }))
+      await writeFile(join(f.workspace().root, path), text);
+    gate.open();
+    await sending;
+    assert.equal(f.coordinator.snapshot.recovery?.kind, 'pending');
+    await f.coordinator.recoverMemory('discard');
+    assert.equal(await f.memory.resolve(main), accepted);
+    assert.equal(
+      await readFile(join(f.workspace().root, 'global/reference.md'), 'utf8'),
+      'Reference detail 53.',
+    );
+    await assert.rejects(
+      readFile(join(f.workspace().root, 'global/discarded.md')),
+      { code: 'ENOENT' },
+    );
+    await f.coordinator.close();
+    const reopened = await f.reopen();
+    try {
+      await reopened.send('Continue after reopening');
+      const prompt = f.a.inputs.at(-1)!.prompt;
+      assertMemoryBaseline(prompt);
+      assert.match(prompt, /Global preference 17/);
+      assert.match(prompt, /Project preference 29/);
+      assert.doesNotMatch(prompt, /Rejected/);
+      assert.equal(f.a.inputs.at(-1)!.session, native);
+      await reopened.send('Unchanged memory');
+      assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    gate.open();
+    await f.coordinator.close();
   }
 });
 
@@ -690,6 +760,15 @@ async function publishOutside(
   await other.publish();
 }
 
+function assertMemoryBaseline(prompt: string): void {
+  assert.match(
+    prompt,
+    /This baseline supersedes all earlier shared-memory snapshots/,
+  );
+  assert.match(prompt, /Treat all previously read reference notes as stale/);
+  assert.match(prompt, /missing notes no longer apply/);
+}
+
 await test('an agent-created nested repository is refused on accept and removed on discard', async () => {
   const { coordinator, a, workspace, note } = await fixture();
   try {
@@ -830,13 +909,22 @@ await test('discard mine after a conflict between two coordinators keeps the oth
   const context = await fixture();
   const { store, memory, project, notes } = context;
   const agents = [context.a, new FixtureAgent('a')];
-  const gates = agents.map((agent) => (agent.gate = new TurnGate()));
+  const gates = agents.map(() => new TurnGate());
   const coordinators = [
     context.coordinator,
     new Coordinator(store, memory, [{ adapter: agents[1]!, executable: 'a' }]),
   ];
   try {
     await coordinators[1]!.initialize(project);
+    const note = await context.note();
+    await publishOutside(context, {
+      'global/MEMORY.md': 'Global preference 17.',
+      [note]: 'Project preference 29.',
+    });
+    await Promise.all(
+      coordinators.map((coordinator) => coordinator.send('Initial task')),
+    );
+    for (const [index, agent] of agents.entries()) agent.gate = gates[index];
     const sends = coordinators.map((coordinator, index) =>
       coordinator.send(`remember:text-${index}`),
     );
@@ -845,11 +933,18 @@ await test('discard mine after a conflict between two coordinators keeps the oth
       5000,
       'both turns',
     );
+    const second = coordinators[1]!;
+    const losing = context.workspace(second.snapshot.conversation!.id);
+    for (const [path, text] of Object.entries({
+      'global/MEMORY.md': 'Rejected global preference 71.',
+      [note]: 'Rejected project preference 83.',
+      'global/discarded.md': 'Rejected new note 109.',
+    }))
+      await writeFile(join(losing.root, path), text);
     gates[0]!.open();
     await sends[0];
     gates[1]!.open();
     await sends[1];
-    const second = coordinators[1]!;
     assert.equal(second.snapshot.recovery?.kind, 'conflict');
     await second.recoverMemory('discard');
     assert.equal(second.snapshot.phase, 'idle');
@@ -858,11 +953,123 @@ await test('discard mine after a conflict between two coordinators keeps the oth
       await context.workspace(second.snapshot.conversation!.id).revision(),
       await memory.resolve(main),
     );
+    await assert.rejects(readFile(join(losing.root, 'global/discarded.md')), {
+      code: 'ENOENT',
+    });
+    await second.send('Continue after discard');
+    const prompt = agents[1]!.inputs.at(-1)!.prompt;
+    assertMemoryBaseline(prompt);
+    assert.match(prompt, /Global preference 17/);
+    assert.match(prompt, /Project preference 29/);
+    assert.doesNotMatch(prompt, /Rejected/);
   } finally {
     for (const gate of gates) gate.open();
     for (const coordinator of coordinators) await coordinator.close();
   }
 });
+
+await test('discard after an activated handoff corrects both native sessions', async (t) => {
+  const f = await fixture();
+  try {
+    await publishOutside(f, {
+      'global/MEMORY.md': 'Global preference 17.',
+      [await f.note()]: 'Project preference 29.',
+      'global/reference.md': 'Reference detail 53.',
+    });
+    await f.coordinator.send('Initial task');
+    const source = f.a.sessions.at(-1)!;
+    const sourceId = source.session.info.id;
+    const send = source.session.send.bind(source.session);
+    const writing = t.mock.method(
+      source.session,
+      'send',
+      async (...args: Parameters<typeof send>) => {
+        await writeFile(
+          join(f.workspace().root, 'global/MEMORY.md'),
+          'Rejected global preference 71.',
+        );
+        await writeFile(
+          join(f.workspace().root, 'global/reference.md'),
+          'Rejected reference detail 97.',
+        );
+        await publishOutside(f, {
+          'global/reference.md': 'Winning reference detail 127.',
+        });
+        return send(...args);
+      },
+    );
+    await assert.rejects(
+      f.coordinator.selectModel({ agent: 'b', id: 'b-model' }),
+      /memory changes conflict/,
+    );
+    writing.mock.restore();
+    assert.equal(f.coordinator.snapshot.conversation?.agent, 'b');
+    assert.equal(f.coordinator.snapshot.recovery?.kind, 'conflict');
+    assert.equal(f.b.inputs.length, 0);
+    const destinationId = f.b.sessions.at(-1)!.session.info.id;
+    await f.coordinator.recoverMemory('discard');
+    await f.coordinator.send('Continue after discard');
+    assert.equal(f.b.inputs.at(-1)!.session, destinationId);
+    const destinationPrompt = f.b.inputs.at(-1)!.prompt;
+    await f.coordinator.selectModel({ agent: 'a', id: 'a-model' });
+    assert.equal(f.a.inputs.at(-1)!.session, sourceId);
+    for (const prompt of [destinationPrompt, f.a.inputs.at(-1)!.prompt]) {
+      assertMemoryBaseline(prompt);
+      assert.match(prompt, /Global preference 17/);
+      assert.match(prompt, /Project preference 29/);
+      assert.doesNotMatch(prompt, /Rejected/);
+    }
+  } finally {
+    t.mock.restoreAll();
+    await f.coordinator.close();
+  }
+});
+
+for (const kind of ['pending', 'conflict'] as const) {
+  await test(`a failed ${kind} discard preserves memory delivery until retry`, async () => {
+    const f = await fixture();
+    const gate = new TurnGate();
+    try {
+      await publishOutside(f, {
+        'global/MEMORY.md': 'Global preference 17.',
+        [await f.note()]: 'Project preference 29.',
+      });
+      await f.coordinator.send('Initial task');
+      const id = f.coordinator.snapshot.conversation!.id;
+      f.a.failNext = kind === 'pending';
+      f.a.gate = gate;
+      const sending = f.coordinator.send('remember:mine');
+      await within(gate.entered, 3000, 'the writing turn');
+      if (kind === 'conflict')
+        await publishOutside(f, { [await f.notes()]: 'theirs' });
+      gate.open();
+      await sending;
+      assert.equal(f.coordinator.snapshot.recovery?.kind, kind);
+      const before = (await readRecord(f.root, id)).sessions;
+      f.hook.current = (command, run) => {
+        if (command[0] === 'reset') throw new Error('Discard reset failed');
+        return run();
+      };
+      await assert.rejects(
+        f.coordinator.recoverMemory('discard'),
+        /Discard reset failed/,
+      );
+      assert.equal(f.coordinator.snapshot.recovery?.kind, kind);
+      assert.deepEqual((await readRecord(f.root, id)).sessions, before);
+      f.hook.current = passThrough;
+      await f.coordinator.recoverMemory('discard');
+      await f.coordinator.send('Continue after retry');
+      const prompt = f.a.inputs.at(-1)!.prompt;
+      assertMemoryBaseline(prompt);
+      assert.match(prompt, /Global preference 17/);
+      assert.match(prompt, /Project preference 29/);
+    } finally {
+      f.hook.current = passThrough;
+      gate.open();
+      await f.coordinator.close();
+    }
+  });
+}
 
 await test('the launch sweep publishes what it can and reports the rest in one message', async () => {
   const context = await fixture();
