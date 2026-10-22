@@ -526,6 +526,52 @@ await test('a git or OS that fails reading a checkout or its origin fails the pr
   }
 });
 
+for (const [note, neighbor] of [
+  ['global/a[b].md', 'global/ab.md'],
+  ['global/a*.md', 'global/ax.md'],
+  ['global/a?.md', 'global/ax.md'],
+] as const)
+  await test(`note history matches ${note} literally and restores its selected revisions`, async () => {
+    const { memory, open } = await fixture();
+    const { workspace } = await open('a');
+    await save(workspace, { [neighbor]: 'Neighbor first.\n' });
+    await save(workspace, { [note]: 'First note.\n' });
+    const first = await workspace.revision();
+    await save(workspace, { [neighbor]: 'Neighbor middle.\n' });
+    await save(workspace, { [note]: 'Second note.\n' });
+    const second = await workspace.revision();
+    await save(workspace, { [neighbor]: 'Neighbor latest.\n' });
+    const head = await workspace.revision();
+    const history = await memory.history(head, note);
+    assert.deepEqual(
+      history.map(({ revision }) => revision),
+      [second, first],
+    );
+    assert.deepEqual(
+      (await memory.history(first, note)).map(({ revision }) => revision),
+      [first],
+    );
+    for (const [entry, expected] of [
+      [history[1]!, 'First note.\n'],
+      [history[0]!, 'Second note.\n'],
+    ] as const) {
+      await workspace.restore(note, entry.revision);
+      assert.equal(
+        await readFile(join(workspace.root, note), 'utf8'),
+        expected,
+      );
+      assert.equal(await git(workspace.root, 'show', `HEAD:${note}`), expected);
+      assert.equal(
+        await readFile(join(workspace.root, neighbor), 'utf8'),
+        'Neighbor latest.\n',
+      );
+      assert.equal(
+        await git(workspace.root, 'show', `HEAD:${neighbor}`),
+        'Neighbor latest.\n',
+      );
+    }
+  });
+
 await test('restore recreates a deleted directory, produces a new accepted revision, and deletion remains visible', async () => {
   const { memory, open, project } = await fixture();
   const { workspace, scope } = await open('a');
