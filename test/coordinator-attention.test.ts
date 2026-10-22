@@ -92,7 +92,11 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
           if (command[0] !== 'rev-parse' || command[1] !== '--git-path')
             return run();
           hook.current = passThrough;
-          return { stdout: '', stderr: 'preparation failed', code: 1 };
+          return {
+            stdout: Buffer.alloc(0),
+            stderr: 'preparation failed',
+            code: 1,
+          };
         };
       await coordinator.send('next turn');
       assert.equal(coordinator.snapshot.completedTurn, undefined);
@@ -202,7 +206,7 @@ await test('clearing a publication report without another turn does not replay c
     hook.current = async (command, run) => {
       if (command[0] !== 'update-ref') return run();
       hook.current = passThrough;
-      return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+      return { stdout: Buffer.alloc(0), stderr: 'cannot lock ref', code: 1 };
     };
     await coordinator.send('remember-port');
     await next();

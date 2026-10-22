@@ -657,7 +657,7 @@ await test('close rejects with a publish failure and still closes the session an
   hook.current = async (command, run) => {
     if (command[0] !== 'update-ref') return run();
     attempted = true;
-    return { stdout: '', stderr: 'cannot publish', code: 1 };
+    return { stdout: Buffer.alloc(0), stderr: 'cannot publish', code: 1 };
   };
   const recovering = coordinator.recoverMemory('accept');
   await assert.rejects(coordinator.close(), /cannot publish/);
@@ -755,7 +755,7 @@ await test('a git failure in settle shows its own message without a restart', as
       if (command.join(' ') !== 'rev-parse --git-path rebase-merge')
         return run();
       hook.current = passThrough;
-      return { stdout: '', stderr: 'git path failed', code: 128 };
+      return { stdout: Buffer.alloc(0), stderr: 'git path failed', code: 128 };
     };
     gate.open();
     await assert.rejects(sending);

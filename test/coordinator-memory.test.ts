@@ -659,7 +659,7 @@ await test('a publish failure in settle is reported and the phase goes idle', as
     hook.current = async (command, run) => {
       if (command[0] !== 'update-ref') return run();
       hook.current = passThrough;
-      return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+      return { stdout: Buffer.alloc(0), stderr: 'cannot lock ref', code: 1 };
     };
     await coordinator.send('remember-port');
     assert.equal(coordinator.snapshot.phase, 'idle');

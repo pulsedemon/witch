@@ -345,7 +345,7 @@ await test('a publish failure while settling the launch is added to its report',
     if (command[0] !== 'update-ref' || options.cwd !== own.memory.root)
       return run();
     hook.current = passThrough;
-    return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+    return { stdout: Buffer.alloc(0), stderr: 'cannot lock ref', code: 1 };
   };
   const coordinator = new Coordinator(store, memory, [
     { adapter: a, executable: 'a' },

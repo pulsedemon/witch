@@ -4,7 +4,8 @@ import { runGit } from '../memory/memory.js';
 
 const unreadable = new Set(['EACCES', 'EPERM', 'ENOENT', 'ENOTDIR']);
 
-const paths = (output: string) => output.split('\0').filter(Boolean);
+const paths = (output: Buffer) =>
+  output.toString('utf8').split('\0').filter(Boolean);
 
 /** paths relative to `cwd` for `@` completion: Git's tracked and untracked files, honoring ignores, or outside a work tree a walk that skips dot entries. */
 export async function listFiles(

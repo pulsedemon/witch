@@ -518,7 +518,7 @@ await test('a report after a queued turn stays on screen, and the prompts after 
     hook.current = async (command, run) => {
       if (command[0] !== 'update-ref') return run();
       hook.current = passThrough;
-      return { stdout: '', stderr: 'cannot lock ref', code: 1 };
+      return { stdout: Buffer.alloc(0), stderr: 'cannot lock ref', code: 1 };
     };
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');

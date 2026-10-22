@@ -25,7 +25,7 @@ export interface GitOptions {
 }
 
 export interface GitResult {
-  stdout: string;
+  stdout: Buffer;
   stderr: string;
   code: number;
 }
@@ -76,17 +76,19 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
       cwd,
       env: env ? { ...process.env, ...env } : process.env,
     });
-    let stdout = '';
+    const stdout: Buffer[] = [];
     let stderr = '';
-    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-      stdout += chunk;
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout.push(chunk);
     });
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderr += chunk;
     });
     child.stdin.on('error', () => {});
     child.on('error', reject);
-    child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
+    child.on('close', (code) =>
+      resolve({ stdout: Buffer.concat(stdout), stderr, code: code ?? 1 }),
+    );
     child.stdin.end(input);
   });
 
@@ -173,7 +175,7 @@ export class Memory {
     args: readonly string[],
     options: { env?: Record<string, string>; input?: string } = {},
   ): Promise<string> {
-    return (await this.run(cwd, args, options)).stdout;
+    return (await this.run(cwd, args, options)).stdout.toString('utf8');
   }
 
   /** builds the seeded bare repository beside its final path, so a second instance never sees it half made. */
@@ -256,7 +258,9 @@ export class Memory {
       });
       if (result.code === 128 && !absent.test(result.stderr))
         throw new Error(`${cwd}: ${result.stderr.trim()}`);
-      return result.code === 0 ? result.stdout.trim() : undefined;
+      return result.code === 0
+        ? result.stdout.toString('utf8').trim()
+        : undefined;
     };
     // git reads a `file://` origin as the path after its host, decoding every percent escape except `%00`
     const origin = (await read(['remote', 'get-url', 'origin']))?.replace(
@@ -393,7 +397,7 @@ export class Memory {
       });
   }
 
-  async read(revision: string, path: string): Promise<string> {
+  async readBytes(revision: string, path: string): Promise<Buffer> {
     const file = notePath(path);
     const entry = await this.git(this.root, [
       'ls-tree',
@@ -404,7 +408,11 @@ export class Memory {
     ]);
     if (!/^100(644|755) blob /.test(entry))
       throw new Error(`Memory notes must be regular files: ${file}`);
-    return this.git(this.root, ['show', `${revision}:${file}`]);
+    return (await this.run(this.root, ['show', `${revision}:${file}`])).stdout;
+  }
+
+  async read(revision: string, path: string): Promise<string> {
+    return (await this.readBytes(revision, path)).toString('utf8');
   }
 
   async catalog(
