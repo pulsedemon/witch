@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { JobWatch } from '../src/core/jobs.js';
 import { App } from '../src/ui/app.js';
+import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
 import {
   show,
   forgedLink,
@@ -14,7 +15,68 @@ import {
   openCommand,
   commands,
 } from './fixtures/ui.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
+
+await test('Escape during model refresh keeps chat usable', async () => {
+  const { coordinator, a, b } = await coordinatorFixture();
+  const entered = Promise.withResolvers<AbortSignal>();
+  const aborted = Promise.withResolvers<void>();
+  const discover = b.models.bind(b);
+  const session = a.sessions[0]!.session;
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    b.models = async (options) => {
+      entered.resolve(options.signal!);
+      options.signal!.addEventListener('abort', () => aborted.resolve(), {
+        once: true,
+      });
+      await aborted.promise;
+      options.signal!.throwIfAborted();
+      return b.catalog;
+    };
+    await delay(60);
+    ui.stdin.write('/model');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    const signal = await within(entered.promise, 2000, 'model discovery');
+    await until('refresh activity', () =>
+      ui.text().includes('ESC TO INTERRUPT'),
+    );
+    ui.stdin.write('\u001b');
+    await until(
+      'canceled refresh',
+      () =>
+        signal.aborted &&
+        coordinator.snapshot.phase === 'idle' &&
+        !ui.text().includes('ESC TO INTERRUPT'),
+    );
+    assert.equal(session.closed, false);
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.ok(!ui.text().includes('Models ·'), ui.text());
+    assert.ok(!ui.text().includes('This operation was aborted'), ui.text());
+    ui.stdin.write('after canceled refresh');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until(
+      'next reply',
+      () =>
+        coordinator.snapshot.phase === 'idle' &&
+        coordinator.snapshot.items.some(
+          (item) => item.kind === 'assistant' && item.text === 'Done.',
+        ),
+    );
+    assert.equal(a.sessions.length, 1);
+    assert.equal(a.inputs.length, 1);
+    assert.equal(a.inputs[0]!.session, session.info.id);
+    assert.match(a.inputs[0]!.prompt, /User request:\nafter canceled refresh$/);
+    b.models = discover;
+    await openCommand(ui, '/model', 'Models ·');
+  } finally {
+    ui.unmount();
+    aborted.resolve();
+    await coordinator.close();
+  }
+});
 
 for (const [choice, keys, effort, outcome] of [
   ['Keep current effort', ENTER, undefined, 'without an effort'],

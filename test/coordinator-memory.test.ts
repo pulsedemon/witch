@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { Coordinator, editorEnvironment } from '../src/core/coordinator.js';
+import { Coordinator } from '../src/core/coordinator.js';
+import { editorEnvironment } from '../src/core/editor.js';
 import { main } from '../src/memory/memory.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import {
