@@ -97,6 +97,8 @@ export interface UserRequest {
   questions?: Question[];
   /** the native question already returned; its answer continues through normal prompt delivery. */
   replyAsPrompt?: boolean;
+  /** the adapter resolves this request explicitly; settling a Witch turn keeps it. */
+  survivesTurn?: boolean;
   schema?: Record<string, unknown>;
   url?: string;
 }
