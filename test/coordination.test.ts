@@ -330,7 +330,7 @@ await test('a failed presence removal cannot register a later legacy lock owner'
   assert.equal((await b.claim('task:other')).kind, 'claimed');
 });
 
-for (const window of ['opening', 'closing'] as const) {
+for (const window of ['opening', 'closing', 'reconnecting'] as const) {
   await test(`a peer ${window} a conversation neither refuses a claim nor ends a selection wait`, async (t) => {
     const { start, store, registry } = await coordinationFixture(t);
     const a = await start(),
@@ -340,7 +340,7 @@ for (const window of ['opening', 'closing'] as const) {
     const id = b.coordinator.snapshot.conversation!.id;
     const gate = Promise.withResolvers<void>();
     let pending: Promise<void>;
-    if (window === 'opening') {
+    if (window !== 'closing') {
       const activate = b.coordination.activate.bind(b.coordination);
       t.mock.method(
         b.coordination,
@@ -350,7 +350,10 @@ for (const window of ['opening', 'closing'] as const) {
           return activate(...args);
         },
       );
-      pending = b.coordinator.newConversation();
+      pending =
+        window === 'opening'
+          ? b.coordinator.newConversation()
+          : b.coordinator.selectModel({ agent: 'b', id: 'b-model' });
     } else {
       const close = ConversationStore.prototype.close;
       t.mock.method(
@@ -365,12 +368,12 @@ for (const window of ['opening', 'closing'] as const) {
     }
     // the fixture's teardown would close B while it waits on the gate
     try {
-      // opening holds the new conversation, closing the original one
+      // opening holds a new conversation; closing and reconnecting keep the original
       const held = () => b.coordinator.snapshot.conversation!.id;
       await until('B holding a conversation without presence', async () => {
         const presences = await registry.presences();
         return (
-          (window === 'closing' || held() !== id) &&
+          (window !== 'opening' || held() !== id) &&
           presences.every((p) => p.id !== id && p.id !== held())
         );
       });

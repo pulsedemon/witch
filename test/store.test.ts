@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { constants } from 'node:fs';
+import { constants, promises as files } from 'node:fs';
 import {
   appendFile,
   access,
@@ -13,6 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { exclusiveLock } from '../src/persistence/lock.js';
@@ -112,6 +113,100 @@ await test('conversation locks carry a registration lock that a lost race releas
     new Map(),
   );
   await (await store.claim('current')).close();
+});
+
+await test("a legacy holder stays unregistered during a current owner's failed claim", async (t) => {
+  const store = await StateStore.open(await scratch('witch-legacy-race-'));
+  await (await store.create(conversation('older'))).close();
+  const path = join(store.root, 'conversations', 'older', 'lock');
+  const legacy = await open(
+    path,
+    constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
+  );
+  t.after(() => legacy.close());
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const opening = files.open;
+  t.mock.method(
+    files,
+    'open',
+    async (...args: Parameters<typeof files.open>) => {
+      if (args[0] === path) {
+        entered.resolve();
+        await release.promise;
+      }
+      return opening(...args);
+    },
+  );
+  syncBuiltinESMExports();
+  const claiming = assert.rejects(store.claim('older'), LockedElsewhere);
+  try {
+    await within(entered.promise, 5000, 'claim holding coordinated');
+    assert.deepEqual(
+      await store.openConversations(['older']),
+      new Map([['older', { coordinated: false }]]),
+    );
+  } finally {
+    release.resolve();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    await claiming;
+  }
+});
+
+await test('closing after a lock observation never turns a current owner into a legacy owner', async () => {
+  const root = await scratch('witch-close-probe-');
+  const store = await StateStore.open(root);
+  const held = await store.create(conversation('current'));
+  await writeFile(
+    join(root, 'PauseLock.pm'),
+    `package PauseLock;
+BEGIN {
+  *CORE::GLOBAL::fcntl = sub (*$$) {
+    my $result = CORE::fcntl($_[0], $_[1], $_[2]);
+    open(my $ready, '>', "$ENV{WITCH_LOCK_PROBE}/ready") or die $!;
+    close($ready) or die $!;
+    while (!-e "$ENV{WITCH_LOCK_PROBE}/continue") { select(undef, undef, undef, 0.001); }
+    return $result;
+  };
+}
+1;
+`,
+  );
+  const previous = {
+    PERL5LIB: process.env.PERL5LIB,
+    PERL5OPT: process.env.PERL5OPT,
+    WITCH_LOCK_PROBE: process.env.WITCH_LOCK_PROBE,
+  };
+  process.env.PERL5LIB = root;
+  process.env.PERL5OPT = '-MPauseLock';
+  process.env.WITCH_LOCK_PROBE = root;
+  const observing = store.openConversations(['current']);
+  try {
+    await until('lock observation', () =>
+      access(join(root, 'ready')).then(
+        () => true,
+        () => false,
+      ),
+    );
+    await held.close();
+    await writeFile(join(root, 'continue'), '');
+    assert.deepEqual(
+      await observing,
+      new Map([['current', { coordinated: true }]]),
+    );
+  } finally {
+    try {
+      await writeFile(join(root, 'continue'), '');
+      await observing;
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await held.close();
+    }
+  }
 });
 
 await test('a second claim of a conversation is refused while another conversation claims fine', async () => {
@@ -228,6 +323,38 @@ await test('a failed write fails every later write and the close', async () => {
     /EACCES/,
   );
   await assert.rejects(files.close(), /EACCES/);
+});
+
+await test('a failed history close still releases both ownership locks', async (t) => {
+  const store = await StateStore.open(await scratch('witch-history-close-'));
+  const held = await store.create(conversation('current'));
+  const failure = new Error('history close failed');
+  const opening = files.open;
+  t.mock.method(
+    files,
+    'open',
+    async (...args: Parameters<typeof files.open>) => {
+      const file = await opening(...args);
+      if (String(args[0]).endsWith('/history.jsonl')) {
+        const close = file.close.bind(file);
+        t.mock.method(file, 'close', async () => {
+          await close();
+          throw failure;
+        });
+      }
+      return file;
+    },
+  );
+  syncBuiltinESMExports();
+  try {
+    await held.append({ id: 'n', kind: 'notice', text: 'kept', cwd: '/p' });
+    await assert.rejects(held.close(), failure);
+    await (await store.claim('current')).close();
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    await held.close();
+  }
 });
 
 await test('a claim that cannot stop the recorded process still kills the recorded shell, and releases its lock', async () => {

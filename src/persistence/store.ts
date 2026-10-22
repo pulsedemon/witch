@@ -17,7 +17,7 @@ import type {
   DisplayUpdate,
 } from '../core/state.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
-import { exclusiveLock, lockedFiles } from './lock.js';
+import { exclusiveLock, lockedFiles, sharedLock } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
@@ -44,14 +44,14 @@ function historyPath(directory: string): string {
 
 export class LockedElsewhere extends Error {}
 
-async function tryLock(file: string): Promise<FileHandle> {
+async function tryLock(
+  file: string,
+  mode = exclusiveLock,
+): Promise<FileHandle> {
   try {
     return await open(
       file,
-      constants.O_RDWR |
-        constants.O_CREAT |
-        constants.O_NONBLOCK |
-        exclusiveLock,
+      constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK | mode,
       0o600,
     );
   } catch (error) {
@@ -64,12 +64,12 @@ async function tryLock(file: string): Promise<FileHandle> {
   }
 }
 
-/** `coordinated` is taken first and released last, so discovery never sees a current Witch's lock without it. */
+/** current Witches serialize on `coordinated`; the shared conversation lock excludes legacy owners and identifies current ones. */
 async function hold(directory: string): Promise<() => Promise<void>> {
   const coordinated = await tryLock(join(directory, 'coordinated'));
   let lock: FileHandle;
   try {
-    lock = await tryLock(join(directory, 'lock'));
+    lock = await tryLock(join(directory, 'lock'), sharedLock);
   } catch (error) {
     await coordinated.close();
     throw error;
@@ -220,19 +220,16 @@ export class StateStore {
     return (await this.openConversations([id])).has(id);
   }
 
-  /** reads each `lock` just before its `coordinated`, so a current Witch is misread only if it fully closes in between. */
   async openConversations(
     ids: readonly string[],
   ): Promise<Map<string, { coordinated: boolean }>> {
-    const paths = ids.map((id) => {
-      const directory = this.directory(id);
-      return [join(directory, 'lock'), join(directory, 'coordinated')] as const;
-    });
-    const locked = await lockedFiles(paths.flat());
+    const paths = ids.map((id) => join(this.directory(id), 'lock'));
+    const locked = await lockedFiles(paths);
     const open = new Map<string, { coordinated: boolean }>();
-    for (const [index, [lock, coordinated]] of paths.entries())
-      if (locked.has(lock))
-        open.set(ids[index]!, { coordinated: locked.has(coordinated) });
+    for (const [index, path] of paths.entries()) {
+      const mode = locked.get(path);
+      if (mode) open.set(ids[index]!, { coordinated: mode === 'shared' });
+    }
     return open;
   }
 
