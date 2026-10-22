@@ -337,7 +337,10 @@ await test('a move that keeps losing to other clones gives up on main, so it nev
   const publish = workspace.publish.bind(workspace);
   let publishes = 0;
   // the leftover publish goes through, and every move after it loses
-  workspace.publish = async () => (publishes++ ? 'conflict' : publish());
+  workspace.publish = async () =>
+    publishes++
+      ? { paths: [`${key}/x.md`], diff: `+X. in ${key}/x.md` }
+      : publish();
   await assert.rejects(workspace.begin(copy), /kept losing/);
   assert.equal(
     (await git(workspace.root, 'rev-parse', 'HEAD')).trim(),
