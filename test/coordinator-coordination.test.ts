@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { once } from 'node:events';
+import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -14,10 +16,204 @@ import {
   LockedElsewhere,
 } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
+import { frameWriter } from './fixtures/claude-adapter.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+
+for (const name of ['claude', 'codex'] as const) {
+  await test(
+    name === 'claude'
+      ? 'Claude exit stops native activity and permits task release'
+      : 'Codex exit after its reply stops its familiar and permits task release',
+    async (t) => {
+      const { root, start, registry } = await coordinationFixture(t);
+      const cwd = join(root, 'A');
+      const executable = fileURLToPath(
+        new URL(`fixtures/${name}.mjs`, import.meta.url),
+      );
+      let child: ChildProcessWithoutNullStreams | undefined;
+      const launch = (signal?: AbortSignal) => {
+        child = spawn(
+          process.execPath,
+          [executable, name === 'claude' ? 'background' : 'brews'],
+          { cwd, stdio: 'pipe', signal },
+        );
+        return child;
+      };
+      const adapter =
+        name === 'claude'
+          ? new ClaudeAdapter((options) => launch(options.signal))
+          : new CodexAdapter((_, __, signal) => launch(signal));
+      const { coordinator, claim } = await start('A', {}, [
+        { adapter, executable },
+      ]);
+      let turn: Promise<void> | undefined;
+      try {
+        assert.equal((await claim('task:native-exit')).kind, 'claimed');
+        turn = coordinator.send('initial');
+        if (name === 'claude') {
+          await until(
+            'initial Claude reply',
+            () => coordinator.snapshot.usage.cost === 0.25,
+          );
+          const emit = frameWriter(
+            cwd,
+            (name) => coordinator.snapshot.skills[0]?.name === name,
+            child!,
+          );
+          await emit(
+            {
+              type: 'system',
+              subtype: 'task_started',
+              task_id: 'helper',
+              task_type: 'local_agent',
+              description: 'Exit helper',
+            },
+            {
+              type: 'system',
+              subtype: 'background_tasks_changed',
+              tasks: [
+                {
+                  task_id: 'helper',
+                  task_type: 'local_agent',
+                  description: 'Exit helper',
+                },
+                {
+                  task_id: 'brew',
+                  task_type: 'local_bash',
+                  description: 'Exit brew',
+                },
+              ],
+            },
+          );
+          assert.equal(coordinator.snapshot.backgroundCommands.length, 1);
+        } else {
+          await until('Codex turn', () =>
+            access(join(cwd, 'turn-1.json')).then(
+              () => true,
+              () => false,
+            ),
+          );
+          await writeFile(
+            join(cwd, 'events.next'),
+            JSON.stringify([
+              {
+                method: 'turn/started',
+                params: {
+                  threadId: 'child-thread',
+                  turn: { id: 'child-turn', status: 'inProgress' },
+                },
+              },
+              {
+                method: 'turn/completed',
+                params: {
+                  threadId: 'native-thread',
+                  turn: { id: 'turn-1', status: 'completed', error: null },
+                },
+              },
+            ]),
+          );
+          await rename(join(cwd, 'events.next'), join(cwd, 'events-1.json'));
+          await within(turn, 5000, 'Codex main reply');
+        }
+        await until('running familiar', () =>
+          coordinator.snapshot.subagents.some(
+            ({ status }) => status === 'running',
+          ),
+        );
+        assert.equal(coordinator.pentacle.active, true);
+        const closed = once(child!, 'close');
+        assert.equal(child!.kill('SIGKILL'), true);
+        await within(closed, 3000, 'fixture exit');
+        await within(turn, 5000, 'settled Witch turn');
+        assert.equal(coordinator.snapshot.phase, 'idle');
+        assert.equal(coordinator.snapshot.recovery, undefined);
+        assert.deepEqual(
+          coordinator.snapshot.subagents.map(({ status }) => status),
+          ['stopped'],
+        );
+        assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
+        assert.equal(coordinator.pentacle.active, false);
+        assert.equal(
+          coordinator.snapshot.items.filter(({ title }) =>
+            title?.startsWith('Familiar stopped'),
+          ).length,
+          1,
+        );
+        assert.equal(
+          coordinator.snapshot.items.filter(({ title }) =>
+            title?.startsWith('Brew stopped'),
+          ).length,
+          name === 'claude' ? 1 : 0,
+        );
+        assert.equal((await registry.claims()).length, 1);
+        await coordinator.releaseTask();
+        assert.deepEqual(await registry.claims(), []);
+      } finally {
+        if (child?.exitCode === null && child.signalCode === null)
+          child.kill('SIGKILL');
+        await coordinator.close();
+        await Promise.allSettled([turn]);
+        assert.ok(child);
+        assert.ok(child.exitCode !== null || child.signalCode !== null);
+      }
+    },
+  );
+}
+
+await test('native closure preserves finished work and ends running activity once', async (t) => {
+  const { start } = await coordinationFixture(t);
+  const { coordinator, a } = await start();
+  const native = a.sessions[0]!;
+  for (const [id, status, tools, report] of [
+    ['running', 'running', 2, 'Halfway.'],
+    ['finished', 'running', 0, ''],
+    ['finished', 'completed', 3, 'Done.'],
+  ] as const)
+    native.options.onEvent({
+      type: 'subagent',
+      subagent: { id, name: id, kind: 'Explore', status, tools, report },
+    });
+  native.options.onEvent({
+    type: 'command',
+    command: { id: 'brew', description: 'Fixture brew', status: 'running' },
+  });
+  await native.session.close();
+  native.options.onEvent({ type: 'closed' });
+  assert.deepEqual(
+    coordinator.snapshot.subagents.map(({ id, status, tools, report }) => [
+      id,
+      status,
+      tools,
+      report,
+    ]),
+    [
+      ['running', 'stopped', 2, 'Halfway.'],
+      ['finished', 'completed', 3, 'Done.'],
+    ],
+  );
+  assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
+  const endings = () =>
+    coordinator.snapshot.items
+      .filter(
+        ({ title }) =>
+          title?.startsWith('Familiar stopped') ||
+          title?.startsWith('Brew stopped'),
+      )
+      .map(({ title, text }) => [title, text]);
+  const expected = [
+    ['Familiar stopped  running  2 tools', 'Halfway.'],
+    ['Brew stopped  Fixture brew', ''],
+  ];
+  assert.deepEqual(endings(), expected);
+  native.options.onEvent({ type: 'closed' });
+  assert.deepEqual(endings(), expected);
+  await coordinator.send('reconnect');
+  assert.equal(a.sessions.length, 2);
+  assert.deepEqual(endings(), expected);
+});
 
 await test('coordination context stays before the exact user request and raw steered spells', async (t) => {
   const { root, start } = await coordinationFixture(t);

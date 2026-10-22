@@ -500,9 +500,11 @@ await test('an interrupt that leaves steered prompts queued closes the session a
 await test('a CLI that exits mid-turn ends the turn only once its stderr is complete, and posts no notice', async () => {
   const { seen, onEvent } = working();
   const notices: AgentEvent[] = [];
+  let closures = 0;
   const { session, child } = await fixture((event) => {
     onEvent(event);
     if (event.type === 'notice') notices.push(event);
+    if (event.type === 'closed') closures++;
   });
   try {
     const exited = once(child, 'exit');
@@ -526,9 +528,11 @@ await test('a CLI that exits mid-turn ends the turn only once its stderr is comp
     assert.match(result.error ?? '', /fixture stderr text/);
     assert.match(result.error ?? '', /grandchild line/);
     assert.deepEqual(notices, []);
+    await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
   }
+  assert.equal(closures, 1);
 });
 
 await test('an interrupt after the CLI died resolves and the turn ends', async () => {
@@ -563,7 +567,10 @@ for (const [prompt, expected] of [
   });
 
 await test('a CLI that exits cleanly before idle fails the turn with its stderr', async () => {
-  const { session } = await fixture();
+  let closures = 0;
+  const { session } = await fixture((event) => {
+    if (event.type === 'closed') closures++;
+  });
   try {
     const result = await within(
       session.send('quit early'),
@@ -573,15 +580,19 @@ await test('a CLI that exits cleanly before idle fails the turn with its stderr'
     assert.equal(result.status, 'failed');
     assert.match(result.error ?? '', /exited before reporting idle/);
     assert.match(result.error ?? '', /quitting early/);
+    await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
   }
+  assert.equal(closures, 1);
 });
 
 await test('a CLI that dies while idle posts its stderr as a notice', async () => {
   const notice = Promise.withResolvers<string>();
+  let closures = 0;
   const { session } = await fixture((event) => {
     if (event.type === 'notice') notice.resolve(event.text);
+    if (event.type === 'closed') closures++;
   }, 'exit-when-idle');
   try {
     assert.equal((await session.send('hello')).status, 'completed');
@@ -589,9 +600,30 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
       await within(notice.promise, 2000, 'exit notice'),
       /grandchild line/,
     );
+    await until('closure notification', () => closures === 1);
   } finally {
     await session.close();
   }
+  assert.equal(closures, 1);
+});
+
+await test('a clean idle EOF reports closure once', async () => {
+  let closures = 0;
+  const { session, child } = await fixture((event) => {
+    if (event.type === 'closed') closures++;
+  });
+  try {
+    assert.equal((await session.send('hello')).status, 'completed');
+    const closed = once(child, 'close');
+    child.stdin.end();
+    await within(closed, 2000, 'clean idle exit');
+    await until('closure notification', () => closures === 1);
+    assert.equal(child.exitCode, 0);
+    assert.equal(session.closed, true);
+  } finally {
+    await session.close();
+  }
+  assert.equal(closures, 1);
 });
 
 await test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
