@@ -131,7 +131,10 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     recoverMemory: record('recoverMemory'),
     newConversation: record('newConversation'),
     selectConversation: record('selectConversation'),
-    refreshModels: record('refreshModels'),
+    refreshModels: async () => {
+      calls.push(['refreshModels']);
+      return true;
+    },
     selectModel: record('selectModel'),
     report: (error: unknown) => calls.push(['report', String(error)]),
     conversations: async () => [

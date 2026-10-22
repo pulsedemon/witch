@@ -554,7 +554,8 @@ export function App({
           run(selectModel(id!, effort));
         } else
           run(
-            coordinator.refreshModels().then(() =>
+            coordinator.refreshModels().then((refreshed) => {
+              if (!refreshed) return;
               picker(
                 'Models · type an ID or choose one',
                 coordinator.snapshot.models.map((model) => ({
@@ -564,8 +565,8 @@ export function App({
                 })),
                 (id) => run(selectModel(id, undefined, true)),
                 true,
-              ),
-            ),
+              );
+            }),
           );
         break;
       case 'compact':

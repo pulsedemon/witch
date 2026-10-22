@@ -1087,7 +1087,7 @@ await test('a replied turn opens the model list from its connect without refresh
     a.replied = true;
     const { models } = coordinator.snapshot;
     a.failModels = true;
-    await coordinator.refreshModels();
+    assert.equal(await coordinator.refreshModels(), true);
     assert.equal(coordinator.snapshot.models, models);
     assert.equal(a.failModels, true);
     gate.open();
