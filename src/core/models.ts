@@ -43,8 +43,10 @@ export function modelTarget(
   return { agent, id };
 }
 
+/** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again. */
 export class ModelCatalog {
   private discovery?: AbortController;
+  private readonly lists = new Map<string, Model[]>();
 
   constructor(
     private readonly registrations: readonly AgentRegistration[],
@@ -62,14 +64,19 @@ export class ModelCatalog {
     try {
       const results = await Promise.allSettled(
         installed.map(async ({ adapter, executable }) => {
-          const models =
-            active?.info.agent === adapter.id
-              ? await active.models(refresh)
-              : await adapter.models({
-                  cwd,
-                  executable: executable!,
-                  signal: discovery.signal,
-                });
+          let models: Model[] | undefined;
+          if (active?.info.agent === adapter.id)
+            models = await active.models(refresh);
+          else {
+            const key = `${adapter.id}:${cwd}`;
+            if (!refresh) models = this.lists.get(key);
+            models ??= await adapter.models({
+              cwd,
+              executable: executable!,
+              signal: discovery.signal,
+            });
+            this.lists.set(key, models);
+          }
           return models.map((model) => ({ ...model, agent: adapter.id }));
         }),
       );

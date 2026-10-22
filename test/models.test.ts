@@ -6,7 +6,7 @@ import { FixtureAgent } from './fixtures/agent.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
-await test('catalogs preserve runtime order and identity without connecting inactive agents', async () => {
+await test('catalogs preserve runtime order and identity, and reuse inactive lists until a refresh, without connecting inactive agents', async () => {
   const [a, b, missing] = ['a', 'b', 'missing'].map(
     (id) => new FixtureAgent(id),
   );
@@ -45,16 +45,22 @@ await test('catalogs preserve runtime order and identity without connecting inac
     assert.equal(b!.sessions.length, 0);
     assert.deepEqual(missing!.discoveries, []);
     assert.equal(active.closed, false);
-    b!.failDiscovery = true;
     assert.deepEqual((await catalog.read(cwd, active)).map(modelKey), [
+      'a:same',
+      'b:same',
+    ]);
+    assert.equal(b!.discoveries.length, 1);
+    b!.failDiscovery = true;
+    assert.deepEqual((await catalog.read(cwd, active, true)).map(modelKey), [
       'a:same',
     ]);
     assert.match(String(errors[0]), /b: Discovery failed/);
-    b!.failDiscovery = false;
     assert.deepEqual((await catalog.read(cwd)).map(modelKey), [
       'a:same',
       'b:same',
     ]);
+    assert.equal(a!.discoveries.length, 1);
+    assert.equal(b!.discoveries.length, 2);
     assert.equal(a!.sessions.length, 1);
     assert.equal(b!.sessions.length, 0);
   } finally {
