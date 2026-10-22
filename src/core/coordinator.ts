@@ -39,7 +39,7 @@ import {
 } from './prompts.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
-import { cleanUpMerge, refreshInstall, topLevel } from './merged.js';
+import { cleanUpMerge, peerTurnIn, refreshInstall } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import type { ModelChoice, ModelSelection } from './models.js';
@@ -739,21 +739,9 @@ export class Coordinator {
     await this.operate('cleaning', async () => {
       const { id, cwd } = this.current();
       // the phase covers only this Witch, and another one's agent would carry on on the base
-      const { records, unreadable } = await this.store.records();
-      // one it can't read could be such a turn. the launch's sweep names it
-      if (unreadable.length) return;
-      const top = await topLevel(cwd);
-      for (const record of records)
-        if (
-          record.id !== id &&
-          (record.cwd === top || record.cwd.startsWith(`${top}/`)) &&
-          record.activity &&
-          record.process &&
-          (await identifyProcess(record.process.pid))?.started ===
-            record.process.started
-        )
-          return;
-      const outcome = await cleanUpMerge(cwd, pullRequest);
+      const outcome = await cleanUpMerge(cwd, pullRequest, () =>
+        peerTurnIn(this.store, id, cwd),
+      );
       if (!outcome) return;
       acted = true;
       // first, so a failed rebuild doesn't lose it
