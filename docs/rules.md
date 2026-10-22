@@ -64,6 +64,8 @@ Each turn begins with clean memory and durable base-revision and agent metadata.
 
 Before every turn, compare the accepted revision and project with those last delivered to the session, and reconnect a session granted another project's memory. Supply current essentials and changes/deletions, explicitly superseding old content. Search deeper notes as files. Memory UI supports search, history, VS Code editing while paused and restoration through a new commit. No vector store.
 
+Snapshot delivery and memory-writing guidance belong to `Memory.snapshot` in [memory.ts](../src/memory/memory.ts) and `nativePrompt` in [prompts.ts](../src/core/prompts.ts).
+
 ## Handoffs and recovery
 
 Stop or finish the source and resolve memory; generate and save its handoff; initialize the destination; atomically activate it; submit current context and continuation. Before activation, failure retains the source. After activation, failure leaves the destination resumable. Return-to-agent resumes its prior native session. Keep both sessions and never replay automatically.

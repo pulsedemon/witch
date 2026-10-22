@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Skill, SkillCall } from '../agents/types.js';
-import { indexNote } from '../memory/memory.js';
+import { indexByteLimit, indexNote } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';
@@ -73,7 +73,7 @@ export async function nativePrompt({
   return [
     'You are running inside Witch. Follow your native and project instructions.',
     `Shared memory directories: ${join(root, scope.global)} and ${join(root, scope.project)}.`,
-    `Save durable, verified preferences and decisions with ordinary file tools before finishing useful work. Put user-wide preferences in global memory and project facts in project memory. Keep essentials and a reference index in ${indexNote}. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
+    `Save only new lasting preferences, decisions and verified reusable facts with ordinary file tools before finishing useful work. When nothing durable changed, write nothing. Put user-wide preferences in global memory and project facts in project memory. Keep each ${indexNote} within ${indexByteLimit} UTF-8 bytes as current essentials and short reference links. Put technical detail in topic notes and label historical records. Update existing facts instead of adding status paragraphs. Keep planning, test, commit, publication and review progress out of the indexes. Keep task state in its plan or ledger and current repository state in Git/GitHub. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
     `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart and only considers it for cleanup after a later macOS boot.`,
     ...(snapshot ? [snapshot] : []),
     ...(pendingHandoff?.summary
