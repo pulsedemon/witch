@@ -10,7 +10,7 @@ import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { ENTER } from './fixtures/ui.js';
 
-await test('the status line shows the stored model until the session reports one, and the phase row its permission mode', async () => {
+await test('the status line shows the stored model and its label until the session reports one, and the phase row its permission mode', async () => {
   const { app, coordinator } = fake({
     conversation: {
       id: 'c',
@@ -25,6 +25,13 @@ await test('the status line shows the stored model until the session reports one
   const row = (index: number) => ui.text().split('\n')[index] ?? '';
   try {
     await until('the stored model', () => /^ STORED-MODEL \|/m.test(ui.text()));
+    coordinator.publish({
+      models: [
+        { agent: 'b', id: 'stored-model', label: 'Wrong runtime', efforts: [] },
+        { agent: 'a', id: 'stored-model', label: 'Stored label', efforts: [] },
+      ],
+    });
+    await until('the stored label', () => /^ STORED LABEL \|/m.test(ui.text()));
     coordinator.publish({
       native: {
         id: 's',
@@ -442,7 +449,10 @@ await test("the status line shows the model's label, the effort the agent runs, 
       hasHistory: true,
       nativeEffort: 'medium',
     },
-    models: [{ id: 'gpt-x-2026', label: 'GPT-X', efforts: [] }],
+    models: [
+      { agent: 'b', id: 'gpt-x-2026', label: 'Wrong runtime', efforts: [] },
+      { agent: 'a', id: 'gpt-x-2026', label: 'GPT-X', efforts: [] },
+    ],
     usage: {
       cost: 0.5,
       context: 30,

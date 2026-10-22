@@ -190,7 +190,7 @@ const finish = () => {
 };
 for await (const line of lines) {
   const message = JSON.parse(line);
-  if (mode === 'background')
+  if (mode === 'background' || mode === 'catalog')
     appendFileSync(join(process.cwd(), 'wire.jsonl'), `${line}\n`);
   if (mode === 'pending-model' && message.type === 'user')
     message.message.content = message.message.content

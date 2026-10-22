@@ -329,7 +329,7 @@ await test('the wheel scrolls a page and a request by rows', async () => {
     ui.stdin.write(wheelDown.repeat(2));
     await until(
       'two rows down',
-      () => !ui.text().includes('/sessions') && ui.text().includes('/agent'),
+      () => !ui.text().includes('/sessions') && ui.text().includes('/model'),
     );
     ui.stdin.write(wheelUp);
     await until('a row up', () => ui.text().includes('/sessions'));
@@ -1068,7 +1068,7 @@ await test('a click and a wheel step between keys leave the draft as typed', asy
   }
 });
 
-await test('a typed /agent returns to live output', async () => {
+await test('a typed cross-runtime /model returns to live output', async () => {
   const { app, calls } = fake({
     items: [long],
   });
@@ -1079,12 +1079,14 @@ await test('a typed /agent returns to live output', async () => {
     await until('earlier output', () =>
       ui.text().includes('READING EARLIER OUTPUT'),
     );
-    ui.stdin.write('/agent b');
+    ui.stdin.write('/model b:m');
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the switch', () => calls.length > 0);
     await until('live output', () => !ui.text().includes('READING EARLIER'));
-    assert.deepEqual(calls, [['switchAgent', 'b']]);
+    assert.deepEqual(calls, [
+      ['selectModel', { agent: 'b', id: 'm', effort: undefined }],
+    ]);
   } finally {
     ui.unmount();
   }

@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import type {
   AgentAdapter,
   AgentSession,
+  Model,
+  ModelDiscoveryOptions,
   SessionInfo,
   SessionOptions,
   Skill,
@@ -66,6 +68,9 @@ export class FixtureAgent implements AgentAdapter {
   failConnect = false;
   /** the next `models()` rejects, as a failed Codex `model/list` does. */
   failModels = false;
+  failDiscovery = false;
+  readonly discoveries: ModelDiscoveryOptions[] = [];
+  readonly catalog: Model[];
   /** an effort connect and selectModel reject, as Claude Code rejects one outside its levels. */
   invalidEffort?: string;
   failClose = false;
@@ -87,6 +92,17 @@ export class FixtureAgent implements AgentAdapter {
 
   constructor(readonly id: string) {
     this.label = id;
+    this.catalog = [
+      { id: `${id}-model`, label: `${id}-model`, efforts: [] },
+      { id: `${id}-big`, label: `${id}-big`, efforts: ['high'] },
+    ];
+  }
+
+  async models(options: ModelDiscoveryOptions): Promise<Model[]> {
+    this.discoveries.push(options);
+    options.signal?.throwIfAborted();
+    if (this.failDiscovery) throw new Error('Discovery failed');
+    return this.catalog;
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {
@@ -97,7 +113,7 @@ export class FixtureAgent implements AgentAdapter {
     let info: SessionInfo = {
       id: options.resume ?? randomUUID(),
       agent: this.id,
-      model: `${this.id}-model`,
+      model: options.model ?? `${this.id}-model`,
       permissionMode: 'default',
       hasHistory: true,
       effort: options.effort,
@@ -168,18 +184,7 @@ export class FixtureAgent implements AgentAdapter {
           usage = this.modelsUsage;
           options.onEvent({ type: 'usage', usage });
         }
-        return [
-          {
-            id: `${this.id}-model`,
-            label: `${this.id}-model`,
-            efforts: [],
-          },
-          {
-            id: `${this.id}-big`,
-            label: `${this.id}-big`,
-            efforts: ['high'],
-          },
-        ];
+        return this.catalog;
       },
       selectModel: async (model, effort) => {
         if (effort && effort === this.invalidEffort)

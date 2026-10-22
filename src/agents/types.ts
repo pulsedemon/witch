@@ -236,9 +236,16 @@ export interface SessionOptions {
   mark?: CommandMark;
 }
 
+export type ModelDiscoveryOptions = Pick<
+  SessionOptions,
+  'cwd' | 'executable' | 'signal'
+>;
+
 export interface AgentAdapter {
   id: string;
   label: string;
+  /** discovers the native catalog without a conversation; joins child shutdown before settling. */
+  models(options: ModelDiscoveryOptions): Promise<Model[]>;
   /** cancellation rejects with an `Error` named `AbortError`. */
   connect(options: SessionOptions): Promise<AgentSession>;
 }

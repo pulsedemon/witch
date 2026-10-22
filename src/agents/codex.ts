@@ -13,6 +13,7 @@ import type {
   FileDiff,
   Hunk,
   Model,
+  ModelDiscoveryOptions,
   SessionInfo,
   SessionOptions,
   Skill,
@@ -233,11 +234,52 @@ type Launch = (
 const launch: Launch = (executable, cwd, signal) =>
   spawn(executable, ['app-server', '--stdio'], { cwd, stdio: 'pipe', signal });
 
+async function initializeRpc(rpc: JsonRpc): Promise<void> {
+  await rpc.request('initialize', {
+    clientInfo: { name: 'witch', title: 'Witch', version: '0.1.0' },
+    capabilities: { experimentalApi: true },
+  });
+  rpc.notify('initialized');
+}
+
+async function readModels(rpc: JsonRpc): Promise<Model[]> {
+  const models: Model[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = modelPage.parse(
+      await rpc.request('model/list', { cursor, limit: 100 }),
+    );
+    models.push(
+      ...page.data.map((model) => ({
+        id: model.id,
+        label: model.displayName,
+        efforts: model.supportedReasoningEfforts.map(
+          (effort) => effort.reasoningEffort,
+        ),
+      })),
+    );
+    cursor = page.nextCursor;
+  } while (cursor);
+  return models;
+}
+
 export class CodexAdapter implements AgentAdapter {
   readonly id = 'codex';
   readonly label = 'Codex';
 
   constructor(private readonly start: Launch = launch) {}
+
+  async models(options: ModelDiscoveryOptions): Promise<Model[]> {
+    const rpc = new JsonRpc(
+      this.start(options.executable, options.cwd, options.signal),
+    );
+    try {
+      await initializeRpc(rpc);
+      return await readModels(rpc);
+    } finally {
+      await rpc.close();
+    }
+  }
 
   async connect(options: SessionOptions): Promise<AgentSession> {
     const child = this.start(options.executable, options.cwd, options.signal);
@@ -336,15 +378,7 @@ class CodexSession implements AgentSession {
   }
 
   async initialize(): Promise<void> {
-    await this.rpc.request('initialize', {
-      clientInfo: {
-        name: 'witch',
-        title: 'Witch',
-        version: '0.1.0',
-      },
-      capabilities: { experimentalApi: true },
-    });
-    this.rpc.notify('initialized');
+    await initializeRpc(this.rpc);
     const parameters = {
       cwd: this.options.cwd,
       model: this.options.model,
@@ -371,25 +405,8 @@ class CodexSession implements AgentSession {
     void this.readCost();
   }
 
-  async models(): Promise<Model[]> {
-    const models: Model[] = [];
-    let cursor: string | null = null;
-    do {
-      const page = modelPage.parse(
-        await this.rpc.request('model/list', { cursor, limit: 100 }),
-      );
-      models.push(
-        ...page.data.map((model) => ({
-          id: model.id,
-          label: model.displayName,
-          efforts: model.supportedReasoningEfforts.map(
-            (effort) => effort.reasoningEffort,
-          ),
-        })),
-      );
-      cursor = page.nextCursor;
-    } while (cursor);
-    return models;
+  models(): Promise<Model[]> {
+    return readModels(this.rpc);
   }
 
   /** enabled skills, first per name, as the TUI offers them. */

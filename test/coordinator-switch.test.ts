@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { main } from '../src/memory/memory.js';
+import type { SessionInfo } from '../src/agents/types.js';
+import type { ConversationRecord } from '../src/core/state.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { record, readRecord, fixture } from './fixtures/coordinator.js';
@@ -16,9 +18,9 @@ await test('handoff returns to the original native session with updated context,
   try {
     await coordinator.send(' Start the migration\n');
     const original = a.inputs[0]!.session;
-    await coordinator.switchAgent('b');
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
     assert.match(b.inputs[0]!.prompt, /a: finish the migration/);
-    await coordinator.switchAgent('a');
+    await coordinator.selectModel({ agent: 'a', id: 'a-model' });
     assert.equal(a.inputs.at(-1)!.session, original);
     assert.match(a.inputs.at(-1)!.prompt, /b: finish the migration/);
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
@@ -27,8 +29,11 @@ await test('handoff returns to the original native session with updated context,
       'Start the migration',
     );
     const sent = a.inputs.length;
-    await coordinator.switchAgent('a');
-    await assert.rejects(coordinator.switchAgent('c'), /c is not installed/);
+    await coordinator.selectModel({ agent: 'a', id: 'a-model' });
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'c', id: 'c-model' }),
+      /c is not installed/,
+    );
     assert.equal(a.inputs.length, sent);
   } finally {
     await coordinator.close();
@@ -41,7 +46,7 @@ await test('destination startup failure retains the source conversation and sess
     await coordinator.send('Start');
     b.failConnect = true;
     await assert.rejects(
-      coordinator.switchAgent('b'),
+      coordinator.selectModel({ agent: 'b', id: 'b-model' }),
       /Destination unavailable/,
     );
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
@@ -50,6 +55,261 @@ await test('destination startup failure retains the source conversation and sess
     await coordinator.send('Continue the original task');
     assert.equal(a.inputs.at(-1)?.session, a.inputs[0]?.session);
   } finally {
+    await coordinator.close();
+  }
+});
+
+for (const resumed of [false, true])
+  for (const effort of ['high', undefined])
+    await test(`${resumed ? 'resumed' : 'first'} handoff dispatch uses the selected model and ${effort ?? 'destination'} effort`, async () => {
+      const { coordinator, a, b, root } = await fixture();
+      const dispatched: SessionInfo[] = [];
+      try {
+        if (resumed) {
+          await coordinator.selectModel({
+            agent: 'b',
+            id: 'b-old',
+            effort: 'low',
+          });
+          await coordinator.selectModel({
+            agent: 'a',
+            id: 'a-big',
+            effort: 'high',
+          });
+        } else
+          await coordinator.selectModel({
+            agent: 'a',
+            id: 'a-big',
+            effort: 'high',
+          });
+        const previous = coordinator.snapshot.conversation!.sessions.b?.id;
+        await coordinator.send('Start');
+        const source = coordinator.snapshot.native!.id;
+        const id = coordinator.snapshot.conversation!.id;
+        const connect = b.connect.bind(b);
+        b.connect = async (options) => {
+          const session = await connect(options);
+          const send = session.send;
+          session.send = async (...args) => {
+            dispatched.push({ ...session.info });
+            return send(...args);
+          };
+          return session;
+        };
+        await coordinator.selectModel({ agent: 'b', id: 'b-big', effort });
+        const expectedEffort = effort ?? (resumed ? 'low' : undefined);
+        assert.equal(dispatched.length, 1);
+        assert.equal(dispatched[0]!.model, 'b-big');
+        assert.equal(dispatched[0]!.effort, expectedEffort);
+        assert.equal(b.sessions.at(-1)!.options.model, 'b-big');
+        assert.equal(b.sessions.at(-1)!.options.effort, expectedEffort);
+        if (resumed) assert.equal(dispatched[0]!.id, previous);
+        const saved = await readRecord(root, id);
+        assert.equal(saved.id, id);
+        assert.equal(saved.sessions.b!.requestedModel, 'b-big');
+        assert.equal(saved.sessions.b!.effort, expectedEffort);
+        assert.match(b.inputs.at(-1)!.prompt, /a: finish the migration/);
+        await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+        assert.equal(a.inputs.at(-1)!.session, source);
+      } finally {
+        await coordinator.close();
+      }
+    });
+
+for (const prior of [false, true])
+  for (const cancel of [false, true])
+    await test(`${cancel ? 'interrupted' : 'rejected'} destination selection restores ${prior ? 'the prior preference' : 'an absent destination'} before activation`, async () => {
+      const { coordinator, a, b, root } = await fixture();
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let switching: Promise<void> | undefined;
+      try {
+        if (prior) {
+          await coordinator.selectModel({
+            agent: 'b',
+            id: 'b-old',
+            effort: 'low',
+          });
+          await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+        }
+        await coordinator.send('Start');
+        const source = coordinator.snapshot.native!.id;
+        const previous = coordinator.snapshot.conversation!.sessions.b;
+        const persisted = (
+          await readRecord(root, coordinator.snapshot.conversation!.id)
+        ).sessions.b;
+        const connect = b.connect.bind(b);
+        b.connect = async (options) => {
+          const session = await connect(options);
+          const select = session.selectModel,
+            close = session.close;
+          session.selectModel = async (...args) => {
+            await select(...args);
+            entered.resolve();
+            await release.promise;
+            throw new Error('Selection refused');
+          };
+          session.close = async () => {
+            await close();
+            release.resolve();
+          };
+          return session;
+        };
+        switching = coordinator.selectModel({
+          agent: 'b',
+          id: 'b-big',
+          effort: 'high',
+        });
+        const rejected = assert.rejects(switching, /Selection refused/);
+        await within(entered.promise, 2000, 'destination setter');
+        await coordinator.send('Queued during selection');
+        if (cancel) await coordinator.interrupt();
+        else release.resolve();
+        await within(rejected, 2000, 'selection rejection');
+        assert.equal(b.sessions.at(-1)!.session.closed, true);
+        const current = coordinator.snapshot.conversation!;
+        assert.equal(current.agent, 'a');
+        assert.equal(current.handoff, undefined);
+        assert.deepEqual(current.sessions.b, previous);
+        assert.deepEqual(
+          (await readRecord(root, current.id)).sessions.b,
+          persisted,
+        );
+        assert.equal(b.inputs.length, 0);
+        assert.deepEqual(coordinator.snapshot.queue, [
+          'Queued during selection',
+        ]);
+        assert.equal(coordinator.snapshot.recovery, undefined);
+        coordinator.unqueue();
+        await coordinator.send('Resume manually');
+        assert.equal(a.inputs.at(-1)!.session, source);
+      } finally {
+        release.resolve();
+        await switching?.catch(() => {});
+        await coordinator.close();
+      }
+    });
+
+await test('handoff preference and activation are durable together before continuation', async (t) => {
+  const { coordinator, a, b, root, reopen } = await fixture();
+  const beforeReady = Promise.withResolvers<void>(),
+    afterReady = Promise.withResolvers<void>();
+  const activate = Promise.withResolvers<void>(),
+    continueTurn = Promise.withResolvers<void>();
+  let before = '',
+    after = '',
+    switching: Promise<void> | undefined;
+  let intercepted = false;
+  try {
+    await coordinator.selectModel({ agent: 'b', id: 'b-old', effort: 'low' });
+    await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
+    await coordinator.send('Start');
+    const id = coordinator.snapshot.conversation!.id;
+    const source = coordinator.snapshot.native!.id;
+    const file = join(root, 'state', 'conversations', id, 'state.json');
+    const save = ConversationStore.prototype.save;
+    t.mock.method(
+      ConversationStore.prototype,
+      'save',
+      async function (this: ConversationStore, record: ConversationRecord) {
+        if (record.id !== id || !record.handoff?.activated || intercepted)
+          return save.call(this, record);
+        intercepted = true;
+        await this.flush();
+        before = await readFile(file, 'utf8');
+        beforeReady.resolve();
+        await activate.promise;
+        await save.call(this, record);
+        after = await readFile(file, 'utf8');
+        afterReady.resolve();
+        await continueTurn.promise;
+      },
+    );
+    switching = coordinator.selectModel({
+      agent: 'b',
+      id: 'b-big',
+      effort: 'high',
+    });
+    await within(beforeReady.promise, 2000, 'activation writer');
+    assert.equal(b.sessions.at(-1)!.session.info.model, 'b-big');
+    assert.equal(b.sessions.at(-1)!.session.info.effort, 'high');
+    assert.equal(b.inputs.length, 0);
+    const unactivated = JSON.parse(before);
+    assert.equal(unactivated.agent, 'a');
+    assert.equal(unactivated.handoff.activated, false);
+    assert.equal(unactivated.sessions.b.requestedModel, 'b-old');
+    assert.equal(unactivated.sessions.b.effort, 'low');
+    activate.resolve();
+    await within(afterReady.promise, 2000, 'activation saved');
+    assert.equal(b.inputs.length, 0);
+    const activated = JSON.parse(after);
+    assert.equal(activated.agent, 'b');
+    assert.equal(activated.handoff.activated, true);
+    assert.equal(activated.sessions.b.requestedModel, 'b-big');
+    assert.equal(activated.sessions.b.effort, 'high');
+    continueTurn.resolve();
+    await switching;
+    await coordinator.close();
+    for (const [snapshot, agent, model, effort] of [
+      [before, 'a', 'b-old', 'low'],
+      [after, 'b', 'b-big', 'high'],
+    ] as const) {
+      await writeFile(file, snapshot);
+      const sent: number = a.inputs.length + b.inputs.length;
+      const restarted = await reopen();
+      try {
+        assert.equal(restarted.snapshot.conversation!.agent, agent);
+        assert.equal(
+          restarted.snapshot.conversation!.sessions.b!.requestedModel,
+          model,
+        );
+        assert.equal(
+          restarted.snapshot.conversation!.sessions.b!.effort,
+          effort,
+        );
+        assert.equal(restarted.snapshot.conversation!.sessions.a!.id, source);
+        assert.equal(a.inputs.length + b.inputs.length, sent);
+      } finally {
+        await restarted.close();
+      }
+    }
+  } finally {
+    activate.resolve();
+    continueTurn.resolve();
+    await switching?.catch(() => {});
+    await coordinator.close();
+  }
+});
+
+await test('failed destination shutdown still persists pre-activation rollback', async () => {
+  const { coordinator, a, b, root } = await fixture();
+  try {
+    await coordinator.send('Start');
+    const source = coordinator.snapshot.native!.id;
+    const connect = b.connect.bind(b);
+    b.connect = async (options) => {
+      const session = await connect(options);
+      session.selectModel = async () => {
+        throw new Error('Selection refused');
+      };
+      return session;
+    };
+    b.failClose = true;
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'b', id: 'b-big', effort: 'high' }),
+      /Close failed/,
+    );
+    const saved = await readRecord(root, coordinator.snapshot.conversation!.id);
+    assert.equal(saved.agent, 'a');
+    assert.equal(saved.sessions.b, undefined);
+    assert.equal(coordinator.snapshot.conversation!.sessions.b, undefined);
+    assert.equal(b.sessions.at(-1)!.session.closed, true);
+    assert.deepEqual(b.inputs, []);
+    b.failClose = false;
+    await coordinator.send('Resume manually');
+    assert.equal(a.inputs.at(-1)!.session, source);
+  } finally {
+    b.failClose = false;
     await coordinator.close();
   }
 });
@@ -86,7 +346,9 @@ for (const stage of [
     if (stage !== 'summarizing' && stage !== 'summary-saved')
       conversation.sessions.b = {
         id: 'destination-b',
-        model: 'b-model',
+        model: activated ? 'b-big' : 'b-model',
+        requestedModel: activated ? 'b-big' : undefined,
+        effort: activated ? 'high' : undefined,
         hasHistory: stage === 'continuing' || stage === 'completed',
       };
     conversation.handoff = {
@@ -118,6 +380,10 @@ for (const stage of [
         activated ? 'b' : 'a',
       );
       assert.equal(restarted.snapshot.conversation!.cwd, project);
+      if (activated) {
+        assert.equal(restarted.snapshot.native!.model, 'b-big');
+        assert.equal(restarted.snapshot.native!.effort, 'high');
+      }
       assert.equal(a.inputs.length + b.inputs.length, 0);
       await restarted.send('Resume manually');
       const active = activated ? b : a;
@@ -180,7 +446,10 @@ await test('undelivered handoff context survives visiting another conversation a
     assert.match(b.inputs.at(-1)!.prompt, /amber-195/);
     assert.ok(coordinator.snapshot.conversation!.handoff);
     b.interruptNext = true;
-    await assert.rejects(coordinator.switchAgent('a'), /interrupted/);
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'a', id: 'a-model' }),
+      /interrupted/,
+    );
     await coordinator.send('Continue manually');
     assert.match(b.inputs.at(-1)!.prompt, /amber-195/);
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
@@ -366,7 +635,7 @@ await test('a handoff cancelled during the summary keeps the source', async () =
   const gate = new TurnGate();
   a.gate = gate;
   try {
-    const switching = coordinator.switchAgent('b');
+    const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(gate.entered, 2000, 'the summary turn');
     await coordinator.interrupt();
     await assert.rejects(switching, /interrupted/);
@@ -386,7 +655,7 @@ await test('a handoff cancelled while the summary is saved never connects the de
   const held = Promise.withResolvers<void>();
   const holding = Promise.withResolvers<void>();
   try {
-    const switching = coordinator.switchAgent('b');
+    const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(gate.entered, 2000, 'the summary turn');
     // the summary turn saves first, without a handoff
     ConversationStore.prototype.save = function (record) {
@@ -422,12 +691,60 @@ await test('a handoff cancelled during the destination connect keeps the source'
     );
   };
   try {
-    const switching = coordinator.switchAgent('b');
+    const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(connecting.promise, 2000, 'the destination connect');
     await coordinator.interrupt();
     await assert.rejects(switching, /interrupted/);
     await context.assertSourceActive();
   } finally {
+    await coordinator.close();
+  }
+});
+
+await test('a handoff cancelled while saving its connection starts no catalog discovery', async (t) => {
+  const { coordinator, a, b } = await fixture();
+  const entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  const save = ConversationStore.prototype.save;
+  let held = false;
+  let switching: Promise<void> | undefined;
+  try {
+    t.mock.method(
+      ConversationStore.prototype,
+      'save',
+      async function (this: ConversationStore, record: ConversationRecord) {
+        const pending = save.call(this, record);
+        if (
+          !held &&
+          record.handoff?.to === 'b' &&
+          b.sessions.length &&
+          record.process
+        ) {
+          held = true;
+          await pending;
+          entered.resolve();
+          await release.promise;
+        } else await pending;
+      },
+    );
+    const discoveries = a.discoveries.length;
+    switching = coordinator.selectModel({
+      agent: 'b',
+      id: 'b-big',
+      effort: 'high',
+    });
+    const rejected = assert.rejects(switching, /interrupted/);
+    await within(entered.promise, 2000, 'connection save');
+    await coordinator.interrupt();
+    release.resolve();
+    await rejected;
+    assert.equal(a.discoveries.length, discoveries);
+    assert.equal(b.sessions.at(-1)!.session.closed, true);
+    assert.equal(coordinator.snapshot.conversation!.agent, 'a');
+    assert.equal(coordinator.snapshot.conversation!.sessions.b, undefined);
+  } finally {
+    release.resolve();
+    await switching?.catch(() => {});
     await coordinator.close();
   }
 });
@@ -438,13 +755,19 @@ await test('a handoff cancelled during the continuation stays with the destinati
   const gate = new TurnGate();
   b.gate = gate;
   try {
-    const switching = coordinator.switchAgent('b');
+    const switching = coordinator.selectModel({
+      agent: 'b',
+      id: 'b-big',
+      effort: 'high',
+    });
     await within(gate.entered, 2000, 'the continuation');
     await coordinator.interrupt();
     await within(switching, 2000, 'the handoff');
     const conversation = coordinator.snapshot.conversation!;
     assert.equal(conversation.agent, 'b');
     assert.equal(conversation.handoff?.activated, true);
+    assert.equal(conversation.sessions.b!.requestedModel, 'b-big');
+    assert.equal(conversation.sessions.b!.effort, 'high');
   } finally {
     gate.open();
     await coordinator.close();
@@ -456,7 +779,7 @@ await test('a prompt sent during a handoff waits and goes to the destination', a
   const gate = new TurnGate();
   a.gate = gate;
   try {
-    const switching = coordinator.switchAgent('b');
+    const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(gate.entered, 2000, 'the summary turn');
     await coordinator.send('During');
     assert.deepEqual(a.steers, []);
