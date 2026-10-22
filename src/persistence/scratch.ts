@@ -17,13 +17,16 @@ const recordSchema = z.object({
   owner: processIdentity.optional(),
 });
 
-async function lockDirectory(directory: string): Promise<FileHandle> {
+async function lockDirectory(
+  directory: string,
+  nonblocking = true,
+): Promise<FileHandle> {
   return open(
     directory,
     constants.O_RDONLY |
       constants.O_DIRECTORY |
       constants.O_NOFOLLOW |
-      constants.O_NONBLOCK |
+      (nonblocking ? constants.O_NONBLOCK : 0) |
       exclusiveLock,
   );
 }
@@ -85,7 +88,8 @@ export class ScratchSpace {
     if (!owner) throw new Error('Cannot identify the scratch owner.');
     await mkdir(parent, { recursive: true, mode: 0o700 });
     if (!resumed) await mkdir(directory, { mode: 0o700 });
-    const lock = await lockDirectory(directory);
+    // wait out a sweep that found the new directory before its owner locked it.
+    const lock = await lockDirectory(directory, resumed);
     try {
       if (resumed) {
         const record = await readRecord(directory);
