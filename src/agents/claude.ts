@@ -165,8 +165,8 @@ interface Turn {
   result?: TurnResult;
   interrupted: boolean;
   messages: Map<string, string>;
-  /** retain consumed prompts too: an interrupt receipt can still name them. */
-  steered: Map<string, { prompt: string; pending: boolean }>;
+  /** retain consumed input for interrupt receipts; omit command replies' text to prevent replay. */
+  steered: Map<string, { prompt?: string; pending: boolean }>;
   inputError?: string;
   commandRecords: Map<string, string[]>;
   /**
@@ -585,16 +585,15 @@ class ClaudeSession implements AgentSession {
       this.release(turn);
   }
 
-  /** runs once a steered command has ended: sends its reply, or ends a turn Claude Code has let go idle. */
   private release(turn: Turn): void {
     const answer = turn.answer;
     turn.held = false;
     turn.answer = undefined;
     if (answer !== undefined && !turn.interrupted && !this.closed) {
       turn.idle = false;
-      // recover records separately, since queuing the reply would run its command again
       const records = this.records;
       const uuid = this.push(this.content(answer));
+      turn.steered.set(uuid, { pending: true });
       turn.commandRecords.set(uuid, records);
     } else if (!this.closed) this.finishIdle(turn);
   }
