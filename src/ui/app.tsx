@@ -191,6 +191,7 @@ export function App({
     undefined,
   );
   const composer = useRef<InputHandle>(null);
+  const pickerInput = useRef<InputHandle>(null);
   // this directory's prompts, newest first
   const history = useRef<string[]>([]);
   const recall = useRef(unbrowsed());
@@ -397,6 +398,7 @@ export function App({
     choose: (id: string) => void,
     custom = false,
   ) => {
+    pickerInput.current?.set({ value: '', cursor: 0 });
     setQuery('');
     setSelection(0);
     setView({ kind: 'picker', title, choices: entries, choose, custom });
@@ -1049,6 +1051,7 @@ export function App({
           })}
         </Box>
         <Input
+          ref={pickerInput}
           key={view.title}
           width={bodyWidth}
           height={1}
