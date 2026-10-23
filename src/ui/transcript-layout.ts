@@ -80,7 +80,7 @@ function block(
   };
 }
 
-/** anchors count source lines so resizing keeps the selected text. */
+/** anchors count source lines so resizing keeps the reading position. */
 function section(
   text: readonly string[],
   width: number,
@@ -169,7 +169,7 @@ function build(
     head.rows.length,
     head.rows.concat(complete.rows),
     suffix,
-    linked && !diff.length && !images.length
+    linked && !diff.length && (!graphics || !sources.length)
       ? { line: complete.next, pending: linked.pending, target: linked.target }
       : undefined,
   );

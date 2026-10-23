@@ -823,6 +823,42 @@ await test('an image arriving with an append replaces the text-only cached block
   assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
 });
 
+await test('an append retries a named image that was unavailable during the first render', async () => {
+  for (const [initial, imageLine] of [
+    ['', 2],
+    ['waiting\n', 3],
+  ] as const) {
+    const directory = await scratch('witch-layout-');
+    const layout = new TranscriptLayout(new Graphics(() => {}));
+    const expanded = new Map([['tool', true]]);
+    let items = applyDisplayUpdate([], {
+      ...tool(initial),
+      cwd: directory,
+      images: ['shot.png'],
+    });
+    const before = layout.render(items, 100, expanded);
+    assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
+    const images = items[0]!.images;
+    await writeFile(join(directory, 'shot.png'), png(160, 80));
+    items = applyDisplayUpdate(items, { ...tool('ready'), cwd: directory });
+    assert.equal(items[0]!.images, images);
+    const frame = layout.render(items, 100, expanded);
+    const rows = frame.lines.slice();
+    const first = rows.findIndex((line) => line.includes(placeholder));
+    assert.equal(rows.filter((line) => line.includes(placeholder)).length, 5);
+    assert.deepEqual(frame.anchorAt(first), {
+      item: 'tool',
+      line: imageLine,
+      offset: 0,
+    });
+    assert.equal(
+      frame.rowOf({ item: 'tool', line: imageLine, offset: 4 }),
+      first + 4,
+    );
+    assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
+  }
+});
+
 await test('a message shows the images it names below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
   const directory = await scratch('witch-layout-');
   await writeFile(join(directory, 'shot.png'), png(160, 80));
