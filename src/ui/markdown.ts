@@ -120,12 +120,17 @@ export function markdownAppend(
   const rendered = tokens.map((token) => parser.parse([token]));
   // the last block can become empty, so retain its preceding visible block for trimEnd().
   const last = tokens.findLastIndex((token) => token.type !== 'space');
-  const boundary = Math.max(
+  const retained = Math.max(
     0,
     rendered.findLastIndex(
       (output, index) => index < last && output.trimEnd().length > 0,
     ),
   );
+  // a later setext underline can merge several tokens until the preceding blank line.
+  const boundary =
+    tokens.findLastIndex(
+      (token, index) => index < retained && /\n[ \t]*\n[ \t]*$/.test(token.raw),
+    ) + 1;
   const complete = rendered.slice(0, boundary).join('');
   const consumed = tokens
     .slice(0, boundary)

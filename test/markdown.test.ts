@@ -141,6 +141,11 @@ for (const [name, source, expected] of [
     'Settled.\n\nHeading\n\nAfter',
   ],
   [
+    'setext across thematic lines',
+    'Settled.\n\na\n___\nb\n___\nc\n-',
+    'Settled.\n\na\n___\nb\n___\nc',
+  ],
+  [
     'table delimiter',
     'Settled.\n\na | b\n---|---\n1|2\n',
     'Settled.\n\na │ b\n1 │ 2',

@@ -1406,3 +1406,36 @@ await test('completed assistant blocks have bounded parsing and wrapping work', 
   for (const field of ['parsed', 'wrapped'] as const)
     assert.ok(counts[1]![field] <= counts[0]![field] * 2.3 + 8192, field);
 });
+
+await test('a late setext underline reinterprets every preceding thematic line', () => {
+  for (const [source, heading] of [
+    ['a\n***\nb\n', ['a', '***', 'b']],
+    ['a\n___\nb\n___\nc\n', ['a', '___', 'b', '___', 'c']],
+  ] as const) {
+    const prefix = 'Settled.\n\nEarlier.\n\n';
+    const layout = new TranscriptLayout();
+    let items = applyDisplayUpdate([], assistant(prefix + source));
+    const before = layout.render(items, 80, new Map());
+    const saved = before.lines.slice();
+    items = applyDisplayUpdate(items, assistant('-'));
+    const frame = layout.render(items, 80, new Map());
+    const expected = [
+      'Settled.',
+      '',
+      'Earlier.',
+      '',
+      ...heading.map((line) => `\u001b[1m${line}\u001b[22m`),
+    ];
+    assert.deepEqual(frame.lines.slice(1, -1), expected);
+    assert.equal(frame.lines.length, expected.length + 2);
+    for (let row = 0; row < frame.lines.length; row++) {
+      assert.deepEqual(frame.anchorAt(row), {
+        item: 'reply',
+        line: row,
+        offset: 0,
+      });
+      assert.equal(frame.rowOf(frame.anchorAt(row)!), row);
+    }
+    assert.deepEqual(before.lines.slice(), saved);
+  }
+});
