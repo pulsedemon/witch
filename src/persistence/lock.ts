@@ -11,7 +11,7 @@ my @results;
 for my $path (@$paths) {
   my $file;
   if (!open($file, '<', $path)) {
-    push @results, $!{ENOENT} ? 0 : -int($!);
+    push @results, ($!{ENOENT} || $!{ENOTDIR}) ? 0 : -int($!);
     next;
   }
   my $lock = pack('q q i s s', 0, 0, 0, F_WRLCK, SEEK_SET);

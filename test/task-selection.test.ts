@@ -527,7 +527,12 @@ await test('cleanup failure is surfaced while shutdown still closes native work 
   try {
     await assert.rejects(a.coordinator.close(), /Cleanup unavailable/);
     assert.equal(a.a.sessions.at(-1)!.session.closed, true);
-    assert.equal(await f.registry.isActive(turn.binding.activation), false);
+    assert.equal(
+      (await f.registry.activeActivations([turn.binding.activation])).has(
+        turn.binding.activation,
+      ),
+      false,
+    );
     assert.deepEqual((await f.registry.state()).selections, []);
   } finally {
     cancel.mock.restore();

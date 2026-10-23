@@ -12,7 +12,7 @@ import type {
   ControlOutcome,
   ControlRequest,
 } from '../persistence/control.js';
-import { identifyProcess } from '../persistence/process.js';
+import { identifyProcess, identifyProcesses } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import {
   conversationSummarySchema,
@@ -676,9 +676,9 @@ export class SessionCoordination {
       return { kind: 'selection', selection, snapshot: await this.inspect() };
     } catch (error) {
       if (!(error instanceof ClaimConflict)) throw error;
-      const owner = (await this.store.records()).records.find(
-        (entry) => entry.id === error.claim.owner.conversation,
-      );
+      const owner = (
+        await this.store.records([error.claim.owner.conversation])
+      ).records.find((entry) => entry.id === error.claim.owner.conversation);
       return {
         kind: 'conflict',
         claim: error.claim,
@@ -754,40 +754,46 @@ export class SessionCoordination {
     active: Activation,
     project: string,
   ): Promise<CoordinationSnapshot> {
-    const [{ claims, selections }, presences, { records, unreadable }] =
-      await Promise.all([
-        this.registry.state(),
-        this.registry.presences(),
-        this.store.records(),
-      ]);
+    const [{ claims, selections }, presences, opened] = await Promise.all([
+      this.registry.state(),
+      this.registry.presences(),
+      this.store.openConversations(),
+    ]);
+    const { records, unreadable } = await this.store.records([
+      ...opened.keys(),
+    ]);
     if (unreadable.length)
       throw new Error(
         `Cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
       );
-    const opened = await this.store.openConversations(
-      records.map((record) => record.id),
+    const candidates = new Map<string, SessionPresence>();
+    for (const record of records) {
+      const presence = presences.find((entry) => entry.id === record.id);
+      if (opened.has(record.id) && presence?.cwd === record.cwd)
+        candidates.set(record.id, presence);
+    }
+    const activations = await this.registry.activeActivations(
+      [...candidates.values()].map((presence) => presence.activation),
+    );
+    const processes = await identifyProcesses(
+      [...candidates.values()].flatMap((presence) =>
+        activations.has(presence.activation) ? [presence.process.pid] : [],
+      ),
     );
     const live = new Map<string, SessionPresence>();
     const unregistered: CoordinationSnapshot['unregistered'] = [];
-    const processes = new Map<number, Promise<ProcessIdentity | undefined>>();
     for (const record of records) {
       const holder = opened.get(record.id);
       if (!holder) continue;
-      const presence = presences.find((entry) => entry.id === record.id);
+      const presence = candidates.get(record.id);
       if (
         presence &&
-        presence.cwd === record.cwd &&
-        (await this.registry.isActive(presence.activation))
+        activations.has(presence.activation) &&
+        processes.get(presence.process.pid)?.started ===
+          presence.process.started
       ) {
-        let process = processes.get(presence.process.pid);
-        if (!process) {
-          process = identifyProcess(presence.process.pid);
-          processes.set(presence.process.pid, process);
-        }
-        if ((await process)?.started === presence.process.started) {
-          live.set(record.id, presence);
-          continue;
-        }
+        live.set(record.id, presence);
+        continue;
       }
       // a current Witch opening, reconnecting or closing this conversation
       if (holder.coordinated) continue;

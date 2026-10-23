@@ -208,10 +208,6 @@ export class CoordinationStore {
     return new Set([...locked.keys()].map((path) => paths.get(path)!));
   }
 
-  async isActive(activation: string): Promise<boolean> {
-    return (await this.activeActivations([activation])).has(activation);
-  }
-
   /** the caller holds the conversation lock until its writer drains and this removal finishes. */
   async removePresence(
     conversation: string,

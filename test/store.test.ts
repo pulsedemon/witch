@@ -86,6 +86,8 @@ await test('conversation locks carry a registration lock that a lost race releas
     await scratch('witch-conversation-batch-'),
   );
   const held = await store.create(conversation('current'));
+  await (await store.create(conversation('closed'))).close();
+  await writeFile(join(store.root, 'conversations', '.DS_Store'), 'finder');
   await (await store.create(conversation('older'))).close();
   // an older Witch takes only `lock`
   const older = await open(
@@ -93,7 +95,7 @@ await test('conversation locks carry a registration lock that a lost race releas
     constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
   );
   assert.deepEqual(
-    await store.openConversations(['older', 'closed', 'current']),
+    await store.openConversations(),
     new Map([
       ['current', { coordinated: true }],
       ['older', { coordinated: false }],
@@ -113,6 +115,37 @@ await test('conversation locks carry a registration lock that a lost race releas
     new Map(),
   );
   await (await store.claim('current')).close();
+});
+
+await test('selected records exclude unreadable conversations and an empty selection reads nothing', async (t) => {
+  const store = await StateStore.open(await scratch('witch-selected-records-'));
+  const selected = conversation('selected', '/selected');
+  await (await store.create(selected)).close();
+  await (await store.create(conversation('damaged', '/damaged'))).close();
+  const damaged = join(store.root, 'conversations', 'damaged', 'state.json');
+  await writeFile(damaged, '{broken');
+  const reading = t.mock.method(files, 'readFile');
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(await store.records(['selected']), {
+      records: [selected],
+      unreadable: [],
+    });
+    assert.deepEqual(await store.records([]), { records: [], unreadable: [] });
+    assert.deepEqual(
+      reading.mock.calls.map(({ arguments: [file] }) => file),
+      [join(store.root, 'conversations', 'selected', 'state.json')],
+    );
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  const all = await store.records();
+  assert.deepEqual(all.records, [selected]);
+  assert.deepEqual(
+    all.unreadable.map(({ file }) => file),
+    [damaged],
+  );
 });
 
 await test("a legacy holder stays unregistered during a current owner's failed claim", async (t) => {

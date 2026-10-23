@@ -121,7 +121,13 @@ await test('batch observation preserves path identity and filesystem failures', 
   );
   t.after(() => shared.close());
   assert.deepEqual(
-    await lockedFiles([free, heldPath, missing, sharedPath]),
+    await lockedFiles([
+      free,
+      heldPath,
+      missing,
+      sharedPath,
+      join(free, 'lock'),
+    ]),
     new Map([
       [heldPath, 'exclusive'],
       [sharedPath, 'shared'],

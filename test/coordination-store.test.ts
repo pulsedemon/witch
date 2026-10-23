@@ -123,17 +123,20 @@ await test('activation observation follows release without retaining ownership',
   try {
     assert.deepEqual(
       await Promise.all([
-        store.isActive(activation),
-        store.isActive(activation),
+        store.activeActivations([activation, activation]),
+        store.activeActivations([activation]),
       ]),
-      [true, true],
+      [new Set([activation]), new Set([activation])],
     );
   } finally {
     await close();
   }
   assert.deepEqual(
-    await Promise.all([store.isActive(activation), store.isActive(activation)]),
-    [false, false],
+    await Promise.all([
+      store.activeActivations([activation]),
+      store.activeActivations([activation]),
+    ]),
+    [new Set(), new Set()],
   );
   await assert.rejects(
     access(join(root, 'coordination', 'sessions', `${activation}.lock`)),
