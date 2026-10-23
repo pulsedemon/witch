@@ -236,6 +236,161 @@ for (const stage of ['acquisition', 'completion'] as const)
     }
   });
 
+await test('an older successful ledger read cannot clear a later read failure', async (t) => {
+  const refreshes = pauseDiscovery(t);
+  const { start, store } = await coordinationFixture(t);
+  const a = await start();
+  const reserved = await a.claim('task:known', 'Known work');
+  if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
+  const binding = await a.binding();
+  const file = join(store.root, 'coordination', 'claims.json');
+  const original = await readFile(file, 'utf8');
+  const entered = Promise.withResolvers<void>(),
+    finishRead = Promise.withResolvers<void>(),
+    requestRead = Promise.withResolvers<void>(),
+    discovering = Promise.withResolvers<void>(),
+    finishDiscovery = Promise.withResolvers<void>();
+  const local = a.coordination['registry'];
+  const lock = local['lock'];
+  let first = true;
+  local['lock'] = async (...args: Parameters<typeof lock>) => {
+    if (first) {
+      first = false;
+      entered.resolve();
+      await finishRead.promise;
+    }
+    return lock.call(local, ...args);
+  };
+  const state = local.state.bind(local);
+  let failure: unknown;
+  const reading = t.mock.method(
+    local,
+    'state',
+    async (...args: Parameters<typeof state>) => {
+      try {
+        const ledger = await state(...args);
+        requestRead.resolve();
+        return ledger;
+      } catch (error) {
+        failure = error;
+        throw error;
+      }
+    },
+  );
+  const open = store.openConversations.bind(store);
+  let discoveries = 0;
+  const observing = t.mock.method(
+    store,
+    'openConversations',
+    async (...args: Parameters<typeof open>) => {
+      if (args[0] === undefined && ++discoveries === 2) {
+        discovering.resolve();
+        await finishDiscovery.promise;
+      }
+      return open(...args);
+    },
+  );
+  let request: ReturnType<typeof callControl> | undefined;
+  refreshes[0]!();
+  const refreshing = a.coordination['refreshing']!.promise;
+  try {
+    await within(entered.promise, 5000, 'background read paused');
+    request = callControl(binding, { kind: 'peers' });
+    await within(
+      Promise.all([requestRead.promise, discovering.promise]),
+      5000,
+      'request read before background',
+    );
+    await writeFile(file, '{broken');
+    finishRead.resolve();
+    await within(refreshing, 5000, 'later ledger read fails');
+    assert.ok(failure instanceof SyntaxError);
+    const error = a.coordination.snapshot.error;
+    assert.ok(error, 'ledger read failure is visible');
+    finishDiscovery.resolve();
+    const result = await within(
+      request,
+      5000,
+      'request completes after failed read',
+    );
+    if (result.kind !== 'error') assert.fail(JSON.stringify(result));
+    assert.equal(result.message, error);
+    assert.equal(a.coordination.snapshot.error, error);
+    assert.deepEqual(a.coordination.snapshot.ownClaim, reserved.claim);
+    await writeFile(file, original);
+    const recovered = await a.query();
+    assert.equal(recovered.error, undefined);
+    assert.deepEqual(recovered.ownClaim, reserved.claim);
+  } finally {
+    finishRead.resolve();
+    finishDiscovery.resolve();
+    await writeFile(file, original);
+    await request;
+    await refreshing;
+    observing.mock.restore();
+    reading.mock.restore();
+    local['lock'] = lock;
+  }
+});
+
+await test('an older ledger failure cannot replace a later successful observation', async (t) => {
+  const refreshes = pauseDiscovery(t);
+  const { start, store } = await coordinationFixture(t);
+  const a = await start();
+  const reserved = await a.claim('task:known', 'Known work');
+  if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
+  const file = join(store.root, 'coordination', 'claims.json');
+  const original = await readFile(file, 'utf8');
+  const failed = Promise.withResolvers<unknown>(),
+    finishFailure = Promise.withResolvers<void>();
+  const local = a.coordination['registry'];
+  const state = local.state.bind(local);
+  let first = true;
+  const reading = t.mock.method(
+    local,
+    'state',
+    async (...args: Parameters<typeof state>) => {
+      const background = first;
+      first = false;
+      try {
+        return await state(...args);
+      } catch (error) {
+        if (background) {
+          failed.resolve(error);
+          await finishFailure.promise;
+        }
+        throw error;
+      }
+    },
+  );
+  let refreshing: Promise<void> | undefined;
+  try {
+    await writeFile(file, '{broken');
+    refreshes[0]!();
+    refreshing = a.coordination['refreshing']!.promise;
+    assert.ok(
+      (await within(
+        failed.promise,
+        5000,
+        'background ledger read fails',
+      )) instanceof SyntaxError,
+    );
+    await writeFile(file, original);
+    const recovered = await a.query();
+    assert.equal(recovered.error, undefined);
+    assert.deepEqual(recovered.ownClaim, reserved.claim);
+    finishFailure.resolve();
+    await within(refreshing, 5000, 'older failure completes');
+    assert.equal(a.coordination.snapshot.error, undefined);
+    assert.deepEqual(a.coordination.snapshot.ownClaim, reserved.claim);
+  } finally {
+    finishFailure.resolve();
+    await writeFile(file, original);
+    await refreshing;
+    reading.mock.restore();
+  }
+});
+
 await test('cancellation publishes the next waiter without another discovery', async (t) => {
   pauseDiscovery(t);
   const { start } = await coordinationFixture(t);

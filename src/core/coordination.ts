@@ -84,6 +84,7 @@ export class SessionCoordination {
   };
   private revision = 0;
   private mutationRevision = 0;
+  private ledgerObservation = 0;
   private discoveryFailure = 0;
   private view?: {
     active: Activation;
@@ -560,13 +561,35 @@ export class SessionCoordination {
 
   private async readLedger(state?: RequestState): Promise<LedgerView> {
     if (state?.ledger) return state.ledger;
+    const active = this.active;
+    const project = active?.project;
     let revision = 0;
-    const ledger = await this.registry.state(Date.now() + 1000, () => {
-      revision = ++this.revision;
-    });
-    const value = { revision, ledger };
-    if (state) state.ledger = value;
-    return value;
+    const accept = () => {
+      if (
+        this.active !== active ||
+        active?.project !== project ||
+        !active?.publishing ||
+        this.closed
+      )
+        return false;
+      // lock acquisition failures have no locked observation.
+      const observed = revision || ++this.revision;
+      if (observed <= this.ledgerObservation) return false;
+      this.ledgerObservation = observed;
+      return true;
+    };
+    try {
+      const ledger = await this.registry.state(Date.now() + 1000, () => {
+        revision = ++this.revision;
+      });
+      if (accept()) this.failures.delete('ledger');
+      const value = { revision, ledger };
+      if (state) state.ledger = value;
+      return value;
+    } catch (error) {
+      if (accept()) this.fail('ledger', error);
+      throw error;
+    }
   }
 
   private async change<T>(
@@ -616,17 +639,15 @@ export class SessionCoordination {
     active: Activation,
     state: RequestState,
   ): Promise<CoordinationSnapshot> {
-    const discovery = this.observe(state);
-    try {
-      const [ledger, observed] = await Promise.all([
-        this.readLedger(state),
-        discovery,
-      ]);
-      return this.updateView(active, active.project, observed, ledger);
-    } catch (error) {
+    const discovery = this.observe(state).catch((error: unknown) => {
       this.failDiscovery(error, state.discovery!.revision);
       throw error;
-    }
+    });
+    const [ledger, observed] = await Promise.all([
+      this.readLedger(state),
+      discovery,
+    ]);
+    return this.updateView(active, active.project, observed, ledger);
   }
 
   private updateView(
@@ -916,7 +937,6 @@ export class SessionCoordination {
         this.refreshing.project === project
         ? this.refreshing.promise
         : this.refreshing.promise.then(() => this.refresh());
-    const mutationRevision = this.mutationRevision;
     const revision = ++this.revision;
     const current = () =>
       this.active === active &&
@@ -941,10 +961,7 @@ export class SessionCoordination {
             consistent ? ledger : undefined,
           );
         },
-        (error: unknown) => {
-          if (current() && this.mutationRevision === mutationRevision)
-            this.failDiscovery(error, revision);
-        },
+        () => {},
       )
       .finally(() => {
         this.refreshing = undefined;

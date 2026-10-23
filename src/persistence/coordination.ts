@@ -228,9 +228,8 @@ export class CoordinationStore {
   async state(deadline?: number, observe?: () => void): Promise<Ledger> {
     const lock = deadline === undefined ? undefined : await this.lock(deadline);
     try {
-      const ledger = await this.reconcile(await this.read());
       observe?.();
-      return ledger;
+      return await this.reconcile(await this.read());
     } finally {
       await lock?.close();
     }
