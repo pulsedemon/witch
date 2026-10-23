@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { Coordinator } from '../src/core/coordinator.js';
+import { applyDisplayUpdate } from '../src/core/state.js';
 import { App } from '../src/ui/app.js';
 import { Graphics, placeholder } from '../src/ui/images.js';
 import { png } from './fixtures/png.js';
@@ -1281,6 +1282,89 @@ await test('a wheel step while the left button is held preserves the press ancho
     assert.deepEqual(copied, [
       `row ${before + 4}\n${`row ${before + 5}`.slice(0, 5)}`,
     ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+await test('batched tool appends preserve selection and a reading position through row views', async () => {
+  const output = (text: string) => ({
+    id: 'tool',
+    kind: 'tool' as const,
+    title: 'probe',
+    text,
+    cwd: '/work',
+    done: false,
+    shell: true,
+  });
+  const reply = {
+    id: 'reply',
+    kind: 'assistant' as const,
+    title: 'Assistant',
+    text: 'selected words',
+    cwd: '/work',
+  };
+  let items = applyDisplayUpdate(
+    applyDisplayUpdate([], output('alpha\n')),
+    reply,
+  );
+  const { app, coordinator } = fake({ items });
+  const { ui, copied } = mounted(app, 80, 30);
+  const selectReply = async () => {
+    const lines = ui.text().split('\n');
+    const row = lines.findIndex((line) => line.includes('selected words'));
+    assert.ok(row >= 0);
+    const column = lines[row]!.indexOf('selected words');
+    drag(ui, [column, row], [column + 7, row]);
+    await until('the selected reply', () =>
+      ui.frame().includes('\u001b[7mselected'),
+    );
+  };
+  const append = (text: string) => {
+    items = applyDisplayUpdate(items, output(text));
+    coordinator.publish({ items });
+  };
+  try {
+    await until('the reply', () => ui.text().includes('selected words'));
+    await selectReply();
+    for (const text of ['beta\n', 'gamma\n', 'delta\n']) append(text);
+    await until('the batched output', () => ui.text().includes('delta'));
+    assert.ok(ui.frame().includes('\u001b[7mselected'));
+    ui.stdin.write(CMD_C);
+    await until('the copied selection', () => copied.length === 1);
+    assert.deepEqual(copied, ['selected']);
+    append(
+      Array.from({ length: 100 }, (_, index) => `row ${index}\n`).join(''),
+    );
+    await until('the long output', () => ui.text().includes('row 99'));
+    ui.stdin.write(wheelUp.repeat(20));
+    await until('the reading position', () =>
+      ui.text().includes('READING EARLIER OUTPUT'),
+    );
+    const first = ui.text().split('\n')[1];
+    append('newest row\n');
+    await delay(100);
+    assert.equal(ui.text().split('\n')[1], first);
+    ui.stdin.write('\u001b[6~'.repeat(20));
+    await until(
+      'following output',
+      () => !ui.text().includes('READING EARLIER OUTPUT'),
+    );
+    assert.ok(ui.text().includes('newest row'));
+    ui.resize(70);
+    await delay(100);
+    assert.ok(ui.text().includes('newest row'));
+    await selectReply();
+    items = applyDisplayUpdate(items, {
+      ...reply,
+      text: 'replacement',
+      replace: true,
+    });
+    coordinator.publish({ items });
+    await until('the replacement', () => ui.text().includes('replacement'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, ['selected']);
   } finally {
     ui.unmount();
   }

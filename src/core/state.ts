@@ -103,6 +103,37 @@ export type ProcessIdentity = z.infer<typeof processIdentity>;
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
 
+interface TextAppend {
+  stream: object;
+  sequence: number;
+  text: string;
+  previous?: TextAppend;
+}
+
+// retain deltas across batched renders without retaining earlier cumulative text snapshots.
+const appends = new WeakMap<DisplayItem, TextAppend>();
+
+export function appendedDisplayText(
+  previous: DisplayItem,
+  current: DisplayItem,
+): string | undefined {
+  const before = appends.get(previous);
+  let after = appends.get(current);
+  if (
+    !before ||
+    !after ||
+    before.stream !== after.stream ||
+    before.sequence > after.sequence
+  )
+    return undefined;
+  const chunks: string[] = [];
+  while (after.sequence > before.sequence) {
+    chunks.push(after.text);
+    after = after.previous!;
+  }
+  return after === before ? chunks.reverse().join('') : undefined;
+}
+
 export function recordSession(
   conversation: Conversation,
   agent: string,
@@ -124,14 +155,30 @@ function merge(
   previous: DisplayItem | undefined,
   { replace, ...update }: DisplayUpdate,
 ): DisplayItem {
-  if (!previous) return update;
-  return {
-    ...previous,
-    ...update,
-    title: update.title || previous.title,
-    cwd: replace ? update.cwd : previous.cwd,
-    text: replace ? update.text : previous.text + update.text,
-  };
+  const item = previous
+    ? {
+        ...previous,
+        ...update,
+        title: update.title || previous.title,
+        cwd: replace ? update.cwd : previous.cwd,
+        text: replace ? update.text : previous.text + update.text,
+      }
+    : update;
+  if (item.kind === 'tool') {
+    const before = previous && !replace ? appends.get(previous) : undefined;
+    appends.set(
+      item,
+      before && !update.text
+        ? before
+        : {
+            stream: before?.stream ?? {},
+            sequence: before ? before.sequence + 1 : 0,
+            text: before ? update.text : '',
+            previous: before,
+          },
+    );
+  }
+  return item;
 }
 
 export function applyDisplayUpdate(

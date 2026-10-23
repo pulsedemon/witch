@@ -24,6 +24,7 @@ import { Coordinator } from '../src/core/coordinator.js';
 import { Memory } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
+import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import { TurnGate } from './fixtures/agent.js';
 import { jsonLines, launcher } from './fixtures/claude-adapter.js';
 import { readRecord, fixture } from './fixtures/coordinator.js';
@@ -1205,13 +1206,27 @@ await test('agent events reach the transcript with their own replace, append and
     options.onEvent({ type: 'text', id: 'm', text: 'Hello!', replace: true });
     const tool = { type: 'tool', id: 't', title: 'ls' } as const;
     options.onEvent({ ...tool, text: 'a', done: false, cwd: '/elsewhere' });
+    const layout = new TranscriptLayout();
+    const expanded = new Map([[coordinator.snapshot.items[1]!.id, true]]);
+    assert.equal(
+      layout.render(coordinator.snapshot.items, 80, expanded).blocks[1]!.at(1),
+      'a',
+    );
     options.onEvent({ ...tool, text: 'b', done: false, append: true });
     assert.deepEqual(shown()[1], ['ab', '/elsewhere']);
+    assert.equal(
+      layout.render(coordinator.snapshot.items, 80, expanded).blocks[1]!.at(1),
+      'ab',
+    );
     options.onEvent({ ...tool, text: 'out', done: true, cwd: '/elsewhere' });
     assert.deepEqual(shown(), [
       ['Hello!', project],
       ['out', '/elsewhere'],
     ]);
+    assert.equal(
+      layout.render(coordinator.snapshot.items, 80, expanded).blocks[1]!.at(1),
+      'out',
+    );
   } finally {
     await coordinator.close();
   }

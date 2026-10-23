@@ -221,7 +221,7 @@ export function App({
     const row = transcript.rowOf(end.anchor);
     return end.width === width &&
       transcript.starts.has(end.anchor.item) &&
-      transcript.lines[row] === end.text
+      transcript.lines.at(row) === end.text
       ? { row, column: end.column }
       : undefined;
   };
@@ -252,7 +252,9 @@ export function App({
     // a row its wrap changed beyond trimming is not found in its line and has offset -1, so take the break as a space
     if (here.offset < 0 || above.offset < 0) return ' ';
     const trimmed =
-      here.offset - above.offset - stripAnsi(transcript.lines[row - 1]!).length;
+      here.offset -
+      above.offset -
+      stripAnsi(transcript.lines.at(row - 1)!).length;
     // a diff row's offset counts rows, not characters, so it leaves no room for the row above
     return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
   };
@@ -852,7 +854,7 @@ export function App({
       anchor,
       column: Math.max(0, Math.min(bodyWidth - 1, column - box.x)),
       width,
-      text: transcript.lines[at]!,
+      text: transcript.lines.at(at)!,
     };
     if (pointer === 'press') {
       if (offset >= 0 && offset < shown && column < box.x + bodyWidth)

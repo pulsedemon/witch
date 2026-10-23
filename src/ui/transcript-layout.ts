@@ -1,12 +1,14 @@
 import wrapAnsi from 'wrap-ansi';
 import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
+import { appendedDisplayText } from '../core/state.js';
 import { diffRows } from './diff.js';
 import { markdown } from './markdown.js';
 import { accent, colors } from './theme.js';
 import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
-import { linkify } from './links.js';
+import { linkify, linkifyAppend } from './links.js';
+import type { LinkedAppend } from './links.js';
 
 export interface ScrollAnchor {
   item: string;
@@ -16,22 +18,78 @@ export interface ScrollAnchor {
 
 type Anchor = Omit<ScrollAnchor, 'item'>;
 type Expansion = 'closed' | 'preview' | 'full';
+type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
 
-interface Block {
-  /** the item this block was built from; a block is reused as is only for that object. */
-  item: DisplayItem;
-  lines: string[];
-  anchors: Anchor[];
-  /** where the last body line starts, for an expanded tool whose output can grow. */
-  tail?: { row: number; line: number; start: number };
+interface Row {
+  text: string;
+  anchor: Anchor;
 }
 
-/** wraps each source line on its own, as wrap-ansi does, recording where every row starts. */
-function section(text: string, width: number, trim: boolean, first: number) {
-  const lines: string[] = [];
-  const anchors: Anchor[] = [];
+interface Block {
+  item: DisplayItem;
+  headRows: number;
+  complete: Row[];
+  lines: TextRows;
+  row(index: number): Row | undefined;
+  tail?: { line: number } & Pick<LinkedAppend, 'pending' | 'target'>;
+}
+
+function textRows(
+  length: number,
+  read: (index: number) => string | undefined,
+): TextRows {
+  const relative = (index: number) => {
+    const integer = Math.trunc(index) || 0;
+    return integer < 0 ? length + integer : integer;
+  };
+  return {
+    length,
+    at(index) {
+      const row = relative(index);
+      return row >= 0 && row < length ? read(row) : undefined;
+    },
+    slice(start = 0, end = length) {
+      const result: string[] = [];
+      const last = Math.min(length, Math.max(0, relative(end)));
+      for (let row = Math.max(0, relative(start)); row < last; row++)
+        result.push(read(row)!);
+      return result;
+    },
+  };
+}
+
+/** capture the completed prefix's length so later appends cannot change an earlier frame. */
+function block(
+  item: DisplayItem,
+  headRows: number,
+  complete: Row[],
+  suffix: Row[],
+  tail?: Block['tail'],
+): Block {
+  const count = complete.length;
+  const length = count + suffix.length;
+  const row = (index: number) =>
+    index < count ? complete[index] : suffix[index - count];
+  return {
+    item,
+    headRows,
+    complete,
+    row,
+    lines: textRows(length, (index) => row(index)?.text),
+    tail,
+  };
+}
+
+/** anchors count source lines so resizing keeps the reading position. */
+function section(
+  text: readonly string[],
+  width: number,
+  trim: boolean,
+  first: number,
+) {
+  const rows: Row[] = [];
   let sourceLine = first;
-  for (const line of text.split('\n')) {
+  for (const line of text) {
     const source = trim
       ? stripAnsi(wrapAnsi(line, Infinity, { trim: false }))
       : undefined;
@@ -39,52 +97,12 @@ function section(text: string, width: number, trim: boolean, first: number) {
     for (const row of wrapAnsi(line, width, { hard: true, trim }).split('\n')) {
       const plain = stripAnsi(row);
       if (source !== undefined) offset = source.indexOf(plain, offset);
-      lines.push(row);
-      anchors.push({ line: sourceLine, offset });
+      rows.push({ text: row, anchor: { line: sourceLine, offset } });
       offset += plain.length;
     }
     sourceLine++;
   }
-  return { lines, anchors, next: sourceLine };
-}
-
-/** whether an OSC 8 link opened in `text` is still open at its end. */
-function linkOpen(text: string): boolean {
-  const targets = [
-    // eslint-disable-next-line no-control-regex
-    ...text.matchAll(/\u001b]8;[^;\u0007\u001b]*;([^\u0007\u001b]*)/g),
-  ];
-  return !!targets.at(-1)?.[1];
-}
-
-/** whether `text` ends inside an OSC string, which the tokenizer drops whole, newlines included. */
-function oscOpen(text: string): boolean {
-  const open = Math.max(
-    text.lastIndexOf('\u001b]'),
-    text.lastIndexOf('\u009b]'),
-  );
-  const close = Math.max(
-    text.lastIndexOf('\u0007'),
-    text.lastIndexOf('\u009c'),
-    text.lastIndexOf('\u001b\\'),
-  );
-  return open > close;
-}
-
-/** the tail of a body that can grow, unless an earlier link or OSC string would carry into it. */
-function tailOf(
-  item: DisplayItem,
-  anchors: Anchor[],
-  bodyRow: number,
-): Block['tail'] {
-  const start = item.text.lastIndexOf('\n') + 1;
-  const prefix = item.text.slice(0, start);
-  if (linkOpen(prefix) || oscOpen(prefix)) return undefined;
-  const line = anchors.at(-2)!.line;
-  const row = anchors.findIndex(
-    (anchor, index) => index >= bodyRow && anchor.line === line,
-  );
-  return { row, line, start };
+  return { rows, next: sourceLine };
 }
 
 function build(
@@ -105,13 +123,9 @@ function build(
               `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkify(item.title ?? 'Tool', item.cwd)}`,
             )
           : colors.dim('Notice');
-  const body =
-    tool && !expanded
-      ? ''
-      : tool
-        ? linkify(item.text, item.cwd)
-        : markdown(item.text, item.cwd);
-  // a tool's images show with its output; a message shows the images it names
+  const linked =
+    tool && expanded ? linkifyAppend(item.text, item.cwd) : undefined;
+  const body = tool ? '' : markdown(item.text, item.cwd);
   const sources =
     item.kind === 'user'
       ? imagePaths(item.text)
@@ -127,77 +141,83 @@ function build(
     tool && expanded && item.diff?.length
       ? diffRows(item.diff, width, item.cwd, expansion === 'full')
       : [];
-  const head = section(title, width, true, 0);
-  const rendered = body ? section(body, width, false, head.next) : undefined;
-  const next = rendered?.next ?? head.next;
-  // concat, since spreading a long log into push() exceeds the argument limit
-  const lines = head.lines.concat(
-    rendered?.lines ?? [],
-    diff.flat(),
-    images.flat(),
-    '',
+  const head = section(title.split('\n'), width, true, 0);
+  const complete = section(linked?.complete ?? [], width, false, head.next);
+  const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
+  const rendered = section(
+    hasBody ? (linked?.tail ?? body).split('\n') : [],
+    width,
+    false,
+    complete.next,
   );
-  const anchors = head.anchors.concat(
-    rendered?.anchors ?? [],
-    // row offsets preserve each diff line or image across resizes and separate copied diff rows
-    diff
-      .concat(images)
-      .flatMap((rows, index) =>
-        rows.map((_, row) => ({ line: next + index, offset: row })),
-      ),
-    { line: next + diff.length + images.length, offset: 0 },
+  const next = rendered.next;
+  // row offsets preserve diff and image rows across resizes and when copying.
+  const suffix = rendered.rows.concat(
+    diff.concat(images).flatMap((rows, index) =>
+      rows.map((text, offset) => ({
+        text,
+        anchor: { line: next + index, offset },
+      })),
+    ),
+    {
+      text: '',
+      anchor: { line: next + diff.length + images.length, offset: 0 },
+    },
   );
-  return {
+  return block(
     item,
-    lines,
-    anchors,
-    // output grows above the diff and images, so a block with either is rebuilt whole
-    tail:
-      tool && body && !diff.length && !images.length
-        ? tailOf(item, anchors, head.lines.length)
-        : undefined,
-  };
+    head.rows.length,
+    head.rows.concat(complete.rows),
+    suffix,
+    linked && !diff.length && (!graphics || !sources.length)
+      ? { line: complete.next, pending: linked.pending, target: linked.target }
+      : undefined,
+  );
 }
 
-/** re-renders only the last body line onward when a tool's output grew and nothing else changed. */
 function extend(
-  block: Block,
+  previous: Block,
   item: DisplayItem,
   width: number,
 ): Block | undefined {
-  const previous = block.item;
+  const before = previous.item;
+  const tail = previous.tail;
   if (
-    !block.tail ||
+    !tail ||
     item.kind !== 'tool' ||
-    item.title !== previous.title ||
-    item.done !== previous.done ||
-    item.cwd !== previous.cwd ||
-    item.diff !== previous.diff ||
-    !item.text.startsWith(previous.text)
+    item.title !== before.title ||
+    item.done !== before.done ||
+    item.cwd !== before.cwd ||
+    item.diff !== before.diff ||
+    item.images !== before.images
   )
     return undefined;
+  const appended = appendedDisplayText(before, item);
+  if (appended === undefined) return undefined;
+  const linked = linkifyAppend(tail.pending + appended, item.cwd, tail.target);
+  const complete = section(linked.complete, width, false, tail.line);
+  const hasBody =
+    previous.complete.length > previous.headRows ||
+    linked.complete.length > 0 ||
+    !!linked.tail;
   const rendered = section(
-    linkify(item.text.slice(block.tail.start), item.cwd),
+    hasBody ? linked.tail.split('\n') : [],
     width,
     false,
-    block.tail.line,
+    complete.next,
   );
-  const lines = [
-    ...block.lines.slice(0, block.tail.row),
-    ...rendered.lines,
-    '',
-  ];
-  const anchors = [
-    ...block.anchors.slice(0, block.tail.row),
-    ...rendered.anchors,
-    { line: rendered.next, offset: 0 },
-  ];
-  return {
+  // a large chunk can exceed the argument limit if spread into push().
+  for (const row of complete.rows) previous.complete.push(row);
+  return block(
     item,
-    lines,
-    anchors,
-    tail: tailOf(item, anchors, block.tail.row),
-  };
+    previous.headRows,
+    previous.complete,
+    rendered.rows.concat({
+      text: '',
+      anchor: { line: rendered.next, offset: 0 },
+    }),
+    { line: complete.next, pending: linked.pending, target: linked.target },
+  );
 }
 
 /** a later diff must not reverse the user's explicit open or closed choice. */
@@ -217,7 +237,6 @@ export function isExpanded(
 }
 
 export class TranscriptLayout {
-  /** blocks by item id, then by expanded state, all at `width`. */
   private cache = new Map<string, Map<Expansion, Block>>();
   private width = 0;
 
@@ -232,11 +251,10 @@ export class TranscriptLayout {
   ) {
     if (width !== this.width) this.cache = new Map();
     this.width = width;
-    const lines: string[] = [];
-    const blocks: string[][] = [];
+    let length = 0;
+    const blocks: TextRows[] = [];
     const starts = new Map<string, number>();
     const rendered = new Map<string, Block>();
-    // entries for items no longer shown fall away with the old cache
     const cache = new Map<string, Map<Expansion, Block>>();
     for (const item of items) {
       const expansion = !isExpanded(item, expanded)
@@ -246,38 +264,44 @@ export class TranscriptLayout {
           : 'preview';
       const variants = this.cache.get(item.id) ?? new Map<Expansion, Block>();
       const previous = variants.get(expansion);
-      const block =
+      const current =
         previous?.item === item
           ? previous
           : ((previous && extend(previous, item, width)) ??
             build(item, width, expansion, this.graphics));
-      variants.set(expansion, block);
+      variants.set(expansion, current);
       cache.set(item.id, variants);
-      starts.set(item.id, lines.length);
-      for (const line of block.lines) lines.push(line);
-      blocks.push(block.lines);
-      rendered.set(item.id, block);
+      starts.set(item.id, length);
+      length += current.lines.length;
+      blocks.push(current.lines);
+      rendered.set(item.id, current);
     }
     this.cache = cache;
     const positions = [...starts];
+    const positionAt = (row: number) => {
+      let low = 0;
+      let high = positions.length;
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (positions[middle]![1] <= row) low = middle + 1;
+        else high = middle;
+      }
+      return positions[low - 1];
+    };
     return {
-      lines,
+      lines: textRows(length, (row) => {
+        const [item, start] = positionAt(row)!;
+        return rendered.get(item)!.row(row - start)?.text;
+      }),
       blocks,
       starts,
       anchorAt(row: number): ScrollAnchor | undefined {
-        let low = 0;
-        let high = positions.length;
-        while (low < high) {
-          const middle = Math.floor((low + high) / 2);
-          if (positions[middle]![1] <= row) low = middle + 1;
-          else high = middle;
-        }
-        const entry = positions[low - 1];
+        const entry = positionAt(row);
         if (!entry) return undefined;
         const [item, start] = entry;
         return {
           item,
-          ...(rendered.get(item)!.anchors[row - start] ?? {
+          ...(rendered.get(item)!.row(row - start)?.anchor ?? {
             line: 0,
             offset: 0,
           }),
@@ -285,16 +309,25 @@ export class TranscriptLayout {
       },
       rowOf(anchor: ScrollAnchor): number {
         const start = starts.get(anchor.item) ?? 0;
-        const offset =
-          rendered
-            .get(anchor.item)
-            ?.anchors.findLastIndex(
-              (row) =>
-                row.line === anchor.line &&
-                (row.offset === anchor.offset ||
-                  (row.offset >= 0 && row.offset < anchor.offset)),
-            ) ?? 0;
-        return start + Math.max(0, offset);
+        const current = rendered.get(anchor.item);
+        if (!current) return start;
+        let low = 0;
+        let high = current.lines.length;
+        while (low < high) {
+          const middle = Math.floor((low + high) / 2);
+          if (current.row(middle)!.anchor.line <= anchor.line) low = middle + 1;
+          else high = middle;
+        }
+        for (let index = low - 1; index >= 0; index--) {
+          const row = current.row(index)!.anchor;
+          if (row.line !== anchor.line) break;
+          if (
+            row.offset === anchor.offset ||
+            (row.offset >= 0 && row.offset < anchor.offset)
+          )
+            return start + index;
+        }
+        return start;
       },
     };
   }

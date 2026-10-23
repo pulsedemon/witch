@@ -46,9 +46,8 @@ export function hyperlink(text: string, target: string, cwd: string): string {
     return text;
   }
   if (/\p{Cc}/u.test(url)) return text;
-  // the underline sits inside the link, since markdown's inline code checks for a leading OSC 8,
-  // and each line is its own link, so a line drawn without the one above still opens,
-  // and it's written here, since under tmux ansi-escapes wraps it in passthrough, which Ink drops with the link inside
+  // keep underlining inside each line's link so clipped rows still open.
+  // ansi-escapes adds tmux passthrough that Ink drops, so emit OSC 8 directly.
   return text
     .split('\n')
     .map(
@@ -123,8 +122,8 @@ function bareLinks(text: string, cwd: string): string {
 }
 
 /**
- * linkify-it rescans the rest of its input after every match, so it gets 2000 characters at most, cut after a newline, which ends every link,
- * else after whitespace, `<` or `>`, which end a URL, else after the `"` that separates minified JSON values. A run with none of them is cut where it reaches the limit.
+ * cap linkify-it inputs to avoid rescanning long suffixes after each match.
+ * prefer boundaries that keep links and quoted paths whole.
  */
 function pieces(text: string): string[] {
   const result: string[] = [];
@@ -143,10 +142,9 @@ function pieces(text: string): string[] {
   return result;
 }
 
-export function linkify(text: string, cwd: string): string {
+function linked(text: string, cwd: string, target?: string) {
   let output = '';
   let buffer = '';
-  let target: string | undefined;
   const flush = () => {
     output += target
       ? hyperlink(buffer, target, cwd)
@@ -165,7 +163,64 @@ export function linkify(text: string, cwd: string): string {
       buffer += token.value;
   }
   flush();
-  return output;
+  return { text: output, target };
+}
+
+export function linkify(text: string, cwd: string): string {
+  return linked(text, cwd).text;
+}
+
+function oscEnd(text: string, start: number): number {
+  for (let index = start; index < text.length; index++) {
+    const char = text[index];
+    if (char === '\u0007' || char === '\u009c') return index + 1;
+    if (char === '\u001b' && text[index + 1] === '\\') return index + 2;
+  }
+  return -1;
+}
+
+/** a later delimiter can make the tokenizer consume an earlier OSC and its following lines. */
+function completeLinesEnd(text: string): number {
+  let complete = 0;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === '\n') complete = index + 1;
+    if ((char !== '\u001b' && char !== '\u009b') || text[index + 1] !== ']')
+      continue;
+    const start = text.startsWith(']8;', index + 1)
+      ? text.indexOf(';', index + 4)
+      : index + 1;
+    if (start < 0) return complete;
+    const end = oscEnd(text, start + 1);
+    if (end < 0) return complete;
+    index = end - 1;
+  }
+  return complete;
+}
+
+export interface LinkedAppend {
+  complete: string[];
+  tail: string;
+  pending: string;
+  target?: string;
+}
+
+/** retain raw text until later bytes can no longer change its rendered lines. */
+export function linkifyAppend(
+  text: string,
+  cwd: string,
+  target?: string,
+): LinkedAppend {
+  const end = completeLinesEnd(text);
+  let complete: string[] = [];
+  if (end) {
+    const prefix = linked(text.slice(0, end), cwd, target);
+    complete = prefix.text.split('\n');
+    complete.pop();
+    target = prefix.target;
+  }
+  const pending = text.slice(end);
+  return { complete, tail: linked(pending, cwd, target).text, pending, target };
 }
 
 /** agent-written text with no escapes or links. strip-ansi can't stand in, since removing one sequence can join its neighbours into another. */

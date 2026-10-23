@@ -56,14 +56,14 @@ export function highlight(line: string, start: number, end: number): string {
 
 /** plain text from `start` through `end`, skipping images and joining each copied row after the first with `joint`. */
 export function selectedText(
-  lines: readonly string[],
+  lines: Pick<readonly string[], 'at'>,
   start: Point,
   end: Point,
   joint: (row: number) => string,
 ): string {
   let text: string | undefined;
   for (let row = start.row; row <= end.row; row++) {
-    const line = lines[row]!;
+    const line = lines.at(row)!;
     if (line.includes(placeholder)) continue;
     text = text === undefined ? '' : text + joint(row);
     text += cut(

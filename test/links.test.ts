@@ -6,7 +6,13 @@ import { promisify } from 'node:util';
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
-import { hyperlink, linkify, linkTarget, plain } from '../src/ui/links.js';
+import {
+  hyperlink,
+  linkify,
+  linkifyAppend,
+  linkTarget,
+  plain,
+} from '../src/ui/links.js';
 import { markdown } from '../src/ui/markdown.js';
 
 const execute = promisify(execFile);
@@ -207,7 +213,7 @@ await test('malformed file URLs remain readable without breaking a persisted tra
 });
 
 await test('long runs of dashes, dots and @ signs, and links on many lines or one, link in linear time', () => {
-  // this process's CPU time ignores load from parallel tests; 4x the input costs 4x when linear, 16x when quadratic
+  // compare CPU time so scheduling delays do not count as parsing work.
   const fastest = (text: string) =>
     Math.min(
       ...[1, 2, 3].map(() => {
@@ -324,4 +330,72 @@ await test('plain text keeps no link, including one that stripping a sequence wo
     plain('\u001b]8;;https://evil.example/share\u0007name\u001b]8;;\u0007'),
     'name',
   );
+});
+
+await test('streaming links retain their targets and unresolved controls across chunks', () => {
+  const target = 'https://x.test/';
+  const cases = [
+    {
+      text: '\u001b]8;x\u0007\nfoo;https://x.test/\u0007one\ntwo',
+      plain: 'one\ntwo',
+      linked: true,
+    },
+    { text: 'a\r\nb\tc', plain: 'a\r\nb\tc', linked: false },
+    { text: 'a😀z\n👩‍💻', plain: 'a😀z\n👩‍💻', linked: false },
+    { text: '\u001b[31\nredm', plain: '[31\nredm', linked: false },
+    ...['\u0007', '\u009c', '\u001b\\'].flatMap((end) => [
+      {
+        text: `before\n\u001b]8;;${target}${end}one\ntwo\u001b]8;;${end}\nafter`,
+        plain: 'before\none\ntwo\nafter',
+        linked: true,
+      },
+      {
+        text: `before\n\u001b]0;title\nhidden${end}one\ntwo`,
+        plain: 'before\none\ntwo',
+        linked: false,
+      },
+      {
+        text: `before\n\u009b]0;title\nhidden${end}one\ntwo`,
+        plain: 'before\none\ntwo',
+        linked: false,
+      },
+    ]),
+  ];
+  for (const sample of cases) {
+    const streams = Array.from({ length: sample.text.length + 1 }, (_, cut) => [
+      sample.text.slice(0, cut),
+      sample.text.slice(cut),
+    ]);
+    streams.push(sample.text.split(''));
+    for (const chunks of streams) {
+      let text = '';
+      let pending = '';
+      let carried: string | undefined;
+      const complete: string[] = [];
+      let actual = '';
+      for (const chunk of chunks) {
+        text += chunk;
+        const next = linkifyAppend(pending + chunk, '/work', carried);
+        complete.push(...next.complete);
+        pending = next.pending;
+        carried = next.target;
+        actual = [...complete, next.tail].join('\n');
+        assert.equal(
+          actual,
+          linkify(text, '/work'),
+          JSON.stringify({ text, chunk }),
+        );
+      }
+      assert.equal(stripAnsi(actual), sample.plain);
+      assert.equal(actual.includes(`\u001b]8;;${target}\u0007`), sample.linked);
+      if (sample.linked) {
+        for (const word of ['one', 'two'])
+          assert.ok(
+            actual.includes(
+              `\u001b]8;;${target}\u0007\u001b[4m${word}\u001b[24m\u001b]8;;\u0007`,
+            ),
+          );
+      }
+    }
+  }
 });
