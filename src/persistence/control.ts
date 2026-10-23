@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants, promises as files } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
 import {
@@ -15,6 +17,21 @@ import type { CoordinationAction } from '../core/coordination-state.js';
 import { ClaimConflict, checkDeadline } from './coordination.js';
 import { writeJson } from './json.js';
 
+const execute = promisify(execFile);
+const cleanup = `
+my ($directory, $name, $flags) = @ARGV;
+my @directories;
+for my $part ('replies', 'inbox') {
+  sysopen(my $handle, "$directory/$part", $flags)
+    or die "Cannot open $part: $!";
+  push @directories, $handle;
+}
+for my $handle (@directories) {
+  chdir($handle) or die "Cannot enter mailbox directory: $!";
+  unlink($name) or $!{ENOENT} or die "Cannot remove expired control file: $!";
+  close($handle) or die "Cannot close mailbox directory: $!";
+}
+`;
 const idSchema = z.string().uuid();
 // macOS O_NOFOLLOW_ANY, which Node doesn't export
 const noFollowAny = 0x20000000;
@@ -171,6 +188,22 @@ export class ControlHost {
       });
   }
 
+  /** directory handles keep deletion inside the mailbox if a parent path is replaced. */
+  private async expire(id: string): Promise<void> {
+    await execute('/usr/bin/perl', [
+      '-e',
+      cleanup,
+      this.directory,
+      `${id}.json`,
+      String(
+        constants.O_RDONLY |
+          constants.O_DIRECTORY |
+          constants.O_NONBLOCK |
+          noFollowAny,
+      ),
+    ]);
+  }
+
   private async read(): Promise<void> {
     for (const name of await files.readdir(join(this.directory, 'inbox'))) {
       if (this.closed) return;
@@ -186,25 +219,33 @@ export class ControlHost {
           throw error;
         },
       );
-      if (answered) continue;
       const text = await read(
         join(this.directory, 'inbox', name),
         constants.O_RDONLY | constants.O_NONBLOCK | noFollowAny,
       );
       if (text === undefined) continue;
-      let outcome: ControlOutcome;
+      let request: ControlRequest | undefined;
+      let outcome: ControlOutcome | undefined;
       try {
-        const request = controlRequestSchema.parse(JSON.parse(text));
-        if (request.id !== id)
+        const envelope = controlRequestSchema.parse(JSON.parse(text));
+        if (envelope.id !== id)
           throw new Error('Request id does not match its file.');
-        checkDeadline(request.deadline);
-        outcome = await this.handle(request);
+        request = envelope;
+        if (!answered) {
+          checkDeadline(request.deadline);
+          outcome = await this.handle(request);
+        }
       } catch (error) {
         outcome =
           error instanceof ClaimConflict
             ? { kind: 'conflict', claim: error.claim, message: error.message }
             : { kind: 'error', message: errorMessage(error) };
       }
+      if (request && Date.now() >= request.deadline) {
+        await this.expire(id);
+        continue;
+      }
+      if (answered) continue;
       // a fresh descriptor cannot follow a redirected parent or overwrite an existing file.
       const file = await files.open(
         reply,
