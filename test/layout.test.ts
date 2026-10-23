@@ -6,8 +6,8 @@ import stripAnsi from 'strip-ansi';
 import { Graphics, placeholder } from '../src/ui/images.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import type { FileDiff } from '../src/agents/types.js';
-import type { DisplayItem } from '../src/core/state.js';
-import { applyDisplayUpdate } from '../src/core/state.js';
+import type { DisplayItem, DisplayUpdate } from '../src/core/state.js';
+import { applyDisplayUpdate, foldDisplayUpdates } from '../src/core/state.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
@@ -54,30 +54,30 @@ await test('full diff choices survive cached renders and resizes', () => {
       new Set(full ? ['full'] : []),
     );
     assert.equal(
-      rendered.lines.some((line) => line.includes('line_12')),
+      rendered.lines.slice().some((line) => line.includes('line_12')),
       full,
     );
   }
   const full = new Set(['full']);
   const initial = layout.render(items, 40, new Map(), full);
   const last = initial.anchorAt(
-    initial.lines.findIndex((line) => line.includes('line_12')),
+    initial.lines.slice().findIndex((line) => line.includes('line_12')),
   )!;
   const after = initial.anchorAt(initial.starts.get('after')!)!;
   for (const width of [100, 30]) {
     const resized = layout.render(items, width, new Map(), full);
     assert.equal(
-      stripAnsi(resized.lines[resized.rowOf(last)]!).trim(),
+      stripAnsi(resized.lines.at(resized.rowOf(last))!).trim(),
       '12 +line_12',
     );
     assert.equal(
-      stripAnsi(resized.lines[resized.rowOf(after)]!),
+      stripAnsi(resized.lines.at(resized.rowOf(after))!),
       '+ ✓ Following tool',
     );
   }
   const closed = layout.render(items, 30, new Map([['full', false]]), full);
   assert.equal(
-    closed.lines.some((line) => line.includes('line_12')),
+    closed.lines.slice().some((line) => line.includes('line_12')),
     false,
   );
 });
@@ -93,13 +93,14 @@ await test('expanding a tool shows its complete output without losing links', ()
   };
   const layout = new TranscriptLayout();
   assert.doesNotMatch(
-    stripAnsi(layout.render([item], 60, new Map()).lines.join('\n')),
+    stripAnsi(layout.render([item], 60, new Map()).lines.slice().join('\n')),
     /Done/,
   );
   const expanded = layout.render([item], 60, new Map([['tool', true]]));
-  assert.match(stripAnsi(expanded.lines.join('\n')), /Done/);
+  assert.match(stripAnsi(expanded.lines.slice().join('\n')), /Done/);
   assert.ok(
     expanded.lines
+      .slice()
       .join('\n')
       .includes('vscode://file/work/project/src/main.ts:9'),
   );
@@ -143,13 +144,13 @@ await test('a reading anchor follows its original log line when a narrower windo
   };
   const layout = new TranscriptLayout();
   const wide = layout.render([item], 100, new Map([['log', true]]));
-  const row = wide.lines.findIndex((line) =>
-    stripAnsi(line).startsWith('Line 700:'),
-  );
+  const row = wide.lines
+    .slice()
+    .findIndex((line) => stripAnsi(line).startsWith('Line 700:'));
   const anchor = wide.anchorAt(row)!;
   const narrow = layout.render([item], 30, new Map([['log', true]]));
-  assert.match(stripAnsi(narrow.lines[narrow.rowOf(anchor)]!), /^Line 700:/);
-  assert.doesNotMatch(stripAnsi(narrow.lines[row]!), /^Line 700:/);
+  assert.match(stripAnsi(narrow.lines.at(narrow.rowOf(anchor))!), /^Line 700:/);
+  assert.doesNotMatch(stripAnsi(narrow.lines.at(row)!), /^Line 700:/);
 });
 
 await test('expanded logs exceed the argument limit with complete output and usable anchors', () => {
@@ -171,9 +172,9 @@ await test('expanded logs exceed the argument limit with complete output and usa
       new Map([['large', true]]),
     );
     assert.equal(
-      output.lines.filter(
-        (line) => stripAnsi(line) === (wrapped ? 'xx' : 'line'),
-      ).length,
+      output.lines
+        .slice()
+        .filter((line) => stripAnsi(line) === (wrapped ? 'xx' : 'line')).length,
       200000,
     );
     assert.equal(stripAnsi(output.lines.at(-2)!), wrapped ? 'xx' : 'line');
@@ -240,10 +241,10 @@ await test('a reading anchor includes spaces trimmed while wrapping a title', ()
   const layout = new TranscriptLayout();
   const narrow = layout.render([item], 40, new Map());
   const anchor = narrow.anchorAt(2)!;
-  assert.match(stripAnsi(narrow.lines[2]!), /^word009/);
+  assert.match(stripAnsi(narrow.lines.at(2)!), /^word009/);
   const wide = layout.render([item], 80, new Map());
   assert.equal(wide.rowOf(anchor), 1);
-  assert.match(stripAnsi(wide.lines[wide.rowOf(anchor)]!), /^word009/);
+  assert.match(stripAnsi(wide.lines.at(wide.rowOf(anchor))!), /^word009/);
 });
 
 await test('a title row changed by wrapping does not take another row’s anchor', () => {
@@ -257,7 +258,7 @@ await test('a title row changed by wrapping does not take another row’s anchor
   };
   const output = new TranscriptLayout().render([item], 58, new Map());
   assert.deepEqual(
-    output.lines.map((line) => stripAnsi(line)),
+    output.lines.slice().map((line) => stripAnsi(line)),
     [`+ ✓ ${'a'.repeat(53)}`, `\u200b${'b'.repeat(55)}`, 'tail', ''],
   );
   assert.deepEqual(
@@ -295,12 +296,12 @@ await test('anchors keep item boundaries and wrapped offsets in their own render
     ['last', 2, 0],
   ].map(([item, line, offset]) => ({ item, line, offset }));
   assert.deepEqual(
-    first.lines.map((_, row) => first.anchorAt(row)),
+    first.lines.slice().map((_, row) => first.anchorAt(row)),
     expected,
   );
   const second = layout.render(items.slice(1), 24, new Map());
   assert.deepEqual(
-    second.lines.map((_, row) => second.anchorAt(row)),
+    second.lines.slice().map((_, row) => second.anchorAt(row)),
     [
       { item: 'middle', line: 0, offset: 0 },
       { item: 'middle', line: 1, offset: 0 },
@@ -310,7 +311,7 @@ await test('anchors keep item boundaries and wrapped offsets in their own render
     ],
   );
   assert.deepEqual(
-    first.lines.map((_, row) => first.anchorAt(row)),
+    first.lines.slice().map((_, row) => first.anchorAt(row)),
     expected,
   );
   assert.equal(first.anchorAt(-1), undefined);
@@ -335,30 +336,28 @@ await test('anchor lookups stay fast across ten thousand messages', () => {
     [0, 1, 2].map((line) => ({ item: item.id, line, offset: 0 })),
   );
   const started = performance.now();
-  const actual = output.lines.map((_, row) => output.anchorAt(row));
+  const actual = output.lines.slice().map((_, row) => output.anchorAt(row));
   const elapsed = performance.now() - started;
   assert.deepEqual(actual, expected);
   assert.ok(elapsed < 500, `anchor lookups took ${elapsed} ms`);
 });
 
 interface Frame {
-  items: DisplayItem[];
+  updates: DisplayUpdate[];
   width: number;
   expanded: string[];
 }
 
-/** renders each frame on one layout and on a fresh one, which must agree in lines and anchors. */
 function sameAsFull(frames: Frame[]) {
   const layout = new TranscriptLayout();
+  let items: DisplayItem[] = [];
   for (const frame of frames) {
+    for (const update of frame.updates)
+      items = applyDisplayUpdate(items, update);
     const expanded = new Map(frame.expanded.map((id) => [id, true]));
-    const incremental = layout.render(frame.items, frame.width, expanded);
-    const full = new TranscriptLayout().render(
-      frame.items,
-      frame.width,
-      expanded,
-    );
-    assert.deepEqual(incremental.lines, full.lines);
+    const incremental = layout.render(items, frame.width, expanded);
+    const full = new TranscriptLayout().render(items, frame.width, expanded);
+    assert.deepEqual(incremental.lines.slice(), full.lines.slice());
     for (let row = 0; row < full.lines.length; row++)
       assert.deepEqual(incremental.anchorAt(row), full.anchorAt(row));
   }
@@ -404,10 +403,10 @@ await test('an OSC 8 separator arriving after a terminator rebuilds the uncertai
         offset: 0,
       });
     const fresh = new TranscriptLayout().render(items, 100, expanded);
-    assert.deepEqual(frame.lines, fresh.lines);
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
     for (let row = 0; row < frame.lines.length; row++)
       assert.deepEqual(frame.anchorAt(row), fresh.anchorAt(row));
-    assert.deepEqual(before.lines, saved);
+    assert.deepEqual(before.lines.slice(), saved);
   }
 });
 
@@ -437,32 +436,34 @@ for (const [name, prefix, suffix, body, target] of [
     const frame = layout.render(items, 2200, expanded);
     assert.deepEqual(frame.lines.slice(1, -1).map(stripAnsi), body);
     if (target)
-      assert.ok(frame.lines.join('\n').includes(`\u001b]8;;${target}\u0007`));
+      assert.ok(
+        frame.lines.slice().join('\n').includes(`\u001b]8;;${target}\u0007`),
+      );
     const fresh = new TranscriptLayout().render(items, 2200, expanded);
-    assert.deepEqual(frame.lines, fresh.lines);
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
   });
 
 for (const [name, frames] of [
   [
     'an append to an expanded running tool',
     [
-      { items: [tool(early)], width: 40, expanded: ['tool'] },
-      { items: [tool(`${early}ning\nmore`)], width: 40, expanded: ['tool'] },
+      { updates: [tool(early)], width: 40, expanded: ['tool'] },
+      { updates: [tool('ning\nmore')], width: 40, expanded: ['tool'] },
     ],
   ],
   [
     'a done flip and an append in one update',
     [
-      { items: [tool(early)], width: 40, expanded: ['tool'] },
-      { items: [tool(`${early} done`, true)], width: 40, expanded: ['tool'] },
+      { updates: [tool(early)], width: 40, expanded: ['tool'] },
+      { updates: [tool(' done', true)], width: 40, expanded: ['tool'] },
     ],
   ],
   [
     'a link split across the append',
     [
-      { items: [tool('see src/ma')], width: 40, expanded: ['tool'] },
+      { updates: [tool('see src/ma')], width: 40, expanded: ['tool'] },
       {
-        items: [tool('see src/main.ts:3\nnext')],
+        updates: [tool('in.ts:3\nnext')],
         width: 40,
         expanded: ['tool'],
       },
@@ -472,16 +473,12 @@ for (const [name, frames] of [
     'a link opened on an earlier line',
     [
       {
-        items: [tool('\u001b]8;;https://example.com\u0007start\nmid')],
+        updates: [tool('\u001b]8;;https://example.com\u0007start\nmid')],
         width: 40,
         expanded: ['tool'],
       },
       {
-        items: [
-          tool(
-            '\u001b]8;;https://example.com\u0007start\nmiddle\u001b]8;;\u0007',
-          ),
-        ],
+        updates: [tool('dle\u001b]8;;\u0007')],
         width: 40,
         expanded: ['tool'],
       },
@@ -491,12 +488,12 @@ for (const [name, frames] of [
     'a raw newline inside an OSC string',
     [
       {
-        items: [tool('PASS a\nstep \u001b]0;build\nlog\u0007one')],
+        updates: [tool('PASS a\nstep \u001b]0;build\nlog\u0007one')],
         width: 40,
         expanded: ['tool'],
       },
       {
-        items: [tool('PASS a\nstep \u001b]0;build\nlog\u0007one two')],
+        updates: [tool(' two')],
         width: 40,
         expanded: ['tool'],
       },
@@ -506,12 +503,12 @@ for (const [name, frames] of [
     'an OSC string that ends after the append',
     [
       {
-        items: [tool('PASS a\nstep \u001b]0;build\nlog')],
+        updates: [tool('PASS a\nstep \u001b]0;build\nlog')],
         width: 40,
         expanded: ['tool'],
       },
       {
-        items: [tool('PASS a\nstep \u001b]0;build\nlog\u0007one')],
+        updates: [tool('\u0007one')],
         width: 40,
         expanded: ['tool'],
       },
@@ -521,12 +518,12 @@ for (const [name, frames] of [
     'an OSC string opened by a C1 introducer',
     [
       {
-        items: [tool('PASS a\nstep \u009b]0;build\nlog')],
+        updates: [tool('PASS a\nstep \u009b]0;build\nlog')],
         width: 40,
         expanded: ['tool'],
       },
       {
-        items: [tool('PASS a\nstep \u009b]0;build\nlog\u0007one')],
+        updates: [tool('\u0007one')],
         width: 40,
         expanded: ['tool'],
       },
@@ -535,20 +532,24 @@ for (const [name, frames] of [
   [
     'a replacement that does not extend the text',
     [
-      { items: [tool(early)], width: 40, expanded: ['tool'] },
-      { items: [tool('replaced output')], width: 40, expanded: ['tool'] },
+      { updates: [tool(early)], width: 40, expanded: ['tool'] },
+      {
+        updates: [{ ...tool('replaced output'), replace: true }],
+        width: 40,
+        expanded: ['tool'],
+      },
     ],
   ],
   [
     'an append to a last line that wraps',
     [
       {
-        items: [tool('first\nprogress 0123456789abcdef')],
+        updates: [tool('first\nprogress 0123456789abcdef')],
         width: 12,
         expanded: ['tool'],
       },
       {
-        items: [tool('first\nprogress 0123456789abcdefghij')],
+        updates: [tool('ghij')],
         width: 12,
         expanded: ['tool'],
       },
@@ -557,52 +558,58 @@ for (const [name, frames] of [
   [
     'an append to a collapsed tool',
     [
-      { items: [tool(early)], width: 40, expanded: [] },
-      { items: [tool(`${early} more`)], width: 40, expanded: [] },
+      { updates: [tool(early)], width: 40, expanded: [] },
+      { updates: [tool(' more')], width: 40, expanded: [] },
     ],
   ],
   [
     'an append after a resize narrower than an earlier line',
     [
-      { items: [tool(early)], width: 80, expanded: ['tool'] },
-      { items: [tool(early)], width: 12, expanded: ['tool'] },
-      { items: [tool(`${early} more`)], width: 12, expanded: ['tool'] },
+      { updates: [tool(early)], width: 80, expanded: ['tool'] },
+      { updates: [], width: 12, expanded: ['tool'] },
+      { updates: [tool(' more')], width: 12, expanded: ['tool'] },
     ],
   ],
   [
     'a resize, an append, then a resize back',
     [
-      { items: [tool(early)], width: 160, expanded: ['tool'] },
-      { items: [tool(early)], width: 159, expanded: ['tool'] },
-      { items: [tool(`${early} more`)], width: 159, expanded: ['tool'] },
-      { items: [tool(`${early} more`)], width: 160, expanded: ['tool'] },
+      { updates: [tool(early)], width: 160, expanded: ['tool'] },
+      { updates: [], width: 159, expanded: ['tool'] },
+      { updates: [tool(' more')], width: 159, expanded: ['tool'] },
+      { updates: [], width: 160, expanded: ['tool'] },
     ],
   ],
   [
     'an append in the frame that expands the tool',
     [
-      { items: [tool(early)], width: 40, expanded: ['tool'] },
-      { items: [tool(early)], width: 40, expanded: [] },
-      { items: [tool(`${early} more`)], width: 40, expanded: ['tool'] },
+      { updates: [tool(early)], width: 40, expanded: ['tool'] },
+      { updates: [], width: 40, expanded: [] },
+      { updates: [tool(' more')], width: 40, expanded: ['tool'] },
     ],
   ],
   [
     'an append that also renames the tool',
     [
-      { items: [tool('see src/a.ts\nnext')], width: 40, expanded: ['tool'] },
+      { updates: [tool('see src/a.ts\nnext')], width: 40, expanded: ['tool'] },
       {
-        items: [{ ...tool('see src/a.ts\nnext line'), title: 'npm run test' }],
+        updates: [{ ...tool(' line'), title: 'npm run test' }],
         width: 40,
         expanded: ['tool'],
       },
     ],
   ],
   [
-    'an append that also moves the tool to another directory',
+    'a replacement that also moves the tool to another directory',
     [
-      { items: [tool('see src/a.ts\nnext')], width: 40, expanded: ['tool'] },
+      { updates: [tool('see src/a.ts\nnext')], width: 40, expanded: ['tool'] },
       {
-        items: [{ ...tool('see src/a.ts\nnext src/b.ts'), cwd: '/other' }],
+        updates: [
+          {
+            ...tool('see src/a.ts\nnext src/b.ts'),
+            cwd: '/other',
+            replace: true,
+          },
+        ],
         width: 40,
         expanded: ['tool'],
       },
@@ -611,21 +618,23 @@ for (const [name, frames] of [
   [
     'an append to an expanded tool with no output yet',
     [
-      { items: [tool('')], width: 40, expanded: ['tool'] },
-      { items: [tool('first line')], width: 40, expanded: ['tool'] },
+      { updates: [tool('')], width: 40, expanded: ['tool'] },
+      { updates: [tool('first line')], width: 40, expanded: ['tool'] },
     ],
   ],
   [
     'a streaming heading in an expanded assistant item',
     [
       {
-        items: [{ id: 'tool', kind: 'assistant', text: 'Title', cwd: '/work' }],
+        updates: [
+          { id: 'tool', kind: 'assistant', text: 'Title', cwd: '/work' },
+        ],
         width: 40,
         expanded: ['tool'],
       },
       {
-        items: [
-          { id: 'tool', kind: 'assistant', text: 'Title\n===', cwd: '/work' },
+        updates: [
+          { id: 'tool', kind: 'assistant', text: '\n===', cwd: '/work' },
         ],
         width: 40,
         expanded: ['tool'],
@@ -645,19 +654,173 @@ await test('a warm append to a 20k-line tool costs under a tenth of a full rende
   new TranscriptLayout().render([tool(text)], 118, expanded);
   const full = performance.now() - start;
   const layout = new TranscriptLayout();
-  let item = tool(text);
-  layout.render([item], 118, expanded);
+  let items = applyDisplayUpdate([], tool(text));
+  layout.render(items, 118, expanded);
   const appends: number[] = [];
   for (let index = 0; index < 3; index++) {
-    item = tool(`${item.text}PASS test/extra-${index}.test.ts\n`);
+    items = applyDisplayUpdate(
+      items,
+      tool(`PASS test/extra-${index}.test.ts\n`),
+    );
     start = performance.now();
-    layout.render([item], 118, expanded);
+    layout.render(items, 118, expanded);
     appends.push(performance.now() - start);
   }
   assert.ok(
     Math.min(...appends) < full / 10,
     `append ${Math.min(...appends)} ms against a full ${full} ms`,
   );
+});
+
+await test('layout receives every skipped append and rebuilds after replacements or unrelated history', () => {
+  for (const replay of [false, true]) {
+    const seed = [tool('first\n'), tool('part')];
+    let items = replay
+      ? foldDisplayUpdates(seed)
+      : seed.reduce(applyDisplayUpdate, [] as DisplayItem[]);
+    const base = items;
+    const layout = new TranscriptLayout();
+    const expanded = new Map([['tool', true]]);
+    const body = () =>
+      layout.render(items, 80, expanded).lines.slice(1, -1).map(stripAnsi);
+    assert.deepEqual(body(), ['first', 'part']);
+    for (const delta of ['ial', '\nsecond', '\nthird'])
+      items = applyDisplayUpdate(items, tool(delta));
+    assert.deepEqual(body(), ['first', 'partial', 'second', 'third']);
+    items = applyDisplayUpdate(items, {
+      ...tool('first\npartial\nsecond\nthird replaced'),
+      replace: true,
+    });
+    assert.deepEqual(body(), ['first', 'partial', 'second', 'third replaced']);
+    items = applyDisplayUpdate(items, tool('\nlast'));
+    assert.deepEqual(body(), [
+      'first',
+      'partial',
+      'second',
+      'third replaced',
+      'last',
+    ]);
+    items = applyDisplayUpdate(items, tool(''));
+    assert.deepEqual(body(), [
+      'first',
+      'partial',
+      'second',
+      'third replaced',
+      'last',
+    ]);
+    items = applyDisplayUpdate(base, tool(' sibling'));
+    assert.deepEqual(body(), ['first', 'part sibling']);
+    items = applyDisplayUpdate(
+      applyDisplayUpdate(base, tool(' other')),
+      tool(' branch'),
+    );
+    assert.deepEqual(body(), ['first', 'part other branch']);
+    items = base;
+    assert.deepEqual(body(), ['first', 'part']);
+    items = [tool('independent')];
+    assert.deepEqual(body(), ['independent']);
+  }
+});
+
+await test('an earlier layout frame retains its rows and anchors after the tool grows', () => {
+  const following: DisplayItem = {
+    id: 'after',
+    kind: 'notice',
+    text: 'after',
+    cwd: '/work',
+  };
+  let items = applyDisplayUpdate([], tool('first\npart'));
+  items = applyDisplayUpdate(items, following);
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['tool', true]]);
+  const before = layout.render(items, 80, expanded);
+  const lines = before.lines.slice();
+  const anchors = lines.map((_, row) => before.anchorAt(row)!);
+  const positions = anchors.map((anchor) => before.rowOf(anchor));
+  const starts = [...before.starts];
+  assert.equal(before.starts.get('after'), 4);
+  for (const delta of ['ial', '\nsecond\n', 'third']) {
+    items = applyDisplayUpdate(items, tool(delta));
+    layout.render(items, 80, expanded);
+  }
+  const after = layout.render(items, 80, expanded);
+  assert.deepEqual(after.lines.slice(1, 5).map(stripAnsi), [
+    'first',
+    'partial',
+    'second',
+    'third',
+  ]);
+  assert.equal(after.starts.get('after'), 6);
+  assert.deepEqual(before.lines.slice(), lines);
+  assert.deepEqual([...before.starts], starts);
+  assert.deepEqual(
+    lines.map((_, row) => before.anchorAt(row)),
+    anchors,
+  );
+  assert.deepEqual(
+    anchors.map((anchor) => before.rowOf(anchor)),
+    positions,
+  );
+  const page = after.lines.slice(0, 2);
+  page[0] = 'highlighted';
+  assert.notEqual(after.lines.at(0), 'highlighted');
+  assert.equal(after.lines.at(-2), 'after');
+  assert.deepEqual(after.lines.slice(-2), ['after', '']);
+});
+
+await test('warm tool appends and a fixed page do not scale with completed prefix rows', () => {
+  const expanded = new Map([['tool', true]]);
+  const results: number[] = [];
+  for (const count of [2000, 100000]) {
+    let items = applyDisplayUpdate(
+      [],
+      tool('plain output row\n'.repeat(count)),
+    );
+    const layout = new TranscriptLayout();
+    layout.render(items, 100, expanded);
+    const append = () => {
+      items = applyDisplayUpdate(items, tool('appended row\n'));
+      const frame = layout.render(items, 100, expanded);
+      assert.equal(frame.lines.slice(-30).length, 30);
+      assert.equal(frame.lines.at(-3), 'appended row');
+    };
+    for (let index = 0; index < 10; index++) append();
+    const samples: number[] = [];
+    for (let batch = 0; batch < 5; batch++) {
+      const started = process.cpuUsage();
+      for (let index = 0; index < 50; index++) append();
+      const used = process.cpuUsage(started);
+      samples.push((used.user + used.system) / 50000);
+    }
+    results.push(samples.sort((a, b) => a - b)[2]!);
+  }
+  const [small, large] = results as [number, number];
+  assert.ok(
+    large <= small * 4 + 0.5,
+    `append CPU: ${small} ms at 2k rows, ${large} ms at 100k`,
+  );
+});
+
+await test('an image arriving with an append replaces the text-only cached block', async () => {
+  const directory = await scratch('witch-layout-');
+  await writeFile(join(directory, 'shot.png'), png(160, 80));
+  const layout = new TranscriptLayout(new Graphics(() => {}));
+  const expanded = new Map([['tool', true]]);
+  let items = applyDisplayUpdate([], { ...tool('read\n'), cwd: directory });
+  const before = layout.render(items, 100, expanded);
+  assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
+  items = applyDisplayUpdate(items, {
+    ...tool('finished'),
+    cwd: directory,
+    images: ['shot.png'],
+  });
+  const frame = layout.render(items, 100, expanded);
+  const rows = frame.lines.slice();
+  const first = rows.findIndex((line) => line.includes(placeholder));
+  assert.equal(rows.filter((line) => line.includes(placeholder)).length, 5);
+  assert.deepEqual(frame.anchorAt(first), { item: 'tool', line: 3, offset: 0 });
+  assert.equal(frame.rowOf({ item: 'tool', line: 3, offset: 4 }), first + 4);
+  assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
 });
 
 await test('a message shows the images it names below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
@@ -684,23 +847,23 @@ await test('a message shows the images it names below its text, and a tool shows
 
   const collapsed = layout.render([message, tool], 100, new Map());
   const [shown] = collapsed.blocks;
-  assert.equal(imageRows(shown!), 5);
+  assert.equal(imageRows(shown!.slice()), 5);
   assert.ok(
-    shown!.findIndex((line) => stripAnsi(line).includes('look at shot.png')) <
-      shown!.findIndex((line) => line.includes(placeholder)),
+    shown!
+      .slice()
+      .findIndex((line) => stripAnsi(line).includes('look at shot.png')) <
+      shown!.slice().findIndex((line) => line.includes(placeholder)),
   );
-  assert.equal(imageRows(collapsed.blocks[1]!), 0);
+  assert.equal(imageRows(collapsed.blocks[1]!.slice()), 0);
 
   const expanded = new Map([['tool', true]]);
   assert.equal(
-    imageRows(layout.render([message, tool], 100, expanded).blocks[1]!),
+    imageRows(layout.render([message, tool], 100, expanded).blocks[1]!.slice()),
     5,
   );
-  const grown = layout.render(
-    [message, { ...tool, text: 'Read it\nand more' }],
-    100,
-    expanded,
-  ).blocks[1]!;
+  const grown = layout
+    .render([message, { ...tool, text: 'Read it\nand more' }], 100, expanded)
+    .blocks[1]!.slice();
   assert.equal(imageRows(grown), 5);
   assert.ok(grown.some((line) => stripAnsi(line).includes('and more')));
 });
@@ -726,8 +889,8 @@ for (const kind of ['tool', 'user'] as const) {
 
     assert.equal(narrow.lines.length, 12);
     assert.equal(wide.lines.length, 26);
-    assert.equal(narrow.lines[11], '');
-    assert.equal(wide.lines[25], '');
+    assert.equal(narrow.lines.at(11), '');
+    assert.equal(wide.lines.at(25), '');
     assert.equal(wide.rowOf(narrow.anchorAt(11)!), 25);
     assert.equal(narrow.rowOf(wide.anchorAt(25)!), 11);
     assert.equal(wide.rowOf(narrow.anchorAt(4)!), 4);
@@ -766,10 +929,12 @@ await test('an image anchor follows wrapped diff output', async () => {
   const expanded = new Map([['mixed', true]]);
   const narrow = layout.render([item], 40, expanded);
   const wide = layout.render([item], 100, expanded);
-  const narrowImage = narrow.lines.findIndex((line) =>
-    line.includes(placeholder),
-  );
-  const wideImage = wide.lines.findIndex((line) => line.includes(placeholder));
+  const narrowImage = narrow.lines
+    .slice()
+    .findIndex((line) => line.includes(placeholder));
+  const wideImage = wide.lines
+    .slice()
+    .findIndex((line) => line.includes(placeholder));
   assert.equal(narrowImage, 11);
   assert.equal(wideImage, 8);
   assert.equal(wide.rowOf(narrow.anchorAt(narrowImage + 2)!), wideImage + 2);
@@ -797,7 +962,9 @@ await test("a shell tool row shows expanded until toggled, and an agent's tool r
   ];
   const layout = new TranscriptLayout();
   const lines = (expanded: ReadonlyMap<string, boolean>) =>
-    stripAnsi(layout.render(items, 60, expanded).lines.join('\n')).split('\n');
+    stripAnsi(
+      layout.render(items, 60, expanded).lines.slice().join('\n'),
+    ).split('\n');
   const untoggled = lines(new Map());
   assert.ok(untoggled.includes('− ✓ ls'), untoggled.join('\n'));
   assert.ok(untoggled.includes('shell-a') && untoggled.includes('shell-b'));
@@ -850,7 +1017,8 @@ await test('a tool that changed a file under its directory shows its diff until 
   ) =>
     layout
       .render(shown, 60, expanded)
-      .lines.map((line) => stripAnsi(line).trimEnd());
+      .lines.slice()
+      .map((line) => stripAnsi(line).trimEnd());
   const untoggled = lines(items, new Map());
   assert.ok(untoggled.includes('− ✓ Edit in'), untoggled.join('\n'));
   assert.ok(untoggled.includes('Update ./a.txt +1 -1'));
@@ -908,7 +1076,8 @@ await test('a tool in a conversation at / shows the diff of a file anywhere unti
   const lines = (expanded: ReadonlyMap<string, boolean>) =>
     layout
       .render([item], 60, expanded)
-      .lines.map((line) => stripAnsi(line).trimEnd());
+      .lines.slice()
+      .map((line) => stripAnsi(line).trimEnd());
   const untoggled = lines(new Map());
   assert.ok(untoggled.includes('− ✓ Edit root'), untoggled.join('\n'));
   assert.ok(untoggled.includes('Update /Users/me/a.txt +1 -1'));
@@ -951,7 +1120,8 @@ await test('explicit expansion choices survive a project diff arriving', () => {
     const render = (item: DisplayItem) =>
       layout
         .render([item], 60, choices)
-        .lines.map((line) => stripAnsi(line).trimEnd());
+        .lines.slice()
+        .map((line) => stripAnsi(line).trimEnd());
     const initial = render(pending);
     assert.equal(initial[0], `${before ? '−' : '+'} … Edit`);
     assert.equal(
@@ -988,15 +1158,18 @@ await test('a scroll anchor on a diff line stays on that line when a resize rewr
   };
   const layout = new TranscriptLayout();
   const plainAt = (width: number, row: number) =>
-    stripAnsi(layout.render([item], width, new Map()).lines[row]!).trimEnd();
+    stripAnsi(layout.render([item], width, new Map()).lines.at(row)!).trimEnd();
   const narrow = layout.render([item], 40, new Map());
-  const tail = narrow.lines.findIndex((line) =>
-    stripAnsi(line).includes('tail'),
-  );
+  const tail = narrow.lines
+    .slice()
+    .findIndex((line) => stripAnsi(line).includes('tail'));
   const continuation = narrow.anchorAt(3)!;
   const anchor = narrow.anchorAt(tail)!;
   const wide = layout.render([item], 200, new Map());
-  assert.equal(stripAnsi(wide.lines[wide.rowOf(anchor)]!).trimEnd(), '3  tail');
+  assert.equal(
+    stripAnsi(wide.lines.at(wide.rowOf(anchor))!).trimEnd(),
+    '3  tail',
+  );
   // the long line no longer wraps, so its continuation's anchor lands on the line itself
   assert.match(plainAt(200, wide.rowOf(continuation)), /^1 {2}long long/);
   assert.equal(

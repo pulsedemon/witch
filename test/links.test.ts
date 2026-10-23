@@ -213,7 +213,7 @@ await test('malformed file URLs remain readable without breaking a persisted tra
 });
 
 await test('long runs of dashes, dots and @ signs, and links on many lines or one, link in linear time', () => {
-  // this process's CPU time ignores load from parallel tests; 4x the input costs 4x when linear, 16x when quadratic
+  // compare CPU time so scheduling delays do not count as parsing work.
   const fastest = (text: string) =>
     Math.min(
       ...[1, 2, 3].map(() => {

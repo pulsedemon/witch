@@ -1,6 +1,7 @@
 import wrapAnsi from 'wrap-ansi';
 import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
+import { appendedDisplayText } from '../core/state.js';
 import { diffRows } from './diff.js';
 import { markdown } from './markdown.js';
 import { accent, colors } from './theme.js';
@@ -17,17 +18,66 @@ export interface ScrollAnchor {
 
 type Anchor = Omit<ScrollAnchor, 'item'>;
 type Expansion = 'closed' | 'preview' | 'full';
+type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
+
+interface Row {
+  text: string;
+  anchor: Anchor;
+}
 
 interface Block {
-  /** the item this block was built from; a block is reused as is only for that object. */
   item: DisplayItem;
   headRows: number;
-  lines: string[];
-  anchors: Anchor[];
-  tail?: { row: number; line: number } & Pick<
-    LinkedAppend,
-    'pending' | 'target'
-  >;
+  complete: Row[];
+  lines: TextRows;
+  row(index: number): Row | undefined;
+  tail?: { line: number } & Pick<LinkedAppend, 'pending' | 'target'>;
+}
+
+function textRows(
+  length: number,
+  read: (index: number) => string | undefined,
+): TextRows {
+  const relative = (index: number) => {
+    const integer = Math.trunc(index) || 0;
+    return integer < 0 ? length + integer : integer;
+  };
+  return {
+    length,
+    at(index) {
+      const row = relative(index);
+      return row >= 0 && row < length ? read(row) : undefined;
+    },
+    slice(start = 0, end = length) {
+      const result: string[] = [];
+      const last = Math.min(length, Math.max(0, relative(end)));
+      for (let row = Math.max(0, relative(start)); row < last; row++)
+        result.push(read(row)!);
+      return result;
+    },
+  };
+}
+
+/** capture the completed prefix's length so later appends cannot change an earlier frame. */
+function block(
+  item: DisplayItem,
+  headRows: number,
+  complete: Row[],
+  suffix: Row[],
+  tail?: Block['tail'],
+): Block {
+  const count = complete.length;
+  const length = count + suffix.length;
+  const row = (index: number) =>
+    index < count ? complete[index] : suffix[index - count];
+  return {
+    item,
+    headRows,
+    complete,
+    row,
+    lines: textRows(length, (index) => row(index)?.text),
+    tail,
+  };
 }
 
 /** anchors count source lines so resizing keeps the selected text. */
@@ -37,8 +87,7 @@ function section(
   trim: boolean,
   first: number,
 ) {
-  const lines: string[] = [];
-  const anchors: Anchor[] = [];
+  const rows: Row[] = [];
   let sourceLine = first;
   for (const line of text) {
     const source = trim
@@ -48,13 +97,12 @@ function section(
     for (const row of wrapAnsi(line, width, { hard: true, trim }).split('\n')) {
       const plain = stripAnsi(row);
       if (source !== undefined) offset = source.indexOf(plain, offset);
-      lines.push(row);
-      anchors.push({ line: sourceLine, offset });
+      rows.push({ text: row, anchor: { line: sourceLine, offset } });
       offset += plain.length;
     }
     sourceLine++;
   }
-  return { lines, anchors, next: sourceLine };
+  return { rows, next: sourceLine };
 }
 
 function build(
@@ -103,94 +151,73 @@ function build(
     complete.next,
   );
   const next = rendered.next;
-  // concat, since spreading a long log into push() exceeds the argument limit
-  const lines = head.lines.concat(
-    complete.lines,
-    rendered.lines,
-    diff.flat(),
-    images.flat(),
-    '',
+  // row offsets preserve diff and image rows across resizes and when copying.
+  const suffix = rendered.rows.concat(
+    diff.concat(images).flatMap((rows, index) =>
+      rows.map((text, offset) => ({
+        text,
+        anchor: { line: next + index, offset },
+      })),
+    ),
+    {
+      text: '',
+      anchor: { line: next + diff.length + images.length, offset: 0 },
+    },
   );
-  const anchors = head.anchors.concat(
-    complete.anchors,
-    rendered.anchors,
-    // row offsets preserve each diff line or image across resizes and separate copied diff rows
-    diff
-      .concat(images)
-      .flatMap((rows, index) =>
-        rows.map((_, row) => ({ line: next + index, offset: row })),
-      ),
-    { line: next + diff.length + images.length, offset: 0 },
-  );
-  return {
+  return block(
     item,
-    headRows: head.lines.length,
-    lines,
-    anchors,
-    // output grows above the diff and images, so a block with either is rebuilt whole
-    tail:
-      linked && !diff.length && !images.length
-        ? {
-            row: head.lines.length + complete.lines.length,
-            line: complete.next,
-            pending: linked.pending,
-            target: linked.target,
-          }
-        : undefined,
-  };
+    head.rows.length,
+    head.rows.concat(complete.rows),
+    suffix,
+    linked && !diff.length && !images.length
+      ? { line: complete.next, pending: linked.pending, target: linked.target }
+      : undefined,
+  );
 }
 
 function extend(
-  block: Block,
+  previous: Block,
   item: DisplayItem,
   width: number,
 ): Block | undefined {
-  const previous = block.item;
-  const tail = block.tail;
+  const before = previous.item;
+  const tail = previous.tail;
   if (
     !tail ||
     item.kind !== 'tool' ||
-    item.title !== previous.title ||
-    item.done !== previous.done ||
-    item.cwd !== previous.cwd ||
-    item.diff !== previous.diff ||
-    item.images !== previous.images ||
-    !item.text.startsWith(previous.text)
+    item.title !== before.title ||
+    item.done !== before.done ||
+    item.cwd !== before.cwd ||
+    item.diff !== before.diff ||
+    item.images !== before.images
   )
     return undefined;
-  const linked = linkifyAppend(
-    tail.pending + item.text.slice(previous.text.length),
-    item.cwd,
-    tail.target,
-  );
+  const appended = appendedDisplayText(before, item);
+  if (appended === undefined) return undefined;
+  const linked = linkifyAppend(tail.pending + appended, item.cwd, tail.target);
   const complete = section(linked.complete, width, false, tail.line);
   const hasBody =
-    tail.row > block.headRows || linked.complete.length > 0 || !!linked.tail;
+    previous.complete.length > previous.headRows ||
+    linked.complete.length > 0 ||
+    !!linked.tail;
   const rendered = section(
     hasBody ? linked.tail.split('\n') : [],
     width,
     false,
     complete.next,
   );
-  return {
+  // a large chunk can exceed the argument limit if spread into push().
+  for (const row of complete.rows) previous.complete.push(row);
+  return block(
     item,
-    headRows: block.headRows,
-    lines: block.lines
-      .slice(0, tail.row)
-      .concat(complete.lines, rendered.lines, ''),
-    anchors: block.anchors
-      .slice(0, tail.row)
-      .concat(complete.anchors, rendered.anchors, {
-        line: rendered.next,
-        offset: 0,
-      }),
-    tail: {
-      row: tail.row + complete.lines.length,
-      line: complete.next,
-      pending: linked.pending,
-      target: linked.target,
-    },
-  };
+    previous.headRows,
+    previous.complete,
+    rendered.rows.concat({
+      text: '',
+      anchor: { line: rendered.next, offset: 0 },
+    }),
+    { line: complete.next, pending: linked.pending, target: linked.target },
+  );
 }
 
 /** a later diff must not reverse the user's explicit open or closed choice. */
@@ -210,7 +237,6 @@ export function isExpanded(
 }
 
 export class TranscriptLayout {
-  /** blocks by item id, then by expanded state, all at `width`. */
   private cache = new Map<string, Map<Expansion, Block>>();
   private width = 0;
 
@@ -225,11 +251,10 @@ export class TranscriptLayout {
   ) {
     if (width !== this.width) this.cache = new Map();
     this.width = width;
-    const lines: string[] = [];
-    const blocks: string[][] = [];
+    let length = 0;
+    const blocks: TextRows[] = [];
     const starts = new Map<string, number>();
     const rendered = new Map<string, Block>();
-    // entries for items no longer shown fall away with the old cache
     const cache = new Map<string, Map<Expansion, Block>>();
     for (const item of items) {
       const expansion = !isExpanded(item, expanded)
@@ -239,38 +264,44 @@ export class TranscriptLayout {
           : 'preview';
       const variants = this.cache.get(item.id) ?? new Map<Expansion, Block>();
       const previous = variants.get(expansion);
-      const block =
+      const current =
         previous?.item === item
           ? previous
           : ((previous && extend(previous, item, width)) ??
             build(item, width, expansion, this.graphics));
-      variants.set(expansion, block);
+      variants.set(expansion, current);
       cache.set(item.id, variants);
-      starts.set(item.id, lines.length);
-      for (const line of block.lines) lines.push(line);
-      blocks.push(block.lines);
-      rendered.set(item.id, block);
+      starts.set(item.id, length);
+      length += current.lines.length;
+      blocks.push(current.lines);
+      rendered.set(item.id, current);
     }
     this.cache = cache;
     const positions = [...starts];
+    const positionAt = (row: number) => {
+      let low = 0;
+      let high = positions.length;
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (positions[middle]![1] <= row) low = middle + 1;
+        else high = middle;
+      }
+      return positions[low - 1];
+    };
     return {
-      lines,
+      lines: textRows(length, (row) => {
+        const [item, start] = positionAt(row)!;
+        return rendered.get(item)!.row(row - start)?.text;
+      }),
       blocks,
       starts,
       anchorAt(row: number): ScrollAnchor | undefined {
-        let low = 0;
-        let high = positions.length;
-        while (low < high) {
-          const middle = Math.floor((low + high) / 2);
-          if (positions[middle]![1] <= row) low = middle + 1;
-          else high = middle;
-        }
-        const entry = positions[low - 1];
+        const entry = positionAt(row);
         if (!entry) return undefined;
         const [item, start] = entry;
         return {
           item,
-          ...(rendered.get(item)!.anchors[row - start] ?? {
+          ...(rendered.get(item)!.row(row - start)?.anchor ?? {
             line: 0,
             offset: 0,
           }),
@@ -278,16 +309,25 @@ export class TranscriptLayout {
       },
       rowOf(anchor: ScrollAnchor): number {
         const start = starts.get(anchor.item) ?? 0;
-        const offset =
-          rendered
-            .get(anchor.item)
-            ?.anchors.findLastIndex(
-              (row) =>
-                row.line === anchor.line &&
-                (row.offset === anchor.offset ||
-                  (row.offset >= 0 && row.offset < anchor.offset)),
-            ) ?? 0;
-        return start + Math.max(0, offset);
+        const current = rendered.get(anchor.item);
+        if (!current) return start;
+        let low = 0;
+        let high = current.lines.length;
+        while (low < high) {
+          const middle = Math.floor((low + high) / 2);
+          if (current.row(middle)!.anchor.line <= anchor.line) low = middle + 1;
+          else high = middle;
+        }
+        for (let index = low - 1; index >= 0; index--) {
+          const row = current.row(index)!.anchor;
+          if (row.line !== anchor.line) break;
+          if (
+            row.offset === anchor.offset ||
+            (row.offset >= 0 && row.offset < anchor.offset)
+          )
+            return start + index;
+        }
+        return start;
       },
     };
   }
