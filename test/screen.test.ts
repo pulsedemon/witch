@@ -89,6 +89,59 @@ await test('wide characters before a link move it right, and a line that fills t
   assert.equal(screen.linkAt(1, 2), undefined);
 });
 
+await test('repeated graphemes reuse their widths across writes and resize', (t) => {
+  const segmentation = t.mock.method(Intl.Segmenter.prototype, 'segment');
+  const size = { columns: 40, rows: 2 };
+  const screen = new Screen(size);
+  const graphemes = ['─', '漢', '👩‍💻', '\u200B'];
+  const text = graphemes.join('').repeat(2);
+  for (const [columns, label, target] of [
+    [40, 'A', docs],
+    [50, 'B', `${docs}/resized`],
+  ] as const) {
+    size.columns = columns;
+    screen.write(`\u001b[H${text}${link(label, target)}`);
+    assert.equal(screen.linkAt(9, 0), undefined);
+    assert.equal(screen.linkAt(10, 0), target);
+    assert.equal(screen.linkAt(11, 0), undefined);
+  }
+  // string-width segments each grapheme; Screen's own calls receive the whole run.
+  for (const grapheme of graphemes)
+    assert.equal(
+      segmentation.mock.calls.filter((call) => call.arguments[0] === grapheme)
+        .length,
+      1,
+      JSON.stringify(grapheme),
+    );
+});
+
+await test('ASCII links need no grapheme measurements', (t) => {
+  const segmentation = t.mock.method(Intl.Segmenter.prototype, 'segment');
+  const screen = new Screen({ columns: 20, rows: 1 });
+  screen.write(`plain ${link('AB', docs)}`);
+  assert.equal(segmentation.mock.callCount(), 0);
+  assert.equal(screen.linkAt(5, 0), undefined);
+  assert.equal(screen.linkAt(6, 0), docs);
+  assert.equal(screen.linkAt(7, 0), docs);
+  assert.equal(screen.linkAt(8, 0), undefined);
+});
+
+await test('keycaps keep both cells before a link, including at the right margin', () => {
+  for (const keycap of ['1️⃣', '#⃣', '*️⃣']) {
+    for (const [columns, lastColumn, lastRow] of [
+      [12, 5, 0],
+      [5, 0, 1],
+    ] as const) {
+      const screen = new Screen({ columns, rows: 2 });
+      screen.write(`ab${keycap}${link('XY', docs)}`);
+      assert.equal(screen.linkAt(3, 0), undefined, keycap);
+      assert.equal(screen.linkAt(4, 0), docs, keycap);
+      assert.equal(screen.linkAt(lastColumn, lastRow), docs, keycap);
+      assert.equal(screen.linkAt(lastColumn + 1, lastRow), undefined, keycap);
+    }
+  }
+});
+
 await test('a resize starts a new grid of the new size, and a terminal that reports no size gets 80 by 24', () => {
   const size = { columns: 4, rows: 2 };
   const screen = new Screen(size);
@@ -156,6 +209,17 @@ await test('only http, https and vscode links open, since open would launch a fi
 const hand = '\u001b]22;pointer\u0007';
 const arrow = '\u001b]22;default\u0007';
 
+await test('styles preserve link cells and pointer positions', () => {
+  const screen = new Screen({ columns: 20, rows: 2 });
+  screen.write(`\u001b[38;2;17;34;51m${link('AB', docs)}\u001b[0m`);
+  assert.equal(screen.linkAt(0, 0), docs);
+  assert.equal(screen.linkAt(1, 0), docs);
+  assert.equal(screen.linkAt(2, 0), undefined);
+  assert.equal(screen.point(0, 0), hand);
+  assert.equal(screen.point(1, 0), '');
+  assert.equal(screen.point(2, 0), arrow);
+});
+
 await test('the pointer turns into a hand over a link and back to the arrow off it, once per change', () => {
   const screen = new Screen({ columns: 20, rows: 2 });
   assert.equal(screen.write(`ab${link('cd', docs)}e`), '');
@@ -199,4 +263,20 @@ await test('a shape change waits for the write that ends a split sequence, so it
   assert.equal(screen.point(3, 0), '');
   stream.write('\u0007e');
   assert.deepEqual(chunks, [start, `\u0007e${hand}`]);
+});
+
+await test('a shape change waits for a split style sequence to finish', () => {
+  const chunks: string[] = [];
+  const stub = {
+    write: (chunk: string) => chunks.push(chunk) > 0,
+  } as unknown as NodeJS.WriteStream;
+  const screen = new Screen({ columns: 20, rows: 2 });
+  screen.point(2, 0);
+  const stream = recorded(stub, screen);
+  const start = `ab${link('cd', docs)}\u001b[3`;
+  stream.write(start);
+  assert.equal(screen.linkAt(2, 0), docs);
+  assert.deepEqual(chunks, [start]);
+  stream.write('1m');
+  assert.deepEqual(chunks, [start, `1m${hand}`]);
 });
