@@ -22,6 +22,8 @@ import {
   coordinationFixture,
   git,
   legacyLock,
+  measureControl,
+  pauseDiscovery,
 } from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
@@ -120,23 +122,19 @@ await test('clones expose current task metadata without themselves or another pr
 
 for (const assignmentFails of [false, true]) {
   await test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
-    let failRead = false;
+    let pending: Promise<void> | undefined;
     const { start, registry } = await coordinationFixture(t, async () => {
-      failRead = true;
+      pending = owner.coordination.endTurn().catch(() => {});
       if (assignmentFails) throw new Error('Injected assignment failure');
     });
     const owner = await start(),
       contender = await start('B');
-    const claims = CoordinationStore.prototype.claims;
-    const reading = t.mock.method(
+    const turn = await selectionTurn(t, owner);
+    const cancelling = t.mock.method(
       CoordinationStore.prototype,
-      'claims',
-      async function (this: CoordinationStore) {
-        if (failRead) {
-          failRead = false;
-          throw new Error('Injected project cleanup read failure');
-        }
-        return claims.call(this);
+      'cancelSelection',
+      async () => {
+        throw new Error('Injected selection cleanup failure');
       },
     );
     try {
@@ -147,9 +145,8 @@ for (const assignmentFails of [false, true]) {
       assert.deepEqual(owner.coordination.snapshot.ownClaim, result.claim);
       assert.equal(
         owner.coordination.snapshot.error,
-        'Injected project cleanup read failure',
+        'Injected selection cleanup failure',
       );
-      assert.equal(failRead, false);
       if (assignmentFails) {
         assert.match(result.warning ?? '', /GitHub assignment failed/);
         assert.match(result.warning ?? '', /Injected assignment failure/);
@@ -157,12 +154,16 @@ for (const assignmentFails of [false, true]) {
       const duplicate = await contender.claim(reference);
       if (duplicate.kind !== 'conflict') assert.fail(JSON.stringify(duplicate));
       assert.deepEqual(duplicate.claim, result.claim);
+      cancelling.mock.restore();
+      await pending;
       await owner.coordination.context();
       assert.equal(owner.coordination.snapshot.error, undefined);
       assert.deepEqual(owner.coordination.snapshot.ownClaim, result.claim);
       assert.deepEqual(await registry.claims(), [result.claim]);
     } finally {
-      reading.mock.restore();
+      cancelling.mock.restore();
+      await pending;
+      await turn.finish();
     }
   });
 }
@@ -173,27 +174,24 @@ await test('pre-claim cleanup failure still refuses new ownership', async (t) =>
     assignments++;
   });
   const owner = await start();
-  const claims = CoordinationStore.prototype.claims;
-  let failed = false;
-  const reading = t.mock.method(
+  const turn = await selectionTurn(t, owner);
+  const cancelling = t.mock.method(
     CoordinationStore.prototype,
-    'claims',
-    async function (this: CoordinationStore) {
-      if (!failed) {
-        failed = true;
-        throw new Error('Injected project cleanup read failure');
-      }
-      return claims.call(this);
+    'cancelSelection',
+    async () => {
+      throw new Error('Injected selection cleanup failure');
     },
   );
   try {
+    await assert.rejects(owner.coordination.endTurn(), /cleanup failure/);
     const result = await owner.claim('https://github.com/acme/queue/issues/17');
     if (result.kind !== 'error') assert.fail(JSON.stringify(result));
-    assert.equal(result.message, 'Injected project cleanup read failure');
+    assert.equal(result.message, 'Injected selection cleanup failure');
     assert.deepEqual(await registry.claims(), []);
     assert.equal(assignments, 0);
   } finally {
-    reading.mock.restore();
+    cancelling.mock.restore();
+    await turn.finish();
   }
 });
 
@@ -743,6 +741,7 @@ for (const window of ['opening', 'closing', 'reconnecting'] as const) {
 }
 
 await test('unknown discovery refuses both a successful query and new ownership', async (t) => {
+  pauseDiscovery(t);
   const { start, store, registry } = await coordinationFixture(t);
   const a = await start();
   const id = randomUUID();
@@ -753,10 +752,14 @@ await test('unknown discovery refuses both a successful query and new ownership'
   t.after(() => held.close());
   await files.writeFile(join(directory, 'state.json'), '{broken');
   const bound = await a.binding();
-  const query = await callControl(bound, { kind: 'peers' });
-  assert.equal(query.kind, 'error');
-  const attempt = await a.claim();
-  assert.equal(attempt.kind, 'error');
+  const query = await measureControl(t, () =>
+    callControl(bound, { kind: 'peers' }),
+  );
+  assert.equal(query.value.kind, 'error');
+  assert.equal(query.discoveries, 1);
+  const attempt = await measureControl(t, () => a.claim());
+  assert.equal(attempt.value.kind, 'error');
+  assert.equal(attempt.discoveries, 1);
   assert.deepEqual(await registry.claims(), []);
   assert.match(await a.coordination.context(), /Coordination is unavailable/);
 });

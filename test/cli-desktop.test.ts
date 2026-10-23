@@ -113,16 +113,20 @@ await test('the CLI opens the pressed link, copies selected text and reports des
       if (diagnostics.length > 64) diagnostics.shift();
     } else messages.push(message);
   });
-  const wait = (name: string, check: () => unknown) => {
+  const wait = (name: string, check: () => unknown, attempts?: number) => {
     const started = performance.now();
-    return until(name, () => {
-      assert.equal(
-        child.exitCode,
-        null,
-        `${name}: exited ${child.exitCode}; ${stderr}`,
-      );
-      return Boolean(check());
-    }).catch((error: unknown) => {
+    return until(
+      name,
+      () => {
+        assert.equal(
+          child.exitCode,
+          null,
+          `${name}: exited ${child.exitCode}; ${stderr}`,
+        );
+        return Boolean(check());
+      },
+      attempts,
+    ).catch((error: unknown) => {
       throw new Error(
         `${name}: ${stripAnsi(output)}\n${stderr}\n${JSON.stringify({
           pid: child.pid,
@@ -149,6 +153,7 @@ await test('the CLI opens the pressed link, copies selected text and reports des
       () =>
         output.includes('IDLE') &&
         screen.linkAt(1, 4)?.startsWith('https://example.com/'),
+      500,
     );
     const first = screen.linkAt(1, 4)!;
     write(mouse('press', 1, 4));

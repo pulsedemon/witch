@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { fork, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { access, chmod, readFile, readdir, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import {
+  access,
+  chmod,
+  open,
+  readFile,
+  readdir,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
@@ -20,6 +28,7 @@ import {
 } from '../src/persistence/coordination.js';
 import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
+import { exclusiveLock, lockedFiles } from '../src/persistence/lock.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { countProbes } from './fixtures/probes.js';
@@ -323,6 +332,31 @@ for (const variant of [
   });
 }
 
+await test('bounded ledger reads wait for the reservation lock and release it', async () => {
+  const root = await scratch('witch-coordination-read-lock-');
+  const store = await CoordinationStore.open(root);
+  const lock = await open(
+    join(root, 'coordination', 'lock'),
+    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
+    0o600,
+  );
+  try {
+    await assert.rejects(store.state(Date.now() + 50), /expired/);
+    assert.deepEqual(await store.claims(), []);
+  } finally {
+    await lock.close();
+  }
+  assert.deepEqual(await store.state(Date.now() + 1000), {
+    claims: [],
+    selections: [],
+  });
+  const held = await claim(store);
+  assert.deepEqual(await store.state(Date.now() + 1000), {
+    claims: [held],
+    selections: [],
+  });
+});
+
 for (const damage of ['invalid JSON', 'unreadable'] as const) {
   await test(`an ${damage} ledger refuses mutations without replacing its bytes`, async () => {
     const root = await scratch('witch-coordination-damaged-');
@@ -342,16 +376,42 @@ for (const damage of ['invalid JSON', 'unreadable'] as const) {
   });
 }
 
-await test('failed authority verification releases the ledger lock for another process', async (t) => {
+await test('verification receives the reconciled ledger under the reservation lock', async (t) => {
   const root = await scratch('witch-coordination-authority-');
   const store = await CoordinationStore.open(root);
+  const live = await claim(
+    store,
+    { ...owner, conversation: 'other' },
+    {
+      reference: 'task:other',
+      summary: 'Other live owner',
+    },
+  );
+  const stale = {
+    ...live,
+    id: randomUUID(),
+    owner: { ...owner, conversation: 'exited' },
+    references: ['task:project-p:exited'],
+    process: { ...identity, started: 'previous incarnation' },
+  };
+  const file = join(root, 'coordination', 'claims.json');
+  const original = JSON.stringify({
+    version: 2,
+    claims: [live, stale],
+    selections: [],
+  });
+  await writeFile(file, original);
   await assert.rejects(
-    store.claim(owner, input, identity, Date.now() + 5000, async () => {
+    store.claim(owner, input, identity, Date.now() + 5000, async (ledger) => {
+      assert.deepEqual(ledger, { claims: [live], selections: [] });
+      const lock = join(root, 'coordination', 'lock');
+      assert.equal((await lockedFiles([lock])).get(lock), 'exclusive');
       throw new Error('Revoked');
     }),
     /Revoked/,
   );
-  assert.deepEqual(await store.claims(), []);
+  assert.equal(await readFile(file, 'utf8'), original);
+  assert.deepEqual(await store.claims(), [live]);
   const next = contender(t, root, 'b');
   await next.ready;
   const result = await next.claim();

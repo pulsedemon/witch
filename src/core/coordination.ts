@@ -6,6 +6,7 @@ import {
   CoordinationStore,
   checkDeadline,
 } from '../persistence/coordination.js';
+import type { Ledger } from '../persistence/coordination.js';
 import { ControlHost } from '../persistence/control.js';
 import type {
   ControlBinding,
@@ -38,6 +39,23 @@ interface Activation {
   release(): Promise<void>;
 }
 
+interface Discovery {
+  revision: number;
+  live: Map<string, SessionPresence>;
+  opened: Awaited<ReturnType<StateStore['openConversations']>>;
+  unregistered: Map<string, CoordinationSnapshot['unregistered']>;
+}
+
+interface LedgerView {
+  revision: number;
+  ledger: Ledger;
+}
+
+interface RequestState {
+  ledger?: LedgerView;
+  discovery?: { revision: number; promise: Promise<Discovery> };
+}
+
 const emptySnapshot: CoordinationSnapshot = {
   peers: [],
   reservations: [],
@@ -64,6 +82,16 @@ export class SessionCoordination {
     project: string;
     promise: Promise<void>;
   };
+  private revision = 0;
+  private mutationRevision = 0;
+  private ledgerObservation = 0;
+  private discoveryFailure = 0;
+  private view?: {
+    active: Activation;
+    project: string;
+    discovery: Discovery;
+  };
+  private ledger?: LedgerView;
   private failures = new Map<string, string>();
   private turn?: SelectionScope;
   private cancellations = new Map<string, SelectionScope>();
@@ -147,6 +175,8 @@ export class SessionCoordination {
       release,
     };
     this.active = active;
+    this.view = undefined;
+    this.ledger = undefined;
     this.publish(emptySnapshot);
     try {
       for (const claim of await this.registry.claims()) {
@@ -281,27 +311,31 @@ export class SessionCoordination {
   }
 
   /** drain releases before reactivation so a retry cannot remove a newer claim. */
-  private async finishCleanup(): Promise<void> {
+  private async finishCleanup(state?: RequestState): Promise<void> {
     try {
       for (const [id, scope] of this.cancellations) {
-        await this.registry.cancelSelection(
-          scope,
-          undefined,
-          Date.now() + 1000,
-          async () => {},
+        await this.change(state, (verify) =>
+          this.registry.cancelSelection(
+            scope,
+            undefined,
+            Date.now() + 1000,
+            verify,
+          ),
         );
         this.cancellations.delete(id);
       }
       for (const conversation of this.claimReleases) {
-        const claim = (await this.registry.claims()).find(
+        const claim = (await this.readLedger(state)).ledger.claims.find(
           (claim) => claim.owner.conversation === conversation,
         );
         if (claim)
-          await this.registry.releaseConversation(
-            claim.owner,
-            this.process,
-            Date.now() + 1000,
-            async () => {},
+          await this.change(state, (verify) =>
+            this.registry.releaseConversation(
+              claim.owner,
+              this.process,
+              Date.now() + 1000,
+              verify,
+            ),
           );
         this.claimReleases.delete(conversation);
       }
@@ -328,11 +362,14 @@ export class SessionCoordination {
     return this.serialize(() => this.finishCleanup());
   }
 
-  private async retireProject(active: Activation): Promise<void> {
+  private async retireProject(
+    active: Activation,
+    state?: RequestState,
+  ): Promise<void> {
     if (this.turn && this.turn.owner.project !== active.project)
       this.revokeTurn();
-    await this.finishCleanup();
-    const claim = (await this.registry.claims()).find(
+    await this.finishCleanup(state);
+    const claim = (await this.readLedger(state)).ledger.claims.find(
       (claim) =>
         claim.owner.conversation === active.conversation.id &&
         claim.suggestion &&
@@ -340,7 +377,7 @@ export class SessionCoordination {
     );
     if (claim) {
       this.claimReleases.add(claim.owner.conversation);
-      await this.finishCleanup();
+      await this.finishCleanup(state);
     }
   }
 
@@ -381,21 +418,26 @@ export class SessionCoordination {
   async releaseTask(): Promise<void> {
     const active = this.admit();
     this.canRelease(true);
-    const claim = (await this.registry.claims()).find(
-      (entry) => entry.owner.conversation === active.conversation.id,
-    );
-    if (!claim) return;
-    await this.handle(
-      {
-        id: randomUUID(),
-        version: 1,
-        conversation: active.conversation.id,
-        activation: active.binding.activation,
-        deadline: Date.now() + 10_000,
-        action: { kind: 'release', claim: claim.id },
-      },
-      true,
-    );
+    this.failures.delete('control');
+    await this.serialize(async () => {
+      const state: RequestState = {};
+      const claim = (await this.readLedger(state)).ledger.claims.find(
+        (entry) => entry.owner.conversation === active.conversation.id,
+      );
+      if (!claim) return;
+      await this.dispatch(
+        {
+          id: randomUUID(),
+          version: 1,
+          conversation: active.conversation.id,
+          activation: active.binding.activation,
+          deadline: Date.now() + 10_000,
+          action: { kind: 'release', claim: claim.id },
+        },
+        true,
+        state,
+      );
+    });
   }
 
   async close(options: { restart?: boolean } = {}): Promise<void> {
@@ -517,6 +559,129 @@ export class SessionCoordination {
     return operation;
   }
 
+  private async readLedger(state?: RequestState): Promise<LedgerView> {
+    if (state?.ledger) return state.ledger;
+    const active = this.active;
+    const project = active?.project;
+    let revision = 0;
+    const accept = () => {
+      if (
+        this.active !== active ||
+        active?.project !== project ||
+        !active?.publishing ||
+        this.closed
+      )
+        return false;
+      // lock acquisition failures have no locked observation.
+      const observed = revision || ++this.revision;
+      if (observed <= this.ledgerObservation) return false;
+      this.ledgerObservation = observed;
+      return true;
+    };
+    try {
+      const ledger = await this.registry.state(Date.now() + 1000, () => {
+        revision = ++this.revision;
+      });
+      if (accept()) this.failures.delete('ledger');
+      const value = { revision, ledger };
+      if (state) state.ledger = value;
+      return value;
+    } catch (error) {
+      if (accept()) this.fail('ledger', error);
+      throw error;
+    }
+  }
+
+  private async change<T>(
+    state: RequestState | undefined,
+    work: (verify: (ledger: Ledger) => Promise<void>) => Promise<T>,
+    verify: (ledger: Ledger) => Promise<void> = async () => {},
+  ): Promise<T> {
+    let committed: LedgerView | undefined;
+    try {
+      const result = await work(async (value) => {
+        // ledger reads after this revision wait for the transaction to release its lock.
+        this.mutationRevision = ++this.revision;
+        committed = { revision: this.mutationRevision, ledger: value };
+        await verify(value);
+      });
+      if (committed) {
+        if (!this.ledger || committed.revision > this.ledger.revision)
+          this.ledger = committed;
+        if (state) state.ledger = this.ledger;
+      }
+      return result;
+    } catch (error) {
+      if (state) state.ledger = undefined;
+      throw error;
+    }
+  }
+
+  private observe(state: RequestState): Promise<Discovery> {
+    if (!state.discovery) {
+      const revision = ++this.revision;
+      state.discovery = { revision, promise: this.discover(revision) };
+    }
+    return state.discovery.promise;
+  }
+
+  private async requestSnapshot(
+    active: Activation,
+    state: RequestState,
+  ): Promise<CoordinationSnapshot> {
+    const discovery = this.observe(state).catch((error: unknown) => {
+      this.failDiscovery(error, state.discovery!.revision);
+      throw error;
+    });
+    const [ledger, observed] = await Promise.all([
+      this.readLedger(state),
+      discovery,
+    ]);
+    return this.updateView(active, active.project, observed, ledger);
+  }
+
+  private updateView(
+    active: Activation,
+    project: string,
+    discovery: Discovery,
+    ledger?: LedgerView,
+  ): CoordinationSnapshot {
+    if (
+      this.active !== active ||
+      active.project !== project ||
+      !active.publishing ||
+      this.closed
+    )
+      return this.snapshot;
+    const previous =
+      this.view?.active === active && this.view.project === project
+        ? this.view
+        : undefined;
+    this.view = {
+      active,
+      project,
+      discovery:
+        previous && previous.discovery.revision > discovery.revision
+          ? previous.discovery
+          : discovery,
+    };
+    // an invalidated ledger could erase a committed claim.
+    if (!ledger) return this.snapshot;
+    if (!this.ledger || ledger.revision > this.ledger.revision)
+      this.ledger = ledger;
+    if (this.view.discovery.revision > this.discoveryFailure)
+      this.failures.delete('discovery');
+    this.publish(
+      this.projectDiscovery(
+        active,
+        project,
+        this.view.discovery,
+        this.ledger.ledger,
+      ),
+    );
+    return this.snapshot;
+  }
+
   private handle(
     request: ControlRequest,
     human = false,
@@ -540,26 +705,33 @@ export class SessionCoordination {
   private async dispatch(
     request: ControlRequest,
     human: boolean,
+    state: RequestState = {},
   ): Promise<ControlOutcome> {
     const active = this.admit(request);
+    let outcome: ControlOutcome | undefined;
     try {
       const action = request.action;
       if (action.kind === 'peers') {
-        const snapshot = await this.inspect();
+        const snapshot = await this.requestSnapshot(active, state);
         if (snapshot.error) throw new Error(snapshot.error);
-        return { kind: 'peers', snapshot };
+        return (outcome = { kind: 'peers', snapshot });
       }
       if (action.kind === 'release') {
-        const claim = (await this.registry.claims()).find(
+        const claim = (await this.readLedger(state)).ledger.claims.find(
           (entry) => entry.id === action.claim,
         );
-        await this.registry.release(
-          {
-            conversation: active.conversation.id,
-            project: claim?.owner.project ?? active.project,
-          },
-          action.claim,
-          request.deadline,
+        await this.change(
+          state,
+          (verify) =>
+            this.registry.release(
+              {
+                conversation: active.conversation.id,
+                project: claim?.owner.project ?? active.project,
+              },
+              action.claim,
+              request.deadline,
+              verify,
+            ),
           async () => {
             this.admit(request);
             this.canRelease(human);
@@ -568,7 +740,7 @@ export class SessionCoordination {
         return { kind: 'released' };
       }
       await this.refreshProject(active);
-      await this.retireProject(active);
+      await this.retireProject(active, state);
       const owner = {
         conversation: active.conversation.id,
         project: active.project,
@@ -580,9 +752,14 @@ export class SessionCoordination {
               active,
               action.kind === 'select-next' ? action.turn : undefined,
             );
-      const verify = async () => {
+      const verify = async (ledger: Ledger) => {
         await this.refreshProject(active);
-        const snapshot = await this.discover(active, active.project);
+        const snapshot = this.projectDiscovery(
+          active,
+          active.project,
+          await this.observe(state),
+          ledger,
+        );
         this.admit(request);
         if (owner.project !== active.project)
           throw new Error(
@@ -620,11 +797,16 @@ export class SessionCoordination {
           this.canRelease(false);
       };
       if (action.kind === 'claim') {
-        const claim = await this.registry.claim(
-          owner,
-          action.input,
-          this.process,
-          request.deadline,
+        const claim = await this.change(
+          state,
+          (check) =>
+            this.registry.claim(
+              owner,
+              action.input,
+              this.process,
+              request.deadline,
+              check,
+            ),
           verify,
         );
         try {
@@ -646,34 +828,52 @@ export class SessionCoordination {
       if (action.kind === 'recommend')
         return {
           kind: 'claimed',
-          claim: await this.registry.recommend(
-            scope!,
-            action.selection,
-            action.input,
-            this.process,
-            request.deadline,
+          claim: await this.change(
+            state,
+            (check) =>
+              this.registry.recommend(
+                scope!,
+                action.selection,
+                action.input,
+                this.process,
+                request.deadline,
+                check,
+              ),
             verify,
           ),
         };
       if (action.kind === 'cancel-selection') {
-        await this.registry.cancelSelection(
-          scope!,
-          action.selection,
-          request.deadline,
+        await this.change(
+          state,
+          (check) =>
+            this.registry.cancelSelection(
+              scope!,
+              action.selection,
+              request.deadline,
+              check,
+            ),
           verify,
         );
         return { kind: 'selection-cancelled', selection: action.selection };
       }
-      const selection =
-        action.kind === 'select-next'
-          ? await this.registry.beginSelection(scope!, request.deadline, verify)
-          : await this.registry.selection(
-              scope!,
-              action.selection,
-              request.deadline,
-              verify,
-            );
-      return { kind: 'selection', selection, snapshot: await this.inspect() };
+      const selection = await this.change(
+        state,
+        (check) =>
+          action.kind === 'select-next'
+            ? this.registry.beginSelection(scope!, request.deadline, check)
+            : this.registry.selection(
+                scope!,
+                action.selection,
+                request.deadline,
+                check,
+              ),
+        verify,
+      );
+      return (outcome = {
+        kind: 'selection',
+        selection,
+        snapshot: await this.requestSnapshot(active, state),
+      });
     } catch (error) {
       if (!(error instanceof ClaimConflict)) throw error;
       const owner = (
@@ -686,10 +886,16 @@ export class SessionCoordination {
         ...(owner ? { owner: conversationSummarySchema.parse(owner) } : {}),
       };
     } finally {
-      await this.retireProject(active).catch((error: unknown) =>
+      await this.retireProject(active, state).catch((error: unknown) =>
         this.fail('selection', error),
       );
-      await this.inspect();
+      await this.requestSnapshot(active, state).then(
+        (snapshot) => {
+          if (outcome?.kind === 'peers' || outcome?.kind === 'selection')
+            outcome.snapshot = snapshot;
+        },
+        () => {},
+      );
     }
   }
 
@@ -721,27 +927,31 @@ export class SessionCoordination {
         this.refreshing.project === project
         ? this.refreshing.promise
         : this.refreshing.promise.then(() => this.refresh());
-    const promise = this.discover(active, project)
+    const revision = ++this.revision;
+    const current = () =>
+      this.active === active &&
+      active.project === project &&
+      active.publishing &&
+      !this.closed;
+    const discovery = this.discover(revision).catch((error: unknown) => {
+      if (current()) this.failDiscovery(error, revision);
+    });
+    const promise = Promise.all([this.readLedger(), discovery])
       .then(
-        (snapshot) => {
-          if (
-            this.active !== active ||
-            active.project !== project ||
-            !active.publishing ||
-            this.closed
-          )
-            return;
-          this.failures.delete('discovery');
-          this.publish(snapshot);
+        ([ledger, discovery]) => {
+          if (!current() || !discovery) return;
+          const consistent =
+            ledger.revision > this.mutationRevision ||
+            (this.ledger !== undefined &&
+              this.ledger.revision > ledger.revision);
+          this.updateView(
+            active,
+            project,
+            discovery,
+            consistent ? ledger : undefined,
+          );
         },
-        (error: unknown) => {
-          if (
-            this.active === active &&
-            active.project === project &&
-            active.publishing
-          )
-            this.fail('discovery', error);
-        },
+        () => {},
       )
       .finally(() => {
         this.refreshing = undefined;
@@ -750,12 +960,8 @@ export class SessionCoordination {
     return promise;
   }
 
-  private async discover(
-    active: Activation,
-    project: string,
-  ): Promise<CoordinationSnapshot> {
-    const [{ claims, selections }, presences, opened] = await Promise.all([
-      this.registry.state(),
+  private async discover(revision: number): Promise<Discovery> {
+    const [presences, opened] = await Promise.all([
       this.registry.presences(),
       this.store.openConversations(),
     ]);
@@ -781,7 +987,10 @@ export class SessionCoordination {
       ),
     );
     const live = new Map<string, SessionPresence>();
-    const unregistered: CoordinationSnapshot['unregistered'] = [];
+    const unregistered = new Map<
+      string,
+      CoordinationSnapshot['unregistered']
+    >();
     for (const record of records) {
       const holder = opened.get(record.id);
       if (!holder) continue;
@@ -798,13 +1007,25 @@ export class SessionCoordination {
       // a current Witch opening, reconnecting or closing this conversation
       if (holder.coordinated) continue;
       try {
-        if ((await this.memory.scopePaths(record.cwd)).project === project)
-          unregistered.push(conversationSummarySchema.parse(record));
+        const { project } = await this.memory.scopePaths(record.cwd);
+        const summaries = unregistered.get(project) ?? [];
+        summaries.push(conversationSummarySchema.parse(record));
+        unregistered.set(project, summaries);
       } catch (error) {
         const { code, syscall } = error as NodeJS.ErrnoException;
         if (code !== 'ENOENT' || syscall !== 'realpath') throw error;
       }
     }
+    return { revision, live, opened, unregistered };
+  }
+
+  private projectDiscovery(
+    active: Activation,
+    project: string,
+    discovery: Discovery,
+    { claims, selections }: Ledger,
+  ): CoordinationSnapshot {
+    const { live, opened } = discovery;
     const positions = selectionStates(selections);
     const ownSelection = positions.find(
       (state) => state.ticket.owner.conversation === active.conversation.id,
@@ -848,12 +1069,28 @@ export class SessionCoordination {
           },
         ];
       });
-    return { peers, ownClaim, ownSelection, reservations, unregistered };
+    return {
+      peers,
+      ownClaim,
+      ownSelection,
+      reservations,
+      unregistered: discovery.unregistered.get(project) ?? [],
+    };
   }
 
   private fail(source: string, error: unknown): void {
     this.failures.set(source, errorMessage(error));
     this.publish(this.snapshot);
+  }
+
+  private failDiscovery(error: unknown, revision: number): void {
+    if (
+      revision < this.discoveryFailure ||
+      (this.view && this.view.discovery.revision > revision)
+    )
+      return;
+    this.discoveryFailure = revision;
+    this.fail('discovery', error);
   }
 
   private publish(snapshot: CoordinationSnapshot): void {
