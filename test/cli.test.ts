@@ -23,7 +23,12 @@ async function run(args: readonly string[] | string) {
     typeof args === 'string' ? '/bin/zsh' : process.execPath,
     typeof args === 'string'
       ? ['-c', args]
-      : ['--import', import.meta.resolve('tsx'), cli, ...args],
+      : [
+          '--import',
+          import.meta.resolve('../scripts/register.mjs'),
+          cli,
+          ...args,
+        ],
     {
       cwd: directory,
       env: { ...process.env, HOME: directory },

@@ -258,9 +258,7 @@ def main():
     assert node and tmux, 'node and tmux must be on PATH'
     command = [node]
     if entry.suffix == '.tsx':
-        loader = subprocess.check_output([node, '--input-type=module', '-e', "console.log(import.meta.resolve('tsx'))"],
-                                         cwd=repo, text=True, timeout=5).strip()
-        command += ['--import', loader]
+        command += ['--import', str(repo / 'scripts/register.mjs')]
     command.append(str(entry))
     root = Path(tempfile.mkdtemp(prefix='s102-', dir=os.environ['TMPDIR'])).resolve()
     print('Artifacts: ' + str(root), flush=True)

@@ -47,11 +47,11 @@ pnpm check
 
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Running the app and native checks requires the [installation prerequisites](#install).
 
-Run one test file or one named test with:
+Run one test file or one named test through the [UI compiler preload](scripts/register.mjs):
 
 ```sh
-pnpm exec node --import tsx --test test/memory.test.ts
-pnpm exec node --import tsx --test --test-name-pattern='invalid effort' test/claude.test.ts
+pnpm exec node --import ./scripts/register.mjs --test test/memory.test.ts
+pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='invalid effort' test/claude.test.ts
 ```
 
 `pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
