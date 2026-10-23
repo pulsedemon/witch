@@ -104,13 +104,13 @@ export class StateStore {
     return new StateStore(root);
   }
 
-  async records(): Promise<{
+  async records(ids?: readonly string[]): Promise<{
     records: ConversationRecord[];
     unreadable: UnreadableRecord[];
   }> {
     const records: ConversationRecord[] = [];
     const unreadable: UnreadableRecord[] = [];
-    for (const id of await readdir(conversationsPath(this.root))) {
+    for (const id of ids ?? (await readdir(conversationsPath(this.root)))) {
       try {
         records.push(await readRecord(this.directory(id)));
       } catch (error) {
@@ -221,8 +221,9 @@ export class StateStore {
   }
 
   async openConversations(
-    ids: readonly string[],
+    ids?: readonly string[],
   ): Promise<Map<string, { coordinated: boolean }>> {
+    ids ??= await readdir(conversationsPath(this.root));
     const paths = ids.map((id) => join(this.directory(id), 'lock'));
     const locked = await lockedFiles(paths);
     const open = new Map<string, { coordinated: boolean }>();

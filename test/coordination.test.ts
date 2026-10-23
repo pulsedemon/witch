@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { constants, promises as files } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
@@ -7,10 +9,15 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseStatus } from '../src/core/repository.js';
 import { presenceStatus } from '../src/core/coordination-state.js';
+import type {
+  TaskClaim,
+  SelectionTicket,
+} from '../src/core/coordination-state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { exclusiveLock } from '../src/persistence/lock.js';
 import { ConversationStore } from '../src/persistence/store.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import {
   coordinationFixture,
   git,
@@ -19,6 +26,7 @@ import {
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+import { countProbes } from './fixtures/probes.js';
 
 await test('discovery batches conversation ownership and keeps only open peers', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
@@ -31,12 +39,26 @@ await test('discovery batches conversation ownership and keeps only open peers',
   const own = a.coordinator.snapshot.conversation!.id;
   const peer = b.coordinator.snapshot.conversation!.id;
   const batch = t.mock.method(store, 'openConversations');
-  await a.coordination.context();
+  const reading = t.mock.method(files, 'readFile');
+  syncBuiltinESMExports();
+  try {
+    await a.coordination.context();
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
   assert.equal(batch.mock.callCount(), 1);
   const call = batch.mock.calls[0]!;
   assert.deepEqual(
-    new Set(call.arguments[0]),
-    new Set([own, peer, 'closed-a', 'closed-b']),
+    reading.mock.calls
+      .map(({ arguments: [path] }) => path)
+      .filter(
+        (path) => typeof path === 'string' && path.endsWith('/state.json'),
+      )
+      .sort(),
+    [own, peer]
+      .map((id) => join(store.root, 'conversations', id, 'state.json'))
+      .sort(),
   );
   assert.deepEqual(
     await call.result,
@@ -392,7 +414,12 @@ for (const action of ['switch', 'close'] as const) {
       const next = action === 'switch' ? await a.binding() : undefined;
       await delay(2100);
       assert.equal(attempts, retiredAttempts);
-      assert.equal(await registry.isActive(bound.activation), false);
+      assert.equal(
+        (await registry.activeActivations([bound.activation])).has(
+          bound.activation,
+        ),
+        false,
+      );
       assert.deepEqual(
         (await registry.presences()).map((p) => p.activation),
         next ? [next.activation] : [],
@@ -633,7 +660,10 @@ await test('a failed presence removal cannot register a later legacy lock owner'
   assert.ok(
     (await registry.presences()).some((p) => p.id === old.conversation),
   );
-  assert.equal(await registry.isActive(old.activation), false);
+  assert.equal(
+    (await registry.activeActivations([old.activation])).has(old.activation),
+    false,
+  );
   const legacy = await legacyLock(store, old.conversation);
   try {
     assert.equal((await b.claim('task:other')).kind, 'error');
@@ -717,7 +747,10 @@ await test('unknown discovery refuses both a successful query and new ownership'
   const a = await start();
   const id = randomUUID();
   const directory = join(store.root, 'conversations', id);
-  await files.mkdir(directory);
+  const held = await store.create(
+    record(id, a.coordinator.snapshot.conversation!.cwd),
+  );
+  t.after(() => held.close());
   await files.writeFile(join(directory, 'state.json'), '{broken');
   const bound = await a.binding();
   const query = await callControl(bound, { kind: 'peers' });
@@ -873,3 +906,217 @@ await test('a delayed presence writer drains before replacement activation publi
   await delay(150);
   assert.deepEqual(await registry.presences(), []);
 });
+
+for (const size of [1, 8])
+  await test(
+    'discovery probe counts stay bounded with ' + size + ' owner groups',
+    async (t) => {
+      t.mock.timers.enable({ apis: ['setInterval'] });
+      const { root, start, store, registry } = await coordinationFixture(t);
+      t.after(() => t.mock.timers.reset());
+      const a = await start();
+      const own = (await registry.presences())[0]!;
+      const claims: TaskClaim[] = [],
+        tickets: SelectionTicket[] = [];
+      const expectedPeers: string[] = [],
+        legacyClaims: TaskClaim[] = [];
+      const expectedOpenStatePaths = new Set([
+        join(store.root, 'conversations', own.id, 'state.json'),
+      ]);
+      for (let index = 0; index < size; index++) {
+        const child = spawn('/bin/sleep', ['60']);
+        const ended = once(child, 'close');
+        t.after(async () => {
+          child.kill();
+          await ended;
+        });
+        await once(child, 'spawn');
+        const identity = (await identifyProcess(child.pid!))!;
+        for (const duplicate of [false, true]) {
+          const id = 'peer-' + index + '-' + duplicate;
+          const held = await store.create(record(id, join(root, 'B')));
+          t.after(() => held.close());
+          expectedOpenStatePaths.add(join(held.directory, 'state.json'));
+          const activation = randomUUID();
+          const release = await registry.holdActivation(activation);
+          t.after(release);
+          await registry.publish({
+            ...own,
+            id,
+            title: id,
+            cwd: join(root, 'B'),
+            activation,
+            process: identity,
+            openedAt: index * 2 + Number(duplicate),
+          });
+          expectedPeers.push(id);
+          claims.push({
+            id: randomUUID(),
+            owner: { conversation: id, project: own.project },
+            references: ['named:' + own.project + ':' + id],
+            summary: id,
+            createdAt: index,
+            process: identity,
+          });
+          tickets.push({
+            id: randomUUID(),
+            owner: { conversation: id, project: own.project },
+            activation,
+            turn: randomUUID(),
+          });
+        }
+        const id = 'legacy-' + index;
+        const held = await store.create(record(id, join(root, 'B')));
+        t.after(() => held.close());
+        expectedOpenStatePaths.add(join(held.directory, 'state.json'));
+        const legacy = {
+          id: randomUUID(),
+          owner: { conversation: id, project: own.project },
+          references: ['named:' + own.project + ':' + id],
+          summary: id,
+          createdAt: index,
+        };
+        claims.push(legacy);
+        legacyClaims.push(legacy);
+        tickets.push({
+          id: randomUUID(),
+          owner: { conversation: 'released-' + index, project: own.project },
+          activation: randomUUID(),
+          turn: randomUUID(),
+        });
+      }
+      for (let index = 0; index < (size === 1 ? 1 : 100); index++)
+        await (
+          await store.create(record('closed-' + index, join(root, 'B')))
+        ).close();
+      await files.writeFile(
+        join(store.root, 'coordination', 'claims.json'),
+        JSON.stringify({ version: 2, claims, selections: tickets }),
+      );
+      const readStatePaths: string[] = [];
+      const read = files.readFile;
+      t.mock.method(
+        files,
+        'readFile',
+        (...args: Parameters<typeof files.readFile>) => {
+          if (
+            typeof args[0] === 'string' &&
+            args[0].startsWith(store.root) &&
+            args[0].endsWith('/state.json')
+          )
+            readStatePaths.push(args[0]);
+          return read(...args);
+        },
+      );
+      syncBuiltinESMExports();
+      const probes = await countProbes(() => a.coordination.context()).finally(
+        () => {
+          t.mock.restoreAll();
+          syncBuiltinESMExports();
+        },
+      );
+      assert.deepEqual(
+        a.coordination.snapshot.peers.map(({ presence }) => presence.id),
+        expectedPeers,
+      );
+      assert.deepEqual(
+        a.coordination.snapshot.peers.map(({ claim }) => claim),
+        claims.filter((c) => c.process),
+      );
+      assert.deepEqual(
+        a.coordination.snapshot.reservations,
+        legacyClaims.map((claim) => ({ claim, status: 'unknown' })),
+      );
+      assert.deepEqual(
+        a.coordination.snapshot.peers.map(({ selection }) => selection?.ticket),
+        tickets.filter(
+          (ticket) => !ticket.owner.conversation.startsWith('released-'),
+        ),
+      );
+      assert.ok(probes.ps <= 3, probes.ps + ' process probes');
+      assert.ok(probes.perl <= 6, probes.perl + ' lock probes');
+      assert.deepEqual(new Set(readStatePaths), expectedOpenStatePaths);
+      assert.equal(readStatePaths.length, expectedOpenStatePaths.size);
+    },
+  );
+
+for (const damage of ['JSON', 'EACCES'])
+  for (const locked of [false, true])
+    for (const action of ['claim', 'select-next', 'recommend'])
+      await test(
+        action +
+          ' with ' +
+          (locked ? 'open' : 'closed') +
+          ' ' +
+          damage +
+          ' record',
+        async (t) => {
+          const { start, store, root, ledger, registry } =
+            await coordinationFixture(t);
+          const a = await start();
+          await files.writeFile(
+            join(store.root, 'coordination', 'claims.json'),
+            JSON.stringify({ version: 2, claims: [], selections: [] }),
+          );
+          const choosing =
+            action === 'claim' ? undefined : await selectionTurn(t, a);
+          const selection =
+            action === 'recommend' ? await choosing!.select() : undefined;
+          const id = randomUUID();
+          const held = await store.create(record(id, join(root, 'B')));
+          t.after(() => held.close());
+          if (!locked) await held.close();
+          const path = join(held.directory, 'state.json');
+          if (damage === 'JSON') await files.writeFile(path, '{broken');
+          else {
+            await files.chmod(path, 0);
+            t.after(() => files.chmod(path, 0o600));
+          }
+          await files.writeFile(
+            join(store.root, 'conversations', '.DS_Store'),
+            'finder',
+          );
+          const before = await ledger();
+          const result =
+            action === 'claim'
+              ? await a.claim('task:admission')
+              : await callControl(
+                  choosing!.binding,
+                  action === 'select-next'
+                    ? { kind: 'select-next', turn: choosing!.turn }
+                    : {
+                        kind: 'recommend',
+                        selection: selection!.ticket.id,
+                        input: {
+                          reference: 'task:admission',
+                          summary: 'Admission',
+                        },
+                      },
+                );
+          if (locked) {
+            if (result.kind !== 'error') assert.fail(JSON.stringify(result));
+            assert.match(result.message, /Cannot determine session ownership/);
+            assert.ok(result.message.includes(id + '/state.json'));
+            assert.equal(await ledger(), before);
+          } else if (action === 'select-next') {
+            if (result.kind !== 'selection')
+              assert.fail(JSON.stringify(result));
+            assert.equal(result.selection.position, 1);
+            assert.equal(
+              result.selection.ticket.owner.conversation,
+              a.coordinator.snapshot.conversation!.id,
+            );
+            assert.deepEqual((await registry.state()).selections, [
+              result.selection.ticket,
+            ]);
+          } else {
+            if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+            assert.equal(
+              result.claim.owner.conversation,
+              a.coordinator.snapshot.conversation!.id,
+            );
+            assert.deepEqual((await registry.state()).claims, [result.claim]);
+            assert.deepEqual((await registry.state()).selections, []);
+          }
+        },
+      );

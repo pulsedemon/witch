@@ -500,7 +500,12 @@ await test('closing during a handoff summary does not restore registration', asy
       ),
       false,
     );
-    assert.equal(await registry.isActive(bound.activation), false);
+    assert.equal(
+      (await registry.activeActivations([bound.activation])).has(
+        bound.activation,
+      ),
+      false,
+    );
     assert.equal(
       (await registry.claims()).some(
         (entry) => entry.owner.conversation === bound.conversation,
@@ -676,7 +681,10 @@ await test('failed target activation holds its selected lock without starting na
     'error',
   );
   assert.deepEqual(await registry.presences(), []);
-  assert.equal(await registry.isActive(rejected), false);
+  assert.equal(
+    (await registry.activeActivations([rejected])).has(rejected),
+    false,
+  );
   assert.equal(a.coordination.snapshot.ownClaim, undefined);
   assert.deepEqual(await registry.claims(), []);
   const source = await store.claim(bound.conversation);

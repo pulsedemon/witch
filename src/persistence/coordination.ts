@@ -23,8 +23,8 @@ import type {
   TaskClaim,
 } from '../core/coordination-state.js';
 import type { ProcessIdentity } from '../core/state.js';
-import { identifyProcess } from './process.js';
-import { exclusiveLock, isLocked } from './lock.js';
+import { identifyProcesses } from './process.js';
+import { exclusiveLock, lockedFiles } from './lock.js';
 import { writeJson } from './json.js';
 import { StateStore } from './store.js';
 
@@ -195,8 +195,17 @@ export class CoordinationStore {
     };
   }
 
-  isActive(activation: string): Promise<boolean> {
-    return isLocked(join(this.directory, 'sessions', `${activation}.lock`));
+  async activeActivations(
+    activations: readonly string[],
+  ): Promise<Set<string>> {
+    const paths = new Map(
+      activations.map((activation) => [
+        join(this.directory, 'sessions', `${activation}.lock`),
+        activation,
+      ]),
+    );
+    const locked = await lockedFiles([...paths.keys()]);
+    return new Set([...locked.keys()].map((path) => paths.get(path)!));
   }
 
   /** the caller holds the conversation lock until its writer drains and this removal finishes. */
@@ -393,20 +402,29 @@ export class CoordinationStore {
   }
 
   private async reconcile(ledger: Ledger): Promise<Ledger> {
-    const claims: TaskClaim[] = [];
-    for (const claim of ledger.claims) {
-      if (
+    const [processes, opened, active] = await Promise.all([
+      identifyProcesses(
+        ledger.claims.flatMap((claim) => claim.process?.pid ?? []),
+      ),
+      this.store.openConversations(
+        ledger.claims.flatMap((claim) =>
+          claim.process ? [] : [claim.owner.conversation],
+        ),
+      ),
+      this.activeActivations(
+        ledger.selections.map((ticket) => ticket.activation),
+      ),
+    ]);
+    return {
+      claims: ledger.claims.filter((claim) =>
         claim.process
-          ? (await identifyProcess(claim.process.pid))?.started ===
-            claim.process.started
-          : await this.store.isOpen(claim.owner.conversation)
-      )
-        claims.push(claim);
-    }
-    const selections: SelectionTicket[] = [];
-    for (const ticket of ledger.selections)
-      if (await this.isActive(ticket.activation)) selections.push(ticket);
-    return { claims, selections };
+          ? processes.get(claim.process.pid)?.started === claim.process.started
+          : opened.has(claim.owner.conversation),
+      ),
+      selections: ledger.selections.filter((ticket) =>
+        active.has(ticket.activation),
+      ),
+    };
   }
 
   private async mutate<T>(

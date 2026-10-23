@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { fork } from 'node:child_process';
+import { fork, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { access, chmod, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -11,6 +11,7 @@ import type {
   ClaimInput,
   ClaimOwner,
   SessionPresence,
+  SelectionTicket,
   TaskClaim,
 } from '../src/core/coordination-state.js';
 import {
@@ -21,6 +22,7 @@ import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
+import { countProbes } from './fixtures/probes.js';
 import { within } from './fixtures/within.js';
 
 const identity = (await identifyProcess(process.pid))!;
@@ -38,6 +40,81 @@ const release = (
   id: string,
 ) => store.release(givenOwner, id, Date.now() + 5000, verify);
 
+for (const size of [1, 8])
+  await test(`reconciliation batches ${size} groups and retains the exact live owners`, async (t) => {
+    const root = await scratch('witch-reconcile-batch-');
+    const registry = await CoordinationStore.open(root);
+    const store = await StateStore.open(root);
+    const exited = spawn(process.execPath, ['-e', '']);
+    await once(exited, 'close');
+    const claims: TaskClaim[] = [],
+      liveClaims: TaskClaim[] = [];
+    const selections: SelectionTicket[] = [],
+      liveSelections: SelectionTicket[] = [];
+    for (let index = 0; index < size; index++) {
+      for (const kind of [
+        'live',
+        'exited',
+        'reused',
+        'legacy-held',
+        'legacy-free',
+      ]) {
+        const id = `${kind}-${index}`;
+        const entry: TaskClaim = {
+          id: randomUUID(),
+          owner: { conversation: id, project: 'project-p' },
+          references: [`named:project-p:${id}`],
+          summary: id,
+          createdAt: index,
+        };
+        if (kind === 'live') entry.process = identity;
+        else if (kind === 'exited')
+          entry.process = { ...identity, pid: exited.pid! };
+        else if (kind === 'reused')
+          entry.process = { ...identity, started: 'previous incarnation' };
+        else {
+          const held = await store.create(record(id, root));
+          if (kind === 'legacy-held') t.after(() => held.close());
+          else await held.close();
+        }
+        claims.push(entry);
+        if (kind === 'live' || kind === 'legacy-held') liveClaims.push(entry);
+      }
+      for (const active of [true, false]) {
+        const ticket: SelectionTicket = {
+          id: randomUUID(),
+          owner: { conversation: randomUUID(), project: 'project-p' },
+          activation: randomUUID(),
+          turn: randomUUID(),
+        };
+        const close = await registry.holdActivation(ticket.activation);
+        if (active) {
+          t.after(close);
+          liveSelections.push(ticket);
+        } else await close();
+        selections.push(ticket);
+      }
+    }
+    const file = join(root, 'coordination', 'claims.json');
+    const original = JSON.stringify({ version: 2, claims, selections });
+    await writeFile(file, original);
+    const probes = await countProbes(() => registry.state());
+    assert.deepEqual(probes.value, {
+      claims: liveClaims,
+      selections: liveSelections,
+    });
+    assert.equal(await readFile(file, 'utf8'), original);
+    assert.ok(probes.ps <= 1, `${probes.ps} process probes`);
+    assert.ok(probes.perl <= 2, `${probes.perl} lock probes`);
+    await assert.rejects(
+      registry.claim(owner, input, identity, Date.now() + 5000, async () => {
+        throw new Error('verification rejected');
+      }),
+      /verification rejected/,
+    );
+    assert.equal(await readFile(file, 'utf8'), original);
+  });
+
 await test('activation observation follows release without retaining ownership', async () => {
   const root = await scratch('witch-activation-observation-');
   const store = await CoordinationStore.open(root);
@@ -46,17 +123,20 @@ await test('activation observation follows release without retaining ownership',
   try {
     assert.deepEqual(
       await Promise.all([
-        store.isActive(activation),
-        store.isActive(activation),
+        store.activeActivations([activation, activation]),
+        store.activeActivations([activation]),
       ]),
-      [true, true],
+      [new Set([activation]), new Set([activation])],
     );
   } finally {
     await close();
   }
   assert.deepEqual(
-    await Promise.all([store.isActive(activation), store.isActive(activation)]),
-    [false, false],
+    await Promise.all([
+      store.activeActivations([activation]),
+      store.activeActivations([activation]),
+    ]),
+    [new Set(), new Set()],
   );
   await assert.rejects(
     access(join(root, 'coordination', 'sessions', `${activation}.lock`)),
