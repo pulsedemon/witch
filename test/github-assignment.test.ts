@@ -9,8 +9,8 @@ import { coordinationFixture } from './fixtures/coordination.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
-async function fixture(t: TestContext) {
-  const f = await coordinationFixture(t, assignGitHubTask);
+async function fixture(t: TestContext, assign = assignGitHubTask) {
+  const f = await coordinationFixture(t, assign);
   const bin = join(f.root, 'bin');
   const policy = join(f.root, 'github-policy.json');
   const calls = join(f.root, 'github-calls.jsonl');
@@ -36,7 +36,8 @@ function reply() {
     process.stdout.write(JSON.stringify(policy.ignored === endpoint ? ['existing-owner'] : ['existing-owner', 'task-user']));
   }
 }
-if (policy.hold && endpoint !== 'user') {
+if (policy.hold === endpoint) {
+  process.on('SIGTERM', () => {});
   const timer = setInterval(() => {
     if (!fs.existsSync(${JSON.stringify(release)})) return;
     clearInterval(timer);
@@ -177,11 +178,54 @@ for (const scenario of [
   });
 }
 
+for (const [name, endpoint, expected] of [
+  ['login', 'user', ['user']],
+  ['assignment', issue, ['user', issue]],
+] as const) {
+  await test(`${name} timeout returns a warning with ownership intact`, async (t) => {
+    const f = await fixture(t, (references, cwd, deadline) =>
+      assignGitHubTask(references, cwd, Math.min(deadline, Date.now() + 2000)),
+    );
+    const a = await f.start();
+    await f.configure({ hold: endpoint });
+    t.after(f.release);
+    const claiming = callControl(await a.binding(), {
+      kind: 'claim',
+      input: { reference: input.reference, summary: input.summary },
+    });
+    try {
+      const claimed = await within(claiming, 5000, 'timeout warning');
+      if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
+      assert.match(
+        claimed.warning ?? '',
+        /Timed out after \d+ ms: Command failed: gh api/,
+      );
+      if (endpoint === issue)
+        assert.ok(claimed.warning?.includes(`${issue}: Timed out after `));
+      assert.deepEqual(await f.registry.claims(), [claimed.claim]);
+      const snapshot = await a.query();
+      assert.equal(snapshot.ownClaim?.id, claimed.claim.id);
+      assert.equal(snapshot.error, undefined);
+      const calls = await f.calls();
+      assert.deepEqual(
+        calls.map((call) => call.args[3]),
+        expected,
+      );
+      assert.throws(() => process.kill(calls.at(-1)!.pid, 0), {
+        code: 'ESRCH',
+      });
+    } finally {
+      await f.release();
+      await claiming;
+    }
+  });
+}
+
 await test('a pending GitHub assignment leaves the shared ledger available and drains before close releases its claim', async (t) => {
   const f = await fixture(t);
   const a = await f.start(),
     b = await f.start('B');
-  await f.configure({ hold: true });
+  await f.configure({ hold: issue });
   t.after(f.release);
   const claiming = a.claim(input.reference);
   try {
@@ -220,7 +264,7 @@ await test('an expired assignment starts no command and a stalled GitHub command
     /deadline expired/,
   );
   assert.deepEqual(await f.calls(), []);
-  await f.configure({ hold: true });
+  await f.configure({ hold: issue });
   t.after(f.release);
   await assert.rejects(
     within(
@@ -228,7 +272,7 @@ await test('an expired assignment starts no command and a stalled GitHub command
       5000,
       'assignment deadline',
     ),
-    /Command failed/,
+    /Timed out after \d+ ms: Command failed/,
   );
   const calls = await f.calls();
   assert.deepEqual(
