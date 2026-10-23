@@ -25,8 +25,9 @@ export async function within<T>(
 export async function until(
   what: string,
   predicate: () => boolean | Promise<boolean>,
+  attempts = 150,
 ) {
-  for (let attempt = 0; attempt < 150; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     if (await predicate()) return;
     await delay(20);
   }
