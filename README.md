@@ -47,6 +47,8 @@ pnpm check
 
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Running the app and native checks requires the [installation prerequisites](#install).
 
+The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
+
 Run one test file or one named test through the [UI compiler preload](scripts/register.mjs):
 
 ```sh
