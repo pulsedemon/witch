@@ -8,6 +8,7 @@ import type {
 } from '../src/core/coordination-state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
+import { StateStore } from '../src/persistence/store.js';
 import {
   coordinationFixture,
   measureControl,
@@ -335,6 +336,241 @@ await test('a pre-mutation refresh cannot publish old ownership after commit', a
     finishMutation.resolve();
     if (claiming) await claiming;
     await refreshing;
+    reading.mock.restore();
+    reserving.mock.restore();
+  }
+});
+
+for (const outcome of ['success', 'failure'] as const)
+  await test(`newer background discovery ${outcome} survives mutation completion`, async (t) => {
+    const refreshes = pauseDiscovery(t);
+    const assignmentEntered = Promise.withResolvers<void>(),
+      finishAssignment = Promise.withResolvers<void>();
+    const { start, store, registry } = await coordinationFixture(
+      t,
+      async () => {
+        assignmentEntered.resolve();
+        await finishAssignment.promise;
+      },
+    );
+    const a = await start(),
+      b = await start('B');
+    const peerId = b.coordinator.snapshot.conversation!.id;
+    await until('peer idle presence written', async () =>
+      (await registry.presences()).some(
+        (peer) => peer.id === peerId && peer.phase === 'idle',
+      ),
+    );
+    const file = join(store.root, 'conversations', peerId, 'state.json');
+    const original = await readFile(file, 'utf8');
+    const committed = Promise.withResolvers<TaskClaim>(),
+      finishMutation = Promise.withResolvers<void>(),
+      observed = Promise.withResolvers<void>(),
+      finishDiscovery = Promise.withResolvers<void>();
+    const claim = CoordinationStore.prototype.claim;
+    const reserving = t.mock.method(
+      CoordinationStore.prototype,
+      'claim',
+      async function (
+        this: CoordinationStore,
+        ...args: Parameters<typeof claim>
+      ) {
+        const value = await claim.apply(this, args);
+        committed.resolve(value);
+        await finishMutation.promise;
+        return value;
+      },
+    );
+    const records = StateStore.prototype.records;
+    let holding = false;
+    const reading = t.mock.method(
+      StateStore.prototype,
+      'records',
+      async function (this: StateStore, ...args: Parameters<typeof records>) {
+        const result = await records.apply(this, args);
+        if (holding) {
+          holding = false;
+          observed.resolve();
+          await finishDiscovery.promise;
+        }
+        return result;
+      },
+    );
+    const claiming = a.claim('task:chosen');
+    try {
+      const reserved = await within(committed.promise, 5000, 'claim committed');
+      if (outcome === 'failure') await writeFile(file, '{broken');
+      else {
+        const peer = (await registry.presences()).find(
+          (entry) => entry.id === peerId,
+        )!;
+        await registry.publish({
+          ...peer,
+          title: 'Newer overlapping observation',
+        });
+      }
+      holding = true;
+      refreshes[0]!();
+      await within(observed.promise, 5000, 'background discovery observed');
+      finishMutation.resolve();
+      await within(assignmentEntered.promise, 5000, 'mutation completed');
+      finishDiscovery.resolve();
+      await until('newer background discovery published', () =>
+        outcome === 'failure'
+          ? Boolean(
+              a.coordination.snapshot.error?.includes(
+                'Cannot determine session ownership',
+              ),
+            )
+          : a.coordination.snapshot.peers[0]?.presence.title ===
+            'Newer overlapping observation',
+      );
+      if (outcome === 'success')
+        assert.deepEqual(a.coordination.snapshot.ownClaim, reserved);
+      finishAssignment.resolve();
+      const result = await claiming;
+      assert.equal(result.kind, 'claimed');
+      assert.deepEqual(a.coordination.snapshot.ownClaim, reserved);
+      if (outcome === 'failure') {
+        assert.match(
+          a.coordination.snapshot.error ?? '',
+          /Cannot determine session ownership/,
+        );
+        await writeFile(file, original);
+        refreshes[0]!();
+        await until(
+          'discovery recovers',
+          () => a.coordination.snapshot.error === undefined,
+        );
+      } else
+        assert.equal(
+          a.coordination.snapshot.peers[0]?.presence.title,
+          'Newer overlapping observation',
+        );
+    } finally {
+      finishDiscovery.resolve();
+      finishMutation.resolve();
+      finishAssignment.resolve();
+      await writeFile(file, original);
+      await claiming;
+      reading.mock.restore();
+      reserving.mock.restore();
+    }
+  });
+
+await test('a newer discovery survives rejected mutation completion', async (t) => {
+  const refreshes = pauseDiscovery(t);
+  const { start, registry } = await coordinationFixture(t);
+  const a = await start(),
+    b = await start('B');
+  const peerId = b.coordinator.snapshot.conversation!.id;
+  await until('peer idle presence written', async () =>
+    (await registry.presences()).some(
+      (peer) => peer.id === peerId && peer.phase === 'idle',
+    ),
+  );
+  const verified = Promise.withResolvers<void>(),
+    finishMutation = Promise.withResolvers<void>(),
+    observed = Promise.withResolvers<void>(),
+    finishDiscovery = Promise.withResolvers<void>(),
+    finalReadEntered = Promise.withResolvers<void>(),
+    finishFinalRead = Promise.withResolvers<void>();
+  const claim = CoordinationStore.prototype.claim;
+  const reserving = t.mock.method(
+    CoordinationStore.prototype,
+    'claim',
+    async function (
+      this: CoordinationStore,
+      ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
+    ) {
+      return claim.call(
+        this,
+        owner,
+        input,
+        process,
+        deadline,
+        async (ledger) => {
+          await verify(ledger);
+          verified.resolve();
+          await finishMutation.promise;
+          throw new Error('fixture rejects the mutation after verification');
+        },
+      );
+    },
+  );
+  const records = StateStore.prototype.records;
+  let holding = false;
+  const reading = t.mock.method(
+    StateStore.prototype,
+    'records',
+    async function (this: StateStore, ...args: Parameters<typeof records>) {
+      const result = await records.apply(this, args);
+      if (holding) {
+        holding = false;
+        observed.resolve();
+        await finishDiscovery.promise;
+      }
+      return result;
+    },
+  );
+  const state = CoordinationStore.prototype.state;
+  let finalizing = false;
+  const finalRead = t.mock.method(
+    CoordinationStore.prototype,
+    'state',
+    async function (this: CoordinationStore) {
+      const waiting = finalizing;
+      finalizing = false;
+      const result = await state.call(this);
+      if (waiting) {
+        finalReadEntered.resolve();
+        await finishFinalRead.promise;
+      }
+      return result;
+    },
+  );
+  const claiming = a.claim('task:chosen');
+  try {
+    await within(verified.promise, 5000, 'request discovery');
+    const peer = (await registry.presences()).find(
+      (entry) => entry.id === peerId,
+    )!;
+    await registry.publish({
+      ...peer,
+      title: 'Observed before rejection finalizes',
+    });
+    holding = true;
+    refreshes[0]!();
+    const refreshing = a.coordination['refreshing']!.promise;
+    await within(observed.promise, 5000, 'background discovery');
+    finalizing = true;
+    finishMutation.resolve();
+    await within(
+      finalReadEntered.promise,
+      5000,
+      'failed mutation finalization',
+    );
+    finishDiscovery.resolve();
+    await within(refreshing, 5000, 'background refresh completed');
+    finishFinalRead.resolve();
+    const result = await claiming;
+    if (result.kind !== 'error') assert.fail(JSON.stringify(result));
+    assert.match(
+      result.message,
+      /fixture rejects the mutation after verification/,
+    );
+    assert.equal(a.coordination.snapshot.ownClaim, undefined);
+    assert.deepEqual(await registry.claims(), []);
+    assert.equal(
+      a.coordination.snapshot.peers[0]?.presence.title,
+      'Observed before rejection finalizes',
+    );
+  } finally {
+    finishMutation.resolve();
+    finishDiscovery.resolve();
+    finishFinalRead.resolve();
+    await claiming;
+    finalRead.mock.restore();
     reading.mock.restore();
     reserving.mock.restore();
   }

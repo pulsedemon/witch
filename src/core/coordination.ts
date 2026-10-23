@@ -89,8 +89,8 @@ export class SessionCoordination {
     active: Activation;
     project: string;
     discovery: Discovery;
-    ledger: LedgerView;
   };
+  private ledger?: LedgerView;
   private failures = new Map<string, string>();
   private turn?: SelectionScope;
   private cancellations = new Map<string, SelectionScope>();
@@ -175,6 +175,7 @@ export class SessionCoordination {
     };
     this.active = active;
     this.view = undefined;
+    this.ledger = undefined;
     this.publish(emptySnapshot);
     try {
       for (const claim of await this.registry.claims()) {
@@ -577,7 +578,10 @@ export class SessionCoordination {
         ledger = value;
         await verify(value);
       });
-      if (state && ledger) state.ledger = { revision: ++this.revision, ledger };
+      if (ledger) {
+        this.ledger = { revision: ++this.revision, ledger };
+        if (state) state.ledger = this.ledger;
+      }
       return result;
     } catch (error) {
       if (state) state.ledger = undefined;
@@ -605,18 +609,18 @@ export class SessionCoordination {
         this.readLedger(state),
         discovery,
       ]);
-      return this.publishView(active, active.project, observed, ledger);
+      return this.updateView(active, active.project, observed, ledger);
     } catch (error) {
       this.failDiscovery(error, state.discovery!.revision);
       throw error;
     }
   }
 
-  private publishView(
+  private updateView(
     active: Activation,
     project: string,
     discovery: Discovery,
-    ledger: LedgerView,
+    ledger?: LedgerView,
   ): CoordinationSnapshot {
     if (
       this.active !== active ||
@@ -636,11 +640,11 @@ export class SessionCoordination {
         previous && previous.discovery.revision > discovery.revision
           ? previous.discovery
           : discovery,
-      ledger:
-        previous && previous.ledger.revision > ledger.revision
-          ? previous.ledger
-          : ledger,
     };
+    // an invalidated ledger could erase a committed claim.
+    if (!ledger) return this.snapshot;
+    if (!this.ledger || ledger.revision > this.ledger.revision)
+      this.ledger = ledger;
     if (this.view.discovery.revision > this.discoveryFailure)
       this.failures.delete('discovery');
     this.publish(
@@ -648,7 +652,7 @@ export class SessionCoordination {
         active,
         project,
         this.view.discovery,
-        this.view.ledger.ledger,
+        this.ledger.ledger,
       ),
     );
     return this.snapshot;
@@ -901,26 +905,31 @@ export class SessionCoordination {
         : this.refreshing.promise.then(() => this.refresh());
     const mutations = this.mutations;
     const revision = ++this.revision;
-    const promise = Promise.all([this.readLedger(), this.discover(revision)])
+    const current = () =>
+      this.active === active &&
+      active.project === project &&
+      active.publishing &&
+      !this.closed;
+    const discovery = this.discover(revision).catch((error: unknown) => {
+      if (current()) this.failDiscovery(error, revision);
+    });
+    const promise = Promise.all([this.readLedger(), discovery])
       .then(
         ([ledger, discovery]) => {
-          if (
-            this.active !== active ||
-            active.project !== project ||
-            !active.publishing ||
-            this.closed ||
-            this.mutations !== mutations
-          )
-            return;
-          this.publishView(active, project, discovery, ledger);
+          if (!current() || !discovery) return;
+          const consistent =
+            this.mutations === mutations ||
+            (this.ledger !== undefined &&
+              this.ledger.revision > ledger.revision);
+          this.updateView(
+            active,
+            project,
+            discovery,
+            consistent ? ledger : undefined,
+          );
         },
         (error: unknown) => {
-          if (
-            this.active === active &&
-            active.project === project &&
-            active.publishing &&
-            this.mutations === mutations
-          )
+          if (current() && this.mutations === mutations)
             this.failDiscovery(error, revision);
         },
       )
