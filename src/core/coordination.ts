@@ -571,6 +571,8 @@ export class SessionCoordination {
     work: (verify: (ledger: Ledger) => Promise<void>) => Promise<T>,
     verify: (ledger: Ledger) => Promise<void> = async () => {},
   ): Promise<T> {
+    const previous = this.ledger;
+    const refreshing = this.refreshing;
     this.mutations++;
     let ledger: Ledger | undefined;
     try {
@@ -579,8 +581,17 @@ export class SessionCoordination {
         await verify(value);
       });
       if (ledger) {
-        this.ledger = { revision: ++this.revision, ledger };
-        if (state) state.ledger = this.ledger;
+        let committed: LedgerView | undefined;
+        if (refreshing || this.refreshing || this.ledger !== previous) {
+          if (state) state.ledger = undefined;
+          // publication failures must not change a committed action's result.
+          committed = await this.readLedger().catch(() => undefined);
+        } else committed = { revision: ++this.revision, ledger };
+        if (committed) {
+          if (!this.ledger || committed.revision > this.ledger.revision)
+            this.ledger = committed;
+          if (state) state.ledger = this.ledger;
+        }
       }
       return result;
     } catch (error) {

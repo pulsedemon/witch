@@ -458,6 +458,96 @@ for (const outcome of ['success', 'failure'] as const)
     }
   });
 
+for (const rereadFails of [false, true])
+  await test(`post-commit finalization preserves peer claims${rereadFails ? ' when rereading fails' : ''}`, async (t) => {
+    const refreshes = pauseDiscovery(t);
+    const { start, registry } = await coordinationFixture(t);
+    const a = await start(),
+      b = await start('B');
+    const owner = a.coordinator.snapshot.conversation!.id;
+    const committed = Promise.withResolvers<TaskClaim>(),
+      finishMutation = Promise.withResolvers<void>();
+    const claim = CoordinationStore.prototype.claim;
+    const reserving = t.mock.method(
+      CoordinationStore.prototype,
+      'claim',
+      async function (
+        this: CoordinationStore,
+        ...args: Parameters<typeof claim>
+      ) {
+        const value = await claim.apply(this, args);
+        if (args[0].conversation === owner) {
+          committed.resolve(value);
+          await finishMutation.promise;
+        }
+        return value;
+      },
+    );
+    const state = CoordinationStore.prototype.state;
+    let failing = false;
+    const reading = t.mock.method(
+      CoordinationStore.prototype,
+      'state',
+      async function (this: CoordinationStore) {
+        if (failing)
+          throw new Error('fixture cannot reread the committed ledger');
+        return state.call(this);
+      },
+    );
+    const claiming = a.claim('task:chosen');
+    let unsubscribe = () => {};
+    try {
+      const own = await within(committed.promise, 5000, 'own claim committed');
+      const peer = await b.claim('task:peer', 'Peer work after commit');
+      if (peer.kind !== 'claimed') assert.fail(JSON.stringify(peer));
+      refreshes[0]!();
+      await within(
+        a.coordination['refreshing']!.promise,
+        5000,
+        'overlapping refresh',
+      );
+      assert.deepEqual(a.coordination.snapshot.ownClaim, own);
+      assert.deepEqual(a.coordination.snapshot.peers[0]?.claim, peer.claim);
+      const observed: (string | undefined)[][] = [];
+      unsubscribe = a.coordination.subscribe(() => {
+        observed.push([
+          a.coordination.snapshot.ownClaim?.id,
+          a.coordination.snapshot.peers[0]?.claim?.id,
+        ]);
+      });
+      failing = rereadFails;
+      finishMutation.resolve();
+      const result = await within(claiming, 5000, 'claim finalized');
+      if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+      assert.deepEqual(result.claim, own);
+      assert.deepEqual((await state.call(registry)).claims, [own, peer.claim]);
+      assert.deepEqual(a.coordination.snapshot.ownClaim, own);
+      assert.deepEqual(a.coordination.snapshot.peers[0]?.claim, peer.claim);
+      assert.ok(
+        observed.every(
+          ([ownId, peerId]) => ownId === own.id && peerId === peer.claim.id,
+        ),
+        JSON.stringify(observed),
+      );
+      if (rereadFails) {
+        assert.match(
+          a.coordination.snapshot.error ?? '',
+          /fixture cannot reread the committed ledger/,
+        );
+        failing = false;
+        await a.coordination.context();
+      }
+      assert.equal(a.coordination.snapshot.error, undefined);
+    } finally {
+      failing = false;
+      unsubscribe();
+      finishMutation.resolve();
+      await claiming;
+      reading.mock.restore();
+      reserving.mock.restore();
+    }
+  });
+
 await test('a newer discovery survives rejected mutation completion', async (t) => {
   const refreshes = pauseDiscovery(t);
   const { start, registry } = await coordinationFixture(t);
