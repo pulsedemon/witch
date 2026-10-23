@@ -910,6 +910,21 @@ await test("Codex items are titled by what they act on, with a path under the se
     );
     assert.match(tools[1]!.text, /Captured\./);
     assert.doesNotMatch(tools[1]!.text, /iVBORw/);
+    const output = JSON.parse(tools[1]!.text);
+    assert.equal(output.extra, 'tool metadata');
+    assert.deepEqual(output.result.content, [
+      { type: 'text', text: 'Captured.' },
+      {
+        type: 'image',
+        data: '…',
+        mimeType: 'image/png',
+        extra: 'image metadata',
+      },
+      { type: 'image', data: 42, mimeType: 'image/png' },
+      { type: 'text', text: 'Other.', data: 'literal' },
+      null,
+      [false, 3, 'nested'],
+    ]);
   } finally {
     await close(session, cwd);
   }

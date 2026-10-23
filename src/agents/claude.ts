@@ -761,8 +761,10 @@ class ClaudeSession implements AgentSession {
   }
 
   private receive(message: SDKMessage): void {
-    const lifecycle = commandLifecycle.safeParse(message);
-    if (lifecycle.success) {
+    const type: string = message.type;
+    if (type === 'command_lifecycle') {
+      const lifecycle = commandLifecycle.safeParse(message);
+      if (!lifecycle.success) return;
       const turn = this.turn;
       if (
         this.messageLifecycle &&

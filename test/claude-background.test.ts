@@ -236,6 +236,32 @@ for (const task of [undefined, 'mcp_task', 'remote_agent', 'monitor_mcp']) {
   });
 }
 
+await test('malformed lifecycle frames do not consume a pending prompt', async () => {
+  const f = await background();
+  try {
+    const uuid = await f.steer('follow-up');
+    await f.emit(lifecycle(uuid, 'invalid-state'), state('idle'));
+    assert.equal(f.completions(), 0);
+    assert.equal(f.session.closed, false);
+    await f.emit(
+      state('running'),
+      lifecycle(uuid, 'started'),
+      result('Accepted.', [uuid]),
+      state('idle'),
+    );
+    assert.deepEqual(await within(f.turn, 2000, 'valid lifecycle'), {
+      status: 'completed',
+      text: 'Accepted.',
+    });
+    assert.deepEqual(
+      (await f.inputs()).map((input) => input.message.content),
+      ['initial', 'follow-up'],
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
 await test('each steered prompt needs its own main-session consumption evidence', async () => {
   const f = await background();
   try {
