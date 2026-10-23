@@ -27,27 +27,29 @@ await test('commands preserve cwd, arguments and environment in returned output'
   });
 });
 
-await test('native timeout failures retain their output and metadata', async () => {
-  const cwd = await scratch('witch-command-');
-  await assert.rejects(
-    runCommand(
-      process.execPath,
-      [
-        '-e',
-        "process.stdout.write('stdout marker'); process.stderr.write('stderr marker'); setTimeout(() => process.exit(29), 10000)",
-      ],
-      { cwd, timeout: 1500 },
-    ),
-    {
-      message: /^Timed out after 1500 ms: Command failed:/,
-      killed: true,
-      code: null,
-      signal: 'SIGTERM',
-      stdout: 'stdout marker',
-      stderr: 'stderr marker',
-    },
-  );
-});
+for (const killSignal of [undefined, 'SIGKILL'] as const) {
+  await test(`native timeout failures retain their output and metadata (${killSignal ?? 'default signal'})`, async () => {
+    const cwd = await scratch('witch-command-');
+    await assert.rejects(
+      runCommand(
+        process.execPath,
+        [
+          '-e',
+          "process.stdout.write('stdout marker'); process.stderr.write('stderr marker'); setTimeout(() => process.exit(29), 10000)",
+        ],
+        { cwd, timeout: 1500, ...(killSignal ? { killSignal } : {}) },
+      ),
+      {
+        message: /^Timed out after 1500 ms: Command failed:/,
+        killed: true,
+        code: null,
+        signal: killSignal ?? 'SIGTERM',
+        stdout: 'stdout marker',
+        stderr: 'stderr marker',
+      },
+    );
+  });
+}
 
 await test('timeout failures remain labeled when the child handles SIGTERM', async () => {
   const cwd = await scratch('witch-command-');

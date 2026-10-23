@@ -1,11 +1,8 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
+import { runCommand } from './command.js';
 
-const execute = promisify(execFile);
-
-/** active claims add the signed-in user to their GitHub references. release leaves assignees intact; an unconfirmed assignment rejects so the caller can report it while retaining ownership. */
+/** rejects unconfirmed assignments so the caller can warn while retaining ownership. */
 export async function assignGitHubTask(
   references: string[],
   cwd: string,
@@ -19,7 +16,7 @@ export async function assignGitHubTask(
   const request = async (endpoint: string, ...args: string[]) => {
     const timeout = deadline - Date.now();
     if (timeout <= 0) throw new Error('GitHub assignment deadline expired.');
-    const { stdout } = await execute(
+    const { stdout } = await runCommand(
       'gh',
       ['api', '--hostname', 'github.com', endpoint, ...args],
       { cwd, timeout, killSignal: 'SIGKILL' },
