@@ -468,6 +468,51 @@ await test('reopening the picker resets its selection', async () => {
   }
 });
 
+for (const sameRead of [false, true])
+  await test(
+    sameRead
+      ? 'reopening commands clears the filter before Enter in the same read'
+      : 'reopening commands clears the visible filter and submits the first command',
+    async () => {
+      const { app, calls } = fake({});
+      let exits = 0;
+      const ui = show(
+        createElement(App, {
+          coordinator: app,
+          onExit: () => exits++,
+        }),
+      );
+      try {
+        await delay(60);
+        await commands(ui);
+        ui.stdin.write('ex');
+        await until(
+          'the filtered Exit command',
+          () =>
+            ui.text().includes('Exit') &&
+            !ui.text().includes('New conversation'),
+        );
+        if (sameRead) ui.stdin.write(`\u0010${ENTER}`);
+        else {
+          await commands(ui);
+          await until('the full command list', () =>
+            ui.text().includes('New conversation'),
+          );
+          assert.match(ui.text(), /Filter, then Enter/);
+          ui.stdin.write(ENTER);
+        }
+        await until(
+          'the command dispatch',
+          () => exits > 0 || calls.length > 0,
+        );
+        assert.deepEqual(calls, [['newConversation', undefined]]);
+        assert.equal(exits, 0);
+      } finally {
+        ui.unmount();
+      }
+    },
+  );
+
 await test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group, reporting a stop that fails', async () => {
   const { app, calls } = fake({});
   const jobs: Pick<JobWatch, 'list' | 'stop'> = {
