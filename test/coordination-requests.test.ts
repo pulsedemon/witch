@@ -863,7 +863,7 @@ for (const stage of ['waiting', 'verifying'] as const)
     }
   });
 
-await test('a refresh read after the post-commit reread retains peer claims after mutation completion', async (t) => {
+await test('a refresh started during verification retains peer claims after mutation completion', async (t) => {
   const refreshes = pauseDiscovery(t);
   const assignmentEntered = Promise.withResolvers<void>(),
     finishAssignment = Promise.withResolvers<void>();
@@ -885,24 +885,33 @@ await test('a refresh read after the post-commit reread retains peer claims afte
     finishRead = Promise.withResolvers<void>(),
     readCompleted = Promise.withResolvers<Ledger>(),
     finishRefresh = Promise.withResolvers<void>(),
-    rereadCompleted = Promise.withResolvers<Ledger>(),
-    finishReread = Promise.withResolvers<void>();
+    committed = Promise.withResolvers<TaskClaim>(),
+    finishMutation = Promise.withResolvers<void>();
   const claim = local.claim.bind(local);
   const reserving = t.mock.method(
     local,
     'claim',
     async (
       ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
-    ) =>
-      claim(owner, input, process, deadline, async (ledger) => {
-        await verify(ledger);
-        entered.resolve();
-        await proceed.promise;
-      }),
+    ) => {
+      const result = await claim(
+        owner,
+        input,
+        process,
+        deadline,
+        async (ledger) => {
+          await verify(ledger);
+          entered.resolve();
+          await proceed.promise;
+        },
+      );
+      committed.resolve(result);
+      await finishMutation.promise;
+      return result;
+    },
   );
   const state = local.state.bind(local);
   let background = false;
-  let rereading = false;
   const reading = t.mock.method(
     local,
     'state',
@@ -916,13 +925,7 @@ await test('a refresh read after the post-commit reread retains peer claims afte
         await finishRefresh.promise;
         return ledger;
       }
-      const ledger = await state(...args);
-      if (rereading) {
-        rereading = false;
-        rereadCompleted.resolve(ledger);
-        await finishReread.promise;
-      }
-      return ledger;
+      return state(...args);
     },
   );
   const claiming = a.claim('task:chosen', 'Own work');
@@ -933,15 +936,8 @@ await test('a refresh read after the post-commit reread retains peer claims afte
     refreshes[0]!();
     refreshing = a.coordination['refreshing']!.promise;
     await within(readEntered.promise, 5000, 'background read started');
-    rereading = true;
     proceed.resolve();
-    const committed = await within(
-      rereadCompleted.promise,
-      5000,
-      'post-commit reread',
-    );
-    assert.equal(committed.claims.length, 1);
-    const own = committed.claims[0]!;
+    const own = await within(committed.promise, 5000, 'own claim committed');
     const peerResult = await b.claim('task:peer', 'Later peer work');
     if (peerResult.kind !== 'claimed') assert.fail(JSON.stringify(peerResult));
     const peer = peerResult.claim;
@@ -951,7 +947,7 @@ await test('a refresh read after the post-commit reread retains peer claims afte
         .claims,
       [own, peer],
     );
-    finishReread.resolve();
+    finishMutation.resolve();
     await within(assignmentEntered.promise, 5000, 'mutation completion');
     finishRefresh.resolve();
     await within(refreshing, 5000, 'refresh completes after mutation');
@@ -964,7 +960,7 @@ await test('a refresh read after the post-commit reread retains peer claims afte
   } finally {
     proceed.resolve();
     finishRead.resolve();
-    finishReread.resolve();
+    finishMutation.resolve();
     finishRefresh.resolve();
     finishAssignment.resolve();
     await claiming;
@@ -974,8 +970,8 @@ await test('a refresh read after the post-commit reread retains peer claims afte
   }
 });
 
-for (const rereadFails of [false, true])
-  await test(`post-commit finalization preserves peer claims${rereadFails ? ' when rereading fails' : ''}`, async (t) => {
+for (const readFails of [false, true])
+  await test(`post-commit finalization preserves peer claims${readFails ? ' after a later read fails' : ''}`, async (t) => {
     const refreshes = pauseDiscovery(t);
     const { start, registry } = await coordinationFixture(t);
     const a = await start(),
@@ -1008,8 +1004,7 @@ for (const rereadFails of [false, true])
         this: CoordinationStore,
         ...args: Parameters<typeof state>
       ) {
-        if (failing)
-          throw new Error('fixture cannot reread the committed ledger');
+        if (failing) throw new Error('fixture cannot read the ledger');
         return state.apply(this, args);
       },
     );
@@ -1034,7 +1029,15 @@ for (const rereadFails of [false, true])
           a.coordination.snapshot.peers[0]?.claim?.id,
         ]);
       });
-      failing = rereadFails;
+      failing = readFails;
+      if (readFails) {
+        refreshes[0]!();
+        await within(
+          a.coordination['refreshing']!.promise,
+          5000,
+          'later ledger read fails',
+        );
+      }
       finishMutation.resolve();
       const result = await within(claiming, 5000, 'claim finalized');
       if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
@@ -1048,10 +1051,10 @@ for (const rereadFails of [false, true])
         ),
         JSON.stringify(observed),
       );
-      if (rereadFails) {
+      if (readFails) {
         assert.match(
           a.coordination.snapshot.error ?? '',
-          /fixture cannot reread the committed ledger/,
+          /fixture cannot read the ledger/,
         );
         failing = false;
         await a.coordination.context();
@@ -1064,6 +1067,95 @@ for (const rereadFails of [false, true])
       await claiming;
       reading.mock.restore();
       reserving.mock.restore();
+    }
+  });
+
+for (const kind of ['claim', 'release'] as const)
+  await test(`committed ${kind} remains published after an overlapping ledger read fails`, async (t) => {
+    const refreshes = pauseDiscovery(t);
+    const { start, store } = await coordinationFixture(t);
+    const a = await start();
+    const binding = await a.binding();
+    let action: CoordinationAction = {
+      kind: 'claim',
+      input: { reference: 'task:chosen', summary: 'Chosen work' },
+    };
+    if (kind === 'release') {
+      const owned = await a.claim('task:chosen');
+      if (owned.kind !== 'claimed') assert.fail(JSON.stringify(owned));
+      action = { kind: 'release', claim: owned.claim.id };
+    }
+    const local = a.coordination['registry'];
+    const entered = Promise.withResolvers<void>(),
+      finishRead = Promise.withResolvers<void>(),
+      committed = Promise.withResolvers<void>(),
+      finishMutation = Promise.withResolvers<void>();
+    const state = local.state.bind(local);
+    let first = true;
+    const reading = t.mock.method(
+      local,
+      'state',
+      async (...args: Parameters<typeof state>) => {
+        if (first) {
+          first = false;
+          entered.resolve();
+          await finishRead.promise;
+        }
+        return state(...args);
+      },
+    );
+    const hold = async <T>(operation: Promise<T>): Promise<T> => {
+      const result = await operation;
+      committed.resolve();
+      await finishMutation.promise;
+      return result;
+    };
+    const claim = local.claim.bind(local);
+    const release = local.release.bind(local);
+    const changing =
+      kind === 'claim'
+        ? t.mock.method(local, 'claim', (...args: Parameters<typeof claim>) =>
+            hold(claim(...args)),
+          )
+        : t.mock.method(
+            local,
+            'release',
+            (...args: Parameters<typeof release>) => hold(release(...args)),
+          );
+    const file = join(store.root, 'coordination', 'claims.json');
+    let saved: string | undefined;
+    let request: ReturnType<typeof callControl> | undefined;
+    refreshes[0]!();
+    const refreshing = a.coordination['refreshing']!.promise;
+    try {
+      await within(entered.promise, 5000, 'background read begins');
+      request = callControl(binding, action);
+      await within(committed.promise, 5000, 'mutation commits');
+      saved = await readFile(file, 'utf8');
+      await writeFile(file, '{broken');
+      finishRead.resolve();
+      await within(refreshing, 5000, 'background ledger read fails');
+      const failure = a.coordination.snapshot.error;
+      assert.ok(failure);
+      finishMutation.resolve();
+      const result = await within(request, 5000, 'control result');
+      assert.equal(result.kind, kind === 'claim' ? 'claimed' : 'released');
+      const expected = result.kind === 'claimed' ? result.claim : undefined;
+      assert.deepEqual(a.coordination.snapshot.ownClaim, expected);
+      assert.equal(a.coordination.snapshot.error, failure);
+      await writeFile(file, saved);
+      assert.deepEqual((await state()).claims, expected ? [expected] : []);
+      const recovered = await a.query();
+      assert.equal(recovered.error, undefined);
+      assert.deepEqual(recovered.ownClaim, expected);
+    } finally {
+      finishRead.resolve();
+      finishMutation.resolve();
+      await request;
+      await refreshing;
+      if (saved !== undefined) await writeFile(file, saved);
+      reading.mock.restore();
+      changing.mock.restore();
     }
   });
 
