@@ -744,6 +744,74 @@ await test('a failed history write outside any operation needs a restart', async
   }
 });
 
+await test('idle tool output reaches history without another operation', async () => {
+  const { coordinator, a, root } = await fixture();
+  const path = join(
+    root,
+    'state',
+    'conversations',
+    coordinator.snapshot.conversation!.id,
+    'history.jsonl',
+  );
+  try {
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    a.sessions.at(-1)!.options.onEvent({
+      type: 'tool',
+      id: 'idle',
+      title: 'background',
+      text: 'partial output',
+      done: false,
+      append: true,
+    });
+    assert.equal(coordinator.snapshot.items.at(-1)?.text, 'partial output');
+    let content = '';
+    await until('idle output persisted', async () => {
+      content = await readFile(path, 'utf8').catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+        throw error;
+      });
+      return content.endsWith('\n');
+    });
+    assert.equal(
+      (JSON.parse(content.trim()) as { text: string }).text,
+      'partial output',
+    );
+    assert.equal(coordinator.snapshot.phase, 'idle');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('an idle tool timer write failure needs a restart without another operation', async () => {
+  const { coordinator, a, root } = await fixture();
+  const directory = join(
+    root,
+    'state',
+    'conversations',
+    coordinator.snapshot.conversation!.id,
+  );
+  try {
+    await chmod(directory, 0o500);
+    a.sessions.at(-1)!.options.onEvent({
+      type: 'tool',
+      id: 'idle',
+      title: 'background',
+      text: 'partial output',
+      done: false,
+      append: true,
+    });
+    assert.equal(coordinator.snapshot.items.at(-1)?.text, 'partial output');
+    await until(
+      'timer write error',
+      () => coordinator.snapshot.phase === 'error',
+    );
+    assert.match(coordinator.snapshot.error ?? '', /^Restart Witch: .*EACCES/);
+  } finally {
+    await chmod(directory, 0o700);
+    await coordinator.close().catch(() => {});
+  }
+});
+
 await test('a git failure in settle shows its own message without a restart', async () => {
   const { coordinator, a, hook } = await fixture();
   const gate = new TurnGate();
@@ -1263,23 +1331,27 @@ await test("a tool's diff reaches its transcript row and comes back when the con
   }
 });
 
-await test('each history line records when Witch received it', async () => {
+await test('coalesced history retains the latest receipt time instead of the write time', async (t) => {
   const { coordinator, a, root } = await fixture();
   const id = coordinator.snapshot.conversation!.id;
-  const start = Date.now();
-  let middle: number;
-  let end: number;
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: Date.parse('2026-10-23T10:00:00.000Z'),
+  });
   try {
     const { options } = a.sessions.at(-1)!;
     options.onEvent({ type: 'text', id: 'm', text: 'Hel' });
-    await delay(20);
-    middle = Date.now();
+    t.mock.timers.tick(20);
     options.onEvent({ type: 'text', id: 'm', text: 'lo' });
-    end = Date.now();
+    t.mock.timers.tick(1000);
   } finally {
-    await coordinator.close();
+    try {
+      await coordinator.close();
+    } finally {
+      t.mock.timers.reset();
+    }
   }
-  const times = (
+  const records = (
     await readFile(
       join(root, 'state', 'conversations', id, 'history.jsonl'),
       'utf8',
@@ -1287,12 +1359,14 @@ await test('each history line records when Witch received it', async () => {
   )
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line) as { kind: string; at: string })
+    .map(
+      (line) => JSON.parse(line) as { kind: string; text: string; at: string },
+    )
     .filter((update) => update.kind === 'assistant')
-    .map(({ at }) => Date.parse(at));
-  assert.equal(times.length, 2);
-  assert.ok(start <= times[0]! && times[0]! < middle, 'first update');
-  assert.ok(middle <= times[1]! && times[1]! <= end, 'second update');
+    .map(({ at, text }) => ({ at, text }));
+  assert.deepEqual(records, [
+    { at: '2026-10-23T10:00:00.020Z', text: 'Hello' },
+  ]);
 });
 
 await test('a native info event reaches the footer and the next resume', async () => {

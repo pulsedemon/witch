@@ -1369,3 +1369,100 @@ await test('batched tool appends preserve selection and a reading position throu
     ui.unmount();
   }
 });
+
+await test('batched assistant Markdown preserves typing, selection and reading position', async () => {
+  const output = (text: string) => ({
+    id: 'reply',
+    kind: 'assistant' as const,
+    text,
+    cwd: '/work',
+  });
+  let items = applyDisplayUpdate(
+    [],
+    output(
+      'selected words in first paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n\npart',
+    ),
+  );
+  items = applyDisplayUpdate(items, {
+    id: 'following',
+    kind: 'notice',
+    text: 'following notice',
+    cwd: '/work',
+  });
+  const { app, coordinator, calls } = fake({ items, phase: 'running' });
+  const { ui, copied } = mounted(app, 80, 30);
+  const append = (text: string) => {
+    items = applyDisplayUpdate(items, output(text));
+    coordinator.publish({ items });
+  };
+  try {
+    await until('the assistant paragraph', () =>
+      ui.text().includes('selected words'),
+    );
+    ui.stdin.write('typed while streaming');
+    await until('the typed draft', () =>
+      ui.text().includes('typed while streaming'),
+    );
+    const lines = ui.text().split('\n');
+    const row = lines.findIndex((line) => line.includes('selected words'));
+    const column = lines[row]!.indexOf('selected words');
+    drag(ui, [column, row], [column + 7, row]);
+    await until('the selected paragraph', () =>
+      ui.frame().includes('\u001b[7mselected'),
+    );
+    for (const text of ['ial', ' **bold**', '\n\nLast.']) append(text);
+    await until('the batched assistant output', () =>
+      ui.text().includes('partial bold'),
+    );
+    assert.ok(ui.frame().includes('\u001b[7mselected'));
+    assert.ok(ui.text().includes('typed while streaming'));
+    ui.stdin.write(CMD_C);
+    await until('the copied paragraph', () => copied.length === 1);
+    assert.deepEqual(copied, ['selected']);
+    append(
+      '\n\n' +
+        Array.from(
+          { length: 100 },
+          (_, index) => `paragraph ${index}\n\n`,
+        ).join(''),
+    );
+    await until('the long assistant output', () =>
+      ui.text().includes('paragraph 99'),
+    );
+    ui.stdin.write(wheelUp.repeat(20));
+    await until('the assistant reading position', () =>
+      ui.text().includes('READING EARLIER OUTPUT'),
+    );
+    const first = ui.text().split('\n')[1];
+    append('Newest [source](src/newest.ts:9).\n\n');
+    await delay(100);
+    assert.equal(ui.text().split('\n')[1], first);
+    ui.stdin.write('\u001b[6~'.repeat(20));
+    await until(
+      'following assistant output',
+      () =>
+        !ui.text().includes('READING EARLIER OUTPUT') &&
+        ui.text().includes('Newest source'),
+    );
+    assert.ok(ui.frame().includes('vscode://file/work/src/newest.ts:9'));
+    assert.ok(ui.frame().includes('\u001b[4m'));
+    assert.ok(ui.text().includes('following notice'));
+    ui.resize(70);
+    await delay(100);
+    assert.ok(ui.text().includes('Newest source'));
+    assert.ok(ui.frame().includes('vscode://file/work/src/newest.ts:9'));
+    ui.stdin.write(CMD_C);
+    await delay(60);
+    assert.deepEqual(copied, ['selected']);
+    ui.stdin.write(ENTER);
+    await until('the preserved draft is sent', () =>
+      calls.some((call) => call[0] === 'send'),
+    );
+    assert.deepEqual(
+      calls.find((call) => call[0] === 'send'),
+      ['send', 'typed while streaming'],
+    );
+  } finally {
+    ui.unmount();
+  }
+});

@@ -243,10 +243,18 @@ export class StateStore {
   }
 }
 
+interface PendingHistory {
+  update: DisplayUpdate;
+  release: () => void;
+  written: Promise<void>;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class ConversationStore {
   private queue: Promise<unknown> = Promise.resolve();
   private failure?: Error;
   private historyFile?: FileHandle;
+  private pending?: PendingHistory;
   private released = false;
 
   constructor(
@@ -261,6 +269,7 @@ export class ConversationStore {
 
   save(record: ConversationRecord): Promise<void> {
     const content = `${JSON.stringify(record, null, 2)}\n`;
+    this.drainHistory();
     return this.enqueue(async () => {
       const temporary = join(this.directory, `state-${randomUUID()}.tmp`);
       const file = await open(temporary, 'wx', 0o600);
@@ -275,18 +284,43 @@ export class ConversationStore {
   }
 
   append(update: DisplayUpdate): Promise<void> {
-    const line = `${JSON.stringify(update)}\n`;
-    return this.enqueue(async () => {
-      if (!this.historyFile) {
-        const file = await open(historyPath(this.directory), 'a+', 0o600);
-        const existing = await file.readFile();
-        if (existing.length && existing.at(-1) !== 10) {
-          await file.truncate(existing.lastIndexOf(10) + 1);
-        }
-        this.historyFile = file;
-      }
-      await this.historyFile.writeFile(line);
-    });
+    const captured = JSON.parse(JSON.stringify(update)) as DisplayUpdate;
+    if (
+      (captured.kind !== 'assistant' && captured.kind !== 'tool') ||
+      this.released ||
+      this.failure
+    ) {
+      this.drainHistory();
+      return this.enqueue(() => this.writeHistory(captured));
+    }
+    if (
+      this.pending &&
+      (this.pending.update.id !== captured.id ||
+        this.pending.update.kind !== captured.kind)
+    )
+      this.drainHistory();
+    if (this.pending) {
+      const previous = this.pending.update;
+      this.pending.update = {
+        ...foldDisplayUpdates([previous, captured])[0]!,
+        replace: previous.replace || captured.replace,
+      };
+    } else {
+      const ready = Promise.withResolvers<void>();
+      const pending: PendingHistory = {
+        update: captured,
+        release: ready.resolve,
+        written: this.enqueue(async () => {
+          await ready.promise;
+          await this.writeHistory(pending.update);
+        }),
+        timer: setTimeout(() => this.drainHistory(), 100),
+      };
+      this.pending = pending;
+    }
+    const { written } = this.pending;
+    if (captured.replace || captured.done) this.drainHistory();
+    return written;
   }
 
   async history(): Promise<DisplayUpdate[]> {
@@ -309,6 +343,7 @@ export class ConversationStore {
   }
 
   async flush(): Promise<void> {
+    this.drainHistory();
     await this.queue;
     if (this.failure) throw this.failure;
     await this.historyFile?.sync();
@@ -326,6 +361,58 @@ export class ConversationStore {
         this.historyFile = undefined;
         await this.unlock();
       }
+    }
+  }
+
+  private drainHistory(): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = undefined;
+    clearTimeout(pending.timer);
+    pending.release();
+  }
+
+  private async writeHistory(update: DisplayUpdate): Promise<void> {
+    const file = await this.openHistory();
+    await file.writeFile(`${JSON.stringify(update)}\n`);
+  }
+
+  private async openHistory(): Promise<FileHandle> {
+    if (this.historyFile) return this.historyFile;
+    const file = await open(historyPath(this.directory), 'a+', 0o600);
+    try {
+      const { size } = await file.stat();
+      const buffer = Buffer.alloc(Math.min(4096, size));
+      let end = size;
+      let length = Math.min(1, size);
+      while (end) {
+        const start = end - length;
+        let read = 0;
+        while (read < length) {
+          const { bytesRead } = await file.read(
+            buffer,
+            read,
+            length - read,
+            start + read,
+          );
+          if (!bytesRead) break;
+          read += bytesRead;
+        }
+        const newline = buffer.subarray(0, read).lastIndexOf(10);
+        if (newline >= 0) {
+          const complete = start + newline + 1;
+          if (complete < size) await file.truncate(complete);
+          break;
+        }
+        end = start;
+        length = Math.min(buffer.length, end);
+        if (!end) await file.truncate(0);
+      }
+      this.historyFile = file;
+      return file;
+    } catch (error) {
+      await file.close();
+      throw error;
     }
   }
 

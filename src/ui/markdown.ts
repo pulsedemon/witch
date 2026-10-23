@@ -1,16 +1,11 @@
 import { decodeHTMLStrict } from 'entities';
-import { Marked, Renderer } from 'marked';
+import { Marked, Parser, Renderer } from 'marked';
 import type { Token } from 'marked';
 import stripAnsi from 'strip-ansi';
 import { markdownLink, linkify, plain } from './links.js';
 import { accent, colors } from './theme.js';
 
-/** relative link and image targets resolve against `hrefs`, and stay text when it is null. */
-export function markdown(
-  text: string,
-  cwd: string,
-  hrefs: string | null = cwd,
-): string {
+function terminalRenderer(cwd: string, hrefs: string | null): Renderer {
   const renderer = new Renderer();
   const link = (label: string, href: string) =>
     hrefs === null && !/^(?:[a-z][a-z\d+.-]*:(?!\d)|\/|~\/)/i.test(href)
@@ -86,7 +81,63 @@ export function markdown(
       .join('\n')}\n\n`;
   renderer.table = ({ header, rows }) =>
     `${[header, ...rows].map((row) => row.map((cell) => renderer.parser.parseInline(cell.tokens)).join(' │ ')).join('\n')}\n\n`;
+  return renderer;
+}
+
+/** relative link and image targets resolve against `hrefs`, and stay text when it is null. */
+export function markdown(
+  text: string,
+  cwd: string,
+  hrefs: string | null = cwd,
+): string {
   return new Marked({ gfm: true })
-    .parse(text, { renderer, async: false })
+    .parse(text, { renderer: terminalRenderer(cwd, hrefs), async: false })
     .trimEnd();
+}
+
+export interface MarkdownAppend {
+  complete: string[];
+  tail: string;
+  pending: string;
+}
+
+/** undefined requires a full-message render because the suffix can change earlier blocks. */
+export function markdownAppend(
+  text: string,
+  cwd: string,
+): MarkdownAppend | undefined {
+  const marked = new Marked({ gfm: true });
+  const tokens = marked.lexer(text);
+  let context = Object.keys(tokens.links).length > 0;
+  void marked.walkTokens(tokens, (token) => {
+    if (token.type === 'html') context = true;
+    // Marked copies accumulated visitor results per token; keep that array empty.
+    return [];
+  });
+  if (context || tokens.map((token) => token.raw).join('') !== text)
+    return undefined;
+  const parser = new Parser({ renderer: terminalRenderer(cwd, cwd) });
+  const rendered = tokens.map((token) => parser.parse([token]));
+  // the last block can become empty, so retain its preceding visible block for trimEnd().
+  const last = tokens.findLastIndex((token) => token.type !== 'space');
+  const retained = Math.max(
+    0,
+    rendered.findLastIndex(
+      (output, index) => index < last && output.trimEnd().length > 0,
+    ),
+  );
+  // a later setext underline can merge several tokens until the preceding blank line.
+  const boundary =
+    tokens.findLastIndex(
+      (token, index) => index < retained && /\n[ \t]*\n[ \t]*$/.test(token.raw),
+    ) + 1;
+  const complete = rendered.slice(0, boundary).join('');
+  const consumed = tokens
+    .slice(0, boundary)
+    .reduce((length, token) => length + token.raw.length, 0);
+  return {
+    complete: complete ? complete.slice(0, -1).split('\n') : [],
+    tail: rendered.slice(boundary).join('').trimEnd(),
+    pending: text.slice(consumed),
+  };
 }

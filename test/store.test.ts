@@ -19,8 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { exclusiveLock } from '../src/persistence/lock.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
-import { foldDisplayUpdates } from '../src/core/state.js';
-import type { Conversation } from '../src/core/state.js';
+import { displayUpdateSchema, foldDisplayUpdates } from '../src/core/state.js';
+import type { Conversation, DisplayUpdate } from '../src/core/state.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
@@ -33,6 +33,14 @@ function conversation(id: string, cwd = '/project'): Conversation {
     sessions: {},
     createdAt: new Date().toISOString(),
   };
+}
+
+async function recordedHistory(directory: string): Promise<DisplayUpdate[]> {
+  const content = await readFile(join(directory, 'history.jsonl'), 'utf8');
+  return content
+    .trim()
+    .split('\n')
+    .map((line) => displayUpdateSchema.parse(JSON.parse(line)));
 }
 
 /** a detached shell like a `!` command's, and the pid of the sleep it runs in the background. both ignore SIGTERM, as a command can. */
@@ -586,6 +594,338 @@ await test('display history keeps streamed deltas without duplicating final mess
   }
 });
 
+await test('a history burst writes one replacement and settles its appends', async (t) => {
+  const store = await StateStore.open(await scratch('witch-history-burst-'));
+  const held = await store.create(conversation('burst'));
+  t.after(() => held.close());
+  const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
+  const writes = Array.from({ length: 1000 }, (_, index) =>
+    held.append({ ...update, text: `chunk ${index}\n` }),
+  );
+  writes.push(held.append({ ...update, text: 'finished', replace: true }));
+  await Promise.all(writes);
+  const records = await recordedHistory(held.directory);
+  assert.equal(records.length, 1);
+  assert.equal(records[0]?.text, 'finished');
+  assert.equal((await held.items())[0]?.text, 'finished');
+});
+
+await test(
+  'history streams keep the first deadline and append only new text after it',
+  { timeout: 5000 },
+  async (t) => {
+    const store = await StateStore.open(await scratch('witch-history-timer-'));
+    const held = await store.create(conversation('timer'));
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.after(async () => {
+      try {
+        await held.close();
+      } finally {
+        t.mock.timers.reset();
+      }
+    });
+    const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
+    const first = held.append({ ...update, text: 'first' });
+    t.mock.timers.tick(99);
+    const second = held.append({ ...update, text: 'second' });
+    await assert.rejects(access(join(held.directory, 'history.jsonl')), {
+      code: 'ENOENT',
+    });
+    t.mock.timers.tick(1);
+    await Promise.all([first, second]);
+    assert.deepEqual(
+      (await recordedHistory(held.directory)).map(({ text }) => text),
+      ['firstsecond'],
+    );
+    const third = held.append({ ...update, text: 'third' });
+    t.mock.timers.tick(100);
+    await third;
+    assert.deepEqual(
+      (await recordedHistory(held.directory)).map(({ text }) => text),
+      ['firstsecond', 'third'],
+    );
+    await held.append({ ...update, text: 'replacement', replace: true });
+    assert.equal((await held.items())[0]?.text, 'replacement');
+  },
+);
+
+await test('history batches preserve first appearance order across returning ids', async (t) => {
+  const store = await StateStore.open(await scratch('witch-history-order-'));
+  const held = await store.create(conversation('order'));
+  t.after(() => held.close());
+  const update = { kind: 'assistant', cwd: '/project' } as const;
+  const writes = [
+    held.append({ ...update, id: 'A', text: 'first' }),
+    held.append({ ...update, id: 'B', text: 'middle' }),
+    held.append({ ...update, id: 'A', text: 'last' }),
+  ];
+  await held.flush();
+  await Promise.all(writes);
+  assert.deepEqual(
+    (await recordedHistory(held.directory)).map(({ id }) => id),
+    ['A', 'B', 'A'],
+  );
+  assert.deepEqual(
+    (await held.items()).map(({ id, text }) => [id, text]),
+    [
+      ['A', 'firstlast'],
+      ['B', 'middle'],
+    ],
+  );
+});
+
+await test('history batches snapshot metadata and retain it across appends and replacements', async (t) => {
+  const store = await StateStore.open(await scratch('witch-history-metadata-'));
+  const held = await store.create(conversation('metadata'));
+  t.after(() => held.close());
+  const images = ['first.png'];
+  const diff: NonNullable<DisplayUpdate['diff']> = [
+    {
+      path: 'before.ts',
+      kind: 'add',
+      hunks: [{ oldStart: 0, newStart: 1, lines: ['+before'] }],
+    },
+  ];
+  const update = { id: 'tool', kind: 'tool', done: false } as const;
+  const first = held.append({
+    ...update,
+    text: 'head',
+    cwd: '/sub',
+    title: 'command',
+    shell: true,
+    images,
+    diff,
+    at: '2026-10-23T10:00:00.000Z',
+  });
+  images[0] = 'changed.png';
+  diff[0]!.hunks[0]!.lines[0] = '+changed';
+  const second = held.append({
+    ...update,
+    text: 'tail',
+    cwd: '/root',
+    title: '',
+    at: '2026-10-23T10:00:01.000Z',
+  });
+  await held.flush();
+  await Promise.all([first, second]);
+  assert.equal((await held.items())[0]?.cwd, '/sub');
+  assert.equal((await held.items())[0]?.text, 'headtail');
+  await held.append({
+    ...update,
+    text: 'done',
+    cwd: '/new',
+    title: '',
+    done: true,
+    replace: true,
+    at: '2026-10-23T10:00:02.000Z',
+  });
+  assert.deepEqual(await held.items(), [
+    {
+      id: 'tool',
+      kind: 'tool',
+      done: true,
+      text: 'done',
+      cwd: '/new',
+      title: 'command',
+      shell: true,
+      images: ['first.png'],
+      diff: [
+        {
+          path: 'before.ts',
+          kind: 'add',
+          hunks: [{ oldStart: 0, newStart: 1, lines: ['+before'] }],
+        },
+      ],
+      at: '2026-10-23T10:00:02.000Z',
+    },
+  ]);
+});
+
+for (const boundary of [
+  'save',
+  'flush',
+  'history',
+  'items',
+  'close',
+] as const) {
+  await test(
+    `pending history drains before ${boundary} completes`,
+    { timeout: 5000 },
+    async (t) => {
+      const store = await StateStore.open(
+        await scratch('witch-history-boundary-'),
+      );
+      const held = await store.create(conversation('boundary'));
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      t.after(async () => {
+        try {
+          await held.close();
+        } finally {
+          t.mock.timers.reset();
+        }
+      });
+      const update = {
+        id: 'm',
+        kind: 'assistant',
+        text: 'pending',
+        cwd: '/project',
+      } as const;
+      const writing = held.append(update);
+      if (boundary === 'save')
+        await held.save({ ...held.record, title: 'saved' });
+      else await held[boundary]();
+      await writing;
+      assert.equal((await recordedHistory(held.directory))[0]?.text, 'pending');
+      if (boundary === 'close') {
+        await assert.rejects(held.append(update), /no longer open/);
+        const reopened = await store.claim('boundary');
+        try {
+          t.mock.timers.tick(1000);
+          assert.equal((await recordedHistory(held.directory)).length, 1);
+          assert.equal((await reopened.items())[0]?.text, 'pending');
+        } finally {
+          await reopened.close();
+        }
+      }
+    },
+  );
+}
+
+await test('close waits for in-flight history and drains the next batch once', async (t) => {
+  const store = await StateStore.open(await scratch('witch-history-flight-'));
+  const held = await store.create(conversation('flight'));
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const opening = files.open;
+  t.mock.method(
+    files,
+    'open',
+    async (...args: Parameters<typeof files.open>) => {
+      const file = await opening(...args);
+      if (String(args[0]).endsWith('/history.jsonl')) {
+        const write = file.writeFile.bind(file);
+        t.mock.method(
+          file,
+          'writeFile',
+          async (...args: Parameters<typeof write>) => {
+            entered.resolve();
+            await release.promise;
+            return write(...args);
+          },
+        );
+      }
+      return file;
+    },
+  );
+  syncBuiltinESMExports();
+  let closing: Promise<void> | undefined;
+  try {
+    let appended = false;
+    let closed = false;
+    const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
+    const first = held.append({ ...update, text: 'before' }).then(() => {
+      appended = true;
+    });
+    const flushing = held.flush();
+    await within(entered.promise, 5000, 'history write entered');
+    const second = held.append({ ...update, text: 'after' });
+    closing = held.close().then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    assert.equal(appended, false);
+    assert.equal(closed, false);
+    release.resolve();
+    await Promise.all([first, second, flushing, closing]);
+    assert.deepEqual(
+      (await recordedHistory(held.directory)).map(({ text }) => text),
+      ['before', 'after'],
+    );
+    const reclaimed = await store.claim('flight');
+    await reclaimed.close();
+  } finally {
+    release.resolve();
+    await closing;
+    await held.close();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+await test('a timer write rejects its batch and later operations while releasing locks', async (t) => {
+  const store = await StateStore.open(await scratch('witch-history-failure-'));
+  const held = await store.create(conversation('failure'));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
+  await chmod(held.directory, 0o500);
+  try {
+    const first = assert.rejects(
+      held.append({ ...update, text: 'first' }),
+      /EACCES/,
+    );
+    const second = assert.rejects(
+      held.append({ ...update, text: 'second' }),
+      /EACCES/,
+    );
+    t.mock.timers.tick(100);
+    await Promise.all([first, second]);
+    await chmod(held.directory, 0o700);
+    await assert.rejects(held.append({ ...update, text: 'later' }), /EACCES/);
+    await assert.rejects(held.flush(), /EACCES/);
+    await assert.rejects(held.close(), /EACCES/);
+    await (await store.claim('failure')).close();
+  } finally {
+    await chmod(held.directory, 0o700);
+    await held.close().catch(() => {});
+    t.mock.timers.reset();
+  }
+});
+
+for (const kind of ['assistant', 'tool'] as const) {
+  await test(`a crashed writer retains timer-written ${kind} text`, async (t) => {
+    const store = await StateStore.open(await scratch('witch-history-crash-'));
+    await (await store.create(conversation('crash'))).close();
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        import.meta.resolve('tsx'),
+        fileURLToPath(new URL('fixtures/history-stream.ts', import.meta.url)),
+        store.root,
+        'crash',
+        kind,
+      ],
+      { cwd: store.root, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+    const ended = new Promise<void>((resolve) =>
+      child.once('close', () => resolve()),
+    );
+    t.after(async () => {
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill('SIGKILL');
+      await ended;
+    });
+    const [ready] = await within(
+      once(child.stdout, 'data'),
+      5000,
+      'timer-written history',
+    );
+    assert.equal(String(ready), 'written\n');
+    child.kill('SIGKILL');
+    await within(ended, 5000, 'history writer exit');
+    const reopened = await store.claim('crash');
+    try {
+      assert.deepEqual(
+        (await reopened.items()).map(({ kind, text }) => ({ kind, text })),
+        [{ kind, text: 'firstsecond' }],
+      );
+      assert.equal((await recordedHistory(reopened.directory)).length, 1);
+    } finally {
+      await reopened.close();
+    }
+  });
+}
+
 await test('a truncated final record cannot corrupt history written after restart', async () => {
   const root = await scratch('witch-partial-');
   const store = await StateStore.open(root);
@@ -621,6 +961,77 @@ await test('a truncated final record cannot corrupt history written after restar
     await files.close();
   }
 });
+
+for (const [name, complete, partial, expectedRead] of [
+  ['empty', false, '', 0],
+  ['complete', true, '', 1],
+  ['multiple windows', true, 'x'.repeat(8193), 12289],
+  ['window boundary', true, 'x'.repeat(4096), 4097],
+  ['only unfinished', false, '{"unfinished":', 14],
+] as const) {
+  await test(`history append inspects only the required tail: ${name}`, async (t) => {
+    const store = await StateStore.open(await scratch('witch-history-tail-'));
+    await (await store.create(conversation('tail'))).close();
+    const path = join(store.root, 'conversations', 'tail', 'history.jsonl');
+    const prefix = complete
+      ? `${JSON.stringify({ id: 'old', kind: 'notice', text: 'x'.repeat(65536), cwd: '/before' })}\n`
+      : '';
+    await writeFile(path, prefix + partial);
+    const opening = files.open;
+    let fullReads = 0;
+    let bytesRead = 0;
+    t.mock.method(
+      files,
+      'open',
+      async (...args: Parameters<typeof files.open>) => {
+        const file = await opening(...args);
+        if (args[0] === path) {
+          const read = file.read.bind(file);
+          const readAll = file.readFile.bind(file);
+          t.mock.method(
+            file,
+            'read',
+            async (...args: Parameters<typeof read>) => {
+              const result = await read(...args);
+              bytesRead += result.bytesRead;
+              return result;
+            },
+          );
+          t.mock.method(
+            file,
+            'readFile',
+            (...args: Parameters<typeof readAll>) => {
+              fullReads++;
+              return readAll(...args);
+            },
+          );
+        }
+        return file;
+      },
+    );
+    syncBuiltinESMExports();
+    const held = await store.claim('tail');
+    try {
+      await held.append({
+        id: 'new',
+        kind: 'notice',
+        text: 'after',
+        cwd: '/after',
+      });
+      await held.close();
+      assert.equal(
+        await readFile(path, 'utf8'),
+        prefix + '{"id":"new","kind":"notice","text":"after","cwd":"/after"}\n',
+      );
+      assert.equal(fullReads, 0);
+      assert.equal(bytesRead, expectedRead);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+      await held.close();
+    }
+  });
+}
 
 await test('replay folds appends, replacements and new ids, keeping a title an empty replacement omits', () => {
   assert.deepEqual(

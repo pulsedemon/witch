@@ -605,10 +605,21 @@ for await (const line of lines) {
           server: 'browser',
           tool: 'screenshot',
           arguments: { url: 'https://example.com' },
+          extra: 'tool metadata',
           result: {
             content: [
               { type: 'text', text: 'Captured.' },
-              { type: 'image', data: 'iVBORw==', mimeType: 'image/png' },
+              {
+                type: 'image',
+                data: 'iVBORw==',
+                mimeType: 'image/png',
+                extra: 'image metadata',
+              },
+              // deliberately invalid image data must remain visible in the tool text
+              { type: 'image', data: 42, mimeType: 'image/png' },
+              { type: 'text', text: 'Other.', data: 'literal' },
+              null,
+              [false, 3, 'nested'],
             ],
           },
         },
