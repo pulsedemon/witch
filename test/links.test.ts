@@ -17,6 +17,23 @@ import { markdown } from '../src/ui/markdown.js';
 
 const execute = promisify(execFile);
 
+function linkSpans(text: string) {
+  const spans: { target: string; text: string }[] = [];
+  let current: (typeof spans)[number] | undefined;
+  for (const { value, styles } of styledCharsFromTokens(tokenize(text))) {
+    const target = styles
+      .find(({ code }) => code.startsWith('\u001b]8;;'))
+      ?.code.slice(5, -1);
+    if (!target) current = undefined;
+    else if (current?.target === target) current.text += value;
+    else {
+      current = { target, text: value };
+      spans.push(current);
+    }
+  }
+  return spans;
+}
+
 await test('bare URLs retain their exact browser target across wrapping', () => {
   const url = 'https://iterm2.com/documentation-escape-codes.html';
   const rendered = wrapAnsi(linkify(`Read ${url}.`, '/work'), 24, {
@@ -91,6 +108,112 @@ await test('relative files resolve against their originating project with encode
       'vscode://file/work/project/src/main.ts:42',
     ),
   );
+});
+
+await test('non-ASCII and punctuation filenames link whole', () => {
+  for (const [text, target] of [
+    ['docs/über/x.md', 'vscode://file/proj/docs/%C3%BCber/x.md'],
+    ['src/naïve.ts:3', 'vscode://file/proj/src/na%C3%AFve.ts:3'],
+    ['docs/my-file+v2.ts', 'vscode://file/proj/docs/my-file%2Bv2.ts'],
+    ['docs/my,file.ts', 'vscode://file/proj/docs/my%2Cfile.ts'],
+    ['résumé.md', 'vscode://file/proj/r%C3%A9sum%C3%A9.md'],
+    ['my%20file.ts', 'vscode://file/proj/my%2520file.ts'],
+    [
+      'docs/re\u0301sume\u0301.md',
+      'vscode://file/proj/docs/re%CC%81sume%CC%81.md',
+    ],
+  ] as const) {
+    for (const render of [linkify, markdown]) {
+      const rendered = render(text, '/proj');
+      assert.equal(stripAnsi(rendered), text);
+      assert.deepEqual(linkSpans(rendered), [{ target, text }], text);
+    }
+  }
+});
+
+await test('bare file URLs do not produce relative suffix links', () => {
+  for (const text of [
+    'at file:///Users/me/My%20Project/src/a.ts:12:3',
+    'file:///Users/me/My%20Project/README.md',
+    'file:///Users/me/src/a.ts:12:3',
+  ]) {
+    assert.equal(linkify(text, '/proj'), text);
+    assert.equal(markdown(text, '/proj'), text);
+  }
+});
+
+await test('filename boundaries preserve prose and complete names', () => {
+  for (const [text, expected] of [
+    [
+      'Edited src/naïve.ts:3',
+      [
+        {
+          target: 'vscode://file/proj/src/na%C3%AFve.ts:3',
+          text: 'src/naïve.ts:3',
+        },
+      ],
+    ],
+    [
+      '"über/x.md"',
+      [{ target: 'vscode://file/proj/%C3%BCber/x.md', text: 'über/x.md' }],
+    ],
+    [
+      'src/a.ts, src/b.ts',
+      [
+        { target: 'vscode://file/proj/src/a.ts', text: 'src/a.ts' },
+        { target: 'vscode://file/proj/src/b.ts', text: 'src/b.ts' },
+      ],
+    ],
+    [
+      'README.md...',
+      [{ target: 'vscode://file/proj/README.md', text: 'README.md' }],
+    ],
+    [
+      'résumé.md,,',
+      [{ target: 'vscode://file/proj/r%C3%A9sum%C3%A9.md', text: 'résumé.md' }],
+    ],
+    [
+      'src/a.ts...',
+      [{ target: 'vscode://file/proj/src/a.ts', text: 'src/a.ts' }],
+    ],
+    ['src/a.ts+draft', []],
+    [
+      'https://example.com/my+file.ts',
+      [
+        {
+          target: 'https://example.com/my+file.ts',
+          text: 'https://example.com/my+file.ts',
+        },
+      ],
+    ],
+  ] as const) {
+    for (const render of [linkify, markdown]) {
+      const rendered = render(text, '/proj');
+      assert.equal(stripAnsi(rendered), text);
+      assert.deepEqual(linkSpans(rendered), expected, text);
+    }
+  }
+});
+
+await test('a non-ASCII filename keeps its whole target through appends and wrapping', () => {
+  const first = linkifyAppend('docs/', '/proj');
+  const next = linkifyAppend(
+    first.pending + 'über/x.md\n',
+    '/proj',
+    first.target,
+  );
+  const text = next.complete.join('\n');
+  const target = 'vscode://file/proj/docs/%C3%BCber/x.md';
+  assert.equal(stripAnsi(text), 'docs/über/x.md');
+  assert.deepEqual(linkSpans(text), [{ target, text: 'docs/über/x.md' }]);
+  assert.equal(next.tail, '');
+  assert.equal(next.pending, '');
+  const rows = wrapAnsi(text, 8, { hard: true, trim: false }).split('\n');
+  assert.deepEqual(rows.map(linkSpans), [
+    [{ target, text: 'docs/übe' }],
+    [{ target, text: 'r/x.md' }],
+  ]);
+  assert.equal(stripAnsi(rows.join('')), 'docs/über/x.md');
 });
 
 await test('a prefixed or absolute path followed by a colon links without it, keeping a line and column', () => {
@@ -212,7 +335,7 @@ await test('malformed file URLs remain readable without breaking a persisted tra
   );
 });
 
-await test('long runs of dashes, dots and @ signs, and links on many lines or one, link in linear time', () => {
+await test('long runs of filename characters, and links on many lines or one, link in linear time', () => {
   // compare CPU time so scheduling delays do not count as parsing work.
   const fastest = (text: string) =>
     Math.min(
@@ -236,7 +359,7 @@ await test('long runs of dashes, dots and @ signs, and links on many lines or on
       })),
     );
   for (const [input, small, large] of [
-    ...['-', '.', '@'].map(
+    ...['-', '.', '@', 'é', '+', ',', '%'].map(
       (character) =>
         [character, character.repeat(16000), character.repeat(64000)] as const,
     ),
