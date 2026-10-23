@@ -63,7 +63,7 @@ await test('the CLI opens the pressed link, copies selected text and reports des
     process.execPath,
     [
       '--import',
-      import.meta.resolve('tsx'),
+      import.meta.resolve('../scripts/register.mjs'),
       '--import',
       join(repository, 'test/fixtures/cli-desktop.mjs'),
       join(repository, 'src/cli.tsx'),

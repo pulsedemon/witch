@@ -1,4 +1,10 @@
-import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import {
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { Ref } from 'react';
 import { Box, Text, measureElement, useCursor, useInput, usePaste } from 'ink';
 import type { DOMElement } from 'ink';
@@ -147,33 +153,35 @@ export function Input({
   const reference = useRef<DOMElement>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number }>();
   const { setCursorPosition } = useCursor();
-  const drawnAt = (buffer: InputBuffer) => split(buffer, width, shell);
-  const drawn = drawnAt(state);
-  const display = visible(drawn.text.value, secret);
-  const cursor = visible(
-    drawn.text.value.slice(0, drawn.text.cursor),
-    secret,
-  ).length;
-  const wrapped = wrap(display, drawn.width);
-  let consumed = 0;
-  let row = 0;
-  let column = 0;
-  for (const [index, line] of wrapped.entries()) {
-    const plain = stripAnsi(line);
-    const end = consumed + plain.length;
-    if (
-      cursor < end ||
-      (cursor === end && display[end] === '\n') ||
-      index === wrapped.length - 1
-    ) {
-      row = index;
-      column = stringWidth(plain.slice(0, cursor - consumed));
-      break;
+  const { drawn, row, column, offset, lines } = useMemo(() => {
+    const drawn = split(state, width, shell);
+    const display = visible(drawn.text.value, secret);
+    const cursor = visible(
+      drawn.text.value.slice(0, drawn.text.cursor),
+      secret,
+    ).length;
+    const wrapped = wrap(display, drawn.width);
+    let consumed = 0;
+    let row = 0;
+    let column = 0;
+    for (const [index, line] of wrapped.entries()) {
+      const plain = stripAnsi(line);
+      const end = consumed + plain.length;
+      if (
+        cursor < end ||
+        (cursor === end && display[end] === '\n') ||
+        index === wrapped.length - 1
+      ) {
+        row = index;
+        column = stringWidth(plain.slice(0, cursor - consumed));
+        break;
+      }
+      consumed = end + (display[end] === '\n' ? 1 : 0);
     }
-    consumed = end + (display[end] === '\n' ? 1 : 0);
-  }
-  const offset = Math.max(0, row - height + 1);
-  const lines = wrapped.slice(offset, offset + height);
+    const offset = Math.max(0, row - height + 1);
+    const lines = wrapped.slice(offset, offset + height);
+    return { drawn, row, column, offset, lines };
+  }, [state, width, shell, secret, height]);
 
   useEffect(() => {
     if (!reference.current) return;
@@ -193,7 +201,7 @@ export function Input({
     onChange?.(next.value, next.cursor);
   };
   const edit = (action: Edit) => {
-    const { mark, text } = drawnAt(current.current);
+    const { mark, text } = split(current.current, width, shell);
     // Backspace, Option+Delete or Cmd+Delete at the text's start takes the `!`, as Backspace leaves Claude Code's and Codex's shell mode
     if (mark && !text.cursor && backward.has(action.type)) return replace(text);
     const next = editInput(text, action);
@@ -223,7 +231,11 @@ export function Input({
       // Ghostty sends Cmd+←, Cmd+→ and Cmd+Delete as Ctrl+A, Ctrl+E and Ctrl+U
       if (key.ctrl) {
         if (input === 'a' || input === 'e' || input === 'u') {
-          const { mark, width: rowWidth, text } = drawnAt(current.current);
+          const {
+            mark,
+            width: rowWidth,
+            text,
+          } = split(current.current, width, shell);
           const stops = rowStops(text.value, text.cursor, rowWidth, secret);
           if (input === 'u') edit({ type: 'backspaceRow', start: stops.back });
           else

@@ -140,7 +140,8 @@ export function App({
     () => (notify: () => void) => {
       let scheduled: ReturnType<typeof setTimeout> | undefined;
       const unsubscribe = coordinator.subscribe(() => {
-        scheduled ??= setTimeout(() => {
+        if (scheduled !== undefined) return;
+        scheduled = setTimeout(() => {
           scheduled = undefined;
           notify();
         }, 40);
@@ -171,7 +172,8 @@ export function App({
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
   const height = Math.max(12, size.rows);
-  const cwd = state.conversation?.cwd ?? process.cwd();
+  // the compiler needs the native fallback's string type to memoize its consumers.
+  const cwd = state.conversation?.cwd ?? String(process.cwd());
   const [view, setView] = useState<View>({ kind: 'chat' });
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
@@ -193,16 +195,16 @@ export function App({
   const composer = useRef<InputHandle>(null);
   const pickerInput = useRef<InputHandle>(null);
   // this directory's prompts, newest first
-  const history = useRef<string[]>([]);
-  const recall = useRef(unbrowsed());
+  const [prompts, history, setHistory] = useLiveState<string[]>([]);
+  const [browsing, recall, setRecall] = useLiveState(unbrowsed);
   const [buffer, bufferRef, setBuffer] = useLiveState<InputBuffer>({
     value: '',
     cursor: 0,
   });
-  const [, listIndexRef, setListIndex] = useLiveState(0);
-  const [, dismissedRef, setDismissed] = useLiveState<string | undefined>(
-    undefined,
-  );
+  const [listIndex, listIndexRef, setListIndex] = useLiveState(0);
+  const [dismissed, dismissedRef, setDismissed] = useLiveState<
+    string | undefined
+  >(undefined);
   const [files, setFiles] = useState<string[]>([]);
   const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout(graphics));
@@ -291,23 +293,26 @@ export function App({
     ...state.skills.filter(({ name }) => !claimed.has(name)),
   ];
   /** whether the composer holds the prompt ↑/↓ last showed, as shown. */
-  const recalled = (value: string) => {
-    const { index, texts } = recall.current;
-    return (
-      index !== -1 && value === (texts.get(index) ?? history.current[index])
-    );
-  };
-  /** read at key time from the live buffer, since several keys can arrive in one read. */
-  const listFor = ({ value, cursor }: InputBuffer): List | undefined => {
+  const recalled = (
+    value: string,
+    { index, texts }: ReturnType<typeof unbrowsed>,
+    prompts: string[],
+  ) => index !== -1 && value === (texts.get(index) ?? prompts[index]);
+  const listFor = (
+    { value, cursor }: InputBuffer,
+    focus: boolean,
+    dismissedToken: string | undefined,
+    isRecalled: boolean,
+  ): List | undefined => {
     if (
       view.kind !== 'chat' ||
       !composerPhase ||
-      toolFocusRef.current ||
+      focus ||
       // a file would go into the command as `@path`
       value.startsWith('!') ||
-      dismissedRef.current === tokenKey(value, cursor) ||
+      dismissedToken === tokenKey(value, cursor) ||
       // a list would take ↑/↓ from browsing, even once the cursor moves into a recalled `@path`
-      recalled(value)
+      isRecalled
     )
       return;
     const token = activeToken(value, cursor);
@@ -321,10 +326,23 @@ export function App({
     }
   };
   /** the selection, clamped to a list that may have shrunk since it moved. */
-  const selectedIn = (open: List) =>
-    Math.min(listIndexRef.current, open.items.length - 1);
-  const list = listFor(buffer);
-  const listSelected = list ? selectedIn(list) : 0;
+  const selectedIn = (open: List, index: number) =>
+    Math.min(index, open.items.length - 1);
+  const list = listFor(
+    buffer,
+    toolFocus,
+    dismissed,
+    recalled(buffer.value, browsing, prompts),
+  );
+  const listSelected = list ? selectedIn(list, listIndex) : 0;
+  /** keys in one read need the latest completion state before React renders it. */
+  const liveListFor = (buffer: InputBuffer) =>
+    listFor(
+      buffer,
+      toolFocusRef.current,
+      dismissedRef.current,
+      recalled(buffer.value, recall.current, history.current),
+    );
   const tools = state.items.filter((item) => item.kind === 'tool');
   const selectedTool = tools[toolSelection];
   const diffHint =
@@ -604,14 +622,14 @@ export function App({
   /** keeps a submitted prompt for ↑, unless it is blank or repeats the newest. */
   const remember = (text: string) => {
     if (!text.trim() || text === history.current[0]) return;
-    history.current = [text, ...history.current];
+    setHistory([text, ...history.current]);
     // the initial prompt can go out once browsing has begun, and every prompt browsed or kept is then a place further back
     const back = (at: number) => (at === -1 ? at : at + 1);
     const { index, texts } = recall.current;
-    recall.current = {
+    setRecall({
       index: back(index),
       texts: new Map([...texts].map(([at, kept]) => [back(at), kept])),
-    };
+    });
     if (store) run(store.addPrompt(cwd, text));
   };
 
@@ -650,7 +668,7 @@ export function App({
     const id = state.conversation?.id ?? '';
     const { index, texts } = recall.current;
     const draft = index === -1 ? draftsRef.current[id] : texts.get(-1);
-    recall.current = unbrowsed();
+    setRecall(unbrowsed());
     const value = draft ? `${text}\n${draft}` : text;
     if (composer.current) composer.current.set({ value, cursor: text.length });
     else setDraft(id, value);
@@ -667,8 +685,7 @@ export function App({
     const next = index + (direction === 'up' ? 1 : -1);
     const value = texts.get(next) ?? history.current[next];
     if (value === undefined) return false;
-    texts.set(index, current.value);
-    recall.current.index = next;
+    setRecall({ index: next, texts: new Map(texts).set(index, current.value) });
     // ↑ lands at the end and ↓ at the start, so the next press walks a multiline prompt's lines first
     const cursor = direction === 'up' ? value.length : 0;
     composer.current?.set({ value, cursor });
@@ -677,7 +694,7 @@ export function App({
 
   /** writes the selected entry into the draft: `/name ` replaces it, `@path ` replaces its token and a space already after it. */
   const complete = (open: List) => {
-    const index = selectedIn(open);
+    const index = selectedIn(open, listIndexRef.current);
     const { value } = bufferRef.current;
     if (open.kind === 'command') {
       const text = `/${open.items[index]!.name} `;
@@ -706,9 +723,9 @@ export function App({
       run(coordinator.projectFiles().then(setFiles));
   };
   const moveInList = (direction: 'up' | 'down', current: InputBuffer) => {
-    const open = listFor(current);
+    const open = liveListFor(current);
     if (!open) return false;
-    const index = selectedIn(open);
+    const index = selectedIn(open, listIndexRef.current);
     setListIndex(
       direction === 'up'
         ? Math.max(0, index - 1)
@@ -728,15 +745,17 @@ export function App({
         browse('down', current));
   /** Enter runs the selected command or skill, and inserts a file without sending; a send starts browsing again at the newest. */
   const submitComposer = (text: string) => {
-    const open = listFor(bufferRef.current);
+    const open = liveListFor(bufferRef.current);
     if (open?.kind === 'file') {
       complete(open);
       return false;
     }
     const accepted = submit(
-      open ? `/${open.items[selectedIn(open)]!.name}` : text,
+      open
+        ? `/${open.items[selectedIn(open, listIndexRef.current)]!.name}`
+        : text,
     );
-    if (accepted) recall.current = unbrowsed();
+    if (accepted) setRecall(unbrowsed());
     return accepted;
   };
 
@@ -749,7 +768,7 @@ export function App({
       // the shown prompt became this conversation's draft, so the one typed before browsing goes back
       const { index, texts } = recall.current;
       if (index !== -1) setDraft(id, texts.get(-1)!);
-      recall.current = unbrowsed();
+      setRecall(unbrowsed());
     };
   }, [state.conversation?.id]);
   // prompts sent before the read ends stay ahead of the ones it finds
@@ -758,7 +777,7 @@ export function App({
     if (store && directory)
       run(
         store.prompts(directory).then((found) => {
-          history.current = [...history.current, ...found];
+          setHistory([...history.current, ...found]);
         }),
       );
   }, [state.conversation?.cwd]);
@@ -784,37 +803,47 @@ export function App({
     if (state.phase === 'recovery') setPageScroll(0);
   }, [state.phase]);
 
-  const recovery = state.recovery;
+  const recovering = state.phase === 'recovery';
+  const recovery = recovering ? state.recovery : undefined;
   const conflict = recovery?.kind === 'conflict';
-  const pageText =
-    state.phase === 'recovery'
+  const pageView = recovering ? undefined : view;
+  const pageCoordination =
+    pageView?.kind === 'coordination' ? coordination : undefined;
+  const pageLines = useMemo(() => {
+    const pageText = recovering
       ? linkify(
           conflict
             ? `${recovery.paths.length ? `Conflicting paths:\n${recovery.paths.map(plain).join('\n')}` : 'This conflict has no single path.'}\n\nCommit that could not be published:\n${recovery.diff}`
             : (recovery?.diff ?? ''),
           recovery?.root ?? cwd,
         )
-      : view.kind === 'page'
+      : pageView?.kind === 'page'
         ? markdown(
-            view.text,
+            pageView.text,
             cwd,
-            view.note === undefined
+            pageView.note === undefined
               ? cwd
-              : view.link
-                ? dirname(view.link)
+              : pageView.link
+                ? dirname(pageView.link)
                 : null,
           )
-        : view.kind === 'coordination'
-          ? coordinationText(coordination, view.mode)
+        : pageView?.kind === 'coordination'
+          ? coordinationText(pageCoordination, pageView.mode)
           : '';
-  const pageLines = wrapAnsi(pageText, bodyWidth, {
-    hard: true,
-    trim: false,
-  }).split('\n');
-  const pageRows = Math.max(
-    1,
-    bodyHeight - (state.phase === 'recovery' ? 5 : 3),
-  );
+    return wrapAnsi(pageText, bodyWidth, {
+      hard: true,
+      trim: false,
+    }).split('\n');
+  }, [
+    recovering,
+    recovery,
+    conflict,
+    cwd,
+    pageView,
+    pageCoordination,
+    bodyWidth,
+  ]);
+  const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
   const pageLast = Math.max(0, pageLines.length - pageRows);
   const pageTop = Math.min(pageScroll, pageLast);
   /** steps from the shown top, so a move past either end is felt at once. */
@@ -908,7 +937,7 @@ export function App({
         run(coordinator.recoverMemory('keep'));
       return;
     }
-    const open = listFor(bufferRef.current);
+    const open = liveListFor(bufferRef.current);
     if (open && (key.tab || key.escape)) {
       if (key.tab) complete(open);
       else
