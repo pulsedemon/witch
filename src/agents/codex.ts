@@ -26,6 +26,19 @@ import type {
 } from './types.js';
 
 const object = z.record(z.string(), z.unknown());
+const stringValue = z.string();
+const nullishString = stringValue.nullish();
+const commandStatus = z.enum(['completed', 'failed', 'declined']);
+const completedTurn = z.object({
+  turn: z.object({ id: stringValue, status: stringValue }),
+});
+const turnDiff = z.object({ turnId: stringValue, diff: stringValue });
+type Notification = {
+  method: RpcMessage['method'];
+  params: Record<string, unknown>;
+  item?: Record<string, unknown>;
+};
+
 const nativeSession = z.object({
   thread: z.object({ id: z.string() }),
   model: z.string(),
@@ -659,10 +672,29 @@ class CodexSession implements AgentSession {
     }
     const child = this.childThread(message);
     try {
-      const diff = this.fileChangeDiff(message);
-      this.commandNotification(message);
-      if (child) this.subagentNotification(message, child);
-      else this.notification(message, diff);
+      const item =
+        message.method === 'item/started' ||
+        message.method === 'item/completed';
+      if (
+        child &&
+        !item &&
+        message.method !== 'turn/started' &&
+        message.method !== 'turn/completed'
+      )
+        return;
+      const params =
+        message.params == null && !item && message.method !== 'turn/completed'
+          ? {}
+          : object.parse(message.params);
+      const notification: Notification = {
+        method: message.method,
+        params,
+        item: item ? object.parse(params.item) : undefined,
+      };
+      const diff = this.fileChangeDiff(notification);
+      this.commandNotification(notification);
+      if (child) this.subagentNotification(notification, child);
+      else this.notification(notification, diff);
     } catch (error) {
       const text = `Witch could not read Codex's ${message.method} notification: ${errorMessage(error)}`;
       // a subagent's notification settles nothing of this thread's
@@ -677,14 +709,8 @@ class CodexSession implements AgentSession {
   }
 
   /** familiar approvals need their proposal even when no main transcript row owns it. */
-  private fileChangeDiff(message: RpcMessage): FileDiff[] | undefined {
-    if (
-      !['item/started', 'item/completed', 'turn/completed'].includes(
-        message.method ?? '',
-      )
-    )
-      return;
-    const data = object.parse(message.params);
+  private fileChangeDiff(message: Notification): FileDiff[] | undefined {
+    const { params: data, item } = message;
     if (message.method === 'turn/completed') {
       const completed = turnId.safeParse(data).data?.turn.id;
       if (completed === undefined) return;
@@ -696,8 +722,7 @@ class CodexSession implements AgentSession {
           this.proposals.delete(key);
       return;
     }
-    const item = object.parse(data.item);
-    if (item.type !== 'fileChange') return;
+    if (item?.type !== 'fileChange') return;
     const changes = fileChanges.safeParse(item.changes);
     const diff = changes.success ? fileDiffs(changes.data) : undefined;
     const identity = fileChangeIdentity.safeParse({ ...data, itemId: item.id });
@@ -712,22 +737,12 @@ class CodexSession implements AgentSession {
   }
 
   /** late command ends belong to their original turn, even after a familiar starts its next one. */
-  private commandNotification(message: RpcMessage): void {
-    if (
-      this.closing ||
-      this.closed ||
-      !['item/started', 'item/completed', 'turn/completed'].includes(
-        message.method ?? '',
-      )
-    )
-      return;
-    const params = object.parse(message.params);
-    const item =
-      message.method === 'turn/completed'
-        ? undefined
-        : object.parse(params.item);
+  private commandNotification(message: Notification): void {
+    if (this.closing || this.closed) return;
+    const { params, item } = message;
+    if (!item && message.method !== 'turn/completed') return;
     if (item && item.type !== 'commandExecution') return;
-    const threadId = z.string().parse(params.threadId);
+    const threadId = stringValue.parse(params.threadId);
     if (threadId !== this.info.id && !this.subagents.has(threadId)) return;
     if (!item) {
       const completed = turnId.parse(params).turn.id;
@@ -737,19 +752,17 @@ class CodexSession implements AgentSession {
       void this.readBackgroundCommands(threadId);
       return;
     }
-    const id = `${threadId}/${z.string().parse(item.id)}`;
+    const id = `${threadId}/${stringValue.parse(item.id)}`;
     if (message.method === 'item/started') {
       this.commands.set(id, {
         threadId,
-        turnId: z.string().parse(params.turnId),
+        turnId: stringValue.parse(params.turnId),
         ended: false,
       });
     } else {
       const command = this.commands.get(id)?.command;
       if (command) {
-        const status = z
-          .enum(['completed', 'failed', 'declined'])
-          .parse(item.status);
+        const status = commandStatus.parse(item.status);
         this.options.onEvent({
           type: 'command',
           command: {
@@ -828,16 +841,12 @@ class CodexSession implements AgentSession {
   }
 
   /** a thread's next turn can start before its last turn's items and end arrive, which then belong to no run. */
-  private subagentNotification(message: RpcMessage, threadId: string): void {
+  private subagentNotification(message: Notification, threadId: string): void {
     const subagent = this.subagents.get(threadId);
-    if (
-      subagent &&
-      (message.method === 'item/started' || message.method === 'item/completed')
-    ) {
-      const params = object.parse(message.params);
+    const { params, item } = message;
+    if (subagent && item) {
       if (subagent.run !== undefined && params.turnId !== subagent.run) return;
-      const item = object.parse(params.item);
-      const type = z.string().parse(item.type);
+      const type = stringValue.parse(item.type);
       if (type === 'agentMessage') {
         if (
           message.method === 'item/completed' &&
@@ -878,9 +887,7 @@ class CodexSession implements AgentSession {
       });
     }
     if (message.method === 'turn/completed') {
-      const { turn } = z
-        .object({ turn: z.object({ id: z.string(), status: z.string() }) })
-        .parse(message.params);
+      const { turn } = completedTurn.parse(params);
       const current = this.subagents.get(threadId)!;
       if (current.run !== undefined && turn.id !== current.run) return;
       this.subagent({
@@ -927,16 +934,16 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'subagent', subagent });
   }
 
-  private notification(message: RpcMessage, diff?: FileDiff[]): void {
-    const data = message.params == null ? {} : object.parse(message.params);
+  private notification(message: Notification, diff?: FileDiff[]): void {
+    const data = message.params;
     switch (message.method) {
       case 'thread/settings/updated': {
         const settings = object.parse(data.threadSettings);
         if (settings.model !== this.native.model)
           this.report({ context: undefined, contextWindow: undefined });
         this.native = {
-          model: z.string().parse(settings.model),
-          effort: z.string().nullish().parse(settings.effort) ?? undefined,
+          model: stringValue.parse(settings.model),
+          effort: nullishString.parse(settings.effort) ?? undefined,
         };
         this.info = {
           ...this.info,
@@ -966,17 +973,17 @@ class CodexSession implements AgentSession {
           );
         break;
       case 'item/agentMessage/delta': {
-        const id = z.string().parse(data.itemId);
-        const text = z.string().parse(data.delta);
+        const id = stringValue.parse(data.itemId);
+        const text = stringValue.parse(data.delta);
         this.turn?.messages.set(id, (this.turn.messages.get(id) ?? '') + text);
         this.options.onEvent({ type: 'text', id, text });
         break;
       }
       case 'item/started':
       case 'item/completed': {
-        const item = object.parse(data.item);
-        const id = z.string().parse(item.id);
-        const type = z.string().parse(item.type);
+        const item = message.item!;
+        const id = stringValue.parse(item.id);
+        const type = stringValue.parse(item.type);
         if (type === 'contextCompaction') {
           const turn = this.turn;
           const compact = turn?.compaction;
@@ -1040,8 +1047,12 @@ class CodexSession implements AgentSession {
                     JSON.stringify(
                       item,
                       (_key, value: unknown) =>
+                        typeof value === 'object' &&
+                        value !== null &&
+                        'type' in value &&
+                        value.type === 'image' &&
                         imageContent.safeParse(value).success
-                          ? { ...(value as object), data: '…' }
+                          ? { ...value, data: '…' }
                           : value,
                       2,
                     ),
@@ -1057,9 +1068,9 @@ class CodexSession implements AgentSession {
       case 'item/commandExecution/outputDelta':
         this.options.onEvent({
           type: 'tool',
-          id: z.string().parse(data.itemId),
+          id: stringValue.parse(data.itemId),
           title: '',
-          text: z.string().parse(data.delta),
+          text: stringValue.parse(data.delta),
           done: false,
           append: true,
         });
@@ -1074,9 +1085,7 @@ class CodexSession implements AgentSession {
         break;
       }
       case 'turn/diff/updated': {
-        const turn = z
-          .object({ turnId: z.string(), diff: z.string() })
-          .parse(data);
+        const turn = turnDiff.parse(data);
         this.turnLines.set(turn.turnId, diffLines(turn.diff));
         const lines = { added: 0, removed: 0 };
         for (const { added, removed } of this.turnLines.values()) {
@@ -1093,7 +1102,7 @@ class CodexSession implements AgentSession {
         const turn = object.parse(data.turn);
         if (this.turn?.compaction && turn.id !== this.turn.id) break;
         if (!this.closing) void this.readCost();
-        const status = z.string().parse(turn.status);
+        const status = stringValue.parse(turn.status);
         const error =
           turn.error == null ? undefined : object.parse(turn.error).message;
         const completed = turnId.safeParse(data).data?.turn.id;
@@ -1130,7 +1139,7 @@ class CodexSession implements AgentSession {
         if (data.willRetry || !this.turn)
           this.options.onEvent({
             type: 'notice',
-            text: z.string().parse(object.parse(data.error).message),
+            text: stringValue.parse(object.parse(data.error).message),
           });
     }
   }
