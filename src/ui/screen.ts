@@ -6,15 +6,19 @@ const escape =
 // eslint-disable-next-line no-control-regex
 const unfinished = /\u001b(?:\[[0-?]*[ -/]*|\][^\u0007\u001b]*(?:\u001b)?)?$/;
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+// keycaps keep their ASCII base and marks together so they occupy two cells.
+const keycap = /[0-9#*]\uFE0F?\u20E3/;
+const textRuns = new RegExp(
+  `${keycap.source}|(?:(?!${keycap.source})[ -~])+|[^ -~]+`,
+  'g',
+);
 // Witch draws only these links; open would launch a file for a bare path
 const openable = /^(?:https?|vscode):\/\//i;
 
-/**
- * the link each cell of the terminal shows, kept by replaying what is written to it, so a click opens the link
- * under it and the pointer turns into a hand over one. It follows the cursor movement and erasing Ink's frames use, and ignores styles.
- */
+/** replays cursor movement and erasing so links track what the terminal actually shows. */
 export class Screen {
   private cells: (string | undefined)[][] = [];
+  private widths = new Map<string, number>();
   private columns = 0;
   private rows = 0;
   private x = 0;
@@ -55,7 +59,7 @@ export class Screen {
       // a lone escape prints nothing
       index = match ? escape.lastIndex : index + 1;
       text = index;
-      if (match?.[2]) this.control(match[1]!, match[2]);
+      if (match?.[2] && match[2] !== 'm') this.control(match[1]!, match[2]);
       else if (match?.[3]?.startsWith('8;')) {
         const target = match[3].slice(match[3].indexOf(';', 2) + 1);
         this.link = openable.test(target) ? target : undefined;
@@ -91,10 +95,10 @@ export class Screen {
     return new Array<string | undefined>(this.columns).fill(undefined);
   }
 
-  /** printable ASCII takes one cell a character, which spares most of a frame the grapheme and width lookups. */
+  /** batches printable ASCII to avoid grapheme iteration for ordinary text. */
   private print(text: string): void {
-    for (const [run] of text.matchAll(/[ -~]+|[^ -~]+/g)) {
-      if (/^[ -~]/.test(run)) {
+    for (const [run] of text.matchAll(textRuns)) {
+      if (/^[ -~]+$/.test(run)) {
         for (let start = 0; start < run.length;) {
           if (this.x >= this.columns) this.wrap();
           const count = Math.min(run.length - start, this.columns - this.x);
@@ -112,7 +116,11 @@ export class Screen {
         } else if (segment === '\r') this.x = 0;
         else if (segment === '\b') this.x = Math.max(0, this.x - 1);
         else {
-          const width = stringWidth(segment);
+          let width = this.widths.get(segment);
+          if (width === undefined) {
+            width = stringWidth(segment);
+            this.widths.set(segment, width);
+          }
           if (!width) continue;
           if (this.x + width > this.columns) this.wrap();
           this.cells[this.y]!.fill(this.link, this.x, this.x + width);
