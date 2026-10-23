@@ -37,6 +37,12 @@ const response = {
 };
 const answer =
   '**Which target?**\n→ Preview\n\n**Any constraints?**\n→ Keep logs, please';
+const secondResponse = {
+  decision: 'accept' as const,
+  answers: { target: ['Production'], notes: ['Remove debug output'] },
+};
+const secondAnswer =
+  '**Which target?**\n→ Production\n\n**Any constraints?**\n→ Remove debug output';
 
 async function codexFixture() {
   const root = await scratch('witch-codex-requests-');
@@ -100,7 +106,7 @@ async function codexFixture() {
 }
 
 for (const completed of [false, true])
-  await test(`a native connection exit clears async questions ${completed ? 'after' : 'during'} their turn`, async () => {
+  await test(`a native connection exit keeps async questions ${completed ? 'after' : 'during'} their turn`, async () => {
     const { project, coordinator, emit, close } = await codexFixture();
     try {
       await coordinator.initialize(project);
@@ -154,7 +160,18 @@ for (const completed of [false, true])
             item.text.includes('Agent process exited'),
         ),
       );
-      assert.deepEqual(coordinator.snapshot.requests, []);
+      assert.deepEqual(coordinator.snapshot.requests, [
+        {
+          id: 'question/choice',
+          kind: 'question',
+          title: 'Questions',
+          detail: '',
+          questions: [
+            { id: '0', title: 'Which target?', options: ['Preview'] },
+          ],
+          replyAsPrompt: true,
+        },
+      ]);
     } finally {
       await close();
     }
@@ -269,6 +286,161 @@ for (const ending of ['answer', 'resolve', 'exit'])
       }
     } finally {
       await close();
+    }
+  });
+
+await test('answering retained questions resumes once and preserves the remaining questions', async () => {
+  const { coordinator, a } = await fixture();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let answering: Promise<void[]> | undefined;
+  try {
+    await coordinator.send('Start');
+    const original = a.sessions[0]!;
+    for (const id of ['first', 'second'])
+      original.options.onEvent({ type: 'request', request: question(id) });
+    await original.session.close();
+    original.options.onEvent({ type: 'closed' });
+    assert.deepEqual(coordinator.snapshot.requests, [
+      question('first'),
+      question('second'),
+    ]);
+    a.beforeConnect = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    answering = Promise.all([
+      coordinator.respond('first', response),
+      coordinator.respond('first', response),
+    ]);
+    await within(entered.promise, 3000, 'the answer reconnect');
+    assert.deepEqual(coordinator.snapshot.requests, [question('second')]);
+    assert.deepEqual(turns(a), [['Start', undefined]]);
+    release.resolve();
+    await within(answering, 3000, 'the first answer');
+    assert.deepEqual(coordinator.snapshot.requests, [question('second')]);
+    const completed = coordinator.snapshot.completedTurn;
+    assert.ok(completed);
+    await coordinator.respond('second', secondResponse);
+    assert.equal(a.sessions.length, 2);
+    assert.equal(a.sessions[1]!.options.resume, original.session.info.id);
+    assert.deepEqual(turns(a), [
+      ['Start', undefined],
+      [answer, undefined],
+      [secondAnswer, undefined],
+    ]);
+    assert.ok(
+      a.inputs.every(({ session }) => session === original.session.info.id),
+    );
+    assert.deepEqual(a.responses, []);
+    assert.deepEqual(coordinator.snapshot.requests, []);
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.ok(coordinator.snapshot.completedTurn);
+    assert.notEqual(coordinator.snapshot.completedTurn, completed);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter((item) => item.kind === 'user')
+        .map((item) => item.text),
+      ['Start', answer, secondAnswer],
+    );
+  } finally {
+    release.resolve();
+    await coordinator.close();
+    await answering;
+  }
+});
+
+await test('a failed reconnect keeps queued answers and unanswered questions', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    await coordinator.send('Start');
+    const original = a.sessions[0]!;
+    for (const id of ['first', 'second'])
+      original.options.onEvent({ type: 'request', request: question(id) });
+    await original.session.close();
+    original.options.onEvent({ type: 'closed' });
+    a.failConnect = true;
+    await coordinator.respond('first', response);
+    assert.deepEqual(coordinator.snapshot.queue, [answer]);
+    assert.deepEqual(coordinator.snapshot.requests, [question('second')]);
+    assert.deepEqual(turns(a), [['Start', undefined]]);
+    assert.equal(coordinator.snapshot.error, 'Destination unavailable');
+    a.failConnect = false;
+    await coordinator.respond('second', secondResponse);
+    assert.equal(a.sessions.length, 2);
+    assert.equal(a.sessions[1]!.options.resume, original.session.info.id);
+    assert.deepEqual(turns(a), [
+      ['Start', undefined],
+      [`${answer}\n${secondAnswer}`, undefined],
+    ]);
+    assert.equal(a.inputs[1]!.session, original.session.info.id);
+    assert.deepEqual(a.responses, []);
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    assert.deepEqual(coordinator.snapshot.requests, []);
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.ok(coordinator.snapshot.completedTurn);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter((item) => item.kind === 'user')
+        .map((item) => item.text),
+      ['Start', `${answer}\n${secondAnswer}`],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+await test('handoff discards retained questions from the previous agent', async () => {
+  const { coordinator, a, b } = await fixture();
+  try {
+    await coordinator.send('Start');
+    const original = a.sessions[0]!;
+    original.options.onEvent({ type: 'request', request: question() });
+    await original.session.close();
+    original.options.onEvent({ type: 'closed' });
+    assert.deepEqual(coordinator.snapshot.requests, [question()]);
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.deepEqual(coordinator.snapshot.requests, []);
+    assert.equal(coordinator.snapshot.error, undefined);
+    const delivered = [turns(a), turns(b)];
+    await coordinator.respond('choice', response);
+    assert.deepEqual([turns(a), turns(b)], delivered);
+    assert.deepEqual(a.responses, []);
+    assert.deepEqual(b.responses, []);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+for (const departure of ['conversation', 'handoff'])
+  await test(`a question arriving during close does not survive ${departure}`, async () => {
+    const { coordinator, a, b } = await fixture();
+    try {
+      await coordinator.send('Start');
+      const original = a.sessions[0]!;
+      const close = original.session.close.bind(original.session);
+      original.session.close = async () => {
+        original.options.onEvent({
+          type: 'request',
+          request: question('late'),
+        });
+        await close();
+        original.options.onEvent({ type: 'closed' });
+      };
+      if (departure === 'conversation') await coordinator.newConversation();
+      else await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+      assert.deepEqual(coordinator.snapshot.requests, []);
+      assert.equal(coordinator.snapshot.error, undefined);
+      const delivered = [turns(a), turns(b)];
+      await coordinator.respond('late', response);
+      assert.deepEqual([turns(a), turns(b)], delivered);
+      assert.deepEqual(a.responses, []);
+      assert.deepEqual(b.responses, []);
+    } finally {
+      await coordinator.close();
     }
   });
 
