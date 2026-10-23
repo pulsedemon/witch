@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import stripAnsi from 'strip-ansi';
-import { markdown } from '../src/ui/markdown.js';
+import { markdown, markdownAppend } from '../src/ui/markdown.js';
 
 await test('nested lists and task lists render indented with each checkbox inline', () => {
   for (const [input, expected] of [
@@ -108,4 +108,131 @@ await test('headings, emphasis, line breaks, quotes, rules and tables render as 
     ),
     'Plan\n\nbold em gone\nnext\n\n│ quoted\n\n────────\na │ b\n1 │ 2',
   );
+});
+
+function streamMarkdown(chunks: readonly string[]): string[] {
+  let source = '';
+  let pending = '';
+  let full = false;
+  const complete: string[] = [];
+  return chunks.map((chunk) => {
+    source += chunk;
+    const rendered = full
+      ? undefined
+      : markdownAppend(pending + chunk, '/work');
+    let output: string;
+    if (rendered) {
+      complete.push(...rendered.complete);
+      pending = rendered.pending;
+      output = [...complete, rendered.tail].join('\n');
+    } else {
+      full = true;
+      output = markdown(source, '/work');
+    }
+    assert.equal(output, markdown(source, '/work'), JSON.stringify(source));
+    return output;
+  });
+}
+
+for (const [name, source, expected] of [
+  [
+    'setext heading',
+    'Settled.\n\nHeading\n---\n\nAfter',
+    'Settled.\n\nHeading\n\nAfter',
+  ],
+  [
+    'table delimiter',
+    'Settled.\n\na | b\n---|---\n1|2\n',
+    'Settled.\n\na │ b\n1 │ 2',
+  ],
+  [
+    'list continuation',
+    'Settled.\n\n- first\n\n  second\n\nAfter',
+    'Settled.\n\n• first\n  second\n\nAfter',
+  ],
+  [
+    'open fence',
+    'Settled.\n\n```ts\n\n**literal**\n```\n\nAfter',
+    'Settled.\n\n\n**literal**\n\nAfter',
+  ],
+  [
+    'quote continuation',
+    'Settled.\n\n> first\n>\n> second\n\nAfter',
+    'Settled.\n\n│ first\n│ \n│ second\n\nAfter',
+  ],
+  ['empty block', 'first\n\n```\n```\n', 'first'],
+  [
+    'carriage returns',
+    'Settled.\r\n\r\nNext\r\n\r\nAfter',
+    'Settled.\n\nNext\n\nAfter',
+  ],
+  [
+    'inline delimiters',
+    'Settled.\n\n**bold** *em* &amp; `src/a.ts` [file](src/b.ts:2) e\u0301 🐈\n\nAfter',
+    'Settled.\n\nbold em & src/a.ts file e\u0301 🐈\n\nAfter',
+  ],
+] as const)
+  await test(`streamed Markdown keeps ${name} correct across every chunk boundary`, () => {
+    for (let split = 0; split <= source.length; split++) {
+      const frames = streamMarkdown([
+        source.slice(0, split),
+        source.slice(split),
+      ]);
+      assert.equal(stripAnsi(frames.at(-1)!), expected);
+    }
+    assert.equal(stripAnsi(streamMarkdown(source.split('')).at(-1)!), expected);
+  });
+
+await test('an empty fence opener removes separators until its body arrives', () => {
+  const frames = streamMarkdown([
+    'first\n\nSecond.\n\n`',
+    '`',
+    '`',
+    '\nbody',
+    '\n```',
+  ]);
+  assert.deepEqual(frames.map(stripAnsi), [
+    'first\n\nSecond.\n\n`',
+    'first\n\nSecond.\n\n``',
+    'first\n\nSecond.',
+    'first\n\nSecond.\n\nbody',
+    'first\n\nSecond.\n\nbody',
+  ]);
+});
+
+await test('a streamed setext delimiter restyles its earlier line', () => {
+  assert.deepEqual(streamMarkdown(['Heading\n', '---\n']), [
+    'Heading',
+    '\u001b[1mHeading\u001b[22m',
+  ]);
+});
+
+await test('late and nested definitions rebuild earlier references and retain the first target', () => {
+  for (const definition of ['[g]: src/guide.ts\n', '> [g]: src/guide.ts\n']) {
+    const frames = streamMarkdown([
+      '[Guide][g]\n\nSettled.\n\nLast.\n\n',
+      definition,
+      '\n[g]: wrong.md\n\nAfter',
+    ]);
+    assert.match(frames[0]!, /^\[Guide\]\[g\]/);
+    for (const frame of frames.slice(1)) {
+      assert.ok(
+        frame.includes(
+          '\u001b]8;;vscode://file/work/src/guide.ts\u0007\u001b[4mGuide',
+        ),
+      );
+      assert.ok(!frame.includes('vscode://file/work/wrong.md'));
+    }
+    assert.ok(frames.at(-1)!.endsWith('After'));
+  }
+});
+
+await test('HTML state across streamed paragraphs keeps the existing link interpretation', () => {
+  const frames = streamMarkdown([
+    'Settled.\n\nNext.\n\nfirst <a href="https://example.com">\n\n',
+    'www.example',
+    '\n\n</a> end',
+  ]);
+  assert.ok(frames[1]!.endsWith('\n\nwww.example'));
+  for (const frame of frames) assert.ok(!frame.includes('http://www.example'));
 });
