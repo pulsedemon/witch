@@ -166,6 +166,89 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
   }
 });
 
+await test('a blocked merge cleanup retries after a peer turn ends without a repository update', async () => {
+  const { coordinator, root, project, store, memory } = await fixture();
+  const agent = new FixtureAgent('a');
+  const peer = new Coordinator(store, memory, [
+    { adapter: agent, executable: 'a' },
+  ]);
+  const gate = new TurnGate();
+  let stop = () => {};
+  let sending: Promise<void> | undefined;
+  try {
+    const origin = join(root, 'origin.git');
+    await gitIn(root, 'init', '--bare', origin);
+    await gitIn(root, 'clone', origin, project);
+    await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
+    await gitIn(project, 'push', '-u', 'origin', 'main');
+    await gitIn(project, 'switch', '-c', 'feat/x');
+    await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
+    await gitIn(project, 'push', '-u', 'origin', 'feat/x');
+    const tip = await gitIn(project, 'rev-parse', 'HEAD');
+    const merger = join(root, 'merger');
+    await gitIn(root, 'clone', origin, merger);
+    await gitIn(merger, 'merge', '--no-ff', '-m', 'merge', 'origin/feat/x');
+    await gitIn(merger, 'push', 'origin', 'main');
+    await gitIn(merger, 'push', 'origin', '--delete', 'feat/x');
+    const merged = await gitIn(merger, 'rev-parse', 'HEAD');
+    await peer.initialize(project);
+    agent.gate = gate;
+    sending = peer.send('Read without changing the checkout');
+    await within(gate.entered, 3000, 'the peer turn');
+    const repository = {
+      snapshot: {
+        branch: 'feat/x',
+        ahead: 0,
+        behind: 0,
+        staged: 0,
+        modified: 0,
+        conflicts: 0,
+        untracked: 0,
+        pullRequest: mergedPullRequest(tip),
+      } satisfies Repository,
+      subscribe: () => () => {},
+    };
+    const first = Promise.withResolvers<boolean>();
+    const completed = Promise.withResolvers<void>();
+    const statuses: string[] = [];
+    const cleanup = coordinator.cleanUpMerge.bind(coordinator);
+    coordinator.cleanUpMerge = async (...args) => {
+      statuses.push(
+        await gitIn(project, 'status', '--porcelain=v2', '--branch'),
+      );
+      const acted = await cleanup(...args);
+      first.resolve(acted);
+      if (acted) completed.resolve();
+      return acted;
+    };
+    stop = watchMerges(repository, coordinator);
+    assert.equal(
+      await within(first.promise, 5000, 'the blocked cleanup'),
+      false,
+    );
+    gate.open();
+    await sending;
+    await within(completed.promise, 15_000, 'automatic cleanup');
+    assert.equal(statuses.length, 2);
+    assert.equal(statuses[1], statuses[0]);
+    assert.equal(await gitIn(project, 'branch', '--show-current'), 'main');
+    assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), merged);
+    await assert.rejects(
+      gitIn(project, 'show-ref', '--verify', '--quiet', 'refs/heads/feat/x'),
+      { code: 1 },
+    );
+    assert.deepEqual(notices(coordinator), [
+      '#7 merged: switched to main and pulled, deleted branch feat/x.',
+    ]);
+  } finally {
+    stop();
+    gate.open();
+    await sending;
+    await peer.close();
+    await coordinator.close();
+  }
+});
+
 await test("a merge cleanup waits for another Witch's turn anywhere in its checkout, but not in a sibling directory that shares its name's prefix", async () => {
   const { coordinator, store, memory, project } = await fixture();
   const other = new Coordinator(store, memory, [

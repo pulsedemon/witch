@@ -499,10 +499,8 @@ export async function refreshInstall(
 }
 
 /**
- * cleans up after the merged pull request whose branch the checkout sits on, once nothing staged, modified or
- * conflicted would block it and the conversation is idle with no error or queue on screen. a cleanup that acted,
- * kept the branch or failed isn't tried again; one that did nothing, as when the checkout changed or another Witch
- * was busy in it, waits for the next status change.
+ * cleans up a merged branch while its checkout is clean and the conversation is idle without errors or queued prompts.
+ * deferred cleanups retry after five seconds or a repository change. a cleanup that acts or fails isn't retried.
  */
 export function watchMerges(
   repository: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>,
@@ -512,6 +510,8 @@ export function watchMerges(
   const settled = new Set<string>();
   let attempted: string | undefined;
   let pending: NodeJS.Immediate | undefined;
+  let retryTimer: NodeJS.Timeout | undefined;
+  let stopped = false;
   const check = () => {
     pending = undefined;
     const status = repository.snapshot;
@@ -528,10 +528,16 @@ export function watchMerges(
       attempted === pullRequest.commit
     )
       return;
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
     attempted = pullRequest.commit;
     void coordinator.cleanUpMerge(pullRequest, install).then(
       (acted) => {
         if (acted) settled.add(pullRequest.commit);
+        else if (!stopped) {
+          retryTimer = setTimeout(retry, 5000);
+          retryTimer.unref();
+        }
       },
       // a failed cleanup shows its error; operate can't refuse, since the phase was checked this tick
       () => settled.add(pullRequest.commit),
@@ -539,18 +545,20 @@ export function watchMerges(
   };
   // after the publish that called it: a turn's end settles its queue and error after publishing idle
   const schedule = () => {
-    pending ??= setImmediate(check);
+    if (!stopped) pending ??= setImmediate(check);
   };
-  const stops = [
-    repository.subscribe(() => {
-      attempted = undefined;
-      schedule();
-    }),
-    coordinator.subscribe(schedule),
-  ];
+  const retry = () => {
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+    attempted = undefined;
+    schedule();
+  };
+  const stops = [repository.subscribe(retry), coordinator.subscribe(schedule)];
   schedule();
   return () => {
+    stopped = true;
     clearImmediate(pending);
+    clearTimeout(retryTimer);
     stops.forEach((stop) => stop());
   };
 }
