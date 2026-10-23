@@ -277,15 +277,8 @@ export class ConversationStore {
   append(update: DisplayUpdate): Promise<void> {
     const line = `${JSON.stringify(update)}\n`;
     return this.enqueue(async () => {
-      if (!this.historyFile) {
-        const file = await open(historyPath(this.directory), 'a+', 0o600);
-        const existing = await file.readFile();
-        if (existing.length && existing.at(-1) !== 10) {
-          await file.truncate(existing.lastIndexOf(10) + 1);
-        }
-        this.historyFile = file;
-      }
-      await this.historyFile.writeFile(line);
+      const file = await this.openHistory();
+      await file.writeFile(line);
     });
   }
 
@@ -326,6 +319,45 @@ export class ConversationStore {
         this.historyFile = undefined;
         await this.unlock();
       }
+    }
+  }
+
+  private async openHistory(): Promise<FileHandle> {
+    if (this.historyFile) return this.historyFile;
+    const file = await open(historyPath(this.directory), 'a+', 0o600);
+    try {
+      const { size } = await file.stat();
+      const buffer = Buffer.alloc(Math.min(4096, size));
+      let end = size;
+      let length = Math.min(1, size);
+      while (end) {
+        const start = end - length;
+        let read = 0;
+        while (read < length) {
+          const { bytesRead } = await file.read(
+            buffer,
+            read,
+            length - read,
+            start + read,
+          );
+          if (!bytesRead) break;
+          read += bytesRead;
+        }
+        const newline = buffer.subarray(0, read).lastIndexOf(10);
+        if (newline >= 0) {
+          const complete = start + newline + 1;
+          if (complete < size) await file.truncate(complete);
+          break;
+        }
+        end = start;
+        length = Math.min(buffer.length, end);
+        if (!end) await file.truncate(0);
+      }
+      this.historyFile = file;
+      return file;
+    } catch (error) {
+      await file.close();
+      throw error;
     }
   }
 

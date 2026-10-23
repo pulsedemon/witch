@@ -622,6 +622,77 @@ await test('a truncated final record cannot corrupt history written after restar
   }
 });
 
+for (const [name, complete, partial, expectedRead] of [
+  ['empty', false, '', 0],
+  ['complete', true, '', 1],
+  ['multiple windows', true, 'x'.repeat(8193), 12289],
+  ['window boundary', true, 'x'.repeat(4096), 4097],
+  ['only unfinished', false, '{"unfinished":', 14],
+] as const) {
+  await test(`history append inspects only the required tail: ${name}`, async (t) => {
+    const store = await StateStore.open(await scratch('witch-history-tail-'));
+    await (await store.create(conversation('tail'))).close();
+    const path = join(store.root, 'conversations', 'tail', 'history.jsonl');
+    const prefix = complete
+      ? `${JSON.stringify({ id: 'old', kind: 'notice', text: 'x'.repeat(65536), cwd: '/before' })}\n`
+      : '';
+    await writeFile(path, prefix + partial);
+    const opening = files.open;
+    let fullReads = 0;
+    let bytesRead = 0;
+    t.mock.method(
+      files,
+      'open',
+      async (...args: Parameters<typeof files.open>) => {
+        const file = await opening(...args);
+        if (args[0] === path) {
+          const read = file.read.bind(file);
+          const readAll = file.readFile.bind(file);
+          t.mock.method(
+            file,
+            'read',
+            async (...args: Parameters<typeof read>) => {
+              const result = await read(...args);
+              bytesRead += result.bytesRead;
+              return result;
+            },
+          );
+          t.mock.method(
+            file,
+            'readFile',
+            (...args: Parameters<typeof readAll>) => {
+              fullReads++;
+              return readAll(...args);
+            },
+          );
+        }
+        return file;
+      },
+    );
+    syncBuiltinESMExports();
+    const held = await store.claim('tail');
+    try {
+      await held.append({
+        id: 'new',
+        kind: 'notice',
+        text: 'after',
+        cwd: '/after',
+      });
+      await held.close();
+      assert.equal(
+        await readFile(path, 'utf8'),
+        prefix + '{"id":"new","kind":"notice","text":"after","cwd":"/after"}\n',
+      );
+      assert.equal(fullReads, 0);
+      assert.equal(bytesRead, expectedRead);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+      await held.close();
+    }
+  });
+}
+
 await test('replay folds appends, replacements and new ids, keeping a title an empty replacement omits', () => {
   assert.deepEqual(
     foldDisplayUpdates([
