@@ -570,6 +570,7 @@ export class SessionCoordination {
     work: (verify: (ledger: Ledger) => Promise<void>) => Promise<T>,
     verify: (ledger: Ledger) => Promise<void> = async () => {},
   ): Promise<T> {
+    this.mutations++;
     let ledger: Ledger | undefined;
     try {
       const result = await work(async (value) => {

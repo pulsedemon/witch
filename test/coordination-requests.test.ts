@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import type { CoordinationAction } from '../src/core/coordination-state.js';
+import type {
+  CoordinationAction,
+  TaskClaim,
+} from '../src/core/coordination-state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import {
@@ -241,6 +244,99 @@ await test('claim finalization preserves a newer discovery failure until recover
     finish.resolve();
     await writeFile(file, original);
     await claiming;
+  }
+});
+
+await test('a pre-mutation refresh cannot publish old ownership after commit', async (t) => {
+  pauseDiscovery(t);
+  const { start, registry } = await coordinationFixture(t);
+  const a = await start(),
+    b = await start('B');
+  await a.query();
+  await until('peer idle presence written', async () =>
+    (await registry.presences()).some(
+      (entry) =>
+        entry.id === b.coordinator.snapshot.conversation!.id &&
+        entry.phase === 'idle',
+    ),
+  );
+  const peer = (await registry.presences()).find(
+    (entry) => entry.id === b.coordinator.snapshot.conversation!.id,
+  )!;
+  await registry.publish({
+    ...peer,
+    title: 'Changed while the transaction completes',
+  });
+  const readEntered = Promise.withResolvers<void>(),
+    finishRead = Promise.withResolvers<void>(),
+    committed = Promise.withResolvers<TaskClaim>(),
+    finishMutation = Promise.withResolvers<void>();
+  const read = CoordinationStore.prototype.state;
+  const claim = CoordinationStore.prototype.claim;
+  let reads = 0;
+  const reading = t.mock.method(
+    CoordinationStore.prototype,
+    'state',
+    async function (this: CoordinationStore) {
+      const ledger = await read.call(this);
+      if (++reads === 2) {
+        readEntered.resolve();
+        await finishRead.promise;
+      }
+      return ledger;
+    },
+  );
+  const reserving = t.mock.method(
+    CoordinationStore.prototype,
+    'claim',
+    async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof claim>
+    ) {
+      const result = await claim.apply(this, args);
+      committed.resolve(result);
+      await finishMutation.promise;
+      return result;
+    },
+  );
+  const refreshing = a.coordination.context();
+  let claiming: ReturnType<typeof a.claim> | undefined;
+  let unsubscribe = () => {};
+  try {
+    await within(readEntered.promise, 5000, 'old refresh read');
+    claiming = a.claim('task:chosen');
+    const reserved = await within(committed.promise, 5000, 'claim committed');
+    assert.deepEqual(
+      (await registry.claims()).find((entry) => entry.id === reserved.id),
+      reserved,
+    );
+    const observed: (string | undefined)[] = [];
+    unsubscribe = a.coordination.subscribe(() => {
+      observed.push(a.coordination.snapshot.ownClaim?.id);
+    });
+    finishRead.resolve();
+    await within(refreshing, 5000, 'old refresh completed');
+    finishMutation.resolve();
+    const result = await within(claiming, 5000, 'claim completed');
+    assert.equal(result.kind, 'claimed');
+    assert.deepEqual(a.coordination.snapshot.ownClaim, reserved);
+    assert.equal(
+      a.coordination.snapshot.peers[0]?.presence.title,
+      'Changed while the transaction completes',
+    );
+    assert.ok(observed.length > 0);
+    assert.ok(
+      observed.every((id) => id === reserved.id),
+      JSON.stringify(observed),
+    );
+  } finally {
+    unsubscribe();
+    finishRead.resolve();
+    finishMutation.resolve();
+    if (claiming) await claiming;
+    await refreshing;
+    reading.mock.restore();
+    reserving.mock.restore();
   }
 });
 
