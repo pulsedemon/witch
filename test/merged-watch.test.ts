@@ -1,41 +1,43 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { TestContext } from 'node:test';
 import type { Snapshot } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
 
-await test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async () => {
-  const tick = () => new Promise((resolve) => setImmediate(resolve));
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const status = (
+  pullRequest?: PullRequest,
+  fields: Partial<Repository> = {},
+): Repository => ({
+  branch: 'feat/x',
+  ahead: 0,
+  behind: 0,
+  staged: 0,
+  modified: 0,
+  conflicts: 0,
+  untracked: 0,
+  pullRequest,
+  ...fields,
+});
+const pr = (
+  state: PullRequest['state'],
+  commit: string,
+  branch = 'feat/x',
+): PullRequest => ({
+  number: 7,
+  url: 'https://x.test/7',
+  state,
+  branch,
+  commit,
+  base: 'main',
+});
+
+function fixture(t: TestContext) {
   const listeners = {
     repository: new Set<() => void>(),
     coordinator: new Set<() => void>(),
   };
-  const status = (
-    pullRequest?: PullRequest,
-    fields: Partial<Repository> = {},
-  ): Repository => ({
-    branch: 'feat/x',
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    conflicts: 0,
-    untracked: 0,
-    pullRequest,
-    ...fields,
-  });
-  const pr = (
-    state: PullRequest['state'],
-    commit: string,
-    branch = 'feat/x',
-  ): PullRequest => ({
-    number: 7,
-    url: 'https://x.test/7',
-    state,
-    branch,
-    commit,
-    base: 'main',
-  });
   const repository = {
     snapshot: undefined as Repository | undefined,
     subscribe: (listener: () => void) => {
@@ -79,6 +81,13 @@ await test('the watch cleans up after each merged commit once, only on its branc
     await tick();
   };
   const stop = watchMerges(repository, coordinator, '/install');
+  t.after(stop);
+  return { calls, publishRepository, publish, settle, stop };
+}
+
+await test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { calls, publishRepository, publish, settle, stop } = fixture(t);
   await publishRepository(status(pr('OPEN', 'c1')));
   assert.equal(calls.length, 0, 'an open pull request');
   await publishRepository(status(pr('MERGED', 'c1'), { modified: 1 }));
@@ -89,6 +98,7 @@ await test('the watch cleans up after each merged commit once, only on its branc
   await publish();
   assert.equal(calls.length, 1, 'publishes while the cleanup runs');
   await settle(true);
+  t.mock.timers.tick(10_000);
   await publishRepository();
   await publish();
   assert.equal(calls.length, 1, 'publishes after it acted');
@@ -107,6 +117,7 @@ await test('the watch cleans up after each merged commit once, only on its branc
   await publishRepository();
   assert.equal(calls.length, 3, 'the next status publish');
   await settle(new Error('failed'));
+  t.mock.timers.tick(10_000);
   await publishRepository();
   assert.equal(calls.length, 3, 'a status publish after a failure');
   await publishRepository(status(pr('MERGED', 'c3', 'feat/y')));
@@ -116,3 +127,76 @@ await test('the watch cleans up after each merged commit once, only on its branc
   await publish();
   assert.equal(calls.length, 3, 'after the stop');
 });
+
+await test('deferred cleanups retry without repository updates and settle after acting', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { calls, publishRepository, publish, settle } = fixture(t);
+  await publishRepository(status(pr('MERGED', 'c1')));
+  for (const expected of [2, 3]) {
+    await settle(false);
+    await publish();
+    t.mock.timers.tick(4999);
+    await tick();
+    assert.equal(calls.length, expected - 1);
+    t.mock.timers.tick(1);
+    await tick();
+    assert.equal(calls.length, expected);
+    assert.deepEqual(calls.at(-1), [pr('MERGED', 'c1'), '/install']);
+    t.mock.timers.tick(10_000);
+    await tick();
+    assert.equal(calls.length, expected, 'a cleanup still running');
+  }
+  await settle(true);
+  t.mock.timers.tick(10_000);
+  await publish();
+  assert.equal(calls.length, 3);
+});
+
+await test('an expired retry waits for the local turn and queue to finish', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { calls, publishRepository, publish, settle } = fixture(t);
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await settle(false);
+  await publish({ phase: 'running' });
+  t.mock.timers.tick(5000);
+  await tick();
+  assert.equal(calls.length, 1);
+  await publish({ phase: 'idle', queue: ['queued'] });
+  assert.equal(calls.length, 1);
+  await publish({ queue: [] });
+  assert.equal(calls.length, 2);
+  await settle(true);
+});
+
+await test('a repository update replaces the pending retry', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { calls, publishRepository, settle } = fixture(t);
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await settle(false);
+  t.mock.timers.tick(1000);
+  await publishRepository();
+  assert.equal(calls.length, 2);
+  await settle(false);
+  t.mock.timers.tick(4000);
+  await tick();
+  assert.equal(calls.length, 2);
+  t.mock.timers.tick(1000);
+  await tick();
+  assert.equal(calls.length, 3);
+  await settle(true);
+});
+
+for (const pending of ['retry', 'cleanup'] as const)
+  await test(`stopping the watch with a pending ${pending} prevents later cleanup`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { calls, publishRepository, publish, settle, stop } = fixture(t);
+    await publishRepository(status(pr('MERGED', 'c1')));
+    if (pending === 'retry') await settle(false);
+    stop();
+    if (pending === 'cleanup') await settle(false);
+    t.mock.timers.tick(10_000);
+    await tick();
+    await publishRepository();
+    await publish();
+    assert.equal(calls.length, 1);
+  });
