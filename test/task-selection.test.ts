@@ -574,8 +574,7 @@ await test('a recommendation survives final cleanup failure and advances the nex
   assert.equal(choice.position, 1);
   assert.equal(queued.position, 2);
   const recommend = CoordinationStore.prototype.recommend;
-  const claims = CoordinationStore.prototype.claims;
-  let failRead = false;
+  let pending: Promise<void> | undefined;
   const recommending = t.mock.method(
     CoordinationStore.prototype,
     'recommend',
@@ -584,19 +583,15 @@ await test('a recommendation survives final cleanup failure and advances the nex
       ...args: Parameters<typeof recommend>
     ) {
       const claim = await recommend.apply(this, args);
-      failRead = true;
+      pending = a.coordination.endTurn().catch(() => {});
       return claim;
     },
   );
-  const reading = t.mock.method(
+  const cancelling = t.mock.method(
     CoordinationStore.prototype,
-    'claims',
-    async function (this: CoordinationStore) {
-      if (failRead) {
-        failRead = false;
-        throw new Error('Injected project cleanup read failure');
-      }
-      return claims.call(this);
+    'cancelSelection',
+    async () => {
+      throw new Error('Injected selection cleanup failure');
     },
   );
   try {
@@ -617,9 +612,8 @@ await test('a recommendation survives final cleanup failure and advances the nex
     assert.deepEqual(a.coordination.snapshot.ownClaim, result.claim);
     assert.equal(
       a.coordination.snapshot.error,
-      'Injected project cleanup read failure',
+      'Injected selection cleanup failure',
     );
-    assert.equal(failRead, false);
     const next = await callControl(second.binding, {
       kind: 'selection-status',
       selection: queued.ticket.id,
@@ -632,7 +626,10 @@ await test('a recommendation survives final cleanup failure and advances the nex
     });
   } finally {
     recommending.mock.restore();
-    reading.mock.restore();
+    cancelling.mock.restore();
+    await pending;
+    await first.finish();
+    await second.finish();
   }
 });
 

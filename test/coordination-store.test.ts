@@ -20,6 +20,7 @@ import {
 } from '../src/persistence/coordination.js';
 import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
+import { lockedFiles } from '../src/persistence/lock.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { countProbes } from './fixtures/probes.js';
@@ -342,16 +343,42 @@ for (const damage of ['invalid JSON', 'unreadable'] as const) {
   });
 }
 
-await test('failed authority verification releases the ledger lock for another process', async (t) => {
+await test('verification receives the reconciled ledger under the reservation lock', async (t) => {
   const root = await scratch('witch-coordination-authority-');
   const store = await CoordinationStore.open(root);
+  const live = await claim(
+    store,
+    { ...owner, conversation: 'other' },
+    {
+      reference: 'task:other',
+      summary: 'Other live owner',
+    },
+  );
+  const stale = {
+    ...live,
+    id: randomUUID(),
+    owner: { ...owner, conversation: 'exited' },
+    references: ['task:project-p:exited'],
+    process: { ...identity, started: 'previous incarnation' },
+  };
+  const file = join(root, 'coordination', 'claims.json');
+  const original = JSON.stringify({
+    version: 2,
+    claims: [live, stale],
+    selections: [],
+  });
+  await writeFile(file, original);
   await assert.rejects(
-    store.claim(owner, input, identity, Date.now() + 5000, async () => {
+    store.claim(owner, input, identity, Date.now() + 5000, async (ledger) => {
+      assert.deepEqual(ledger, { claims: [live], selections: [] });
+      const lock = join(root, 'coordination', 'lock');
+      assert.equal((await lockedFiles([lock])).get(lock), 'exclusive');
       throw new Error('Revoked');
     }),
     /Revoked/,
   );
-  assert.deepEqual(await store.claims(), []);
+  assert.equal(await readFile(file, 'utf8'), original);
+  assert.deepEqual(await store.claims(), [live]);
   const next = contender(t, root, 'b');
   await next.ready;
   const result = await next.claim();

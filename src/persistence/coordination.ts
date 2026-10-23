@@ -37,7 +37,7 @@ const ledgerSchema = z.discriminatedUnion('version', [
   }),
 ]);
 
-type Ledger = { claims: TaskClaim[]; selections: SelectionTicket[] };
+export type Ledger = { claims: TaskClaim[]; selections: SelectionTicket[] };
 
 function sameOwner(left: ClaimOwner, right: ClaimOwner): boolean {
   return (
@@ -237,7 +237,7 @@ export class CoordinationStore {
     owner: ClaimOwner,
     process: ProcessIdentity,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       const claim = ledger.claims.find((claim) =>
@@ -252,7 +252,7 @@ export class CoordinationStore {
     input: ClaimInput,
     process: ProcessIdentity,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<TaskClaim> {
     const normalized = claimInput(owner, input);
     return this.mutate(deadline, verify, (ledger) => {
@@ -268,7 +268,7 @@ export class CoordinationStore {
     owner: ClaimOwner,
     id: string,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       const index = ledger.claims.findIndex((claim) => claim.id === id);
@@ -282,7 +282,7 @@ export class CoordinationStore {
   async beginSelection(
     scope: SelectionScope,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<SelectionState> {
     return this.mutate(deadline, verify, (ledger) => {
       const existing = ledger.selections.find(
@@ -305,7 +305,7 @@ export class CoordinationStore {
     scope: SelectionScope,
     id: string,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<SelectionState> {
     return this.mutate(deadline, verify, (ledger) =>
       selection(ledger, scope, id),
@@ -318,7 +318,7 @@ export class CoordinationStore {
     input: ClaimInput,
     process: ProcessIdentity,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<TaskClaim> {
     const normalized = claimInput(scope.owner, input);
     return this.mutate(deadline, verify, (ledger) => {
@@ -356,7 +356,7 @@ export class CoordinationStore {
     scope: SelectionScope,
     id: string | undefined,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       if (id && ledger.selections.some((ticket) => ticket.id === id))
@@ -372,7 +372,7 @@ export class CoordinationStore {
     owner: ClaimOwner,
     process: ProcessIdentity,
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       ledger.claims = ledger.claims.filter(
@@ -429,7 +429,7 @@ export class CoordinationStore {
 
   private async mutate<T>(
     deadline: number,
-    verify: () => Promise<void>,
+    verify: (ledger: Ledger) => Promise<void>,
     change: (ledger: Ledger) => T,
   ): Promise<T> {
     const lock = await this.lock(deadline);
@@ -437,7 +437,7 @@ export class CoordinationStore {
       const stored = await this.read();
       const before = JSON.stringify(stored);
       const ledger = await this.reconcile(stored);
-      await verify();
+      await verify(ledger);
       checkDeadline(deadline);
       const result = change(ledger);
       if (JSON.stringify(ledger) !== before)

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
+import { promises as files } from 'node:fs';
 import { open, readFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
 import type { TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -21,6 +23,57 @@ import { scratch } from './scratch.js';
 const execute = promisify(execFile);
 export const git = (...args: string[]) => execute('git', args);
 const entry = fileURLToPath(new URL('../../src/cli.tsx', import.meta.url));
+
+/** keeps mailbox polling live while tests control periodic session discovery. */
+export function pauseDiscovery(t: TestContext) {
+  const refreshes: (() => void)[] = [];
+  const interval = globalThis.setInterval;
+  t.mock.method(
+    globalThis,
+    'setInterval',
+    (
+      run: (...args: unknown[]) => void,
+      milliseconds?: number,
+      ...args: unknown[]
+    ) => {
+      if (milliseconds !== 2000) return interval(run, milliseconds, ...args);
+      refreshes.push(() => run(...args));
+      return interval(() => {}, milliseconds);
+    },
+  );
+  return refreshes;
+}
+
+export async function measureControl<T>(t: TestContext, run: () => Promise<T>) {
+  let discoveries = 0;
+  let reads = 0;
+  const open = StateStore.prototype.openConversations;
+  const opening = t.mock.method(
+    StateStore.prototype,
+    'openConversations',
+    function (this: StateStore, ids?: readonly string[]) {
+      if (ids === undefined) discoveries++;
+      return open.call(this, ids);
+    },
+  );
+  const read = files.readFile;
+  const reading = t.mock.method(
+    files,
+    'readFile',
+    async (...args: Parameters<typeof read>) => {
+      if (String(args[0]).endsWith('/coordination/claims.json')) reads++;
+      return read(...args);
+    },
+  );
+  syncBuiltinESMExports();
+  try {
+    return { value: await run(), discoveries, reads };
+  } finally {
+    opening.mock.restore();
+    reading.mock.restore();
+    syncBuiltinESMExports();
+  }
+}
 
 /** holds an existing conversation's `lock` without `coordinated`, as a Witch from before registration locks does. */
 export function legacyLock(store: StateStore, id: string): Promise<FileHandle> {
