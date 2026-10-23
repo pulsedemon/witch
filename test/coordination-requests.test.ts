@@ -7,6 +7,7 @@ import type {
   TaskClaim,
 } from '../src/core/coordination-state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
+import type { Ledger } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { StateStore } from '../src/persistence/store.js';
 import {
@@ -706,6 +707,117 @@ for (const stage of ['waiting', 'verifying'] as const)
       reserving.mock.restore();
     }
   });
+
+await test('a refresh read after the post-commit reread retains peer claims after mutation completion', async (t) => {
+  const refreshes = pauseDiscovery(t);
+  const assignmentEntered = Promise.withResolvers<void>(),
+    finishAssignment = Promise.withResolvers<void>();
+  const { start, registry } = await coordinationFixture(
+    t,
+    async (references) => {
+      if (!references.some((reference) => reference.endsWith(':chosen')))
+        return;
+      assignmentEntered.resolve();
+      await finishAssignment.promise;
+    },
+  );
+  const a = await start(),
+    b = await start('B');
+  const local = a.coordination['registry'];
+  const entered = Promise.withResolvers<void>(),
+    proceed = Promise.withResolvers<void>(),
+    readEntered = Promise.withResolvers<void>(),
+    finishRead = Promise.withResolvers<void>(),
+    readCompleted = Promise.withResolvers<Ledger>(),
+    finishRefresh = Promise.withResolvers<void>(),
+    rereadCompleted = Promise.withResolvers<Ledger>(),
+    finishReread = Promise.withResolvers<void>();
+  const claim = local.claim.bind(local);
+  const reserving = t.mock.method(
+    local,
+    'claim',
+    async (
+      ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
+    ) =>
+      claim(owner, input, process, deadline, async (ledger) => {
+        await verify(ledger);
+        entered.resolve();
+        await proceed.promise;
+      }),
+  );
+  const state = local.state.bind(local);
+  let background = false;
+  let rereading = false;
+  const reading = t.mock.method(
+    local,
+    'state',
+    async (...args: Parameters<typeof state>) => {
+      if (background) {
+        background = false;
+        readEntered.resolve();
+        await finishRead.promise;
+        const ledger = await state(...args);
+        readCompleted.resolve(ledger);
+        await finishRefresh.promise;
+        return ledger;
+      }
+      const ledger = await state(...args);
+      if (rereading) {
+        rereading = false;
+        rereadCompleted.resolve(ledger);
+        await finishReread.promise;
+      }
+      return ledger;
+    },
+  );
+  const claiming = a.claim('task:chosen', 'Own work');
+  let refreshing: Promise<void> | undefined;
+  try {
+    await within(entered.promise, 5000, 'mutation verification');
+    background = true;
+    refreshes[0]!();
+    refreshing = a.coordination['refreshing']!.promise;
+    await within(readEntered.promise, 5000, 'background read started');
+    rereading = true;
+    proceed.resolve();
+    const committed = await within(
+      rereadCompleted.promise,
+      5000,
+      'post-commit reread',
+    );
+    assert.equal(committed.claims.length, 1);
+    const own = committed.claims[0]!;
+    const peerResult = await b.claim('task:peer', 'Later peer work');
+    if (peerResult.kind !== 'claimed') assert.fail(JSON.stringify(peerResult));
+    const peer = peerResult.claim;
+    finishRead.resolve();
+    assert.deepEqual(
+      (await within(readCompleted.promise, 5000, 'newer background ledger'))
+        .claims,
+      [own, peer],
+    );
+    finishReread.resolve();
+    await within(assignmentEntered.promise, 5000, 'mutation completion');
+    finishRefresh.resolve();
+    await within(refreshing, 5000, 'refresh completes after mutation');
+    finishAssignment.resolve();
+    const result = await within(claiming, 5000, 'claim finalized');
+    assert.equal(result.kind, 'claimed');
+    assert.deepEqual(a.coordination.snapshot.ownClaim, own);
+    assert.deepEqual(a.coordination.snapshot.peers[0]?.claim, peer);
+    assert.deepEqual((await registry.state()).claims, [own, peer]);
+  } finally {
+    proceed.resolve();
+    finishRead.resolve();
+    finishReread.resolve();
+    finishRefresh.resolve();
+    finishAssignment.resolve();
+    await claiming;
+    await refreshing;
+    reading.mock.restore();
+    reserving.mock.restore();
+  }
+});
 
 for (const rereadFails of [false, true])
   await test(`post-commit finalization preserves peer claims${rereadFails ? ' when rereading fails' : ''}`, async (t) => {

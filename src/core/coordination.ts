@@ -83,7 +83,7 @@ export class SessionCoordination {
     promise: Promise<void>;
   };
   private revision = 0;
-  private mutations = 0;
+  private mutationRevision = 0;
   private discoveryFailure = 0;
   private view?: {
     active: Activation;
@@ -579,8 +579,8 @@ export class SessionCoordination {
     let ledger: Ledger | undefined;
     try {
       const result = await work(async (value) => {
-        // invalidate observations made while this transaction waited for its lock.
-        this.mutations++;
+        // ledger reads after this revision wait for the transaction to release its lock.
+        this.mutationRevision = ++this.revision;
         ledger = value;
         await verify(value);
       });
@@ -601,8 +601,6 @@ export class SessionCoordination {
     } catch (error) {
       if (state) state.ledger = undefined;
       throw error;
-    } finally {
-      this.mutations++;
     }
   }
 
@@ -918,7 +916,7 @@ export class SessionCoordination {
         this.refreshing.project === project
         ? this.refreshing.promise
         : this.refreshing.promise.then(() => this.refresh());
-    const mutations = this.mutations;
+    const mutationRevision = this.mutationRevision;
     const revision = ++this.revision;
     const current = () =>
       this.active === active &&
@@ -933,7 +931,7 @@ export class SessionCoordination {
         ([ledger, discovery]) => {
           if (!current() || !discovery) return;
           const consistent =
-            this.mutations === mutations ||
+            ledger.revision > this.mutationRevision ||
             (this.ledger !== undefined &&
               this.ledger.revision > ledger.revision);
           this.updateView(
@@ -944,7 +942,7 @@ export class SessionCoordination {
           );
         },
         (error: unknown) => {
-          if (current() && this.mutations === mutations)
+          if (current() && this.mutationRevision === mutationRevision)
             this.failDiscovery(error, revision);
         },
       )
