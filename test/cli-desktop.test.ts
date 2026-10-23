@@ -25,6 +25,13 @@ interface DesktopEvent {
 await test('the CLI opens the pressed link, copies selected text and reports desktop failures', async () => {
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const root = await scratch('witch-cli-desktop-');
+  const build = join(root, 'dist');
+  await promisify(execFile)(process.execPath, [
+    join(repository, 'scripts/build.mjs'),
+    build,
+  ]);
+  await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
+  await symlink(join(repository, 'package.json'), join(root, 'package.json'));
   const project = join(root, 'project');
   const bin = join(root, 'bin');
   await mkdir(project, { recursive: true });
@@ -63,10 +70,8 @@ await test('the CLI opens the pressed link, copies selected text and reports des
     process.execPath,
     [
       '--import',
-      import.meta.resolve('../scripts/register.mjs'),
-      '--import',
       join(repository, 'test/fixtures/cli-desktop.mjs'),
-      join(repository, 'src/cli.tsx'),
+      join(build, 'cli.js'),
       '--state-dir',
       store.root,
     ],
@@ -82,7 +87,6 @@ await test('the CLI opens the pressed link, copies selected text and reports des
         WITCH_JOBS_RESUME: undefined,
         WITCH_JOBS: undefined,
         NODE_TEST_CONTEXT: undefined,
-        TSX_TSCONFIG_PATH: join(repository, 'tsconfig.json'),
         NO_COLOR: undefined,
         FORCE_COLOR: '3',
         TERM: 'xterm-256color',

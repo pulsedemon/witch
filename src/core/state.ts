@@ -164,7 +164,7 @@ function merge(
         text: replace ? update.text : previous.text + update.text,
       }
     : update;
-  if (item.kind === 'tool') {
+  if (item.kind === 'tool' || item.kind === 'assistant') {
     const before = previous && !replace ? appends.get(previous) : undefined;
     appends.set(
       item,

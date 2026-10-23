@@ -3,7 +3,7 @@ import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
 import { appendedDisplayText } from '../core/state.js';
 import { diffRows } from './diff.js';
-import { markdown } from './markdown.js';
+import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from './theme.js';
 import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
@@ -19,6 +19,10 @@ export interface ScrollAnchor {
 type Anchor = Omit<ScrollAnchor, 'item'>;
 type Expansion = 'closed' | 'preview' | 'full';
 type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
+type Append =
+  | ({ kind: 'tool'; line: number } & Pick<LinkedAppend, 'pending' | 'target'>)
+  | { kind: 'assistant'; line: number; pending: string }
+  | { kind: 'full-markdown' };
 
 interface Row {
   text: string;
@@ -31,7 +35,7 @@ interface Block {
   complete: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
-  tail?: { line: number } & Pick<LinkedAppend, 'pending' | 'target'>;
+  append?: Append;
 }
 
 function textRows(
@@ -64,7 +68,7 @@ function block(
   headRows: number,
   complete: Row[],
   suffix: Row[],
-  tail?: Block['tail'],
+  append?: Append,
 ): Block {
   const count = complete.length;
   const length = count + suffix.length;
@@ -76,7 +80,7 @@ function block(
     complete,
     row,
     lines: textRows(length, (index) => row(index)?.text),
-    tail,
+    append,
   };
 }
 
@@ -110,6 +114,7 @@ function build(
   width: number,
   expansion: Expansion,
   graphics: Graphics | undefined,
+  fullMarkdown = false,
 ): Block {
   const tool = item.kind === 'tool';
   const expanded = expansion !== 'closed';
@@ -125,7 +130,11 @@ function build(
           : colors.dim('Notice');
   const linked =
     tool && expanded ? linkifyAppend(item.text, item.cwd) : undefined;
-  const body = tool ? '' : markdown(item.text, item.cwd);
+  const assistant =
+    item.kind === 'assistant' && !fullMarkdown
+      ? markdownAppend(item.text, item.cwd)
+      : undefined;
+  const body = tool ? '' : (assistant?.tail ?? markdown(item.text, item.cwd));
   const sources =
     item.kind === 'user'
       ? imagePaths(item.text)
@@ -142,7 +151,12 @@ function build(
       ? diffRows(item.diff, width, item.cwd, expansion === 'full')
       : [];
   const head = section(title.split('\n'), width, true, 0);
-  const complete = section(linked?.complete ?? [], width, false, head.next);
+  const complete = section(
+    linked?.complete ?? assistant?.complete ?? [],
+    width,
+    false,
+    head.next,
+  );
   const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
   const rendered = section(
     hasBody ? (linked?.tail ?? body).split('\n') : [],
@@ -170,8 +184,21 @@ function build(
     head.rows.concat(complete.rows),
     suffix,
     linked && !diff.length && (!graphics || !sources.length)
-      ? { line: complete.next, pending: linked.pending, target: linked.target }
-      : undefined,
+      ? {
+          kind: 'tool',
+          line: complete.next,
+          pending: linked.pending,
+          target: linked.target,
+        }
+      : item.kind === 'assistant'
+        ? assistant
+          ? {
+              kind: 'assistant',
+              line: complete.next,
+              pending: assistant.pending,
+            }
+          : { kind: 'full-markdown' }
+        : undefined,
   );
 }
 
@@ -181,10 +208,10 @@ function extend(
   width: number,
 ): Block | undefined {
   const before = previous.item;
-  const tail = previous.tail;
+  const tail = previous.append;
   if (
     !tail ||
-    item.kind !== 'tool' ||
+    item.kind !== before.kind ||
     item.title !== before.title ||
     item.done !== before.done ||
     item.cwd !== before.cwd ||
@@ -194,14 +221,21 @@ function extend(
     return undefined;
   const appended = appendedDisplayText(before, item);
   if (appended === undefined) return undefined;
-  const linked = linkifyAppend(tail.pending + appended, item.cwd, tail.target);
-  const complete = section(linked.complete, width, false, tail.line);
+  if (tail.kind === 'full-markdown')
+    return build(item, width, 'closed', undefined, true);
+  const linked =
+    tail.kind === 'tool'
+      ? linkifyAppend(tail.pending + appended, item.cwd, tail.target)
+      : undefined;
+  const content = linked ?? markdownAppend(tail.pending + appended, item.cwd);
+  if (!content) return build(item, width, 'closed', undefined, true);
+  const complete = section(content.complete, width, false, tail.line);
   const hasBody =
     previous.complete.length > previous.headRows ||
-    linked.complete.length > 0 ||
-    !!linked.tail;
+    content.complete.length > 0 ||
+    !!content.tail;
   const rendered = section(
-    hasBody ? linked.tail.split('\n') : [],
+    hasBody ? content.tail.split('\n') : [],
     width,
     false,
     complete.next,
@@ -216,7 +250,14 @@ function extend(
       text: '',
       anchor: { line: rendered.next, offset: 0 },
     }),
-    { line: complete.next, pending: linked.pending, target: linked.target },
+    tail.kind === 'tool'
+      ? {
+          kind: 'tool',
+          line: complete.next,
+          pending: content.pending,
+          target: linked?.target,
+        }
+      : { kind: 'assistant', line: complete.next, pending: content.pending },
   );
 }
 
