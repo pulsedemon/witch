@@ -386,10 +386,6 @@ export class Coordinator {
     return queue;
   }
 
-  /**
-   * a prompt behind queued ones or sent after an interrupt waits in the queue, and so does a slash command or `!`
-   * command, apart from a spell or `!` command sent once the turn has replied.
-   */
   private async steer(prompt: string): Promise<boolean> {
     const session = this.session;
     if (
@@ -716,6 +712,13 @@ export class Coordinator {
       this.editorCancellation = new AbortController();
       try {
         await this.editFile(file, this.editorCancellation.signal);
+      } catch (error) {
+        if (
+          !this.cancelled ||
+          !(error instanceof Error) ||
+          error.name !== 'AbortError'
+        )
+          throw error;
       } finally {
         this.editorCancellation = undefined;
       }
@@ -726,10 +729,7 @@ export class Coordinator {
     });
   }
 
-  /**
-   * returns whether merge cleanup acted, refreshing `install` after Witch's own cleanup.
-   * skips unreadable records and peer turns with a running native process anywhere in this checkout.
-   */
+  /** returns whether merge cleanup acted, refreshing `install` after Witch's own cleanup. */
   async cleanUpMerge(
     pullRequest: PullRequest,
     install?: string,
