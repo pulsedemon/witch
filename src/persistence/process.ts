@@ -55,11 +55,24 @@ export async function ps(
   }
 }
 
+export async function identifyProcesses(
+  pids: readonly number[],
+): Promise<Map<number, ProcessIdentity>> {
+  if (!pids.length) return new Map();
+  const lines = await ps('pid=,lstart=', [...new Set(pids)]);
+  return new Map(
+    lines.map((line) => {
+      const [, id, started] = /^\s*(\d+)\s+(.+?)\s*$/.exec(line)!;
+      const pid = Number(id);
+      return [pid, { pid, started: started! }];
+    }),
+  );
+}
+
 export async function identifyProcess(
   pid: number,
 ): Promise<ProcessIdentity | undefined> {
-  const [started] = await ps('lstart=', [pid]);
-  return started === undefined ? undefined : { pid, started: started.trim() };
+  return (await identifyProcesses([pid])).get(pid);
 }
 
 /** false once the recorded process has exited, even when a later one holds its pid. */

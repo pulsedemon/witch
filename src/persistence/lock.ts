@@ -58,7 +58,3 @@ export async function lockedFiles(
   }
   return locked;
 }
-
-export async function isLocked(file: string): Promise<boolean> {
-  return (await lockedFiles([file])).has(file);
-}
