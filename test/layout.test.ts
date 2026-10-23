@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { Lexer } from 'marked';
 import stripAnsi from 'strip-ansi';
 import { Graphics, placeholder } from '../src/ui/images.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
@@ -1212,4 +1213,196 @@ await test('a scroll anchor on a diff line stays on that line when a resize rewr
     plainAt(30, layout.render([item], 30, new Map()).rowOf(anchor)),
     '3  tail',
   );
+});
+
+const assistant = (text: string): DisplayItem => ({
+  id: 'reply',
+  kind: 'assistant',
+  text,
+  cwd: '/work',
+});
+
+await test('assistant appends keep Markdown rows and anchors correct through syntax changes', () => {
+  for (const source of [
+    'First.\n\nSecond.\n\nHeading\n---\n\nAfter',
+    'First.\n\nSecond.\n\n- first\n\n  next\n\nAfter',
+    'First.\n\nSecond.\n\n```\n```\n\nAfter',
+    'First.\n\nSecond.\n\n```\n**literal**\n```\n\nAfter',
+    '[Guide][g]\n\nSecond.\n\nThird.\n\n[g]: src/guide.ts\n\nAfter',
+    '[Guide][g]\n\nSecond.\n\nThird.\n\n> [g]: src/guide.ts\n',
+    'First.\n\nSecond.\n\n<a>\n\nwww.example\n\n</a>',
+    'First.\n\nSecond.\n\nNext\r\n\r\nLast',
+    'First.\n\nSecond.\n\ne\u0301 🐈\n\na | b\n---|---\n1|2',
+  ]) {
+    const frames = source.split('').map((text) => ({
+      updates: [assistant(text)],
+      width: 40,
+      expanded: [],
+    }));
+    sameAsFull(frames);
+  }
+});
+
+await test('assistant layout follows batched ancestry and rebuilds for replacements or metadata changes', () => {
+  for (const replay of [false, true]) {
+    const seed = [assistant('First.\n\nSecond.\n\n'), assistant('part')];
+    let items = replay
+      ? foldDisplayUpdates(seed)
+      : seed.reduce(applyDisplayUpdate, [] as DisplayItem[]);
+    const base = items;
+    const layout = new TranscriptLayout();
+    const check = (expected: string, width = 80) => {
+      const frame = layout.render(items, width, new Map());
+      const fresh = new TranscriptLayout().render(items, width, new Map());
+      assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+      for (let row = 0; row < frame.lines.length; row++)
+        assert.deepEqual(frame.anchorAt(row), fresh.anchorAt(row));
+      assert.equal(
+        frame.lines.slice(1, -1).map(stripAnsi).join('\n'),
+        expected,
+      );
+      return frame;
+    };
+    check('First.\n\nSecond.\n\npart');
+    for (const delta of ['ial', '\n\nLast.', ''])
+      items = applyDisplayUpdate(items, assistant(delta));
+    check('First.\n\nSecond.\n\npartial\n\nLast.');
+    items = applyDisplayUpdate(items, {
+      ...assistant('First.\n\nSecond.\n\npartial replaced'),
+      replace: true,
+    });
+    check('First.\n\nSecond.\n\npartial replaced');
+    items = applyDisplayUpdate(items, assistant('\n\nNew.'));
+    for (const width of [80, 31, 80])
+      check('First.\n\nSecond.\n\npartial replaced\n\nNew.', width);
+    items = applyDisplayUpdate(base, assistant(' sibling'));
+    check('First.\n\nSecond.\n\npart sibling');
+    items = applyDisplayUpdate(
+      applyDisplayUpdate(base, assistant(' other')),
+      assistant(' branch'),
+    );
+    check('First.\n\nSecond.\n\npart other branch');
+    items = base;
+    check('First.\n\nSecond.\n\npart');
+    items = [assistant('independent')];
+    check('independent');
+    items = applyDisplayUpdate(items, {
+      ...assistant('src/changed.ts:7'),
+      cwd: '/other',
+      title: 'New title',
+      replace: true,
+    });
+    const moved = check('src/changed.ts:7');
+    assert.equal(stripAnsi(moved.lines.at(0)!), 'New title');
+    assert.ok(
+      moved.lines.at(1)!.includes('vscode://file/other/src/changed.ts:7'),
+    );
+    items = applyDisplayUpdate(items, {
+      ...assistant('**literal**'),
+      kind: 'tool',
+      replace: true,
+      shell: true,
+    });
+    check('**literal**');
+  }
+});
+
+await test('earlier assistant frames survive appends and a reference that changes completed rows', () => {
+  const layout = new TranscriptLayout();
+  let items = applyDisplayUpdate(
+    [],
+    assistant('[Guide][g]\n\nSecond.\n\nThird.\n\npart'),
+  );
+  items = applyDisplayUpdate(items, {
+    id: 'following',
+    kind: 'notice',
+    text: 'following notice',
+    cwd: '/work',
+  });
+  const before = layout.render(items, 40, new Map());
+  const lines = before.lines.slice();
+  const anchors = lines.map((_, row) => before.anchorAt(row)!);
+  const rows = anchors.map((anchor) => before.rowOf(anchor));
+  const starts = [...before.starts];
+  for (const text of ['ial\n\nNext.', '\n\n[g]: src/guide.ts\n', '\nLast.']) {
+    items = applyDisplayUpdate(items, assistant(text));
+    const frame = layout.render(items, 40, new Map());
+    const fresh = new TranscriptLayout().render(items, 40, new Map());
+    assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
+    assert.ok(frame.starts.get('following')! > before.starts.get('following')!);
+    assert.deepEqual(before.lines.slice(), lines);
+    assert.deepEqual([...before.starts], starts);
+    assert.deepEqual(
+      lines.map((_, row) => before.anchorAt(row)),
+      anchors,
+    );
+    assert.deepEqual(
+      anchors.map((anchor) => before.rowOf(anchor)),
+      rows,
+    );
+  }
+  const final = layout.render(items, 40, new Map());
+  assert.ok(final.lines.at(1)!.includes('vscode://file/work/src/guide.ts'));
+  assert.equal(stripAnsi(final.lines.at(-2)!), 'following notice');
+});
+
+await test('completed assistant blocks have bounded parsing and wrapping work', (t) => {
+  const lex = Lexer.prototype.lex;
+  const normalize = String.prototype.normalize;
+  let parsed = 0;
+  let wrapped = 0;
+  let measure = false;
+  t.mock.method(Lexer.prototype, 'lex', function (this: Lexer, source: string) {
+    if (measure) parsed += source.length;
+    return lex.call(this, source);
+  });
+  t.mock.method(
+    String.prototype,
+    'normalize',
+    function (this: string, form?: string) {
+      if (measure) wrapped += this.length;
+      return normalize.call(this, form);
+    },
+  );
+  const counts: { parsed: number; wrapped: number }[] = [];
+  for (const size of [51200, 102400]) {
+    const paragraph =
+      'A completed paragraph has text, **emphasis**, and src/main.ts:9.\n\n';
+    const text = paragraph
+      .repeat(Math.ceil(size / paragraph.length))
+      .slice(0, size);
+    const layout = new TranscriptLayout();
+    let items: DisplayItem[] = [];
+    parsed = 0;
+    wrapped = 0;
+    measure = true;
+    for (let offset = 0; offset < text.length; offset += 1024) {
+      items = applyDisplayUpdate(
+        items,
+        assistant(text.slice(offset, offset + 1024)),
+      );
+      layout.render(items, 80, new Map()).lines.slice(-30);
+    }
+    items = applyDisplayUpdate(items, { ...assistant(text), replace: true });
+    const final = layout.render(items, 80, new Map());
+    measure = false;
+    assert.ok(parsed <= 4 * size, `parsed ${parsed} characters for ${size}`);
+    assert.ok(
+      wrapped <= 6 * size,
+      `wrapped ${wrapped} plain characters for ${size}`,
+    );
+    counts.push({ parsed, wrapped });
+    const fresh = new TranscriptLayout().render(items, 80, new Map());
+    assert.deepEqual(final.lines.slice(), fresh.lines.slice());
+    for (let row = 0; row < final.lines.length; row++)
+      assert.deepEqual(final.anchorAt(row), fresh.anchorAt(row));
+    assert.equal(
+      stripAnsi(final.lines.at(1)!),
+      'A completed paragraph has text, emphasis, and src/main.ts:9.',
+    );
+    assert.ok(final.lines.at(1)!.includes('vscode://file/work/src/main.ts:9'));
+    t.diagnostic(JSON.stringify({ size, parsed, wrapped }));
+  }
+  for (const field of ['parsed', 'wrapped'] as const)
+    assert.ok(counts[1]![field] <= counts[0]![field] * 2.3 + 8192, field);
 });

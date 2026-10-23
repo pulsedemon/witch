@@ -109,8 +109,10 @@ export function markdownAppend(
   const marked = new Marked({ gfm: true });
   const tokens = marked.lexer(text);
   let context = Object.keys(tokens.links).length > 0;
-  marked.walkTokens(tokens, (token) => {
+  void marked.walkTokens(tokens, (token) => {
     if (token.type === 'html') context = true;
+    // Marked copies accumulated visitor results per token; keep that array empty.
+    return [];
   });
   if (context || tokens.map((token) => token.raw).join('') !== text)
     return undefined;
