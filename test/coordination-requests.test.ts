@@ -130,6 +130,111 @@ await test('a later query reads the peer reservation made between requests', asy
   assert.equal(reads, 1);
 });
 
+for (const stage of ['acquisition', 'completion'] as const)
+  await test(`peer claims survive delayed read ${stage}`, async (t) => {
+    const refreshes = pauseDiscovery(t);
+    const { start, store } = await coordinationFixture(t);
+    const a = await start(),
+      b = await start('B');
+    const peerId = b.coordinator.snapshot.conversation!.id;
+    const entered = Promise.withResolvers<void>(),
+      finishRead = Promise.withResolvers<void>(),
+      requestRead = Promise.withResolvers<void>(),
+      discovering = Promise.withResolvers<void>(),
+      finishDiscovery = Promise.withResolvers<void>();
+    const state = CoordinationStore.prototype.state;
+    let first = true;
+    const reading = t.mock.method(
+      CoordinationStore.prototype,
+      'state',
+      async function (
+        this: CoordinationStore,
+        ...args: Parameters<typeof state>
+      ) {
+        const background = first;
+        first = false;
+        if (background && stage === 'acquisition') {
+          entered.resolve();
+          await finishRead.promise;
+        }
+        const ledger = await state.apply(this, args);
+        if (background && stage === 'completion') {
+          entered.resolve();
+          await finishRead.promise;
+        }
+        if (!background) requestRead.resolve();
+        return ledger;
+      },
+    );
+    const open = store.openConversations.bind(store);
+    let discoveries = 0;
+    const observing = t.mock.method(
+      store,
+      'openConversations',
+      async (...args: Parameters<typeof open>) => {
+        if (
+          stage === 'acquisition' &&
+          args[0] === undefined &&
+          ++discoveries === 2
+        ) {
+          discovering.resolve();
+          await finishDiscovery.promise;
+        }
+        return open(...args);
+      },
+    );
+    let request: ReturnType<typeof a.query> | undefined;
+    let unsubscribe = () => {};
+    refreshes[0]!();
+    const refreshing = a.coordination['refreshing']!.promise;
+    try {
+      await within(entered.promise, 5000, 'background read paused');
+      if (stage === 'acquisition') {
+        request = a.query();
+        await within(
+          Promise.all([requestRead.promise, discovering.promise]),
+          5000,
+          'request reads before background',
+        );
+      }
+      const claimed = await b.claim('task:ordered-read', 'Latest peer claim');
+      if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
+      request ??= a.query();
+      if (stage === 'completion') await request;
+      else {
+        finishRead.resolve();
+        await within(refreshing, 5000, 'background reads the latest ledger');
+      }
+      const peerClaim = () =>
+        a.coordination.snapshot.peers.find(
+          (peer) => peer.presence.id === peerId,
+        )?.claim;
+      assert.deepEqual(peerClaim(), claimed.claim);
+      const publications: (string | undefined)[] = [];
+      unsubscribe = a.coordination.subscribe(() => {
+        publications.push(peerClaim()?.id);
+      });
+      finishRead.resolve();
+      finishDiscovery.resolve();
+      await within(refreshing, 5000, 'background refresh completes');
+      const response = await request;
+      assert.deepEqual(
+        response.peers.find((peer) => peer.presence.id === peerId)?.claim,
+        claimed.claim,
+      );
+      assert.deepEqual(peerClaim(), claimed.claim);
+      assert.ok(publications.every((id) => id === claimed.claim.id));
+    } finally {
+      unsubscribe();
+      finishRead.resolve();
+      finishDiscovery.resolve();
+      await request?.catch(() => {});
+      await refreshing;
+      observing.mock.restore();
+      reading.mock.restore();
+    }
+  });
+
 await test('cancellation publishes the next waiter without another discovery', async (t) => {
   pauseDiscovery(t);
   const { start } = await coordinationFixture(t);

@@ -560,11 +560,11 @@ export class SessionCoordination {
 
   private async readLedger(state?: RequestState): Promise<LedgerView> {
     if (state?.ledger) return state.ledger;
-    const revision = ++this.revision;
-    const value = {
-      revision,
-      ledger: await this.registry.state(Date.now() + 1000),
-    };
+    let revision = 0;
+    const ledger = await this.registry.state(Date.now() + 1000, () => {
+      revision = ++this.revision;
+    });
+    const value = { revision, ledger };
     if (state) state.ledger = value;
     return value;
   }

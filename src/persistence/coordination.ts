@@ -224,11 +224,13 @@ export class CoordinationStore {
     }
   }
 
-  /** bounded reads wait for pending reservations before observing ownership. */
-  async state(deadline?: number): Promise<Ledger> {
+  /** bounded reads notify observers under the reservation lock to preserve read order. */
+  async state(deadline?: number, observe?: () => void): Promise<Ledger> {
     const lock = deadline === undefined ? undefined : await this.lock(deadline);
     try {
-      return await this.reconcile(await this.read());
+      const ledger = await this.reconcile(await this.read());
+      observe?.();
+      return ledger;
     } finally {
       await lock?.close();
     }
