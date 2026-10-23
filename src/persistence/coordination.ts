@@ -224,8 +224,14 @@ export class CoordinationStore {
     }
   }
 
-  async state(): Promise<Ledger> {
-    return this.reconcile(await this.read());
+  /** bounded reads wait for pending reservations before observing ownership. */
+  async state(deadline?: number): Promise<Ledger> {
+    const lock = deadline === undefined ? undefined : await this.lock(deadline);
+    try {
+      return await this.reconcile(await this.read());
+    } finally {
+      await lock?.close();
+    }
   }
 
   async claims(): Promise<TaskClaim[]> {

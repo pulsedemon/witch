@@ -561,7 +561,10 @@ export class SessionCoordination {
   private async readLedger(state?: RequestState): Promise<LedgerView> {
     if (state?.ledger) return state.ledger;
     const revision = ++this.revision;
-    const value = { revision, ledger: await this.registry.state() };
+    const value = {
+      revision,
+      ledger: await this.registry.state(Date.now() + 1000),
+    };
     if (state) state.ledger = value;
     return value;
   }
@@ -573,10 +576,11 @@ export class SessionCoordination {
   ): Promise<T> {
     const previous = this.ledger;
     const refreshing = this.refreshing;
-    this.mutations++;
     let ledger: Ledger | undefined;
     try {
       const result = await work(async (value) => {
+        // invalidate observations made while this transaction waited for its lock.
+        this.mutations++;
         ledger = value;
         await verify(value);
       });

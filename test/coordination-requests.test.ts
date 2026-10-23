@@ -278,8 +278,8 @@ await test('a pre-mutation refresh cannot publish old ownership after commit', a
   const reading = t.mock.method(
     CoordinationStore.prototype,
     'state',
-    async function (this: CoordinationStore) {
-      const ledger = await read.call(this);
+    async function (this: CoordinationStore, ...args: Parameters<typeof read>) {
+      const ledger = await read.apply(this, args);
       if (++reads === 2) {
         readEntered.resolve();
         await finishRead.promise;
@@ -458,6 +458,150 @@ for (const outcome of ['success', 'failure'] as const)
     }
   });
 
+for (const stage of ['waiting', 'verifying'] as const)
+  await test(`a refresh started while ${stage} never publishes ownership older than the commit`, async (t) => {
+    const refreshes = pauseDiscovery(t);
+    const { start, registry } = await coordinationFixture(t);
+    const a = await start(),
+      b = await start('B');
+    const peerId = b.coordinator.snapshot.conversation!.id;
+    await until('peer idle presence written', async () =>
+      (await registry.presences()).some(
+        (peer) => peer.id === peerId && peer.phase === 'idle',
+      ),
+    );
+    const entered = Promise.withResolvers<void>(),
+      proceed = Promise.withResolvers<void>(),
+      committed = Promise.withResolvers<TaskClaim>(),
+      finishMutation = Promise.withResolvers<void>(),
+      readEntered = Promise.withResolvers<void>(),
+      readCompleted = Promise.withResolvers<void>(),
+      observed = Promise.withResolvers<void>(),
+      finishDiscovery = Promise.withResolvers<void>();
+    const claim = CoordinationStore.prototype.claim;
+    const reserving = t.mock.method(
+      CoordinationStore.prototype,
+      'claim',
+      async function (
+        this: CoordinationStore,
+        ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
+      ) {
+        if (stage === 'waiting') {
+          entered.resolve();
+          await proceed.promise;
+        }
+        const value = await claim.call(
+          this,
+          owner,
+          input,
+          process,
+          deadline,
+          async (ledger) => {
+            await verify(ledger);
+            if (stage === 'verifying') {
+              entered.resolve();
+              await proceed.promise;
+            }
+          },
+        );
+        committed.resolve(value);
+        await finishMutation.promise;
+        return value;
+      },
+    );
+    let capture = false;
+    const state = CoordinationStore.prototype.state;
+    const reading = t.mock.method(
+      CoordinationStore.prototype,
+      'state',
+      async function (
+        this: CoordinationStore,
+        ...args: Parameters<typeof state>
+      ) {
+        const pending = state.apply(this, args);
+        if (!capture) return pending;
+        capture = false;
+        readEntered.resolve();
+        const value = await pending;
+        readCompleted.resolve();
+        return value;
+      },
+    );
+    let holding = false;
+    const records = StateStore.prototype.records;
+    const discovering = t.mock.method(
+      StateStore.prototype,
+      'records',
+      async function (this: StateStore, ...args: Parameters<typeof records>) {
+        const value = await records.apply(this, args);
+        if (holding) {
+          holding = false;
+          observed.resolve();
+          await finishDiscovery.promise;
+        }
+        return value;
+      },
+    );
+    const claiming = a.claim('task:chosen');
+    let unsubscribe = () => {};
+    try {
+      await within(entered.promise, 5000, 'mutation entered');
+      const peer = (await registry.presences()).find(
+        (entry) => entry.id === peerId,
+      )!;
+      await registry.publish({ ...peer, title: 'Observed while pending' });
+      capture = true;
+      holding = true;
+      refreshes[0]!();
+      const refreshing = a.coordination['refreshing']!.promise;
+      await within(
+        Promise.all([readEntered.promise, observed.promise]),
+        5000,
+        'refresh started',
+      );
+      if (stage === 'waiting')
+        await within(
+          readCompleted.promise,
+          5000,
+          'pre-verification ledger read',
+        );
+      proceed.resolve();
+      const own = await within(committed.promise, 5000, 'claim committed');
+      assert.deepEqual((await state.call(registry)).claims, [own]);
+      const publications: (string | undefined)[] = [];
+      unsubscribe = a.coordination.subscribe(() => {
+        publications.push(a.coordination.snapshot.ownClaim?.id);
+      });
+      finishDiscovery.resolve();
+      await within(refreshing, 5000, 'post-commit refresh');
+      if (stage === 'waiting') assert.deepEqual(publications, []);
+      else {
+        assert.deepEqual(a.coordination.snapshot.ownClaim, own);
+        assert.ok(publications.length > 0);
+      }
+      finishMutation.resolve();
+      const result = await claiming;
+      if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+      assert.deepEqual(result.claim, own);
+      assert.deepEqual(a.coordination.snapshot.ownClaim, own);
+      assert.ok(publications.length > 0);
+      assert.ok(publications.every((id) => id === own.id));
+      assert.equal(
+        a.coordination.snapshot.peers[0]?.presence.title,
+        'Observed while pending',
+      );
+    } finally {
+      unsubscribe();
+      proceed.resolve();
+      finishDiscovery.resolve();
+      finishMutation.resolve();
+      await claiming;
+      discovering.mock.restore();
+      reading.mock.restore();
+      reserving.mock.restore();
+    }
+  });
+
 for (const rereadFails of [false, true])
   await test(`post-commit finalization preserves peer claims${rereadFails ? ' when rereading fails' : ''}`, async (t) => {
     const refreshes = pauseDiscovery(t);
@@ -488,10 +632,13 @@ for (const rereadFails of [false, true])
     const reading = t.mock.method(
       CoordinationStore.prototype,
       'state',
-      async function (this: CoordinationStore) {
+      async function (
+        this: CoordinationStore,
+        ...args: Parameters<typeof state>
+      ) {
         if (failing)
           throw new Error('fixture cannot reread the committed ledger');
-        return state.call(this);
+        return state.apply(this, args);
       },
     );
     const claiming = a.claim('task:chosen');
@@ -608,10 +755,13 @@ await test('a newer discovery survives rejected mutation completion', async (t) 
   const finalRead = t.mock.method(
     CoordinationStore.prototype,
     'state',
-    async function (this: CoordinationStore) {
+    async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof state>
+    ) {
       const waiting = finalizing;
       finalizing = false;
-      const result = await state.call(this);
+      const result = await state.apply(this, args);
       if (waiting) {
         finalReadEntered.resolve();
         await finishFinalRead.promise;
@@ -677,8 +827,8 @@ await test('a refresh that read the old ledger cannot erase a committed claim', 
   const reading = t.mock.method(
     CoordinationStore.prototype,
     'state',
-    async function (this: CoordinationStore) {
-      const ledger = await read.call(this);
+    async function (this: CoordinationStore, ...args: Parameters<typeof read>) {
+      const ledger = await read.apply(this, args);
       if (first) {
         first = false;
         entered.resolve();
