@@ -408,7 +408,7 @@ await test('a mutation that expires while waiting for the ledger lock stores no 
   }
 });
 
-await test('the host reports expiry after asynchronous authority verification without committing the claim', async (t) => {
+await test('expiry after asynchronous authority verification removes the exchange without committing the claim', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const bound = await binding();
   const store = await CoordinationStore.open(bound.directory);
@@ -451,14 +451,8 @@ await test('the host reports expiry after asynchronous authority verification wi
     t.mock.timers.tick(5001);
     proceed.resolve();
     await host.drain();
-    const result = JSON.parse(
-      await files.readFile(
-        join(bound.directory, 'replies', `${request.id}.json`),
-        'utf8',
-      ),
-    ) as { kind: string; message: string };
-    assert.equal(result.kind, 'error');
-    assert.match(result.message, /expired/);
+    assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
+    assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
     assert.deepEqual(await store.claims(), []);
     assert.deepEqual(failures, []);
   } finally {
@@ -467,7 +461,7 @@ await test('the host reports expiry after asynchronous authority verification wi
   }
 });
 
-await test('invalid and expired envelopes never reach the action handler', async () => {
+await test('invalid envelopes never reach the action handler', async () => {
   const bound = await binding();
   let calls = 0;
   const failures: unknown[] = [];
@@ -482,7 +476,6 @@ await test('invalid and expired envelopes never reach the action handler', async
   try {
     for (const fields of [
       { version: 2 },
-      { deadline: Date.now() - 1 },
       { action: { kind: 'shell', command: 'ignored' } },
     ]) {
       const request = { ...envelope(bound), ...fields };
@@ -507,6 +500,310 @@ await test('invalid and expired envelopes never reach the action handler', async
     }
     assert.equal(calls, 0);
     assert.deepEqual(failures, []);
+  } finally {
+    await host.close();
+  }
+});
+
+await test('an unread successful reply expires without undoing its claim', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1000 });
+  const bound = await binding();
+  const store = await CoordinationStore.open(bound.directory);
+  const failures: unknown[] = [];
+  const host = await ControlHost.open(
+    bound.directory,
+    async (request) => {
+      if (request.action.kind !== 'claim') throw new Error('Expected claim');
+      return {
+        kind: 'claimed',
+        claim: await store.claim(
+          { conversation: request.conversation, project: 'project-p' },
+          request.action.input,
+          identity,
+          request.deadline,
+          async () => {},
+        ),
+      };
+    },
+    (error) => failures.push(error),
+  );
+  try {
+    await host.drain();
+    const request = {
+      ...envelope(bound),
+      deadline: 2000,
+      action: {
+        kind: 'claim',
+        input: { reference: 'task:expiry', summary: 'Keep the claim' },
+      },
+    };
+    const name = `${request.id}.json`;
+    const inbox = join(bound.directory, 'inbox');
+    const replies = join(bound.directory, 'replies');
+    await writeJson(join(inbox, name), request);
+    t.mock.timers.tick(250);
+    await host.drain();
+    const claims = await store.claims();
+    assert.equal(claims.length, 1);
+    assert.deepEqual(claims[0]!.references, ['task:project-p:expiry']);
+    assert.deepEqual(await files.readdir(inbox), [name]);
+    assert.deepEqual(await files.readdir(replies), [name]);
+
+    t.mock.timers.tick(749);
+    await host.drain();
+    assert.deepEqual(await files.readdir(inbox), [name]);
+    assert.deepEqual(await files.readdir(replies), [name]);
+    t.mock.timers.tick(1);
+    await host.drain();
+    assert.deepEqual(await files.readdir(inbox), []);
+    assert.deepEqual(await files.readdir(replies), []);
+    assert.deepEqual(await store.claims(), claims);
+    assert.deepEqual(failures, []);
+  } finally {
+    await host.close();
+  }
+});
+
+await test('an expired unanswered request is removed without dispatch', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1000 });
+  const bound = await binding();
+  let calls = 0;
+  const failures: unknown[] = [];
+  const host = await ControlHost.open(
+    bound.directory,
+    async () => {
+      calls++;
+      return { kind: 'released' };
+    },
+    (error) => failures.push(error),
+  );
+  try {
+    await host.drain();
+    const request = {
+      ...envelope(bound),
+      deadline: 1250,
+      action: { kind: 'release', claim: randomUUID() },
+    };
+    await writeJson(
+      join(bound.directory, 'inbox', `${request.id}.json`),
+      request,
+    );
+    t.mock.timers.tick(250);
+    await host.drain();
+    assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
+    assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
+    assert.equal(calls, 0);
+    assert.deepEqual(failures, []);
+  } finally {
+    await host.close();
+  }
+});
+
+await test('a handler finishing after expiry leaves no late reply', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1000 });
+  const bound = await binding();
+  const entered = Promise.withResolvers<void>();
+  const proceed = Promise.withResolvers<void>();
+  const work = join(bound.directory, 'handled');
+  const failures: unknown[] = [];
+  const host = await ControlHost.open(
+    bound.directory,
+    async () => {
+      entered.resolve();
+      await proceed.promise;
+      await files.appendFile(work, 'handled\n');
+      return { kind: 'released' };
+    },
+    (error) => failures.push(error),
+  );
+  try {
+    await host.drain();
+    const request = {
+      ...envelope(bound),
+      deadline: 1500,
+      action: { kind: 'release', claim: randomUUID() },
+    };
+    await writeJson(
+      join(bound.directory, 'inbox', `${request.id}.json`),
+      request,
+    );
+    t.mock.timers.tick(250);
+    await within(entered.promise, 3000, 'handler entry');
+    t.mock.timers.tick(250);
+    proceed.resolve();
+    await host.drain();
+    assert.deepEqual(await files.readdir(join(bound.directory, 'inbox')), []);
+    assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
+    assert.equal(await files.readFile(work, 'utf8'), 'handled\n');
+    assert.deepEqual(failures, []);
+  } finally {
+    proceed.resolve();
+    await host.close();
+  }
+});
+
+await test('expiry cleanup tolerates concurrent acknowledgement', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1000 });
+  const bound = await binding();
+  const inbox = join(bound.directory, 'inbox');
+  const replies = join(bound.directory, 'replies');
+  const replyRead = Promise.withResolvers<void>();
+  const requestRead = Promise.withResolvers<void>();
+  const acknowledge = Promise.withResolvers<void>();
+  const resumeHost = Promise.withResolvers<void>();
+  let clientWaiting = false;
+  let hostWaiting = false;
+  const originalRead = files.readFile;
+  t.mock.method(
+    files,
+    'readFile',
+    async (...args: Parameters<typeof files.readFile>) => {
+      const text = await originalRead(...args);
+      if (String(args[0]).startsWith(replies) && !clientWaiting) {
+        clientWaiting = true;
+        replyRead.resolve();
+        await acknowledge.promise;
+      } else if (
+        String(args[0]).startsWith(inbox) &&
+        clientWaiting &&
+        !hostWaiting
+      ) {
+        hostWaiting = true;
+        requestRead.resolve();
+        await resumeHost.promise;
+      }
+      return text;
+    },
+  );
+  const work = join(bound.directory, 'handled');
+  const failures: unknown[] = [];
+  const host = await ControlHost.open(
+    bound.directory,
+    async () => {
+      await files.appendFile(work, 'handled\n');
+      return { kind: 'released' };
+    },
+    (error) => failures.push(error),
+  );
+  await host.drain();
+  const calling = callControl(bound, { kind: 'release', claim: randomUUID() });
+  try {
+    await until('published request', async () =>
+      (await files.readdir(inbox)).some((name) => name.endsWith('.json')),
+    );
+    t.mock.timers.tick(250);
+    await host.drain();
+    await within(replyRead.promise, 3000, 'client reply read');
+    t.mock.timers.tick(250);
+    await within(requestRead.promise, 3000, 'host request read');
+    t.mock.timers.tick(9500);
+    acknowledge.resolve();
+    assert.equal(
+      (await within(calling, 3000, 'acknowledgement')).kind,
+      'released',
+    );
+    resumeHost.resolve();
+    await host.drain();
+    assert.equal(await originalRead(work, 'utf8'), 'handled\n');
+    assert.deepEqual(await files.readdir(inbox), []);
+    assert.deepEqual(await files.readdir(replies), []);
+    assert.deepEqual(failures, []);
+  } finally {
+    acknowledge.resolve();
+    resumeHost.resolve();
+    await calling.catch(() => {});
+    await host.close();
+  }
+});
+
+for (const redirect of ['inbox', 'replies', 'reply'] as const)
+  await test(`expiry cleanup cannot delete through a redirected ${redirect}`, async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1000 });
+    const bound = await binding();
+    const target = await scratch('witch-control-expiry-target-');
+    const request = { ...envelope(bound), deadline: 1000 };
+    const name = `${request.id}.json`;
+    const outside = join(target, name);
+    const contents =
+      redirect === 'inbox' ? JSON.stringify(request) : 'untouched';
+    await files.writeFile(outside, contents);
+    let calls = 0;
+    const failures: unknown[] = [];
+    const host = await ControlHost.open(
+      bound.directory,
+      async () => {
+        calls++;
+        return { kind: 'released' };
+      },
+      (error) => failures.push(error),
+    );
+    try {
+      await host.drain();
+      if (redirect !== 'inbox')
+        await writeJson(join(bound.directory, 'inbox', name), request);
+      if (redirect === 'reply')
+        await files.symlink(outside, join(bound.directory, 'replies', name));
+      else {
+        const directory = join(bound.directory, redirect);
+        await files.rename(directory, `${directory}-original`);
+        await files.symlink(target, directory);
+      }
+      t.mock.timers.tick(250);
+      await host.drain();
+      assert.equal(await files.readFile(outside, 'utf8'), contents);
+      assert.equal(calls, 0);
+      if (redirect === 'reply') {
+        assert.deepEqual(
+          await files.readdir(join(bound.directory, 'inbox')),
+          [],
+        );
+        assert.deepEqual(
+          await files.readdir(join(bound.directory, 'replies')),
+          [],
+        );
+        assert.deepEqual(failures, []);
+      } else assert.equal(failures.length, 1);
+    } finally {
+      await host.close();
+    }
+  });
+
+await test('a failed expiry deletion leaves the request available for retry', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1000 });
+  const bound = await binding();
+  const request = { ...envelope(bound), deadline: 1000 };
+  const name = `${request.id}.json`;
+  let calls = 0;
+  const failures: unknown[] = [];
+  const host = await ControlHost.open(
+    bound.directory,
+    async () => {
+      calls++;
+      return { kind: 'released' };
+    },
+    (error) => failures.push(error),
+  );
+  try {
+    await host.drain();
+    const inbox = join(bound.directory, 'inbox');
+    const replies = join(bound.directory, 'replies');
+    await writeJson(join(inbox, name), request);
+    await files.mkdir(join(replies, name));
+    t.mock.timers.tick(250);
+    await host.drain();
+    assert.equal(failures.length, 1);
+    assert.deepEqual(
+      JSON.parse(await files.readFile(join(inbox, name), 'utf8')),
+      request,
+    );
+    assert.deepEqual(await files.readdir(replies), [name]);
+    await files.rmdir(join(replies, name));
+    t.mock.timers.tick(250);
+    await host.drain();
+    assert.deepEqual(await files.readdir(inbox), []);
+    assert.deepEqual(await files.readdir(replies), []);
+    assert.equal(calls, 0);
+    assert.equal(failures.length, 1);
   } finally {
     await host.close();
   }
