@@ -346,6 +346,82 @@ await test('a connect failure leaves the prompt queued, and the next prompt send
   }
 });
 
+await test('an interrupted initial reconnect leaves the prompt queued without an error', async (t) => {
+  for (const abort of [true, false])
+    await t.test(
+      abort ? 'adapter rejects' : 'adapter connects after interrupt',
+      async () => {
+        const { coordinator, a } = await fixture(undefined, (a) => {
+          a.failConnect = true;
+        });
+        const connecting = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        try {
+          a.failConnect = false;
+          a.beforeConnect = (options) => {
+            if (abort)
+              options.signal?.addEventListener('abort', () =>
+                release.reject(
+                  new DOMException('Connect aborted', 'AbortError'),
+                ),
+              );
+            connecting.resolve();
+            return release.promise;
+          };
+          const sending = coordinator.send('Queued');
+          await within(connecting.promise, 2000, 'the reconnect');
+          await coordinator.interrupt();
+          release.resolve();
+          await within(sending, 2000, 'the send');
+          assert.equal(coordinator.snapshot.phase, 'idle');
+          assert.equal(coordinator.snapshot.error, undefined);
+          assert.deepEqual(coordinator.snapshot.queue, ['Queued']);
+          assert.equal(a.inputs.length, 0);
+        } finally {
+          release.resolve();
+          await coordinator.close();
+        }
+      },
+    );
+});
+
+await test('an unrelated initial reconnect failure remains visible', async (t) => {
+  for (const interrupt of [true, false])
+    await t.test(
+      interrupt ? 'ordinary failure after interrupt' : 'unsolicited abort',
+      async () => {
+        const { coordinator, a } = await fixture(undefined, (a) => {
+          a.failConnect = true;
+        });
+        const connecting = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const failure = interrupt
+          ? new Error('connection storage failed')
+          : new DOMException('Connection aborted', 'AbortError');
+        try {
+          a.failConnect = false;
+          a.beforeConnect = async () => {
+            connecting.resolve();
+            await release.promise;
+            throw failure;
+          };
+          const sending = coordinator.send('Queued');
+          await within(connecting.promise, 2000, 'the reconnect');
+          if (interrupt) await coordinator.interrupt();
+          release.resolve();
+          await within(sending, 2000, 'the send');
+          assert.equal(coordinator.snapshot.phase, 'idle');
+          assert.equal(coordinator.snapshot.error, failure.message);
+          assert.deepEqual(coordinator.snapshot.queue, ['Queued']);
+          assert.equal(a.inputs.length, 0);
+        } finally {
+          release.resolve();
+          await coordinator.close();
+        }
+      },
+    );
+});
+
 await test('a blank prompt starts no turn', async () => {
   const { coordinator, a } = await fixture();
   try {

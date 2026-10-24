@@ -513,30 +513,48 @@ await test('a git read that fails as Witch opens is reported once and leaves the
   }
 });
 
-await test("an interrupt that aborts a moved key's reconnect leaves the prompt queued without an error", async () => {
-  const { coordinator, a, git } = await fixture();
-  try {
-    await git('init', '--quiet');
-    await coordinator.send('Start');
-    await git('remote', 'add', 'origin', 'https://github.com/owner/repo.git');
-    const connecting = Promise.withResolvers<void>();
-    a.beforeConnect = (options) =>
-      new Promise((_, reject) => {
-        connecting.resolve();
-        options.signal?.addEventListener('abort', () =>
-          reject(new DOMException('Connect aborted', 'AbortError')),
-        );
-      });
-    const sending = coordinator.send('Moved');
-    await within(connecting.promise, 2000, 'the reconnect');
-    await coordinator.interrupt();
-    await within(sending, 2000, 'the send');
-    assert.equal(coordinator.snapshot.error, undefined);
-    assert.deepEqual(coordinator.snapshot.queue, ['Moved']);
-    assert.equal(a.inputs.length, 1);
-  } finally {
-    await coordinator.close();
-  }
+await test('an interrupted moved-project reconnect leaves the prompt queued without an error', async (t) => {
+  for (const abort of [true, false])
+    await t.test(
+      abort ? 'adapter rejects' : 'adapter connects after interrupt',
+      async () => {
+        const { coordinator, a, git } = await fixture();
+        const connecting = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        try {
+          await git('init', '--quiet');
+          await coordinator.send('Start');
+          await git(
+            'remote',
+            'add',
+            'origin',
+            'https://github.com/owner/repo.git',
+          );
+          a.beforeConnect = (options) => {
+            if (abort)
+              options.signal?.addEventListener('abort', () =>
+                release.reject(
+                  new DOMException('Connect aborted', 'AbortError'),
+                ),
+              );
+            connecting.resolve();
+            return release.promise;
+          };
+          const sending = coordinator.send('Queued');
+          await within(connecting.promise, 2000, 'the reconnect');
+          await coordinator.interrupt();
+          release.resolve();
+          await within(sending, 2000, 'the send');
+          assert.equal(coordinator.snapshot.phase, 'idle');
+          assert.equal(coordinator.snapshot.error, undefined);
+          assert.deepEqual(coordinator.snapshot.queue, ['Queued']);
+          assert.equal(a.inputs.length, 1);
+        } finally {
+          release.resolve();
+          await coordinator.close();
+        }
+      },
+    );
 });
 
 await test('an unrelated reconnect failure after interrupt remains visible', async (t) => {

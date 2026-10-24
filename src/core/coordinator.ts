@@ -440,7 +440,8 @@ export class Coordinator {
         try {
           await this.operate('running', async () => {
             try {
-              const session = await this.connect();
+              const session = await this.connectForTurn();
+              if (!session) return;
               const usage = session.info.hasHistory
                 ? await session.contextUsage()
                 : undefined;
@@ -879,17 +880,7 @@ export class Coordinator {
     const conversation = this.current();
     if (kind === 'turn') this.publish({ completedTurn: undefined });
     const { activity, scope } = await this.beginActivity(kind);
-    const session = await this.connect(conversation.agent, scope).catch(
-      (error: unknown) => {
-        if (
-          this.cancelled &&
-          error instanceof Error &&
-          error.name === 'AbortError'
-        )
-          return undefined;
-        throw error;
-      },
-    );
+    const session = await this.connectForTurn(scope);
     if (!session || this.cancelled) return { status: 'interrupted', text: '' };
     this.coordination?.beginTurn(activity.id);
     try {
@@ -1054,6 +1045,19 @@ export class Coordinator {
       : undefined;
   }
 
+  private async connectForTurn(turnScope?: MemoryScope) {
+    try {
+      return await this.connect(this.current().agent, turnScope);
+    } catch (error) {
+      if (
+        !this.cancelled ||
+        !(error instanceof Error) ||
+        error.name !== 'AbortError'
+      )
+        throw error;
+    }
+  }
+
   /** reuses the live session unless `turnScope` names project memory it was never granted. */
   private async connect(
     agent = this.current().agent,
@@ -1113,7 +1117,7 @@ export class Coordinator {
       recordSession(conversation, agent, session.info);
       await this.save();
       if (this.connecting.signal.aborted)
-        throw new Error('Connection was interrupted');
+        throw new DOMException('Connection was interrupted', 'AbortError');
       const models = await this.catalog.read(conversation.cwd, session);
       // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
       let skills: Skill[] = [];
