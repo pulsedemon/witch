@@ -576,10 +576,7 @@ for (const [key, label] of [
         () =>
           f.a.inputs.length === 2 && f.coordinator.snapshot.phase === 'idle',
       );
-      assert.match(
-        f.a.inputs[1]!.prompt,
-        /User request:\ndistinct queued input$/,
-      );
+      assert.match(f.a.inputs[1]!.prompt, /^distinct queued input$/);
     } finally {
       ui.unmount();
       gate.open();

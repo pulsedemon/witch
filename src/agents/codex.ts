@@ -488,10 +488,31 @@ class CodexSession implements AgentSession {
     return turn;
   }
 
-  async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
+  async send(
+    prompt: string,
+    skill?: SkillCall,
+    context?: string,
+  ): Promise<TurnResult> {
     const path = skill && this.skillPaths.get(skill.name);
     const turn = this.beginTurn();
+    let submitted = false;
     try {
+      if (context !== undefined)
+        await this.rpc.request('thread/inject_items', {
+          threadId: this.info.id,
+          items: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: context }],
+            },
+          ],
+        });
+      if (this.turn !== turn || turn.interrupted) {
+        if (this.turn === turn) this.finish('interrupted');
+        return { ...(await turn.finished.promise), inputUnsent: true };
+      }
+      submitted = true;
       const response = turnId.parse(
         await this.rpc.request('turn/start', {
           threadId: this.info.id,
@@ -510,10 +531,10 @@ class CodexSession implements AgentSession {
       this.info = { ...this.info, hasHistory: true };
       this.options.onEvent({ type: 'info', info: this.info });
     } catch (error) {
-      turn.started.resolve('');
-      this.finish('failed', errorMessage(error));
+      if (this.turn === turn) this.finish('failed', errorMessage(error));
     }
-    return turn.finished.promise;
+    const result = await turn.finished.promise;
+    return submitted ? result : { ...result, inputUnsent: true };
   }
 
   async contextUsage(): Promise<number | undefined> {

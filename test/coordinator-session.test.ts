@@ -1040,7 +1040,7 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
       name: 'review',
       args: 'the\ndiff',
     });
-    assert.match(a.inputs.at(-1)!.prompt, /User request:\n \/review {2}the/);
+    assert.match(a.inputs.at(-1)!.prompt, /^ \/review {2}the/);
     await coordinator.send('/review');
     assert.deepEqual(a.inputs.at(-1)!.skill, { name: 'review', args: '' });
     await coordinator.send('/reviewer x');
@@ -1185,7 +1185,7 @@ for (const stop of ['interrupt', 'close'] as const)
           await within(coordinator.send('After'), 3000, 'the resumed turn');
           assert.equal(a.sessions.length, before + 1);
           assert.equal(a.sessions.at(-1)!.session.info.id, session.info.id);
-          assert.ok(a.inputs.at(-1)!.prompt.endsWith('User request:\nAfter'));
+          assert.ok(a.inputs.at(-1)!.prompt === 'After');
         }
       } finally {
         release.resolve();

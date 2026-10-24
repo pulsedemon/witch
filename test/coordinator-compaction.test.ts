@@ -46,11 +46,14 @@ await test('manual compaction preserves the conversation and makes persisted res
     const reopened = await f.reopen();
     try {
       await reopened.send('continue');
-      assert.match(f.a.inputs.at(-1)!.prompt, /Use port 7777/);
-      assert.match(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+      assert.match(f.a.inputs.at(-1)!.context!, /Use port 7777/);
+      assert.match(f.a.inputs.at(-1)!.context!, /Accepted shared memory/);
       assert.equal(f.a.inputs.at(-1)!.session, native.session.info.id);
       await reopened.send('again');
-      assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+      assert.doesNotMatch(
+        f.a.inputs.at(-1)!.context!,
+        /Accepted shared memory/,
+      );
     } finally {
       await reopened.close();
     }
@@ -78,8 +81,8 @@ await test('automatic native replacement cannot be undone by successful ordinary
     );
     native.session.send = send;
     await f.coordinator.send('after replacement');
-    assert.match(f.a.inputs.at(-1)!.prompt, /Use port 4567/);
-    assert.match(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.match(f.a.inputs.at(-1)!.context!, /Use port 4567/);
+    assert.match(f.a.inputs.at(-1)!.context!, /Accepted shared memory/);
   } finally {
     await f.coordinator.close();
   }
@@ -129,7 +132,7 @@ for (const outcome of [
       await f.coordinator.send('distinct queued input');
       assert.equal(f.a.inputs.length, 3);
       if (outcome === 'replaced then cancelled')
-        assert.match(f.a.inputs.at(-1)!.prompt, /Use port 4567/);
+        assert.match(f.a.inputs.at(-1)!.context!, /Use port 4567/);
     } finally {
       gate.open();
       await f.coordinator.close();
@@ -268,7 +271,7 @@ await test('compaction preserves active background records and pending handoff c
     assert.equal(f.coordinator.snapshot.backgroundCommands[0]!.id, 'brew');
     assert.equal(f.coordinator.snapshot.subagents[0]!.id, 'helper');
     await f.coordinator.send('continue handoff');
-    assert.ok(f.b.inputs.at(-1)!.prompt.includes(handoff.summary));
+    assert.ok(f.b.inputs.at(-1)!.context!.includes(handoff.summary));
     assert.equal(f.coordinator.snapshot.conversation!.handoff, undefined);
   } finally {
     await f.coordinator.close();
@@ -298,7 +301,7 @@ for (const usage of [79, 80, undefined]) {
       await f.coordinator.send('next');
       assert.deepEqual(order, usage === 80 ? ['compact', 'send'] : ['send']);
       assert.equal(f.a.inputs.length, 2);
-      assert.match(f.a.inputs[1]!.prompt, /User request:\nnext$/);
+      assert.equal(f.a.inputs[1]!.prompt, 'next');
     } finally {
       await f.coordinator.close();
     }
@@ -351,7 +354,7 @@ for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
       await sending;
       if (outcome === 'completed') {
         assert.deepEqual(
-          f.a.inputs.slice(1).map((i) => i.prompt.split('User request:\n')[1]),
+          f.a.inputs.slice(1).map((i) => i.prompt),
           ['original', 'later'],
         );
         assert.deepEqual(f.coordinator.snapshot.queue, []);
@@ -492,7 +495,7 @@ for (const interrupted of [false, true]) {
       assert.deepEqual(f.a.shells, ['printf distinct-command']);
       assert.equal(f.a.inputs.length, interrupted ? 2 : 3);
       if (!interrupted)
-        assert.match(f.a.inputs.at(-1)!.prompt, /Use port 4567/);
+        assert.match(f.a.inputs.at(-1)!.context!, /Use port 4567/);
       assert.equal(f.coordinator.snapshot.phase, 'idle');
     } finally {
       await f.coordinator.close();
