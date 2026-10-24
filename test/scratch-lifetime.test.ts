@@ -8,6 +8,7 @@ import files, {
   mkdir,
   readFile,
   readdir,
+  rename,
   stat,
   symlink,
   writeFile,
@@ -23,6 +24,11 @@ import { z } from 'zod';
 import type { ProcessIdentity } from '../src/core/state.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { ScratchSpace } from '../src/persistence/scratch.js';
+import { scratchRequiresBoot } from '../src/persistence/scratch-usage.js';
+import type {
+  ScratchCandidate,
+  ScratchUse,
+} from '../src/persistence/scratch-usage.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
@@ -31,8 +37,12 @@ const fixture = join(import.meta.dirname, 'fixtures/scratch-lifetime.ts');
 const loader = import.meta.resolve('tsx');
 const bootA = '11111111-1111-4111-8111-111111111111';
 const bootB = '22222222-2222-4222-8222-222222222222';
-const firstBoot = { boot: async () => bootA };
-const laterBoot = { boot: async () => bootB };
+const decisions = (candidates: readonly ScratchCandidate[], use: ScratchUse) =>
+  new Map(candidates.map(({ directory }) => [directory, use]));
+const unused = async (candidates: readonly ScratchCandidate[]) =>
+  decisions(candidates, 'unused');
+const firstBoot = { boot: async () => bootA, inspect: unused };
+const laterBoot = { boot: async () => bootB, inspect: unused };
 
 async function runFixture(parent: string, mode = 'restart', ...args: string[]) {
   const { stdout } = await execute(
@@ -56,7 +66,7 @@ async function runFixture(parent: string, mode = 'restart', ...args: string[]) {
 async function holdFixture(
   t: TestContext,
   parent: string,
-  mode: 'hold' | 'hold-unowned' = 'hold',
+  mode: 'hold' | 'hold-unowned' | 'restart-gap' = 'hold',
 ) {
   const child = spawn(
     process.execPath,
@@ -140,7 +150,12 @@ await test('fresh scratch waits for a competing sweep and records its owner', as
       JSON.parse(
         await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
       ),
-      { version: 1, boot: bootA, owner },
+      {
+        version: 2,
+        boot: bootA,
+        owner,
+        requiresBoot: await scratchRequiresBoot(),
+      },
     );
   } finally {
     t.mock.restoreAll();
@@ -172,13 +187,18 @@ await test('concurrent scratch opens retain distinct owned directories', async (
       JSON.parse(
         await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
       ),
-      { version: 1, boot: bootA, owner },
+      {
+        version: 2,
+        boot: bootA,
+        owner,
+        requiresBoot: await scratchRequiresBoot(),
+      },
     );
   }
   await Promise.all(holders.map((holder) => holder.release()));
 });
 
-await test('scratch resumes in place, stays private and survives clean close', async () => {
+await test('scratch resumes in place and stays private, then an exited owner is reclaimed on the next launch', async () => {
   const parent = await scratch('witch-scratch-');
   const [before, after] = await runFixture(parent);
   assert.ok(before);
@@ -186,14 +206,17 @@ await test('scratch resumes in place, stays private and survives clean close', a
   assert.deepEqual(after, before);
   const marker = join(before.directory, 'marker');
   assert.equal(await readFile(marker, 'utf8'), 'before restart');
-  const fresh = await ScratchSpace.open(parent);
+  const record = JSON.parse(
+    await readFile(join(before.directory, '.witch-scratch.json'), 'utf8'),
+  ) as { requiresBoot: boolean };
+  const fresh = await ScratchSpace.open(parent, { inspect: unused });
   try {
     assert.equal((await stat(fresh.directory)).mode & 0o777, 0o700);
     const freshMarker = join(fresh.directory, 'marker');
     await writeFile(freshMarker, 'fresh scratch');
     await fresh.close();
     assert.equal(await readFile(freshMarker, 'utf8'), 'fresh scratch');
-    assert.equal(await readFile(marker, 'utf8'), 'before restart');
+    assert.equal(existsSync(marker), record.requiresBoot);
   } finally {
     await fresh.close();
   }
@@ -453,3 +476,180 @@ await test('scratch resume rejects a different owner or an invalid location', as
     'outside',
   );
 });
+
+await test('a sweep preserves an unlocked live owner while it resumes', async (t) => {
+  const parent = await scratch('witch-scratch-restart-gap-');
+  const holder = await holdFixture(t, parent, 'restart-gap');
+  const cleaner = await ScratchSpace.open(parent, firstBoot);
+  try {
+    assert.equal(
+      await readFile(join(holder.directory, 'marker'), 'utf8'),
+      'held',
+    );
+    await holder.release();
+  } finally {
+    await cleaner.close();
+  }
+});
+
+await test('uncertain ownership survives restart after the observed process has gone', async () => {
+  const parent = await scratch('witch-scratch-uncertain-');
+  const [before, after] = await runFixture(parent, 'uncertain');
+  assert.ok(before);
+  assert.deepEqual(after, before);
+  const cleaner = await ScratchSpace.open(parent, { inspect: unused });
+  try {
+    assert.equal(
+      await readFile(join(before.directory, 'marker'), 'utf8'),
+      'before restart',
+    );
+    const record = JSON.parse(
+      await readFile(join(before.directory, '.witch-scratch.json'), 'utf8'),
+    ) as { requiresBoot: boolean };
+    assert.equal(record.requiresBoot, true);
+  } finally {
+    await cleaner.close();
+  }
+});
+
+await test('concurrent cleaners retain a root until its owning sweep completes', async (t) => {
+  const parent = await scratch('witch-scratch-cleaners-');
+  const holder = await holdFixture(t, parent);
+  await holder.release();
+  const inspecting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const opening = ScratchSpace.open(parent, {
+    ...laterBoot,
+    inspect: async (candidates) => {
+      inspecting.resolve();
+      await release.promise;
+      return decisions(candidates, 'unused');
+    },
+  });
+  let second: ScratchSpace | undefined;
+  try {
+    await within(inspecting.promise, 5000, 'first cleaner inspection');
+    second = await ScratchSpace.open(parent, laterBoot);
+    assert.equal(
+      await readFile(join(holder.directory, 'marker'), 'utf8'),
+      'held',
+    );
+    release.resolve();
+    const first = await within(opening, 5000, 'first cleaner completion');
+    await first.close();
+    assert.equal(existsSync(holder.directory), false);
+  } finally {
+    release.resolve();
+    await (await opening).close();
+    await second?.close();
+  }
+});
+
+await test('close joins pending cleanup and stops subsequent sweeps', async (t) => {
+  const parent = await scratch('witch-scratch-close-');
+  const holder = await holdFixture(t, parent);
+  await holder.release();
+  const inspecting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let initial = true;
+  const cleaner = await ScratchSpace.open(parent, {
+    ...laterBoot,
+    interval: 10,
+    inspect: async (candidates) => {
+      if (initial) {
+        initial = false;
+        return decisions(candidates, 'unknown');
+      }
+      inspecting.resolve();
+      await release.promise;
+      return decisions(candidates, 'unused');
+    },
+  });
+  try {
+    await within(inspecting.promise, 5000, 'periodic inspection');
+    let closed = false;
+    const closing = cleaner.close().then(() => {
+      closed = true;
+    });
+    await delay(50);
+    assert.equal(closed, false);
+    assert.equal(existsSync(holder.directory), true);
+    release.resolve();
+    await within(closing, 5000, 'joined cleanup');
+    assert.equal(existsSync(holder.directory), false);
+    const later = join(parent, randomUUID());
+    await mkdir(later);
+    await writeFile(
+      join(later, '.witch-scratch.json'),
+      JSON.stringify({ version: 1, boot: bootA }),
+    );
+    await writeFile(join(later, 'marker'), 'after close');
+    await delay(80);
+    assert.equal(await readFile(join(later, 'marker'), 'utf8'), 'after close');
+  } finally {
+    release.resolve();
+    await cleaner.close();
+  }
+});
+
+await test('a failed observation preserves files and the next periodic sweep reclaims them', async (t) => {
+  const parent = await scratch('witch-scratch-retry-');
+  const holder = await holdFixture(t, parent);
+  await holder.release();
+  let first = true;
+  const cleaner = await ScratchSpace.open(parent, {
+    ...laterBoot,
+    interval: 20,
+    inspect: async (candidates) => {
+      if (first) {
+        first = false;
+        throw new Error('incomplete observation');
+      }
+      return decisions(candidates, 'unused');
+    },
+  });
+  try {
+    assert.equal(
+      await readFile(join(holder.directory, 'marker'), 'utf8'),
+      'held',
+    );
+    await until('periodic reclamation', () => !existsSync(holder.directory));
+  } finally {
+    await cleaner.close();
+  }
+});
+
+for (const change of ['metadata', 'directory'] as const) {
+  await test(`cleanup leaves a ${change} changed during inspection untouched`, async (t) => {
+    const parent = await scratch('witch-scratch-changed-');
+    const holder = await holdFixture(t, parent);
+    await holder.release();
+    const moved = join(parent, 'moved');
+    const cleaner = await ScratchSpace.open(parent, {
+      ...laterBoot,
+      inspect: async (candidates) => {
+        if (change === 'directory') {
+          await rename(holder.directory, moved);
+          await mkdir(holder.directory);
+          await writeFile(join(holder.directory, 'marker'), 'replacement');
+        } else {
+          await writeFile(
+            join(holder.directory, '.witch-scratch.json'),
+            JSON.stringify({ version: 1, boot: bootB }),
+          );
+        }
+        return decisions(candidates, 'unused');
+      },
+    });
+    try {
+      assert.equal(
+        await readFile(join(holder.directory, 'marker'), 'utf8'),
+        change === 'directory' ? 'replacement' : 'held',
+      );
+      if (change === 'directory')
+        assert.equal(await readFile(join(moved, 'marker'), 'utf8'), 'held');
+    } finally {
+      await cleaner.close();
+    }
+  });
+}

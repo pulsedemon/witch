@@ -1,21 +1,35 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import { processIdentity } from '../core/state.js';
-import { processRunning, removeDirectory } from './instance.js';
+import type { ProcessIdentity } from '../core/state.js';
+import { processRunning } from './instance.js';
 import { writeJson } from './json.js';
 import { exclusiveLock } from './lock.js';
-import { bootSession, identifyProcess } from './process.js';
+import { bootSession, identifyProcess, identifyProcesses } from './process.js';
+import { inspectScratch, scratchRequiresBoot } from './scratch-usage.js';
+import type { ScratchCandidate } from './scratch-usage.js';
 
+const execute = promisify(execFile);
 const metadata = '.witch-scratch.json';
-const recordSchema = z.object({
+const legacyRecord = z.object({
   version: z.literal(1),
   boot: z.uuid(),
   owner: processIdentity.optional(),
 });
+const recordSchema = z.discriminatedUnion('version', [
+  legacyRecord,
+  legacyRecord.extend({
+    version: z.literal(2),
+    owner: processIdentity,
+    requiresBoot: z.boolean(),
+  }),
+]);
 
 async function lockDirectory(
   directory: string,
@@ -42,39 +56,140 @@ async function readRecord(directory: string) {
   }
 }
 
-/** a later boot rules out surviving workers, including children forked after their Witch exited. */
-async function sweep(parent: string, boot: string): Promise<void> {
-  for (const name of await readdir(parent)) {
-    const numeric = /^\d+$/.test(name);
-    if (!numeric && !z.uuid().safeParse(name).success) continue;
-    const directory = join(parent, name);
-    let lock: FileHandle | undefined;
-    try {
-      lock = await lockDirectory(directory);
-      const record = await readRecord(directory);
-      if (record) {
-        if (record.boot !== boot) removeDirectory(directory);
-      } else if (!numeric || !processRunning(Number(name))) {
-        await writeJson(join(directory, metadata), { version: 1, boot });
+async function removeScratch(directory: string): Promise<void> {
+  try {
+    await rm(directory, { recursive: true, force: true });
+  } catch {
+    // an agent's read-only directory can prevent removal after its users have ended.
+    await execute('/bin/chmod', ['-R', 'u+rwx', directory], {
+      timeout: 10_000,
+      killSignal: 'SIGKILL',
+    }).catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function sweep(
+  parent: string,
+  boot: string,
+  owner: ProcessIdentity,
+  inspect: typeof inspectScratch,
+): Promise<void> {
+  let parentLock: FileHandle | undefined;
+  const held: {
+    candidate: ScratchCandidate;
+    record: z.infer<typeof recordSchema>;
+    lock: FileHandle;
+  }[] = [];
+  try {
+    parentLock = await lockDirectory(parent);
+    for (const name of await readdir(parent)) {
+      const numeric = /^\d+$/.test(name);
+      if (!numeric && !z.uuid().safeParse(name).success) continue;
+      const directory = join(parent, name);
+      let lock: FileHandle | undefined;
+      try {
+        lock = await lockDirectory(directory);
+        const record = await readRecord(directory);
+        if (!record) {
+          if (!numeric || !processRunning(Number(name)))
+            await writeJson(join(directory, metadata), { version: 1, boot });
+          continue;
+        }
+        const previousBoot = record.boot !== boot;
+        const requiresBoot = record.version === 1 || record.requiresBoot;
+        if (
+          !previousBoot &&
+          (requiresBoot ||
+            (record.owner?.pid === owner.pid &&
+              record.owner.started === owner.started))
+        )
+          continue;
+        held.push({
+          candidate: {
+            directory,
+            owner: record.owner,
+            previousBoot,
+            requiresBoot,
+            lockFd: lock.fd,
+          },
+          record,
+          lock,
+        });
+        lock = undefined;
+      } catch {
+        // busy, unreadable and invalid roots remain for a later pass.
+      } finally {
+        await lock?.close();
       }
-    } catch {
-      // a busy or unreadable directory stays; missing metadata gets its first boot boundary above
+    }
+    if (!held.length) return;
+    const decisions = await inspect(held.map(({ candidate }) => candidate));
+    const live = await identifyProcesses(
+      held.flatMap(({ candidate }) =>
+        !candidate.previousBoot && candidate.owner ? [candidate.owner.pid] : [],
+      ),
+    );
+    for (const { candidate, record, lock } of held) {
+      const { directory, owner, previousBoot } = candidate;
+      if (
+        decisions.get(directory) !== 'unused' ||
+        (!previousBoot &&
+          owner &&
+          live.get(owner.pid)?.started === owner.started)
+      )
+        continue;
+      try {
+        const original = await lock.stat();
+        const current = await lstat(directory);
+        if (
+          original.dev !== current.dev ||
+          original.ino !== current.ino ||
+          JSON.stringify(record) !== JSON.stringify(await readRecord(directory))
+        )
+          continue;
+        await removeScratch(directory);
+      } catch {
+        // a changed root or failed removal stays for the next pass.
+      }
+    }
+  } catch {
+    // another cleaner or an incomplete observation cannot authorize removal.
+  } finally {
+    try {
+      await Promise.all(held.map(({ lock }) => lock.close()));
     } finally {
-      await lock?.close();
+      await parentLock?.close();
     }
   }
 }
 
-/** scratch survives every exit in its boot; a later launch after another boot sweeps unlocked directories. */
+/** active roots survive restart; closed roots are reclaimed only after their users can be ruled out. */
 export class ScratchSpace {
+  private readonly timer: ReturnType<typeof setInterval>;
+  private polling?: Promise<void>;
+
   private constructor(
     readonly directory: string,
     private lock: FileHandle | undefined,
-  ) {}
+    private readonly parent: string,
+    private readonly boot: string,
+    private readonly owner: ProcessIdentity,
+    private readonly inspect: typeof inspectScratch,
+    interval: number,
+  ) {
+    this.timer = setInterval(() => void this.maintain(), interval);
+    this.timer.unref();
+  }
 
   static async open(
     parent: string,
-    options: { resume?: string; boot?: () => Promise<string> } = {},
+    options: {
+      resume?: string;
+      boot?: () => Promise<string>;
+      interval?: number;
+      inspect?: typeof inspectScratch;
+    } = {},
   ): Promise<ScratchSpace> {
     parent = resolve(parent);
     const resumed = options.resume !== undefined;
@@ -86,6 +201,7 @@ export class ScratchSpace {
     const boot = z.uuid().parse(await (options.boot ?? bootSession)());
     const owner = await identifyProcess(process.pid);
     if (!owner) throw new Error('Cannot identify the scratch owner.');
+    let requiresBoot = resumed ? true : await scratchRequiresBoot();
     await mkdir(parent, { recursive: true, mode: 0o700 });
     if (!resumed) await mkdir(directory, { mode: 0o700 });
     // wait out a sweep that found the new directory before its owner locked it.
@@ -101,19 +217,46 @@ export class ScratchSpace {
             record.owner.started !== owner.started)
         )
           throw new Error('Scratch does not belong to this restarting Witch.');
+        requiresBoot = record?.version === 2 ? record.requiresBoot : true;
       }
-      await writeJson(join(directory, metadata), { version: 1, boot, owner });
-      await sweep(parent, boot);
-      return new ScratchSpace(directory, lock);
+      await writeJson(join(directory, metadata), {
+        version: 2,
+        boot,
+        owner,
+        requiresBoot,
+      });
+      const space = new ScratchSpace(
+        directory,
+        lock,
+        parent,
+        boot,
+        owner,
+        options.inspect ?? inspectScratch,
+        options.interval ?? 60_000,
+      );
+      await space.maintain();
+      return space;
     } catch (error) {
       await lock.close();
       throw error;
     }
   }
 
+  private maintain(): Promise<void> {
+    if (!this.lock) return Promise.resolve();
+    this.polling ??= sweep(this.parent, this.boot, this.owner, this.inspect)
+      .catch(() => {})
+      .finally(() => {
+        this.polling = undefined;
+      });
+    return this.polling;
+  }
+
   async close(): Promise<void> {
+    clearInterval(this.timer);
     const lock = this.lock;
     this.lock = undefined;
+    await this.polling;
     await lock?.close();
   }
 }

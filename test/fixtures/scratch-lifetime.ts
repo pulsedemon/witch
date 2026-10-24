@@ -136,12 +136,28 @@ try {
     } finally {
       await lock.close();
     }
-  } else if (mode === 'hold') {
+  } else if (mode === 'hold' || mode === 'restart-gap') {
     const space = await ScratchSpace.open(parent, { boot: async () => value });
     try {
       await writeFile(join(space.directory, 'marker'), 'held');
+      if (mode === 'restart-gap') await space.close();
       writeSync(1, `${space.directory}\n`);
       await once(process.stdin, 'data');
+      if (mode === 'restart-gap') {
+        const resumed = await ScratchSpace.open(parent, {
+          resume: space.directory,
+          boot: async () => value,
+        });
+        try {
+          if (
+            (await readFile(join(resumed.directory, 'marker'), 'utf8')) !==
+            'held'
+          )
+            throw new Error('Restart lost its marker.');
+        } finally {
+          await resumed.close();
+        }
+      }
     } finally {
       await space.close();
     }
@@ -156,6 +172,11 @@ try {
     if (mode !== 'resumed') {
       await mkdir(directory, { recursive: true });
       await writeFile(join(directory, 'marker'), 'before restart');
+      if (mode === 'uncertain') {
+        const file = join(directory, '.witch-scratch.json');
+        const record = JSON.parse(await readFile(file, 'utf8')) as object;
+        await writeJson(file, { ...record, requiresBoot: true });
+      }
     }
     writeSync(
       1,
