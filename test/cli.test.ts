@@ -74,7 +74,7 @@ await test('witch --help with stdout piped prints the usage and exits 0 before o
   assert.deepEqual(files, []);
 });
 
-await test('headless controls preserve quoted paths, JSON and conflicts without normal startup', async () => {
+await test('headless controls preserve quoted paths, JSON, errors and conflicts without normal startup', async () => {
   const root = await scratch('witch-cli-control-');
   const directory = join(root, "owner's control files");
   const binding = { directory, conversation: 'a', activation: randomUUID() };
@@ -151,6 +151,28 @@ await test('headless controls preserve quoted paths, JSON and conflicts without 
     ]);
     assert.deepEqual(await store.claims(), [occupied, claim]);
     assert.deepEqual(own.files, []);
+    const message = 'Use a full GitHub issue or pr URL, or task:<name>.';
+    for (const [args, json] of [
+      ['--claim 155', true],
+      ["--claim 'https://github.com/acme/queue/issues/%'", false],
+      ["--claim task:ours --alias 'issue 155'", true],
+    ] as const) {
+      const result = await run(
+        `${prefix} ${args} --summary 'Rejected update'${json ? ' --json' : ''}`,
+      );
+      assert.equal(result.code, 1);
+      if (json) {
+        const error = JSON.parse(result.stdout);
+        assert.equal(error.kind, 'error');
+        assert.equal(error.message, message);
+        assert.equal(result.stderr, '');
+      } else {
+        assert.equal(result.stdout, '');
+        assert.equal(result.stderr, `${message}\n`);
+      }
+      assert.deepEqual(await store.claims(), [occupied, claim]);
+      assert.deepEqual(result.files, []);
+    }
     const released = await run(`${prefix} --release ${claim.id} --json`);
     assert.equal(released.code, 0);
     assert.equal(released.stderr, '');
