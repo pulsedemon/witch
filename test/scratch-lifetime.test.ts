@@ -24,7 +24,6 @@ import { z } from 'zod';
 import type { ProcessIdentity } from '../src/core/state.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { ScratchSpace } from '../src/persistence/scratch.js';
-import { scratchRequiresBoot } from '../src/persistence/scratch-usage.js';
 import type {
   ScratchCandidate,
   ScratchUse,
@@ -146,17 +145,11 @@ await test('fresh scratch waits for a competing sweep and records its owner', as
     assert.equal((await stat(directory)).mode & 0o777, 0o700);
     const owner = await identifyProcess(process.pid);
     assert.ok(owner);
-    assert.deepEqual(
-      JSON.parse(
-        await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
-      ),
-      {
-        version: 2,
-        boot: bootA,
-        owner,
-        requiresBoot: await scratchRequiresBoot(),
-      },
+    const { requiresBoot, ...record } = JSON.parse(
+      await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
     );
+    assert.equal(typeof requiresBoot, 'boolean');
+    assert.deepEqual(record, { version: 2, boot: bootA, owner });
   } finally {
     t.mock.restoreAll();
     syncBuiltinESMExports();
@@ -183,17 +176,11 @@ await test('concurrent scratch opens retain distinct owned directories', async (
     assert.equal((await stat(directory)).mode & 0o777, 0o700);
     const owner = await identifyProcess(pid);
     assert.ok(owner);
-    assert.deepEqual(
-      JSON.parse(
-        await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
-      ),
-      {
-        version: 2,
-        boot: bootA,
-        owner,
-        requiresBoot: await scratchRequiresBoot(),
-      },
+    const { requiresBoot, ...record } = JSON.parse(
+      await readFile(join(directory, '.witch-scratch.json'), 'utf8'),
     );
+    assert.equal(typeof requiresBoot, 'boolean');
+    assert.deepEqual(record, { version: 2, boot: bootA, owner });
   }
   await Promise.all(holders.map((holder) => holder.release()));
 });

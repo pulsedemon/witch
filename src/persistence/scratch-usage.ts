@@ -70,8 +70,7 @@ function files(output: string): {
   const pids = new Set<number>();
   const references: FileReference[] = [];
   let pid: number | undefined;
-  let fd = '';
-  let type = '';
+  let reference: FileReference | undefined;
   for (const field of output.split('\0')) {
     const value = field.replace(/^\n/, '');
     if (!value) continue;
@@ -80,20 +79,21 @@ function files(output: string): {
         if (!/^p\d+$/.test(value)) throw new Error('Invalid process field.');
         pid = Number(value.slice(1));
         pids.add(pid);
-        fd = '';
-        type = '';
+        reference = undefined;
         break;
       case 'f':
-        fd = value.slice(1);
-        type = '';
+        if (pid === undefined || value.length === 1)
+          throw new Error('File observation has no owner.');
+        reference = { pid, fd: value.slice(1), type: '', name: '' };
+        references.push(reference);
         break;
       case 't':
-        type = value.slice(1);
+        if (!reference) throw new Error('File observation has no descriptor.');
+        reference.type = value.slice(1);
         break;
       case 'n':
-        if (pid === undefined || !fd)
-          throw new Error('File observation has no owner.');
-        references.push({ pid, fd, type, name: value.slice(1) });
+        if (!reference) throw new Error('File observation has no descriptor.');
+        reference.name = value.slice(1);
         break;
       default:
         throw new Error('Unexpected file observation field.');
@@ -216,9 +216,12 @@ export function classifyScratch(
       const incomplete = opened.references.some(
         ({ pid, fd, type, name }) =>
           relevant.some((row) => row.pid === pid) &&
-          (['cwd', 'rtd', 'txt'].includes(fd) ||
-            ['REG', 'DIR'].includes(type)) &&
-          (!name.startsWith('/') || name.includes('\\')),
+          (fd === 'err' ||
+            !type ||
+            type === 'unknown' ||
+            ((['cwd', 'rtd', 'txt', 'twd'].includes(fd) ||
+              ['REG', 'DIR'].includes(type)) &&
+              (!name.startsWith('/') || name.includes('\\')))),
       );
       const disappeared = [...before.values()].some(
         (row) =>

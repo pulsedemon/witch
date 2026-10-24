@@ -158,6 +158,33 @@ const cases: {
       seen.files += reference(current, 'cwd', '(Permission denied)', 'unknown');
     },
   },
+  ...[
+    ['descriptor-list failure', 'ferr\0nFD info error: Permission denied\0\n'],
+    [
+      'fileport-list failure',
+      'ferr\0nFILEPORT info error: Permission denied\0\n',
+    ],
+    ['untyped vnode permission failure', 'f99\0nno more information\0\n'],
+    ['revoked vnode', 'f99\0n(revoked)\0\n'],
+    [
+      'thread-directory failure',
+      'ftwd\0nthread info error: Permission denied\0\n',
+    ],
+    ['regular file without a path', 'f99\0tREG\0\n'],
+  ].map(([name, fields]) => ({
+    name: `a ${name} in lsof output`,
+    expected: 'unknown' as const,
+    change(seen: ScratchObservation) {
+      seen.files += `p${current}\0\n${fields}`;
+    },
+  })),
+  {
+    name: 'a known pipe without a filesystem path',
+    expected: 'unused',
+    change(seen) {
+      seen.files += `p${current}\0\nf99\0tPIPE\0\n`;
+    },
+  },
   {
     name: 'truncated file output',
     expected: 'unknown',
