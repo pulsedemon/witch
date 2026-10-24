@@ -16,7 +16,7 @@
     "build": "node scripts/build.mjs",
     "install:cli": "node --import tsx scripts/install.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx scripts/test.ts",
+    "test": "vitest run",
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:integration:codex-brews": "node --import tsx scripts/check-codex-brews.ts",
     "lint:eslint": "eslint .",

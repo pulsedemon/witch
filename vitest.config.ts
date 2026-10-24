@@ -1,7 +1,7 @@
+import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from '@babel/core';
-import { defineConfig } from 'vitest/config';
-import { testWorkers, vitestFiles } from './scripts/test-suite.js';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 const ui = fileURLToPath(new URL('./src/ui/', import.meta.url));
 const configFile = fileURLToPath(new URL('./babel.config.js', import.meta.url));
@@ -23,8 +23,12 @@ export default defineConfig({
     },
   ],
   test: {
-    include: [...vitestFiles],
-    maxWorkers: testWorkers,
+    include: ['test/*.test.ts'],
+    forceRerunTriggers: [
+      ...configDefaults.forceRerunTriggers,
+      '**/test/fixtures/**',
+    ],
+    maxWorkers: Math.min(4, availableParallelism()),
     environment: 'node',
     pool: 'forks',
     isolate: true,

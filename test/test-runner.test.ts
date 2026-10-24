@@ -11,19 +11,20 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { vitestFiles } from '../scripts/test-suite.js';
+import { test } from 'vitest';
+import stripAnsi from 'strip-ansi';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
+const suiteFiles = ['test/first.test.ts', 'test/second.test.ts'];
 
-function suite(runner: 'vitest' | 'node:test', label: string, failure = '') {
+function suite(label: string, failure = '') {
   return `import assert from 'node:assert/strict';
 import { appendFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
-import { test } from '${runner}';
+import { test } from 'vitest';
 test(${JSON.stringify(label)}, async () => {
   appendFileSync(process.env.MARKERS, ${JSON.stringify(`${label}:start\n`)});
   await delay(20);
@@ -39,9 +40,6 @@ async function fixture(sharedTmp?: string) {
     'package.json',
     'babel.config.js',
     'vitest.config.ts',
-    'scripts/test.ts',
-    'scripts/test-suite.ts',
-    'scripts/register.mjs',
     'test/fixtures/vitest-setup.ts',
     'test/fixtures/scratch.ts',
     'test/fixtures/cleanup.ts',
@@ -53,44 +51,55 @@ async function fixture(sharedTmp?: string) {
   await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
   const tmp = sharedTmp ?? join(root, 'tmp');
   await mkdir(tmp, { recursive: true });
-  for (const file of vitestFiles)
-    await writeFile(join(root, file), suite('vitest', file));
+  for (const file of suiteFiles) await writeFile(join(root, file), suite(file));
   const markers = join(root, 'markers');
   await writeFile(markers, '');
-  const native = join(root, 'test/native.test.ts');
-  await writeFile(native, suite('node:test', 'native'));
+  async function start(args: string[]) {
+    await writeFile(markers, '');
+    const child = spawn('pnpm', args, {
+      cwd: root,
+      env: {
+        ...process.env,
+        NO_COLOR: undefined,
+        FORCE_COLOR: '1',
+        TMPDIR: tmp,
+        MARKERS: markers,
+      },
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    for (const stream of [child.stdout, child.stderr])
+      stream.on('data', (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+    const closed = once(child, 'close') as Promise<
+      [number | null, NodeJS.Signals | null]
+    >;
+    return {
+      closed,
+      output: () => stripAnsi(output),
+      async stop() {
+        if (child.exitCode === null && child.signalCode === null)
+          process.kill(-child.pid!, 'SIGKILL');
+        await closed;
+      },
+    };
+  }
   return {
     root,
-    native,
     tmp,
     markers,
+    start,
     async run() {
-      await writeFile(markers, '');
-      const child = spawn(
-        process.execPath,
-        ['--import', import.meta.resolve('tsx'), 'scripts/test.ts'],
-        {
-          cwd: root,
-          env: {
-            ...process.env,
-            NODE_TEST_CONTEXT: undefined,
-            TMPDIR: tmp,
-            MARKERS: markers,
-          },
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
-      );
-      let output = '';
-      for (const stream of [child.stdout, child.stderr])
-        stream.on('data', (chunk: Buffer) => {
-          output += chunk.toString();
-        });
-      const closed = once(child, 'close') as Promise<
-        [number | null, NodeJS.Signals | null]
-      >;
+      const running = await start(['test']);
       try {
-        const [code, signal] = await within(closed, 60_000, 'mixed runner');
+        const [code, signal] = await within(
+          running.closed,
+          60_000,
+          'test command',
+        );
+        const output = running.output();
         assert.equal(signal, null, output);
         return {
           code,
@@ -100,77 +109,60 @@ async function fixture(sharedTmp?: string) {
             .filter(Boolean),
         };
       } finally {
-        if (child.exitCode === null && child.signalCode === null)
-          process.kill(-child.pid!, 'SIGKILL');
-        await closed;
+        await running.stop();
       }
     },
   };
 }
 
-test('the mixed runner executes each discovered file once, finishing Vitest before Node, and discovers newly added files', async () => {
+test('the test command executes each top-level file once and discovers newly added files', async () => {
   const f = await fixture();
   for (const added of [false, true]) {
     if (added)
-      await writeFile(
-        join(f.root, 'test/added.test.ts'),
-        suite('node:test', 'added'),
-      );
+      await writeFile(join(f.root, 'test/added.test.ts'), suite('added'));
     const result = await f.run();
     assert.equal(result.code, 0, result.output);
-    const migrated = vitestFiles.flatMap((file) => [
-      `${file}:start`,
-      `${file}:end`,
-    ]);
-    const native = added
-      ? ['native:start', 'native:end', 'added:start', 'added:end']
-      : ['native:start', 'native:end'];
+    const labels = added ? [...suiteFiles, 'added'] : suiteFiles;
     assert.deepEqual(
-      [...result.markers].sort(),
-      [...migrated, ...native].sort(),
-    );
-    assert.deepEqual(
-      result.markers.slice(0, migrated.length).sort(),
-      migrated.sort(),
+      result.markers.sort(),
+      labels.flatMap((label) => [`${label}:start`, `${label}:end`]).sort(),
     );
   }
 });
 
-for (const runner of ['vitest', 'node:test'] as const)
-  test(`a ${runner} assertion fails the mixed command without hiding its diagnostic`, async () => {
-    const f = await fixture();
-    const file = runner === 'vitest' ? join(f.root, vitestFiles[0]!) : f.native;
-    await writeFile(file, suite(runner, 'failing', `${runner} sentinel`));
-    const result = await f.run();
-    assert.equal(result.code, 1, result.output);
-    assert.ok(result.output.includes(`${runner} sentinel`), result.output);
-    assert.equal(result.markers.includes('failing:end'), false);
-    if (runner === 'vitest')
-      assert.equal(result.markers.includes('native:start'), false);
-    else
-      for (const migrated of vitestFiles)
-        assert.ok(result.markers.includes(`${migrated}:end`), result.output);
-  });
-
-test('a missing migrated file fails before either runner can silently omit it', async () => {
+test('an assertion fails the test command without hiding its diagnostic', async () => {
   const f = await fixture();
-  await rm(join(f.root, vitestFiles[0]!));
+  await writeFile(
+    join(f.root, suiteFiles[0]!),
+    suite('failing', 'assertion sentinel'),
+  );
   const result = await f.run();
   assert.equal(result.code, 1, result.output);
-  assert.ok(
-    result.output.includes(`Missing migrated test files: ${vitestFiles[0]}`),
-  );
+  assert.ok(result.output.includes('assertion sentinel'), result.output);
+  assert.equal(result.markers.includes('failing:start'), true);
+  assert.equal(result.markers.includes('failing:end'), false);
+});
+
+test('an empty discovered suite fails the test command', async () => {
+  const f = await fixture();
+  for (const file of suiteFiles) await rm(join(f.root, file));
+  const result = await f.run();
+  assert.equal(result.code, 1, result.output);
+  assert.ok(result.output.includes('No test files found'), result.output);
   assert.deepEqual(result.markers, []);
 });
 
-test('an empty Node complement does not rediscover migrated files or fixtures', async () => {
+test('top-level discovery excludes child fixtures', async () => {
   const f = await fixture();
-  await rm(f.native);
+  await writeFile(
+    join(f.root, 'test/fixtures/child.test.ts'),
+    suite('child', 'child fixture was collected'),
+  );
   const result = await f.run();
   assert.equal(result.code, 0, result.output);
   assert.deepEqual(
     result.markers.sort(),
-    vitestFiles.flatMap((file) => [`${file}:start`, `${file}:end`]).sort(),
+    suiteFiles.flatMap((file) => [`${file}:start`, `${file}:end`]).sort(),
   );
 });
 
@@ -178,7 +170,7 @@ for (const failure of [false, true])
   test(`Vitest removes a ${failure ? 'failing' : 'passing'} file's scratch after its last case`, async () => {
     const f = await fixture();
     await writeFile(
-      join(f.root, vitestFiles[0]!),
+      join(f.root, suiteFiles[0]!),
       `import assert from 'node:assert/strict';
 import { appendFileSync, existsSync } from 'node:fs';
 import { test } from 'vitest';
@@ -224,7 +216,7 @@ test('holds scratch until released', async () => {
 });
 `;
   for (const f of [killed, live])
-    await writeFile(join(f.root, vitestFiles[0]!), held);
+    await writeFile(join(f.root, suiteFiles[0]!), held);
   const owner = async (f: typeof killed) => {
     let value: { directory: string; pid: number } | undefined;
     await until('held Vitest scratch', async () => {
@@ -249,7 +241,7 @@ test('holds scratch until released', async () => {
     assert.equal(existsSync(dead.directory), true);
     assert.equal(existsSync(survivor.directory), true);
     await writeFile(
-      join(recovery.root, vitestFiles[0]!),
+      join(recovery.root, suiteFiles[0]!),
       `import { test } from 'vitest';
 import { scratch } from './fixtures/scratch.js';
 test('recovers a dead worker', async () => { await scratch('next-'); });
@@ -274,7 +266,7 @@ for (const failure of [false, true])
   test(`setup restores clocks and spies after resource cleanup in a ${failure ? 'failing' : 'passing'} case`, async () => {
     const f = await fixture();
     await writeFile(
-      join(f.root, vitestFiles[0]!),
+      join(f.root, suiteFiles[0]!),
       `import assert from 'node:assert/strict';
 import { appendFileSync } from 'node:fs';
 import { test, vi } from 'vitest';
@@ -314,7 +306,7 @@ for (const [clock, toFake] of [
     test(`ordered cleanup restores ${clock} after a ${failure ? 'failing' : 'passing'} case`, async () => {
       const f = await fixture();
       await writeFile(
-        join(f.root, vitestFiles[0]!),
+        join(f.root, suiteFiles[0]!),
         `import assert from 'node:assert/strict';
 import { appendFileSync } from 'node:fs';
 import { test, vi } from 'vitest';
@@ -364,3 +356,65 @@ test('the following case sees restored globals', () => {
         ],
       );
     });
+
+test('a child-only fixture edit reruns the selected watch suite', async () => {
+  const f = await fixture();
+  const child = join(f.root, 'test/fixtures/child.mjs');
+  const ready = "process.stdout.write('ready');\n";
+  await writeFile(child, ready);
+  await writeFile(
+    join(f.root, suiteFiles[0]!),
+    `import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { test } from 'vitest';
+test('observes the child result', () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./fixtures/child.mjs', import.meta.url))], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  appendFileSync(process.env.MARKERS, 'watch:' + result.stdout + '\\n');
+  assert.equal(result.stdout, 'ready', 'child fixture sentinel');
+});
+`,
+  );
+  const watching = await f.start([
+    'exec',
+    'vitest',
+    '--watch',
+    suiteFiles[0]!,
+    '--clearScreen=false',
+  ]);
+  let offset = 0;
+  async function completed(expected: 'PASS' | 'FAIL') {
+    await until(
+      'completed watch run',
+      () =>
+        watching
+          .output()
+          .slice(offset)
+          .includes('press h to show help, press q to quit'),
+      500,
+    ).catch((error: unknown) => {
+      throw new Error(watching.output(), { cause: error });
+    });
+    const output = watching.output().slice(offset);
+    assert.ok(output.includes(expected), output);
+    if (expected === 'FAIL')
+      assert.ok(output.includes('child fixture sentinel'), output);
+    offset = watching.output().length;
+  }
+  try {
+    await completed('PASS');
+    await writeFile(child, "process.stdout.write('changed');\n");
+    await completed('FAIL');
+    await writeFile(child, ready);
+    await completed('PASS');
+    assert.deepEqual((await readFile(f.markers, 'utf8')).trim().split('\n'), [
+      'watch:ready',
+      'watch:changed',
+      'watch:ready',
+    ]);
+  } finally {
+    await watching.stop();
+  }
+});
