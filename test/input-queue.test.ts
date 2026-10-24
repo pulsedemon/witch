@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setImmediate } from 'node:timers/promises';
 import { InputQueue } from '../src/agents/input-queue.js';
 import { within } from './fixtures/within.js';
 
-await test('flush waits for queued inputs to finish consumer processing', async () => {
+test('flush waits for queued inputs to finish consumer processing', async () => {
   const queue = new InputQueue<number>();
   const entered = [1, 2, 3].map(() => Promise.withResolvers<void>());
   const release = [1, 2, 3].map(() => Promise.withResolvers<void>());

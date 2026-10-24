@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { editInput, initialInput } from '../src/ui/input-buffer.js';
 import type { Step } from '../src/ui/input-buffer.js';
 
-await test('an insert stores CRLF and lone CR line endings as newlines', () => {
+test('an insert stores CRLF and lone CR line endings as newlines', () => {
   assert.deepEqual(
     editInput(
       { value: 'ab', cursor: 1 },
@@ -13,14 +13,14 @@ await test('an insert stores CRLF and lone CR line endings as newlines', () => {
   );
 });
 
-await test('backspace removes a whole grapheme without damaging adjacent text', () => {
+test('backspace removes a whole grapheme without damaging adjacent text', () => {
   assert.deepEqual(
     editInput({ value: 'a👩‍💻b', cursor: 6 }, { type: 'backspace' }),
     { value: 'ab', cursor: 1 },
   );
 });
 
-await test('line navigation and insertion retain the intended text order', () => {
+test('line navigation and insertion retain the intended text order', () => {
   const up = editInput({ value: 'one\ntwo', cursor: 6 }, { type: 'up' });
   assert.deepEqual(up, { value: 'one\ntwo', cursor: 2 });
   assert.deepEqual(editInput(up, { type: 'insert', text: 'X' }), {
@@ -29,7 +29,7 @@ await test('line navigation and insertion retain the intended text order', () =>
   });
 });
 
-await test('Home and Down navigate an empty first line', () => {
+test('Home and Down navigate an empty first line', () => {
   const state = { value: '\nabc', cursor: 0 };
   assert.deepEqual(editInput(state, { type: 'home' }), state);
   assert.deepEqual(editInput(state, { type: 'down' }), {
@@ -38,7 +38,7 @@ await test('Home and Down navigate an empty first line', () => {
   });
 });
 
-await test('cursor moves and deletions land on grapheme boundaries across lines', () => {
+test('cursor moves and deletions land on grapheme boundaries across lines', () => {
   // é as e plus a combining accent, then an emoji of five UTF-16 units
   const value = 'e\u0301x\n👩‍💻y\nz';
   const at = (cursor: number, type: Step) =>
@@ -59,7 +59,7 @@ await test('cursor moves and deletions land on grapheme boundaries across lines'
   assert.deepEqual(initialInput('a\r\nb'), { value: 'a\nb', cursor: 3 });
 });
 
-await test('an insert into a 200KB draft segments nothing', () => {
+test('an insert into a 200KB draft segments nothing', () => {
   const value = 'word '.repeat(40000);
   const times: number[] = [];
   for (let run = 0; run < 5; run++) {
@@ -73,7 +73,7 @@ await test('an insert into a 200KB draft segments nothing', () => {
   );
 });
 
-await test('word moves stop at word edges, crossing punctuation, blank lines and combining marks', () => {
+test('word moves stop at word edges, crossing punctuation, blank lines and combining marks', () => {
   // o0 n1 e2 ·3 t4 w5 o6 ,7 ·8 ·9 t10 … e14 \n15 \n16 ·17 ·18 f19 … r22 .23
   const value = 'one two,  three\n\n  four.';
   const at = (cursor: number, type: 'wordLeft' | 'wordRight', text = value) =>
@@ -109,7 +109,7 @@ await test('word moves stop at word edges, crossing punctuation, blank lines and
   assert.equal(at(7, 'wordLeft', 'foo.bar'), 0);
 });
 
-await test('word and line deletions remove only what the matching move passes over', () => {
+test('word and line deletions remove only what the matching move passes over', () => {
   const run = (value: string, cursor: number, type: Step) =>
     editInput({ value, cursor }, { type });
   const value = 'one two,  three\n\n  four.';
@@ -142,7 +142,7 @@ await test('word and line deletions remove only what the matching move passes ov
   assert.deepEqual(row(lines, 0, 0), { value: lines, cursor: 0 });
 });
 
-await test('a word move in a 200KB draft segments only the lines it crosses', () => {
+test('a word move in a 200KB draft segments only the lines it crosses', () => {
   // each move starts on a line with no word
   const value = ' \n' + 'word\n'.repeat(40000) + ' ';
   const times: number[] = [];
