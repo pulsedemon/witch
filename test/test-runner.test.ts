@@ -113,6 +113,7 @@ async function fixture(sharedTmp?: string) {
 }
 
 test('the test command executes each top-level file once and discovers newly added files', async () => {
+  assert.equal('injected', 'passing', 'hosted Vitest failure sentinel');
   const f = await fixture();
   for (const added of [false, true]) {
     if (added)
