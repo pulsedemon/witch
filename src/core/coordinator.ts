@@ -67,14 +67,6 @@ export interface TimedSubagent extends Subagent {
   rows: { start: string; end?: string };
 }
 
-function withSubagent(
-  subagents: readonly TimedSubagent[],
-  subagent: TimedSubagent,
-): TimedSubagent[] {
-  const index = subagents.findIndex(({ id }) => id === subagent.id);
-  return index < 0 ? [...subagents, subagent] : subagents.with(index, subagent);
-}
-
 /** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
 function noteName(path: string): string {
   return printable(path).replace(/[\\[\]]/g, '\\$&');
@@ -1262,9 +1254,10 @@ export class Coordinator {
   }
 
   private familiar(conversation: ConversationRecord, subagent: Subagent): void {
-    const previous = this.snapshot.subagents.find(
+    const index = this.snapshot.subagents.findIndex(
       ({ id }) => id === subagent.id,
     );
+    const previous = this.snapshot.subagents[index];
     // only a start lists a familiar, so a late update cannot restore one a turn dropped
     if (!previous && subagent.status !== 'running') return;
     const running = subagent.status === 'running';
@@ -1276,13 +1269,13 @@ export class Coordinator {
     const rows = started
       ? { start: randomUUID() }
       : { ...previous!.rows, ...(ended ? { end: randomUUID() } : {}) };
-    this.publish({
-      subagents: withSubagent(this.snapshot.subagents, {
-        ...subagent,
-        startedAt: started ? Date.now() : previous!.startedAt,
-        rows,
-      }),
-    });
+    const subagents = [...this.snapshot.subagents];
+    subagents[index < 0 ? subagents.length : index] = {
+      ...subagent,
+      startedAt: started ? Date.now() : previous!.startedAt,
+      rows,
+    };
+    this.publish({ subagents });
     // a name or kind can arrive after the rows, as a Codex thread's does, and retitles them in place
     const renamed =
       !started &&
