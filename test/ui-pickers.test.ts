@@ -68,7 +68,7 @@ await test('Escape during model refresh keeps chat usable', async () => {
     assert.equal(a.sessions.length, 1);
     assert.equal(a.inputs.length, 1);
     assert.equal(a.inputs[0]!.session, session.info.id);
-    assert.match(a.inputs[0]!.prompt, /User request:\nafter canceled refresh$/);
+    assert.match(a.inputs[0]!.prompt, /^after canceled refresh$/);
     b.models = discover;
     await openCommand(ui, '/model', 'Models ·');
   } finally {

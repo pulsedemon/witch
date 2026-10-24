@@ -105,10 +105,7 @@ await test('interrupting inactive model discovery keeps the connected session', 
     assert.equal(a.sessions.length, 1);
     assert.equal(b.sessions.length, 0);
     assert.equal(a.inputs.at(-1)!.session, session.info.id);
-    assert.match(
-      a.inputs.at(-1)!.prompt,
-      /User request:\nafter canceled refresh$/,
-    );
+    assert.match(a.inputs.at(-1)!.prompt, /^after canceled refresh$/);
   } finally {
     aborted.resolve();
     cleaned.resolve();
@@ -153,10 +150,7 @@ await test('interrupting an active model read discards its result', async () => 
     await coordinator.send('after active cancellation');
     assert.equal(a.sessions.length, 1);
     assert.equal(a.inputs.at(-1)!.session, session.info.id);
-    assert.match(
-      a.inputs.at(-1)!.prompt,
-      /User request:\nafter active cancellation$/,
-    );
+    assert.match(a.inputs.at(-1)!.prompt, /^after active cancellation$/);
   } finally {
     models.resolve(a.catalog);
     await refreshing?.catch(() => {});
@@ -190,7 +184,7 @@ await test('a queued turn cannot turn a canceled refresh into a successful resul
     assert.equal(coordinator.snapshot.phase, 'running');
     assert.equal(a.inputs.length, 1);
     assert.equal(a.inputs[0]!.session, session.info.id);
-    assert.match(a.inputs[0]!.prompt, /User request:\nqueued after cancel$/);
+    assert.match(a.inputs[0]!.prompt, /^queued after cancel$/);
     assert.equal(a.sessions.length, 1);
     gate.open();
     await until('queued reply', () => coordinator.snapshot.phase === 'idle');

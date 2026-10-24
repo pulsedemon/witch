@@ -26,13 +26,13 @@ await test('a fresh conversation receives committed memory without a handoff', a
     await coordinator.send('remember-port');
     await coordinator.newConversation('b');
     await coordinator.send('Which port should this project use?');
-    assert.match(b.inputs.at(-1)!.prompt, /Use port 4567/);
-    assert.doesNotMatch(b.inputs.at(-1)!.prompt, /Pending task context/);
+    assert.match(b.inputs.at(-1)!.context!, /Use port 4567/);
+    assert.doesNotMatch(b.inputs.at(-1)!.context!, /Pending task context/);
     assert.ok(
-      b.inputs.at(-1)!.prompt.includes(`Put scratch files under ${tmpdir()}`),
+      b.inputs.at(-1)!.context!.includes(`Put scratch files under ${tmpdir()}`),
     );
     assert.match(
-      b.inputs.at(-1)!.prompt,
+      b.inputs.at(-1)!.context!,
       /preserves this directory across \/restart and only considers it for cleanup after a later macOS boot/,
     );
     assert.equal(a.inputs.length, 1);
@@ -60,7 +60,7 @@ await test('unfinished memory holds a prompt until recovery, which preserves the
       'the held prompt',
       () => a.inputs.length === 2 && coordinator.snapshot.phase === 'idle',
     );
-    assert.match(a.inputs[1]!.prompt, /User request:\nunrelated task$/);
+    assert.equal(a.inputs[1]!.prompt, 'unrelated task');
   } finally {
     await coordinator.close();
   }
@@ -90,7 +90,7 @@ await test('discarding interrupted-turn memory resumes queued prompts', async ()
       ['remember-port', undefined],
       ['queued followup', undefined],
     ]);
-    const prompt = a.inputs.at(-1)!.prompt;
+    const prompt = a.inputs.at(-1)!.context!;
     assertMemoryBaseline(prompt);
     assert.match(prompt, /Global preference 17/);
     assert.match(prompt, /Project preference 29/);
@@ -141,14 +141,17 @@ await test('pending discard after a failed turn corrects memory on persisted res
     const reopened = await f.reopen();
     try {
       await reopened.send('Continue after reopening');
-      const prompt = f.a.inputs.at(-1)!.prompt;
+      const prompt = f.a.inputs.at(-1)!.context!;
       assertMemoryBaseline(prompt);
       assert.match(prompt, /Global preference 17/);
       assert.match(prompt, /Project preference 29/);
       assert.doesNotMatch(prompt, /Rejected/);
       assert.equal(f.a.inputs.at(-1)!.session, native);
       await reopened.send('Unchanged memory');
-      assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+      assert.doesNotMatch(
+        f.a.inputs.at(-1)!.context!,
+        /Accepted shared memory/,
+      );
     } finally {
       await reopened.close();
     }
@@ -203,11 +206,11 @@ await test('memory another conversation publishes refreshes an existing session 
     await other.commit('change port');
     await other.publish();
     await coordinator.send('Continue');
-    assert.match(a.inputs.at(-1)!.prompt, /Use port 9001/);
-    assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Use port 4567/);
+    assert.match(a.inputs.at(-1)!.context!, /Use port 9001/);
+    assert.doesNotMatch(a.inputs.at(-1)!.context!, /Use port 4567/);
     assert.equal(a.inputs[0]?.session, a.inputs.at(-1)?.session);
     await coordinator.send('Again');
-    assert.doesNotMatch(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.doesNotMatch(a.inputs.at(-1)!.context!, /Accepted shared memory/);
   } finally {
     await coordinator.close();
   }
@@ -226,7 +229,7 @@ await test('a successful irrelevant memory update advances its delivery cursor w
     const accepted = await f.memory.resolve(main);
     assert.notEqual(accepted, previous);
     await f.coordinator.send('Continue');
-    assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.doesNotMatch(f.a.inputs.at(-1)!.context!, /Accepted shared memory/);
     assert.equal(
       (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
       accepted,
@@ -235,7 +238,10 @@ await test('a successful irrelevant memory update advances its delivery cursor w
     const reopened = await f.reopen();
     try {
       await reopened.send('Continue after reopening');
-      assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+      assert.doesNotMatch(
+        f.a.inputs.at(-1)!.context!,
+        /Accepted shared memory/,
+      );
       assert.equal(
         (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
         accepted,
@@ -263,7 +269,7 @@ for (const result of ['interrupted', 'failed'] as const) {
       if (result === 'interrupted') f.a.interruptNext = true;
       else f.a.failNext = true;
       await f.coordinator.send('Attempt task');
-      assert.match(f.a.inputs.at(-1)!.prompt, /Intermediate preference 41/);
+      assert.match(f.a.inputs.at(-1)!.context!, /Intermediate preference 41/);
       assert.equal(
         (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
         previous,
@@ -276,9 +282,9 @@ for (const result of ['interrupted', 'failed'] as const) {
         previous,
       );
       await f.coordinator.send('Retry task');
-      assert.match(f.a.inputs.at(-1)!.prompt, /Project preference 29/);
+      assert.match(f.a.inputs.at(-1)!.context!, /Project preference 29/);
       assert.doesNotMatch(
-        f.a.inputs.at(-1)!.prompt,
+        f.a.inputs.at(-1)!.context!,
         /Intermediate preference 41/,
       );
       assert.equal(f.a.inputs.at(-1)!.session, native);
@@ -302,13 +308,13 @@ await test('compaction rehydrates both scopes and invalidates references after p
       'global/reference.md': 'Reference detail 53.',
     });
     await f.coordinator.send('Initial task');
-    assert.match(f.a.inputs.at(-1)!.prompt, /Global preference 17/);
-    assert.match(f.a.inputs.at(-1)!.prompt, /Project preference 29/);
+    assert.match(f.a.inputs.at(-1)!.context!, /Global preference 17/);
+    assert.match(f.a.inputs.at(-1)!.context!, /Project preference 29/);
     const native = f.a.inputs.at(-1)!.session;
     await publishOutside(f, { [note]: 'Project preference 41.' });
     await f.coordinator.send('Partial update');
-    assert.match(f.a.inputs.at(-1)!.prompt, /Project preference 41/);
-    assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Global preference 17/);
+    assert.match(f.a.inputs.at(-1)!.context!, /Project preference 41/);
+    assert.doesNotMatch(f.a.inputs.at(-1)!.context!, /Global preference 17/);
     const other = await f.outsider();
     await unlink(join(other.root, 'global/reference.md'));
     await other.commit('remove reference');
@@ -323,7 +329,7 @@ await test('compaction rehydrates both scopes and invalidates references after p
     const reopened = await f.reopen();
     try {
       await reopened.send('Continue after compaction');
-      const prompt = f.a.inputs.at(-1)!.prompt;
+      const prompt = f.a.inputs.at(-1)!.context!;
       assert.match(prompt, /Global preference 17/);
       assert.match(prompt, /Project preference 41/);
       assert.match(
@@ -337,7 +343,10 @@ await test('compaction rehydrates both scopes and invalidates references after p
       assert.match(prompt, /missing notes no longer apply/);
       assert.equal(f.a.inputs.at(-1)!.session, native);
       await reopened.send('Unchanged memory');
-      assert.doesNotMatch(f.a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+      assert.doesNotMatch(
+        f.a.inputs.at(-1)!.context!,
+        /Accepted shared memory/,
+      );
     } finally {
       await reopened.close();
     }
@@ -357,7 +366,7 @@ await test('overflow and concise writing guidance reach the active native prompt
     });
     const request = 'Calculate 17 + 29.';
     await f.coordinator.send(request);
-    const prompt = f.a.inputs.at(-1)!.prompt;
+    const prompt = f.a.inputs.at(-1)!.context!;
     assert.ok(
       prompt.includes(`${join(f.workspace().root, note)}\n(6002 bytes)`),
     );
@@ -374,7 +383,7 @@ await test('overflow and concise writing guidance reach the active native prompt
       prompt,
       /Keep planning, test, commit, publication and review progress out of the indexes/,
     );
-    assert.ok(prompt.endsWith(`User request:\n${request}`));
+    assert.equal(f.a.inputs.at(-1)!.prompt, request);
   } finally {
     await f.coordinator.close();
   }
@@ -390,7 +399,7 @@ await test("a turn after an origin moves the project key resumes the session wit
     assert.notEqual(await notes(), before);
     await coordinator.send('remember:moved');
     assert.equal(await memory.read(main, await notes()), 'moved');
-    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.match(a.inputs.at(-1)!.context!, /Accepted shared memory/);
     assert.equal(a.inputs.at(-1)!.session, a.inputs[0]!.session);
     await coordinator.send('Again');
     assert.equal(a.sessions.length, 2);
@@ -409,7 +418,7 @@ await test('a turn back on a project key gets its snapshot after an interrupted 
     await coordinator.send('Moved');
     await git('remote', 'remove', 'origin');
     await coordinator.send('Back');
-    assert.match(a.inputs.at(-1)!.prompt, /Accepted shared memory/);
+    assert.match(a.inputs.at(-1)!.context!, /Accepted shared memory/);
   } finally {
     await coordinator.close();
   }
@@ -424,7 +433,7 @@ await test('a reopened conversation skips the snapshot it was sent, unless its m
     } finally {
       await reopened.close();
     }
-    return a.inputs.at(-1)!.prompt;
+    return a.inputs.at(-1)!.context!;
   };
   await coordinator.send('Start');
   const id = coordinator.snapshot.conversation!.id;
@@ -1047,7 +1056,7 @@ await test('discard mine after a conflict between two coordinators keeps the oth
       code: 'ENOENT',
     });
     await second.send('Continue after discard');
-    const prompt = agents[1]!.inputs.at(-1)!.prompt;
+    const prompt = agents[1]!.inputs.at(-1)!.context!;
     assertMemoryBaseline(prompt);
     assert.match(prompt, /Global preference 17/);
     assert.match(prompt, /Project preference 29/);
@@ -1100,10 +1109,10 @@ await test('discard after an activated handoff corrects both native sessions', a
     await f.coordinator.recoverMemory('discard');
     await f.coordinator.send('Continue after discard');
     assert.equal(f.b.inputs.at(-1)!.session, destinationId);
-    const destinationPrompt = f.b.inputs.at(-1)!.prompt;
+    const destinationPrompt = f.b.inputs.at(-1)!.context!;
     await f.coordinator.selectModel({ agent: 'a', id: 'a-model' });
     assert.equal(f.a.inputs.at(-1)!.session, sourceId);
-    for (const prompt of [destinationPrompt, f.a.inputs.at(-1)!.prompt]) {
+    for (const prompt of [destinationPrompt, f.a.inputs.at(-1)!.context!]) {
       assertMemoryBaseline(prompt);
       assert.match(prompt, /Global preference 17/);
       assert.match(prompt, /Project preference 29/);
@@ -1149,7 +1158,7 @@ for (const kind of ['pending', 'conflict'] as const) {
       f.hook.current = passThrough;
       await f.coordinator.recoverMemory('discard');
       await f.coordinator.send('Continue after retry');
-      const prompt = f.a.inputs.at(-1)!.prompt;
+      const prompt = f.a.inputs.at(-1)!.context!;
       assertMemoryBaseline(prompt);
       assert.match(prompt, /Global preference 17/);
       assert.match(prompt, /Project preference 29/);
@@ -1309,7 +1318,7 @@ await test('a native session that replaces the stored one gets the memory snapsh
     };
     await a.sessions.at(-1)!.session.close();
     await coordinator.send('Next');
-    assert.match(a.inputs.at(-1)!.prompt, /Use port 4567/);
+    assert.match(a.inputs.at(-1)!.context!, /Use port 4567/);
   } finally {
     await coordinator.close();
   }

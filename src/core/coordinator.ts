@@ -77,7 +77,6 @@ export interface Snapshot {
   queue: readonly string[];
   requests: readonly UserRequest[];
   models: readonly ModelChoice[];
-  /** the live session's skills, empty while none is connected. */
   skills: readonly Skill[];
   /** the live session's subagents in start order; a turn drops the finished ones. */
   subagents: readonly TimedSubagent[];
@@ -85,7 +84,6 @@ export interface Snapshot {
   backgroundCommands: readonly BackgroundCommand[];
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
-  /** the live session's usage; a session that never reported keeps it empty. */
   usage: Usage;
   /** when this instance opened the conversation, in epoch milliseconds. */
   openedAt?: number;
@@ -897,7 +895,7 @@ export class Coordinator {
         cwd: conversation.cwd,
       });
       this.persist(this.save());
-      delivered?.();
+      if (command !== undefined) delivered?.();
       let result: TurnResult;
       let generation = this.contextGeneration;
       try {
@@ -912,14 +910,16 @@ export class Coordinator {
             this.pendingContext.delete(conversation.id);
             generation = this.contextGeneration;
             result = await session.send(
-              input,
+              input.prompt,
               skillCall(prompt, this.snapshot.skills),
+              input.context,
             );
           }
         }
       } catch (error) {
         result = { status: 'failed', text: '', error: errorMessage(error) };
       }
+      if (command === undefined && !result.inputUnsent) delivered?.();
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
       if (result.inputUnsent)

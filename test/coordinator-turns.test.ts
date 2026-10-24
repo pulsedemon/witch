@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { ranCommand } from '../src/core/prompts.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import type { FixtureAgent } from './fixtures/agent.js';
@@ -190,12 +191,12 @@ await test('pending command context stays with its conversation', async () => {
     const id = coordinator.snapshot.conversation!.id;
     await coordinator.newConversation();
     await coordinator.send('other');
-    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
     await coordinator.selectConversation(id);
     await coordinator.send('original');
-    assert.equal(a.inputs.at(-1)!.prompt.split(savedCommand).length - 1, 1);
+    assert.equal(a.inputs.at(-1)!.context!.split(savedCommand).length - 1, 1);
     await coordinator.send('again');
-    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
   } finally {
     await coordinator.close();
   }
@@ -214,10 +215,10 @@ for (const identical of [false, true]) {
       const id = coordinator.snapshot.conversation!.id;
       await coordinator.newConversation();
       await coordinator.send('other');
-      assert.equal(a.inputs.at(-1)!.prompt.includes('<bash-input>'), false);
+      assert.equal(a.inputs.at(-1)!.context!.includes('<bash-input>'), false);
       await coordinator.selectConversation(id);
       await coordinator.send('original');
-      const received = a.inputs.at(-1)!.prompt;
+      const received = a.inputs.at(-1)!.context!;
       assert.equal(received.split(savedCommand).length - 1, identical ? 2 : 1);
       if (!identical) {
         assert.equal(received.split(localCommand).length - 1, 1);
@@ -226,7 +227,7 @@ for (const identical of [false, true]) {
         );
       }
       await coordinator.send('again');
-      assert.equal(a.inputs.at(-1)!.prompt.includes('<bash-input>'), false);
+      assert.equal(a.inputs.at(-1)!.context!.includes('<bash-input>'), false);
     } finally {
       await coordinator.close();
     }
@@ -244,12 +245,12 @@ await test('a failed close preserves outgoing command context', async () => {
     assert.match(coordinator.snapshot.error ?? '', /Close failed/);
     a.failClose = false;
     await coordinator.send('other');
-    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
     await coordinator.selectConversation(id);
     await coordinator.send('original');
-    assert.equal(a.inputs.at(-1)!.prompt.split(savedCommand).length - 1, 1);
+    assert.equal(a.inputs.at(-1)!.context!.split(savedCommand).length - 1, 1);
     await coordinator.send('again');
-    assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
   } finally {
     a.failClose = false;
     await coordinator.close();
@@ -292,16 +293,12 @@ await test('pending command context waits until a prompt is dispatched', async (
           const next = failure === 'connect' ? '/review now' : 'fresh';
           await coordinator.send(next);
           const received = a.inputs.at(-1)!;
-          assert.equal(received.prompt.split(savedCommand).length - 1, 1);
-          assert.ok(
-            received.prompt.indexOf(savedCommand) <
-              received.prompt.indexOf('User request:'),
-          );
-          assert.ok(received.prompt.endsWith(`User request:\n${next}`));
+          assert.equal(received.context!.split(savedCommand).length - 1, 1);
+          assert.equal(received.prompt, next);
           if (failure === 'connect')
             assert.deepEqual(received.skill, { name: 'review', args: 'now' });
           await coordinator.send('again');
-          assert.equal(a.inputs.at(-1)!.prompt.includes(savedCommand), false);
+          assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
         } finally {
           await coordinator.close();
         }
@@ -339,7 +336,7 @@ await test('a connect failure leaves the prompt queued, and the next prompt send
     a.failConnect = false;
     await coordinator.send('Again');
     assert.deepEqual(coordinator.snapshot.queue, []);
-    assert.match(a.inputs.at(-1)!.prompt, /User request:\nStart\nAgain$/);
+    assert.match(a.inputs.at(-1)!.prompt, /^Start\nAgain$/);
     assert.equal(coordinator.snapshot.error, undefined);
   } finally {
     await coordinator.close();
@@ -570,7 +567,7 @@ await test('steered prompts an interrupt leaves unread go as the next turn, ahea
     await within(sending, 2000, 'the next turns');
     assert.equal((await gate.result).status, 'interrupted');
     assert.deepEqual(
-      a.inputs.map(({ prompt }) => prompt.split('User request:\n')[1]),
+      a.inputs.map(({ prompt }) => prompt),
       ['Start', 'Also this', '/clear'],
     );
   } finally {
@@ -750,7 +747,7 @@ await test('a prompt sent while the launch connects goes once the load ends', as
     release.resolve();
     await initializing;
     await until('the early prompt', () =>
-      a.inputs.some(({ prompt }) => prompt.endsWith('User request:\nEarly')),
+      a.inputs.some(({ prompt }) => prompt === 'Early'),
     );
   } finally {
     release.resolve();
@@ -787,7 +784,7 @@ await test('a failed turn leaves what was queued behind it for the composer inst
     assert.equal(coordinator.snapshot.phase, 'idle');
     assert.deepEqual(coordinator.snapshot.queue, ['/review']);
     assert.deepEqual(
-      a.inputs.map(({ prompt }) => prompt.split('User request:\n')[1]),
+      a.inputs.map(({ prompt }) => prompt),
       ['Start'],
     );
   } finally {
@@ -820,7 +817,7 @@ await test('a prompt whose steer is refused after a failed turn has ended stays 
     coordinator.unqueue();
     await coordinator.send('Retry');
     assert.deepEqual(
-      a.inputs.map(({ prompt }) => prompt.split('User request:\n')[1]),
+      a.inputs.map(({ prompt }) => prompt),
       ['Start', 'Retry'],
     );
   } finally {
@@ -887,17 +884,74 @@ await test('a conversation switch is refused while prompts are queued, which wai
   }
 });
 
+for (const inputUnsent of [true, undefined]) {
+  await test(`failed input delivery ${inputUnsent ? 'preserves the original queue batch' : 'does not replay an uncertain submission'}`, async () => {
+    const { coordinator, a } = await fixture();
+    const submitted: string[] = [];
+    a.sessions[0]!.session.send = async (prompt) => {
+      submitted.push(prompt);
+      return {
+        status: 'failed',
+        text: '',
+        error: 'Input delivery failed',
+        ...(inputUnsent ? { inputUnsent } : {}),
+      };
+    };
+    try {
+      await coordinator.send('first 17');
+      assert.deepEqual(
+        coordinator.snapshot.queue,
+        inputUnsent ? ['first 17'] : [],
+      );
+      await coordinator.send('second 29');
+      assert.deepEqual(submitted, [
+        'first 17',
+        inputUnsent ? 'first 17\nsecond 29' : 'second 29',
+      ]);
+      assert.deepEqual(
+        coordinator.snapshot.queue,
+        inputUnsent ? ['first 17', 'second 29'] : [],
+      );
+    } finally {
+      await coordinator.close();
+    }
+  });
+}
+
+await test('an unsent follow-up prompt never reruns an executed command', async () => {
+  const { coordinator, a } = await fixture();
+  const session = a.sessions[0]!.session;
+  const send = session.send.bind(session);
+  session.send = async () => ({
+    status: 'failed',
+    text: '',
+    error: 'Input delivery failed',
+    inputUnsent: true,
+  });
+  try {
+    await coordinator.send('!echo once');
+    assert.deepEqual(a.shells, ['echo once']);
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    session.send = send;
+    await coordinator.send('followup 29');
+    assert.deepEqual(a.shells, ['echo once']);
+    assert.deepEqual(
+      a.inputs.map(({ prompt }) => prompt),
+      ['followup 29'],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 await test('a ! prompt runs its command, then a turn that sends the prompt as typed and says it ran, and its open row survives a reopen', async () => {
   const { coordinator, a, reopen } = await fixture();
   try {
     await coordinator.send('!git status');
     assert.deepEqual(a.shells, ['git status']);
     assert.equal(a.inputs.length, 1);
-    assert.ok(
-      a.inputs[0]!.prompt.endsWith(
-        'User request:\n!git status\n\nThe user ran this command themselves, and its output is above. Reply to it without running it again.',
-      ),
-    );
+    assert.equal(a.inputs[0]!.prompt, '!git status');
+    assert.ok(a.inputs[0]!.context!.includes(ranCommand));
     const { items } = coordinator.snapshot;
     assert.deepEqual(
       items.map(({ kind }) => kind),
@@ -933,9 +987,9 @@ await test('a ! prompt sent during a turn waits in the queue and runs alone befo
     await within(first, 5000, 'the queue');
     const prompts = a.inputs.map(({ prompt }) => prompt);
     assert.equal(prompts.length, 3);
-    assert.ok(prompts[0]!.endsWith('User request:\nfirst'));
-    assert.ok(prompts[1]!.includes('User request:\n!ls'));
-    assert.ok(prompts[2]!.endsWith('User request:\nafter'));
+    assert.ok(prompts[0]! === 'first');
+    assert.ok(prompts[1]! === '!ls');
+    assert.ok(prompts[2]! === 'after');
     assert.deepEqual(a.shells, ['ls']);
   } finally {
     gate.open();
@@ -1150,15 +1204,15 @@ for (const rejected of [false, true])
           order.push('selection completed');
         };
         const send = session.send.bind(session);
-        session.send = async (prompt, skill) => {
-          if (prompt.endsWith('User request:\n/queued')) {
+        session.send = async (prompt, skill, context) => {
+          if (prompt === '/queued') {
             atNextSend.push({
               model: session.info.model,
               effort: session.info.effort,
             });
             order.push('queued send');
           }
-          return send(prompt, skill);
+          return send(prompt, skill, context);
         };
         a.gate = gate;
         sending = coordinator.send('Start');
