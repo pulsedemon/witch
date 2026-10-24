@@ -44,8 +44,12 @@ export class TurnGate {
 /** an in-process agent that reports a process and ends turns the way the real adapters do. */
 export class FixtureAgent implements AgentAdapter {
   readonly label: string;
-  readonly inputs: { session: string; prompt: string; skill?: SkillCall }[] =
-    [];
+  readonly inputs: {
+    session: string;
+    prompt: string;
+    context?: string;
+    skill?: SkillCall;
+  }[] = [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
   /** the `!` commands sessions ran. */
@@ -248,11 +252,12 @@ export class FixtureAgent implements AgentAdapter {
           await options.onProcess(undefined);
         }
       },
-      send: async (prompt, skill): Promise<TurnResult> => {
+      send: async (prompt, skill, context): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.inputs.push({
           session: info.id,
           prompt,
+          ...(context === undefined ? {} : { context }),
           ...(skill ? { skill } : {}),
         });
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere

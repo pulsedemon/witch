@@ -16,6 +16,8 @@ export function parseCommand(args = process.argv.slice(2)) {
       'state-dir': { type: 'string' },
       continue: { type: 'boolean', short: 'c' },
       help: { type: 'boolean', short: 'h' },
+      'recover-directory': { type: 'string' },
+      apply: { type: 'boolean' },
       'control-dir': { type: 'string' },
       'control-conversation': { type: 'string' },
       'control-activation': { type: 'string' },
@@ -34,6 +36,18 @@ export function parseCommand(args = process.argv.slice(2)) {
     strict: true,
   });
   const { values, positionals } = parsed;
+  if (values.apply && values['recover-directory'] === undefined)
+    throw new Error('--apply requires --recover-directory.');
+  if (
+    values['recover-directory'] !== undefined &&
+    (!values['recover-directory'] ||
+      positionals.length ||
+      values.continue ||
+      values.help)
+  )
+    throw new Error(
+      '--recover-directory needs a saved directory and cannot include prompts, --continue or --help.',
+    );
   const controls = [
     'control-dir',
     'control-conversation',
@@ -67,10 +81,11 @@ export function parseCommand(args = process.argv.slice(2)) {
     positionals.length ||
     values.continue ||
     values.help ||
+    values['recover-directory'] !== undefined ||
     values['state-dir'] !== undefined
   )
     throw new Error(
-      'Control commands cannot include prompts, --continue, --help or --state-dir.',
+      'Control commands cannot include prompts, --continue, --help, --state-dir or --recover-directory.',
     );
   if (
     !values['control-dir'] ||

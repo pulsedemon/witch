@@ -440,10 +440,16 @@ class ClaudeSession implements AgentSession {
     this.options.onEvent({ type: 'info', info: this.info });
   }
 
-  async send(prompt: string, skill?: SkillCall): Promise<TurnResult> {
+  async send(
+    prompt: string,
+    skill?: SkillCall,
+    context?: string,
+  ): Promise<TurnResult> {
     const turn = this.beginTurn();
     const records = this.records;
-    const uuid = this.push(this.content(prompt, skill));
+    const input =
+      context === undefined ? prompt : `${context}\n\nUser request:\n${prompt}`;
+    const uuid = this.push(this.content(input, skill));
     turn.initialInput = uuid;
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
     return turn.finished.promise;

@@ -225,14 +225,11 @@ await test('coordination context stays before the exact user request and raw ste
   const input = '  /review alpha\n  beta with spaces';
   await a.coordinator.send(input);
   const captured = a.a.inputs[0]!;
-  assert.ok(captured.prompt.includes('Distinct peer task'));
-  assert.ok(captured.prompt.includes(join(root, 'B')));
-  assert.ok(captured.prompt.includes((await a.binding()).activation));
-  assert.ok(captured.prompt.endsWith(`User request:\n${input}`));
-  assert.ok(
-    captured.prompt.indexOf('Control command:') <
-      captured.prompt.indexOf('User request:'),
-  );
+  assert.ok(captured.context!.includes('Distinct peer task'));
+  assert.ok(captured.context!.includes(join(root, 'B')));
+  assert.ok(captured.context!.includes((await a.binding()).activation));
+  assert.equal(captured.prompt, input);
+  assert.ok(!captured.context!.includes(input));
   assert.deepEqual(captured.skill, {
     name: 'review',
     args: 'alpha\n  beta with spaces',
@@ -298,9 +295,16 @@ for (const name of ['claude', 'codex'] as const) {
     );
     const input = name === 'claude' ? json : json.params.input;
     assert.equal(input[0].type, 'text');
-    assert.ok(input[0].text.includes('Native peer task'));
-    assert.ok(input[0].text.includes((await a.binding()).activation));
-    assert.ok(input[0].text.endsWith(`User request:\n${prompt}`));
+    const context =
+      name === 'claude'
+        ? input[0].text
+        : JSON.parse(await readFile(join(root, 'A', 'context.json'), 'utf8'))
+            .items[0].content[0].text;
+    assert.ok(context.includes('Native peer task'));
+    assert.ok(context.includes((await a.binding()).activation));
+    if (name === 'claude')
+      assert.ok(input[0].text.endsWith(`User request:\n${prompt}`));
+    else assert.equal(input[0].text, prompt);
     assert.deepEqual(
       input.slice(1),
       name === 'claude'
@@ -430,7 +434,7 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
     }
     await a.coordinator.send('Check current prefix');
     const active = replacement === 'handoff' ? a.b : a.a;
-    assert.ok(active.inputs.at(-1)!.prompt.includes(current.activation));
+    assert.ok(active.inputs.at(-1)!.context!.includes(current.activation));
     if (replacement === 'rollback')
       assert.equal(active.inputs.at(-1)!.session, native.info.id);
   });
@@ -477,7 +481,7 @@ await test('an interrupted handoff summary restores registration before source r
     a.a.gate = undefined;
     await a.coordinator.send('Resume source');
     assert.equal(a.a.inputs.at(-1)!.session, source);
-    assert.ok(a.a.inputs.at(-1)!.prompt.includes(current.activation));
+    assert.ok(a.a.inputs.at(-1)!.context!.includes(current.activation));
   } finally {
     gate.open();
     await switching.catch(() => {});
@@ -581,7 +585,7 @@ await test('target lock and preparation failures keep source authority and free 
   await acquired.close();
   await a.coordinator.send('Source still usable');
   assert.equal(a.a.sessions.length, 1);
-  assert.ok(a.a.inputs.at(-1)!.prompt.includes(bound.activation));
+  assert.ok(a.a.inputs.at(-1)!.context!.includes(bound.activation));
 });
 
 for (const boundary of ['write', 'remove'] as const) {

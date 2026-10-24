@@ -14,6 +14,7 @@
     "prepare": "husky",
     "dev": "node --import ./scripts/register.mjs src/cli.tsx",
     "build": "node scripts/build.mjs",
+    "install:cli": "node --import tsx scripts/install.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx scripts/test.ts",
     "test:integration": "node --import tsx scripts/integration.ts",

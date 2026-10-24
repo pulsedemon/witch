@@ -106,6 +106,7 @@ for (const [entry, route, failures] of [
           assert.equal(results[1]!.status, 'failed');
           assert.equal(results[1]!.inputUnsent, true);
           assert.equal(results[1]!.unreadContext, undefined);
+          assert.deepEqual(coordinator.snapshot.queue, ['first recovery']);
         }
         assert.equal(
           writes
@@ -135,7 +136,11 @@ for (const [entry, route, failures] of [
           );
         const next = (await content(cwd)) as string;
         assert.equal(next.split(record).length - 1, 1);
-        assert.ok(next.indexOf(record) < next.indexOf('User request:\nnext'));
+        const request = failures === 2 ? 'first recovery\nnext' : 'next';
+        assert.ok(
+          next.indexOf(record) < next.indexOf(`User request:\n${request}`),
+        );
+        assert.ok(next.endsWith(`User request:\n${request}`));
         assert.deepEqual(coordinator.snapshot.queue, []);
         assert.equal(
           coordinator.snapshot.items.filter(

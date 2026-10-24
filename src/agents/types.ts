@@ -181,8 +181,12 @@ export interface AgentSession {
   contextUsage(): Promise<number | undefined>;
   /** replaces native history in place; resolves after native completion, independently of replacement events. */
   compact(): Promise<TurnResult>;
-  /** `skill` runs that native skill with the prompt as its context. */
-  send(prompt: string, skill?: SkillCall): Promise<TurnResult>;
+  /** generated context must not replace the user's request in native authorization evidence. */
+  send(
+    prompt: string,
+    skill?: SkillCall,
+    context?: string,
+  ): Promise<TurnResult>;
   /**
    * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to
    * the agent without a reply. its output streams as tool events, the first marked `shell`.
