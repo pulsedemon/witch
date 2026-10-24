@@ -15,7 +15,7 @@
     "dev": "node --import ./scripts/register.mjs src/cli.tsx",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --import ./scripts/register.mjs --test --test-concurrency=\"$(node -p 'Math.min(4, require(\"node:os\").availableParallelism())')\" test/*.test.ts",
+    "test": "node --import tsx scripts/test.ts",
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:integration:codex-brews": "node --import tsx scripts/check-codex-brews.ts",
     "lint:eslint": "eslint .",
@@ -52,6 +52,7 @@
     "@babel/preset-react": "7.29.7",
     "@babel/preset-typescript": "7.29.7",
     "@eslint/js": "^10.0.1",
+    "@types/babel__core": "7.20.5",
     "@types/linkify-it": "5.0.0",
     "@types/node": "^24.19.2",
     "@types/react": "19.3.0",
@@ -62,6 +63,8 @@
     "prettier": "3.9.10",
     "tsx": "4.23.15",
     "typescript": "5.8.3",
-    "typescript-eslint": "8.71.1"
+    "typescript-eslint": "8.71.1",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
   }
 }

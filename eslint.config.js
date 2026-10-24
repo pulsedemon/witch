@@ -7,7 +7,12 @@ export default defineConfig(
   js.configs.recommended,
   tseslint.configs.recommended,
   {
-    files: ['src/**/*.{ts,tsx}', 'test/**/*.{ts,tsx}', 'scripts/**/*.ts'],
+    files: [
+      'src/**/*.{ts,tsx}',
+      'test/**/*.{ts,tsx}',
+      'scripts/**/*.ts',
+      'vitest.config.ts',
+    ],
     languageOptions: {
       parserOptions: {
         projectService: true,
