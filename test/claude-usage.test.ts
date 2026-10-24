@@ -662,20 +662,18 @@ for (const reason of [
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const timers: ReturnType<typeof vi.fn<() => void>>[] = [];
       const schedule = setTimeout;
-      const scheduling = vi
-        .spyOn(globalThis, 'setTimeout')
-        .mockImplementation(
-          <Args extends unknown[]>(
-            callback: (...args: Args) => void,
-            ms?: number,
-            ...args: Args
-          ) => {
-            if (ms !== 60_000) return schedule(callback, ms, ...args);
-            const run = vi.fn(() => callback(...args));
-            timers.push(run);
-            return schedule(run, ms);
-          },
-        );
+      vi.spyOn(globalThis, 'setTimeout').mockImplementation(
+        <Args extends unknown[]>(
+          callback: (...args: Args) => void,
+          ms?: number,
+          ...args: Args
+        ) => {
+          if (ms !== 60_000) return schedule(callback, ms, ...args);
+          const run = vi.fn(() => callback(...args));
+          timers.push(run);
+          return schedule(run, ms);
+        },
+      );
       try {
         const f = await controlled(t.onTestFinished);
         await initial(f);
@@ -731,11 +729,23 @@ for (const reason of [
         );
         assert.equal(f.helpers.length, 1);
       } finally {
-        scheduling.mockRestore();
+        vi.restoreAllMocks();
       }
     },
   );
 }
+
+test('usage shutdown restores a live timeout for the following case', async () => {
+  let fired = false;
+  const timer = setTimeout(() => {
+    fired = true;
+  }, 0);
+  try {
+    await until('real timeout after usage shutdown', () => fired);
+  } finally {
+    clearTimeout(timer);
+  }
+});
 
 test(
   'a successful helper response after close cannot publish or rearm polling',
