@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { createElement, Profiler } from 'react';
 import { Lexer } from 'marked';
 import type { Coordinator } from '../src/core/coordinator.js';
@@ -29,18 +29,17 @@ function peerUpdates(coordinator: ReturnType<typeof fake>['coordinator']) {
   };
 }
 
-await test('snapshot updates reuse composer wrapping while edits and resize update it', async (t) => {
+test('snapshot updates reuse composer wrapping while edits and resize update it', async () => {
   const value = `compiler-input\t${'abc '.repeat(30)}\nlast row`;
   const normalize = String.prototype.normalize;
   let wraps = 0;
-  t.mock.method(
-    String.prototype,
-    'normalize',
-    function (this: string, form?: string) {
-      if (this === value || this === `${value}X`) wraps++;
-      return normalize.call(this, form);
-    },
-  );
+  vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
+    this: string,
+    form?: string,
+  ) {
+    if (this === value || this === `${value}X`) wraps++;
+    return normalize.call(this, form);
+  });
   const { app, coordinator } = fake({ error: 'snapshot initial' });
   const ui = show(createElement(App, { coordinator: app, onExit() {} }));
   try {
@@ -68,21 +67,20 @@ await test('snapshot updates reuse composer wrapping while edits and resize upda
   }
 });
 
-await test('recovery snapshots and scrolling reuse wrapping while changed diffs and width update it', async (t) => {
+test('recovery snapshots and scrolling reuse wrapping while changed diffs and width update it', async () => {
   const diff = Array.from({ length: 80 }, (_, i) => `recovery-line ${i}`).join(
     '\n',
   );
   const changed = diff.replaceAll('recovery-line', 'updated-line');
   const normalize = String.prototype.normalize;
   let wraps = 0;
-  t.mock.method(
-    String.prototype,
-    'normalize',
-    function (this: string, form?: string) {
-      if (this === diff || this === changed) wraps++;
-      return normalize.call(this, form);
-    },
-  );
+  vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
+    this: string,
+    form?: string,
+  ) {
+    if (this === diff || this === changed) wraps++;
+    return normalize.call(this, form);
+  });
   const recovery = {
     kind: 'pending' as const,
     paths: [],
@@ -170,10 +168,12 @@ function memoryPicker() {
   return context;
 }
 
-await test('memory picker snapshots reuse searchable text while a changed query updates results', async (t) => {
+test('memory picker snapshots reuse searchable text while a changed query updates results', async () => {
   const lower = String.prototype.toLowerCase;
   let searches = 0;
-  t.mock.method(String.prototype, 'toLowerCase', function (this: string) {
+  vi.spyOn(String.prototype, 'toLowerCase').mockImplementation(function (
+    this: string,
+  ) {
     if (this.includes('COMPILER-NOTE') && this.includes('global/first.md'))
       searches++;
     return lower.call(this);
@@ -207,10 +207,13 @@ await test('memory picker snapshots reuse searchable text while a changed query 
   }
 });
 
-await test('note snapshots and scrolling reuse Markdown while opening another note updates it', async (t) => {
+test('note snapshots and scrolling reuse Markdown while opening another note updates it', async () => {
   const lex = Lexer.prototype.lex;
   let renders = 0;
-  t.mock.method(Lexer.prototype, 'lex', function (this: Lexer, text: string) {
+  vi.spyOn(Lexer.prototype, 'lex').mockImplementation(function (
+    this: Lexer,
+    text: string,
+  ) {
     if (Object.values(notes).includes(text)) renders++;
     return lex.call(this, text);
   });

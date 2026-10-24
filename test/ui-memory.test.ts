@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { createElement } from 'react';
 import { render } from 'ink-testing-library';
 import stripAnsi from 'strip-ansi';
@@ -51,7 +51,7 @@ async function conversation() {
   return { coordinator, id, files, workspace, scope };
 }
 
-await test('a deleted note remains discoverable and can be restored through its history picker', async () => {
+test('a deleted note remains discoverable and can be restored through its history picker', async () => {
   const { coordinator, id, files, workspace, scope } = await conversation();
   const reference = join(workspace.root, scope.project, 'decisions.md');
   await writeFile(reference, 'Accepted project decision.');
@@ -103,7 +103,7 @@ await test('a deleted note remains discoverable and can be restored through its 
   }
 });
 
-await test('the conflict view resolves with k and d, ignores a and Option+K, and links notes into the worktree', async () => {
+test('the conflict view resolves with k and d, ignores a and Option+K, and links notes into the worktree', async () => {
   const { app, calls } = fake({
     phase: 'recovery',
     recovery: {
@@ -144,7 +144,7 @@ await test('the conflict view resolves with k and d, ignores a and Option+K, and
   }
 });
 
-await test('a conflicting note name carrying a link sequence shows as plain text', async () => {
+test('a conflicting note name carrying a link sequence shows as plain text', async () => {
   const { app } = fake({
     phase: 'recovery',
     recovery: {
@@ -168,7 +168,7 @@ await test('a conflicting note name carrying a link sequence shows as plain text
   }
 });
 
-await test('an error naming a note drops a link forged in the name', async () => {
+test('an error naming a note drops a link forged in the name', async () => {
   const { app } = fake({
     error: `Memory notes must be regular files: global/${forgedLink('..:1', 'forged')}.md`,
   });
@@ -181,7 +181,7 @@ await test('an error naming a note drops a link forged in the name', async () =>
   }
 });
 
-await test('the pending view ignores k and letters typed with Ctrl, Option or Cmd', async () => {
+test('the pending view ignores k and letters typed with Ctrl, Option or Cmd', async () => {
   const { app, calls } = fake({
     phase: 'recovery',
     recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
@@ -203,7 +203,7 @@ await test('the pending view ignores k and letters typed with Ctrl, Option or Cm
   }
 });
 
-await test('a recovery that appears while typing ignores keys for its first 500 ms', async () => {
+test('a recovery that appears while typing ignores keys for its first 500 ms', async () => {
   const { app, coordinator, calls } = fake({ phase: 'running' });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const discardOnce = async (count: number) => {
@@ -239,7 +239,7 @@ await test('a recovery that appears while typing ignores keys for its first 500 
   }
 });
 
-await test('PageDown in the recovery view starts at the first row it hid', async () => {
+test('PageDown in the recovery view starts at the first row it hid', async () => {
   const { app } = fake({
     phase: 'recovery',
     recovery: {
@@ -267,7 +267,7 @@ await test('PageDown in the recovery view starts at the first row it hid', async
   }
 });
 
-await test('entering a later recovery resets its page to the first row', async () => {
+test('entering a later recovery resets its page to the first row', async () => {
   const recovery = (label: string) => ({
     kind: 'pending' as const,
     paths: [],
@@ -304,7 +304,7 @@ await test('entering a later recovery resets its page to the first row', async (
   }
 });
 
-await test('an error shows in the recovery view', async () => {
+test('an error shows in the recovery view', async () => {
   const { app } = fake({
     phase: 'recovery',
     recovery: { kind: 'pending', paths: [], diff: 'New file: x', root: '/m' },
@@ -321,7 +321,7 @@ await test('an error shows in the recovery view', async () => {
   }
 });
 
-await test('a launch report shows every line, and a taller message ends with a row count', async () => {
+test('a launch report shows every line, and a taller message ends with a row count', async () => {
   const titles = [1, 2, 3].map((n) => `${n}`.repeat(80));
   const report = `These conversations need attention. Open each from /sessions in its directory:\n${titles
     .map((title) => `- ${title} in /work/project: unfinished memory changes`)
@@ -384,7 +384,7 @@ async function memoryApp(
   return { root, hook, seed, coordinator };
 }
 
-await test('/memory reads one commit even when main moves during the action', async () => {
+test('/memory reads one commit even when main moves during the action', async () => {
   const { hook, seed, coordinator } = await memoryApp();
   hook.current = async (command, run) => {
     const result = await run();
@@ -411,7 +411,7 @@ await test('/memory reads one commit even when main moves during the action', as
   }
 });
 
-await test('/memory shows a long note whose name holds a line break on one row, linked or not', async () => {
+test('/memory shows a long note whose name holds a line break on one row, linked or not', async () => {
   const { seed, coordinator } = await memoryApp();
   await writeFile(
     join(seed.root, 'global', `first\nsecond${'x'.repeat(100)}.md`),
@@ -437,7 +437,7 @@ await test('/memory shows a long note whose name holds a line break on one row, 
   }
 });
 
-await test('a note page shows a name that holds a line break on its title row', async () => {
+test('a note page shows a name that holds a line break on its title row', async () => {
   const { seed, coordinator } = await memoryApp();
   await writeFile(join(seed.root, 'global', 'first\nsecond.md'), 'A note.');
   await seed.commit('chore(memory): save a note');
@@ -462,7 +462,7 @@ await test('a note page shows a name that holds a line break on its title row', 
   }
 });
 
-await test('memory without a worktree shows no links, builds no worktree, and keeps history', async () => {
+test('memory without a worktree shows no links, builds no worktree, and keeps history', async () => {
   const { root, coordinator } = await memoryApp();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
   const row = (text: string) =>
@@ -503,7 +503,7 @@ await test('memory without a worktree shows no links, builds no worktree, and ke
   }
 });
 
-await test('a note page scrolls by rows and full pages and stops at its last row', async () => {
+test('a note page scrolls by rows and full pages and stops at its last row', async () => {
   const { seed, coordinator } = await memoryApp();
   await writeFile(
     join(seed.root, 'global', 'long.md'),
@@ -549,7 +549,7 @@ await test('a note page scrolls by rows and full pages and stops at its last row
   }
 });
 
-await test('e on a note page edits that note, letters typed with Ctrl, Option or Cmd leave it open, and the + entry edits project essentials', async () => {
+test('e on a note page edits that note, letters typed with Ctrl, Option or Cmd leave it open, and the + entry edits project essentials', async () => {
   const edited: string[] = [];
   const { coordinator } = await memoryApp(async (file) => {
     edited.push(file);
@@ -591,7 +591,7 @@ await test('e on a note page edits that note, letters typed with Ctrl, Option or
   }
 });
 
-await test('a note page links its relative Markdown targets beside the note once its worktree holds the revision', async () => {
+test('a note page links its relative Markdown targets beside the note once its worktree holds the revision', async () => {
   const { root, seed, coordinator } = await memoryApp();
   await writeFile(join(seed.root, 'global', 'index.md'), '- [Other](other.md)');
   await seed.commit('chore(memory): add index');
@@ -630,7 +630,7 @@ await test('a note page links its relative Markdown targets beside the note once
   }
 });
 
-await test('a note file name carrying a link sequence shows as plain text in the picker, on its page and in its notices', async () => {
+test('a note file name carrying a link sequence shows as plain text in the picker, on its page and in its notices', async () => {
   const { root, seed, coordinator } = await memoryApp();
   // a file name holds no slash, so a forged target can only be a local path. notices render Markdown, so the name forges Markdown links too
   await writeFile(

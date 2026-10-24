@@ -57,20 +57,14 @@ Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which 
 
 The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
 
-`pnpm test` runs the Vitest selection followed by the remaining Node tests. [scripts/test-suite.ts](scripts/test-suite.ts) owns the migrated-file selection and worker policy.
+`pnpm test` runs Vitest through the [migration launcher](scripts/test.ts). [scripts/test-suite.ts](scripts/test-suite.ts) owns suite selection and worker policy until the final runner cutover.
 
-Run a migrated file or one of its named tests with Vitest:
+Run a file or one of its named tests with Vitest:
 
 ```sh
 pnpm exec vitest run test/memory.test.ts
 pnpm exec vitest run test/coordinator-session.test.ts -t 'completion in a later turn'
-```
-
-Run remaining files through the [UI compiler preload](scripts/register.mjs):
-
-```sh
-pnpm exec node --import ./scripts/register.mjs --test test/coordinator-turns.test.ts
-pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='pending command context' test/coordinator-turns.test.ts
+pnpm exec vitest run test/coordinator-turns.test.ts -t '^pending command context waits until a prompt is dispatched > turn: connect$'
 ```
 
 Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.

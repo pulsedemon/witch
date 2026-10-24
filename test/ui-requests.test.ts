@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../src/ui/app.js';
@@ -27,7 +27,7 @@ const fileApproval = (id: string, title: string): UserRequest => ({
   ],
 });
 
-await test('approval diffs scroll and expand without responding', async () => {
+test('approval diffs scroll and expand without responding', async () => {
   const request = fileApproval('file-approval', 'proposal');
   request.diff!.unshift({
     path: '/work/old.txt',
@@ -80,7 +80,7 @@ await test('approval diffs scroll and expand without responding', async () => {
   }
 });
 
-await test('file approval expansion resets for the next request', async () => {
+test('file approval expansion resets for the next request', async () => {
   const { app, coordinator, calls } = fake({
     phase: 'running',
     requests: [fileApproval('first', 'first')],
@@ -110,7 +110,7 @@ await test('file approval expansion resets for the next request', async () => {
   }
 });
 
-await test('modified approval letters do not answer', async () => {
+test('modified approval letters do not answer', async () => {
   const { app, calls } = fake({ phase: 'running', requests: [approval] });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -132,7 +132,7 @@ for (const [name, keys, decision] of [
   ['Down, Down and Enter cancel', DOWN + DOWN + ENTER, 'cancel'],
   ['n declines', 'n', 'decline'],
 ] as const)
-  await test(`${name} an approval`, async () => {
+  test(`${name} an approval`, async () => {
     const { app, calls } = fake({ phase: 'running', requests: [approval] });
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
@@ -145,7 +145,7 @@ for (const [name, keys, decision] of [
     }
   });
 
-await test('two questions answered in one read each get their own option', async () => {
+test('two questions answered in one read each get their own option', async () => {
   const { app, calls } = fake({
     phase: 'running',
     requests: [
@@ -182,7 +182,7 @@ for (const [columns, body] of [
   [100, 98],
   [120, 83],
 ] as const)
-  await test(`a request wraps at the body width at ${columns} columns`, async () => {
+  test(`a request wraps at the body width at ${columns} columns`, async () => {
     const { app } = fake({
       phase: 'running',
       requests: [{ ...approval, detail: 'x'.repeat(body + 5) }],
@@ -201,7 +201,7 @@ for (const [columns, body] of [
     }
   });
 
-await test('a new request ignores keys for its first 500 ms', async () => {
+test('a new request ignores keys for its first 500 ms', async () => {
   const { app, coordinator, calls } = fake({
     phase: 'running',
     requests: [approval],
@@ -255,7 +255,7 @@ await test('a new request ignores keys for its first 500 ms', async () => {
   }
 });
 
-await test('a new request scrolls with PageDown before its other keys work', async () => {
+test('a new request scrolls with PageDown before its other keys work', async () => {
   const { app, calls } = fake({
     phase: 'running',
     requests: [
@@ -286,7 +286,7 @@ await test('a new request scrolls with PageDown before its other keys work', asy
   }
 });
 
-await test('Escape declines a question and the turn continues', async () => {
+test('Escape declines a question and the turn continues', async () => {
   const { app, calls } = fake({
     phase: 'running',
     requests: [
@@ -310,7 +310,7 @@ await test('Escape declines a question and the turn continues', async () => {
   }
 });
 
-await test('Ctrl+C cancels an idle question without exiting Witch', async () => {
+test('Ctrl+C cancels an idle question without exiting Witch', async () => {
   const { app, calls } = fake({
     phase: 'idle',
     requests: [
