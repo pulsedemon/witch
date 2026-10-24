@@ -33,8 +33,10 @@ await test('a fresh conversation receives committed memory without a handoff', a
     );
     assert.match(
       b.inputs.at(-1)!.prompt,
-      /preserves this directory across \/restart and only considers it for cleanup after a later macOS boot/,
+      /preserves this directory across \/restart/,
     );
+    assert.match(b.inputs.at(-1)!.prompt, /remaining users have ended/);
+    assert.match(b.inputs.at(-1)!.prompt, /Uncertain use delays cleanup/);
     assert.equal(a.inputs.length, 1);
   } finally {
     await coordinator.close();
