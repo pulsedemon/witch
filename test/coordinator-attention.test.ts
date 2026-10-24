@@ -178,9 +178,7 @@ for (const failed of [false, true])
       await first;
       await next();
       assert.equal(a.inputs.length, 2);
-      assert.ok(
-        a.inputs[1]!.prompt.endsWith('User request:\nsecond queued turn'),
-      );
+      assert.ok(a.inputs[1]!.prompt === 'second queued turn');
       assert.deepEqual(
         output.filter((data) => data.startsWith('\u001b]777;')),
         failed

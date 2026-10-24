@@ -97,6 +97,30 @@ for await (const line of lines) {
   }
 
   const reply = (result) => send({ id: request.id, result });
+  if (request.method === 'thread/inject_items') {
+    writeFileSync(file('context.json'), JSON.stringify(request.params));
+    if (mode === 'context-error')
+      send({
+        id: request.id,
+        error: { code: -32603, message: 'Context rejected' },
+      });
+    else if (mode === 'context-exit') process.exit(1);
+    else if (mode === 'context-held')
+      void (async () => {
+        await waitFor('release-context');
+        reply({});
+      })();
+    else reply({});
+    continue;
+  }
+  if (request.method === 'turn/start' && mode === 'context-start-error') {
+    writeFileSync(file('prompt.json'), JSON.stringify(request));
+    send({
+      id: request.id,
+      error: { code: -32603, message: 'Turn response lost' },
+    });
+    continue;
+  }
   if (request.method === 'thread/compact/start') {
     writeFileSync(file('compact.json'), JSON.stringify(request.params));
     reply({});

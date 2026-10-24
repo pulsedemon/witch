@@ -135,7 +135,4 @@ export async function stranded(
 
 /** each turn's prompt and spell, in the order the agent got them. */
 export const turns = (a: FixtureAgent) =>
-  a.inputs.map(({ prompt, skill }) => [
-    prompt.split('User request:\n')[1],
-    skill,
-  ]);
+  a.inputs.map(({ prompt, skill }) => [prompt, skill]);

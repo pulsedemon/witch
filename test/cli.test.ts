@@ -55,6 +55,11 @@ for (const [args, expected] of [
   [['--state-dir', ''], /--state-dir/],
   [['--state-dir', '--continue'], /--state-dir/],
   [['-v'], /^witch: Unknown option '-v'/],
+  [['--apply'], /--apply requires --recover-directory/],
+  [['--recover-directory', ''], /needs a saved directory/],
+  [['--recover-directory', '/old', '--continue'], /cannot include/],
+  [['--recover-directory', '/old', 'prompt'], /cannot include/],
+  [['--recover-directory', '/old'], /ENOENT/],
   [['hi'], /^witch: Witch needs an interactive terminal\.\n$/],
 ] as const) {
   test(`witch ${JSON.stringify(args)} exits 1 with a one-line error before opening the store`, async () => {

@@ -19,10 +19,10 @@ await test('handoff returns to the original native session with updated context,
     await coordinator.send(' Start the migration\n');
     const original = a.inputs[0]!.session;
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-    assert.match(b.inputs[0]!.prompt, /a: finish the migration/);
+    assert.match(b.inputs[0]!.context!, /a: finish the migration/);
     await coordinator.selectModel({ agent: 'a', id: 'a-model' });
     assert.equal(a.inputs.at(-1)!.session, original);
-    assert.match(a.inputs.at(-1)!.prompt, /b: finish the migration/);
+    assert.match(a.inputs.at(-1)!.context!, /b: finish the migration/);
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
     assert.equal(
       coordinator.snapshot.conversation?.title,
@@ -108,7 +108,7 @@ for (const resumed of [false, true])
         assert.equal(saved.id, id);
         assert.equal(saved.sessions.b!.requestedModel, 'b-big');
         assert.equal(saved.sessions.b!.effort, expectedEffort);
-        assert.match(b.inputs.at(-1)!.prompt, /a: finish the migration/);
+        assert.match(b.inputs.at(-1)!.context!, /a: finish the migration/);
         await coordinator.selectModel({ agent: 'a', id: 'a-big' });
         assert.equal(a.inputs.at(-1)!.session, source);
       } finally {
@@ -392,7 +392,7 @@ for (const stage of [
       else assert.notEqual(active.inputs[0]!.session, prior.id);
       assert.ok(active.inputs[0]!.prompt.includes('Resume manually'));
       assert.equal(
-        active.inputs[0]!.prompt.includes('Continue the migration'),
+        active.inputs[0]!.context!.includes('Continue the migration'),
         activated,
       );
       assert.equal(restarted.snapshot.conversation!.handoff, undefined);
@@ -439,11 +439,11 @@ await test('undelivered handoff context survives visiting another conversation a
   try {
     await coordinator.newConversation('a');
     await coordinator.send('Independent task');
-    assert.doesNotMatch(a.inputs.at(-1)!.prompt, /amber-195/);
+    assert.doesNotMatch(a.inputs.at(-1)!.context!, /amber-195/);
     await coordinator.selectConversation(conversation.id);
     b.interruptNext = true;
     await coordinator.send('Continue');
-    assert.match(b.inputs.at(-1)!.prompt, /amber-195/);
+    assert.match(b.inputs.at(-1)!.context!, /amber-195/);
     assert.ok(coordinator.snapshot.conversation!.handoff);
     b.interruptNext = true;
     await assert.rejects(
@@ -451,7 +451,7 @@ await test('undelivered handoff context survives visiting another conversation a
       /interrupted/,
     );
     await coordinator.send('Continue manually');
-    assert.match(b.inputs.at(-1)!.prompt, /amber-195/);
+    assert.match(b.inputs.at(-1)!.context!, /amber-195/);
     assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
   } finally {
     await coordinator.close();
@@ -787,7 +787,7 @@ await test('a prompt sent during a handoff waits and goes to the destination', a
     gate.open();
     await within(switching, 2000, 'the handoff');
     await until('the queued prompt', () =>
-      b.inputs.some(({ prompt }) => prompt.endsWith('User request:\nDuring')),
+      b.inputs.some(({ prompt }) => prompt === 'During'),
     );
   } finally {
     gate.open();

@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { chmod, mkdir, rm, writeFile, utimes } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+  utimes,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Coordinator } from '../src/core/coordinator.js';
@@ -10,6 +18,7 @@ import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
+import { recoverDirectory } from '../src/persistence/directory-recovery.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import {
   record,
@@ -21,6 +30,195 @@ import {
 import { passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+
+async function relocatedFixture() {
+  const f = await fixture();
+  await f.coordinator.close();
+  await f.git('init', '-b', 'main');
+  await f.git(
+    'remote',
+    'add',
+    'origin',
+    'https://example.invalid/directory-recovery.git',
+  );
+  const scope = await f.memory.scopePaths(f.project);
+  const destination = join(f.root, 'renamed project');
+  const move = async () => {
+    await rename(f.project, destination);
+    const report = await recoverDirectory(
+      f.store,
+      f.memory,
+      f.project,
+      destination,
+      true,
+    );
+    assert.equal(report.applied, true, report.blockers.join('\n'));
+  };
+  const coordinator = new Coordinator(f.store, f.memory, [
+    { adapter: f.a, executable: 'a' },
+    { adapter: f.b, executable: 'b' },
+  ]);
+  return { ...f, scope, destination, move, coordinator };
+}
+
+await test('recovered conversations reconnect with their saved IDs in the destination', async () => {
+  const f = await relocatedFixture();
+  for (const [id, agent, model, effort, date] of [
+    ['old-a', 'a', 'a-big', 'high', '2020-01-01'],
+    ['old-b', 'b', 'b-model', undefined, '2020-01-02'],
+  ] as const) {
+    const saved = record(id, f.project, agent);
+    saved.sessions[agent] = {
+      id: `native-${agent}`,
+      model,
+      requestedModel: model,
+      effort,
+      hasHistory: true,
+      deliveredProject: f.scope.project,
+    };
+    const files = await f.store.create(saved);
+    await files.append({
+      id: `history-${agent}`,
+      kind: 'assistant',
+      cwd: f.project,
+      text: `original ${agent}`,
+    });
+    await files.close();
+    await utimes(
+      join(f.root, 'state', 'conversations', id, 'history.jsonl'),
+      new Date(date),
+      new Date(date),
+    );
+  }
+  await f.move();
+  try {
+    await f.coordinator.initialize(f.destination, { continue: true });
+    assert.equal(f.coordinator.snapshot.conversation!.id, 'old-b');
+    assert.equal(f.coordinator.snapshot.native!.id, 'native-b');
+    assert.ok(
+      f.coordinator.snapshot.items.some(({ text }) => text === 'original b'),
+    );
+    assert.deepEqual(
+      (await f.coordinator.conversations()).map(({ id }) => id),
+      ['old-b', 'old-a'],
+    );
+    await f.coordinator.selectConversation('old-a');
+    assert.equal(f.coordinator.snapshot.native!.id, 'native-a');
+    assert.ok(
+      f.coordinator.snapshot.items.some(({ text }) => text === 'original a'),
+    );
+    for (const [agent, id, model, effort] of [
+      [f.a, 'old-a', 'a-big', 'high'],
+      [f.b, 'old-b', 'b-model', undefined],
+    ] as const) {
+      const options = agent.sessions.at(-1)!.options;
+      assert.deepEqual(
+        {
+          cwd: options.cwd,
+          resume: options.resume,
+          model: options.model,
+          effort: options.effort,
+          memoryDirectories: options.memoryDirectories,
+        },
+        {
+          cwd: f.destination,
+          resume: `native-${agent.id}`,
+          model,
+          effort,
+          memoryDirectories: [f.scope.global, f.scope.project].map((scope) =>
+            join(f.root, 'state', 'conversations', id, 'memory', scope),
+          ),
+        },
+      );
+      assert.equal(agent.inputs.length, 0);
+    }
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+await test('directory recovery preserves pending memory and keeps a new turn queued', async () => {
+  const f = await relocatedFixture();
+  const note = `${f.scope.project}/pending.md`;
+  const dirty = await stranded(f, { [note]: 'committed' });
+  const pending = 'pending edit';
+  await writeFile(join(dirty.memory.root, note), pending);
+  dirty.files.record.activity = {
+    ...activity()!,
+    baseRevision: await dirty.memory.revision(),
+  };
+  await dirty.files.save(dirty.files.record);
+  await dirty.files.close();
+  const before = await readRecord(f.root, dirty.id);
+  await f.move();
+  assert.deepEqual(
+    (await readRecord(f.root, dirty.id)).activity,
+    before.activity,
+  );
+  assert.equal(await readFile(join(dirty.memory.root, note), 'utf8'), pending);
+  try {
+    await f.coordinator.initialize(f.destination, { continue: true });
+    assert.equal(f.coordinator.snapshot.conversation!.id, dirty.id);
+    assert.equal(f.coordinator.snapshot.recovery?.kind, 'pending');
+    await f.coordinator.send('wait for memory recovery');
+    assert.equal(f.a.inputs.length, 0);
+    assert.deepEqual(f.coordinator.snapshot.queue, [
+      'wait for memory recovery',
+    ]);
+    assert.equal(
+      await readFile(join(dirty.memory.root, note), 'utf8'),
+      pending,
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+await test('a recovered conversation with missing native history keeps its ID and transcript', async () => {
+  const f = await relocatedFixture();
+  const saved = record('missing-native', f.project);
+  saved.sessions.a = {
+    id: 'original-native-id',
+    model: 'a-model',
+    hasHistory: true,
+    deliveredProject: f.scope.project,
+  };
+  const files = await f.store.create(saved);
+  await files.append({
+    id: 'prior',
+    kind: 'assistant',
+    cwd: f.project,
+    text: 'retained transcript',
+  });
+  await files.close();
+  await f.move();
+  const sessions = f.a.sessions.length;
+  f.a.beforeConnect = async ({ resume }) => {
+    if (resume === 'original-native-id')
+      throw new Error('No native history for original-native-id');
+  };
+  try {
+    await f.coordinator.initialize(f.destination, { continue: true });
+    assert.match(f.coordinator.snapshot.error ?? '', /No native history/);
+    assert.equal(
+      f.coordinator.snapshot.conversation!.sessions.a!.id,
+      'original-native-id',
+    );
+    assert.ok(
+      f.coordinator.snapshot.items.some(
+        ({ text }) => text === 'retained transcript',
+      ),
+    );
+    assert.equal(f.a.sessions.length, sessions);
+    assert.equal(f.a.inputs.length, 0);
+    assert.equal(
+      (await readRecord(f.root, 'missing-native')).sessions.a!.id,
+      'original-native-id',
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
 
 await test('startup failures leave an exit-capable error state whose lookups reject rather than throw', async () => {
   const { coordinator: original, root, memory, a } = await fixture();

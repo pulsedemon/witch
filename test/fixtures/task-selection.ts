@@ -18,7 +18,7 @@ export async function selectionTurn(t: TestContext, client: Client) {
     await sending;
   });
   await within(gate.entered, 5000, 'selection turn');
-  const context = client.a.inputs.at(-1)!.prompt;
+  const context = client.a.inputs.at(-1)!.context!;
   const turn = /^Selection turn: (.+)$/m.exec(context)?.[1];
   const prefix = /^Control command: (.+)$/m.exec(context)?.[1];
   assert.ok(turn);
