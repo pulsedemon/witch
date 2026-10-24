@@ -268,3 +268,38 @@ test('recovers a dead worker', async () => { await scratch('next-'); });
     await Promise.allSettled([dying, surviving]);
   }
 });
+
+for (const failure of [false, true])
+  await test(`setup restores clocks and spies after resource cleanup in a ${failure ? 'failing' : 'passing'} case`, async () => {
+    const f = await fixture();
+    await writeFile(
+      join(f.root, vitestFiles[0]!),
+      `import assert from 'node:assert/strict';
+import { appendFileSync } from 'node:fs';
+import { test, vi } from 'vitest';
+const realDate = Date;
+const target = { value: () => 'original' };
+const report = value => appendFileSync(process.env.MARKERS, 'setup:' + JSON.stringify(value) + '\\n');
+test('resource cleanup retains its mock state', async context => {
+  vi.useFakeTimers({ toFake: ['Date'], now: 1000 });
+  vi.spyOn(target, 'value').mockReturnValue('mocked');
+  context.onTestFinished(() => report({phase:'resource', value:target.value(), now:Date.now()}));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  ${failure ? "assert.fail('setup failure sentinel');" : ''}
+});
+test('the following case sees restored state', () => report({phase:'next', value:target.value(), sameDate:Date===realDate}));
+`,
+    );
+    const result = await f.run();
+    assert.equal(result.code, failure ? 1 : 0, result.output);
+    if (failure) assert.ok(result.output.includes('setup failure sentinel'));
+    assert.deepEqual(
+      result.markers
+        .filter((line) => line.startsWith('setup:'))
+        .map((line) => JSON.parse(line.slice('setup:'.length)) as unknown),
+      [
+        { phase: 'resource', value: 'mocked', now: 1000 },
+        { phase: 'next', value: 'original', sameDate: true },
+      ],
+    );
+  });
