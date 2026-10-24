@@ -6,6 +6,7 @@ export const vitestFiles: readonly string[] = [
   'test/claude-compaction.test.ts',
   'test/claude-diff.test.ts',
   'test/claude-shell.test.ts',
+  'test/claude-usage.test.ts',
   'test/claude.test.ts',
   'test/cli-desktop.test.ts',
   'test/cli.test.ts',
