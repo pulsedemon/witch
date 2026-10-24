@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, readFile, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { describe, test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import { editorEnvironment } from '../src/core/editor.js';
@@ -20,7 +20,7 @@ import {
 import { passThrough } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
 
-await test('a fresh conversation receives committed memory without a handoff', async () => {
+test('a fresh conversation receives committed memory without a handoff', async () => {
   const { coordinator, a, b } = await fixture();
   try {
     await coordinator.send('remember-port');
@@ -43,7 +43,7 @@ await test('a fresh conversation receives committed memory without a handoff', a
   }
 });
 
-await test('unfinished memory holds a prompt until recovery, which preserves the original attribution', async () => {
+test('unfinished memory holds a prompt until recovery, which preserves the original attribution', async () => {
   const { coordinator, memory, a, workspace, note } = await fixture();
   try {
     a.interruptNext = true;
@@ -68,7 +68,7 @@ await test('unfinished memory holds a prompt until recovery, which preserves the
   }
 });
 
-await test('discarding interrupted-turn memory resumes queued prompts', async () => {
+test('discarding interrupted-turn memory resumes queued prompts', async () => {
   const f = await fixture();
   const { coordinator, a } = f;
   try {
@@ -102,7 +102,7 @@ await test('discarding interrupted-turn memory resumes queued prompts', async ()
   }
 });
 
-await test('pending discard after a failed turn corrects memory on persisted resume', async () => {
+test('pending discard after a failed turn corrects memory on persisted resume', async () => {
   const f = await fixture();
   const gate = new TurnGate();
   try {
@@ -164,7 +164,7 @@ await test('pending discard after a failed turn corrects memory on persisted res
 });
 
 for (const decision of ['accept', 'discard'] as const) {
-  await test(`failed-turn ${decision} recovery holds queued prompts until resubmission`, async () => {
+  test(`failed-turn ${decision} recovery holds queued prompts until resubmission`, async () => {
     const { coordinator, a } = await fixture();
     const gate = new TurnGate();
     try {
@@ -199,7 +199,7 @@ for (const decision of ['accept', 'discard'] as const) {
   });
 }
 
-await test('memory another conversation publishes refreshes an existing session before its next turn', async () => {
+test('memory another conversation publishes refreshes an existing session before its next turn', async () => {
   const { coordinator, a, note, outsider } = await fixture();
   try {
     await coordinator.send('remember-port');
@@ -218,7 +218,7 @@ await test('memory another conversation publishes refreshes an existing session 
   }
 });
 
-await test('a successful irrelevant memory update advances its delivery cursor without a snapshot', async () => {
+test('a successful irrelevant memory update advances its delivery cursor without a snapshot', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('Initial task');
@@ -257,7 +257,7 @@ await test('a successful irrelevant memory update advances its delivery cursor w
 });
 
 for (const result of ['interrupted', 'failed'] as const) {
-  await test(`a reversed scoped update is corrected after the ${result} turn`, async () => {
+  test(`a reversed scoped update is corrected after the ${result} turn`, async () => {
     const f = await fixture();
     try {
       const note = await f.note();
@@ -300,7 +300,7 @@ for (const result of ['interrupted', 'failed'] as const) {
   });
 }
 
-await test('compaction rehydrates both scopes and invalidates references after partial updates', async () => {
+test('compaction rehydrates both scopes and invalidates references after partial updates', async () => {
   const f = await fixture();
   try {
     const note = await f.note();
@@ -357,7 +357,7 @@ await test('compaction rehydrates both scopes and invalidates references after p
   }
 });
 
-await test('overflow and concise writing guidance reach the active native prompt', async () => {
+test('overflow and concise writing guidance reach the active native prompt', async () => {
   const f = await fixture();
   try {
     const note = await f.note();
@@ -391,7 +391,7 @@ await test('overflow and concise writing guidance reach the active native prompt
   }
 });
 
-await test("a turn after an origin moves the project key resumes the session with the new key's memory and its snapshot", async () => {
+test("a turn after an origin moves the project key resumes the session with the new key's memory and its snapshot", async () => {
   const { coordinator, memory, a, notes, git } = await fixture();
   try {
     await git('init', '--quiet');
@@ -410,7 +410,7 @@ await test("a turn after an origin moves the project key resumes the session wit
   }
 });
 
-await test('a turn back on a project key gets its snapshot after an interrupted turn on another key', async () => {
+test('a turn back on a project key gets its snapshot after an interrupted turn on another key', async () => {
   const { coordinator, a, git } = await fixture();
   try {
     await git('init', '--quiet');
@@ -426,7 +426,7 @@ await test('a turn back on a project key gets its snapshot after an interrupted 
   }
 });
 
-await test('a reopened conversation skips the snapshot it was sent, unless its marker was saved without a project', async () => {
+test('a reopened conversation skips the snapshot it was sent, unless its marker was saved without a project', async () => {
   const { coordinator, a, root, reopen } = await fixture();
   const resend = async (prompt: string) => {
     const reopened = await reopen();
@@ -448,7 +448,7 @@ await test('a reopened conversation skips the snapshot it was sent, unless its m
   assert.match(await resend('Older'), /Accepted shared memory/);
 });
 
-await test("opening Witch moves the notes keyed by its checkout's path to the origin's project before a turn", async () => {
+test("opening Witch moves the notes keyed by its checkout's path to the origin's project before a turn", async () => {
   const { coordinator, memory, a, note, git, reopen } = await fixture();
   await git('init', '--quiet');
   await coordinator.send('remember-port');
@@ -463,7 +463,7 @@ await test("opening Witch moves the notes keyed by its checkout's path to the or
   }
 });
 
-await test('opening Witch on memory that conflicts with main leaves the move to recovery', async () => {
+test('opening Witch on memory that conflicts with main leaves the move to recovery', async () => {
   const context = await fixture();
   const { coordinator, a, notes, reopen, git, memory, workspace } = context;
   await git('init', '--quiet');
@@ -505,7 +505,7 @@ await test('opening Witch on memory that conflicts with main leaves the move to 
   }
 });
 
-await test('a git read that fails as Witch opens is reported once and leaves the conversation open', async () => {
+test('a git read that fails as Witch opens is reported once and leaves the conversation open', async () => {
   const { coordinator, project, git, reopen } = await fixture();
   await git('init', '--quiet');
   await coordinator.send('Start');
@@ -524,9 +524,9 @@ await test('a git read that fails as Witch opens is reported once and leaves the
   }
 });
 
-await test('an interrupted moved-project reconnect leaves the prompt queued without an error', async (t) => {
+describe('an interrupted moved-project reconnect leaves the prompt queued without an error', () => {
   for (const abort of [true, false])
-    await t.test(
+    test(
       abort ? 'adapter rejects' : 'adapter connects after interrupt',
       async () => {
         const { coordinator, a, git } = await fixture();
@@ -568,9 +568,9 @@ await test('an interrupted moved-project reconnect leaves the prompt queued with
     );
 });
 
-await test('an unrelated reconnect failure after interrupt remains visible', async (t) => {
+describe('an unrelated reconnect failure after interrupt remains visible', () => {
   for (const interrupt of [true, false])
-    await t.test(
+    test(
       interrupt ? 'ordinary failure after interrupt' : 'unsolicited abort',
       async () => {
         const { coordinator, a, git } = await fixture();
@@ -610,7 +610,7 @@ await test('an unrelated reconnect failure after interrupt remains visible', asy
     );
 });
 
-await test('recovery has one owner and shutdown waits for its accepted commit', async () => {
+test('recovery has one owner and shutdown waits for its accepted commit', async () => {
   const { coordinator, memory, a, workspace, note } = await fixture();
   a.interruptNext = true;
   await coordinator.send('remember-port');
@@ -624,7 +624,7 @@ await test('recovery has one owner and shutdown waits for its accepted commit', 
   assert.match(await memory.read(main, await note()), /4567/);
 });
 
-await test("the editor's environment drops TMPDIR and passes Node options under VS Code's names", () => {
+test("the editor's environment drops TMPDIR and passes Node options under VS Code's names", () => {
   const environment = editorEnvironment({
     PATH: '/bin',
     TMPDIR: '/scratch',
@@ -635,7 +635,7 @@ await test("the editor's environment drops TMPDIR and passes Node options under 
   assert.equal(environment.PATH, '/bin');
 });
 
-await test('editing a previously committed symlink never opens its external target', async () => {
+test('editing a previously committed symlink never opens its external target', async () => {
   let edits = 0;
   const {
     coordinator,
@@ -667,7 +667,7 @@ await test('editing a previously committed symlink never opens its external targ
   }
 });
 
-await test('memory edit and restore notices resolve their note against the memory worktree', async () => {
+test('memory edit and restore notices resolve their note against the memory worktree', async () => {
   const { coordinator, memory, workspace, note } = await fixture(
     async (path) => {
       await writeFile(path, 'Use port 9001.');
@@ -694,7 +694,7 @@ await test('memory edit and restore notices resolve their note against the memor
   }
 });
 
-await test('memory notices quote a note name on one line with its brackets escaped', async () => {
+test('memory notices quote a note name on one line with its brackets escaped', async () => {
   const { coordinator, memory } = await fixture(async (path) => {
     await writeFile(path, 'Use port 9001.');
   });
@@ -718,7 +718,7 @@ await test('memory notices quote a note name on one line with its brackets escap
 });
 
 for (const action of ['interrupt', 'close'] as const) {
-  await test(
+  test(
     `${action} cancels an open memory editor and preserves pending-write provenance`,
     { timeout: 5000 },
     async (t) => {
@@ -737,7 +737,7 @@ for (const action of ['interrupt', 'close'] as const) {
           opened.resolve();
           await stopped;
         });
-      t.after(() => coordinator.close());
+      t.onTestFinished(() => coordinator.close());
       const editing = assert.doesNotReject(coordinator.editMemory());
       await opened.promise;
       await Promise.all([coordinator[action](), editing]);
@@ -779,7 +779,7 @@ for (const action of ['interrupt', 'close'] as const) {
 }
 
 for (const interrupted of [true, false]) {
-  await test(
+  test(
     interrupted
       ? 'a memory editor failure during cancellation remains an error'
       : 'an unrequested editor abort remains an error',
@@ -796,7 +796,7 @@ for (const interrupted of [true, false]) {
         await finish.promise;
         throw failure;
       });
-      t.after(async () => {
+      t.onTestFinished(async () => {
         finish.resolve();
         await coordinator.close();
       });
@@ -842,7 +842,7 @@ function assertMemoryBaseline(prompt: string): void {
   assert.match(prompt, /missing notes no longer apply/);
 }
 
-await test('an agent-created nested repository is refused on accept and removed on discard', async () => {
+test('an agent-created nested repository is refused on accept and removed on discard', async () => {
   const { coordinator, a, workspace, note } = await fixture();
   try {
     a.interruptNext = true;
@@ -863,7 +863,7 @@ await test('an agent-created nested repository is refused on accept and removed 
   }
 });
 
-await test('a publish failure in settle is reported and the phase goes idle', async () => {
+test('a publish failure in settle is reported and the phase goes idle', async () => {
   const { coordinator, hook, memory } = await fixture();
   try {
     const before = await memory.resolve(main);
@@ -881,7 +881,7 @@ await test('a publish failure in settle is reported and the phase goes idle', as
   }
 });
 
-await test('a failed rebase abort stops in the error phase until restart', async () => {
+test('a failed rebase abort stops in the error phase until restart', async () => {
   const context = await fixture();
   const { coordinator, hook } = context;
   try {
@@ -905,7 +905,7 @@ await test('a failed rebase abort stops in the error phase until restart', async
 });
 
 for (const decision of ['keep', 'discard'] as const) {
-  await test(`recovery shows the blocked commit after a later local revert (${decision})`, async () => {
+  test(`recovery shows the blocked commit after a later local revert (${decision})`, async () => {
     const f = await fixture();
     try {
       await publishOutside(f, { 'global/n.md': 'one\n' });
@@ -932,7 +932,7 @@ for (const decision of ['keep', 'discard'] as const) {
   });
 }
 
-await test('keep mine publishes with the attribution of the conversation that kept its side', async () => {
+test('keep mine publishes with the attribution of the conversation that kept its side', async () => {
   const context = await fixture();
   const { coordinator, a, memory, notes } = context;
   const gate = new TurnGate();
@@ -958,7 +958,7 @@ await test('keep mine publishes with the attribution of the conversation that ke
   }
 });
 
-await test('two coordinators in two directories run turns at once and both publish', async () => {
+test('two coordinators in two directories run turns at once and both publish', async () => {
   const context = await fixture();
   const { root, store, memory } = context;
   const other = join(root, 'other');
@@ -1006,7 +1006,7 @@ await test('two coordinators in two directories run turns at once and both publi
   }
 });
 
-await test('discard mine after a conflict between two coordinators keeps the other side', async () => {
+test('discard mine after a conflict between two coordinators keeps the other side', async () => {
   const context = await fixture();
   const { store, memory, project, notes } = context;
   const agents = [context.a, new FixtureAgent('a')];
@@ -1069,7 +1069,7 @@ await test('discard mine after a conflict between two coordinators keeps the oth
   }
 });
 
-await test('discard after an activated handoff corrects both native sessions', async (t) => {
+test('discard after an activated handoff corrects both native sessions', async () => {
   const f = await fixture();
   try {
     await publishOutside(f, {
@@ -1081,10 +1081,9 @@ await test('discard after an activated handoff corrects both native sessions', a
     const source = f.a.sessions.at(-1)!;
     const sourceId = source.session.info.id;
     const send = source.session.send.bind(source.session);
-    const writing = t.mock.method(
-      source.session,
-      'send',
-      async (...args: Parameters<typeof send>) => {
+    const writing = vi
+      .spyOn(source.session, 'send')
+      .mockImplementation(async (...args: Parameters<typeof send>) => {
         await writeFile(
           join(f.workspace().root, 'global/MEMORY.md'),
           'Rejected global preference 71.',
@@ -1097,13 +1096,12 @@ await test('discard after an activated handoff corrects both native sessions', a
           'global/reference.md': 'Winning reference detail 127.',
         });
         return send(...args);
-      },
-    );
+      });
     await assert.rejects(
       f.coordinator.selectModel({ agent: 'b', id: 'b-model' }),
       /memory changes conflict/,
     );
-    writing.mock.restore();
+    writing.mockRestore();
     assert.equal(f.coordinator.snapshot.conversation?.agent, 'b');
     assert.equal(f.coordinator.snapshot.recovery?.kind, 'conflict');
     assert.equal(f.b.inputs.length, 0);
@@ -1121,13 +1119,13 @@ await test('discard after an activated handoff corrects both native sessions', a
       assert.doesNotMatch(prompt, /Rejected/);
     }
   } finally {
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     await f.coordinator.close();
   }
 });
 
 for (const kind of ['pending', 'conflict'] as const) {
-  await test(`a failed ${kind} discard preserves memory delivery until retry`, async () => {
+  test(`a failed ${kind} discard preserves memory delivery until retry`, async () => {
     const f = await fixture();
     const gate = new TurnGate();
     try {
@@ -1172,7 +1170,7 @@ for (const kind of ['pending', 'conflict'] as const) {
   });
 }
 
-await test('the launch sweep publishes what it can and reports the rest in one message', async () => {
+test('the launch sweep publishes what it can and reports the rest in one message', async () => {
   const context = await fixture();
   const { root, memory, store } = context;
   await context.coordinator.close();
@@ -1241,7 +1239,7 @@ await test('the launch sweep publishes what it can and reports the rest in one m
   }
 });
 
-await test('a sweep failure after the claim is reported and releases the claim', async () => {
+test('a sweep failure after the claim is reported and releases the claim', async () => {
   const context = await fixture();
   const { root, store, memory } = context;
   await context.coordinator.close();
@@ -1267,7 +1265,7 @@ await test('a sweep failure after the claim is reported and releases the claim',
   }
 });
 
-await test('a switch target with a broken worktree leaves the current conversation untouched', async () => {
+test('a switch target with a broken worktree leaves the current conversation untouched', async () => {
   const context = await fixture();
   const { coordinator, store, a } = context;
   try {
@@ -1288,7 +1286,7 @@ await test('a switch target with a broken worktree leaves the current conversati
   }
 });
 
-await test('opening a conversation aborts its stopped rebase before classifying it', async () => {
+test('opening a conversation aborts its stopped rebase before classifying it', async () => {
   const context = await fixture();
   const { coordinator } = context;
   try {
@@ -1309,7 +1307,7 @@ await test('opening a conversation aborts its stopped rebase before classifying 
   }
 });
 
-await test('a native session that replaces the stored one gets the memory snapshot again', async () => {
+test('a native session that replaces the stored one gets the memory snapshot again', async () => {
   const { coordinator, a } = await fixture();
   try {
     await coordinator.send('remember-port');
@@ -1326,7 +1324,7 @@ await test('a native session that replaces the stored one gets the memory snapsh
   }
 });
 
-await test('the memory view reads accepted memory, and links into the worktree only while it holds that revision', async () => {
+test('the memory view reads accepted memory, and links into the worktree only while it holds that revision', async () => {
   const { coordinator, memory, workspace, notes, outsider } = await fixture();
   try {
     const other = await outsider();

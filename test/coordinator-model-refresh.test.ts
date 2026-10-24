@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import type { BackgroundCommand, Model } from '../src/agents/types.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { ConversationStore } from '../src/persistence/store.js';
@@ -7,7 +7,7 @@ import { TurnGate } from './fixtures/agent.js';
 import { fixture, readRecord } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 
-await test('interrupting inactive model discovery keeps the connected session', async () => {
+test('interrupting inactive model discovery keeps the connected session', async () => {
   const { coordinator, a, b, root } = await fixture(undefined, (a) => {
     a.connectUsage = { context: 0.75 };
     a.skills = [{ name: 'spell', description: 'Current spell' }];
@@ -114,7 +114,7 @@ await test('interrupting inactive model discovery keeps the connected session', 
   }
 });
 
-await test('interrupting an active model read discards its result', async () => {
+test('interrupting an active model read discards its result', async () => {
   const { coordinator, a } = await fixture();
   const entered = Promise.withResolvers<void>();
   const models = Promise.withResolvers<Model[]>();
@@ -158,7 +158,7 @@ await test('interrupting an active model read discards its result', async () => 
   }
 });
 
-await test('a queued turn cannot turn a canceled refresh into a successful result', async () => {
+test('a queued turn cannot turn a canceled refresh into a successful result', async () => {
   const { coordinator, a } = await fixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -198,7 +198,7 @@ await test('a queued turn cannot turn a canceled refresh into a successful resul
   }
 });
 
-await test('interrupting model refresh settlement keeps the session and cancels the picker', async (t) => {
+test('interrupting model refresh settlement keeps the session and cancels the picker', async () => {
   const { coordinator, a } = await fixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -207,9 +207,7 @@ await test('interrupting model refresh settlement keeps the session and cancels 
   let held = false;
   let refreshing: Promise<boolean> | undefined;
   try {
-    t.mock.method(
-      ConversationStore.prototype,
-      'flush',
+    vi.spyOn(ConversationStore.prototype, 'flush').mockImplementation(
       async function (this: ConversationStore) {
         await flush.call(this);
         if (held || this.record.id !== id) return;
