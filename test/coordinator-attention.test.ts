@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { setImmediate as next } from 'node:timers/promises';
 import type { ConversationRecord } from '../src/core/state.js';
 import { ConversationStore } from '../src/persistence/store.js';
@@ -9,22 +9,23 @@ import { fixture, readRecord } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import { within } from './fixtures/within.js';
 
-await test('completion identifies the successful activity only after its final save', async (t) => {
+test('completion identifies the successful activity only after its final save', async () => {
   const { coordinator, a, root } = await fixture();
   const gate = new TurnGate();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const save = ConversationStore.prototype.save;
-  const saving = t.mock.method(
-    ConversationStore.prototype,
-    'save',
-    function (this: ConversationStore, record: ConversationRecord) {
+  const saving = vi
+    .spyOn(ConversationStore.prototype, 'save')
+    .mockImplementation(function (
+      this: ConversationStore,
+      record: ConversationRecord,
+    ) {
       if (record.activity) return save.call(this, record);
-      saving.mock.restore();
+      saving.mockRestore();
       entered.resolve();
       return release.promise.then(() => save.call(this, record));
-    },
-  );
+    });
   try {
     a.gate = gate;
     const sending = coordinator.send('remember-port');
@@ -43,26 +44,27 @@ await test('completion identifies the successful activity only after its final s
     assert.equal(stored.activity, undefined);
     assert.equal('completedTurn' in stored, false);
   } finally {
-    saving.mock.restore();
+    saving.mockRestore();
     release.resolve();
     gate.open();
     await coordinator.close();
   }
 });
 
-await test('a rejected final save publishes no completion', async (t) => {
+test('a rejected final save publishes no completion', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   const save = ConversationStore.prototype.save;
-  const saving = t.mock.method(
-    ConversationStore.prototype,
-    'save',
-    function (this: ConversationStore, record: ConversationRecord) {
+  const saving = vi
+    .spyOn(ConversationStore.prototype, 'save')
+    .mockImplementation(function (
+      this: ConversationStore,
+      record: ConversationRecord,
+    ) {
       if (record.activity) return save.call(this, record);
-      saving.mock.restore();
+      saving.mockRestore();
       return Promise.reject(new Error('final save rejected'));
-    },
-  );
+    });
   try {
     a.gate = gate;
     const sending = coordinator.send('successful native result');
@@ -72,14 +74,14 @@ await test('a rejected final save publishes no completion', async (t) => {
     assert.match(coordinator.snapshot.error!, /final save rejected/);
     assert.equal(coordinator.snapshot.completedTurn, undefined);
   } finally {
-    saving.mock.restore();
+    saving.mockRestore();
     gate.open();
     await coordinator.close();
   }
 });
 
 for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
-  await test(`${outcome} turns clear the preceding successful completion`, async () => {
+  test(`${outcome} turns clear the preceding successful completion`, async () => {
     const { coordinator, a, hook } = await fixture();
     try {
       await coordinator.send('previous success');
@@ -114,7 +116,7 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
     }
   });
 
-await test('conversation adoption clears completion and the internal handoff summary stays silent', async () => {
+test('conversation adoption clears completion and the internal handoff summary stays silent', async () => {
   const { coordinator, a, b } = await fixture();
   const summary = new TurnGate();
   const continuation = new TurnGate();
@@ -157,7 +159,7 @@ await test('conversation adoption clears completion and the internal handoff sum
 });
 
 for (const failed of [false, true])
-  await test(`terminal completion follows the final queued ${failed ? 'failure' : 'success'}`, async () => {
+  test(`terminal completion follows the final queued ${failed ? 'failure' : 'success'}`, async () => {
     const { coordinator, a } = await fixture();
     const gate = new TurnGate();
     const output: string[] = [];
@@ -194,7 +196,7 @@ for (const failed of [false, true])
     }
   });
 
-await test('clearing a publication report without another turn does not replay completion', async () => {
+test('clearing a publication report without another turn does not replay completion', async () => {
   const { coordinator, a, hook } = await fixture();
   const output: string[] = [];
   const stop = watchTerminal(coordinator, undefined, (data) =>

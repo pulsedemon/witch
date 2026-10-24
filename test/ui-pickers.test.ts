@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { JobWatch } from '../src/core/jobs.js';
@@ -17,7 +17,7 @@ import {
 } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
 
-await test('Escape during model refresh keeps chat usable', async () => {
+test('Escape during model refresh keeps chat usable', async () => {
   const { coordinator, a, b } = await coordinatorFixture();
   const entered = Promise.withResolvers<AbortSignal>();
   const aborted = Promise.withResolvers<void>();
@@ -82,7 +82,7 @@ for (const [choice, keys, effort, outcome] of [
   ['Keep current effort', ENTER, undefined, 'without an effort'],
   ['a listed effort', `high${ENTER}`, 'high', 'with that effort'],
 ] as const)
-  await test(`/model with ${choice} selects the model ${outcome}`, async () => {
+  test(`/model with ${choice} selects the model ${outcome}`, async () => {
     const { app, calls } = fake({
       models: [
         { agent: 'a', id: 'm', label: 'Model M', efforts: ['low', 'high'] },
@@ -109,7 +109,7 @@ for (const [choice, keys, effort, outcome] of [
     }
   });
 
-await test('a model id carrying a link sequence shows as plain text in the effort picker title', async () => {
+test('a model id carrying a link sequence shows as plain text in the effort picker title', async () => {
   const { app } = fake({
     models: [
       {
@@ -139,7 +139,7 @@ await test('a model id carrying a link sequence shows as plain text in the effor
 });
 
 for (const typed of ['gpt-5.1', 'gpt-6'])
-  await test(`typing ${typed} in the model picker selects exactly it`, async () => {
+  test(`typing ${typed} in the model picker selects exactly it`, async () => {
     const { app, calls } = fake({
       models: ['gpt-5.1-codex', 'gpt-5.1'].map((id) => ({
         agent: 'a',
@@ -164,7 +164,7 @@ for (const typed of ['gpt-5.1', 'gpt-6'])
     }
   });
 
-await test('a long picker shows as many choices as its rows hold', async () => {
+test('a long picker shows as many choices as its rows hold', async () => {
   const { app } = fake({
     models: Array.from({ length: 40 }, (_, n) => ({
       agent: 'a',
@@ -202,7 +202,7 @@ for (const [typed, call] of [
   ],
   ['/agent b', ['send', '/agent b']],
 ] as const)
-  await test(`${typed} passes its arguments`, async () => {
+  test(`${typed} passes its arguments`, async () => {
     const { app, calls } = fake({});
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
@@ -218,7 +218,7 @@ for (const [typed, call] of [
   });
 
 for (const effort of ['low', undefined])
-  await test(`duplicate model IDs select the chosen runtime with ${effort ?? 'omitted'} effort`, async () => {
+  test(`duplicate model IDs select the chosen runtime with ${effort ?? 'omitted'} effort`, async () => {
     const { app, calls } = fake({
       models: [
         { agent: 'a', id: 'shared', label: 'Same', efforts: ['high'] },
@@ -250,7 +250,7 @@ for (const effort of ['low', undefined])
     }
   });
 
-await test('closing the combined picker sends no selection and help advertises no agent command', async () => {
+test('closing the combined picker sends no selection and help advertises no agent command', async () => {
   const { app, calls } = fake({
     models: [{ agent: 'a', id: 'm', label: 'M', efforts: [] }],
   });
@@ -276,7 +276,7 @@ await test('closing the combined picker sends no selection and help advertises n
   }
 });
 
-await test('the composer takes no typing while a switch shows the conversation it leaves, also after a second switch is refused, and takes it once the next one opens', async () => {
+test('the composer takes no typing while a switch shows the conversation it leaves, also after a second switch is refused, and takes it once the next one opens', async () => {
   const { coordinator, app, calls } = fake({});
   const switching = Promise.withResolvers<void>();
   coordinator.newConversation = async (...args: unknown[]) => {
@@ -320,7 +320,7 @@ await test('the composer takes no typing while a switch shows the conversation i
   }
 });
 
-await test('a prompt sent in the same read as a switch stays in the draft of the conversation it was typed in', async () => {
+test('a prompt sent in the same read as a switch stays in the draft of the conversation it was typed in', async () => {
   const { coordinator, app, calls } = fake({});
   const switching = Promise.withResolvers<void>();
   coordinator.newConversation = async (...args: unknown[]) => {
@@ -351,7 +351,7 @@ await test('a prompt sent in the same read as a switch stays in the draft of the
   }
 });
 
-await test('the composer takes typing again once a switch fails', async () => {
+test('the composer takes typing again once a switch fails', async () => {
   const { coordinator, app, calls } = fake({});
   coordinator.newConversation = async (...args: unknown[]) => {
     calls.push(['newConversation', ...args]);
@@ -377,7 +377,7 @@ for (const [name, keys] of [
   ['a filter and Enter', `sess${ENTER}`],
   ['a filter, Down past it and Enter', `saved${DOWN}${ENTER}`],
 ] as const)
-  await test(`${name} in one read pick the selected command`, async () => {
+  test(`${name} in one read pick the selected command`, async () => {
     const { app, calls } = fake({});
     const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
     try {
@@ -396,7 +396,7 @@ for (const [name, keys] of [
     }
   });
 
-await test('a conversation picked in /sessions keeps the composer from typing until it opens', async () => {
+test('a conversation picked in /sessions keeps the composer from typing until it opens', async () => {
   const { coordinator, app, calls } = fake({});
   const switching = Promise.withResolvers<void>();
   coordinator.selectConversation = async (...args: unknown[]) => {
@@ -433,7 +433,7 @@ await test('a conversation picked in /sessions keeps the composer from typing un
   }
 });
 
-await test('a filter resets the picker selection within the same read', async () => {
+test('a filter resets the picker selection within the same read', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -448,7 +448,7 @@ await test('a filter resets the picker selection within the same read', async ()
   }
 });
 
-await test('reopening the picker resets its selection', async () => {
+test('reopening the picker resets its selection', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -469,7 +469,7 @@ await test('reopening the picker resets its selection', async () => {
 });
 
 for (const sameRead of [false, true])
-  await test(
+  test(
     sameRead
       ? 'reopening commands clears the filter before Enter in the same read'
       : 'reopening commands clears the visible filter and submits the first command',
@@ -513,7 +513,7 @@ for (const sameRead of [false, true])
     },
   );
 
-await test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group, reporting a stop that fails', async () => {
+test('/jobs lists each job on one row with its CPU, age and command, also after the terminal narrows, and stops the chosen group, reporting a stop that fails', async () => {
   const { app, calls } = fake({});
   const jobs: Pick<JobWatch, 'list' | 'stop'> = {
     list: async () => [
@@ -578,7 +578,7 @@ await test('/jobs lists each job on one row with its CPU, age and command, also 
   }
 });
 
-await test('/jobs without jobs or with none listed says none are running', async () => {
+test('/jobs without jobs or with none listed says none are running', async () => {
   for (const jobs of [
     undefined,
     { list: async () => [], stop: async () => {} },
@@ -600,7 +600,7 @@ await test('/jobs without jobs or with none listed says none are running', async
   }
 });
 
-await test('/jobs reports a list that fails', async () => {
+test('/jobs reports a list that fails', async () => {
   const { app, calls } = fake({});
   const jobs = {
     list: () => Promise.reject(new Error('ps failed')),
@@ -620,7 +620,7 @@ await test('/jobs reports a list that fails', async () => {
   }
 });
 
-await test('/compact dispatches a local operation and refuses arguments without sending a prompt', async () => {
+test('/compact dispatches a local operation and refuses arguments without sending a prompt', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -641,7 +641,7 @@ await test('/compact dispatches a local operation and refuses arguments without 
   }
 });
 
-await test('/compact refuses multiline arguments without sending a prompt', async () => {
+test('/compact refuses multiline arguments without sending a prompt', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {

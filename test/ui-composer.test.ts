@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import chalk from 'chalk';
 import { createElement } from 'react';
@@ -37,7 +37,7 @@ async function launched(snapshot: Partial<Snapshot>, files?: string[]) {
   return { ...context, ui };
 }
 
-await test('Down and Enter in one read run the second matching skill', async () => {
+test('Down and Enter in one read run the second matching skill', async () => {
   const { ui, calls } = await launched({ skills });
   try {
     ui.stdin.write(`/x${DOWN}${ENTER}`);
@@ -48,7 +48,7 @@ await test('Down and Enter in one read run the second matching skill', async () 
   }
 });
 
-await test('typing after Down in the same read resets the selection', async () => {
+test('typing after Down in the same read resets the selection', async () => {
   const { ui, calls } = await launched({ skills });
   try {
     ui.stdin.write(`/${DOWN}x${ENTER}`);
@@ -59,7 +59,7 @@ await test('typing after Down in the same read resets the selection', async () =
   }
 });
 
-await test('a slash command nothing matches is sent as typed', async () => {
+test('a slash command nothing matches is sent as typed', async () => {
   const { ui, calls } = await launched({ skills });
   try {
     ui.stdin.write(`/zzz${ENTER}`);
@@ -70,7 +70,7 @@ await test('a slash command nothing matches is sent as typed', async () => {
   }
 });
 
-await test('Tab completes a skill and the arguments typed in the same read follow it', async () => {
+test('Tab completes a skill and the arguments typed in the same read follow it', async () => {
   const { ui, calls } = await launched({ skills });
   try {
     ui.stdin.write(`/x-o${TAB}arg${ENTER}`);
@@ -81,7 +81,7 @@ await test('Tab completes a skill and the arguments typed in the same read follo
   }
 });
 
-await test('Escape closes the list during a turn, a new token reopens it, and Escape then interrupts', async () => {
+test('Escape closes the list during a turn, a new token reopens it, and Escape then interrupts', async () => {
   const { ui, calls } = await launched({ skills, phase: 'running' });
   const open = () => ui.text().includes('/x-one First skill');
   try {
@@ -106,7 +106,7 @@ await test('Escape closes the list during a turn, a new token reopens it, and Es
   }
 });
 
-await test('Tab inserts a file into the middle of a draft', async () => {
+test('Tab inserts a file into the middle of a draft', async () => {
   const { ui, calls } = await launched({}, ['src/app.ts', 'lib/x.ts']);
   try {
     ui.stdin.write(`see @sr now${LEFT.repeat(4)}`);
@@ -121,7 +121,7 @@ await test('Tab inserts a file into the middle of a draft', async () => {
   }
 });
 
-await test('Enter inserts a file without sending', async () => {
+test('Enter inserts a file without sending', async () => {
   const { ui, calls } = await launched({}, ['src/app.ts']);
   try {
     ui.stdin.write('see @sr');
@@ -137,7 +137,7 @@ await test('Enter inserts a file without sending', async () => {
   }
 });
 
-await test('Up chooses in an open list without moving the cursor, and moves it once a space closes the list', async () => {
+test('Up chooses in an open list without moving the cursor, and moves it once a space closes the list', async () => {
   const { ui } = await launched({}, ['src/app.ts', 'src/apx.ts']);
   try {
     ui.stdin.write('abc');
@@ -161,7 +161,7 @@ await test('Up chooses in an open list without moving the cursor, and moves it o
   }
 });
 
-await test('tool focus hides a remounted draft list, which shows once focus returns', async () => {
+test('tool focus hides a remounted draft list, which shows once focus returns', async () => {
   const { ui, coordinator } = await launched({ skills });
   const conversation = coordinator.snapshot.conversation!;
   const open = (id: string) =>
@@ -185,7 +185,7 @@ await test('tool focus hides a remounted draft list, which shows once focus retu
   }
 });
 
-await test('Ctrl+P over an open list gives the picker its keys', async () => {
+test('Ctrl+P over an open list gives the picker its keys', async () => {
   const { ui, calls } = await launched({ skills });
   try {
     ui.stdin.write('/x');
@@ -204,7 +204,7 @@ await test('Ctrl+P over an open list gives the picker its keys', async () => {
   }
 });
 
-await test('the composer grows with its text up to half the body, sizes a ! command beside its !, and shrinks after a send', async () => {
+test('the composer grows with its text up to half the body, sizes a ! command beside its !, and shrinks after a send', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const composerRows = () => {
@@ -233,7 +233,7 @@ await test('the composer grows with its text up to half the body, sizes a ! comm
   }
 });
 
-await test('an open list of 8 or more keeps the newest transcript row and its own last row in view', async () => {
+test('an open list of 8 or more keeps the newest transcript row and its own last row in view', async () => {
   const items = Array.from({ length: 60 }, (_, index) => ({
     id: `n${index}`,
     kind: 'notice' as const,
@@ -258,7 +258,7 @@ await test('an open list of 8 or more keeps the newest transcript row and its ow
   }
 });
 
-await test('a skill named like a Witch command is left out, since the command runs instead', async () => {
+test('a skill named like a Witch command is left out, since the command runs instead', async () => {
   const { ui } = await launched({
     skills: [{ name: 'help', description: 'Native help' }],
   });
@@ -271,7 +271,7 @@ await test('a skill named like a Witch command is left out, since the command ru
   }
 });
 
-await test('list rows drop a link forged in a skill description or a file name', async () => {
+test('list rows drop a link forged in a skill description or a file name', async () => {
   const forged = (text: string) => forgedLink('https://evil.example', text);
   const skill = await launched({
     skills: [{ name: 'x-evil', description: `see ${forged('docs')}` }],
@@ -292,7 +292,7 @@ await test('list rows drop a link forged in a skill description or a file name',
   }
 });
 
-await test('a skill description with a line break stays on its list row', async () => {
+test('a skill description with a line break stays on its list row', async () => {
   const { ui } = await launched({
     skills: [{ name: 'x-wrapped', description: 'first\nsecond' }],
   });
@@ -309,7 +309,7 @@ await test('a skill description with a line break stays on its list row', async 
 const POTION = '38;2;163;230;53';
 const VIOLET = '38;2;168;85;247';
 
-await test('a draft starting with ! draws the border potion green and opens no file list, and Backspace over the ! brings violet and the list back', async () => {
+test('a draft starting with ! draws the border potion green and opens no file list, and Backspace over the ! brings violet and the list back', async () => {
   // Ink colors borders through the default chalk, which has no color under the test runner
   const level = chalk.level;
   chalk.level = 3;
@@ -338,7 +338,7 @@ await test('a draft starting with ! draws the border potion green and opens no f
   }
 });
 
-await test('a ! command is sent and recorded with its !, and a lone ! sends nothing and stays in the draft', async () => {
+test('a ! command is sent and recorded with its !, and a lone ! sends nothing and stays in the draft', async () => {
   const { app, calls } = fake({});
   const { store, added } = prompts([]);
   const ui = show(

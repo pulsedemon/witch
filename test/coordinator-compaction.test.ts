@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { Workspace } from '../src/memory/workspace.js';
 import { fixture, readRecord } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { within } from './fixtures/within.js';
 
-await test('manual compaction preserves the conversation and makes persisted resume receive full accepted memory', async () => {
+test('manual compaction preserves the conversation and makes persisted resume receive full accepted memory', async () => {
   const f = await fixture();
   const c = f.coordinator;
   try {
@@ -62,7 +62,7 @@ await test('manual compaction preserves the conversation and makes persisted res
   }
 });
 
-await test('automatic native replacement cannot be undone by successful ordinary-turn finalization', async () => {
+test('automatic native replacement cannot be undone by successful ordinary-turn finalization', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('remember-port');
@@ -93,7 +93,7 @@ for (const outcome of [
   'failed',
   'replaced then cancelled',
 ] as const) {
-  await test(`manual compaction ${outcome} holds queued input until explicit user action`, async () => {
+  test(`manual compaction ${outcome} holds queued input until explicit user action`, async () => {
     const f = await fixture();
     const gate = new TurnGate();
     try {
@@ -141,7 +141,7 @@ for (const outcome of [
 }
 
 for (const outcome of ['cancelled', 'failed'] as const) {
-  await test(`a ${outcome} compaction keeps hook memory pending for recovery`, async () => {
+  test(`a ${outcome} compaction keeps hook memory pending for recovery`, async () => {
     const f = await fixture();
     const gate = new TurnGate();
     try {
@@ -180,7 +180,7 @@ for (const outcome of ['cancelled', 'failed'] as const) {
   });
 }
 
-await test('a successful compaction whose hook conflicts with accepted memory holds later input', async () => {
+test('a successful compaction whose hook conflicts with accepted memory holds later input', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('remember:initial');
@@ -204,7 +204,7 @@ await test('a successful compaction whose hook conflicts with accepted memory ho
   }
 });
 
-await test('manual compaction without native history sends nothing', async () => {
+test('manual compaction without native history sends nothing', async () => {
   const f = await fixture();
   try {
     f.a.sessions[0]!.session.info.hasHistory = false;
@@ -218,23 +218,19 @@ await test('manual compaction without native history sends nothing', async () =>
   }
 });
 
-await test('an interrupt before compaction delivery sends nothing', async (t) => {
+test('an interrupt before compaction delivery sends nothing', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('seed');
     const begin = Workspace.prototype.begin;
-    t.mock.method(
-      Workspace.prototype,
-      'begin',
-      async function (
-        this: Workspace,
-        ...args: Parameters<Workspace['begin']>
-      ) {
-        const result = await begin.apply(this, args);
-        await f.coordinator.interrupt();
-        return result;
-      },
-    );
+    vi.spyOn(Workspace.prototype, 'begin').mockImplementation(async function (
+      this: Workspace,
+      ...args: Parameters<Workspace['begin']>
+    ) {
+      const result = await begin.apply(this, args);
+      await f.coordinator.interrupt();
+      return result;
+    });
     await f.coordinator.compact();
     assert.deepEqual(f.a.compactions, []);
     assert.equal(f.a.inputs.length, 1);
@@ -244,7 +240,7 @@ await test('an interrupt before compaction delivery sends nothing', async (t) =>
   }
 });
 
-await test('compaction preserves active background records and pending handoff context', async () => {
+test('compaction preserves active background records and pending handoff context', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('seed');
@@ -279,7 +275,7 @@ await test('compaction preserves active background records and pending handoff c
 });
 
 for (const usage of [79, 80, undefined]) {
-  await test(`queued work at ${usage ?? 'unknown'} percent makes one scheduling decision before delivery`, async () => {
+  test(`queued work at ${usage ?? 'unknown'} percent makes one scheduling decision before delivery`, async () => {
     const f = await fixture();
     try {
       await f.coordinator.send('seed');
@@ -308,7 +304,7 @@ for (const usage of [79, 80, undefined]) {
   });
 }
 
-await test('automatic compaction awaits fresh usage and preserves original input when interrupted during the read', async () => {
+test('automatic compaction awaits fresh usage and preserves original input when interrupted during the read', async () => {
   const f = await fixture();
   const read = Promise.withResolvers<number>();
   const entered = Promise.withResolvers<void>();
@@ -336,7 +332,7 @@ await test('automatic compaction awaits fresh usage and preserves original input
 });
 
 for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
-  await test(`automatic compaction ${outcome} preserves delivery order for input received meanwhile`, async () => {
+  test(`automatic compaction ${outcome} preserves delivery order for input received meanwhile`, async () => {
     const f = await fixture();
     const gate = new TurnGate();
     try {
@@ -372,7 +368,7 @@ for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
   });
 }
 
-await test('automatic compaction does not deliver its batch over a memory publication conflict', async () => {
+test('automatic compaction does not deliver its batch over a memory publication conflict', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('remember:initial');
@@ -397,7 +393,7 @@ await test('automatic compaction does not deliver its batch over a memory public
 });
 
 for (const prompt of ['/review exact target', '!printf exact-command']) {
-  await test(`${prompt} compacts before its native delivery`, async () => {
+  test(`${prompt} compacts before its native delivery`, async () => {
     const f = await fixture(undefined, (a) => {
       a.skills = [{ name: 'review', description: 'Review' }];
     });
@@ -442,7 +438,7 @@ for (const prompt of ['/review exact target', '!printf exact-command']) {
   });
 }
 
-await test('a resumed native context sample schedules compaction and a model with no sample does not', async () => {
+test('a resumed native context sample schedules compaction and a model with no sample does not', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('seed');
@@ -473,7 +469,7 @@ await test('a resumed native context sample schedules compaction and a model wit
 });
 
 for (const interrupted of [false, true]) {
-  await test(`a command whose native history changes refreshes memory before its reply${interrupted ? ' and still honors interruption' : ''}`, async () => {
+  test(`a command whose native history changes refreshes memory before its reply${interrupted ? ' and still honors interruption' : ''}`, async () => {
     const f = await fixture();
     try {
       await f.coordinator.send('remember-port');

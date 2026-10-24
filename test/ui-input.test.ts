@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { act, createElement, type ReactElement } from 'react';
 import { render } from 'ink-testing-library';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Input } from '../src/ui/input.js';
 import { Request } from '../src/ui/request.js';
@@ -44,7 +44,7 @@ const unmount = (ui: { unmount: () => void }) =>
 /** passes the 500 ms in which a new request ignores keys */
 const ready = () => act(() => delay(600));
 
-await test('the terminal composer keeps a bracketed paste unsent until Enter', async () => {
+test('the terminal composer keeps a bracketed paste unsent until Enter', async () => {
   const sent: string[] = [];
   const ui = await mount(
     createElement(Input, {
@@ -69,7 +69,7 @@ await test('the terminal composer keeps a bracketed paste unsent until Enter', a
   }
 });
 
-await test('pasted controls are removed without hiding or dropping following text', async () => {
+test('pasted controls are removed without hiding or dropping following text', async () => {
   const changes: [string, number][] = [];
   const sent: string[] = [];
   const ui = await mount(
@@ -96,7 +96,7 @@ await test('pasted controls are removed without hiding or dropping following tex
   }
 });
 
-await test('filtered pastes preserve Unicode and line breaks at the current cursor', async () => {
+test('filtered pastes preserve Unicode and line breaks at the current cursor', async () => {
   const changes: [string, number][] = [];
   const sent: string[] = [];
   const ui = await mount(
@@ -136,7 +136,7 @@ await test('filtered pastes preserve Unicode and line breaks at the current curs
   }
 });
 
-await test('the visible terminal cursor reaches the current insertion point without an extra keystroke', async () => {
+test('the visible terminal cursor reaches the current insertion point without an extra keystroke', async () => {
   class InputStream extends PassThrough {
     isTTY = true;
     setRawMode() {
@@ -251,7 +251,7 @@ await test('the visible terminal cursor reaches the current insertion point with
   }
 });
 
-await test('native secret questions mask the display and preserve commas in a single answer, and a multiple answer splits', async () => {
+test('native secret questions mask the display and preserve commas in a single answer, and a multiple answer splits', async () => {
   const answers: unknown[] = [];
   const ui = await mount(
     createElement(Request, {
@@ -295,7 +295,7 @@ await test('native secret questions mask the display and preserve commas in a si
   }
 });
 
-await test("a question's answer fills the request's width", async () => {
+test("a question's answer fills the request's width", async () => {
   const ui = await mount(
     createElement(Request, {
       width: 40,
@@ -320,7 +320,7 @@ await test("a question's answer fills the request's width", async () => {
   }
 });
 
-await test('MCP form submissions validate required fields, types and constraints before responding', async () => {
+test('MCP form submissions validate required fields, types and constraints before responding', async () => {
   const schema = {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
@@ -396,7 +396,7 @@ await test('MCP form submissions validate required fields, types and constraints
   }
 });
 
-await test('an MCP form whose schema names draft-07 validates the answer', async () => {
+test('an MCP form whose schema names draft-07 validates the answer', async () => {
   const sent: UserResponse[] = [];
   const ui = await mount(
     createElement(Request, {
@@ -434,7 +434,7 @@ await test('an MCP form whose schema names draft-07 validates the answer', async
   }
 });
 
-await test('a validation error quoting a schema property name cannot carry a link of its own', async () => {
+test('a validation error quoting a schema property name cannot carry a link of its own', async () => {
   const ui = await mount(
     createElement(Request, {
       width: 100,
@@ -470,7 +470,7 @@ await test('a validation error quoting a schema property name cannot carry a lin
   }
 });
 
-await test('browser elicitation confirms without JSON form content', async () => {
+test('browser elicitation confirms without JSON form content', async () => {
   const sent: UserResponse[] = [];
   const ui = await mount(
     createElement(Request, {
@@ -507,7 +507,7 @@ const OPT_RIGHT = [OPT, '\u001bf'];
 const OPT_DELETE = [OPT, '\u001b[127;3u'];
 const OPT_FORWARD_DELETE = [OPT, '\u001b[3;3~'];
 
-await test('Cmd and Option keys edit by line and word as Ghostty sends them, and a secret answer ignores Option', async () => {
+test('Cmd and Option keys edit by line and word as Ghostty sends them, and a secret answer ignores Option', async () => {
   const sent: string[] = [];
   const onSubmit = (value: string) => {
     sent.push(value);
@@ -584,7 +584,7 @@ await test('Cmd and Option keys edit by line and word as Ghostty sends them, and
   }
 });
 
-await test('Cmd+Delete clears one wrapped row a press, then joins the line to the one above', async () => {
+test('Cmd+Delete clears one wrapped row a press, then joins the line to the one above', async () => {
   const values: string[] = [];
   const ui = await mount(
     createElement(Input, {
@@ -615,7 +615,7 @@ await test('Cmd+Delete clears one wrapped row a press, then joins the line to th
   }
 });
 
-await test('Cmd+Delete with the cursor inside a restored C1 sequence deletes to the row start', async () => {
+test('Cmd+Delete with the cursor inside a restored C1 sequence deletes to the row start', async () => {
   const values: string[] = [];
   const ui = await mount(
     createElement(Input, {
@@ -637,7 +637,7 @@ await test('Cmd+Delete with the cursor inside a restored C1 sequence deletes to 
   }
 });
 
-await test('Cmd+← and Cmd+Delete inside a restored C1 sequence never pass the cursor', async () => {
+test('Cmd+← and Cmd+Delete inside a restored C1 sequence never pass the cursor', async () => {
   const changes: [string, number][] = [];
   const value = 'abcd\u009b31mxyz';
   const ui = await mount(
@@ -666,7 +666,7 @@ await test('Cmd+← and Cmd+Delete inside a restored C1 sequence never pass the 
   }
 });
 
-await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is drawn on', async () => {
+test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor is drawn on', async () => {
   const mounted: { unmount: () => void }[] = [];
   const typed = async (width: number, text: string) => {
     const cursors: number[] = [];
@@ -741,7 +741,7 @@ await test('Cmd+← and Cmd+→ stop at the edges of the wrapped row the cursor 
   }
 });
 
-await test('a shell prompt draws its ! apart from the text, keeps the cursor after it, and a delete at the text start takes it', async () => {
+test('a shell prompt draws its ! apart from the text, keeps the cursor after it, and a delete at the text start takes it', async () => {
   const sent: string[] = [];
   const ui = await mount(
     createElement(Input, {

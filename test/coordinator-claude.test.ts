@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentSession, TurnResult } from '../src/agents/types.js';
@@ -35,7 +35,7 @@ for (const [entry, route, failures] of [
   ['steered', 'switch', 1],
   ['initial', 'reconnect', 2],
 ] as const) {
-  await test(
+  test(
     failures === 2
       ? 'a recovered command record survives another proven-unsent dispatch'
       : `an unsent command record survives failed native dispatch (${entry}, ${route})`,
@@ -170,7 +170,7 @@ for (const [entry, route, failures] of [
 }
 
 for (const dispatch of [true, false])
-  await test(
+  test(
     dispatch
       ? 'a Claude dispatch failure displays its transport cause once'
       : 'a Claude user interruption retains its result and notice',
@@ -233,7 +233,7 @@ for (const dispatch of [true, false])
     },
   );
 
-await test('an unread shell result survives reconnect as context without rerunning its command', async () => {
+test('an unread shell result survives reconnect as context without rerunning its command', async () => {
   const { coordinator, cwd, args } = await claudeCoordinator(
     'coordinator-reporting',
   );
@@ -302,7 +302,7 @@ for (const mode of [
   'interrupted shell',
   'native reconnect',
 ]) {
-  await test(
+  test(
     mode === 'native reconnect'
       ? 'an unsent command record survives native reconnect'
       : `an unsent command record survives conversation replacement (${mode})`,
@@ -471,7 +471,7 @@ async function backgroundCoordinator() {
 }
 
 for (const interrupted of [false, true]) {
-  await test(
+  test(
     interrupted
       ? 'interrupting that follow-up keeps its memory pending'
       : 'a steered follow-up retains memory ownership across native idle',
@@ -583,7 +583,7 @@ for (const interrupted of [false, true]) {
   );
 }
 
-await test('a refused steered prompt remains in the transcript', async () => {
+test('a refused steered prompt remains in the transcript', async () => {
   const f = await backgroundCoordinator();
   try {
     const uuid = await f.steer('refused follow-up');

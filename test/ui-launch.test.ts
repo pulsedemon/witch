@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
@@ -11,7 +11,7 @@ import { show, fake } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 import { fixture, record } from './fixtures/coordinator.js';
 
-await test('startup reports missing conversation directories without blocking the initial prompt', async () => {
+test('startup reports missing conversation directories without blocking the initial prompt', async () => {
   const f = await fixture();
   await f.coordinator.close();
   const missing = join(f.root, 'missing checkout');
@@ -59,7 +59,7 @@ await test('startup reports missing conversation directories without blocking th
 });
 
 for (const unreadable of [false, true]) {
-  await test(`startup ${unreadable ? 'inspection errors' : 'missing-directory notices'} do not become saved conversation history`, async () => {
+  test(`startup ${unreadable ? 'inspection errors' : 'missing-directory notices'} do not become saved conversation history`, async () => {
     const f = await fixture();
     const previous = f.coordinator.snapshot.conversation!.id;
     try {
@@ -129,7 +129,7 @@ for (const unreadable of [false, true]) {
 }
 
 for (const cleanup of [false, true]) {
-  await test(`an initial prompt is sent once when ${cleanup ? 'merge cleanup' : 'the load'} ends idle with nothing reported`, async () => {
+  test(`an initial prompt is sent once when ${cleanup ? 'merge cleanup' : 'the load'} ends idle with nothing reported`, async () => {
     const { app, coordinator, calls } = fake({ phase: 'starting' });
     const ui = show(
       createElement(App, {
@@ -165,7 +165,7 @@ for (const cleanup of [false, true]) {
   });
 }
 
-await test('a prompt sent while the load connects goes after the initial prompt, which stays out of the draft', async () => {
+test('a prompt sent while the load connects goes after the initial prompt, which stays out of the draft', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
   const ui = show(
     createElement(App, {
@@ -213,7 +213,7 @@ for (const [name, update, focusTools] of [
   ],
   ['a load that ends with tools focused', { phase: 'idle' }, true],
 ] as const) {
-  await test(`an initial prompt stays in the composer after ${name}`, async () => {
+  test(`an initial prompt stays in the composer after ${name}`, async () => {
     const { app, coordinator, calls } = fake({ phase: 'starting' });
     const ui = show(
       createElement(App, {
@@ -247,7 +247,7 @@ for (const [name, update, focusTools] of [
   });
 }
 
-await test('an initial prompt that comes back to the composer goes ahead of a draft typed while connecting', async () => {
+test('an initial prompt that comes back to the composer goes ahead of a draft typed while connecting', async () => {
   const { app, coordinator } = fake({ phase: 'starting' });
   const ui = show(
     createElement(App, {
@@ -272,7 +272,7 @@ await test('an initial prompt that comes back to the composer goes ahead of a dr
   }
 });
 
-await test('queued prompts left at idle or in an error come back ahead of the draft, also while a view covers the composer', async () => {
+test('queued prompts left at idle or in an error come back ahead of the draft, also while a view covers the composer', async () => {
   for (const [phase, covered] of [
     ['idle', false],
     ['idle', true],
@@ -304,7 +304,7 @@ await test('queued prompts left at idle or in an error come back ahead of the dr
   }
 });
 
-await test('the composer takes typing while an open conversation connects, and none before the load opens one', async () => {
+test('the composer takes typing while an open conversation connects, and none before the load opens one', async () => {
   for (const open of [true, false]) {
     const { app } = fake({
       phase: 'starting',

@@ -5,7 +5,7 @@ import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
@@ -51,7 +51,7 @@ const notices = (coordinator: Coordinator) =>
     .filter((item) => item.kind === 'notice')
     .map((item) => item.text);
 
-await test('a merge cleanup holds the phase, a prompt sent during it runs after it, and its notice says what it did', async () => {
+test('a merge cleanup holds the phase, a prompt sent during it runs after it, and its notice says what it did', async () => {
   const { coordinator, a, project } = await fixture();
   try {
     await gitIn(project, 'init', '-q', '-b', 'feat/x');
@@ -79,7 +79,7 @@ await test('a merge cleanup holds the phase, a prompt sent during it runs after 
   }
 });
 
-await test('a turn that ends with a prompt queued runs that prompt before the merge cleanup', async () => {
+test('a turn that ends with a prompt queued runs that prompt before the merge cleanup', async () => {
   const { coordinator, a, project } = await fixture();
   await gitIn(project, 'init', '-q', '-b', 'feat/x');
   await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
@@ -121,7 +121,7 @@ await test('a turn that ends with a prompt queued runs that prompt before the me
   }
 });
 
-await test("a merge cleanup waits for another Witch's turn in its directory, but not for one whose agent has exited or isn't recorded, or one elsewhere", async () => {
+test("a merge cleanup waits for another Witch's turn in its directory, but not for one whose agent has exited or isn't recorded, or one elsewhere", async () => {
   const { coordinator, store, memory, project } = await fixture();
   const agent = new FixtureAgent('a');
   const other = new Coordinator(store, memory, [
@@ -167,7 +167,7 @@ await test("a merge cleanup waits for another Witch's turn in its directory, but
   }
 });
 
-await test('a blocked merge cleanup retries after a peer turn ends without a repository update', async () => {
+test('a blocked merge cleanup retries after a peer turn ends without a repository update', async () => {
   const { coordinator, root, project, store, memory } = await fixture();
   const agent = new FixtureAgent('a');
   const peer = new Coordinator(store, memory, [
@@ -250,7 +250,7 @@ await test('a blocked merge cleanup retries after a peer turn ends without a rep
   }
 });
 
-await test("a merge cleanup waits for another Witch's turn anywhere in its checkout, but not in a sibling directory that shares its name's prefix", async () => {
+test("a merge cleanup waits for another Witch's turn anywhere in its checkout, but not in a sibling directory that shares its name's prefix", async () => {
   const { coordinator, store, memory, project } = await fixture();
   const other = new Coordinator(store, memory, [
     { adapter: new FixtureAgent('a'), executable: 'a' },
@@ -294,7 +294,7 @@ await test("a merge cleanup waits for another Witch's turn anywhere in its check
   }
 });
 
-await test("a merge cleanup waits while a conversation record can't be read", async () => {
+test("a merge cleanup waits while a conversation record can't be read", async () => {
   const { coordinator, store, project } = await fixture();
   try {
     await gitIn(project, 'init', '-q', '-b', 'feat/x');
@@ -317,7 +317,7 @@ await test("a merge cleanup waits while a conversation record can't be read", as
   }
 });
 
-await test('a merge cleanup leaves a checkout that changed alone, and says nothing', async () => {
+test('a merge cleanup leaves a checkout that changed alone, and says nothing', async () => {
   const { coordinator, project } = await fixture();
   try {
     await gitIn(project, 'init', '-q', '-b', 'feat/x');
@@ -335,7 +335,7 @@ await test('a merge cleanup leaves a checkout that changed alone, and says nothi
   }
 });
 
-await test('a partial cleanup failure reaches the coordinator without a success notice', async () => {
+test('a partial cleanup failure reaches the coordinator without a success notice', async () => {
   const { coordinator, root, project } = await fixture();
   const previousPath = process.env.PATH;
   try {
@@ -402,7 +402,7 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
   }
 });
 
-await test('merge cleanup preserves its notice when the install is absent, belongs to another project, is on another branch, has diverged or is locked', async () => {
+test('merge cleanup preserves its notice when the install is absent, belongs to another project, is on another branch, has diverged or is locked', async () => {
   for (const variant of ['b', 'a', 'diverged', 'none', 'busy'] as const) {
     const { coordinator, root, project } = await fixture();
     const previousPath = process.env.PATH;
@@ -492,7 +492,7 @@ await test('merge cleanup preserves its notice when the install is absent, belon
   }
 });
 
-await test("a merge cleanup stops before switching when another Witch's turn starts in its checkout during the fetch", async () => {
+test("a merge cleanup stops before switching when another Witch's turn starts in its checkout during the fetch", async () => {
   const { coordinator, store, memory, root, project } = await fixture();
   const agent = new FixtureAgent('a');
   const other = new Coordinator(store, memory, [

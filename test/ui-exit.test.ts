@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../src/ui/app.js';
@@ -8,7 +8,7 @@ import { until } from './fixtures/within.js';
 
 // /ex runs from the list; a trailing space opens no list, so /quit resolves as an alias in submit
 for (const typed of ['/ex', '/quit '])
-  await test(`${typed.trim()} exits without sending a prompt`, async () => {
+  test(`${typed.trim()} exits without sending a prompt`, async () => {
     const { app, calls } = fake({});
     let exits = 0;
     const ui = show(
@@ -31,7 +31,7 @@ for (const typed of ['/ex', '/quit '])
     }
   });
 
-await test('/restart restarts without exiting or sending a prompt', async () => {
+test('/restart restarts without exiting or sending a prompt', async () => {
   const { app, calls } = fake({});
   let exits = 0;
   let restarts = 0;
@@ -63,7 +63,7 @@ for (const [phase, outcome, exits, interrupts] of [
   ['idle', 'exits', 1, 0],
   ['running', 'interrupts', 0, 1],
 ] as const)
-  await test(`Ctrl+C while ${phase} ${outcome}`, async () => {
+  test(`Ctrl+C while ${phase} ${outcome}`, async () => {
     const { app, calls } = fake({ phase });
     let exited = 0;
     const ui = show(
@@ -88,7 +88,7 @@ for (const [phase, outcome, exits, interrupts] of [
     }
   });
 
-await test('Ctrl+C while closing quits instead of interrupting again', async () => {
+test('Ctrl+C while closing quits instead of interrupting again', async () => {
   const { app, coordinator, calls } = fake({});
   let exits = 0;
   const ui = show(

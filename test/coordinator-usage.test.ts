@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { identifyProcess } from '../src/persistence/process.js';
 import { fixture, readRecord } from './fixtures/coordinator.js';
 
-await test('usage process registration preserves the main identity and ignores reports after its conversation closes', async () => {
+test('usage process registration preserves the main identity and ignores reports after its conversation closes', async () => {
   const { coordinator, a, root, tracked } = await fixture();
   const helper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
   try {

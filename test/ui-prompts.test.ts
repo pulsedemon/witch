@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../src/ui/app.js';
@@ -17,7 +17,7 @@ import {
 } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
 
-await test('Enter during a turn sends the draft and empties the composer', async () => {
+test('Enter during a turn sends the draft and empties the composer', async () => {
   const { app, calls } = fake({ phase: 'running' });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -35,7 +35,7 @@ await test('Enter during a turn sends the draft and empties the composer', async
   }
 });
 
-await test('queued prompts show above the activity row with a hint, and ↑ on the first line takes them back ahead of the draft, where ↑ on a later line moves the cursor', async () => {
+test('queued prompts show above the activity row with a hint, and ↑ on the first line takes them back ahead of the draft, where ↑ on a later line moves the cursor', async () => {
   const { app, calls } = fake({
     phase: 'running',
     queue: ['one', 'two\nlines'],
@@ -74,7 +74,7 @@ await test('queued prompts show above the activity row with a hint, and ↑ on t
   }
 });
 
-await test('accepting failed-turn memory returns queued prompts ahead of the draft', async () => {
+test('accepting failed-turn memory returns queued prompts ahead of the draft', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   const ui = show(createElement(App, { coordinator, onExit: () => {} }));
@@ -123,7 +123,7 @@ await test('accepting failed-turn memory returns queued prompts ahead of the dra
   }
 });
 
-await test('a queue longer than the free rows shows its first prompts and keeps the composer in view', async () => {
+test('a queue longer than the free rows shows its first prompts and keeps the composer in view', async () => {
   const { app } = fake({
     phase: 'running',
     queue: Array.from({ length: 60 }, (_, index) => `prompt ${index}`),
@@ -142,7 +142,7 @@ await test('a queue longer than the free rows shows its first prompts and keeps 
   }
 });
 
-await test('↑ in an open list moves its selection and leaves the queue', async () => {
+test('↑ in an open list moves its selection and leaves the queue', async () => {
   const { app, calls } = fake({ phase: 'running', queue: ['one'] });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -158,7 +158,7 @@ await test('↑ in an open list moves its selection and leaves the queue', async
   }
 });
 
-await test('Tab and ↑ in one read move through tools and leave the queue', async () => {
+test('Tab and ↑ in one read move through tools and leave the queue', async () => {
   const { app, calls } = fake({
     phase: 'running',
     items: tools('first'),
@@ -177,7 +177,7 @@ await test('Tab and ↑ in one read move through tools and leave the queue', asy
   }
 });
 
-await test('↑ with nothing queued and no earlier prompts leaves the draft as typed', async () => {
+test('↑ with nothing queued and no earlier prompts leaves the draft as typed', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -193,7 +193,7 @@ await test('↑ with nothing queued and no earlier prompts leaves the draft as t
   }
 });
 
-await test('↑ on the first line shows older prompts from this directory with the cursor at the end, and ↓ on the last line newer ones with the cursor at the start, back to the draft', async () => {
+test('↑ on the first line shows older prompts from this directory with the cursor at the end, and ↓ on the last line newer ones with the cursor at the start, back to the draft', async () => {
   const { app } = fake({});
   const { store } = prompts(['newer\nlines', 'older']);
   const ui = show(
@@ -222,7 +222,7 @@ await test('↑ on the first line shows older prompts from this directory with t
   }
 });
 
-await test('an edit to a recalled prompt survives browsing and is sent and recorded, the recalled prompt stays as it was, and browsing then starts at the newest', async () => {
+test('an edit to a recalled prompt survives browsing and is sent and recorded, the recalled prompt stays as it was, and browsing then starts at the newest', async () => {
   const { app, calls } = fake({});
   const { store, added } = prompts(['first', 'second']);
   const ui = show(
@@ -253,7 +253,7 @@ await test('an edit to a recalled prompt survives browsing and is sent and recor
   }
 });
 
-await test('a prompt and a Witch command are recorded once each, and neither a blank send nor a repeat of the newest is', async () => {
+test('a prompt and a Witch command are recorded once each, and neither a blank send nor a repeat of the newest is', async () => {
   const { app, calls } = fake({});
   const { store, added } = prompts([]);
   const ui = show(
@@ -289,7 +289,7 @@ await test('a prompt and a Witch command are recorded once each, and neither a b
   }
 });
 
-await test('↑ takes queued prompts back before it shows earlier ones, and ↓ returns to them', async () => {
+test('↑ takes queued prompts back before it shows earlier ones, and ↓ returns to them', async () => {
   const { app, calls } = fake({ phase: 'running', queue: ['queued'] });
   const { store } = prompts(['earlier']);
   const ui = show(
@@ -309,7 +309,7 @@ await test('↑ takes queued prompts back before it shows earlier ones, and ↓ 
   }
 });
 
-await test('prompts that come back mid-browse end browsing and go ahead of the draft typed before it', async () => {
+test('prompts that come back mid-browse end browsing and go ahead of the draft typed before it', async () => {
   const { app, coordinator } = fake({});
   const { store } = prompts(['one']);
   const ui = show(
@@ -337,7 +337,7 @@ await test('prompts that come back mid-browse end browsing and go ahead of the d
   }
 });
 
-await test('an initial prompt sent mid-browse leaves the browsed prompt in place without a list, and comes back between it and the draft', async () => {
+test('an initial prompt sent mid-browse leaves the browsed prompt in place without a list, and comes back between it and the draft', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
   const { store } = prompts(['/mo', 'older']);
   const ui = show(
@@ -372,7 +372,7 @@ await test('an initial prompt sent mid-browse leaves the browsed prompt in place
   }
 });
 
-await test('an initial prompt sent after browsing back to the draft is the first prompt ↑ shows', async () => {
+test('an initial prompt sent after browsing back to the draft is the first prompt ↑ shows', async () => {
   const { app, coordinator, calls } = fake({ phase: 'starting' });
   const { store } = prompts(['newest', 'older']);
   const ui = show(
@@ -406,7 +406,7 @@ await test('an initial prompt sent after browsing back to the draft is the first
   }
 });
 
-await test('a recalled prompt opens no completion list until it is edited, even with the cursor in its file token, so ↑ goes on to older prompts', async () => {
+test('a recalled prompt opens no completion list until it is edited, even with the cursor in its file token, so ↑ goes on to older prompts', async () => {
   const { app } = fake({}, ['src/a.ts']);
   const { store } = prompts(['@src/a.ts\nnext', '/mo', 'older']);
   const ui = show(
@@ -436,7 +436,7 @@ await test('a recalled prompt opens no completion list until it is edited, even 
   }
 });
 
-await test('a conversation switch starts browsing again at the newest prompt as recorded, and the conversation left gets back the draft typed before browsing', async () => {
+test('a conversation switch starts browsing again at the newest prompt as recorded, and the conversation left gets back the draft typed before browsing', async () => {
   const { app, coordinator } = fake({});
   const { store } = prompts(['one', 'two']);
   const conversation = coordinator.snapshot.conversation!;

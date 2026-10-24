@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { Coordinator } from '../src/core/coordinator.js';
@@ -54,7 +54,7 @@ const completedEdit = {
   ],
 };
 
-await test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
+test('Tab, Down and Enter in one read expand a tool instead of submitting the draft, and Enter collapses it', async () => {
   const { app, calls } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -84,7 +84,7 @@ await test('Tab, Down and Enter in one read expand a tool instead of submitting 
   }
 });
 
-await test('a manually expanded tool stays open when its project diff arrives', async () => {
+test('a manually expanded tool stays open when its project diff arrives', async () => {
   const { app, coordinator } = fake({
     phase: 'running',
     items: [pendingEdit],
@@ -113,7 +113,7 @@ await test('a manually expanded tool stays open when its project diff arrives', 
   }
 });
 
-await test('a manual collapse survives a project diff and batched toggles use the previous choice', async () => {
+test('a manual collapse survives a project diff and batched toggles use the previous choice', async () => {
   const { app, coordinator } = fake({
     phase: 'running',
     items: [pendingEdit],
@@ -152,7 +152,7 @@ await test('a manual collapse survives a project diff and batched toggles use th
   }
 });
 
-await test('a conversation switch resets the tool selection within the next read', async () => {
+test('a conversation switch resets the tool selection within the next read', async () => {
   const { app, coordinator } = fake({ items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -177,7 +177,7 @@ await test('a conversation switch resets the tool selection within the next read
   }
 });
 
-await test('two page keys in one read scroll two pages, PageDown back to the bottom follows output again, and PageUp scrolls a request back', async () => {
+test('two page keys in one read scroll two pages, PageDown back to the bottom follows output again, and PageUp scrolls a request back', async () => {
   const { app, coordinator } = fake({
     items: [long],
   });
@@ -227,7 +227,7 @@ await test('two page keys in one read scroll two pages, PageDown back to the bot
 const wheelUp = '\u001b[<64;10;10M';
 const wheelDown = '\u001b[<65;10;10M';
 
-await test('the wheel scrolls the transcript a row a step, and back at the bottom follows output again', async () => {
+test('the wheel scrolls the transcript a row a step, and back at the bottom follows output again', async () => {
   const { app } = fake({
     items: [long],
   });
@@ -249,7 +249,7 @@ await test('the wheel scrolls the transcript a row a step, and back at the botto
   }
 });
 
-await test('the viewport keeps the blank after an image across resizes', async () => {
+test('the viewport keeps the blank after an image across resizes', async () => {
   const placements: string[] = [];
   const graphics = new Graphics((data) => {
     if (data.includes('a=p,')) placements.push(data);
@@ -317,7 +317,7 @@ await test('the viewport keeps the blank after an image across resizes', async (
   }
 });
 
-await test('the wheel scrolls a page and a request by rows', async () => {
+test('the wheel scrolls a page and a request by rows', async () => {
   const { app, coordinator } = fake({});
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
@@ -395,7 +395,7 @@ function drag(
   ui.stdin.write(left('release', ...to));
 }
 
-await test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from above the transcript, the composer or the sidebar selects nothing', async () => {
+test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from above the transcript, the composer or the sidebar selects nothing', async () => {
   const words =
     'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
   const { app } = fake({
@@ -483,7 +483,7 @@ await test('a drag over the transcript highlights it and Cmd+C copies it with wr
   }
 });
 
-await test('a drag inside the view leaves it where it is, on its first and last rows too', async () => {
+test('a drag inside the view leaves it where it is, on its first and last rows too', async () => {
   const { app } = fake({
     items: [long],
   });
@@ -511,7 +511,7 @@ await test('a drag inside the view leaves it where it is, on its first and last 
   }
 });
 
-await test('copying a wrapped tool title keeps the space its wrap trimmed', async () => {
+test('copying a wrapped tool title keeps the space its wrap trimmed', async () => {
   const title =
     'echo alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';
   const { app } = fake({
@@ -533,7 +533,7 @@ await test('copying a wrapped tool title keeps the space its wrap trimmed', asyn
   }
 });
 
-await test('copying across a diff joins its rows with line breaks', async () => {
+test('copying across a diff joins its rows with line breaks', async () => {
   const { app } = fake({
     items: [
       {
@@ -569,7 +569,7 @@ await test('copying across a diff joins its rows with line breaks', async () => 
   }
 });
 
-await test('copying across a wrapped diff line breaks before its continuation', async () => {
+test('copying across a wrapped diff line breaks before its continuation', async () => {
   const { app } = fake({
     items: [
       {
@@ -607,7 +607,7 @@ await test('copying across a wrapped diff line breaks before its continuation', 
   }
 });
 
-await test('a wrapped title row the wrap changed beyond trimming joins the rows beside it with a space', async () => {
+test('a wrapped title row the wrap changed beyond trimming joins the rows beside it with a space', async () => {
   // the wrap drops the space after the zero-width space, so the title's second row is not found in it
   const title = `${'a'.repeat(53)} \u00a0\u200b ${'b'.repeat(55)} tail`;
   const { app } = fake({
@@ -632,7 +632,7 @@ await test('a wrapped title row the wrap changed beyond trimming joins the rows 
   }
 });
 
-await test('a wrapped title can be scrolled to and selected from its first row', async () => {
+test('a wrapped title can be scrolled to and selected from its first row', async () => {
   const { app } = fake({
     items: [
       {
@@ -664,7 +664,7 @@ await test('a wrapped title can be scrolled to and selected from its first row',
   }
 });
 
-await test('a drag past the last transcript row or its right edge selects to the end without wrapping a row', async () => {
+test('a drag past the last transcript row or its right edge selects to the end without wrapping a row', async () => {
   const { app } = fake({
     items: [
       { id: 'u', kind: 'user', text: 'first message', cwd: '/work' },
@@ -697,7 +697,7 @@ await test('a drag past the last transcript row or its right edge selects to the
   }
 });
 
-await test('a selection that runs past the bottom of the view stays drawn as the wheel scrolls', async () => {
+test('a selection that runs past the bottom of the view stays drawn as the wheel scrolls', async () => {
   const { app } = fake({
     items: [long],
   });
@@ -721,7 +721,7 @@ await test('a selection that runs past the bottom of the view stays drawn as the
   }
 });
 
-await test('a selection follows its text as output above it grows, and drops for good when its tool collapses or its item leaves', async () => {
+test('a selection follows its text as output above it grows, and drops for good when its tool collapses or its item leaves', async () => {
   const items = (first: string) => [
     { id: 'u', kind: 'user' as const, text: first, cwd: '/work' },
     {
@@ -796,7 +796,7 @@ await test('a selection follows its text as output above it grows, and drops for
   }
 });
 
-await test('a selection drops when output arrives under one of its ends', async () => {
+test('a selection drops when output arrives under one of its ends', async () => {
   const reply = (text: string) => ({
     items: [{ id: 'a', kind: 'assistant' as const, text, cwd: '/work' }],
   });
@@ -829,7 +829,7 @@ await test('a selection drops when output arrives under one of its ends', async 
   }
 });
 
-await test('a drag into the left margin or above a transcript at its top reaches the edge cell or row, and a press under a short transcript selects nothing', async () => {
+test('a drag into the left margin or above a transcript at its top reaches the edge cell or row, and a press under a short transcript selects nothing', async () => {
   const words =
     'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi';
   const { app } = fake({
@@ -866,7 +866,7 @@ await test('a drag into the left margin or above a transcript at its top reaches
   }
 });
 
-await test('a drag back along a row selects from the pointer to the press, one forward from mid-row draws from the press, and a typed c or Cmd+V copies nothing', async () => {
+test('a drag back along a row selects from the pointer to the press, one forward from mid-row draws from the press, and a typed c or Cmd+V copies nothing', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
   });
@@ -893,7 +893,7 @@ await test('a drag back along a row selects from the pointer to the press, one f
   }
 });
 
-await test('a press or release anywhere ends a drag, so a drag report with no press of its own selects nothing', async () => {
+test('a press or release anywhere ends a drag, so a drag report with no press of its own selects nothing', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
   });
@@ -926,7 +926,7 @@ await test('a press or release anywhere ends a drag, so a drag report with no pr
   }
 });
 
-await test('a held press whose width changes ends its drag, so the width coming back brings no selection back', async () => {
+test('a held press whose width changes ends its drag, so the width coming back brings no selection back', async () => {
   const { app } = fake({
     items: [
       {
@@ -961,7 +961,7 @@ await test('a held press whose width changes ends its drag, so the width coming 
   }
 });
 
-await test('a drag and Cmd+C in one read copy what the drag selected, and a click and Cmd+C in one read copy nothing', async () => {
+test('a drag and Cmd+C in one read copy what the drag selected, and a click and Cmd+C in one read copy nothing', async () => {
   const { app } = fake({
     items: [{ id: 'u', kind: 'user', text: 'alpha beta gamma', cwd: '/work' }],
   });
@@ -986,7 +986,7 @@ await test('a drag and Cmd+C in one read copy what the drag selected, and a clic
   }
 });
 
-await test('a drag past the transcript top or bottom scrolls it a row a move, and past the top each move in one read scrolls on from where the last left the view and selects the row it brings in', async () => {
+test('a drag past the transcript top or bottom scrolls it a row a move, and past the top each move in one read scrolls on from where the last left the view and selects the row it brings in', async () => {
   const { app } = fake({
     items: [long],
   });
@@ -1014,7 +1014,7 @@ await test('a drag past the transcript top or bottom scrolls it a row a move, an
   }
 });
 
-await test('Cmd+C copies nothing while a page covers the selection or from blank rows alone', async () => {
+test('Cmd+C copies nothing while a page covers the selection or from blank rows alone', async () => {
   const { app } = fake({
     items: [
       { id: 'u', kind: 'user', text: 'hello', cwd: '/work' },
@@ -1057,7 +1057,7 @@ await test('Cmd+C copies nothing while a page covers the selection or from blank
   }
 });
 
-await test('a click and a wheel step between keys leave the draft as typed', async () => {
+test('a click and a wheel step between keys leave the draft as typed', async () => {
   const { app } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -1069,7 +1069,7 @@ await test('a click and a wheel step between keys leave the draft as typed', asy
   }
 });
 
-await test('a typed cross-runtime /model returns to live output', async () => {
+test('a typed cross-runtime /model returns to live output', async () => {
   const { app, calls } = fake({
     items: [long],
   });
@@ -1093,7 +1093,7 @@ await test('a typed cross-runtime /model returns to live output', async () => {
   }
 });
 
-await test('Down with tools focused and no tools keeps the reading position, and End returns to live output', async () => {
+test('Down with tools focused and no tools keeps the reading position, and End returns to live output', async () => {
   const { app } = fake({
     items: [long],
   });
@@ -1114,7 +1114,7 @@ await test('Down with tools focused and no tools keeps the reading position, and
   }
 });
 
-await test('Escape while tools are focused during a turn leaves focus without interrupting', async () => {
+test('Escape while tools are focused during a turn leaves focus without interrupting', async () => {
   const { app, calls } = fake({ phase: 'running', items: tools('first') });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -1129,7 +1129,7 @@ await test('Escape while tools are focused during a turn leaves focus without in
   }
 });
 
-await test('Ctrl+O expands only the selected tool without editing the draft', async () => {
+test('Ctrl+O expands only the selected tool without editing the draft', async () => {
   const items = ['alpha', 'beta'].map((name) => ({
     id: name,
     kind: 'tool' as const,
@@ -1213,7 +1213,7 @@ await test('Ctrl+O expands only the selected tool without editing the draft', as
   }
 });
 
-await test('a composer press while scrolled above more transcript text cannot start a selection', async () => {
+test('a composer press while scrolled above more transcript text cannot start a selection', async () => {
   const { app } = fake({ items: [long] });
   const { ui, copied } = mounted(app);
   try {
@@ -1229,7 +1229,7 @@ await test('a composer press while scrolled above more transcript text cannot st
   }
 });
 
-await test('selection starts on the last text column and visible row but not the right padding', async () => {
+test('selection starts on the last text column and visible row but not the right padding', async () => {
   const { app } = fake({
     items: [
       {
@@ -1266,7 +1266,7 @@ await test('selection starts on the last text column and visible row but not the
   }
 });
 
-await test('a wheel step while the left button is held preserves the press anchor for later dragging', async () => {
+test('a wheel step while the left button is held preserves the press anchor for later dragging', async () => {
   const { app } = fake({ items: [long] });
   const { ui, copied } = mounted(app);
   try {
@@ -1287,7 +1287,7 @@ await test('a wheel step while the left button is held preserves the press ancho
   }
 });
 
-await test('batched tool appends preserve selection and a reading position through row views', async () => {
+test('batched tool appends preserve selection and a reading position through row views', async () => {
   const output = (text: string) => ({
     id: 'tool',
     kind: 'tool' as const,
@@ -1370,7 +1370,7 @@ await test('batched tool appends preserve selection and a reading position throu
   }
 });
 
-await test('batched assistant Markdown preserves typing, selection and reading position', async () => {
+test('batched assistant Markdown preserves typing, selection and reading position', async () => {
   const output = (text: string) => ({
     id: 'reply',
     kind: 'assistant' as const,

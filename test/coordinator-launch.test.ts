@@ -12,7 +12,7 @@ import {
   utimes,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { Memory } from '../src/memory/memory.js';
@@ -61,7 +61,7 @@ async function relocatedFixture() {
   return { ...f, scope, destination, move, coordinator };
 }
 
-await test('recovered conversations reconnect with their saved IDs in the destination', async () => {
+test('recovered conversations reconnect with their saved IDs in the destination', async () => {
   const f = await relocatedFixture();
   for (const [id, agent, model, effort, date] of [
     ['old-a', 'a', 'a-big', 'high', '2020-01-01'],
@@ -137,7 +137,7 @@ await test('recovered conversations reconnect with their saved IDs in the destin
   }
 });
 
-await test('directory recovery preserves pending memory and keeps a new turn queued', async () => {
+test('directory recovery preserves pending memory and keeps a new turn queued', async () => {
   const f = await relocatedFixture();
   const note = `${f.scope.project}/pending.md`;
   const dirty = await stranded(f, { [note]: 'committed' });
@@ -174,7 +174,7 @@ await test('directory recovery preserves pending memory and keeps a new turn que
   }
 });
 
-await test('a recovered conversation with missing native history keeps its ID and transcript', async () => {
+test('a recovered conversation with missing native history keeps its ID and transcript', async () => {
   const f = await relocatedFixture();
   const saved = record('missing-native', f.project);
   saved.sessions.a = {
@@ -220,7 +220,7 @@ await test('a recovered conversation with missing native history keeps its ID an
   }
 });
 
-await test('startup failures leave an exit-capable error state whose lookups reject rather than throw', async () => {
+test('startup failures leave an exit-capable error state whose lookups reject rather than throw', async () => {
   const { coordinator: original, root, memory, a } = await fixture();
   await original.close();
   const coordinator = new Coordinator(
@@ -274,7 +274,7 @@ async function sweepFixture() {
   };
 }
 
-await test('the launch sweep stops a live orphan in an unlocked conversation', async () => {
+test('the launch sweep stops a live orphan in an unlocked conversation', async () => {
   const { root, launch, save } = await sweepFixture();
   const orphan = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   try {
@@ -296,7 +296,7 @@ await test('the launch sweep stops a live orphan in an unlocked conversation', a
   }
 });
 
-await test('the launch sweep skips a conversation another instance holds', async () => {
+test('the launch sweep skips a conversation another instance holds', async () => {
   const { store, launch } = await sweepFixture();
   const sleeper = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   const held = await store.create(record('held', '/elsewhere'));
@@ -318,7 +318,7 @@ await test('the launch sweep skips a conversation another instance holds', async
   }
 });
 
-await test('one conversation the sweep fails on does not stop the launch', async () => {
+test('one conversation the sweep fails on does not stop the launch', async () => {
   const { store, launch, save, directory } = await sweepFixture();
   await save('readonly', (saved) => {
     saved.activity = activity();
@@ -338,7 +338,7 @@ await test('one conversation the sweep fails on does not stop the launch', async
   await (await store.claim('readonly')).close();
 });
 
-await test("the launch sweep clears a clean conversation's stale activity", async () => {
+test("the launch sweep clears a clean conversation's stale activity", async () => {
   const { root, launch, save, memory } = await sweepFixture();
   await save('stale', (saved) => {
     saved.activity = activity();
@@ -355,7 +355,7 @@ await test("the launch sweep clears a clean conversation's stale activity", asyn
   );
 });
 
-await test('an unreadable state file is named by its full path in the launch report and skipped', async () => {
+test('an unreadable state file is named by its full path in the launch report and skipped', async () => {
   const { launch, directory } = await sweepFixture();
   await mkdir(directory('broken'));
   await writeFile(join(directory('broken'), 'state.json'), '{"id":');
@@ -372,7 +372,7 @@ await test('an unreadable state file is named by its full path in the launch rep
   }
 });
 
-await test('a claim that fails for a reason other than a held lock is reported', async () => {
+test('a claim that fails for a reason other than a held lock is reported', async () => {
   const { launch, save, directory } = await sweepFixture();
   await save('blocked', (saved) => {
     saved.activity = activity();
@@ -406,7 +406,7 @@ async function used(
     );
 }
 
-await test('continue opens the newest conversation in this directory, ignoring newer ones elsewhere', async () => {
+test('continue opens the newest conversation in this directory, ignoring newer ones elsewhere', async () => {
   const { coordinator: first, store, root, project, a } = await fixture();
   await first.close();
   const elsewhere = join(root, 'elsewhere');
@@ -426,7 +426,7 @@ await test('continue opens the newest conversation in this directory, ignoring n
   }
 });
 
-await test('a conversation id opens that conversation, even one with nothing sent', async () => {
+test('a conversation id opens that conversation, even one with nothing sent', async () => {
   const { coordinator: first, store, root, project, a } = await fixture();
   await first.close();
   await used(store, root, record('fresh', project));
@@ -442,7 +442,7 @@ await test('a conversation id opens that conversation, even one with nothing sen
   }
 });
 
-await test('continue with nothing in this directory starts a new conversation here', async () => {
+test('continue with nothing in this directory starts a new conversation here', async () => {
   const { coordinator: first, store, root, project, a } = await fixture();
   await first.close();
   const elsewhere = join(root, 'elsewhere');
@@ -461,7 +461,7 @@ await test('continue with nothing in this directory starts a new conversation he
   }
 });
 
-await test('a plain launch starts a new conversation even when this directory has one', async () => {
+test('a plain launch starts a new conversation even when this directory has one', async () => {
   const { coordinator: first, store, root, project, a } = await fixture();
   await first.close();
   await used(store, root, record('earlier', project), 1000);
@@ -476,7 +476,7 @@ await test('a plain launch starts a new conversation even when this directory ha
   }
 });
 
-await test("/sessions lists only this directory's conversations", async () => {
+test("/sessions lists only this directory's conversations", async () => {
   const { coordinator, store, root, project } = await fixture();
   try {
     const elsewhere = join(root, 'elsewhere');
@@ -492,7 +492,7 @@ await test("/sessions lists only this directory's conversations", async () => {
   }
 });
 
-await test('continue into a held conversation shows the lock error with the launch report', async () => {
+test('continue into a held conversation shows the lock error with the launch report', async () => {
   const context = await fixture();
   const { coordinator: first, store, root, project, a, memory } = context;
   await first.close();
@@ -526,7 +526,7 @@ await test('continue into a held conversation shows the lock error with the laun
   }
 });
 
-await test('a publish failure while settling the launch is added to its report', async () => {
+test('a publish failure while settling the launch is added to its report', async () => {
   const context = await fixture();
   const { coordinator: first, store, root, memory, hook, a } = context;
   await first.close();
@@ -561,7 +561,7 @@ await test('a publish failure while settling the launch is added to its report',
   }
 });
 
-await test('opening a conversation connects its agent, at launch, on /new and from /sessions', async () => {
+test('opening a conversation connects its agent, at launch, on /new and from /sessions', async () => {
   const { coordinator, a, store, project } = await fixture();
   try {
     assert.equal(a.sessions.length, 1);
@@ -576,7 +576,7 @@ await test('opening a conversation connects its agent, at launch, on /new and fr
   }
 });
 
-await test('a connect failure at launch joins the launch report and leaves the conversation open', async () => {
+test('a connect failure at launch joins the launch report and leaves the conversation open', async () => {
   const { launch, directory, a } = await sweepFixture();
   await mkdir(directory('broken'));
   await writeFile(join(directory('broken'), 'state.json'), '{"id":');
@@ -630,7 +630,7 @@ async function relaunch(
   return { ...context, a, b, launch };
 }
 
-await test('a launch takes the agent, model and effort of the newest used conversation in any directory', async () => {
+test('a launch takes the agent, model and effort of the newest used conversation in any directory', async () => {
   const { store, root, project, b, launch } = await relaunch(['a', 'b']);
   await used(
     store,
@@ -664,7 +664,7 @@ await test('a launch takes the agent, model and effort of the newest used conver
   }
 });
 
-await test('a launch whose newest agent is uninstalled starts the first installed one on its default', async () => {
+test('a launch whose newest agent is uninstalled starts the first installed one on its default', async () => {
   const { store, root, a, launch } = await relaunch(['a']);
   await used(
     store,
@@ -681,7 +681,7 @@ await test('a launch whose newest agent is uninstalled starts the first installe
   }
 });
 
-await test('a failed first connect keeps the remembered model, and a model chosen next connects with it', async () => {
+test('a failed first connect keeps the remembered model, and a model chosen next connects with it', async () => {
   const { store, root, a, launch } = await relaunch(['a', 'b'], (a) => {
     a.failConnect = true;
   });
@@ -708,7 +708,7 @@ await test('a failed first connect keeps the remembered model, and a model chose
   }
 });
 
-await test('/new copies this conversation for its own agent, starts another agent on its default, and refuses an uninstalled one', async () => {
+test('/new copies this conversation for its own agent, starts another agent on its default, and refuses an uninstalled one', async () => {
   const { coordinator, a, b, store, project } = await fixture();
   try {
     const source = await store.create({
