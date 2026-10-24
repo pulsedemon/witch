@@ -7,7 +7,6 @@ import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 import type { vi } from 'vitest';
-import type { RegisterCleanup } from './cleanup.js';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { controlPrefix } from '../../src/cli-control.js';
@@ -20,6 +19,7 @@ import { openLocked } from '../../src/persistence/lock.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { FixtureAgent } from './agent.js';
 import { scratch } from './scratch.js';
+import type { RegisterCleanup } from './cleanup.js';
 
 const execute = promisify(execFile);
 export const git = (...args: string[]) => execute('git', args);

@@ -1,4 +1,3 @@
-import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { fork, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -7,7 +6,6 @@ import { constants } from 'node:fs';
 import { access, chmod, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { fileURLToPath } from 'node:url';
 import type {
   ClaimInput,
@@ -27,6 +25,8 @@ import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { countProbes } from './fixtures/probes.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const identity = (await identifyProcess(process.pid))!;
 const owner = { conversation: 'a', project: 'project-p' };

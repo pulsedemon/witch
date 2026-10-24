@@ -5,13 +5,13 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { orderedCleanup } from './fixtures/cleanup.js';
-import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 async function discovery(
   register: RegisterCleanup,

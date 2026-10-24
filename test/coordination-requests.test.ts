@@ -1,4 +1,3 @@
-import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -18,6 +17,7 @@ import {
 } from './fixtures/coordination.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
 
 for (const kind of [
   'peers',

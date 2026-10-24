@@ -16,7 +16,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { recoverDirectory } from '../src/persistence/directory-recovery.js';
@@ -170,7 +170,7 @@ async function fixture() {
   };
 }
 
-await test('directory recovery preserves the selected group and history order', async () => {
+test('directory recovery preserves the selected group and history order', async () => {
   const f = await fixture();
   const before = await f.data();
   const preview = await f.cli();
@@ -247,7 +247,7 @@ await test('directory recovery preserves the selected group and history order', 
   await assert.rejects(access(f.launched), { code: 'ENOENT' });
 });
 
-await test('recovery preserves duplicate prompts, unreadable lines and unrelated link bases', async () => {
+test('recovery preserves duplicate prompts, unreadable lines and unrelated link bases', async () => {
   const f = await fixture();
   await f.store.addPrompt(f.source, 'old-first');
   const torn = Buffer.from('\n{"cwd":"unfinished');
@@ -287,7 +287,7 @@ await test('recovery preserves duplicate prompts, unreadable lines and unrelated
   );
 });
 
-await test('an open legacy conversation blocks apply without changing its data', async () => {
+test('an open legacy conversation blocks apply without changing its data', async () => {
   const f = await fixture();
   const before = await f.data();
   const held = await f.store.claim('d');
@@ -305,7 +305,7 @@ await test('an open legacy conversation blocks apply without changing its data',
   }
 });
 
-await test('a relative recovery source changes no saved data', async () => {
+test('a relative recovery source changes no saved data', async () => {
   const f = await fixture();
   const before = await f.data();
   await assert.rejects(
@@ -318,7 +318,7 @@ await test('a relative recovery source changes no saved data', async () => {
   });
 });
 
-await test('a reused PID with a different start time does not block recovery', async () => {
+test('a reused PID with a different start time does not block recovery', async () => {
   const f = await fixture();
   const record = JSON.parse(await readFile(f.state('a'), 'utf8')) as Record<
     string,
@@ -338,7 +338,7 @@ await test('a reused PID with a different start time does not block recovery', a
   );
 });
 
-await test('pending recovery rejects a changed destination scope even without saved scope markers', async () => {
+test('pending recovery rejects a changed destination scope even without saved scope markers', async () => {
   const f = await fixture();
   for (const id of ['a', 'b']) {
     const record = JSON.parse(await readFile(f.state(id), 'utf8')) as {
@@ -370,7 +370,7 @@ await test('pending recovery rejects a changed destination scope even without sa
 });
 
 for (const field of ['process', 'usageProcess', 'shell'] as const) {
-  await test(`a live saved ${field} blocks recovery without stopping it`, async () => {
+  test(`a live saved ${field} blocks recovery without stopping it`, async () => {
     const f = await fixture();
     const child = spawn('/bin/sleep', ['30']);
     const closed = once(child, 'close');
@@ -407,7 +407,7 @@ for (const blocked of [
   'different project',
   'unreadable record',
 ]) {
-  await test(`${blocked} blocks recovery before any backup or data replacement`, async () => {
+  test(`${blocked} blocks recovery before any backup or data replacement`, async () => {
     const f = await fixture();
     if (blocked === 'existing source') await mkdir(f.source);
     else if (blocked === 'unreadable record')
@@ -431,7 +431,7 @@ for (const blocked of [
 }
 
 for (const outsideEdit of [false, true]) {
-  await test(`a failed apply ${outsideEdit ? 'refuses an outside edit' : 'resumes in a new process'}`, async () => {
+  test(`a failed apply ${outsideEdit ? 'refuses an outside edit' : 'resumes in a new process'}`, async () => {
     const f = await fixture();
     await chmod(f.directory('b'), 0o500);
     try {
@@ -494,7 +494,7 @@ for (const outsideEdit of [false, true]) {
   });
 }
 
-await test('state locks allow readers together and exclude recovery across processes', async () => {
+test('state locks allow readers together and exclude recovery across processes', async () => {
   const f = await fixture();
   const attempt = (mode: 'shared' | 'exclusive') =>
     execute(process.execPath, [
@@ -530,7 +530,7 @@ await test('state locks allow readers together and exclude recovery across proce
   await attempt('exclusive');
 });
 
-await test('a killed state-lock owner releases recovery admission', async () => {
+test('a killed state-lock owner releases recovery admission', async () => {
   const root = await scratch('witch-state-lock-');
   const store = await StateStore.open(root);
   const child = spawn(

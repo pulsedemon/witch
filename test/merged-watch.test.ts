@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
-import type { RegisterCleanup } from './fixtures/cleanup.js';
 import type { Snapshot } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const status = (

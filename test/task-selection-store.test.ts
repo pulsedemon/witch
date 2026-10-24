@@ -1,4 +1,3 @@
-import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -6,7 +5,6 @@ import { once } from 'node:events';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
-import type { RegisterCleanup } from './fixtures/cleanup.js';
 import type {
   SelectionScope,
   SelectionState,
@@ -21,6 +19,8 @@ import { StateStore } from '../src/persistence/store.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const verify = async () => {};
 const deadline = () => Date.now() + 5000;

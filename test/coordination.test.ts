@@ -1,4 +1,3 @@
-import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -30,6 +29,7 @@ import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 import { countProbes } from './fixtures/probes.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
 
 test('discovery batches conversation ownership and keeps only open peers', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);

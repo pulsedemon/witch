@@ -22,9 +22,9 @@ import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
-import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { show } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const timeout = 10_000;
 const idle = {

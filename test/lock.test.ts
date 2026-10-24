@@ -5,14 +5,14 @@ import { constants } from 'node:fs';
 import { access, chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { orderedCleanup } from './fixtures/cleanup.js';
-import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { fileURLToPath } from 'node:url';
 import { openLocked, lockedFiles } from '../src/persistence/lock.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 async function observer(
   register: RegisterCleanup,

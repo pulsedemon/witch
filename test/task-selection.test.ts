@@ -1,4 +1,3 @@
-import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
@@ -15,6 +14,7 @@ import { coordinationFixture, git } from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
 
 for (const failed of [false, true]) {
   test(`${failed ? 'failed' : 'completed'} selection turns release the next waiter`, async (t) => {

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
-import { orderedCleanup } from './fixtures/cleanup.js';
-import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { JobWatch, jobCheckpointSchema } from '../src/core/jobs.js';
 import type { JobCheckpoint, Row } from '../src/core/jobs.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const agent: Row = {
   pid: 100000,
