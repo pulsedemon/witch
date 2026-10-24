@@ -13,6 +13,7 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
+import stripAnsi from 'strip-ansi';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
@@ -59,6 +60,8 @@ async function fixture(sharedTmp?: string) {
       cwd: root,
       env: {
         ...process.env,
+        NO_COLOR: undefined,
+        FORCE_COLOR: '1',
         TMPDIR: tmp,
         MARKERS: markers,
       },
@@ -75,7 +78,7 @@ async function fixture(sharedTmp?: string) {
     >;
     return {
       closed,
-      output: () => output,
+      output: () => stripAnsi(output),
       async stop() {
         if (child.exitCode === null && child.signalCode === null)
           process.kill(-child.pid!, 'SIGKILL');
