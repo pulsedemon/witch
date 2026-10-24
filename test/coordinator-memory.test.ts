@@ -1208,7 +1208,7 @@ await test('the launch sweep publishes what it can and reports the rest in one m
         assert.match(
           report ?? '',
           new RegExp(
-            `Title ${conflict.id} in .*deleted-project \\(recreate this directory first\\): memory conflicts`,
+            `Title ${conflict.id} in .*deleted-project \\(recover this directory first\\): memory conflicts`,
           ),
         );
         assert.match(

@@ -9,10 +9,12 @@ Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or new
 Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` and `JSON::PP` modules.
 
 ```sh
-pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
+pnpm install && pnpm build && pnpm install:cli
 ```
 
 Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation. When a built Witch finishes cleaning up after a merge into Witch's own repository, it also pulls and rebuilds this checkout, if this one sits on the base branch with nothing staged, modified or conflicted. If another Witch is updating this checkout, the refresh is skipped with a notice.
+
+If the checkout moves, the installed launcher names its missing target. Run `pnpm build && pnpm install:cli` from the relocated Witch checkout to repair it.
 
 ## Usage
 
@@ -25,6 +27,8 @@ Flags and the state default are in `witch --help`. Use `/help` for keyboard cont
 Use `/compact` while idle to compact the current native conversation. Automatic compaction follows the [coordinator's pre-turn policy](src/core/coordinator.ts).
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
+
+For a moved project directory, use the directory-recovery commands in `witch --help` from its replacement directory. Preview first; applying recovery requires every Witch using that state directory to be closed and retains the original files in a backup.
 
 Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns eligibility and title selection. [Desktop scheduling](src/persistence/notifications.ts) spaces alerts across sessions sharing a state directory; bursts can wait, and stale alerts cancel. Titles and bells keep their timing.
 

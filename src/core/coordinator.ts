@@ -15,18 +15,14 @@ import type {
   UserRequest,
   UserResponse,
 } from '../agents/types.js';
-import {
-  branchOf,
-  exists,
-  indexNote,
-  main,
-  printable,
-} from '../memory/memory.js';
+import { indexNote, main, printable } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { MemoryConflict, Workspace } from '../memory/workspace.js';
-import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
+import { missingConversationDirectories } from '../persistence/directory-recovery.js';
+import { quote } from '../shell.js';
+import { recoverConversations } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { listFiles } from './files.js';
 import {
@@ -202,7 +198,7 @@ export class Coordinator {
       (options.continue
         ? (await this.store.conversations(cwd))[0]?.id
         : undefined);
-    const report = await this.sweep(id);
+    const report = await recoverConversations(this.store, this.memory, id);
     try {
       await this.openConversation(
         id ? { id } : { create: await this.launchRecord(cwd) },
@@ -217,6 +213,23 @@ export class Coordinator {
       () => undefined,
       errorMessage,
     );
+    try {
+      const missing = await missingConversationDirectories(this.store);
+      if (missing.length)
+        this.notice(
+          [
+            'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
+            ...missing.map(
+              ({ cwd, conversations }) =>
+                `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(this.store.root)} --recover-directory ${quote(cwd)}`,
+            ),
+          ].join('\n'),
+        );
+    } catch (error) {
+      this.notice(
+        `Could not inspect missing conversation directories: ${errorMessage(error)}`,
+      );
+    }
     // a failed scope read fails both, so its message shows once
     await this.settle(
       [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
@@ -232,59 +245,6 @@ export class Coordinator {
       installed[0] ??
       this.agents[0]!;
     return createConversation(cwd, agent.adapter.id, source);
-  }
-
-  private async sweep(skip: string | undefined): Promise<string | undefined> {
-    const { records, unreadable } = await this.store.records();
-    const ahead = new Set(await this.memory.unpublished());
-    const lines = unreadable.map(
-      ({ file, error }) => `- ${file} can't be read: ${error}`,
-    );
-    const listed = new Set(records.map(({ id }) => id));
-    for (const id of ahead)
-      if (!listed.has(id))
-        lines.push(`- ${branchOf(id)} has unpublished memory but no state`);
-    for (const record of records) {
-      if (
-        record.id === skip ||
-        (!record.process && !record.activity && !ahead.has(record.id))
-      )
-        continue;
-      let reason: string | undefined;
-      // close() rethrows a save failure the catch already reported
-      const problem = (error: unknown) => {
-        reason ??= errorMessage(error);
-      };
-      let files: ConversationStore | undefined;
-      try {
-        files = await this.store.claim(record.id);
-        const workspace = this.memory.workspace(files.directory, record.id);
-        let pending = false;
-        if (await workspace.branchExists()) {
-          await workspace.ensureWorktree();
-          pending = await workspace.isDirty();
-          if (pending) reason = 'unfinished memory changes';
-          else if ((await workspace.publish()) !== 'published')
-            reason = 'memory conflicts with another conversation';
-        }
-        if (!pending && files.record.activity) {
-          delete files.record.activity;
-          await files.save(files.record);
-        }
-      } catch (error) {
-        if (!(error instanceof LockedElsewhere)) problem(error);
-      } finally {
-        await files?.close().catch(problem);
-      }
-      if (!reason) continue;
-      const gone = !(await exists(record.cwd));
-      lines.push(
-        `- ${record.title} in ${record.cwd}${gone ? ' (recreate this directory first)' : ''}: ${reason}`,
-      );
-    }
-    return lines.length
-      ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`
-      : undefined;
   }
 
   /** claims the target first, so a failed claim leaves the current conversation untouched. */

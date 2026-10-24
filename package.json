@@ -14,6 +14,7 @@
     "prepare": "husky",
     "dev": "node --import ./scripts/register.mjs src/cli.tsx",
     "build": "node scripts/build.mjs",
+    "install:cli": "node --import tsx scripts/install.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./scripts/register.mjs --test --test-concurrency=\"$(node -p 'Math.min(4, require(\"node:os\").availableParallelism())')\" test/*.test.ts",
     "test:integration": "node --import tsx scripts/integration.ts",
