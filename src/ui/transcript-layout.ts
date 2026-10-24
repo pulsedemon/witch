@@ -33,17 +33,19 @@ interface Content {
   item: DisplayItem;
   title: string[];
   complete: string[];
-  /** later appends share storage; each snapshot keeps its own boundary. */
-  count: number;
   tail: string[];
   diff?: ReturnType<typeof prepareDiff>;
   images: readonly string[];
   append?: Append;
 }
 
+interface Viewport {
+  width: number;
+}
+
 interface Block {
   content: Content;
-  width: number;
+  viewport: Viewport;
   complete: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
@@ -76,7 +78,7 @@ function textRows(
 /** capture the completed prefix's length so later appends cannot change an earlier frame. */
 function block(
   content: Content,
-  width: number,
+  viewport: Viewport,
   complete: Row[],
   suffix: Row[],
 ): Block {
@@ -86,7 +88,7 @@ function block(
     index < count ? complete[index] : suffix[index - count];
   return {
     content,
-    width,
+    viewport,
     complete,
     row,
     lines: textRows(length, (index) => row(index)?.text),
@@ -159,7 +161,6 @@ function prepare(
     item,
     title: title.split('\n'),
     complete,
-    count: complete.length,
     tail: hasBody ? (linked?.tail ?? body).split('\n') : [],
     diff,
     images: sources,
@@ -205,19 +206,15 @@ function ending(
 
 function wrap(
   content: Content,
-  width: number,
+  viewport: Viewport,
   graphics: Graphics | undefined,
 ): Block {
+  const { width } = viewport;
   const head = section(content.title, width, true, 0);
-  const complete = section(
-    content.complete.slice(0, content.count),
-    width,
-    false,
-    head.next,
-  );
+  const complete = section(content.complete, width, false, head.next);
   return block(
     content,
-    width,
+    viewport,
     head.rows.concat(complete.rows),
     ending(content, width, complete.next, graphics),
   );
@@ -226,7 +223,7 @@ function wrap(
 function extend(
   previous: Block,
   item: DisplayItem,
-  width: number,
+  viewport: Viewport,
   graphics: Graphics | undefined,
 ): Block | undefined {
   const before = previous.content.item;
@@ -244,39 +241,36 @@ function extend(
   const appended = appendedDisplayText(before, item);
   if (appended === undefined) return undefined;
   if (tail.kind === 'full-markdown')
-    return wrap(prepare(item, 'closed', undefined, true), width, graphics);
+    return wrap(prepare(item, 'closed', undefined, true), viewport, graphics);
   const linked =
     tail.kind === 'tool'
       ? linkifyAppend(tail.pending + appended, item.cwd, tail.target)
       : undefined;
   const content = linked ?? markdownAppend(tail.pending + appended, item.cwd);
   if (!content)
-    return wrap(prepare(item, 'closed', undefined, true), width, graphics);
+    return wrap(prepare(item, 'closed', undefined, true), viewport, graphics);
   const source = previous.content;
-  const count = source.count + content.complete.length;
+  const first = source.title.length + source.complete.length;
+  const hasBody =
+    source.complete.length > 0 || content.complete.length > 0 || !!content.tail;
   const prepared: Content = {
     ...source,
     item,
-    count,
-    tail: count > 0 || content.tail ? content.tail.split('\n') : [],
+    tail: hasBody ? content.tail.split('\n') : [],
     append:
       tail.kind === 'tool'
         ? { kind: 'tool', pending: content.pending, target: linked?.target }
         : { kind: 'assistant', pending: content.pending },
   };
   for (const line of content.complete) source.complete.push(line);
-  if (previous.width !== width) return wrap(prepared, width, graphics);
-  const complete = section(
-    content.complete,
-    width,
-    false,
-    source.title.length + source.count,
-  );
+  if (previous.viewport !== viewport) return wrap(prepared, viewport, graphics);
+  const { width } = viewport;
+  const complete = section(content.complete, width, false, first);
   // a large chunk can exceed the argument limit if spread into push().
   for (const row of complete.rows) previous.complete.push(row);
   return block(
     prepared,
-    width,
+    viewport,
     previous.complete,
     ending(prepared, width, complete.next, graphics),
   );
@@ -300,6 +294,7 @@ export function isExpanded(
 
 export class TranscriptLayout {
   private cache = new Map<string, Map<Expansion, Block>>();
+  private viewport: Viewport = { width: 0 };
 
   /** without `graphics`, images stay out of the transcript. */
   constructor(private readonly graphics?: Graphics) {}
@@ -310,6 +305,9 @@ export class TranscriptLayout {
     expanded: ReadonlyMap<string, boolean>,
     full?: ReadonlySet<string>,
   ) {
+    // reopening a variant at an older width must restore its terminal image placement.
+    if (this.viewport.width !== width) this.viewport = { width };
+    const viewport = this.viewport;
     let length = 0;
     const blocks: TextRows[] = [];
     const starts = new Map<string, number>();
@@ -325,13 +323,13 @@ export class TranscriptLayout {
       const previous = variants.get(expansion);
       const current =
         previous?.content.item === item
-          ? previous.width === width
+          ? previous.viewport === viewport
             ? previous
-            : wrap(previous.content, width, this.graphics)
-          : ((previous && extend(previous, item, width, this.graphics)) ??
+            : wrap(previous.content, viewport, this.graphics)
+          : ((previous && extend(previous, item, viewport, this.graphics)) ??
             wrap(
               prepare(item, expansion, this.graphics),
-              width,
+              viewport,
               this.graphics,
             ));
       variants.set(expansion, current);

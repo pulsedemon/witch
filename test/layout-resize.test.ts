@@ -171,6 +171,62 @@ await test('unchanged resizes reuse text and diff preparation', async () => {
   }
 });
 
+await test('a cached image variant restores its placement after intervening widths', (t) => {
+  const placements: string[] = [];
+  const graphics = new Graphics((data) => {
+    if (data.includes('a=p,')) placements.push(data);
+  });
+  t.after(() => graphics.release());
+  const layout = new TranscriptLayout(graphics);
+  const item: DisplayItem = {
+    id: 'tool',
+    kind: 'tool',
+    cwd: '/work',
+    text: 'image',
+    images: [`data:image/png;base64,${png(800, 200).toString('base64')}`],
+    diff: [
+      {
+        path: '/work/image.txt',
+        kind: 'add',
+        hunks: [
+          {
+            oldStart: 0,
+            newStart: 1,
+            lines: Array.from({ length: 12 }, (_, i) => `+line_${i + 1}`),
+          },
+        ],
+      },
+    ],
+  };
+  for (const [width, mode] of [
+    [80, 'full'],
+    [80, 'preview'],
+    [40, 'preview'],
+    [40, 'closed'],
+    [80, 'closed'],
+  ] as const)
+    layout.render(
+      [item],
+      width,
+      new Map([['tool', mode !== 'closed']]),
+      new Set(mode === 'full' ? ['tool'] : []),
+    );
+  assert.match(placements.at(-1)!, /c=40,r=5/);
+  const placed = placements.length;
+  const frame = layout.render(
+    [item],
+    80,
+    new Map([['tool', true]]),
+    new Set(['tool']),
+  );
+  const rows = frame.lines.slice().filter((row) => row.includes(placeholder));
+  assert.equal(rows.length, 10);
+  assert.ok(rows.every((row) => row.split(placeholder).length - 1 === 80));
+  assert.match(placements.at(-1)!, /c=80,r=10/);
+  assert.equal(placements.length, placed + 1);
+  assert.ok(stripAnsi(frame.lines.slice().join('\n')).includes('12 +line_12'));
+});
+
 await test('cached expansion variants use the current width and item', () => {
   const diff = (label: string): FileDiff[] => [
     {
