@@ -398,7 +398,7 @@ await test('a suffixless local origin follows a non-bare .git checkout and repor
   });
 });
 
-await test('a project name too long for an APFS name is cut by UTF-16 units to fit beside its hash', async () => {
+await test('a project name fits the native filename limit beside its hash without splitting a character', async () => {
   const { open, root } = await fixture();
   const name = async (directory: string, slug: string) => {
     const path = await repository(
@@ -409,14 +409,18 @@ await test('a project name too long for an APFS name is cut by UTF-16 units to f
     const { scope } = await (await open(directory)).workspace.begin(path);
     return basename(scope.project);
   };
-  assert.match(await name('fits', '字'.repeat(80)), /^字{80}-[0-9a-f]{16}$/);
+  const linux = process.platform === 'linux';
+  assert.match(
+    await name('fits', '字'.repeat(80)),
+    linux ? /^字{79}-[0-9a-f]{16}$/ : /^字{80}-[0-9a-f]{16}$/,
+  );
   assert.match(
     await name('long', `x${'é'.repeat(250)}`),
-    /^xé{237}-[0-9a-f]{16}$/,
+    linux ? /^xé{118}-[0-9a-f]{16}$/ : /^xé{237}-[0-9a-f]{16}$/,
   );
   assert.match(
     await name('emoji', `x${'😀'.repeat(200)}`),
-    /^x😀{118}-[0-9a-f]{16}$/u,
+    linux ? /^x😀{59}-[0-9a-f]{16}$/u : /^x😀{118}-[0-9a-f]{16}$/u,
   );
 });
 
