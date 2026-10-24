@@ -23,7 +23,7 @@ export async function bootSession(): Promise<string> {
 export async function ps(
   format: string,
   pids?: number[],
-  options: { environment?: boolean } = {},
+  options: { environment?: boolean; timeout?: number } = {},
 ): Promise<string[]> {
   try {
     const { stdout } = await execute(
@@ -35,6 +35,9 @@ export async function ps(
         format,
       ],
       {
+        ...(options.timeout === undefined
+          ? {}
+          : { timeout: options.timeout, killSignal: 'SIGKILL' as const }),
         env: {
           ...process.env,
           LC_ALL: undefined,
