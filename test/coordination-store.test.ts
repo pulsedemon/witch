@@ -1,3 +1,4 @@
+import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { fork, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -5,8 +6,8 @@ import { once } from 'node:events';
 import { constants } from 'node:fs';
 import { access, chmod, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test } from 'vitest';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { fileURLToPath } from 'node:url';
 import type {
   ClaimInput,
@@ -43,7 +44,8 @@ const release = (
 ) => store.release(givenOwner, id, Date.now() + 5000, verify);
 
 for (const size of [1, 8])
-  await test(`reconciliation batches ${size} groups and retains the exact live owners`, async (t) => {
+  test(`reconciliation batches ${size} groups and retains the exact live owners`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
     const root = await scratch('witch-reconcile-batch-');
     const registry = await CoordinationStore.open(root);
     const store = await StateStore.open(root);
@@ -76,7 +78,7 @@ for (const size of [1, 8])
           entry.process = { ...identity, started: 'previous incarnation' };
         else {
           const held = await store.create(record(id, root));
-          if (kind === 'legacy-held') t.after(() => held.close());
+          if (kind === 'legacy-held') cleanup(() => held.close());
           else await held.close();
         }
         claims.push(entry);
@@ -91,7 +93,7 @@ for (const size of [1, 8])
         };
         const close = await registry.holdActivation(ticket.activation);
         if (active) {
-          t.after(close);
+          cleanup(close);
           liveSelections.push(ticket);
         } else await close();
         selections.push(ticket);
@@ -117,7 +119,7 @@ for (const size of [1, 8])
     assert.equal(await readFile(file, 'utf8'), original);
   });
 
-await test('activation observation follows release without retaining ownership', async () => {
+test('activation observation follows release without retaining ownership', async () => {
   const root = await scratch('witch-activation-observation-');
   const store = await CoordinationStore.open(root);
   const activation = randomUUID();
@@ -146,7 +148,11 @@ await test('activation observation follows release without retaining ownership',
   );
 });
 
-function contender(t: TestContext, root: string, conversation: string) {
+function contender(
+  register: RegisterCleanup,
+  root: string,
+  conversation: string,
+) {
   const child = fork(
     fileURLToPath(new URL('fixtures/coordination-owner.mts', import.meta.url)),
     [root, conversation],
@@ -160,7 +166,7 @@ function contender(t: TestContext, root: string, conversation: string) {
   const ended = new Promise<void>((resolve) =>
     child.once('exit', () => resolve()),
   );
-  t.after(async () => {
+  register(async () => {
     if (child.exitCode === null && child.signalCode === null)
       child.kill('SIGKILL');
     await ended;
@@ -177,10 +183,11 @@ function contender(t: TestContext, root: string, conversation: string) {
   };
 }
 
-await test('two independent claimants have one owner and only its work starts', async (t) => {
+test('two independent claimants have one owner and only its work starts', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-coordination-race-');
-  const a = contender(t, root, 'a');
-  const b = contender(t, root, 'b');
+  const a = contender(cleanup, root, 'a');
+  const b = contender(cleanup, root, 'b');
   await Promise.all([a.ready, b.ready]);
   const results = await Promise.all([a.claim(), b.claim()]);
   assert.deepEqual(results.map(({ kind }) => kind).sort(), [
@@ -198,7 +205,7 @@ await test('two independent claimants have one owner and only its work starts', 
   );
 });
 
-await test('an alias collision stores none of the requested references', async () => {
+test('an alias collision stores none of the requested references', async () => {
   const root = await scratch('witch-coordination-alias-');
   const store = await CoordinationStore.open(root);
   const reserved = await claim(store);
@@ -219,7 +226,7 @@ await test('an alias collision stores none of the requested references', async (
   assert.equal(await readFile(file, 'utf8'), before);
 });
 
-await test('a retry preserves identity while updating its summary and merging aliases', async () => {
+test('a retry preserves identity while updating its summary and merging aliases', async () => {
   const store = await CoordinationStore.open(
     await scratch('witch-coordination-retry-'),
   );
@@ -252,7 +259,7 @@ await test('a retry preserves identity while updating its summary and merging al
   assert.deepEqual(await store.claims(), [retried]);
 });
 
-await test('only the matching owner and exact claim id can release a reservation', async () => {
+test('only the matching owner and exact claim id can release a reservation', async () => {
   const root = await scratch('witch-coordination-release-');
   const store = await CoordinationStore.open(root);
   const first = await claim(store);
@@ -274,7 +281,7 @@ await test('only the matching owner and exact claim id can release a reservation
   assert.deepEqual(await store.claims(), [next]);
 });
 
-await test('normalized named tasks conflict within a project and stay separate across projects', async () => {
+test('normalized named tasks conflict within a project and stay separate across projects', async () => {
   const store = await CoordinationStore.open(
     await scratch('witch-coordination-projects-'),
   );
@@ -303,7 +310,7 @@ for (const variant of [
   'https://github.com/acme/kit/pull/17/',
   'https://github.com/%61cme/kit/issues/17',
 ]) {
-  await test(`GitHub spelling ${variant} conflicts with its existing number`, async () => {
+  test(`GitHub spelling ${variant} conflicts with its existing number`, async () => {
     const store = await CoordinationStore.open(
       await scratch('witch-coordination-url-'),
     );
@@ -325,7 +332,7 @@ for (const variant of [
   });
 }
 
-await test('bounded ledger reads wait for the reservation lock and release it', async () => {
+test('bounded ledger reads wait for the reservation lock and release it', async () => {
   const root = await scratch('witch-coordination-read-lock-');
   const store = await CoordinationStore.open(root);
   const lock = await openLocked(
@@ -351,7 +358,7 @@ await test('bounded ledger reads wait for the reservation lock and release it', 
 });
 
 for (const damage of ['invalid JSON', 'unreadable'] as const) {
-  await test(`an ${damage} ledger refuses mutations without replacing its bytes`, async () => {
+  test(`an ${damage} ledger refuses mutations without replacing its bytes`, async () => {
     const root = await scratch('witch-coordination-damaged-');
     const store = await CoordinationStore.open(root);
     await claim(store);
@@ -369,7 +376,8 @@ for (const damage of ['invalid JSON', 'unreadable'] as const) {
   });
 }
 
-await test('verification receives the reconciled ledger under the reservation lock', async (t) => {
+test('verification receives the reconciled ledger under the reservation lock', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-coordination-authority-');
   const store = await CoordinationStore.open(root);
   const live = await claim(
@@ -405,28 +413,29 @@ await test('verification receives the reconciled ledger under the reservation lo
   );
   assert.equal(await readFile(file, 'utf8'), original);
   assert.deepEqual(await store.claims(), [live]);
-  const next = contender(t, root, 'b');
+  const next = contender(cleanup, root, 'b');
   await next.ready;
   const result = await next.claim();
   assert.equal(result.kind, 'claimed');
   assert.equal(result.claim.owner.conversation, 'b');
 });
 
-await test('a failed mutation releases the ledger lock without releasing the task', async (t) => {
+test('a failed mutation releases the ledger lock without releasing the task', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-coordination-failure-');
   const store = await CoordinationStore.open(root);
   const held = await claim(store);
   await assert.rejects(
     release(store, { ...owner, conversation: 'b' }, held.id),
   );
-  const next = contender(t, root, 'b');
+  const next = contender(cleanup, root, 'b');
   await next.ready;
   const result = await next.claim();
   assert.equal(result.kind, 'conflict');
   assert.deepEqual(result.claim, held);
 });
 
-await test('presence removal cannot delete a newer activation or its task claim', async () => {
+test('presence removal cannot delete a newer activation or its task claim', async () => {
   const root = await scratch('witch-coordination-presence-');
   const conversations = await StateStore.open(root);
   const files = await conversations.create(record('a', root));

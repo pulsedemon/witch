@@ -246,7 +246,7 @@ await test('the narrow peers page stays live and read-only during work and descr
 });
 
 await test('a real peer updates its summary and keeps its reservation across an origin change until closing', async (t) => {
-  const { root, start, registry } = await coordinationFixture(t);
+  const { root, start, registry } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     b = await start('B');
   await start('C');
@@ -295,7 +295,7 @@ await test('a real peer updates its summary and keeps its reservation across an 
 });
 
 await test('task release refuses running or background work without changing phase, and then releases only this conversation', async (t) => {
-  const { start, registry } = await coordinationFixture(t);
+  const { start, registry } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     b = await start('B');
   await a.claim('task:mine', 'My current task');
@@ -410,14 +410,14 @@ await test('queue and suggestion rows preserve task links and detailed native ph
 });
 
 await test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
-  const f = await coordinationFixture(t);
+  const f = await coordinationFixture(t.after.bind(t));
   await git('clone', join(f.root, 'origin'), join(f.root, 'D'));
   const a = await f.start(),
     b = await f.start('B'),
     c = await f.start('D');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b),
-    third = await selectionTurn(t, c);
+  const first = await selectionTurn(t.after.bind(t), a),
+    second = await selectionTurn(t.after.bind(t), b),
+    third = await selectionTurn(t.after.bind(t), c);
   const head = await first.select(),
     queued = await second.select();
   await third.select();

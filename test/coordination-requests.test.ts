@@ -1,7 +1,8 @@
+import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import type {
   CoordinationAction,
   TaskClaim,
@@ -27,14 +28,15 @@ for (const kind of [
   'recommend',
   'cancel-selection',
 ] as const)
-  await test(`${kind} discovers once and publishes the resulting ownership`, async (t) => {
-    pauseDiscovery(t);
-    const { start } = await coordinationFixture(t);
+  test(`${kind} discovers once and publishes the resulting ownership`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    pauseDiscovery(vi.spyOn);
+    const { start } = await coordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const peer = await b.claim('task:peer', 'Peer work');
     if (peer.kind !== 'claimed') assert.fail(JSON.stringify(peer));
-    const turn = await selectionTurn(t, a);
+    const turn = await selectionTurn(cleanup, a);
     let action: CoordinationAction;
     let expected: string;
     switch (kind) {
@@ -74,7 +76,7 @@ for (const kind of [
           kind === 'selection-status' ? 'selection' : 'selection-cancelled';
     }
     try {
-      const { value, discoveries, reads } = await measureControl(t, () =>
+      const { value, discoveries, reads } = await measureControl(vi.spyOn, () =>
         callControl(turn.binding, action),
       );
       assert.equal(value.kind, expected, JSON.stringify(value));
@@ -103,27 +105,31 @@ for (const kind of [
     }
   });
 
-await test('human release reuses its lookup and publishes the released state', async (t) => {
-  pauseDiscovery(t);
-  const { start, registry } = await coordinationFixture(t);
+test('human release reuses its lookup and publishes the released state', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const { start, registry } = await coordinationFixture(cleanup);
   const a = await start();
   assert.equal((await a.claim()).kind, 'claimed');
-  const measured = await measureControl(t, () => a.coordination.releaseTask());
+  const measured = await measureControl(vi.spyOn, () =>
+    a.coordination.releaseTask(),
+  );
   assert.equal(a.coordination.snapshot.ownClaim, undefined);
   assert.deepEqual(await registry.claims(), []);
   assert.equal(measured.discoveries, 1);
   assert.equal(measured.reads, 2);
 });
 
-await test('a later query reads the peer reservation made between requests', async (t) => {
-  pauseDiscovery(t);
-  const { start } = await coordinationFixture(t);
+test('a later query reads the peer reservation made between requests', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const { start } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   assert.equal((await a.query()).peers[0]?.claim, undefined);
   const reserved = await b.claim('task:new-owner', 'New reservation');
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
-  const { value, discoveries, reads } = await measureControl(t, () =>
+  const { value, discoveries, reads } = await measureControl(vi.spyOn, () =>
     a.query(),
   );
   assert.deepEqual(value.peers[0]?.claim, reserved.claim);
@@ -132,9 +138,10 @@ await test('a later query reads the peer reservation made between requests', asy
 });
 
 for (const stage of ['acquisition', 'completion'] as const)
-  await test(`peer claims survive delayed read ${stage}`, async (t) => {
-    const refreshes = pauseDiscovery(t);
-    const { start, store } = await coordinationFixture(t);
+  test(`peer claims survive delayed read ${stage}`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const refreshes = pauseDiscovery(vi.spyOn);
+    const { start, store } = await coordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const peerId = b.coordinator.snapshot.conversation!.id;
@@ -145,10 +152,9 @@ for (const stage of ['acquisition', 'completion'] as const)
       finishDiscovery = Promise.withResolvers<void>();
     const state = CoordinationStore.prototype.state;
     let first = true;
-    const reading = t.mock.method(
-      CoordinationStore.prototype,
-      'state',
-      async function (
+    const reading = vi
+      .spyOn(CoordinationStore.prototype, 'state')
+      .mockImplementation(async function (
         this: CoordinationStore,
         ...args: Parameters<typeof state>
       ) {
@@ -165,14 +171,12 @@ for (const stage of ['acquisition', 'completion'] as const)
         }
         if (!background) requestRead.resolve();
         return ledger;
-      },
-    );
+      });
     const open = store.openConversations.bind(store);
     let discoveries = 0;
-    const observing = t.mock.method(
-      store,
-      'openConversations',
-      async (...args: Parameters<typeof open>) => {
+    const observing = vi
+      .spyOn(store, 'openConversations')
+      .mockImplementation(async (...args: Parameters<typeof open>) => {
         if (
           stage === 'acquisition' &&
           args[0] === undefined &&
@@ -182,8 +186,7 @@ for (const stage of ['acquisition', 'completion'] as const)
           await finishDiscovery.promise;
         }
         return open(...args);
-      },
-    );
+      });
     let request: ReturnType<typeof a.query> | undefined;
     let unsubscribe = () => {};
     refreshes[0]!();
@@ -231,14 +234,15 @@ for (const stage of ['acquisition', 'completion'] as const)
       finishDiscovery.resolve();
       await request?.catch(() => {});
       await refreshing;
-      observing.mock.restore();
-      reading.mock.restore();
+      observing.mockRestore();
+      reading.mockRestore();
     }
   });
 
-await test('an older successful ledger read cannot clear a later read failure', async (t) => {
-  const refreshes = pauseDiscovery(t);
-  const { start, store } = await coordinationFixture(t);
+test('an older successful ledger read cannot clear a later read failure', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const refreshes = pauseDiscovery(vi.spyOn);
+  const { start, store } = await coordinationFixture(cleanup);
   const a = await start();
   const reserved = await a.claim('task:known', 'Known work');
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
@@ -263,10 +267,9 @@ await test('an older successful ledger read cannot clear a later read failure', 
   };
   const state = local.state.bind(local);
   let failure: unknown;
-  const reading = t.mock.method(
-    local,
-    'state',
-    async (...args: Parameters<typeof state>) => {
+  const reading = vi
+    .spyOn(local, 'state')
+    .mockImplementation(async (...args: Parameters<typeof state>) => {
       try {
         const ledger = await state(...args);
         requestRead.resolve();
@@ -275,21 +278,18 @@ await test('an older successful ledger read cannot clear a later read failure', 
         failure = error;
         throw error;
       }
-    },
-  );
+    });
   const open = store.openConversations.bind(store);
   let discoveries = 0;
-  const observing = t.mock.method(
-    store,
-    'openConversations',
-    async (...args: Parameters<typeof open>) => {
+  const observing = vi
+    .spyOn(store, 'openConversations')
+    .mockImplementation(async (...args: Parameters<typeof open>) => {
       if (args[0] === undefined && ++discoveries === 2) {
         discovering.resolve();
         await finishDiscovery.promise;
       }
       return open(...args);
-    },
-  );
+    });
   let request: ReturnType<typeof callControl> | undefined;
   refreshes[0]!();
   const refreshing = a.coordination['refreshing']!.promise;
@@ -327,15 +327,16 @@ await test('an older successful ledger read cannot clear a later read failure', 
     await writeFile(file, original);
     await request;
     await refreshing;
-    observing.mock.restore();
-    reading.mock.restore();
+    observing.mockRestore();
+    reading.mockRestore();
     local['lock'] = lock;
   }
 });
 
-await test('an older ledger failure cannot replace a later successful observation', async (t) => {
-  const refreshes = pauseDiscovery(t);
-  const { start, store } = await coordinationFixture(t);
+test('an older ledger failure cannot replace a later successful observation', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const refreshes = pauseDiscovery(vi.spyOn);
+  const { start, store } = await coordinationFixture(cleanup);
   const a = await start();
   const reserved = await a.claim('task:known', 'Known work');
   if (reserved.kind !== 'claimed') assert.fail(JSON.stringify(reserved));
@@ -346,10 +347,9 @@ await test('an older ledger failure cannot replace a later successful observatio
   const local = a.coordination['registry'];
   const state = local.state.bind(local);
   let first = true;
-  const reading = t.mock.method(
-    local,
-    'state',
-    async (...args: Parameters<typeof state>) => {
+  const reading = vi
+    .spyOn(local, 'state')
+    .mockImplementation(async (...args: Parameters<typeof state>) => {
       const background = first;
       first = false;
       try {
@@ -361,8 +361,7 @@ await test('an older ledger failure cannot replace a later successful observatio
         }
         throw error;
       }
-    },
-  );
+    });
   let refreshing: Promise<void> | undefined;
   try {
     await writeFile(file, '{broken');
@@ -387,22 +386,23 @@ await test('an older ledger failure cannot replace a later successful observatio
     finishFailure.resolve();
     await writeFile(file, original);
     await refreshing;
-    reading.mock.restore();
+    reading.mockRestore();
   }
 });
 
-await test('cancellation publishes the next waiter without another discovery', async (t) => {
-  pauseDiscovery(t);
-  const { start } = await coordinationFixture(t);
+test('cancellation publishes the next waiter without another discovery', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const { start } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b);
   try {
     const head = await first.select(),
       queued = await second.select();
     assert.equal(queued.position, 2);
-    const result = await measureControl(t, () =>
+    const result = await measureControl(vi.spyOn, () =>
       callControl(first.binding, {
         kind: 'cancel-selection',
         selection: head.ticket.id,
@@ -421,11 +421,12 @@ await test('cancellation publishes the next waiter without another discovery', a
   }
 });
 
-await test('claim finalization preserves newer background observations', async (t) => {
-  const refreshes = pauseDiscovery(t);
+test('claim finalization preserves newer background observations', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const refreshes = pauseDiscovery(vi.spyOn);
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
-  const { start, registry } = await coordinationFixture(t, async () => {
+  const { start, registry } = await coordinationFixture(cleanup, async () => {
     entered.resolve();
     await finish.promise;
   });
@@ -460,11 +461,12 @@ await test('claim finalization preserves newer background observations', async (
   }
 });
 
-await test('claim finalization preserves a newer discovery failure until recovery', async (t) => {
-  const refreshes = pauseDiscovery(t);
+test('claim finalization preserves a newer discovery failure until recovery', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const refreshes = pauseDiscovery(vi.spyOn);
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
-  const { start, store } = await coordinationFixture(t, async () => {
+  const { start, store } = await coordinationFixture(cleanup, async () => {
     entered.resolve();
     await finish.promise;
   });
@@ -509,9 +511,10 @@ await test('claim finalization preserves a newer discovery failure until recover
   }
 });
 
-await test('a pre-mutation refresh cannot publish old ownership after commit', async (t) => {
-  pauseDiscovery(t);
-  const { start, registry } = await coordinationFixture(t);
+test('a pre-mutation refresh cannot publish old ownership after commit', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const { start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.query();
@@ -536,22 +539,22 @@ await test('a pre-mutation refresh cannot publish old ownership after commit', a
   const read = CoordinationStore.prototype.state;
   const claim = CoordinationStore.prototype.claim;
   let reads = 0;
-  const reading = t.mock.method(
-    CoordinationStore.prototype,
-    'state',
-    async function (this: CoordinationStore, ...args: Parameters<typeof read>) {
+  const reading = vi
+    .spyOn(CoordinationStore.prototype, 'state')
+    .mockImplementation(async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof read>
+    ) {
       const ledger = await read.apply(this, args);
       if (++reads === 2) {
         readEntered.resolve();
         await finishRead.promise;
       }
       return ledger;
-    },
-  );
-  const reserving = t.mock.method(
-    CoordinationStore.prototype,
-    'claim',
-    async function (
+    });
+  const reserving = vi
+    .spyOn(CoordinationStore.prototype, 'claim')
+    .mockImplementation(async function (
       this: CoordinationStore,
       ...args: Parameters<typeof claim>
     ) {
@@ -559,8 +562,7 @@ await test('a pre-mutation refresh cannot publish old ownership after commit', a
       committed.resolve(result);
       await finishMutation.promise;
       return result;
-    },
-  );
+    });
   const refreshing = a.coordination.context();
   let claiming: ReturnType<typeof a.claim> | undefined;
   let unsubscribe = () => {};
@@ -597,18 +599,19 @@ await test('a pre-mutation refresh cannot publish old ownership after commit', a
     finishMutation.resolve();
     if (claiming) await claiming;
     await refreshing;
-    reading.mock.restore();
-    reserving.mock.restore();
+    reading.mockRestore();
+    reserving.mockRestore();
   }
 });
 
 for (const outcome of ['success', 'failure'] as const)
-  await test(`newer background discovery ${outcome} survives mutation completion`, async (t) => {
-    const refreshes = pauseDiscovery(t);
+  test(`newer background discovery ${outcome} survives mutation completion`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const refreshes = pauseDiscovery(vi.spyOn);
     const assignmentEntered = Promise.withResolvers<void>(),
       finishAssignment = Promise.withResolvers<void>();
     const { start, store, registry } = await coordinationFixture(
-      t,
+      cleanup,
       async () => {
         assignmentEntered.resolve();
         await finishAssignment.promise;
@@ -629,10 +632,9 @@ for (const outcome of ['success', 'failure'] as const)
       observed = Promise.withResolvers<void>(),
       finishDiscovery = Promise.withResolvers<void>();
     const claim = CoordinationStore.prototype.claim;
-    const reserving = t.mock.method(
-      CoordinationStore.prototype,
-      'claim',
-      async function (
+    const reserving = vi
+      .spyOn(CoordinationStore.prototype, 'claim')
+      .mockImplementation(async function (
         this: CoordinationStore,
         ...args: Parameters<typeof claim>
       ) {
@@ -640,14 +642,15 @@ for (const outcome of ['success', 'failure'] as const)
         committed.resolve(value);
         await finishMutation.promise;
         return value;
-      },
-    );
+      });
     const records = StateStore.prototype.records;
     let holding = false;
-    const reading = t.mock.method(
-      StateStore.prototype,
-      'records',
-      async function (this: StateStore, ...args: Parameters<typeof records>) {
+    const reading = vi
+      .spyOn(StateStore.prototype, 'records')
+      .mockImplementation(async function (
+        this: StateStore,
+        ...args: Parameters<typeof records>
+      ) {
         const result = await records.apply(this, args);
         if (holding) {
           holding = false;
@@ -655,8 +658,7 @@ for (const outcome of ['success', 'failure'] as const)
           await finishDiscovery.promise;
         }
         return result;
-      },
-    );
+      });
     const claiming = a.claim('task:chosen');
     try {
       const reserved = await within(committed.promise, 5000, 'claim committed');
@@ -714,15 +716,16 @@ for (const outcome of ['success', 'failure'] as const)
       finishAssignment.resolve();
       await writeFile(file, original);
       await claiming;
-      reading.mock.restore();
-      reserving.mock.restore();
+      reading.mockRestore();
+      reserving.mockRestore();
     }
   });
 
 for (const stage of ['waiting', 'verifying'] as const)
-  await test(`a refresh started while ${stage} never publishes ownership older than the commit`, async (t) => {
-    const refreshes = pauseDiscovery(t);
-    const { start, registry } = await coordinationFixture(t);
+  test(`a refresh started while ${stage} never publishes ownership older than the commit`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const refreshes = pauseDiscovery(vi.spyOn);
+    const { start, registry } = await coordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const peerId = b.coordinator.snapshot.conversation!.id;
@@ -740,10 +743,9 @@ for (const stage of ['waiting', 'verifying'] as const)
       observed = Promise.withResolvers<void>(),
       finishDiscovery = Promise.withResolvers<void>();
     const claim = CoordinationStore.prototype.claim;
-    const reserving = t.mock.method(
-      CoordinationStore.prototype,
-      'claim',
-      async function (
+    const reserving = vi
+      .spyOn(CoordinationStore.prototype, 'claim')
+      .mockImplementation(async function (
         this: CoordinationStore,
         ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
       ) {
@@ -768,14 +770,12 @@ for (const stage of ['waiting', 'verifying'] as const)
         committed.resolve(value);
         await finishMutation.promise;
         return value;
-      },
-    );
+      });
     let capture = false;
     const state = CoordinationStore.prototype.state;
-    const reading = t.mock.method(
-      CoordinationStore.prototype,
-      'state',
-      async function (
+    const reading = vi
+      .spyOn(CoordinationStore.prototype, 'state')
+      .mockImplementation(async function (
         this: CoordinationStore,
         ...args: Parameters<typeof state>
       ) {
@@ -786,14 +786,15 @@ for (const stage of ['waiting', 'verifying'] as const)
         const value = await pending;
         readCompleted.resolve();
         return value;
-      },
-    );
+      });
     let holding = false;
     const records = StateStore.prototype.records;
-    const discovering = t.mock.method(
-      StateStore.prototype,
-      'records',
-      async function (this: StateStore, ...args: Parameters<typeof records>) {
+    const discovering = vi
+      .spyOn(StateStore.prototype, 'records')
+      .mockImplementation(async function (
+        this: StateStore,
+        ...args: Parameters<typeof records>
+      ) {
         const value = await records.apply(this, args);
         if (holding) {
           holding = false;
@@ -801,8 +802,7 @@ for (const stage of ['waiting', 'verifying'] as const)
           await finishDiscovery.promise;
         }
         return value;
-      },
-    );
+      });
     const claiming = a.claim('task:chosen');
     let unsubscribe = () => {};
     try {
@@ -857,18 +857,19 @@ for (const stage of ['waiting', 'verifying'] as const)
       finishDiscovery.resolve();
       finishMutation.resolve();
       await claiming;
-      discovering.mock.restore();
-      reading.mock.restore();
-      reserving.mock.restore();
+      discovering.mockRestore();
+      reading.mockRestore();
+      reserving.mockRestore();
     }
   });
 
-await test('a refresh started during verification retains peer claims after mutation completion', async (t) => {
-  const refreshes = pauseDiscovery(t);
+test('a refresh started during verification retains peer claims after mutation completion', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const refreshes = pauseDiscovery(vi.spyOn);
   const assignmentEntered = Promise.withResolvers<void>(),
     finishAssignment = Promise.withResolvers<void>();
   const { start, registry } = await coordinationFixture(
-    t,
+    cleanup,
     async (references) => {
       if (!references.some((reference) => reference.endsWith(':chosen')))
         return;
@@ -888,34 +889,33 @@ await test('a refresh started during verification retains peer claims after muta
     committed = Promise.withResolvers<TaskClaim>(),
     finishMutation = Promise.withResolvers<void>();
   const claim = local.claim.bind(local);
-  const reserving = t.mock.method(
-    local,
-    'claim',
-    async (
-      ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
-    ) => {
-      const result = await claim(
-        owner,
-        input,
-        process,
-        deadline,
-        async (ledger) => {
-          await verify(ledger);
-          entered.resolve();
-          await proceed.promise;
-        },
-      );
-      committed.resolve(result);
-      await finishMutation.promise;
-      return result;
-    },
-  );
+  const reserving = vi
+    .spyOn(local, 'claim')
+    .mockImplementation(
+      async (
+        ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
+      ) => {
+        const result = await claim(
+          owner,
+          input,
+          process,
+          deadline,
+          async (ledger) => {
+            await verify(ledger);
+            entered.resolve();
+            await proceed.promise;
+          },
+        );
+        committed.resolve(result);
+        await finishMutation.promise;
+        return result;
+      },
+    );
   const state = local.state.bind(local);
   let background = false;
-  const reading = t.mock.method(
-    local,
-    'state',
-    async (...args: Parameters<typeof state>) => {
+  const reading = vi
+    .spyOn(local, 'state')
+    .mockImplementation(async (...args: Parameters<typeof state>) => {
       if (background) {
         background = false;
         readEntered.resolve();
@@ -926,8 +926,7 @@ await test('a refresh started during verification retains peer claims after muta
         return ledger;
       }
       return state(...args);
-    },
-  );
+    });
   const claiming = a.claim('task:chosen', 'Own work');
   let refreshing: Promise<void> | undefined;
   try {
@@ -965,25 +964,25 @@ await test('a refresh started during verification retains peer claims after muta
     finishAssignment.resolve();
     await claiming;
     await refreshing;
-    reading.mock.restore();
-    reserving.mock.restore();
+    reading.mockRestore();
+    reserving.mockRestore();
   }
 });
 
 for (const readFails of [false, true])
-  await test(`post-commit finalization preserves peer claims${readFails ? ' after a later read fails' : ''}`, async (t) => {
-    const refreshes = pauseDiscovery(t);
-    const { start, registry } = await coordinationFixture(t);
+  test(`post-commit finalization preserves peer claims${readFails ? ' after a later read fails' : ''}`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const refreshes = pauseDiscovery(vi.spyOn);
+    const { start, registry } = await coordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const owner = a.coordinator.snapshot.conversation!.id;
     const committed = Promise.withResolvers<TaskClaim>(),
       finishMutation = Promise.withResolvers<void>();
     const claim = CoordinationStore.prototype.claim;
-    const reserving = t.mock.method(
-      CoordinationStore.prototype,
-      'claim',
-      async function (
+    const reserving = vi
+      .spyOn(CoordinationStore.prototype, 'claim')
+      .mockImplementation(async function (
         this: CoordinationStore,
         ...args: Parameters<typeof claim>
       ) {
@@ -993,21 +992,18 @@ for (const readFails of [false, true])
           await finishMutation.promise;
         }
         return value;
-      },
-    );
+      });
     const state = CoordinationStore.prototype.state;
     let failing = false;
-    const reading = t.mock.method(
-      CoordinationStore.prototype,
-      'state',
-      async function (
+    const reading = vi
+      .spyOn(CoordinationStore.prototype, 'state')
+      .mockImplementation(async function (
         this: CoordinationStore,
         ...args: Parameters<typeof state>
       ) {
         if (failing) throw new Error('fixture cannot read the ledger');
         return state.apply(this, args);
-      },
-    );
+      });
     const claiming = a.claim('task:chosen');
     let unsubscribe = () => {};
     try {
@@ -1065,15 +1061,16 @@ for (const readFails of [false, true])
       unsubscribe();
       finishMutation.resolve();
       await claiming;
-      reading.mock.restore();
-      reserving.mock.restore();
+      reading.mockRestore();
+      reserving.mockRestore();
     }
   });
 
 for (const kind of ['claim', 'release'] as const)
-  await test(`committed ${kind} remains published after an overlapping ledger read fails`, async (t) => {
-    const refreshes = pauseDiscovery(t);
-    const { start, store } = await coordinationFixture(t);
+  test(`committed ${kind} remains published after an overlapping ledger read fails`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const refreshes = pauseDiscovery(vi.spyOn);
+    const { start, store } = await coordinationFixture(cleanup);
     const a = await start();
     const binding = await a.binding();
     let action: CoordinationAction = {
@@ -1092,18 +1089,16 @@ for (const kind of ['claim', 'release'] as const)
       finishMutation = Promise.withResolvers<void>();
     const state = local.state.bind(local);
     let first = true;
-    const reading = t.mock.method(
-      local,
-      'state',
-      async (...args: Parameters<typeof state>) => {
+    const reading = vi
+      .spyOn(local, 'state')
+      .mockImplementation(async (...args: Parameters<typeof state>) => {
         if (first) {
           first = false;
           entered.resolve();
           await finishRead.promise;
         }
         return state(...args);
-      },
-    );
+      });
     const hold = async <T>(operation: Promise<T>): Promise<T> => {
       const result = await operation;
       committed.resolve();
@@ -1114,14 +1109,16 @@ for (const kind of ['claim', 'release'] as const)
     const release = local.release.bind(local);
     const changing =
       kind === 'claim'
-        ? t.mock.method(local, 'claim', (...args: Parameters<typeof claim>) =>
-            hold(claim(...args)),
-          )
-        : t.mock.method(
-            local,
-            'release',
-            (...args: Parameters<typeof release>) => hold(release(...args)),
-          );
+        ? vi
+            .spyOn(local, 'claim')
+            .mockImplementation((...args: Parameters<typeof claim>) =>
+              hold(claim(...args)),
+            )
+        : vi
+            .spyOn(local, 'release')
+            .mockImplementation((...args: Parameters<typeof release>) =>
+              hold(release(...args)),
+            );
     const file = join(store.root, 'coordination', 'claims.json');
     let saved: string | undefined;
     let request: ReturnType<typeof callControl> | undefined;
@@ -1154,14 +1151,15 @@ for (const kind of ['claim', 'release'] as const)
       await request;
       await refreshing;
       if (saved !== undefined) await writeFile(file, saved);
-      reading.mock.restore();
-      changing.mock.restore();
+      reading.mockRestore();
+      changing.mockRestore();
     }
   });
 
-await test('a newer discovery survives rejected mutation completion', async (t) => {
-  const refreshes = pauseDiscovery(t);
-  const { start, registry } = await coordinationFixture(t);
+test('a newer discovery survives rejected mutation completion', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const refreshes = pauseDiscovery(vi.spyOn);
+  const { start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const peerId = b.coordinator.snapshot.conversation!.id;
@@ -1177,10 +1175,9 @@ await test('a newer discovery survives rejected mutation completion', async (t) 
     finalReadEntered = Promise.withResolvers<void>(),
     finishFinalRead = Promise.withResolvers<void>();
   const claim = CoordinationStore.prototype.claim;
-  const reserving = t.mock.method(
-    CoordinationStore.prototype,
-    'claim',
-    async function (
+  const reserving = vi
+    .spyOn(CoordinationStore.prototype, 'claim')
+    .mockImplementation(async function (
       this: CoordinationStore,
       ...[owner, input, process, deadline, verify]: Parameters<typeof claim>
     ) {
@@ -1197,14 +1194,15 @@ await test('a newer discovery survives rejected mutation completion', async (t) 
           throw new Error('fixture rejects the mutation after verification');
         },
       );
-    },
-  );
+    });
   const records = StateStore.prototype.records;
   let holding = false;
-  const reading = t.mock.method(
-    StateStore.prototype,
-    'records',
-    async function (this: StateStore, ...args: Parameters<typeof records>) {
+  const reading = vi
+    .spyOn(StateStore.prototype, 'records')
+    .mockImplementation(async function (
+      this: StateStore,
+      ...args: Parameters<typeof records>
+    ) {
       const result = await records.apply(this, args);
       if (holding) {
         holding = false;
@@ -1212,14 +1210,12 @@ await test('a newer discovery survives rejected mutation completion', async (t) 
         await finishDiscovery.promise;
       }
       return result;
-    },
-  );
+    });
   const state = CoordinationStore.prototype.state;
   let finalizing = false;
-  const finalRead = t.mock.method(
-    CoordinationStore.prototype,
-    'state',
-    async function (
+  const finalRead = vi
+    .spyOn(CoordinationStore.prototype, 'state')
+    .mockImplementation(async function (
       this: CoordinationStore,
       ...args: Parameters<typeof state>
     ) {
@@ -1231,8 +1227,7 @@ await test('a newer discovery survives rejected mutation completion', async (t) 
         await finishFinalRead.promise;
       }
       return result;
-    },
-  );
+    });
   const claiming = a.claim('task:chosen');
   try {
     await within(verified.promise, 5000, 'request discovery');
@@ -1274,24 +1269,27 @@ await test('a newer discovery survives rejected mutation completion', async (t) 
     finishDiscovery.resolve();
     finishFinalRead.resolve();
     await claiming;
-    finalRead.mock.restore();
-    reading.mock.restore();
-    reserving.mock.restore();
+    finalRead.mockRestore();
+    reading.mockRestore();
+    reserving.mockRestore();
   }
 });
 
-await test('a refresh that read the old ledger cannot erase a committed claim', async (t) => {
-  const refreshes = pauseDiscovery(t);
-  const { start } = await coordinationFixture(t);
+test('a refresh that read the old ledger cannot erase a committed claim', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const refreshes = pauseDiscovery(vi.spyOn);
+  const { start } = await coordinationFixture(cleanup);
   const a = await start();
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
   const read = CoordinationStore.prototype.state;
   let first = true;
-  const reading = t.mock.method(
-    CoordinationStore.prototype,
-    'state',
-    async function (this: CoordinationStore, ...args: Parameters<typeof read>) {
+  const reading = vi
+    .spyOn(CoordinationStore.prototype, 'state')
+    .mockImplementation(async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof read>
+    ) {
       const ledger = await read.apply(this, args);
       if (first) {
         first = false;
@@ -1299,8 +1297,7 @@ await test('a refresh that read the old ledger cannot erase a committed claim', 
         await finish.promise;
       }
       return ledger;
-    },
-  );
+    });
   try {
     refreshes[0]!();
     await within(entered.promise, 5000, 'old ledger read');
@@ -1324,6 +1321,6 @@ await test('a refresh that read the old ledger cannot erase a committed claim', 
     }
   } finally {
     finish.resolve();
-    reading.mock.restore();
+    reading.mockRestore();
   }
 });

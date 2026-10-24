@@ -1,16 +1,17 @@
+import { orderedCleanup } from './fixtures/cleanup.js';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test } from 'vitest';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { assignGitHubTask } from '../src/core/github-assignment.js';
 import { callControl } from '../src/persistence/control.js';
 import { coordinationFixture } from './fixtures/coordination.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
-async function fixture(t: TestContext, assign = assignGitHubTask) {
-  const f = await coordinationFixture(t, assign);
+async function fixture(register: RegisterCleanup, assign = assignGitHubTask) {
+  const f = await coordinationFixture(register, assign);
   const bin = join(f.root, 'bin');
   const policy = join(f.root, 'github-policy.json');
   const calls = join(f.root, 'github-calls.jsonl');
@@ -49,7 +50,7 @@ if (policy.hold === endpoint) {
   );
   const previous = process.env.PATH;
   process.env.PATH = `${bin}:${previous}`;
-  t.after(() => {
+  register(() => {
     process.env.PATH = previous;
   });
   return {
@@ -74,8 +75,9 @@ const input = {
 };
 const issue = 'repos/acme/widget/issues/42/assignees';
 
-await test('a successful claim assigns its distinct GitHub references, and a conflicting claim never reaches GitHub', async (t) => {
-  const f = await fixture(t);
+test('a successful claim assigns its distinct GitHub references, and a conflicting claim never reaches GitHub', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
   const claimed = await callControl(await a.binding(), {
@@ -112,10 +114,11 @@ await test('a successful claim assigns its distinct GitHub references, and a con
   assert.deepEqual(await f.calls(), calls);
 });
 
-await test('a recommendation assigns only when promoted to an active claim', async (t) => {
-  const f = await fixture(t);
+test('a recommendation assigns only when promoted to an active claim', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.start();
-  const turn = await selectionTurn(t, a);
+  const turn = await selectionTurn(cleanup, a);
   const selection = await turn.select();
   const suggested = await turn.recommend(selection.ticket.id);
   assert.deepEqual(await f.calls(), []);
@@ -148,8 +151,9 @@ for (const scenario of [
     message: /did not confirm assignment to task-user/,
   },
 ]) {
-  await test(`${scenario.name} returns a warning with ownership intact, and repeating the claim retries`, async (t) => {
-    const f = await fixture(t);
+  test(`${scenario.name} returns a warning with ownership intact, and repeating the claim retries`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const f = await fixture(cleanup);
     const a = await f.start();
     const binding = await a.binding();
     await f.configure(scenario.policy);
@@ -182,13 +186,14 @@ for (const [name, endpoint, expected] of [
   ['login', 'user', ['user']],
   ['assignment', issue, ['user', issue]],
 ] as const) {
-  await test(`${name} timeout returns a warning with ownership intact`, async (t) => {
-    const f = await fixture(t, (references, cwd, deadline) =>
+  test(`${name} timeout returns a warning with ownership intact`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const f = await fixture(cleanup, (references, cwd, deadline) =>
       assignGitHubTask(references, cwd, Math.min(deadline, Date.now() + 2000)),
     );
     const a = await f.start();
     await f.configure({ hold: endpoint });
-    t.after(f.release);
+    cleanup(f.release);
     const claiming = callControl(await a.binding(), {
       kind: 'claim',
       input: { reference: input.reference, summary: input.summary },
@@ -221,12 +226,13 @@ for (const [name, endpoint, expected] of [
   });
 }
 
-await test('a pending GitHub assignment leaves the shared ledger available and drains before close releases its claim', async (t) => {
-  const f = await fixture(t);
+test('a pending GitHub assignment leaves the shared ledger available and drains before close releases its claim', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
   await f.configure({ hold: issue });
-  t.after(f.release);
+  cleanup(f.release);
   const claiming = a.claim(input.reference);
   try {
     await until(
@@ -257,15 +263,16 @@ await test('a pending GitHub assignment leaves the shared ledger available and d
   }
 });
 
-await test('an expired assignment starts no command and a stalled GitHub command is reaped at its deadline', async (t) => {
-  const f = await fixture(t);
+test('an expired assignment starts no command and a stalled GitHub command is reaped at its deadline', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   await assert.rejects(
     assignGitHubTask(['github:acme/widget#42'], f.root, Date.now() - 1),
     /deadline expired/,
   );
   assert.deepEqual(await f.calls(), []);
   await f.configure({ hold: issue });
-  t.after(f.release);
+  cleanup(f.release);
   await assert.rejects(
     within(
       assignGitHubTask(['github:acme/widget#42'], f.root, Date.now() + 2000),

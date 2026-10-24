@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { TestContext } from 'node:test';
+import type { RegisterCleanup } from './cleanup.js';
 import { callControl } from '../../src/persistence/control.js';
 import { TurnGate } from './agent.js';
 import type { coordinationFixture } from './coordination.js';
@@ -9,11 +9,11 @@ type Client = Awaited<
   ReturnType<Awaited<ReturnType<typeof coordinationFixture>>['start']>
 >;
 
-export async function selectionTurn(t: TestContext, client: Client) {
+export async function selectionTurn(register: RegisterCleanup, client: Client) {
   const gate = new TurnGate();
   client.a.gate = gate;
   const sending = client.coordinator.send('Choose the next task');
-  t.after(async () => {
+  register(async () => {
     gate.open();
     await sending;
   });
