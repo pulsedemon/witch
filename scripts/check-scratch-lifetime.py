@@ -176,6 +176,7 @@ const timer = setInterval(() => {
   clearTimeout(deadline);
   if (kind === 'descendant') {
     const child = spawn(process.execPath, [process.argv[1], root, 'second'], { detached: true, stdio: 'ignore' });
+    writeFileSync(join(root, 'descendant.pid'), String(child.pid));
     child.unref();
   }
   let result;
@@ -331,14 +332,19 @@ child.unref();
         if monitor:
             monitor.close()
         subprocess.run([tmux, '-S', str(socket), 'kill-server'], capture_output=True, timeout=5)
-        for stage in ('worker', 'descendant'):
-            info = read_json(root / (stage + '.ready.json'))
-            if info and not any(record['pid'] == info['pid'] for record in workers):
-                current = identity(info['pid'])
-                if current:
-                    workers.append(current)
+        info = read_json(root / 'worker.ready.json')
+        if info and not any(record['pid'] == info['pid'] for record in workers):
+            current = identity(info['pid'])
+            if current:
+                workers.append(current)
         for recorded in workers:
             wait_for('worker cleanup', lambda recorded=recorded: identity(recorded['pid']) != recorded, seconds=8)
+        # read the child PID after its parent exits; the ready file can appear later.
+        descendant_pid = read_json(root / 'descendant.pid')
+        if descendant_pid:
+            descendant = identity(descendant_pid)
+            if descendant:
+                wait_for('descendant cleanup', lambda: identity(descendant_pid) != descendant, seconds=8)
         (root / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         server = subprocess.run([tmux, '-S', str(socket), 'list-sessions'], capture_output=True, timeout=5)
         assert server.returncode != 0, 'private tmux server survived'
