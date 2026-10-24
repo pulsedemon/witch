@@ -7,7 +7,6 @@ import {
   access,
   chmod,
   mkdir,
-  open,
   readFile,
   utimes,
   writeFile,
@@ -16,7 +15,7 @@ import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { exclusiveLock } from '../src/persistence/lock.js';
+import { openLocked } from '../src/persistence/lock.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { displayUpdateSchema, foldDisplayUpdates } from '../src/core/state.js';
@@ -98,9 +97,9 @@ await test('conversation locks carry a registration lock that a lost race releas
   await writeFile(join(store.root, 'conversations', '.DS_Store'), 'finder');
   await (await store.create(conversation('older'))).close();
   // an older Witch takes only `lock`
-  const older = await open(
+  const older = await openLocked(
     join(store.root, 'conversations', 'older', 'lock'),
-    constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
+    constants.O_RDWR | constants.O_NONBLOCK,
   );
   assert.deepEqual(
     await store.openConversations(),
@@ -160,9 +159,9 @@ await test("a legacy holder stays unregistered during a current owner's failed c
   const store = await StateStore.open(await scratch('witch-legacy-race-'));
   await (await store.create(conversation('older'))).close();
   const path = join(store.root, 'conversations', 'older', 'lock');
-  const legacy = await open(
+  const legacy = await openLocked(
     path,
-    constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
+    constants.O_RDWR | constants.O_NONBLOCK,
   );
   t.after(() => legacy.close());
   const entered = Promise.withResolvers<void>();
@@ -203,13 +202,25 @@ await test('closing after a lock observation never turns a current owner into a 
     join(root, 'PauseLock.pm'),
     `package PauseLock;
 BEGIN {
-  *CORE::GLOBAL::fcntl = sub (*$$) {
-    my $result = CORE::fcntl($_[0], $_[1], $_[2]);
+  my $pause = sub {
     open(my $ready, '>', "$ENV{WITCH_LOCK_PROBE}/ready") or die $!;
     close($ready) or die $!;
     while (!-e "$ENV{WITCH_LOCK_PROBE}/continue") { select(undef, undef, undef, 0.001); }
-    return $result;
   };
+  if ($^O eq 'linux') {
+    *CORE::GLOBAL::close = sub (*) {
+      my $target = readlink('/proc/self/fd/' . fileno($_[0]));
+      my $result = CORE::close($_[0]);
+      $pause->() if defined($target) && $target eq '/proc/locks';
+      return $result;
+    };
+  } else {
+    *CORE::GLOBAL::fcntl = sub (*$$) {
+      my $result = CORE::fcntl($_[0], $_[1], $_[2]);
+      $pause->();
+      return $result;
+    };
+  }
 }
 1;
 `,

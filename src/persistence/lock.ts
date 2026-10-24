@@ -1,8 +1,13 @@
 import { execFile } from 'node:child_process';
+import { constants } from 'node:fs';
+import { open } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { getSystemErrorName, promisify } from 'node:util';
 import { z } from 'zod';
 
 const execute = promisify(execFile);
+const nativeLocks =
+  process.platform === 'linux' ? await import('fs-ext') : undefined;
 const query = `
 use Fcntl qw(F_GETLK F_RDLCK F_WRLCK F_UNLCK SEEK_SET);
 use JSON::PP;
@@ -24,16 +29,87 @@ for my $path (@$paths) {
 print encode_json([@results]);
 `;
 
-// macOS flock flags, which Node doesn't export
-export const sharedLock = 0x10;
-export const exclusiveLock = 0x20;
+const linuxQuery = `
+use JSON::PP;
+my $paths = decode_json(do { local $/; <STDIN> });
+my @files;
+my @results;
+for my $path (@$paths) {
+  my $file;
+  if (!open($file, '<', $path)) {
+    push @results, ($!{ENOENT} || $!{ENOTDIR}) ? 0 : -int($!);
+    push @files, undef;
+    next;
+  }
+  push @files, $file;
+  push @results, 0;
+}
+open(my $table, '<', '/proc/locks') or die "Cannot inspect locks: $!";
+my %locks;
+while (my $line = <$table>) {
+  if ($line =~ /^\\d+:\\s+FLOCK\\s+ADVISORY\\s+(READ|WRITE)\\s+\\d+\\s+([0-9a-f]+):([0-9a-f]+):(\\d+)\\s+0\\s+EOF\\s*$/) {
+    $locks{join(':', hex($2), hex($3), $4)} = $1 eq 'READ' ? 1 : 2;
+  }
+}
+close($table) or die "Cannot close lock table: $!";
+for my $index (0 .. $#files) {
+  next unless $files[$index];
+  my @stat = stat($files[$index]);
+  if (!@stat) { $results[$index] = -int($!); next; }
+  my $device = $stat[0];
+  my $major = (($device >> 8) & 0xfff) | (($device >> 32) & 0xfffff000);
+  my $minor = ($device & 0xff) | (($device >> 12) & 0xffffff00);
+  $results[$index] = $locks{join(':', $major, $minor, $stat[1])} // 0;
+}
+for my $file (@files) {
+  next unless $file;
+  close($file) or die "Cannot close lock: $!";
+}
+print encode_json([@results]);
+`;
 
-/** F_GETLK observes flock ownership without competing with a concurrent open. */
+// macOS flock flags, which Node doesn't export
+const sharedLock = 0x10;
+const exclusiveLock = 0x20;
+
+/** the descriptor owns the lock until close; Darwin acquires it atomically with open. */
+export async function openLocked(
+  file: string,
+  flags: number,
+  options: { shared?: boolean; mode?: number } = {},
+): Promise<FileHandle> {
+  const handle = await open(
+    file,
+    nativeLocks ? flags : flags | (options.shared ? sharedLock : exclusiveLock),
+    options.mode,
+  );
+  if (nativeLocks) {
+    try {
+      const mode = options.shared ? 'sh' : 'ex';
+      await new Promise<void>((resolve, reject) => {
+        nativeLocks.flock(
+          handle.fd,
+          flags & constants.O_NONBLOCK ? `${mode}nb` : mode,
+          (error) => (error ? reject(error) : resolve()),
+        );
+      });
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
+  }
+  return handle;
+}
+
+/** observes kernel lock records without competing with a concurrent acquisition. */
 export async function lockedFiles(
   files: readonly string[],
 ): Promise<Map<string, 'shared' | 'exclusive'>> {
   if (!files.length) return new Map();
-  const result = execute('/usr/bin/perl', ['-e', query]);
+  const result = execute('/usr/bin/perl', [
+    '-e',
+    nativeLocks ? linuxQuery : query,
+  ]);
   // report the process failure even when stdin also fails with EPIPE.
   result.child.stdin?.on('error', () => {}).end(JSON.stringify(files));
   const { stdout } = await result;

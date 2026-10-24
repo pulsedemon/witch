@@ -3,13 +3,14 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
+import { openLocked } from '../src/persistence/lock.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import type { ConversationStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
@@ -450,9 +451,9 @@ await test('merge cleanup preserves its notice when the install is absent, belon
           { mode: 0o755 },
         );
         process.env.PATH = `${bin}:${previousPath}`;
-        lock = await open(
+        lock = await openLocked(
           join(install, '.git'),
-          constants.O_RDONLY | constants.O_NONBLOCK | 0x20,
+          constants.O_RDONLY | constants.O_NONBLOCK,
         );
       }
       const cleanup = coordinator.cleanUpMerge(

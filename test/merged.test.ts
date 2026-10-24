@@ -4,7 +4,6 @@ import { constants } from 'node:fs';
 import {
   chmod,
   mkdir,
-  open,
   readFile,
   readdir,
   symlink,
@@ -13,10 +12,12 @@ import {
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { quote } from '../src/shell.js';
 import { runCommand } from '../src/core/command.js';
 import { cleanUpMerge, refreshInstall } from '../src/core/merged.js';
 import type { PullRequest, Run } from '../src/core/repository.js';
-import { exclusiveLock } from '../src/persistence/lock.js';
+import { openLocked } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
@@ -703,9 +704,9 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     message:
       /^#7 merged, but its cleanup failed before deleting feat\/x: Command failed: git .*fetch --prune/,
   });
-  const reacquired = await open(
+  const reacquired = await openLocked(
     join(checkout, '.git'),
-    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+    constants.O_RDONLY | constants.O_NONBLOCK,
   );
   await reacquired.close();
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
@@ -1097,9 +1098,9 @@ await test('a busy install is skipped before fetching', async () => {
   );
   await chmod(pack, 0o755);
   await git(install, 'config', 'remote.origin.uploadpack', pack);
-  const lock = await open(
+  const lock = await openLocked(
     join(install, '.git'),
-    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+    constants.O_RDONLY | constants.O_NONBLOCK,
   );
   const calls: string[][] = [];
   try {
@@ -1219,24 +1220,19 @@ await test('an install stays locked through revision reporting and releases on s
   for (const failing of [false, true]) {
     await write(
       join(bin, 'git'),
-      `#!${process.execPath}
-const { constants, openSync, closeSync, writeFileSync } = require('node:fs');
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-if (args.join(' ') === 'rev-parse --short HEAD') {
-  let result = 'unlocked';
-  try {
-    closeSync(openSync(${JSON.stringify(directory)}, constants.O_RDONLY | constants.O_NONBLOCK | ${exclusiveLock}));
-  } catch (error) {
-    result = error.code;
-  }
-  writeFileSync(${JSON.stringify(marker)}, result);
-  if (${failing}) {
-    process.stderr.write('revision unavailable\\n');
-    process.exit(23);
-  }
-}
-process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
+      `#!/bin/sh
+exec ${[
+        process.execPath,
+        '--import',
+        import.meta.resolve('tsx'),
+        fileURLToPath(new URL('fixtures/revision-lock.mts', import.meta.url)),
+        directory,
+        marker,
+        realGit,
+        String(failing),
+      ]
+        .map(quote)
+        .join(' ')} "$@"
 `,
     );
     await chmod(join(bin, 'git'), 0o755);
@@ -1263,9 +1259,9 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
           `Rebuilt Witch at ${head}, for its next start.`,
         );
       assert.equal(await readFile(marker, 'utf8'), 'EAGAIN');
-      const lock = await open(
+      const lock = await openLocked(
         directory,
-        constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+        constants.O_RDONLY | constants.O_NONBLOCK,
       );
       await lock.close();
     } finally {

@@ -17,7 +17,7 @@ import type {
   DisplayUpdate,
 } from '../core/state.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
-import { exclusiveLock, lockedFiles, sharedLock } from './lock.js';
+import { lockedFiles, openLocked } from './lock.js';
 
 export const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
@@ -44,15 +44,12 @@ function historyPath(directory: string): string {
 
 export class LockedElsewhere extends Error {}
 
-async function tryLock(
-  file: string,
-  mode = exclusiveLock,
-): Promise<FileHandle> {
+async function tryLock(file: string, shared = false): Promise<FileHandle> {
   try {
-    return await open(
+    return await openLocked(
       file,
-      constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK | mode,
-      0o600,
+      constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
+      { mode: 0o600, shared },
     );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EAGAIN')
@@ -69,7 +66,7 @@ async function hold(directory: string): Promise<() => Promise<void>> {
   const coordinated = await tryLock(join(directory, 'coordinated'));
   let lock: FileHandle;
   try {
-    lock = await tryLock(join(directory, 'lock'), sharedLock);
+    lock = await tryLock(join(directory, 'lock'), true);
   } catch (error) {
     await coordinated.close();
     throw error;

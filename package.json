@@ -26,7 +26,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "fs-ext"
     ]
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "chalk": "6.0.1",
     "diff": "9.0.0",
     "entities": "8.1.0",
+    "fs-ext": "2.1.1",
     "ink": "8.0.0",
     "linkify-it": "5.0.2",
     "lowlight": "3.3.0",
@@ -53,6 +55,7 @@
     "@babel/preset-react": "7.29.7",
     "@babel/preset-typescript": "7.29.7",
     "@eslint/js": "^10.0.1",
+    "@types/fs-ext": "2.0.3",
     "@types/linkify-it": "5.0.0",
     "@types/node": "^24.19.2",
     "@types/react": "19.3.0",

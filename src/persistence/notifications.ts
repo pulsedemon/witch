@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { writeJson } from './json.js';
-import { exclusiveLock } from './lock.js';
+import { openLocked } from './lock.js';
 import { bootSession } from './process.js';
 
 const recordSchema = z.object({
@@ -30,13 +30,10 @@ export class NotificationSchedule {
     message: () => string | undefined,
     write: (data: string) => void,
   ): Promise<number | undefined> {
-    const lock = await open(
+    const lock = await openLocked(
       join(this.directory, 'lock'),
-      constants.O_RDWR |
-        constants.O_CREAT |
-        constants.O_NONBLOCK |
-        exclusiveLock,
-      0o600,
+      constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
+      { mode: 0o600 },
     ).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'EAGAIN') return undefined;
       throw error;
