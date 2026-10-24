@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
@@ -13,7 +13,6 @@ const fixture = fileURLToPath(
   new URL('fixtures/scratch-run.ts', import.meta.url),
 );
 
-/** starts `fixtures/scratch-run.ts` with `tmp` as its temp dir, collecting the directories it reports. */
 function launch(cwd: string, tmp: string, ...args: string[]) {
   const child = spawn(
     process.execPath,
@@ -39,7 +38,7 @@ function launch(cwd: string, tmp: string, ...args: string[]) {
   return { child, paths, reported: reported.promise, closed };
 }
 
-await test("a file's scratch directories share one parent named for its process and outlive each of its tests, then go when it ends, a failed test included", async () => {
+test("a file's scratch directories share one parent named for its process and outlive each of its tests, then go when it ends, a failed test included", async () => {
   const root = await scratch('witch-scratch-');
   const tmp = join(root, 'tmp');
   await mkdir(tmp);
@@ -59,7 +58,7 @@ await test("a file's scratch directories share one parent named for its process 
   assert.equal(existsSync(dirname(a!)), false);
 });
 
-await test("the next run removes a killed run's scratch directories, locked ones included, and leaves a live or root-owned process's as they are, a linked directory and the rest of the temp dir", async () => {
+test("the next run removes a killed run's scratch directories, locked ones included, and leaves a live or root-owned process's as they are, a linked directory and the rest of the temp dir", async () => {
   const root = await scratch('witch-scratch-');
   const tmp = join(root, 'tmp');
   const outside = join(root, 'outside');

@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { describe, test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
@@ -32,7 +32,7 @@ import { passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
-await test('the pentacle follows foreground work and every running local task', async () => {
+test('the pentacle follows foreground work and every running local task', async () => {
   const { coordinator, a, store, memory } = await fixture();
   const activity = coordinator.pentacle;
   const gate = new TurnGate();
@@ -94,7 +94,7 @@ await test('the pentacle follows foreground work and every running local task', 
   }
 });
 
-await test("a session's usage at connect and while it lists its models reaches the snapshot, a closed session's later usage does not, and a failed handoff clears it", async () => {
+test("a session's usage at connect and while it lists its models reaches the snapshot, a closed session's later usage does not, and a failed handoff clears it", async () => {
   const { coordinator, a } = await fixture(undefined, (a, b) => {
     a.connectUsage = { context: 1 };
     b.connectUsage = { context: 2 };
@@ -117,14 +117,13 @@ await test("a session's usage at connect and while it lists its models reaches t
   }
 });
 
-await test("the live session's subagents update in place, a turn drops the finished ones, and a handoff, a closed session or a new conversation leaves none", async () => {
+test("the live session's subagents update in place, a turn drops the finished ones, and a handoff, a closed session or a new conversation leaves none", async () => {
   const { coordinator, a, b } = await fixture();
   const subagent = (
     id: string,
     status: 'running' | 'completed',
     parent?: string,
   ) => ({ id, parent, name: `Task ${id}`, kind: 'Explore', status });
-  // times have their own test
   const listed = () =>
     coordinator.snapshot.subagents.map(
       ({ id, parent, name, kind, status }) => ({
@@ -168,8 +167,8 @@ await test("the live session's subagents update in place, a turn drops the finis
   }
 });
 
-await test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start, and a restart starts a new run, even one under a new run id while the last still shows as running", async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+test("a familiar's start and end each add a transcript row, the end with its tool count and report, its time runs from its start, and a restart starts a new run, even one under a new run id while the last still shows as running", async () => {
+  vi.useFakeTimers({ toFake: ['Date'], now: 1000 });
   const { coordinator, a } = await fixture();
   const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>
     a.sessions[0]!.options.onEvent({
@@ -190,23 +189,22 @@ await test("a familiar's start and end each add a transcript row, the end with i
     coordinator.snapshot.subagents.map(({ startedAt }) => startedAt);
   try {
     emit('running');
-    t.mock.timers.tick(2000);
+    vi.advanceTimersByTime(2000);
     emit('running', { activity: 'Read  a.ts', tools: 1 });
     assert.deepEqual(rows(), [
       ['Familiar started  Map code  Explore', '', true],
     ]);
     assert.deepEqual(starts(), [1000]);
 
-    t.mock.timers.tick(2000);
+    vi.advanceTimersByTime(2000);
     emit('completed', { tools: 3, report: 'All good.' });
-    t.mock.timers.tick(1000);
-    // a later update to a finished familiar, such as its name arriving
+    vi.advanceTimersByTime(1000);
     emit('completed', { tools: 3, report: 'All good.' });
     assert.deepEqual(rows().slice(1), [
       ['Familiar completed  Map code  3 tools', 'All good.', true],
     ]);
 
-    t.mock.timers.tick(1000);
+    vi.advanceTimersByTime(1000);
     emit('running');
     assert.deepEqual(starts(), [7000]);
     emit('stopped', { tools: 1 });
@@ -215,9 +213,8 @@ await test("a familiar's start and end each add a transcript row, the end with i
       ['Familiar stopped  Map code  1 tool', '', true],
     ]);
 
-    // a resumed run can start before the last run's end arrives
     emit('running', { run: '1' });
-    t.mock.timers.tick(1000);
+    vi.advanceTimersByTime(1000);
     emit('running', { run: '2' });
     emit('running', { run: '2', tools: 1 });
     assert.deepEqual(rows().slice(4), [
@@ -230,7 +227,7 @@ await test("a familiar's start and end each add a transcript row, the end with i
   }
 });
 
-await test('a familiar still running when its session closes ends stopped, with its tool count and report', async () => {
+test('a familiar still running when its session closes ends stopped, with its tool count and report', async () => {
   const { coordinator, a } = await fixture();
   const rows = () =>
     coordinator.snapshot.items
@@ -260,7 +257,7 @@ await test('a familiar still running when its session closes ends stopped, with 
   }
 });
 
-await test("a familiar's name and kind arriving after its rows retitle them in place, as a Codex thread's do", async () => {
+test("a familiar's name and kind arriving after its rows retitle them in place, as a Codex thread's do", async () => {
   const { coordinator, a } = await fixture();
   const emit = (status: Subagent['status'], fields: Partial<Subagent> = {}) =>
     a.sessions[0]!.options.onEvent({
@@ -293,177 +290,170 @@ await test("a familiar's name and kind arriving after its rows retitle them in p
   }
 });
 
-await test('Codex brew events keep the coordinator active after its reply', async (t) => {
+describe('Codex brew events keep the coordinator active after its reply', () => {
   for (const loss of [false, true])
-    await t.test(
-      loss ? 'process exit' : 'completion in a later turn',
-      async () => {
-        const root = await scratch('witch-codex-brews-');
-        const cwd = join(root, 'project');
-        await mkdir(cwd);
-        const store = await StateStore.open(join(root, 'state'));
-        const memory = new Memory(join(root, 'state', 'memory.git'));
-        const executable = fileURLToPath(
-          new URL('fixtures/codex.mjs', import.meta.url),
-        );
-        const adapter = new CodexAdapter(() =>
-          spawn(process.execPath, [executable, 'brews'], {
-            cwd,
-            stdio: 'pipe',
-          }),
-        );
-        const coordinator = new Coordinator(store, memory, [
-          { adapter, executable },
-        ]);
-        let sequence = 0;
-        const write = async (name: string, value: unknown) => {
-          await writeFile(join(cwd, `${name}.next`), JSON.stringify(value));
-          await rename(join(cwd, `${name}.next`), join(cwd, name));
-        };
-        const emit = (...frames: RpcMessage[]) =>
-          write(`events-${++sequence}.json`, frames);
-        const appears = (name: string) =>
-          until(name, () =>
-            access(join(cwd, name)).then(
-              () => true,
-              () => false,
-            ),
-          );
-        const command = {
-          type: 'commandExecution',
-          id: 'command',
-          command: 'fixture command',
+    test(loss ? 'process exit' : 'completion in a later turn', async () => {
+      const root = await scratch('witch-codex-brews-');
+      const cwd = join(root, 'project');
+      await mkdir(cwd);
+      const store = await StateStore.open(join(root, 'state'));
+      const memory = new Memory(join(root, 'state', 'memory.git'));
+      const executable = fileURLToPath(
+        new URL('fixtures/codex.mjs', import.meta.url),
+      );
+      const adapter = new CodexAdapter(() =>
+        spawn(process.execPath, [executable, 'brews'], {
           cwd,
-          source: 'unifiedExecStartup',
-          processId: '1',
-        };
-        const rows = () =>
-          coordinator.snapshot.items.filter(({ id }) =>
-            id.endsWith('/codex/command'),
-          );
-        try {
-          await coordinator.initialize(cwd);
-          const first = coordinator.send('first');
-          await appears('turn-1.json');
-          await emit(
-            {
-              method: 'item/started',
-              params: {
-                threadId: 'native-thread',
-                turnId: 'turn-1',
-                item: {
-                  ...command,
-                  status: 'inProgress',
-                  aggregatedOutput: null,
-                },
+          stdio: 'pipe',
+        }),
+      );
+      const coordinator = new Coordinator(store, memory, [
+        { adapter, executable },
+      ]);
+      let sequence = 0;
+      const write = async (name: string, value: unknown) => {
+        await writeFile(join(cwd, `${name}.next`), JSON.stringify(value));
+        await rename(join(cwd, `${name}.next`), join(cwd, name));
+      };
+      const emit = (...frames: RpcMessage[]) =>
+        write(`events-${++sequence}.json`, frames);
+      const appears = (name: string) =>
+        until(name, () =>
+          access(join(cwd, name)).then(
+            () => true,
+            () => false,
+          ),
+        );
+      const command = {
+        type: 'commandExecution',
+        id: 'command',
+        command: 'fixture command',
+        cwd,
+        source: 'unifiedExecStartup',
+        processId: '1',
+      };
+      const rows = () =>
+        coordinator.snapshot.items.filter(({ id }) =>
+          id.endsWith('/codex/command'),
+        );
+      try {
+        await coordinator.initialize(cwd);
+        const first = coordinator.send('first');
+        await appears('turn-1.json');
+        await emit(
+          {
+            method: 'item/started',
+            params: {
+              threadId: 'native-thread',
+              turnId: 'turn-1',
+              item: {
+                ...command,
+                status: 'inProgress',
+                aggregatedOutput: null,
               },
             },
-            {
-              method: 'item/commandExecution/outputDelta',
-              params: {
-                threadId: 'native-thread',
-                turnId: 'turn-1',
+          },
+          {
+            method: 'item/commandExecution/outputDelta',
+            params: {
+              threadId: 'native-thread',
+              turnId: 'turn-1',
+              itemId: 'command',
+              delta: 'start\n',
+            },
+          },
+          {
+            method: 'turn/completed',
+            params: {
+              threadId: 'native-thread',
+              turn: { id: 'turn-1', status: 'completed', error: null },
+            },
+          },
+        );
+        await first;
+        const originalId = rows()[0]!.id;
+        await appears('list-1.json');
+        await write('list-reply-1.json', {
+          result: {
+            data: [
+              {
                 itemId: 'command',
-                delta: 'start\n',
+                processId: '1',
+                command: 'run the fixture command',
+                cwd,
+                osPid: null,
+                cpuPercent: null,
+                rssKb: null,
               },
-            },
-            {
-              method: 'turn/completed',
-              params: {
-                threadId: 'native-thread',
-                turn: { id: 'turn-1', status: 'completed', error: null },
-              },
-            },
+            ],
+            nextCursor: null,
+          },
+        });
+        await until(
+          'the admitted brew',
+          () => coordinator.snapshot.backgroundCommands.length === 1,
+        );
+        assert.equal(coordinator.snapshot.phase, 'idle');
+        assert.deepEqual(
+          coordinator.snapshot.backgroundCommands.map(
+            ({ description }) => description,
+          ),
+          ['run the fixture command'],
+        );
+        assert.equal(coordinator.pentacle.active, true);
+        if (loss) {
+          await writeFile(join(cwd, 'exit'), '');
+          await until(
+            'the stopped brew',
+            () => coordinator.snapshot.backgroundCommands.length === 0,
           );
-          await first;
-          const originalId = rows()[0]!.id;
-          await appears('list-1.json');
-          await write('list-reply-1.json', {
-            result: {
-              data: [
-                {
-                  itemId: 'command',
-                  processId: '1',
-                  command: 'run the fixture command',
-                  cwd,
-                  osPid: null,
-                  cpuPercent: null,
-                  rssKb: null,
-                },
-              ],
-              nextCursor: null,
+          assert.equal(
+            coordinator.snapshot.items.filter(
+              ({ title }) => title === 'Brew stopped  run the fixture command',
+            ).length,
+            1,
+          );
+        } else {
+          const second = coordinator.send('second');
+          await appears('turn-2.json');
+          await emit({
+            method: 'item/completed',
+            params: {
+              threadId: 'native-thread',
+              turnId: 'turn-1',
+              item: {
+                ...command,
+                status: 'completed',
+                aggregatedOutput: 'start\nend\n',
+                exitCode: 0,
+              },
             },
           });
-          await until(
-            'the admitted brew',
-            () => coordinator.snapshot.backgroundCommands.length === 1,
-          );
-          assert.equal(coordinator.snapshot.phase, 'idle');
-          assert.deepEqual(
-            coordinator.snapshot.backgroundCommands.map(
-              ({ description }) => description,
-            ),
-            ['run the fixture command'],
-          );
+          await until('the completed command', () => rows()[0]!.done === true);
+          assert.equal(rows().length, 1);
+          assert.equal(rows()[0]!.id, originalId);
+          assert.equal(rows()[0]!.text, 'start\nend\n');
+          assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
+          assert.equal(coordinator.snapshot.phase, 'running');
           assert.equal(coordinator.pentacle.active, true);
-          if (loss) {
-            await writeFile(join(cwd, 'exit'), '');
-            await until(
-              'the stopped brew',
-              () => coordinator.snapshot.backgroundCommands.length === 0,
-            );
-            assert.equal(
-              coordinator.snapshot.items.filter(
-                ({ title }) =>
-                  title === 'Brew stopped  run the fixture command',
-              ).length,
-              1,
-            );
-          } else {
-            const second = coordinator.send('second');
-            await appears('turn-2.json');
-            await emit({
-              method: 'item/completed',
-              params: {
-                threadId: 'native-thread',
-                turnId: 'turn-1',
-                item: {
-                  ...command,
-                  status: 'completed',
-                  aggregatedOutput: 'start\nend\n',
-                  exitCode: 0,
-                },
-              },
-            });
-            await until(
-              'the completed command',
-              () => rows()[0]!.done === true,
-            );
-            assert.equal(rows().length, 1);
-            assert.equal(rows()[0]!.id, originalId);
-            assert.equal(rows()[0]!.text, 'start\nend\n');
-            assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
-            assert.equal(coordinator.snapshot.phase, 'running');
-            assert.equal(coordinator.pentacle.active, true);
-            await emit({
-              method: 'turn/completed',
-              params: {
-                threadId: 'native-thread',
-                turn: { id: 'turn-2', status: 'completed', error: null },
-              },
-            });
-            await second;
-          }
-          assert.equal(coordinator.pentacle.active, false);
-        } finally {
-          await writeFile(join(cwd, 'release'), '');
-          await coordinator.close();
+          await emit({
+            method: 'turn/completed',
+            params: {
+              threadId: 'native-thread',
+              turn: { id: 'turn-2', status: 'completed', error: null },
+            },
+          });
+          await second;
         }
-      },
-    );
+        assert.equal(coordinator.pentacle.active, false);
+      } finally {
+        await writeFile(join(cwd, 'release'), '');
+        await coordinator.close();
+      }
+    });
 });
 
-await test('brew lifecycle preserves start order and ignores repeated starts and unlisted ends', async () => {
+test('brew lifecycle preserves start order and ignores repeated starts and unlisted ends', async () => {
   const { coordinator, a } = await fixture();
   const emit = (id: string, status: BackgroundCommand['status']) =>
     a.sessions[0]!.options.onEvent({
@@ -515,7 +505,7 @@ await test('brew lifecycle preserves start order and ignores repeated starts and
   }
 });
 
-await test("a brew still running when its session closes ends stopped, and the closed session's later start lists nothing", async () => {
+test("a brew still running when its session closes ends stopped, and the closed session's later start lists nothing", async () => {
   const { coordinator, a } = await fixture();
   const emit = (id: string) =>
     a.sessions[0]!.options.onEvent({
@@ -542,7 +532,7 @@ await test("a brew still running when its session closes ends stopped, and the c
   }
 });
 
-await test('a skills change while a session lists its models reaches the snapshot', async () => {
+test('a skills change while a session lists its models reaches the snapshot', async () => {
   const { coordinator } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'older', description: '' }];
     a.modelsSkills = [{ name: 'newer', description: '' }];
@@ -557,7 +547,7 @@ await test('a skills change while a session lists its models reaches the snapsho
   }
 });
 
-await test("the live session's usage reaches the snapshot, and a new conversation starts with none and its own open time even when its agent fails to connect", async () => {
+test("the live session's usage reaches the snapshot, and a new conversation starts with none and its own open time even when its agent fails to connect", async () => {
   const { coordinator, a, b } = await fixture();
   try {
     a.turnUsage = { context: 10 };
@@ -573,7 +563,7 @@ await test("the live session's usage reaches the snapshot, and a new conversatio
   }
 });
 
-await test('a reported shell is in the state, handed to the jobs, and cleared by the end report', async () => {
+test('a reported shell is in the state, handed to the jobs, and cleared by the end report', async () => {
   const { coordinator, a, root, tracked } = await fixture();
   const sleeper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
   try {
@@ -593,7 +583,7 @@ await test('a reported shell is in the state, handed to the jobs, and cleared by
   }
 });
 
-await test("an agent connects with the job watch's mark", async () => {
+test("an agent connects with the job watch's mark", async () => {
   const { coordinator, a, jobs } = await fixture();
   try {
     assert.equal(a.sessions[0]!.options.mark, jobs);
@@ -602,7 +592,7 @@ await test("an agent connects with the job watch's mark", async () => {
   }
 });
 
-await test('close ends a held turn when its interrupt throws', async () => {
+test('close ends a held turn when its interrupt throws', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   try {
@@ -630,7 +620,7 @@ await test('close ends a held turn when its interrupt throws', async () => {
   }
 });
 
-await test('close releases the conversation when its disconnect throws', async () => {
+test('close releases the conversation when its disconnect throws', async () => {
   const { coordinator, a, store } = await fixture();
   await coordinator.send('Start');
   const id = coordinator.snapshot.conversation!.id;
@@ -649,7 +639,7 @@ await test('close releases the conversation when its disconnect throws', async (
   await (await store.claim(id)).close();
 });
 
-await test('close rejects with a publish failure and still closes the session and the conversation', async () => {
+test('close rejects with a publish failure and still closes the session and the conversation', async () => {
   const { coordinator, a, hook, store } = await fixture();
   a.interruptNext = true;
   await coordinator.send('remember-port');
@@ -668,7 +658,7 @@ await test('close rejects with a publish failure and still closes the session an
   await (await store.claim(id)).close();
 });
 
-await test('a failed state write in settle needs a restart, and later messages keep it', async () => {
+test('a failed state write in settle needs a restart, and later messages keep it', async () => {
   const { coordinator, root } = await fixture();
   const directory = join(
     root,
@@ -689,7 +679,7 @@ await test('a failed state write in settle needs a restart, and later messages k
   }
 });
 
-await test('a failed state write while continuing at launch needs a restart', async () => {
+test('a failed state write while continuing at launch needs a restart', async () => {
   const {
     coordinator: first,
     store,
@@ -718,7 +708,7 @@ await test('a failed state write while continuing at launch needs a restart', as
   }
 });
 
-await test('a failed history write outside any operation needs a restart', async () => {
+test('a failed history write outside any operation needs a restart', async () => {
   const { coordinator, a, root } = await fixture();
   const directory = join(
     root,
@@ -744,7 +734,7 @@ await test('a failed history write outside any operation needs a restart', async
   }
 });
 
-await test('idle tool output reaches history without another operation', async () => {
+test('idle tool output reaches history without another operation', async () => {
   const { coordinator, a, root } = await fixture();
   const path = join(
     root,
@@ -782,7 +772,7 @@ await test('idle tool output reaches history without another operation', async (
   }
 });
 
-await test('an idle tool timer write failure needs a restart without another operation', async () => {
+test('an idle tool timer write failure needs a restart without another operation', async () => {
   const { coordinator, a, root } = await fixture();
   const directory = join(
     root,
@@ -812,7 +802,7 @@ await test('an idle tool timer write failure needs a restart without another ope
   }
 });
 
-await test('a git failure in settle shows its own message without a restart', async () => {
+test('a git failure in settle shows its own message without a restart', async () => {
   const { coordinator, a, hook } = await fixture();
   const gate = new TurnGate();
   try {
@@ -836,7 +826,7 @@ await test('a git failure in settle shows its own message without a restart', as
   }
 });
 
-await test('a model chosen to keep the current effort stores the effort in force', async () => {
+test('a model chosen to keep the current effort stores the effort in force', async () => {
   const { coordinator, root } = await fixture();
   try {
     await coordinator.selectModel({ agent: 'a', id: 'first', effort: 'high' });
@@ -852,7 +842,7 @@ await test('a model chosen to keep the current effort stores the effort in force
   }
 });
 
-await test('catalog refresh preserves the active session, process, transcript, usage and skills and reports each failed runtime', async () => {
+test('catalog refresh preserves the active session, process, transcript, usage and skills and reports each failed runtime', async () => {
   const { coordinator, a, b, root } = await fixture(undefined, (a) => {
     a.connectUsage = { context: 0.75 };
     a.skills = [{ name: 'spell', description: 'Current spell' }];
@@ -901,7 +891,7 @@ await test('catalog refresh preserves the active session, process, transcript, u
   }
 });
 
-await test('standalone catalogs recover from a failed active startup without reconnecting it', async () => {
+test('standalone catalogs recover from a failed active startup without reconnecting it', async () => {
   const { coordinator, a, b } = await fixture(undefined, (a) => {
     a.failConnect = true;
   });
@@ -924,7 +914,7 @@ await test('standalone catalogs recover from a failed active startup without rec
   }
 });
 
-await test('closing during catalog discovery cancels and joins its cleanup', async () => {
+test('closing during catalog discovery cancels and joins its cleanup', async () => {
   const { coordinator, a, b } = await fixture();
   const entered = Promise.withResolvers<AbortSignal>();
   const aborted = Promise.withResolvers<void>();
@@ -962,7 +952,7 @@ await test('closing during catalog discovery cancels and joins its cleanup', asy
   }
 });
 
-await test('an effort the agent rejects while disconnected keeps the stored one, so the next turn still connects', async () => {
+test('an effort the agent rejects while disconnected keeps the stored one, so the next turn still connects', async () => {
   const { coordinator, a, root } = await fixture();
   try {
     await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
@@ -984,7 +974,7 @@ await test('an effort the agent rejects while disconnected keeps the stored one,
   }
 });
 
-await test('a model that lists no efforts resets the effort', async () => {
+test('a model that lists no efforts resets the effort', async () => {
   const { coordinator, a, root } = await fixture();
   try {
     await coordinator.selectModel({ agent: 'a', id: 'first', effort: 'high' });
@@ -1000,7 +990,7 @@ await test('a model that lists no efforts resets the effort', async () => {
   }
 });
 
-await test('the live session publishes its skills, and a failed connect after /new shows none', async () => {
+test('the live session publishes its skills, and a failed connect after /new shows none', async () => {
   const review = { name: 'review', description: 'Review changes' };
   const { coordinator, b } = await fixture(undefined, (a) => {
     a.skills = [review];
@@ -1016,7 +1006,7 @@ await test('the live session publishes its skills, and a failed connect after /n
   }
 });
 
-await test('a skills failure while connecting is reported and keeps the session', async () => {
+test('a skills failure while connecting is reported and keeps the session', async () => {
   const { coordinator, a } = await fixture();
   try {
     a.failSkills = true;
@@ -1030,7 +1020,7 @@ await test('a skills failure while connecting is reported and keeps the session'
   }
 });
 
-await test('a listed /skill reaches the agent as a skill call, and an unlisted one stays a prompt', async () => {
+test('a listed /skill reaches the agent as a skill call, and an unlisted one stays a prompt', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
@@ -1050,7 +1040,7 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
   }
 });
 
-await test("a model list that fails at connect is reported, and the session's skills and usage still reach the snapshot", async () => {
+test("a model list that fails at connect is reported, and the session's skills and usage still reach the snapshot", async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
     a.connectUsage = { context: 5 };
@@ -1071,7 +1061,7 @@ await test("a model list that fails at connect is reported, and the session's sk
 });
 
 for (const stop of ['interrupt', 'close'] as const)
-  await test(`${stop}() during a model change closes the session that holds it`, async () => {
+  test(`${stop}() during a model change closes the session that holds it`, async () => {
     const { coordinator, a } = await fixture();
     try {
       const { session } = a.sessions.at(-1)!;
@@ -1096,7 +1086,7 @@ for (const stop of ['interrupt', 'close'] as const)
 
 for (const stop of ['interrupt', 'close'] as const)
   for (const ended of [false, true])
-    await test(`${stop}() cancels a replied model change ${ended ? 'after native idle' : 'during the native turn'}`, async () => {
+    test(`${stop}() cancels a replied model change ${ended ? 'after native idle' : 'during the native turn'}`, async () => {
       const { coordinator, a, store } = await fixture();
       const { session } = a.sessions.at(-1)!;
       const gate = new TurnGate();
@@ -1196,7 +1186,7 @@ for (const stop of ['interrupt', 'close'] as const)
       }
     });
 
-await test('interrupting a pending replied model change preserves unread Claude prompts', async () => {
+test('interrupting a pending replied model change preserves unread Claude prompts', async () => {
   const { cwd, children, connect, adapter } = await launcher('pending-model');
   const store = await StateStore.open(join(cwd, 'state'));
   const memory = new Memory(join(cwd, 'state', 'memory.git'));
@@ -1262,7 +1252,7 @@ await test('interrupting a pending replied model change preserves unread Claude 
   }
 });
 
-await test('agent events reach the transcript with their own replace, append and cwd', async () => {
+test('agent events reach the transcript with their own replace, append and cwd', async () => {
   const { coordinator, a, project } = await fixture();
   try {
     const { options } = a.sessions.at(-1)!;
@@ -1300,7 +1290,7 @@ await test('agent events reach the transcript with their own replace, append and
   }
 });
 
-await test("a tool's diff reaches its transcript row and comes back when the conversation reopens", async () => {
+test("a tool's diff reaches its transcript row and comes back when the conversation reopens", async () => {
   const { coordinator, a, project, reopen } = await fixture();
   const diff: FileDiff[] = [
     {
@@ -1331,24 +1321,24 @@ await test("a tool's diff reaches its transcript row and comes back when the con
   }
 });
 
-await test('coalesced history retains the latest receipt time instead of the write time', async (t) => {
+test('coalesced history retains the latest receipt time instead of the write time', async () => {
   const { coordinator, a, root } = await fixture();
   const id = coordinator.snapshot.conversation!.id;
-  t.mock.timers.enable({
-    apis: ['Date'],
+  vi.useFakeTimers({
+    toFake: ['Date'],
     now: Date.parse('2026-10-23T10:00:00.000Z'),
   });
   try {
     const { options } = a.sessions.at(-1)!;
     options.onEvent({ type: 'text', id: 'm', text: 'Hel' });
-    t.mock.timers.tick(20);
+    vi.advanceTimersByTime(20);
     options.onEvent({ type: 'text', id: 'm', text: 'lo' });
-    t.mock.timers.tick(1000);
+    vi.advanceTimersByTime(1000);
   } finally {
     try {
       await coordinator.close();
     } finally {
-      t.mock.timers.reset();
+      vi.useRealTimers();
     }
   }
   const records = (
@@ -1369,7 +1359,7 @@ await test('coalesced history retains the latest receipt time instead of the wri
   ]);
 });
 
-await test('a native info event reaches the footer and the next resume', async () => {
+test('a native info event reaches the footer and the next resume', async () => {
   const { coordinator, a } = await fixture();
   try {
     const { options, session } = a.sessions.at(-1)!;
@@ -1386,7 +1376,7 @@ await test('a native info event reaches the footer and the next resume', async (
   }
 });
 
-await test('a native skills change replaces the list, unless its session has closed', async () => {
+test('a native skills change replaces the list, unless its session has closed', async () => {
   const { coordinator, a } = await fixture();
   try {
     const { options, session } = a.sessions.at(-1)!;
@@ -1401,7 +1391,7 @@ await test('a native skills change replaces the list, unless its session has clo
   }
 });
 
-await test('answers reach the agent and only a cancel interrupts the turn, a resolved request leaves the queue, and the settled turn leaves none', async () => {
+test('answers reach the agent and only a cancel interrupts the turn, a resolved request leaves the queue, and the settled turn leaves none', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   try {
@@ -1443,7 +1433,7 @@ await test('answers reach the agent and only a cancel interrupts the turn, a res
   }
 });
 
-await test('an answered question stays in the transcript as the reply with each question and its answers, a secret answer hidden, and a declined question adds nothing', async () => {
+test('an answered question stays in the transcript as the reply with each question and its answers, a secret answer hidden, and a declined question adds nothing', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   try {

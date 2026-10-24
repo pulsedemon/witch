@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '../src/agents/types.js';
 import {
@@ -105,7 +105,7 @@ async function commandReply(f: Awaited<ReturnType<typeof background>>) {
   return { uuid, record };
 }
 
-await test('a steered command reply waits for consumption and a fresh result', async () => {
+test('a steered command reply waits for consumption and a fresh result', async () => {
   const f = await background();
   try {
     const { uuid } = await commandReply(f);
@@ -131,7 +131,7 @@ await test('a steered command reply waits for consumption and a fresh result', a
 });
 
 for (const singular of [false, true]) {
-  await test(`a correlated result consumes a steered command reply (${singular ? 'single UUID' : 'UUID list'})`, async () => {
+  test(`a correlated result consumes a steered command reply (${singular ? 'single UUID' : 'UUID list'})`, async () => {
     const f = await background();
     try {
       const { uuid } = await commandReply(f);
@@ -157,7 +157,7 @@ for (const singular of [false, true]) {
   });
 }
 
-await test('a refused steered command reply fails the Witch turn', async () => {
+test('a refused steered command reply fails the Witch turn', async () => {
   const f = await background();
   try {
     const { uuid } = await commandReply(f);
@@ -170,7 +170,7 @@ await test('a refused steered command reply fails the Witch turn', async () => {
   }
 });
 
-await test('an interrupted command reply recovers output without replaying the command', async () => {
+test('an interrupted command reply recovers output without replaying the command', async () => {
   const f = await background();
   try {
     const { record } = await commandReply(f);
@@ -188,7 +188,7 @@ await test('an interrupted command reply recovers output without replaying the c
 });
 
 for (const task of [undefined, 'mcp_task', 'remote_agent', 'monitor_mcp']) {
-  await test(`a post-result prompt remains in the Witch turn across native idle (${task ?? 'no task frame'})`, async () => {
+  test(`a post-result prompt remains in the Witch turn across native idle (${task ?? 'no task frame'})`, async () => {
     const f = await background();
     try {
       if (task)
@@ -238,7 +238,7 @@ for (const task of [undefined, 'mcp_task', 'remote_agent', 'monitor_mcp']) {
   });
 }
 
-await test('malformed lifecycle frames do not consume a pending prompt', async () => {
+test('malformed lifecycle frames do not consume a pending prompt', async () => {
   const f = await background();
   try {
     const uuid = await f.steer('follow-up');
@@ -264,7 +264,7 @@ await test('malformed lifecycle frames do not consume a pending prompt', async (
   }
 });
 
-await test('each steered prompt needs its own main-session consumption evidence', async () => {
+test('each steered prompt needs its own main-session consumption evidence', async () => {
   const f = await background();
   try {
     const a = await f.steer('prompt A');
@@ -296,7 +296,7 @@ await test('each steered prompt needs its own main-session consumption evidence'
 });
 
 for (const singular of [false, true]) {
-  await test(`a correlated result accounts for input without a started event (${singular ? 'single UUID' : 'UUID list'})`, async () => {
+  test(`a correlated result accounts for input without a started event (${singular ? 'single UUID' : 'UUID list'})`, async () => {
     const f = await background();
     try {
       const uuid = await f.steer('correlated');
@@ -327,7 +327,7 @@ for (const [laterReport, error] of [
   [true, 'Provider rejected follow-up.'],
   [true, ''],
 ] as const) {
-  await test(`missing terminal events cannot hang a failed input${laterReport ? ' or let a later report erase its failure' : ''}${error ? '' : ' with empty error text'}`, async () => {
+  test(`missing terminal events cannot hang a failed input${laterReport ? ' or let a later report erase its failure' : ''}${error ? '' : ' with empty error text'}`, async () => {
     const f = await background();
     try {
       const uuid = await f.steer('failing follow-up');
@@ -351,7 +351,7 @@ for (const [laterReport, error] of [
 }
 
 for (const disposition of ['refused', 'discarded', 'cancelled']) {
-  await test(`input ${disposition} before consumption settles failed at native idle`, async () => {
+  test(`input ${disposition} before consumption settles failed at native idle`, async () => {
     const f = await background();
     try {
       const uuid = await f.steer('rejected follow-up');
@@ -371,7 +371,7 @@ for (const disposition of ['refused', 'discarded', 'cancelled']) {
   });
 }
 
-await test('an interrupt after the idle gap recovers only native-unread prompts', async () => {
+test('an interrupt after the idle gap recovers only native-unread prompts', async () => {
   const f = await background();
   try {
     const a = await f.steer('consumed A');
@@ -404,7 +404,7 @@ await test('an interrupt after the idle gap recovers only native-unread prompts'
   assert.equal(f.events.filter((event) => event.type === 'closed').length, 1);
 });
 
-await test('an interrupt after admission cannot overtake accepted input', async () => {
+test('an interrupt after admission cannot overtake accepted input', async () => {
   const f = await background();
   try {
     const admission = f.session.steer(
@@ -441,7 +441,7 @@ await test('an interrupt after admission cannot overtake accepted input', async 
   }
 });
 
-await test('an interrupt receipt retains the text of already consumed input', async () => {
+test('an interrupt receipt retains the text of already consumed input', async () => {
   const f = await background();
   try {
     const uuid = await f.steer('consumed but receipt-listed');
@@ -461,7 +461,7 @@ await test('an interrupt receipt retains the text of already consumed input', as
   }
 });
 
-await test('SDK shutdown releases an interrupt waiting for input dispatch', async (t) => {
+test('SDK shutdown releases an interrupt waiting for input dispatch', async () => {
   const f = await launcher();
   const controller = new AbortController();
   const started = working();
@@ -469,7 +469,7 @@ await test('SDK shutdown releases an interrupt waiting for input dispatch', asyn
     signal: controller.signal,
     onEvent: started.onEvent,
   });
-  const write = t.mock.method(f.children[0]!.stdin, 'write');
+  const write = vi.spyOn(f.children[0]!.stdin, 'write');
   try {
     const turn = session.send('wait');
     await within(started.seen, 2000, 'initial input');
@@ -481,7 +481,7 @@ await test('SDK shutdown releases an interrupt waiting for input dispatch', asyn
     assert.equal((await turn).status, 'interrupted');
     assert.equal(
       write.mock.calls.some((call) =>
-        String(call.arguments[0]).includes('unwritten follow-up'),
+        String(call[0]).includes('unwritten follow-up'),
       ),
       false,
     );
@@ -490,7 +490,7 @@ await test('SDK shutdown releases an interrupt waiting for input dispatch', asyn
   }
 });
 
-await test('native exit settles a turn with unacknowledged input', async () => {
+test('native exit settles a turn with unacknowledged input', async () => {
   const f = await background();
   try {
     await f.steer('outstanding');
