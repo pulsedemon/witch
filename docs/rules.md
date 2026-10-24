@@ -14,7 +14,7 @@ Use TypeScript, pnpm, React and Ink in one package. Use strict types, direct imp
 - `SessionCoordination` in [coordination.ts](../src/core/coordination.ts) owns live session discovery, task admission and context. [The coordination store](../src/persistence/coordination.ts) owns claim transactions, and [the control transport](../src/persistence/control.ts) carries commands from native agents.
 - Adapters own native protocols, processes, permission requests and capabilities.
 - Memory owns scoped files, accepted revisions, Git commits, publishing and interrupted-write recovery.
-- Persistence owns atomic metadata, append-only display history, each directory's prompt history and conversation locks.
+- Persistence owns atomic metadata, append-only display history, each directory's prompt history and conversation locks. [Directory recovery](../src/persistence/directory-recovery.ts) owns explicit checkout moves and retained backups; [startup recovery](../src/core/startup-recovery.ts) reconciles abandoned conversations. [The CLI](../src/cli.tsx) holds the state-directory lock while a normal session runs.
 
 Native types stay in adapters. The steps for adding a backend are in the [README](../README.md). Keep facts in their owning source, with documentation linking to it.
 
