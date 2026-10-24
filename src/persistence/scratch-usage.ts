@@ -261,11 +261,15 @@ export async function inspectScratch(
         environment: true,
         timeout: scratchProbeTimeout,
       }),
-      execute('/usr/sbin/lsof', ['-nP', '-F0pfnt'], {
-        timeout: scratchProbeTimeout,
-        killSignal: 'SIGKILL',
-        maxBuffer: 64 << 20,
-      }),
+      execute(
+        process.platform === 'linux' ? '/usr/bin/lsof' : '/usr/sbin/lsof',
+        ['-nP', '-F0pfnt'],
+        {
+          timeout: scratchProbeTimeout,
+          killSignal: 'SIGKILL',
+          maxBuffer: 64 << 20,
+        },
+      ),
     ]);
     if (
       commands.status !== 'fulfilled' ||

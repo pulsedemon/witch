@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants, promises as files } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -80,16 +81,67 @@ export type ControlRequest = z.infer<typeof controlRequestSchema>;
 export type ControlOutcome = z.infer<typeof controlOutcomeSchema>;
 export type ControlResult = z.infer<typeof controlResultSchema>;
 
+/** each held directory anchors the next lookup while a parent can be renamed. */
+async function openControlFile(
+  file: string,
+  flags: number,
+  mode?: number,
+): Promise<FileHandle> {
+  if (process.platform !== 'linux')
+    return files.open(file, flags | noFollowAny, mode);
+  const parts = file.split('/').filter(Boolean);
+  const name = parts.pop()!;
+  const directories = [
+    await files.open('/', constants.O_RDONLY | constants.O_DIRECTORY),
+  ];
+  const directory = async (handle: FileHandle) => {
+    if (!(await handle.stat()).isDirectory())
+      throw Object.assign(new Error(`Not a directory: ${file}`), {
+        code: 'ENOTDIR',
+        path: file,
+      });
+  };
+  try {
+    for (const part of parts) {
+      const handle = await files.open(
+        `/proc/self/fd/${directories.at(-1)!.fd}/${part}`,
+        constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+      );
+      directories.push(handle);
+      await directory(handle);
+    }
+    const handle = await files.open(
+      `/proc/self/fd/${directories.at(-1)!.fd}/${name}`,
+      (flags & ~constants.O_DIRECTORY) | constants.O_NOFOLLOW,
+      mode,
+    );
+    directories.push(handle);
+    if (flags & constants.O_DIRECTORY) await directory(handle);
+    directories.pop();
+    return handle;
+  } finally {
+    await Promise.all(directories.map((handle) => handle.close()));
+  }
+}
+
 async function read(
   file: string,
-  flag = constants.O_RDONLY,
+  protectedRead = false,
 ): Promise<string | undefined> {
-  return files
-    .readFile(file, { encoding: 'utf8', flag })
-    .catch((error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw error;
-    });
+  let handle: FileHandle | undefined;
+  try {
+    if (protectedRead)
+      handle = await openControlFile(
+        file,
+        constants.O_RDONLY | constants.O_NONBLOCK,
+      );
+    return await files.readFile(handle ?? file, { encoding: 'utf8' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  } finally {
+    await handle?.close();
+  }
 }
 
 async function remove(file: string): Promise<void> {
@@ -190,6 +242,23 @@ export class ControlHost {
 
   /** directory handles keep deletion inside the mailbox if a parent path is replaced. */
   private async expire(id: string): Promise<void> {
+    if (process.platform === 'linux') {
+      const directories: FileHandle[] = [];
+      try {
+        for (const part of ['replies', 'inbox'])
+          directories.push(
+            await openControlFile(
+              join(this.directory, part),
+              constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NONBLOCK,
+            ),
+          );
+        for (const handle of directories)
+          await remove(`/proc/self/fd/${handle.fd}/${id}.json`);
+      } finally {
+        await Promise.all(directories.map((handle) => handle.close()));
+      }
+      return;
+    }
     await execute('/usr/bin/perl', [
       '-e',
       cleanup,
@@ -219,10 +288,7 @@ export class ControlHost {
           throw error;
         },
       );
-      const text = await read(
-        join(this.directory, 'inbox', name),
-        constants.O_RDONLY | constants.O_NONBLOCK | noFollowAny,
-      );
+      const text = await read(join(this.directory, 'inbox', name), true);
       if (text === undefined) continue;
       let request: ControlRequest | undefined;
       let outcome: ControlOutcome | undefined;
@@ -247,9 +313,9 @@ export class ControlHost {
       }
       if (answered) continue;
       // a fresh descriptor cannot follow a redirected parent or overwrite an existing file.
-      const file = await files.open(
+      const file = await openControlFile(
         reply,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollowAny,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
         0o600,
       );
       try {

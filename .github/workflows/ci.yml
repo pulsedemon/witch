@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     name: verify
-    runs-on: macos-15
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,6 +28,10 @@ jobs:
         with:
           run_install: false
           cache: true
+      - name: Install test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends zsh lsof
       - name: Tool versions
         run: |
           node --version

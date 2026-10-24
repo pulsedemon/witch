@@ -1,14 +1,29 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import type { ProcessIdentity } from '../src/core/state.js';
 import {
+  bootSession,
   identifyProcess,
   identifyProcesses,
 } from '../src/persistence/process.js';
 import { countProbes } from './fixtures/probes.js';
+
+await test('boot identity comes from the native boot session', async () => {
+  const expected =
+    process.platform === 'linux'
+      ? await readFile('/proc/sys/kernel/random/boot_id', 'utf8')
+      : (
+          await promisify(execFile)('/usr/sbin/sysctl', [
+            '-n',
+            'kern.bootsessionuuid',
+          ])
+        ).stdout;
+  assert.equal(await bootSession(), expected.trim());
+});
 
 await test('process identities preserve native start strings across a batch', async (t) => {
   const live = spawn('/bin/sleep', ['30']);

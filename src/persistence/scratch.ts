@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -10,7 +10,7 @@ import { processIdentity } from '../core/state.js';
 import type { ProcessIdentity } from '../core/state.js';
 import { processRunning } from './instance.js';
 import { writeJson } from './json.js';
-import { exclusiveLock } from './lock.js';
+import { openLocked } from './lock.js';
 import { bootSession, identifyProcess, identifyProcesses } from './process.js';
 import {
   inspectScratch,
@@ -39,13 +39,12 @@ async function lockDirectory(
   directory: string,
   nonblocking = true,
 ): Promise<FileHandle> {
-  return open(
+  return openLocked(
     directory,
     constants.O_RDONLY |
       constants.O_DIRECTORY |
       constants.O_NOFOLLOW |
-      (nonblocking ? constants.O_NONBLOCK : 0) |
-      exclusiveLock,
+      (nonblocking ? constants.O_NONBLOCK : 0),
   );
 }
 
