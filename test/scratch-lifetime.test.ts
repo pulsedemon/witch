@@ -477,18 +477,44 @@ await test('scratch resume rejects a different owner or an invalid location', as
   );
 });
 
-await test('a sweep preserves an unlocked live owner while it resumes', async (t) => {
+await test('a live owner resumes while another root is still being inspected', async (t) => {
   const parent = await scratch('witch-scratch-restart-gap-');
   const holder = await holdFixture(t, parent, 'restart-gap');
-  const cleaner = await ScratchSpace.open(parent, firstBoot);
+  const abandoned = join(parent, randomUUID());
+  await mkdir(abandoned);
+  await writeFile(
+    join(abandoned, '.witch-scratch.json'),
+    JSON.stringify({ version: 1, boot: bootB }),
+  );
+  await writeFile(join(abandoned, 'marker'), 'abandoned');
+  const inspecting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const opening = ScratchSpace.open(parent, {
+    ...firstBoot,
+    inspect: async (candidates) => {
+      inspecting.resolve();
+      await release.promise;
+      return decisions(candidates, 'unused');
+    },
+  });
   try {
+    await within(inspecting.promise, 5000, 'paused cleanup inspection');
     assert.equal(
       await readFile(join(holder.directory, 'marker'), 'utf8'),
       'held',
     );
     await holder.release();
-  } finally {
+    assert.equal(
+      await readFile(join(holder.directory, 'marker'), 'utf8'),
+      'held',
+    );
+    release.resolve();
+    const cleaner = await within(opening, 5000, 'completed cleanup');
     await cleaner.close();
+    assert.equal(existsSync(abandoned), false);
+  } finally {
+    release.resolve();
+    await (await opening).close();
   }
 });
 

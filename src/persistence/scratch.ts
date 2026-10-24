@@ -12,7 +12,11 @@ import { processRunning } from './instance.js';
 import { writeJson } from './json.js';
 import { exclusiveLock } from './lock.js';
 import { bootSession, identifyProcess, identifyProcesses } from './process.js';
-import { inspectScratch, scratchRequiresBoot } from './scratch-usage.js';
+import {
+  inspectScratch,
+  scratchProbeTimeout,
+  scratchRequiresBoot,
+} from './scratch-usage.js';
 import type { ScratchCandidate } from './scratch-usage.js';
 
 const execute = promisify(execFile);
@@ -83,28 +87,60 @@ async function sweep(
   }[] = [];
   try {
     parentLock = await lockDirectory(parent);
+    const observed = new Map<
+      string,
+      z.infer<typeof recordSchema> | undefined
+    >();
     for (const name of await readdir(parent)) {
       const numeric = /^\d+$/.test(name);
       if (!numeric && !z.uuid().safeParse(name).success) continue;
       const directory = join(parent, name);
+      try {
+        if (!(await lstat(directory)).isDirectory()) continue;
+        const record = await readRecord(directory);
+        if (
+          record?.boot === boot &&
+          (record.version === 1 ||
+            record.requiresBoot ||
+            (record.owner.pid === owner.pid &&
+              record.owner.started === owner.started))
+        )
+          continue;
+        observed.set(directory, record);
+      } catch {
+        // unreadable and invalid roots cannot establish ownership.
+      }
+    }
+    const owners = await identifyProcesses(
+      [...observed.values()].flatMap((record) =>
+        record?.boot === boot && record.owner ? [record.owner.pid] : [],
+      ),
+      { timeout: scratchProbeTimeout },
+    );
+    for (const [directory, previous] of observed) {
+      const name = basename(directory);
+      const numeric = /^\d+$/.test(name);
+      // a restarting owner must never compete with a sweep for its directory lock.
+      if (
+        (previous?.boot === boot &&
+          previous.owner &&
+          owners.get(previous.owner.pid)?.started === previous.owner.started) ||
+        (!previous && numeric && processRunning(Number(name)))
+      )
+        continue;
       let lock: FileHandle | undefined;
       try {
         lock = await lockDirectory(directory);
         const record = await readRecord(directory);
+        if (JSON.stringify(record) !== JSON.stringify(previous)) continue;
         if (!record) {
+          // a legacy pid can be reused while the directory lock is acquired.
           if (!numeric || !processRunning(Number(name)))
             await writeJson(join(directory, metadata), { version: 1, boot });
           continue;
         }
         const previousBoot = record.boot !== boot;
         const requiresBoot = record.version === 1 || record.requiresBoot;
-        if (
-          !previousBoot &&
-          (requiresBoot ||
-            (record.owner?.pid === owner.pid &&
-              record.owner.started === owner.started))
-        )
-          continue;
         held.push({
           candidate: {
             directory,
@@ -129,6 +165,7 @@ async function sweep(
       held.flatMap(({ candidate }) =>
         !candidate.previousBoot && candidate.owner ? [candidate.owner.pid] : [],
       ),
+      { timeout: scratchProbeTimeout },
     );
     for (const { candidate, record, lock } of held) {
       const { directory, owner, previousBoot } = candidate;

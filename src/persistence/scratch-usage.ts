@@ -5,7 +5,7 @@ import type { ProcessIdentity } from '../core/state.js';
 import { ps } from './process.js';
 
 const execute = promisify(execFile);
-const timeout = 10_000;
+export const scratchProbeTimeout = 10_000;
 
 export type ScratchUse = 'used' | 'unused' | 'unknown';
 
@@ -131,7 +131,9 @@ function independent(
 export async function scratchRequiresBoot(): Promise<boolean> {
   try {
     const rows = processes(
-      await ps('pid=,ppid=,uid=,stat=,lstart=,ucomm=', undefined, { timeout }),
+      await ps('pid=,ppid=,uid=,stat=,lstart=,ucomm=', undefined, {
+        timeout: scratchProbeTimeout,
+      }),
     );
     return (
       !rows.has(process.pid) ||
@@ -248,11 +250,16 @@ export async function inspectScratch(
       })),
     );
     const format = 'pid=,ppid=,uid=,stat=,lstart=,ucomm=';
-    const before = await ps(format, undefined, { timeout });
+    const before = await ps(format, undefined, {
+      timeout: scratchProbeTimeout,
+    });
     const [commands, opened] = await Promise.allSettled([
-      ps('pid=,command=', undefined, { environment: true, timeout }),
+      ps('pid=,command=', undefined, {
+        environment: true,
+        timeout: scratchProbeTimeout,
+      }),
       execute('/usr/sbin/lsof', ['-nP', '-F0pfnt'], {
-        timeout,
+        timeout: scratchProbeTimeout,
         killSignal: 'SIGKILL',
         maxBuffer: 64 << 20,
       }),
@@ -263,7 +270,7 @@ export async function inspectScratch(
       opened.value.stderr
     )
       return unknown;
-    const after = await ps(format, undefined, { timeout });
+    const after = await ps(format, undefined, { timeout: scratchProbeTimeout });
     const results = classifyScratch(canonical, {
       before,
       after,

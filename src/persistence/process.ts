@@ -60,9 +60,10 @@ export async function ps(
 
 export async function identifyProcesses(
   pids: readonly number[],
+  options: { timeout?: number } = {},
 ): Promise<Map<number, ProcessIdentity>> {
   if (!pids.length) return new Map();
-  const lines = await ps('pid=,lstart=', [...new Set(pids)]);
+  const lines = await ps('pid=,lstart=', [...new Set(pids)], options);
   return new Map(
     lines.map((line) => {
       const [, id, started] = /^\s*(\d+)\s+(.+?)\s*$/.exec(line)!;
