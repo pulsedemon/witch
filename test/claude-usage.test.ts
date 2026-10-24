@@ -207,7 +207,12 @@ async function poll(t: TestContext, f: Fixture, index = 0) {
 
 async function complete(f: Fixture) {
   const turn = f.session.send('complete');
-  await until('turn result', () => f.session.usage.cost === 0.25);
+  await until('turn result', () =>
+    f.events.some(
+      (event) =>
+        event.type === 'skills' && event.skills[0]?.name === 'result-1',
+    ),
+  );
   await f.main.emit(idle);
   await turn;
 }
@@ -404,7 +409,6 @@ await test(
     assert.equal(f.events.length, before);
     await helper.reply(report(true));
     assert.deepEqual(f.session.info, info);
-    assert.equal(f.session.usage.cost, 0.25);
     assert.deepEqual(f.session.usage.lines, { added: 4, removed: 1 });
     assert.equal(f.session.usage.context, 12.5);
     assert.deepEqual(f.session.usage.limits, nextLimits);
@@ -595,7 +599,12 @@ await test(
     const f = await controlled(t);
     await initial(f);
     const turn = f.session.send('held before helper exit');
-    await until('native session identity', () => f.session.usage.cost === 0.25);
+    await until('native session identity', () =>
+      f.events.some(
+        (event) =>
+          event.type === 'skills' && event.skills[0]?.name === 'result-1',
+      ),
+    );
     const helper = await poll(t, f);
     await helper.reply();
     const firstPid = helper.child.pid;
@@ -662,7 +671,12 @@ for (const reason of [
         let turn: ReturnType<AgentSession['send']> | undefined;
         if (reason === 'active exit' || reason === 'unread interruption') {
           turn = f.session.send('held');
-          await until('held turn result', () => f.session.usage.cost === 0.25);
+          await until('held turn result', () =>
+            f.events.some(
+              (event) =>
+                event.type === 'skills' && event.skills[0]?.name === 'result-1',
+            ),
+          );
         }
         const callbacks = timers.map((timer) => timer.mock.callCount());
         if (reason === 'close') await f.session.close();
@@ -782,7 +796,10 @@ await test(
       const turn = coordinator.send('hold for refresh').then(() => {
         finished = true;
       });
-      await until('main result', () => session?.usage.cost === 0.25);
+      await until(
+        'main result',
+        () => coordinator.snapshot.skills[0]?.name === 'result-1',
+      );
       await main.emit({
         type: 'system',
         subtype: 'task_started',
@@ -856,7 +873,6 @@ await test(
         return !ui!.text().includes('5H ') && !ui!.text().includes('7D ');
       });
       assert.deepEqual(session!.usage.limits, []);
-      assert.equal(session!.usage.cost, 0.25);
       assert.deepEqual(session!.usage.lines, { added: 4, removed: 1 });
     } finally {
       t.mock.timers.reset();

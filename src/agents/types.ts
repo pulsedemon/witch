@@ -35,8 +35,6 @@ export interface Usage {
   context?: number;
   /** the native agent's context capacity in tokens. */
   contextWindow?: number;
-  /** the session's estimated cost in US dollars. */
-  cost?: number;
   /** the account's usage limits, shortest window first. */
   limits?: Limit[];
   /** lines the session's edits added and removed. */

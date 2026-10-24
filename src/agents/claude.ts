@@ -991,8 +991,6 @@ class ClaudeSession implements AgentSession {
         });
       }
     } else if (message.type === 'result') {
-      // the session's running total, which a resumed session continues
-      this.report({ cost: message.total_cost_usd });
       if (!this.turn) return;
       const compact = this.turn.compaction;
       if (compact) {

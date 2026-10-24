@@ -84,7 +84,7 @@ for (const [entry, route, failures] of [
           turn = coordinator.send('reporting familiar');
           await until(
             'the first reply',
-            () => coordinator.snapshot.usage.cost === 0.25,
+            () => coordinator.snapshot.skills[0]?.name === 'result-1',
           );
           await coordinator.send(`!${command}`);
         } else turn = coordinator.send(`!${command}`);
@@ -239,7 +239,7 @@ await test('an unread shell result survives reconnect as context without rerunni
     const turn = coordinator.send('reporting familiar');
     await until(
       'the first reply',
-      () => coordinator.snapshot.usage.cost === 0.25,
+      () => coordinator.snapshot.skills[0]?.name === 'result-1',
     );
     const native = coordinator.snapshot.native!.id;
     await coordinator.send(`!${command}`);
@@ -338,7 +338,7 @@ for (const mode of [
           turn = coordinator.send('reporting familiar');
           await until(
             'the first reply',
-            () => coordinator.snapshot.usage.cost === 0.25,
+            () => coordinator.snapshot.skills[0]?.name === 'result-1',
           );
           await coordinator.send(`!${command}`);
           await until('the shell starts', async () => {
@@ -426,7 +426,10 @@ async function backgroundCoordinator() {
     if (completed.at(-1) !== marker) completed.push(marker);
   });
   const turn = coordinator.send('initial');
-  await until('initial reply', () => coordinator.snapshot.usage.cost === 0.25);
+  await until(
+    'initial reply',
+    () => coordinator.snapshot.skills[0]?.name === 'result-1',
+  );
   const emit = frameWriter(
     cwd,
     (name) => coordinator.snapshot.skills[0]?.name === name,

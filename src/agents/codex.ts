@@ -415,7 +415,6 @@ class CodexSession implements AgentSession {
     );
     this.connected = true;
     void this.readLimits();
-    void this.readCost();
   }
 
   models(): Promise<Model[]> {
@@ -1101,7 +1100,6 @@ class CodexSession implements AgentSession {
       case 'turn/completed': {
         const turn = object.parse(data.turn);
         if (this.turn?.compaction && turn.id !== this.turn.id) break;
-        if (!this.closing) void this.readCost();
         const status = stringValue.parse(turn.status);
         const error =
           turn.error == null ? undefined : object.parse(turn.error).message;
@@ -1239,27 +1237,6 @@ class CodexSession implements AgentSession {
       this.mergeLimits(rateLimits.parse(response.rateLimits));
     } catch {
       // limits stay unreported
-    }
-  }
-
-  /** an estimate, absent when Codex has no billing route for the thread. */
-  private async readCost(): Promise<void> {
-    try {
-      const response = z
-        .object({
-          threadUsage: z
-            .object({ estimatedUsageUsdMicros: z.number().nullable() })
-            .nullish(),
-        })
-        .parse(
-          await this.rpc.request('account/usage/read', {
-            threadId: this.info.id,
-          }),
-        );
-      const micros = response.threadUsage?.estimatedUsageUsdMicros;
-      if (micros != null) this.report({ cost: micros / 1_000_000 });
-    } catch {
-      // the cost stays unreported
     }
   }
 

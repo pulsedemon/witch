@@ -56,7 +56,7 @@ for (const name of ['claude', 'codex'] as const) {
         if (name === 'claude') {
           await until(
             'initial Claude reply',
-            () => coordinator.snapshot.usage.cost === 0.25,
+            () => coordinator.snapshot.skills[0]?.name === 'result-1',
           );
           const emit = frameWriter(
             cwd,

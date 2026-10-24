@@ -395,14 +395,12 @@ await test('a shell report that rejects fails the command once it ends, without 
 
 /** what a session reports, for the commands steered after a reply. */
 function observe() {
-  const costs: (number | undefined)[] = [];
   const texts: string[] = [];
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const skills: string[] = [];
   const notices: string[] = [];
   const onEvent = (event: AgentEvent) => {
-    if (event.type === 'usage') costs.push(event.usage.cost);
-    else if (event.type === 'text') texts.push(event.text);
+    if (event.type === 'text') texts.push(event.text);
     else if (event.type === 'tool') tools.push(event);
     else if (event.type === 'skills')
       skills.push(...event.skills.map(({ name }) => name));
@@ -413,7 +411,7 @@ function observe() {
     const id = tools.find(({ title }) => title === command)?.id;
     return tools.some((tool) => tool.id === id && tool.done);
   };
-  return { costs, texts, tools, skills, notices, onEvent, ended };
+  return { texts, tools, skills, notices, onEvent, ended };
 }
 
 /** the blocks a steered command's reply goes as, its record first. */
@@ -434,7 +432,7 @@ await test('a command steered after the result runs, refuses other prompts while
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('background familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(await session.steer('reply', { command: gated }), true);
     await until('the command row', () =>
       seen.tools.some(({ title }) => title === gated),
@@ -464,7 +462,7 @@ await test("a turn whose familiar reports while a steered command runs stays ope
       finished = true;
       return result;
     });
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(await session.steer('reply', { command: gated }), true);
     await allow(cwd, 'allow-report', 'allow-idle');
     await until('idle', () => seen.skills.includes('after-idle'));
@@ -482,7 +480,7 @@ await test("a command that ends while Claude Code answers the familiar's report 
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(await session.steer('reply', { command: gated }), true);
     await allow(cwd, 'allow-report');
     await until('the report', () => seen.texts.includes('Reported.'));
@@ -504,7 +502,7 @@ await test('a command that ends while Claude Code runs again after idle sends it
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(await session.steer('reply', { command: gated }), true);
     await allow(cwd, 'allow-report', 'allow-idle');
     await until('idle', () => seen.skills.includes('after-idle'));
@@ -528,7 +526,7 @@ await test("a reply waiting for Claude Code's idle goes once Claude Code starts 
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(await session.steer('reply', { command: gated }), true);
     await allow(cwd, 'allow-report');
     await until('the report', () => seen.texts.includes('Reported.'));
@@ -551,7 +549,7 @@ await test('an interrupt during a steered command after Claude Code is idle kill
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(
       await session.steer('reply', { command: 'sleep 60.38' }),
       true,
@@ -575,7 +573,7 @@ await test('an interrupt after the reply while a familiar holds the turn open en
   const { session } = await fixture(seen.onEvent);
   try {
     const turn = session.send('background familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     await within(session.interrupt(), 2000, 'interrupt');
     assert.deepEqual(await within(turn, 2000, 'turn'), {
       status: 'interrupted',
@@ -604,7 +602,7 @@ await test('a model change waits for the turn, unless it has replied and a famil
     assert.equal(await session.steer('wrap up'), true);
     await within(first, 2000, 'the first turn');
     const second = session.send('background familiar');
-    await until('the result', () => seen.costs.includes(0.5));
+    await until('the result', () => seen.skills.includes('result-2'));
     assert.equal(session.replied, true);
     await session.selectModel('claude-b');
     assert.equal(session.info.model, 'claude-b');
@@ -719,7 +717,7 @@ await test("a turn stays open while a steered command's end report is still sett
       finished = true;
       return result;
     });
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(
       await session.steer('reply', { command: 'echo settled' }),
       true,
@@ -751,7 +749,7 @@ await test('a steered command that fails posts its error and sends no reply', as
   });
   try {
     const turn = session.send('background familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(
       await session.steer('reply', { command: 'echo failed' }),
       true,
@@ -776,7 +774,7 @@ await test('a held turn fails when the CLI dies after idle, and its steered comm
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(
       await session.steer('reply', { command: 'sleep 60.39' }),
       true,
@@ -801,7 +799,7 @@ await test('a shell command run with no turn open keeps running when the CLI die
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     await allow(cwd, 'allow-report', 'allow-idle');
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
     const shell = session.shell('sleep 1; echo done');
@@ -822,7 +820,7 @@ await test('an interrupt while a command that ended waits for idle sends no repl
   const { session, cwd } = await fixture(seen.onEvent);
   try {
     const turn = session.send('reporting familiar');
-    await until('the result', () => seen.costs.includes(0.25));
+    await until('the result', () => seen.skills.includes('result-1'));
     assert.equal(await session.steer('reply', { command: gated }), true);
     await allow(cwd, 'allow-report');
     await until('the report', () => seen.texts.includes('Reported.'));

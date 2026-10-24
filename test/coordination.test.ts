@@ -104,7 +104,9 @@ await test('clones expose current task metadata without themselves or another pr
   );
   await delay(150);
   const before = await registry.presences();
-  a.a.sessions.at(-1)!.options.onEvent({ type: 'usage', usage: { cost: 42 } });
+  a.a.sessions
+    .at(-1)!
+    .options.onEvent({ type: 'usage', usage: { context: 42 } });
   await delay(150);
   assert.deepEqual(await registry.presences(), before);
   const peerText = JSON.stringify(before);
@@ -247,7 +249,7 @@ for (const failures of [1, 2]) {
       const before = await registry.presences();
       a.a.sessions
         .at(-1)!
-        .options.onEvent({ type: 'usage', usage: { cost: 42 } });
+        .options.onEvent({ type: 'usage', usage: { context: 42 } });
       await delay(2100);
       assert.equal(attempts, failures + 1);
       assert.deepEqual(await registry.presences(), before);
