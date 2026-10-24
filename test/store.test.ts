@@ -13,7 +13,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { openLocked } from '../src/persistence/lock.js';
 import { identifyProcess } from '../src/persistence/process.js';
@@ -53,7 +53,7 @@ async function detachedShell(seconds: string) {
   return { child, background: Number(String(data).trim()) };
 }
 
-await test('a real holder stays exclusive until close or crash', async (t) => {
+test('a real holder stays exclusive until close or crash', async (t) => {
   const root = await scratch('witch-lock-');
   const store = await StateStore.open(root);
   await (await store.create(conversation('held'))).close();
@@ -72,7 +72,7 @@ await test('a real holder stays exclusive until close or crash', async (t) => {
     const ended = new Promise<void>((resolve) =>
       child.once('close', () => resolve()),
     );
-    t.after(async () => {
+    t.onTestFinished(async () => {
       if (child.exitCode === null && child.signalCode === null)
         child.kill('SIGKILL');
       await ended;
@@ -88,7 +88,7 @@ await test('a real holder stays exclusive until close or crash', async (t) => {
   }
 });
 
-await test('conversation locks carry a registration lock that a lost race releases', async () => {
+test('conversation locks carry a registration lock that a lost race releases', async () => {
   const store = await StateStore.open(
     await scratch('witch-conversation-batch-'),
   );
@@ -124,14 +124,14 @@ await test('conversation locks carry a registration lock that a lost race releas
   await (await store.claim('current')).close();
 });
 
-await test('selected records exclude unreadable conversations and an empty selection reads nothing', async (t) => {
+test('selected records exclude unreadable conversations and an empty selection reads nothing', async () => {
   const store = await StateStore.open(await scratch('witch-selected-records-'));
   const selected = conversation('selected', '/selected');
   await (await store.create(selected)).close();
   await (await store.create(conversation('damaged', '/damaged'))).close();
   const damaged = join(store.root, 'conversations', 'damaged', 'state.json');
   await writeFile(damaged, '{broken');
-  const reading = t.mock.method(files, 'readFile');
+  const reading = vi.spyOn(files, 'readFile');
   syncBuiltinESMExports();
   try {
     assert.deepEqual(await store.records(['selected']), {
@@ -140,11 +140,11 @@ await test('selected records exclude unreadable conversations and an empty selec
     });
     assert.deepEqual(await store.records([]), { records: [], unreadable: [] });
     assert.deepEqual(
-      reading.mock.calls.map(({ arguments: [file] }) => file),
+      reading.mock.calls.map(([file]) => file),
       [join(store.root, 'conversations', 'selected', 'state.json')],
     );
   } finally {
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
   }
   const all = await store.records();
@@ -155,7 +155,7 @@ await test('selected records exclude unreadable conversations and an empty selec
   );
 });
 
-await test("a legacy holder stays unregistered during a current owner's failed claim", async (t) => {
+test("a legacy holder stays unregistered during a current owner's failed claim", async (t) => {
   const store = await StateStore.open(await scratch('witch-legacy-race-'));
   await (await store.create(conversation('older'))).close();
   const path = join(store.root, 'conversations', 'older', 'lock');
@@ -163,13 +163,11 @@ await test("a legacy holder stays unregistered during a current owner's failed c
     path,
     constants.O_RDWR | constants.O_NONBLOCK,
   );
-  t.after(() => legacy.close());
+  t.onTestFinished(() => legacy.close());
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const opening = files.open;
-  t.mock.method(
-    files,
-    'open',
+  vi.spyOn(files, 'open').mockImplementation(
     async (...args: Parameters<typeof files.open>) => {
       if (args[0] === path) {
         entered.resolve();
@@ -188,13 +186,13 @@ await test("a legacy holder stays unregistered during a current owner's failed c
     );
   } finally {
     release.resolve();
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
     await claiming;
   }
 });
 
-await test('closing after a lock observation never turns a current owner into a legacy owner', async () => {
+test('closing after a lock observation never turns a current owner into a legacy owner', async () => {
   const root = await scratch('witch-close-probe-');
   const store = await StateStore.open(root);
   const held = await store.create(conversation('current'));
@@ -261,7 +259,7 @@ BEGIN {
   }
 });
 
-await test('a second claim of a conversation is refused while another conversation claims fine', async () => {
+test('a second claim of a conversation is refused while another conversation claims fine', async () => {
   const store = await StateStore.open(await scratch('witch-claims-'));
   const first = await store.create(conversation('first'));
   await (await store.create(conversation('second'))).close();
@@ -278,7 +276,7 @@ await test('a second claim of a conversation is refused while another conversati
   }
 });
 
-await test('observing conversation ownership leaves its native process and stored data untouched', async () => {
+test('observing conversation ownership leaves its native process and stored data untouched', async () => {
   const root = await scratch('witch-observation-');
   const store = await StateStore.open(root);
   const files = await store.create(conversation('observed'));
@@ -326,7 +324,7 @@ await test('observing conversation ownership leaves its native process and store
   }
 });
 
-await test('a closed conversation store rejects writes and leaves its files unchanged', async () => {
+test('a closed conversation store rejects writes and leaves its files unchanged', async () => {
   const root = await scratch('witch-closed-');
   const store = await StateStore.open(root);
   const files = await store.create(conversation('closed'));
@@ -356,7 +354,7 @@ await test('a closed conversation store rejects writes and leaves its files unch
   );
 });
 
-await test('a failed write fails every later write and the close', async () => {
+test('a failed write fails every later write and the close', async () => {
   const root = await scratch('witch-failed-write-');
   const store = await StateStore.open(root);
   const files = await store.create(conversation('failed'));
@@ -377,19 +375,17 @@ await test('a failed write fails every later write and the close', async () => {
   await assert.rejects(files.close(), /EACCES/);
 });
 
-await test('a failed history close still releases both ownership locks', async (t) => {
+test('a failed history close still releases both ownership locks', async () => {
   const store = await StateStore.open(await scratch('witch-history-close-'));
   const held = await store.create(conversation('current'));
   const failure = new Error('history close failed');
   const opening = files.open;
-  t.mock.method(
-    files,
-    'open',
+  vi.spyOn(files, 'open').mockImplementation(
     async (...args: Parameters<typeof files.open>) => {
       const file = await opening(...args);
       if (String(args[0]).endsWith('/history.jsonl')) {
         const close = file.close.bind(file);
-        t.mock.method(file, 'close', async () => {
+        vi.spyOn(file, 'close').mockImplementation(async () => {
           await close();
           throw failure;
         });
@@ -404,13 +400,13 @@ await test('a failed history close still releases both ownership locks', async (
     assert.equal(await store.isOpen('current'), false);
     await (await store.claim('current')).close();
   } finally {
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
     await held.close();
   }
 });
 
-await test('a claim that cannot stop the recorded process still kills the recorded shell, and releases its lock', async () => {
+test('a claim that cannot stop the recorded process still kills the recorded shell, and releases its lock', async () => {
   const store = await StateStore.open(await scratch('witch-failed-claim-'));
   const agent = spawn(
     '/bin/sh',
@@ -444,7 +440,7 @@ await test('a claim that cannot stop the recorded process still kills the record
 });
 
 for (const main of [false, true]) {
-  await test(`a claim stops the recorded usage helper${main ? ' and main process' : ' without a main process'}`, async () => {
+  test(`a claim stops the recorded usage helper${main ? ' and main process' : ' without a main process'}`, async () => {
     const store = await StateStore.open(await scratch('witch-usage-claim-'));
     const children = Array.from({ length: main ? 2 : 1 }, () =>
       spawn('/bin/sleep', ['30'], { stdio: 'ignore' }),
@@ -477,7 +473,7 @@ for (const main of [false, true]) {
   });
 }
 
-await test('a claim does not signal a process that reused the usage helper pid', async () => {
+test('a claim does not signal a process that reused the usage helper pid', async () => {
   const store = await StateStore.open(await scratch('witch-usage-reused-'));
   const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
   try {
@@ -497,7 +493,7 @@ await test('a claim does not signal a process that reused the usage helper pid',
   }
 });
 
-await test('a failed main stop retains the recovery lock until the usage helper stop settles', async (t) => {
+test('a failed main stop retains the recovery lock until the usage helper stop settles', async () => {
   const store = await StateStore.open(await scratch('witch-usage-stop-'));
   const main = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
   const helper = spawn(
@@ -520,11 +516,13 @@ await test('a failed main stop retains the recovery lock until the usage helper 
     });
     await files.close();
     const signalled = once(helper.stdout, 'data');
-    t.mock.method(process, 'kill', (pid: number, signal?: string | number) => {
-      if (pid === main.pid && signal === 'SIGTERM')
-        throw new Error('Main stop failed');
-      return kill(pid, signal);
-    });
+    vi.spyOn(process, 'kill').mockImplementation(
+      (pid: number, signal?: string | number) => {
+        if (pid === main.pid && signal === 'SIGTERM')
+          throw new Error('Main stop failed');
+        return kill(pid, signal);
+      },
+    );
     let settled = false;
     recovering = assert
       .rejects(store.claim('usage-stop'), /Main stop failed/)
@@ -540,14 +538,14 @@ await test('a failed main stop retains the recovery lock until the usage helper 
     await closed;
     assert.equal(await store.isOpen('usage-stop'), false);
   } finally {
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     main.kill('SIGKILL');
     helper.kill('SIGKILL');
     await recovering;
   }
 });
 
-await test('a claim succeeds when the recorded process exits before its signal', async (t) => {
+test('a claim succeeds when the recorded process exits before its signal', async () => {
   const store = await StateStore.open(await scratch('witch-exited-claim-'));
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   try {
@@ -557,7 +555,7 @@ await test('a claim succeeds when the recorded process exits before its signal',
       process: await identifyProcess(child.pid!),
     });
     await files.close();
-    t.mock.method(process, 'kill', () => {
+    vi.spyOn(process, 'kill').mockImplementation(() => {
       throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
     });
     const claimed = await store.claim('exited');
@@ -568,7 +566,7 @@ await test('a claim succeeds when the recorded process exits before its signal',
   }
 });
 
-await test('a claim stops the recorded process after a time zone and locale change', async () => {
+test('a claim stops the recorded process after a time zone and locale change', async () => {
   const store = await StateStore.open(await scratch('witch-moved-zone-'));
   const saved = { TZ: process.env.TZ, LC_ALL: process.env.LC_ALL };
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
@@ -596,7 +594,7 @@ await test('a claim stops the recorded process after a time zone and locale chan
   }
 });
 
-await test("a claim leaves running a process that reuses the recorded process's pid, and a group that reuses the recorded shell's", async () => {
+test("a claim leaves running a process that reuses the recorded process's pid, and a group that reuses the recorded shell's", async () => {
   const store = await StateStore.open(await scratch('witch-reused-pid-'));
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
   const { child: shell } = await detachedShell('20.312');
@@ -621,7 +619,7 @@ await test("a claim leaves running a process that reuses the recorded process's 
   }
 });
 
-await test("a claim kills a recorded shell's whole group, a member its first signal missed included, and clears the record", async (t) => {
+test("a claim kills a recorded shell's whole group, a member its first signal missed included, and clears the record", async () => {
   const store = await StateStore.open(await scratch('witch-shell-claim-'));
   const { child, background } = await detachedShell('20.311');
   const kill = process.kill.bind(process);
@@ -633,15 +631,17 @@ await test("a claim kills a recorded shell's whole group, a member its first sig
     });
     await files.close();
     let missed = false;
-    t.mock.method(process, 'kill', (pid: number, signal?: string | number) => {
-      // the first group kill lands as the shell forks, so it reaches only the shell, which ps lists until it's reaped
-      if (!missed && pid === -child.pid! && signal === 'SIGKILL') {
-        missed = true;
-        setTimeout(() => kill(child.pid!, 'SIGKILL'), 50);
-        return true;
-      }
-      return kill(pid, signal);
-    });
+    vi.spyOn(process, 'kill').mockImplementation(
+      (pid: number, signal?: string | number) => {
+        // the first group kill lands as the shell forks, so it reaches only the shell, which ps lists until it's reaped
+        if (!missed && pid === -child.pid! && signal === 'SIGKILL') {
+          missed = true;
+          setTimeout(() => kill(child.pid!, 'SIGKILL'), 50);
+          return true;
+        }
+        return kill(pid, signal);
+      },
+    );
     const claimed = await store.claim('shell');
     await until(
       'the background sleep to exit',
@@ -662,7 +662,7 @@ await test("a claim kills a recorded shell's whole group, a member its first sig
   }
 });
 
-await test('serialized saves of one record keep the latest after restart', async () => {
+test('serialized saves of one record keep the latest after restart', async () => {
   const store = await StateStore.open(await scratch('witch-state-'));
   const files = await store.create(conversation('saved'));
   await Promise.all([
@@ -675,7 +675,7 @@ await test('serialized saves of one record keep the latest after restart', async
   await reopened.close();
 });
 
-await test('display history keeps streamed deltas without duplicating final messages', async () => {
+test('display history keeps streamed deltas without duplicating final messages', async () => {
   const store = await StateStore.open(await scratch('witch-history-'));
   const files = await store.create(conversation('streamed'));
   try {
@@ -709,10 +709,10 @@ await test('display history keeps streamed deltas without duplicating final mess
   }
 });
 
-await test('a history burst writes one replacement and settles its appends', async (t) => {
+test('a history burst writes one replacement and settles its appends', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-burst-'));
   const held = await store.create(conversation('burst'));
-  t.after(() => held.close());
+  t.onTestFinished(() => held.close());
   const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
   const writes = Array.from({ length: 1000 }, (_, index) =>
     held.append({ ...update, text: `chunk ${index}\n` }),
@@ -725,35 +725,35 @@ await test('a history burst writes one replacement and settles its appends', asy
   assert.equal((await held.items())[0]?.text, 'finished');
 });
 
-await test(
+test(
   'history streams keep the first deadline and append only new text after it',
   { timeout: 5000 },
   async (t) => {
     const store = await StateStore.open(await scratch('witch-history-timer-'));
     const held = await store.create(conversation('timer'));
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    t.after(async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    t.onTestFinished(async () => {
       try {
         await held.close();
       } finally {
-        t.mock.timers.reset();
+        vi.useRealTimers();
       }
     });
     const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
     const first = held.append({ ...update, text: 'first' });
-    t.mock.timers.tick(99);
+    vi.advanceTimersByTime(99);
     const second = held.append({ ...update, text: 'second' });
     await assert.rejects(access(join(held.directory, 'history.jsonl')), {
       code: 'ENOENT',
     });
-    t.mock.timers.tick(1);
+    vi.advanceTimersByTime(1);
     await Promise.all([first, second]);
     assert.deepEqual(
       (await recordedHistory(held.directory)).map(({ text }) => text),
       ['firstsecond'],
     );
     const third = held.append({ ...update, text: 'third' });
-    t.mock.timers.tick(100);
+    vi.advanceTimersByTime(100);
     await third;
     assert.deepEqual(
       (await recordedHistory(held.directory)).map(({ text }) => text),
@@ -764,10 +764,10 @@ await test(
   },
 );
 
-await test('history batches preserve first appearance order across returning ids', async (t) => {
+test('history batches preserve first appearance order across returning ids', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-order-'));
   const held = await store.create(conversation('order'));
-  t.after(() => held.close());
+  t.onTestFinished(() => held.close());
   const update = { kind: 'assistant', cwd: '/project' } as const;
   const writes = [
     held.append({ ...update, id: 'A', text: 'first' }),
@@ -789,10 +789,10 @@ await test('history batches preserve first appearance order across returning ids
   );
 });
 
-await test('history batches snapshot metadata and retain it across appends and replacements', async (t) => {
+test('history batches snapshot metadata and retain it across appends and replacements', async (t) => {
   const store = await StateStore.open(await scratch('witch-history-metadata-'));
   const held = await store.create(conversation('metadata'));
-  t.after(() => held.close());
+  t.onTestFinished(() => held.close());
   const images = ['first.png'];
   const diff: NonNullable<DisplayUpdate['diff']> = [
     {
@@ -863,7 +863,7 @@ for (const boundary of [
   'items',
   'close',
 ] as const) {
-  await test(
+  test(
     `pending history drains before ${boundary} completes`,
     { timeout: 5000 },
     async (t) => {
@@ -871,12 +871,12 @@ for (const boundary of [
         await scratch('witch-history-boundary-'),
       );
       const held = await store.create(conversation('boundary'));
-      t.mock.timers.enable({ apis: ['setTimeout'] });
-      t.after(async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      t.onTestFinished(async () => {
         try {
           await held.close();
         } finally {
-          t.mock.timers.reset();
+          vi.useRealTimers();
         }
       });
       const update = {
@@ -895,7 +895,7 @@ for (const boundary of [
         await assert.rejects(held.append(update), /no longer open/);
         const reopened = await store.claim('boundary');
         try {
-          t.mock.timers.tick(1000);
+          vi.advanceTimersByTime(1000);
           assert.equal((await recordedHistory(held.directory)).length, 1);
           assert.equal((await reopened.items())[0]?.text, 'pending');
         } finally {
@@ -906,22 +906,18 @@ for (const boundary of [
   );
 }
 
-await test('close waits for in-flight history and drains the next batch once', async (t) => {
+test('close waits for in-flight history and drains the next batch once', async () => {
   const store = await StateStore.open(await scratch('witch-history-flight-'));
   const held = await store.create(conversation('flight'));
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const opening = files.open;
-  t.mock.method(
-    files,
-    'open',
+  vi.spyOn(files, 'open').mockImplementation(
     async (...args: Parameters<typeof files.open>) => {
       const file = await opening(...args);
       if (String(args[0]).endsWith('/history.jsonl')) {
         const write = file.writeFile.bind(file);
-        t.mock.method(
-          file,
-          'writeFile',
+        vi.spyOn(file, 'writeFile').mockImplementation(
           async (...args: Parameters<typeof write>) => {
             entered.resolve();
             await release.promise;
@@ -962,15 +958,15 @@ await test('close waits for in-flight history and drains the next batch once', a
     release.resolve();
     await closing;
     await held.close();
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
   }
 });
 
-await test('a timer write rejects its batch and later operations while releasing locks', async (t) => {
+test('a timer write rejects its batch and later operations while releasing locks', async () => {
   const store = await StateStore.open(await scratch('witch-history-failure-'));
   const held = await store.create(conversation('failure'));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const update = { id: 'm', kind: 'assistant', cwd: '/project' } as const;
   await chmod(held.directory, 0o500);
   try {
@@ -982,7 +978,7 @@ await test('a timer write rejects its batch and later operations while releasing
       held.append({ ...update, text: 'second' }),
       /EACCES/,
     );
-    t.mock.timers.tick(100);
+    vi.advanceTimersByTime(100);
     await Promise.all([first, second]);
     await chmod(held.directory, 0o700);
     await assert.rejects(held.append({ ...update, text: 'later' }), /EACCES/);
@@ -992,12 +988,12 @@ await test('a timer write rejects its batch and later operations while releasing
   } finally {
     await chmod(held.directory, 0o700);
     await held.close().catch(() => {});
-    t.mock.timers.reset();
+    vi.useRealTimers();
   }
 });
 
 for (const kind of ['assistant', 'tool'] as const) {
-  await test(`a crashed writer retains timer-written ${kind} text`, async (t) => {
+  test(`a crashed writer retains timer-written ${kind} text`, async (t) => {
     const store = await StateStore.open(await scratch('witch-history-crash-'));
     await (await store.create(conversation('crash'))).close();
     const child = spawn(
@@ -1015,7 +1011,7 @@ for (const kind of ['assistant', 'tool'] as const) {
     const ended = new Promise<void>((resolve) =>
       child.once('close', () => resolve()),
     );
-    t.after(async () => {
+    t.onTestFinished(async () => {
       if (child.exitCode === null && child.signalCode === null)
         child.kill('SIGKILL');
       await ended;
@@ -1041,7 +1037,7 @@ for (const kind of ['assistant', 'tool'] as const) {
   });
 }
 
-await test('a truncated final record cannot corrupt history written after restart', async () => {
+test('a truncated final record cannot corrupt history written after restart', async () => {
   const root = await scratch('witch-partial-');
   const store = await StateStore.open(root);
   let files = await store.create(conversation('c'));
@@ -1084,7 +1080,7 @@ for (const [name, complete, partial, expectedRead] of [
   ['window boundary', true, 'x'.repeat(4096), 4097],
   ['only unfinished', false, '{"unfinished":', 14],
 ] as const) {
-  await test(`history append inspects only the required tail: ${name}`, async (t) => {
+  test(`history append inspects only the required tail: ${name}`, async () => {
     const store = await StateStore.open(await scratch('witch-history-tail-'));
     await (await store.create(conversation('tail'))).close();
     const path = join(store.root, 'conversations', 'tail', 'history.jsonl');
@@ -1095,26 +1091,20 @@ for (const [name, complete, partial, expectedRead] of [
     const opening = files.open;
     let fullReads = 0;
     let bytesRead = 0;
-    t.mock.method(
-      files,
-      'open',
+    vi.spyOn(files, 'open').mockImplementation(
       async (...args: Parameters<typeof files.open>) => {
         const file = await opening(...args);
         if (args[0] === path) {
           const read = file.read.bind(file);
           const readAll = file.readFile.bind(file);
-          t.mock.method(
-            file,
-            'read',
+          vi.spyOn(file, 'read').mockImplementation(
             async (...args: Parameters<typeof read>) => {
               const result = await read(...args);
               bytesRead += result.bytesRead;
               return result;
             },
           );
-          t.mock.method(
-            file,
-            'readFile',
+          vi.spyOn(file, 'readFile').mockImplementation(
             (...args: Parameters<typeof readAll>) => {
               fullReads++;
               return readAll(...args);
@@ -1141,14 +1131,14 @@ for (const [name, complete, partial, expectedRead] of [
       assert.equal(fullReads, 0);
       assert.equal(bytesRead, expectedRead);
     } finally {
-      t.mock.restoreAll();
+      vi.restoreAllMocks();
       syncBuiltinESMExports();
       await held.close();
     }
   });
 }
 
-await test('replay folds appends, replacements and new ids, keeping a title an empty replacement omits', () => {
+test('replay folds appends, replacements and new ids, keeping a title an empty replacement omits', () => {
   assert.deepEqual(
     foldDisplayUpdates([
       { id: 'm', kind: 'assistant', text: 'Hel', cwd: '/p', title: 'codex' },
@@ -1187,7 +1177,7 @@ await test('replay folds appends, replacements and new ids, keeping a title an e
   );
 });
 
-await test('an append keeps the cwd its item has, and a replacement takes its own', () => {
+test('an append keeps the cwd its item has, and a replacement takes its own', () => {
   const tool = { id: 't', kind: 'tool', title: '', done: false } as const;
   assert.equal(
     foldDisplayUpdates([
@@ -1205,7 +1195,7 @@ await test('an append keeps the cwd its item has, and a replacement takes its ow
   );
 });
 
-await test("listing keeps this directory's conversations with history, newest history first, and a stray file is no unreadable record", async () => {
+test("listing keeps this directory's conversations with history, newest history first, and a stray file is no unreadable record", async () => {
   const root = await scratch('witch-listing-');
   const store = await StateStore.open(root);
   for (const [id, cwd, history] of [
@@ -1238,7 +1228,7 @@ await test("listing keeps this directory's conversations with history, newest hi
   );
 });
 
-await test("prompts list this directory's newest first after a restart, keep line breaks, and skip a line a crash cut short without losing the next", async () => {
+test("prompts list this directory's newest first after a restart, keep line breaks, and skip a line a crash cut short without losing the next", async () => {
   const root = await scratch('witch-prompts-');
   const store = await StateStore.open(root);
   assert.deepEqual(await store.prompts('/a'), []);
@@ -1257,7 +1247,7 @@ await test("prompts list this directory's newest first after a restart, keep lin
   assert.deepEqual(await reopened.prompts('/b'), ['other']);
 });
 
-await test('prompts one instance adds at once are stored newest first', async () => {
+test('prompts one instance adds at once are stored newest first', async () => {
   const root = await scratch('witch-prompts-');
   const store = await StateStore.open(root);
   // long prompts take long enough to write that unordered appends land out of order in most runs
@@ -1266,7 +1256,7 @@ await test('prompts one instance adds at once are stored newest first', async ()
   assert.deepEqual(await store.prompts('/a'), texts.toReversed());
 });
 
-await test('prompts longer than a write chunk, stored by several instances at once, each read back whole', async () => {
+test('prompts longer than a write chunk, stored by several instances at once, each read back whole', async () => {
   const root = await scratch('witch-prompts-');
   const stores = await Promise.all(
     [1, 2, 3, 4].map(() => StateStore.open(root)),

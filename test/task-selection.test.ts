@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { identifyProcess } from '../src/persistence/process.js';
@@ -14,14 +14,16 @@ import { coordinationFixture, git } from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
 
 for (const failed of [false, true]) {
-  await test(`${failed ? 'failed' : 'completed'} selection turns release the next waiter`, async (t) => {
-    const f = await coordinationFixture(t);
+  test(`${failed ? 'failed' : 'completed'} selection turns release the next waiter`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const f = await coordinationFixture(cleanup);
     const a = await f.start(),
       b = await f.start('B');
-    const first = await selectionTurn(t, a),
-      second = await selectionTurn(t, b);
+    const first = await selectionTurn(cleanup, a),
+      second = await selectionTurn(cleanup, b);
     await first.select();
     const queued = await second.select();
     assert.equal(queued.position, 2);
@@ -40,19 +42,18 @@ for (const failed of [false, true]) {
   });
 }
 
-await test('failed head cleanup retries while idle and old cleanup cannot cancel a later turn', async (t) => {
-  const f = await coordinationFixture(t);
+test('failed head cleanup retries while idle and old cleanup cannot cancel a later turn', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b);
   const initial = await first.select(),
     queued = await second.select();
   const cancel = CoordinationStore.prototype.cancelSelection;
   let rejected = false;
-  t.mock.method(
-    CoordinationStore.prototype,
-    'cancelSelection',
+  vi.spyOn(CoordinationStore.prototype, 'cancelSelection').mockImplementation(
     async function (
       this: CoordinationStore,
       ...args: Parameters<typeof cancel>
@@ -81,7 +82,7 @@ await test('failed head cleanup retries while idle and old cleanup cannot cancel
   });
   if (next.kind !== 'selection') assert.fail(JSON.stringify(next));
   assert.equal(next.selection.position, 1);
-  const later = await selectionTurn(t, a);
+  const later = await selectionTurn(cleanup, a);
   const newer = await later.select();
   await f.registry.cancelSelection(
     initial.ticket,
@@ -96,10 +97,11 @@ await test('failed head cleanup retries while idle and old cleanup cannot cancel
   );
 });
 
-await test('interruption revokes selection before native cancellation resolves', async (t) => {
-  const f = await coordinationFixture(t);
+test('interruption revokes selection before native cancellation resolves', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const first = await selectionTurn(t, a);
+  const first = await selectionTurn(cleanup, a);
   const ticket = await first.select();
   const native = a.a.sessions.at(-1)!.session;
   const interrupt = native.interrupt.bind(native);
@@ -142,15 +144,16 @@ await test('interruption revokes selection before native cancellation resolves',
   }
 });
 
-await test('a client-delayed request from an interrupted turn cannot enter a later turn', async (t) => {
-  const f = await coordinationFixture(t);
+test('a client-delayed request from an interrupted turn cannot enter a later turn', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const first = await selectionTurn(t, a);
+  const first = await selectionTurn(cleanup, a);
   const old = await first.select();
   const delayed = { kind: 'select-next' as const, turn: first.turn };
   await a.coordinator.interrupt();
   await first.sending;
-  const later = await selectionTurn(t, a);
+  const later = await selectionTurn(cleanup, a);
   const current = await later.select();
   assert.equal(first.binding.activation, later.binding.activation);
   const before = await f.ledger();
@@ -168,10 +171,11 @@ await test('a client-delayed request from an interrupted turn cannot enter a lat
   assert.deepEqual((await f.registry.state()).selections, [current.ticket]);
 });
 
-await test('cancelled status and recommendation never recreate a selection', async (t) => {
-  const f = await coordinationFixture(t);
+test('cancelled status and recommendation never recreate a selection', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const turn = await selectionTurn(t, a),
+  const turn = await selectionTurn(cleanup, a),
     choice = await turn.select();
   assert.equal(
     (
@@ -205,12 +209,13 @@ await test('cancelled status and recommendation never recreate a selection', asy
   assert.equal(await f.ledger(), before);
 });
 
-await test('recommendation keeps the next chooser waiting until a brew ends', async (t) => {
-  const f = await coordinationFixture(t);
+test('recommendation keeps the next chooser waiting until a brew ends', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b);
   const head = await first.select(),
     waiting = await second.select();
   const emit = a.a.sessions.at(-1)!.options.onEvent;
@@ -244,10 +249,11 @@ await test('recommendation keeps the next chooser waiting until a brew ends', as
   assert.equal(ready.selection.position, 1);
 });
 
-await test('normal exit releases a suggestion while restart and native handoff preserve it', async (t) => {
-  const f = await coordinationFixture(t);
+test('normal exit releases a suggestion while restart and native handoff preserve it', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const turn = await selectionTurn(t, a),
+  const turn = await selectionTurn(cleanup, a),
     choice = await turn.select();
   const suggestion = await turn.recommend(choice.ticket.id);
   await turn.finish();
@@ -265,8 +271,9 @@ await test('normal exit releases a suggestion while restart and native handoff p
   assert.deepEqual(await f.registry.claims(), []);
 });
 
-await test('replacing a conversation releases every active alias and preserves another open owner', async (t) => {
-  const f = await coordinationFixture(t);
+test('replacing a conversation releases every active alias and preserves another open owner', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
   const binding = await a.binding();
@@ -303,8 +310,9 @@ await test('replacing a conversation releases every active alias and preserves a
   );
 });
 
-await test('active claims survive reconnect and restart but normal close makes them available', async (t) => {
-  const f = await coordinationFixture(t);
+test('active claims survive reconnect and restart but normal close makes them available', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
   const binding = await a.binding();
@@ -324,12 +332,13 @@ await test('active claims survive reconnect and restart but normal close makes t
   assert.equal((await b.claim()).kind, 'claimed');
 });
 
-await test('adopting a legacy claim preserves its aliases through restart without binding another legacy owner', async (t) => {
-  const f = await coordinationFixture(t);
+test('adopting a legacy claim preserves its aliases through restart without binding another legacy owner', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const id = randomUUID();
   const files = await f.store.create(record(id, join(f.root, 'A')));
   const other = await f.store.create(record('older-peer', join(f.root, 'B')));
-  t.after(() => other.close());
+  cleanup(() => other.close());
   const { project } = await f.memory.scopePaths(join(f.root, 'A'));
   const original = {
     id: randomUUID(),
@@ -372,8 +381,9 @@ await test('adopting a legacy claim preserves its aliases through restart withou
   );
 });
 
-await test('restart recovers a departed claim release while preserving other open conversations', async (t) => {
-  const f = await coordinationFixture(t);
+test('restart recovers a departed claim release while preserving other open conversations', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
   const binding = await a.binding();
@@ -382,15 +392,17 @@ await test('restart recovers a departed claim release while preserving other ope
   if (other.kind !== 'claimed') assert.fail(JSON.stringify(other));
   const release = CoordinationStore.prototype.releaseConversation;
   let failing = true;
-  t.mock.method(
+  vi.spyOn(
     CoordinationStore.prototype,
     'releaseConversation',
-    function (this: CoordinationStore, ...args: Parameters<typeof release>) {
-      if (failing && args[0].conversation === binding.conversation)
-        return Promise.reject(new Error('Claim cleanup unavailable'));
-      return release.apply(this, args);
-    },
-  );
+  ).mockImplementation(function (
+    this: CoordinationStore,
+    ...args: Parameters<typeof release>
+  ) {
+    if (failing && args[0].conversation === binding.conversation)
+      return Promise.reject(new Error('Claim cleanup unavailable'));
+    return release.apply(this, args);
+  });
   await a.coordinator.newConversation().catch(() => {});
   const next = a.coordinator.snapshot.conversation!.id;
   assert.notEqual(next, binding.conversation);
@@ -403,11 +415,12 @@ await test('restart recovers a departed claim release while preserving other ope
   assert.equal((await b.query()).ownClaim?.id, other.claim.id);
 });
 
-await test('failed target preparation keeps a suggestion and a successful switch releases it', async (t) => {
-  const f = await coordinationFixture(t);
+test('failed target preparation keeps a suggestion and a successful switch releases it', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
-  const turn = await selectionTurn(t, a),
+  const turn = await selectionTurn(cleanup, a),
     choice = await turn.select();
   const suggestion = await turn.recommend(choice.ticket.id);
   await turn.finish();
@@ -416,13 +429,11 @@ await test('failed target preparation keeps a suggestion and a successful switch
     LockedElsewhere,
   );
   assert.deepEqual(await f.registry.claims(), [suggestion]);
-  const items = t.mock.method(
-    ConversationStore.prototype,
-    'items',
-    async () => {
+  const items = vi
+    .spyOn(ConversationStore.prototype, 'items')
+    .mockImplementation(async () => {
       throw new Error('Target preparation failed');
-    },
-  );
+    });
   await assert.rejects(
     a.coordinator.newConversation(),
     /Target preparation failed/,
@@ -432,7 +443,7 @@ await test('failed target preparation keeps a suggestion and a successful switch
     a.coordinator.snapshot.conversation!.id,
     turn.binding.conversation,
   );
-  items.mock.restore();
+  items.mockRestore();
   await a.coordinator.newConversation();
   assert.notEqual(
     a.coordinator.snapshot.conversation!.id,
@@ -441,10 +452,11 @@ await test('failed target preparation keeps a suggestion and a successful switch
   assert.deepEqual(await f.registry.claims(), []);
 });
 
-await test('switching away releases a suggestion even when native close rejects', async (t) => {
-  const f = await coordinationFixture(t);
+test('switching away releases a suggestion even when native close rejects', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const turn = await selectionTurn(t, a),
+  const turn = await selectionTurn(cleanup, a),
     choice = await turn.select();
   await turn.recommend(choice.ticket.id);
   await turn.finish();
@@ -458,10 +470,11 @@ await test('switching away releases a suggestion even when native close rejects'
   assert.deepEqual(await f.registry.claims(), []);
 });
 
-await test('an idle origin change retires a suggestion through ordinary reconnect', async (t) => {
-  const f = await coordinationFixture(t);
+test('an idle origin change retires a suggestion through ordinary reconnect', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const turn = await selectionTurn(t, a),
+  const turn = await selectionTurn(cleanup, a),
     choice = await turn.select();
   await turn.recommend(choice.ticket.id);
   await turn.finish();
@@ -479,14 +492,15 @@ await test('an idle origin change retires a suggestion through ordinary reconnec
   assert.deepEqual(await f.registry.claims(), []);
 });
 
-await test('an origin change inside ledger verification rejects and cancels without nested locking', async (t) => {
-  const f = await coordinationFixture(t);
+test('an origin change inside ledger verification rejects and cancels without nested locking', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const turn = await selectionTurn(t, a),
+  const turn = await selectionTurn(cleanup, a),
     choice = await turn.select();
   const scopePaths = f.memory.scopePaths.bind(f.memory);
   let reads = 0;
-  t.mock.method(f.memory, 'scopePaths', async (cwd: string) => {
+  vi.spyOn(f.memory, 'scopePaths').mockImplementation(async (cwd: string) => {
     if (cwd === join(f.root, 'A') && ++reads === 2)
       await git(
         '-C',
@@ -512,18 +526,17 @@ await test('an origin change inside ledger verification rejects and cancels with
   assert.deepEqual(await f.registry.state(), { claims: [], selections: [] });
 });
 
-await test('cleanup failure is surfaced while shutdown still closes native work and activation', async (t) => {
-  const f = await coordinationFixture(t);
+test('cleanup failure is surfaced while shutdown still closes native work and activation', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start();
-  const turn = await selectionTurn(t, a);
+  const turn = await selectionTurn(cleanup, a);
   await turn.select();
-  const cancel = t.mock.method(
-    CoordinationStore.prototype,
-    'cancelSelection',
-    async () => {
+  const cancel = vi
+    .spyOn(CoordinationStore.prototype, 'cancelSelection')
+    .mockImplementation(async () => {
       throw new Error('Cleanup unavailable');
-    },
-  );
+    });
   try {
     await assert.rejects(a.coordinator.close(), /Cleanup unavailable/);
     assert.equal(a.a.sessions.at(-1)!.session.closed, true);
@@ -535,16 +548,17 @@ await test('cleanup failure is surfaced while shutdown still closes native work 
     );
     assert.deepEqual((await f.registry.state()).selections, []);
   } finally {
-    cancel.mock.restore();
+    cancel.mockRestore();
   }
 });
 
-await test('legacy peers block selection until closed while other projects select independently', async (t) => {
-  const f = await coordinationFixture(t);
+test('legacy peers block selection until closed while other projects select independently', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B'),
     other = await f.start('C');
-  const turn = await selectionTurn(t, a);
+  const turn = await selectionTurn(cleanup, a);
   const legacy = (await f.registry.presences()).find(
     (presence) => presence.id === b.coordinator.snapshot.conversation!.id,
   )!;
@@ -557,43 +571,40 @@ await test('legacy peers block selection until closed while other projects selec
   assert.equal(rejected.kind, 'error');
   if (rejected.kind === 'error')
     assert.match(rejected.message, /Restart or close/);
-  const independent = await selectionTurn(t, other);
+  const independent = await selectionTurn(cleanup, other);
   assert.equal((await independent.select()).position, 1);
   await b.coordinator.close();
   assert.equal((await turn.select()).position, 1);
 });
 
-await test('a recommendation survives final cleanup failure and advances the next waiter once', async (t) => {
-  const f = await coordinationFixture(t);
+test('a recommendation survives final cleanup failure and advances the next waiter once', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b);
   const choice = await first.select(),
     queued = await second.select();
   assert.equal(choice.position, 1);
   assert.equal(queued.position, 2);
   const recommend = CoordinationStore.prototype.recommend;
   let pending: Promise<void> | undefined;
-  const recommending = t.mock.method(
-    CoordinationStore.prototype,
-    'recommend',
-    async function (
+  const recommending = vi
+    .spyOn(CoordinationStore.prototype, 'recommend')
+    .mockImplementation(async function (
       this: CoordinationStore,
       ...args: Parameters<typeof recommend>
     ) {
       const claim = await recommend.apply(this, args);
       pending = a.coordination.endTurn().catch(() => {});
       return claim;
-    },
-  );
-  const cancelling = t.mock.method(
-    CoordinationStore.prototype,
-    'cancelSelection',
-    async () => {
+    });
+  const cancelling = vi
+    .spyOn(CoordinationStore.prototype, 'cancelSelection')
+    .mockImplementation(async () => {
       throw new Error('Injected selection cleanup failure');
-    },
-  );
+    });
   try {
     const result = await callControl(first.binding, {
       kind: 'recommend',
@@ -625,27 +636,26 @@ await test('a recommendation survives final cleanup failure and advances the nex
       selections: [queued.ticket],
     });
   } finally {
-    recommending.mock.restore();
-    cancelling.mock.restore();
+    recommending.mockRestore();
+    cancelling.mockRestore();
     await pending;
     await first.finish();
     await second.finish();
   }
 });
 
-await test('a lost recommendation reply reconciles to one claim and one advancement', async (t) => {
-  const f = await coordinationFixture(t);
+test('a lost recommendation reply reconciles to one claim and one advancement', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b);
   const choice = await first.select(),
     queued = await second.select();
   const recommend = CoordinationStore.prototype.recommend;
   let committed = false;
-  t.mock.method(
-    CoordinationStore.prototype,
-    'recommend',
+  vi.spyOn(CoordinationStore.prototype, 'recommend').mockImplementation(
     async function (
       this: CoordinationStore,
       ...args: Parameters<typeof recommend>
@@ -684,10 +694,11 @@ await test('a lost recommendation reply reconciles to one claim and one advancem
 });
 
 for (const active of [false, true])
-  await test(`failed ${active ? 'active claim' : 'suggestion'} cleanup retries without removing a later recommendation`, async (t) => {
-    const f = await coordinationFixture(t);
+  test(`failed ${active ? 'active claim' : 'suggestion'} cleanup retries without removing a later recommendation`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const f = await coordinationFixture(cleanup);
     const a = await f.start();
-    const first = await selectionTurn(t, a),
+    const first = await selectionTurn(cleanup, a),
       choice = await first.select();
     let previous = await first.recommend(choice.ticket.id);
     await first.finish();
@@ -698,15 +709,17 @@ for (const active of [false, true])
     }
     const release = CoordinationStore.prototype.releaseConversation;
     let failing = true;
-    t.mock.method(
+    vi.spyOn(
       CoordinationStore.prototype,
       'releaseConversation',
-      function (this: CoordinationStore, ...args: Parameters<typeof release>) {
-        return failing
-          ? Promise.reject(new Error('Suggestion cleanup unavailable'))
-          : release.apply(this, args);
-      },
-    );
+    ).mockImplementation(function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof release>
+    ) {
+      return failing
+        ? Promise.reject(new Error('Suggestion cleanup unavailable'))
+        : release.apply(this, args);
+    });
     await a.coordinator.newConversation().catch(() => {});
     assert.match(
       a.coordinator.snapshot.error ?? '',
@@ -723,7 +736,7 @@ for (const active of [false, true])
       async () => !(await f.registry.claims()).length,
     );
     await a.coordinator.selectConversation(first.binding.conversation);
-    const later = await selectionTurn(t, a),
+    const later = await selectionTurn(cleanup, a),
       next = await later.select();
     const current = await later.recommend(next.ticket.id, 18);
     await later.finish();

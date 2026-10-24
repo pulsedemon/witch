@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { scratch } from './fixtures/scratch.js';
 
@@ -11,7 +11,7 @@ const instance = fileURLToPath(
   new URL('../src/persistence/instance.ts', import.meta.url),
 );
 
-await test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone or of an earlier process with its pid, while live and unprobeable processes' directories stay", async () => {
+test("an instance directory goes when its process exits, read-only contents included, and so do those of processes that are gone or of an earlier process with its pid, while live and unprobeable processes' directories stay", async () => {
   const parent = await scratch('witch-instance-');
   const exited = spawn('/usr/bin/true');
   await once(exited, 'exit');

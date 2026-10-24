@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import { fixture, content, jsonLines } from './fixtures/claude-adapter.js';
 import { until, within } from './fixtures/within.js';
@@ -73,7 +73,7 @@ const result = (uuid: string) => ({
   local_command: 'compact',
 });
 
-await test('Claude compaction waits for its result and idle while preserving command records', async () => {
+test('Claude compaction waits for its result and idle while preserving command records', async () => {
   const f = await scripted();
   try {
     await f.session.shell('printf pending-record');
@@ -100,7 +100,7 @@ await test('Claude compaction waits for its result and idle while preserving com
 });
 
 for (const status of [false, true]) {
-  await test(`Claude successful SDK result without replacement fails compaction${status ? ' with native detail' : ''}`, async () => {
+  test(`Claude successful SDK result without replacement fails compaction${status ? ' with native detail' : ''}`, async () => {
     const f = await scripted();
     try {
       const pending = await f.compact();
@@ -126,7 +126,7 @@ for (const status of [false, true]) {
   });
 }
 
-await test('Claude reports automatic main-session replacement without admitting child boundaries', async () => {
+test('Claude reports automatic main-session replacement without admitting child boundaries', async () => {
   const f = await scripted();
   try {
     await f.emit({ ...boundary, session_id: randomUUID() });
@@ -143,7 +143,7 @@ await test('Claude reports automatic main-session replacement without admitting 
   }
 });
 
-await test('Claude process closure settles a compaction without a native result', async () => {
+test('Claude process closure settles a compaction without a native result', async () => {
   const f = await scripted();
   try {
     const pending = await f.compact();
@@ -157,7 +157,7 @@ await test('Claude process closure settles a compaction without a native result'
   }
 });
 
-await test('Claude awaits a fresh context read without waiting for account usage and rejects an obsolete model sample', async () => {
+test('Claude awaits a fresh context read without waiting for account usage and rejects an obsolete model sample', async () => {
   const f = await scripted();
   try {
     await writeFile(join(f.cwd, 'hold-usage'), '');

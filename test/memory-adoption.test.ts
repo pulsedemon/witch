@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { describe, test } from 'vitest';
 import { main } from '../src/memory/memory.js';
 import type { Workspace } from '../src/memory/workspace.js';
 import { passThrough } from './fixtures/git.js';
 import { fixture, save, git, repository } from './fixtures/memory.js';
 
-await test('a subdirectory of a repository shares its project memory, and its notes move once the repository has an origin', async () => {
+test('a subdirectory of a repository shares its project memory, and its notes move once the repository has an origin', async () => {
   const { memory, open, project } = await fixture();
   await git(project, 'init', '--quiet');
   const src = join(project, 'src');
@@ -27,7 +27,7 @@ await test('a subdirectory of a repository shares its project memory, and its no
   assert.equal(await memory.read(main, `${moved.scope.project}/x.md`), 'X.\n');
 });
 
-await test('checkout adoption preserves unpublished notes until they are published', async () => {
+test('checkout adoption preserves unpublished notes until they are published', async () => {
   const { memory, open, project } = await fixture();
   await git(project, 'init', '--quiet');
   const { workspace } = await open('a');
@@ -65,7 +65,7 @@ await test('checkout adoption preserves unpublished notes until they are publish
   assert.equal(await workspace.isDirty(), false);
 });
 
-await test("a turn merges the notes keyed by a checkout's path into its origin's project, keeping both versions of a note", async () => {
+test("a turn merges the notes keyed by a checkout's path into its origin's project, keeping both versions of a note", async () => {
   const { memory, open, root, project } = await fixture();
   const begin = async (
     workspace: Workspace,
@@ -197,7 +197,7 @@ await test("a turn merges the notes keyed by a checkout's path into its origin's
   );
 });
 
-await test('migration keeps links to literal filenames that retain their names', async () => {
+test('migration keeps links to literal filenames that retain their names', async () => {
   const { memory, open, root } = await fixture();
   const origin = 'https://example.org/team/project.git';
   const upstream = await repository(root, 'upstream', origin);
@@ -236,7 +236,7 @@ await test('migration keeps links to literal filenames that retain their names',
     assert.equal(await memory.read(main, `${target}/${note}`), text);
 });
 
-await test('migration normalizes literal note directories before preserving link suffixes', async () => {
+test('migration normalizes literal note directories before preserving link suffixes', async () => {
   const { memory, open, root } = await fixture();
   const origin = 'https://example.org/team/project.git';
   const upstream = await repository(root, 'upstream', origin);
@@ -279,7 +279,7 @@ await test('migration normalizes literal note directories before preserving link
   assert.ok(elapsed < 3000, `migration took ${elapsed} ms`);
 });
 
-await test("a move that loses to another clone's move is made again on the newer main", async () => {
+test("a move that loses to another clone's move is made again on the newer main", async () => {
   const { memory, open, root, project, hook } = await fixture();
   const begin = async (workspace: Workspace, cwd: string, note?: string) => {
     const begun = await workspace.begin(cwd);
@@ -326,7 +326,7 @@ await test("a move that loses to another clone's move is made again on the newer
   );
 });
 
-await test('a move that keeps losing to other clones gives up on main, so it never waits to publish', async () => {
+test('a move that keeps losing to other clones gives up on main, so it never waits to publish', async () => {
   const { memory, open, root } = await fixture();
   const { workspace } = await open('a');
   const copy = await repository(root, 'copy');
@@ -348,7 +348,7 @@ await test('a move that keeps losing to other clones gives up on main, so it nev
   );
 });
 
-await test("a note with no free path in the project stays under the checkout's key", async () => {
+test("a note with no free path in the project stays under the checkout's key", async () => {
   const { memory, open, root } = await fixture();
   const { workspace } = await open('a');
   const origin = 'https://github.com/o/r.git';
@@ -368,9 +368,9 @@ await test("a note with no free path in the project stays under the checkout's k
   assert.equal(await memory.read(main, `${key}/x.md`), 'Stays.\n');
 });
 
-await test('a failed memory move preserves its error and reports a failed rollback', async (t) => {
+describe('a failed memory move preserves its error and reports a failed rollback', () => {
   for (const rollbackFails of [false, true])
-    await t.test(
+    test(
       rollbackFails ? 'failed rollback' : 'successful rollback',
       async () => {
         const { memory, open, root, hook } = await fixture();
@@ -431,7 +431,7 @@ await test('a failed memory move preserves its error and reports a failed rollba
     );
 });
 
-await test('a move that fails on an OS error fails the turn and leaves every note where it was', async () => {
+test('a move that fails on an OS error fails the turn and leaves every note where it was', async () => {
   const { memory, open, root, hook } = await fixture();
   const first = (await open('a')).workspace;
   const target = (
@@ -467,7 +467,7 @@ await test('a move that fails on an OS error fails the turn and leaves every not
   assert.equal(await memory.read(main, `${key}/d/x.md`), 'X.\n');
 });
 
-await test(
+test(
   "a third version of a note from another checkout of the same name takes the next copy number, in the index's line endings",
   { timeout: 20_000 },
   async () => {
@@ -516,7 +516,7 @@ await test(
   },
 );
 
-await test('index migration preserves duplicate, empty and newline cases', async (t) => {
+describe('index migration preserves duplicate, empty and newline cases', () => {
   const blankRun = '\n'.repeat(80_000);
   for (const [name, index, added, expected] of [
     ['already present', 'Keep\r\n\r\n\r\n', 'Keep\nKeep\n', 'Keep\r\n\r\n\r\n'],
@@ -530,7 +530,7 @@ await test('index migration preserves duplicate, empty and newline cases', async
       `Head\n${blankRun}Tail\nAdded\n`,
     ],
   ] as const) {
-    await t.test(name, async () => {
+    test(name, async () => {
       const { memory, root, open } = await fixture();
       const origin = 'https://example.org/team/project.git';
       const upstream = await repository(root, 'upstream', origin);

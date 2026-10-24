@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fixture, save } from './fixtures/memory.js';
 
 async function context() {
@@ -30,14 +30,14 @@ async function context() {
   };
 }
 
-await test('an unrelated project commit produces no memory update', async () => {
+test('an unrelated project commit produces no memory update', async () => {
   const f = await context();
   await save(f.workspace, { 'projects/other/note.md': 'Other project 71.' });
   assert.equal(await f.snapshot(f.before), '');
 });
 
 for (const changed of ['global', 'project'] as const) {
-  await test(`a ${changed} index update replaces only its own accepted scope`, async () => {
+  test(`a ${changed} index update replaces only its own accepted scope`, async () => {
     const f = await context();
     const file = changed === 'global' ? 'global/MEMORY.md' : f.projectIndex;
     const replacement = `${changed} replacement 41.\n`;
@@ -55,7 +55,7 @@ for (const changed of ['global', 'project'] as const) {
   });
 }
 
-await test('reference updates carry paths and statuses without unchanged indexes or note bodies', async () => {
+test('reference updates carry paths and statuses without unchanged indexes or note bodies', async () => {
   const f = await context();
   await save(f.workspace, {
     'global/moved.md': 'Move source.',
@@ -97,7 +97,7 @@ await test('reference updates carry paths and statuses without unchanged indexes
   );
 });
 
-await test('reversed changes still invalidate delivered intermediate memory', async () => {
+test('reversed changes still invalidate delivered intermediate memory', async () => {
   const f = await context();
   await save(f.workspace, {
     [f.projectIndex]: 'Intermediate preference 89.',
@@ -124,7 +124,7 @@ await test('reversed changes still invalidate delivered intermediate memory', as
   assert.doesNotMatch(update, /Intermediate preference 89/);
 });
 
-await test('deleting an index withdraws its previous essentials while reference notes remain', async () => {
+test('deleting an index withdraws its previous essentials while reference notes remain', async () => {
   const f = await context();
   await save(f.workspace, { [f.projectIndex]: null });
   const update = await f.snapshot(f.before);
@@ -149,7 +149,7 @@ await test('deleting an index withdraws its previous essentials while reference 
   );
 });
 
-await test('index limits count UTF-8 bytes and preserve complete inline or referenced contents', async () => {
+test('index limits count UTF-8 bytes and preserve complete inline or referenced contents', async () => {
   const f = await context();
   for (const { body, bytes, inline } of [
     { body: 'a'.repeat(6000), bytes: 6000, inline: true },
@@ -174,7 +174,7 @@ await test('index limits count UTF-8 bytes and preserve complete inline or refer
   }
 });
 
-await test('many notes produce bounded baselines and complete reference invalidation on update', async () => {
+test('many notes produce bounded baselines and complete reference invalidation on update', async () => {
   const f = await context();
   const notes = Object.fromEntries(
     Array.from({ length: 150 }, (_, i) => [
@@ -206,7 +206,7 @@ await test('many notes produce bounded baselines and complete reference invalida
   );
 });
 
-await test('a filename with Unicode and control characters remains identifiable in a change notice', async () => {
+test('a filename with Unicode and control characters remains identifiable in a change notice', async () => {
   const f = await context();
   const file = 'global/café\tline\nquote".md';
   await save(f.workspace, { [file]: 'Reference body 101.' });

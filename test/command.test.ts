@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import { scratch } from './fixtures/scratch.js';
 
-await test('commands preserve cwd, arguments and environment in returned output', async () => {
+test('commands preserve cwd, arguments and environment in returned output', async () => {
   const directory = await scratch('witch-command-');
   const result = await runCommand(
     process.execPath,
@@ -28,7 +28,7 @@ await test('commands preserve cwd, arguments and environment in returned output'
 });
 
 for (const killSignal of [undefined, 'SIGKILL'] as const) {
-  await test(`native timeout failures retain their output and metadata (${killSignal ?? 'default signal'})`, async () => {
+  test(`native timeout failures retain their output and metadata (${killSignal ?? 'default signal'})`, async () => {
     const cwd = await scratch('witch-command-');
     await assert.rejects(
       runCommand(
@@ -51,7 +51,7 @@ for (const killSignal of [undefined, 'SIGKILL'] as const) {
   });
 }
 
-await test('timeout failures remain labeled when the child handles SIGTERM', async () => {
+test('timeout failures remain labeled when the child handles SIGTERM', async () => {
   const cwd = await scratch('witch-command-');
   await assert.rejects(
     runCommand(
@@ -73,7 +73,7 @@ await test('timeout failures remain labeled when the child handles SIGTERM', asy
   );
 });
 
-await test('other command failures keep their native diagnostics', async () => {
+test('other command failures keep their native diagnostics', async () => {
   const cwd = await scratch('witch-command-');
   for (const [command, script, fields] of [
     [

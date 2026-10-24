@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import {
@@ -14,7 +14,7 @@ import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);
 
-await test("Git's status counts staged, modified and untracked entries, and the branch's distance from its upstream", async () => {
+test("Git's status counts staged, modified and untracked entries, and the branch's distance from its upstream", async () => {
   const root = await scratch('witch-repository-');
   const git = (cwd: string, ...args: string[]) =>
     execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
@@ -52,7 +52,7 @@ await test("Git's status counts staged, modified and untracked entries, and the 
   });
 });
 
-await test('a detached head reads as HEAD, and branch.ab and unmerged entries count', () => {
+test('a detached head reads as HEAD, and branch.ab and unmerged entries count', () => {
   assert.deepEqual(
     parseStatus(
       [
@@ -85,7 +85,7 @@ const view = (fields: object) =>
     ...fields,
   });
 
-await test("a pull request's checks fail on a failed run or status, stay pending while any runs or none exist, and pass otherwise", () => {
+test("a pull request's checks fail on a failed run or status, stay pending while any runs or none exist, and pass otherwise", () => {
   const checks = (rollup: object[]) =>
     parsePullRequest(view({ state: 'OPEN', statusCheckRollup: rollup })).checks;
   const done = (conclusion: string) => ({
@@ -130,8 +130,11 @@ await test("a pull request's checks fail on a failed run or status, stay pending
   );
 });
 
-await test('the watch reads the pull request once per branch, again when the branch changes or 90 seconds pass, and publishes only changes', async (t) => {
-  t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+test('the watch reads the pull request once per branch, again when the branch changes or 90 seconds pass, and publishes only changes', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
   let branch = 'main';
   const reads: string[] = [];
   let fields: string | undefined;
@@ -154,18 +157,18 @@ await test('the watch reads the pull request once per branch, again when the bra
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
     assert.match(fields ?? '', /,headRefName,headRefOid,baseRefName$/);
     const settled = published;
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(published, settled);
     branch = 'feat/x';
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'feat/x');
     assert.deepEqual(reads, ['main', 'feat/x']);
-    t.mock.timers.tick(85_000);
+    vi.advanceTimersByTime(85_000);
     await delay(20);
     assert.deepEqual(reads, ['main', 'feat/x']);
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.deepEqual(reads, ['main', 'feat/x', 'feat/x']);
   } finally {
@@ -173,8 +176,11 @@ await test('the watch reads the pull request once per branch, again when the bra
   }
 });
 
-await test('a failed git read leaves Git out, and a failed gh read leaves the pull request out until the next read 90 seconds on', async (t) => {
-  t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+test('a failed git read leaves Git out, and a failed gh read leaves the pull request out until the next read 90 seconds on', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
   let repository = false;
   let reads = 0;
   const watch = new RepositoryWatch('/work', async (command) => {
@@ -189,19 +195,19 @@ await test('a failed git read leaves Git out, and a failed gh read leaves the pu
     await delay(20);
     assert.equal(watch.snapshot?.branch, undefined);
     repository = true;
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'main');
     assert.equal(watch.snapshot?.pullRequest, undefined);
     assert.equal(reads, 1);
-    t.mock.timers.tick(85_000);
+    vi.advanceTimersByTime(85_000);
     await delay(20);
     assert.equal(reads, 1);
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(reads, 2);
     repository = false;
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(watch.snapshot?.branch, undefined);
   } finally {
@@ -209,8 +215,11 @@ await test('a failed git read leaves Git out, and a failed gh read leaves the pu
   }
 });
 
-await test('a read still running skips the next ticks, and a pull request read for a branch left meanwhile is dropped', async (t) => {
-  t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+test('a read still running skips the next ticks, and a pull request read for a branch left meanwhile is dropped', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
   let branch = 'main';
   const git: PromiseWithResolvers<{ stdout: string }>[] = [];
   const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
@@ -220,8 +229,8 @@ await test('a read still running skips the next ticks, and a pull request read f
     return read.promise;
   });
   try {
-    t.mock.timers.tick(5000);
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(git.length, 1);
     git[0]!.resolve({ stdout: `# branch.head ${branch}\n` });
@@ -230,7 +239,7 @@ await test('a read still running skips the next ticks, and a pull request read f
     assert.equal(gh.length, 1);
     branch = 'feat/x';
     for (let tick = 0; tick < 3; tick++) {
-      t.mock.timers.tick(5000);
+      vi.advanceTimersByTime(5000);
       await delay(20);
       git.at(-1)!.resolve({ stdout: `# branch.head ${branch}\n` });
       await delay(20);
@@ -245,8 +254,11 @@ await test('a read still running skips the next ticks, and a pull request read f
   }
 });
 
-await test('a detached head reads no pull request', async (t) => {
-  t.mock.timers.enable({ apis: ['setInterval', 'Date'] });
+test('a detached head reads no pull request', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
   const commands: string[] = [];
   const watch = new RepositoryWatch('/work', async (command) => {
     commands.push(command);
@@ -254,7 +266,7 @@ await test('a detached head reads no pull request', async (t) => {
   });
   try {
     await delay(20);
-    t.mock.timers.tick(5000);
+    vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'HEAD');
     assert.deepEqual(commands, ['git', 'git']);

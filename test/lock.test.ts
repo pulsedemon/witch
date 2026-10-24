@@ -4,16 +4,21 @@ import { once } from 'node:events';
 import { constants } from 'node:fs';
 import { access, chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { openLocked, lockedFiles } from '../src/persistence/lock.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
-async function observer(t: TestContext, root: string, limit: number) {
+async function observer(
+  register: RegisterCleanup,
+  root: string,
+  limit: number,
+) {
   const child = spawn(
     process.execPath,
     [
@@ -34,7 +39,7 @@ async function observer(t: TestContext, root: string, limit: number) {
   const ended = new Promise<void>((resolve) =>
     child.once('close', () => resolve()),
   );
-  t.after(async () => {
+  register(async () => {
     if (child.exitCode === null && child.signalCode === null)
       child.kill('SIGKILL');
     await ended;
@@ -62,13 +67,14 @@ async function observer(t: TestContext, root: string, limit: number) {
   };
 }
 
-await test('concurrent probes never report a free file as held', async (t) => {
+test('concurrent probes never report a free file as held', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-lock-observers-');
   const store = await StateStore.open(root);
   await (await store.create(record('observed', root))).close();
   const observers = await Promise.all([
-    observer(t, root, 200),
-    observer(t, root, 200),
+    observer(cleanup, root, 200),
+    observer(cleanup, root, 200),
   ]);
   await Promise.all(observers.map((child) => child.start()));
   const results = await Promise.all(observers.map((child) => child.finish()));
@@ -78,11 +84,12 @@ await test('concurrent probes never report a free file as held', async (t) => {
   ]);
 });
 
-await test('observation never prevents a free conversation from opening', async (t) => {
+test('observation never prevents a free conversation from opening', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-lock-acquisition-');
   const store = await StateStore.open(root);
   await (await store.create(record('observed', root))).close();
-  const child = await observer(t, root, 0);
+  const child = await observer(cleanup, root, 0);
   await child.start();
   let failures = 0;
   for (let attempt = 0; attempt < 1000; attempt++) {
@@ -98,7 +105,8 @@ await test('observation never prevents a free conversation from opening', async 
   assert.equal(failures, 0);
 });
 
-await test('batch observation preserves path identity and filesystem failures', async (t) => {
+test('batch observation preserves path identity and filesystem failures', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
   const root = await scratch('witch-lock-batch-');
   const heldPath = join(root, 'présence λ[]\nlock');
   const sharedPath = join(root, 'shared');
@@ -109,13 +117,13 @@ await test('batch observation preserves path identity and filesystem failures', 
     heldPath,
     constants.O_RDONLY | constants.O_NONBLOCK,
   );
-  t.after(() => held.close());
+  cleanup(() => held.close());
   const shared = await openLocked(
     sharedPath,
     constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
     { mode: 0o600, shared: true },
   );
-  t.after(() => shared.close());
+  cleanup(() => shared.close());
   assert.deepEqual(
     await lockedFiles([
       free,
@@ -141,7 +149,7 @@ await test('batch observation preserves path identity and filesystem failures', 
   }
 });
 
-await test('query failure never reports an unlocked file', async () => {
+test('query failure never reports an unlocked file', async () => {
   const root = await scratch('witch-lock-query-failure-');
   const file = join(root, 'free');
   await writeFile(file, '');

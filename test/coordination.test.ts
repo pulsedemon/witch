@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { constants, promises as files } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseStatus } from '../src/core/repository.js';
 import { presenceStatus } from '../src/core/coordination-state.js';
@@ -29,31 +29,35 @@ import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 import { countProbes } from './fixtures/probes.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
 
-await test('discovery batches conversation ownership and keeps only open peers', async (t) => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
-  const { root, start, store } = await coordinationFixture(t);
-  t.after(() => t.mock.timers.reset());
+test('discovery batches conversation ownership and keeps only open peers', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const { root, start, store } = await coordinationFixture(cleanup);
+  cleanup(() => {
+    vi.useRealTimers();
+  });
   const a = await start('A'),
     b = await start('B');
   for (const id of ['closed-a', 'closed-b'])
     await (await store.create(record(id, join(root, 'A')))).close();
   const own = a.coordinator.snapshot.conversation!.id;
   const peer = b.coordinator.snapshot.conversation!.id;
-  const batch = t.mock.method(store, 'openConversations');
-  const reading = t.mock.method(files, 'readFile');
+  const batch = vi.spyOn(store, 'openConversations');
+  const reading = vi.spyOn(files, 'readFile');
   syncBuiltinESMExports();
   try {
     await a.coordination.context();
   } finally {
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
   }
-  assert.equal(batch.mock.callCount(), 1);
-  const call = batch.mock.calls[0]!;
+  assert.equal(batch.mock.calls.length, 1);
+  const call = batch.mock.results[0]!;
   assert.deepEqual(
     reading.mock.calls
-      .map(({ arguments: [path] }) => path)
+      .map(([path]) => path)
       .filter(
         (path) => typeof path === 'string' && path.endsWith('/state.json'),
       )
@@ -63,7 +67,7 @@ await test('discovery batches conversation ownership and keeps only open peers',
       .sort(),
   );
   assert.deepEqual(
-    await call.result,
+    await call.value,
     new Map([
       [own, { coordinated: true }],
       [peer, { coordinated: true }],
@@ -76,8 +80,9 @@ await test('discovery batches conversation ownership and keeps only open peers',
   assert.deepEqual(a.coordination.snapshot.unregistered, []);
 });
 
-await test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
-  const { root, start, registry } = await coordinationFixture(t);
+test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { root, start, registry } = await coordinationFixture(cleanup);
   const a = await start();
   const b = await start('B');
   await start('C');
@@ -123,22 +128,21 @@ await test('clones expose current task metadata without themselves or another pr
 });
 
 for (const assignmentFails of [false, true]) {
-  await test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
+  test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
     let pending: Promise<void> | undefined;
-    const { start, registry } = await coordinationFixture(t, async () => {
+    const { start, registry } = await coordinationFixture(cleanup, async () => {
       pending = owner.coordination.endTurn().catch(() => {});
       if (assignmentFails) throw new Error('Injected assignment failure');
     });
     const owner = await start(),
       contender = await start('B');
-    const turn = await selectionTurn(t, owner);
-    const cancelling = t.mock.method(
-      CoordinationStore.prototype,
-      'cancelSelection',
-      async () => {
+    const turn = await selectionTurn(cleanup, owner);
+    const cancelling = vi
+      .spyOn(CoordinationStore.prototype, 'cancelSelection')
+      .mockImplementation(async () => {
         throw new Error('Injected selection cleanup failure');
-      },
-    );
+      });
     try {
       const reference = 'https://github.com/acme/queue/issues/17';
       const result = await owner.claim(reference);
@@ -156,34 +160,33 @@ for (const assignmentFails of [false, true]) {
       const duplicate = await contender.claim(reference);
       if (duplicate.kind !== 'conflict') assert.fail(JSON.stringify(duplicate));
       assert.deepEqual(duplicate.claim, result.claim);
-      cancelling.mock.restore();
+      cancelling.mockRestore();
       await pending;
       await owner.coordination.context();
       assert.equal(owner.coordination.snapshot.error, undefined);
       assert.deepEqual(owner.coordination.snapshot.ownClaim, result.claim);
       assert.deepEqual(await registry.claims(), [result.claim]);
     } finally {
-      cancelling.mock.restore();
+      cancelling.mockRestore();
       await pending;
       await turn.finish();
     }
   });
 }
 
-await test('pre-claim cleanup failure still refuses new ownership', async (t) => {
+test('pre-claim cleanup failure still refuses new ownership', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
   let assignments = 0;
-  const { start, registry } = await coordinationFixture(t, async () => {
+  const { start, registry } = await coordinationFixture(cleanup, async () => {
     assignments++;
   });
   const owner = await start();
-  const turn = await selectionTurn(t, owner);
-  const cancelling = t.mock.method(
-    CoordinationStore.prototype,
-    'cancelSelection',
-    async () => {
+  const turn = await selectionTurn(cleanup, owner);
+  const cancelling = vi
+    .spyOn(CoordinationStore.prototype, 'cancelSelection')
+    .mockImplementation(async () => {
       throw new Error('Injected selection cleanup failure');
-    },
-  );
+    });
   try {
     await assert.rejects(owner.coordination.endTurn(), /cleanup failure/);
     const result = await owner.claim('https://github.com/acme/queue/issues/17');
@@ -192,14 +195,15 @@ await test('pre-claim cleanup failure still refuses new ownership', async (t) =>
     assert.deepEqual(await registry.claims(), []);
     assert.equal(assignments, 0);
   } finally {
-    cancelling.mock.restore();
+    cancelling.mockRestore();
     await turn.finish();
   }
 });
 
 for (const failures of [1, 2]) {
-  await test(`presence publication recovers after ${failures} failed ${failures === 1 ? 'write' : 'writes'} without another state update`, async (t) => {
-    const { start, registry } = await coordinationFixture(t);
+  test(`presence publication recovers after ${failures} failed ${failures === 1 ? 'write' : 'writes'} without another state update`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const { start, registry } = await coordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const bound = await a.binding();
@@ -210,18 +214,16 @@ for (const failures of [1, 2]) {
     );
     const publish = CoordinationStore.prototype.publish;
     let attempts = 0;
-    const publication = t.mock.method(
-      CoordinationStore.prototype,
-      'publish',
-      async function (
+    const publication = vi
+      .spyOn(CoordinationStore.prototype, 'publish')
+      .mockImplementation(async function (
         this: CoordinationStore,
         presence: Parameters<typeof publish>[0],
       ) {
         if (presence.activation === bound.activation && ++attempts <= failures)
           throw new Error('Temporary presence write failure');
         return publish.call(this, presence);
-      },
-    );
+      });
     const failed = Promise.withResolvers<void>(),
       recovered = Promise.withResolvers<void>();
     const unsubscribe = a.coordination.subscribe(() => {
@@ -255,7 +257,7 @@ for (const failures of [1, 2]) {
       assert.deepEqual(await registry.presences(), before);
     } finally {
       unsubscribe();
-      publication.mock.restore();
+      publication.mockRestore();
       if (a.coordination.snapshot.error) {
         a.coordination.updateRepository(parseStatus('# branch.head cleanup'));
         await until(
@@ -267,8 +269,9 @@ for (const failures of [1, 2]) {
   });
 }
 
-await test('a slow presence retry preserves newer state without accumulating retries', async (t) => {
-  const { start, registry } = await coordinationFixture(t);
+test('a slow presence retry preserves newer state without accumulating retries', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const bound = await a.binding();
@@ -284,10 +287,9 @@ await test('a slow presence retry preserves newer state without accumulating ret
   const requests: number[] = [];
   let inFlight = 0,
     peak = 0;
-  const publication = t.mock.method(
-    CoordinationStore.prototype,
-    'publish',
-    async function (
+  const publication = vi
+    .spyOn(CoordinationStore.prototype, 'publish')
+    .mockImplementation(async function (
       this: CoordinationStore,
       presence: Parameters<typeof publish>[0],
     ) {
@@ -307,8 +309,7 @@ await test('a slow presence retry preserves newer state without accumulating ret
       } finally {
         inFlight--;
       }
-    },
-  );
+    });
   try {
     const emit = a.a.sessions.at(-1)!.options.onEvent;
     emit({
@@ -347,7 +348,7 @@ await test('a slow presence retry preserves newer state without accumulating ret
     assert.equal(a.coordination.snapshot.error, undefined);
   } finally {
     release.resolve();
-    publication.mock.restore();
+    publication.mockRestore();
     if (a.coordination.snapshot.error) {
       a.coordination.updateRepository(parseStatus('# branch.head cleanup'));
       await until(
@@ -359,8 +360,9 @@ await test('a slow presence retry preserves newer state without accumulating ret
 });
 
 for (const action of ['switch', 'close'] as const) {
-  await test(`a presence retry cannot republish an activation after ${action}`, async (t) => {
-    const { start, registry } = await coordinationFixture(t);
+  test(`a presence retry cannot republish an activation after ${action}`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const { start, registry } = await coordinationFixture(cleanup);
     const a = await start();
     const bound = await a.binding();
     await until('initial idle presence', async () =>
@@ -372,10 +374,9 @@ for (const action of ['switch', 'close'] as const) {
       release = Promise.withResolvers<void>();
     const publish = CoordinationStore.prototype.publish;
     let attempts = 0;
-    const publication = t.mock.method(
-      CoordinationStore.prototype,
-      'publish',
-      async function (
+    const publication = vi
+      .spyOn(CoordinationStore.prototype, 'publish')
+      .mockImplementation(async function (
         this: CoordinationStore,
         presence: Parameters<typeof publish>[0],
       ) {
@@ -389,8 +390,7 @@ for (const action of ['switch', 'close'] as const) {
           }
         }
         return publish.call(this, presence);
-      },
-    );
+      });
     let transitioning: Promise<void> | undefined;
     try {
       a.a.sessions.at(-1)!.options.onEvent({
@@ -427,7 +427,7 @@ for (const action of ['switch', 'close'] as const) {
       if (next) assert.notEqual(next.activation, bound.activation);
     } finally {
       release.resolve();
-      publication.mock.restore();
+      publication.mockRestore();
       await transitioning?.catch(() => {});
       if (
         a.coordinator.snapshot.phase !== 'closing' &&
@@ -443,8 +443,9 @@ for (const action of ['switch', 'close'] as const) {
   });
 }
 
-await test('waiting and idle background work stay visible and retain ownership through refusal, failure and interruption', async (t) => {
-  const { start, ledger } = await coordinationFixture(t);
+test('waiting and idle background work stay visible and retain ownership through refusal, failure and interruption', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, ledger } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.claim();
@@ -503,16 +504,17 @@ await test('waiting and idle background work stay visible and retain ownership t
   assert.equal(await ledger(), before);
 });
 
-await test('a live legacy owner blocks new work until its lock closes, and a reused identity is never treated as registered', async (t) => {
-  const { root, start, store, registry } = await coordinationFixture(t);
+test('a live legacy owner blocks new work until its lock closes, and a reused identity is never treated as registered', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { root, start, store, registry } = await coordinationFixture(cleanup);
   const a = await start();
   // select-next refuses while the legacy lock is held, so the ticket comes first
-  const choosing = await selectionTurn(t, a);
+  const choosing = await selectionTurn(cleanup, a);
   const { ticket } = await choosing.select();
   const legacy = record(randomUUID(), join(root, 'B'));
   await (await store.create(legacy)).close();
   const lock = await legacyLock(store, legacy.id);
-  t.after(() => lock.close());
+  cleanup(() => lock.close());
   const snapshot = await a.query();
   assert.deepEqual(
     snapshot.unregistered.map((p) => p.id),
@@ -544,17 +546,18 @@ await test('a live legacy owner blocks new work until its lock closes, and a reu
 });
 
 for (const name of ['B', 'C']) {
-  await test(`a missing directory in ${name === 'B' ? 'the same' : 'another'} project preserves claims without blocking discovery or selection`, async (t) => {
+  test(`a missing directory in ${name === 'B' ? 'the same' : 'another'} project preserves claims without blocking discovery or selection`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
     const { root, start, store, memory, registry } =
-      await coordinationFixture(t);
+      await coordinationFixture(cleanup);
     const a = await start();
-    const choosing = await selectionTurn(t, a);
+    const choosing = await selectionTurn(cleanup, a);
     const cwd = join(root, name);
     const { project } = await memory.scopePaths(cwd);
     const legacy = record(randomUUID(), cwd);
     await (await store.create(legacy)).close();
     const lock = await legacyLock(store, legacy.id);
-    t.after(() => lock.close());
+    cleanup(() => lock.close());
     const reference = 'https://github.com/acme/queue/issues/17';
     const held = await registry.claim(
       { conversation: legacy.id, project },
@@ -594,19 +597,20 @@ for (const failure of [
   { code: 'EACCES', syscall: 'realpath' },
   { code: 'ENOENT', syscall: 'spawn git' },
 ]) {
-  await test(`${failure.code} from ${failure.syscall} still blocks discovery and new ownership`, async (t) => {
+  test(`${failure.code} from ${failure.syscall} still blocks discovery and new ownership`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
     const { root, start, store, memory, registry } =
-      await coordinationFixture(t);
+      await coordinationFixture(cleanup);
     const a = await start();
-    const choosing = await selectionTurn(t, a);
+    const choosing = await selectionTurn(cleanup, a);
     const cwd = join(root, 'B');
     const legacy = record(randomUUID(), cwd);
     await (await store.create(legacy)).close();
     const lock = await legacyLock(store, legacy.id);
-    t.after(() => lock.close());
+    cleanup(() => lock.close());
     const scopePaths = memory.scopePaths.bind(memory);
     const error = Object.assign(new Error('Cannot determine project'), failure);
-    t.mock.method(memory, 'scopePaths', (directory: string) =>
+    vi.spyOn(memory, 'scopePaths').mockImplementation((directory: string) =>
       directory === cwd ? Promise.reject(error) : scopePaths(directory),
     );
 
@@ -624,8 +628,9 @@ for (const failure of [
   });
 }
 
-await test('closing a conversation releases its claim even if its stale presence says it runs', async (t) => {
-  const { start, registry } = await coordinationFixture(t);
+test('closing a conversation releases its claim even if its stale presence says it runs', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const result = await a.claim();
@@ -641,15 +646,14 @@ await test('closing a conversation releases its claim even if its stale presence
   assert.equal((await b.claim()).kind, 'claimed');
 });
 
-await test('a failed presence removal cannot register a later legacy lock owner', async (t) => {
-  const { start, store, registry } = await coordinationFixture(t);
+test('a failed presence removal cannot register a later legacy lock owner', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, store, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const old = await a.binding();
   const remove = CoordinationStore.prototype.removePresence;
-  t.mock.method(
-    CoordinationStore.prototype,
-    'removePresence',
+  vi.spyOn(CoordinationStore.prototype, 'removePresence').mockImplementation(
     function (this: CoordinationStore, id: string, activation: string) {
       return id === old.conversation
         ? Promise.reject(new Error('presence removal failed'))
@@ -681,20 +685,19 @@ await test('a failed presence removal cannot register a later legacy lock owner'
 });
 
 for (const window of ['opening', 'closing', 'reconnecting'] as const) {
-  await test(`a peer ${window} a conversation neither refuses a claim nor ends a selection wait`, async (t) => {
-    const { start, store, registry } = await coordinationFixture(t);
+  test(`a peer ${window} a conversation neither refuses a claim nor ends a selection wait`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const { start, store, registry } = await coordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
-    const choosing = await selectionTurn(t, a);
+    const choosing = await selectionTurn(cleanup, a);
     const { ticket } = await choosing.select();
     const id = b.coordinator.snapshot.conversation!.id;
     const gate = Promise.withResolvers<void>();
     let pending: Promise<void>;
     if (window !== 'closing') {
       const activate = b.coordination.activate.bind(b.coordination);
-      t.mock.method(
-        b.coordination,
-        'activate',
+      vi.spyOn(b.coordination, 'activate').mockImplementation(
         async (...args: Parameters<typeof activate>) => {
           await gate.promise;
           return activate(...args);
@@ -706,9 +709,7 @@ for (const window of ['opening', 'closing', 'reconnecting'] as const) {
           : b.coordinator.selectModel({ agent: 'b', id: 'b-model' });
     } else {
       const close = ConversationStore.prototype.close;
-      t.mock.method(
-        ConversationStore.prototype,
-        'close',
+      vi.spyOn(ConversationStore.prototype, 'close').mockImplementation(
         async function (this: ConversationStore) {
           if (this.record.id === id) await gate.promise;
           return close.call(this);
@@ -742,32 +743,34 @@ for (const window of ['opening', 'closing', 'reconnecting'] as const) {
   });
 }
 
-await test('unknown discovery refuses both a successful query and new ownership', async (t) => {
-  pauseDiscovery(t);
-  const { start, store, registry } = await coordinationFixture(t);
+test('unknown discovery refuses both a successful query and new ownership', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const { start, store, registry } = await coordinationFixture(cleanup);
   const a = await start();
   const id = randomUUID();
   const directory = join(store.root, 'conversations', id);
   const held = await store.create(
     record(id, a.coordinator.snapshot.conversation!.cwd),
   );
-  t.after(() => held.close());
+  cleanup(() => held.close());
   await files.writeFile(join(directory, 'state.json'), '{broken');
   const bound = await a.binding();
-  const query = await measureControl(t, () =>
+  const query = await measureControl(vi.spyOn, () =>
     callControl(bound, { kind: 'peers' }),
   );
   assert.equal(query.value.kind, 'error');
   assert.equal(query.discoveries, 1);
-  const attempt = await measureControl(t, () => a.claim());
+  const attempt = await measureControl(vi.spyOn, () => a.claim());
   assert.equal(attempt.value.kind, 'error');
   assert.equal(attempt.discoveries, 1);
   assert.deepEqual(await registry.claims(), []);
   assert.match(await a.coordination.context(), /Coordination is unavailable/);
 });
 
-await test('an origin change leaves a discoverable reservation in the original project until explicit release', async (t) => {
-  const { root, start, ledger } = await coordinationFixture(t);
+test('an origin change leaves a discoverable reservation in the original project until explicit release', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { root, start, ledger } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const result = await a.claim();
@@ -809,8 +812,9 @@ await test('an origin change leaves a discoverable reservation in the original p
   assert.deepEqual((await a.query()).ownClaim, next.claim);
 });
 
-await test('closing rejects a mutation waiting for the ledger and drains one already committing', async (t) => {
-  const { start, store, registry } = await coordinationFixture(t);
+test('closing rejects a mutation waiting for the ledger and drains one already committing', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, store, registry } = await coordinationFixture(cleanup);
   const a = await start();
   const bound = await a.binding();
   const lock = await openLocked(
@@ -818,26 +822,29 @@ await test('closing rejects a mutation waiting for the ledger and drains one alr
     constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
     { mode: 0o600 },
   );
-  t.after(() => lock.close());
   const attempt = a.claim();
-  await until('request waiting on lock', async () =>
-    (await files.readdir(join(bound.directory, 'inbox'))).some((f) =>
-      f.endsWith('.json'),
-    ),
-  );
-  await delay(300);
-  const closing = a.coordinator.close();
-  await lock.close();
-  assert.equal((await attempt).kind, 'error');
-  await within(closing, 5000, 'close');
-  assert.deepEqual(await registry.claims(), []);
+  let closing: ReturnType<typeof a.coordinator.close> | undefined;
+  try {
+    await until('request waiting on lock', async () =>
+      (await files.readdir(join(bound.directory, 'inbox'))).some((f) =>
+        f.endsWith('.json'),
+      ),
+    );
+    await delay(300);
+    closing = a.coordinator.close();
+    await lock.close();
+    assert.equal((await attempt).kind, 'error');
+    await within(closing, 5000, 'close');
+    assert.deepEqual(await registry.claims(), []);
+  } finally {
+    await lock.close();
+    await Promise.allSettled([attempt, closing]);
+  }
   const b = await start('B');
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
   const rename = files.rename;
-  t.mock.method(
-    files,
-    'rename',
+  vi.spyOn(files, 'rename').mockImplementation(
     async (...args: Parameters<typeof files.rename>) => {
       if (String(args[1]).endsWith('/coordination/claims.json')) {
         entered.resolve();
@@ -847,37 +854,41 @@ await test('closing rejects a mutation waiting for the ledger and drains one alr
     },
   );
   syncBuiltinESMExports();
-  t.after(() => {
-    t.mock.restoreAll();
+  cleanup(() => {
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
-    finish.resolve();
   });
   const committing = b.claim();
-  await within(entered.promise, 5000, 'commit boundary');
-  let closed = false;
-  const draining = b.coordinator.close().then(() => {
-    closed = true;
-  });
-  await delay(50);
-  assert.equal(closed, false);
-  finish.resolve();
-  assert.equal((await committing).kind, 'claimed');
-  await within(draining, 5000, 'commit drain');
-  assert.deepEqual(await registry.claims(), []);
-  assert.deepEqual(await registry.presences(), []);
+  let draining: ReturnType<typeof b.coordinator.close> | undefined;
+  try {
+    await within(entered.promise, 5000, 'commit boundary');
+    let closed = false;
+    draining = b.coordinator.close().then(() => {
+      closed = true;
+    });
+    await delay(50);
+    assert.equal(closed, false);
+    finish.resolve();
+    assert.equal((await committing).kind, 'claimed');
+    await within(draining, 5000, 'commit drain');
+    assert.deepEqual(await registry.claims(), []);
+    assert.deepEqual(await registry.presences(), []);
+  } finally {
+    finish.resolve();
+    await Promise.allSettled([committing, draining]);
+  }
 });
 
-await test('a delayed presence writer drains before replacement activation publishes', async (t) => {
-  const { start, registry } = await coordinationFixture(t);
+test('a delayed presence writer drains before replacement activation publishes', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, registry } = await coordinationFixture(cleanup);
   const a = await start();
   const bound = await a.binding();
   const entered = Promise.withResolvers<void>(),
     finish = Promise.withResolvers<void>();
   const publish = CoordinationStore.prototype.publish;
   let held = false;
-  t.mock.method(
-    CoordinationStore.prototype,
-    'publish',
+  vi.spyOn(CoordinationStore.prototype, 'publish').mockImplementation(
     async function (
       this: CoordinationStore,
       presence: Parameters<typeof publish>[0],
@@ -890,35 +901,44 @@ await test('a delayed presence writer drains before replacement activation publi
       return publish.call(this, presence);
     },
   );
-  t.after(() => finish.resolve());
-  a.a.sessions.at(-1)!.options.onEvent({
-    type: 'request',
-    request: { id: 'q', kind: 'approval', title: 'Wait', detail: '' },
-  });
-  await within(entered.promise, 3000, 'delayed presence write');
-  const switching = a.coordinator.newConversation();
-  await delay(50);
-  assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
-  finish.resolve();
-  await switching;
-  const next = await a.binding();
-  assert.notEqual(next.activation, bound.activation);
-  assert.deepEqual(
-    (await registry.presences()).map((p) => p.activation),
-    [next.activation],
-  );
-  await a.coordinator.close();
-  await delay(150);
-  assert.deepEqual(await registry.presences(), []);
+  let switching: ReturnType<typeof a.coordinator.newConversation> | undefined;
+  try {
+    a.a.sessions.at(-1)!.options.onEvent({
+      type: 'request',
+      request: { id: 'q', kind: 'approval', title: 'Wait', detail: '' },
+    });
+    await within(entered.promise, 3000, 'delayed presence write');
+    switching = a.coordinator.newConversation();
+    await delay(50);
+    assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
+    finish.resolve();
+    await switching;
+    const next = await a.binding();
+    assert.notEqual(next.activation, bound.activation);
+    assert.deepEqual(
+      (await registry.presences()).map((p) => p.activation),
+      [next.activation],
+    );
+    await a.coordinator.close();
+    await delay(150);
+    assert.deepEqual(await registry.presences(), []);
+  } finally {
+    finish.resolve();
+    await switching?.catch(() => {});
+  }
 });
 
 for (const size of [1, 8])
-  await test(
+  test(
     'discovery probe counts stay bounded with ' + size + ' owner groups',
     async (t) => {
-      t.mock.timers.enable({ apis: ['setInterval'] });
-      const { root, start, store, registry } = await coordinationFixture(t);
-      t.after(() => t.mock.timers.reset());
+      const cleanup = orderedCleanup(t.onTestFinished);
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      const { root, start, store, registry } =
+        await coordinationFixture(cleanup);
+      cleanup(() => {
+        vi.useRealTimers();
+      });
       const a = await start();
       const own = (await registry.presences())[0]!;
       const claims: TaskClaim[] = [],
@@ -931,7 +951,7 @@ for (const size of [1, 8])
       for (let index = 0; index < size; index++) {
         const child = spawn('/bin/sleep', ['60']);
         const ended = once(child, 'close');
-        t.after(async () => {
+        cleanup(async () => {
           child.kill();
           await ended;
         });
@@ -940,11 +960,11 @@ for (const size of [1, 8])
         for (const duplicate of [false, true]) {
           const id = 'peer-' + index + '-' + duplicate;
           const held = await store.create(record(id, join(root, 'B')));
-          t.after(() => held.close());
+          cleanup(() => held.close());
           expectedOpenStatePaths.add(join(held.directory, 'state.json'));
           const activation = randomUUID();
           const release = await registry.holdActivation(activation);
-          t.after(release);
+          cleanup(release);
           await registry.publish({
             ...own,
             id,
@@ -972,7 +992,7 @@ for (const size of [1, 8])
         }
         const id = 'legacy-' + index;
         const held = await store.create(record(id, join(root, 'B')));
-        t.after(() => held.close());
+        cleanup(() => held.close());
         expectedOpenStatePaths.add(join(held.directory, 'state.json'));
         const legacy = {
           id: randomUUID(),
@@ -1000,9 +1020,7 @@ for (const size of [1, 8])
       );
       const readStatePaths: string[] = [];
       const read = files.readFile;
-      t.mock.method(
-        files,
-        'readFile',
+      vi.spyOn(files, 'readFile').mockImplementation(
         (...args: Parameters<typeof files.readFile>) => {
           if (
             typeof args[0] === 'string' &&
@@ -1016,7 +1034,7 @@ for (const size of [1, 8])
       syncBuiltinESMExports();
       const probes = await countProbes(() => a.coordination.context()).finally(
         () => {
-          t.mock.restoreAll();
+          vi.restoreAllMocks();
           syncBuiltinESMExports();
         },
       );
@@ -1048,7 +1066,7 @@ for (const size of [1, 8])
 for (const damage of ['JSON', 'EACCES'])
   for (const locked of [false, true])
     for (const action of ['claim', 'select-next', 'recommend'])
-      await test(
+      test(
         action +
           ' with ' +
           (locked ? 'open' : 'closed') +
@@ -1056,26 +1074,27 @@ for (const damage of ['JSON', 'EACCES'])
           damage +
           ' record',
         async (t) => {
+          const cleanup = orderedCleanup(t.onTestFinished);
           const { start, store, root, ledger, registry } =
-            await coordinationFixture(t);
+            await coordinationFixture(cleanup);
           const a = await start();
           await files.writeFile(
             join(store.root, 'coordination', 'claims.json'),
             JSON.stringify({ version: 2, claims: [], selections: [] }),
           );
           const choosing =
-            action === 'claim' ? undefined : await selectionTurn(t, a);
+            action === 'claim' ? undefined : await selectionTurn(cleanup, a);
           const selection =
             action === 'recommend' ? await choosing!.select() : undefined;
           const id = randomUUID();
           const held = await store.create(record(id, join(root, 'B')));
-          t.after(() => held.close());
+          cleanup(() => held.close());
           if (!locked) await held.close();
           const path = join(held.directory, 'state.json');
           if (damage === 'JSON') await files.writeFile(path, '{broken');
           else {
             await files.chmod(path, 0);
-            t.after(() => files.chmod(path, 0o600));
+            cleanup(() => files.chmod(path, 0o600));
           }
           await files.writeFile(
             join(store.root, 'conversations', '.DS_Store'),

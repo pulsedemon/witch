@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import { placeholder } from '../src/ui/images.js';
 import { hyperlink } from '../src/ui/links.js';
@@ -8,14 +8,14 @@ import { highlight, selectedText } from '../src/ui/selection.js';
 const red = (text: string) => `\u001b[31m${text}\u001b[39m`;
 const inverse = (text: string) => `\u001b[7m${text}\u001b[27m`;
 
-await test('a highlight inverts the selected cells as plain text, keeps the styles around it and counts wide characters as two', () => {
+test('a highlight inverts the selected cells as plain text, keeps the styles around it and counts wide characters as two', () => {
   assert.equal(
     highlight(`${red('ab')}日本${red('x')}`, 1, 4),
     `${red('a')}${inverse('b日')}本${red('x')}`,
   );
 });
 
-await test('a selection from the right half of a wide character takes the whole character', () => {
+test('a selection from the right half of a wide character takes the whole character', () => {
   assert.equal(highlight('日本x', 1, 3), `${inverse('日本')}x`);
   assert.equal(
     selectedText(
@@ -28,7 +28,7 @@ await test('a selection from the right half of a wide character takes the whole 
   );
 });
 
-await test('a highlight and a copy give no cell to a character Ink drops, such as a soft hyphen or a carriage return', () => {
+test('a highlight and a copy give no cell to a character Ink drops, such as a soft hyphen or a carriage return', () => {
   assert.equal(highlight('a\u00adb', 1, 2), `a${inverse('b')}`);
   assert.equal(
     selectedText(
@@ -41,7 +41,7 @@ await test('a highlight and a copy give no cell to a character Ink drops, such a
   );
 });
 
-await test('a highlight keeps the links of the cells it covers', () => {
+test('a highlight keeps the links of the cells it covers', () => {
   const link = (text: string) =>
     `\u001b]8;;https://example.com/docs\u0007${text}\u001b]8;;\u0007`;
   assert.equal(
@@ -50,7 +50,7 @@ await test('a highlight keeps the links of the cells it covers', () => {
   );
 });
 
-await test('a highlighted link keeps its underline, as the terminal draws a selected link', () => {
+test('a highlighted link keeps its underline, as the terminal draws a selected link', () => {
   const line = `see ${hyperlink('docs', 'https://example.com/docs', '/')} here`;
   const cells = styledCharsFromTokens(tokenize(highlight(line, 2, 7)));
   for (const index of [4, 5, 6]) {
@@ -64,17 +64,17 @@ await test('a highlighted link keeps its underline, as the terminal draws a sele
   }
 });
 
-await test('a highlight past the text covers the empty cells it reaches', () => {
+test('a highlight past the text covers the empty cells it reaches', () => {
   assert.equal(highlight('ab', 1, 4), `a${inverse('b  ')}`);
   assert.equal(highlight('ab', 3, 5), `ab ${inverse('  ')}`);
 });
 
-await test("an image row keeps its placeholders' colors", () => {
+test("an image row keeps its placeholders' colors", () => {
   const row = `\u001b[38;5;1m${placeholder.repeat(3)}\u001b[39m`;
   assert.equal(highlight(row, 0, 3), row);
 });
 
-await test('selected text joins wrapped rows, breaks between lines, drops trailing spaces and images, and ends at the last cell included', () => {
+test('selected text joins wrapped rows, breaks between lines, drops trailing spaces and images, and ends at the last cell included', () => {
   const lines = [
     'You',
     `Reply ${red('with')} only `,
@@ -94,7 +94,7 @@ await test('selected text joins wrapped rows, breaks between lines, drops traili
   );
 });
 
-await test('selected text drops trailing spaces in time linear in a long run of spaces before text', () => {
+test('selected text drops trailing spaces in time linear in a long run of spaces before text', () => {
   const started = performance.now();
   assert.equal(
     selectedText(
@@ -109,7 +109,7 @@ await test('selected text drops trailing spaces in time linear in a long run of 
   assert.ok(performance.now() - started < 500);
 });
 
-await test('selection keeps complete emoji clusters containing variation selectors and joiners', () => {
+test('selection keeps complete emoji clusters containing variation selectors and joiners', () => {
   for (const cluster of ['⚠️', '👩‍💻']) {
     const text = `a${cluster}b`;
     assert.equal(highlight(text, 1, 3), `a${inverse(cluster)}b`);
@@ -125,7 +125,7 @@ await test('selection keeps complete emoji clusters containing variation selecto
   }
 });
 
-await test('a selection starting on image rows joins only after its first copied row', () => {
+test('a selection starting on image rows joins only after its first copied row', () => {
   const calls: number[] = [];
   const lines = [placeholder, placeholder, 'alpha', 'beta'];
   assert.equal(

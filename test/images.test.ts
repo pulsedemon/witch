@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { truncate, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { Graphics, imagePaths } from '../src/ui/images.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
@@ -23,7 +23,7 @@ const payload = (writes: string[]) =>
     .map((write) => write.slice(write.indexOf(';') + 1, -2))
     .join('');
 
-await test('a dropped path keeps its escaped spaces and unescaped U+202F, a quoted path keeps its spaces, and other files are not images', () => {
+test('a dropped path keeps its escaped spaces and unescaped U+202F, a quoted path keeps its spaces, and other files are not images', () => {
   assert.deepEqual(
     imagePaths(
       'see /tmp/Screenshot\\ 2026-10-14\\ at\\ 8.56.35 AM.png and "/tmp/a b.JPG" or notes.md',
@@ -32,7 +32,7 @@ await test('a dropped path keeps its escaped spaces and unescaped U+202F, a quot
   );
 });
 
-await test('an image is sent once as its PNG data, shown by rows whose color names it and whose first cell names its row, and placed again without resending when the width changes', async () => {
+test('an image is sent once as its PNG data, shown by rows whose color names it and whose first cell names its row, and placed again without resending when the width changes', async () => {
   const directory = await scratch('witch-images-');
   const image = png(160, 80);
   await writeFile(join(directory, 'shot.png'), image);
@@ -60,20 +60,18 @@ await test('an image is sent once as its PNG data, shown by rows whose color nam
   assert.deepEqual(writes, ['\u001b_Ga=p,U=1,i=1,p=1,c=10,r=3,q=2\u001b\\']);
 });
 
-await test('a GIF is sent converted to PNG, an unreadable path shows and sends nothing, and release frees each image sent', (t) => {
+test('a GIF is sent converted to PNG, an unreadable path shows and sends nothing, and release frees each image sent', (t) => {
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
   const gif =
     'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   let converted: string | undefined;
   const execute = childProcess.execFileSync;
-  t.after(() => {
-    t.mock.restoreAll();
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
   });
-  t.mock.method(
-    childProcess,
-    'execFileSync',
+  vi.spyOn(childProcess, 'execFileSync').mockImplementation(
     (...call: Parameters<typeof execute>) => {
       const [file, args] = call;
       assert.equal(file, '/usr/bin/sips');
@@ -116,16 +114,14 @@ await test('a GIF is sent converted to PNG, an unreadable path shows and sends n
   assert.deepEqual(writes, ['\u001b_Ga=d,d=I,i=1,q=2\u001b\\']);
 });
 
-await test('a failed image conversion sends nothing and removes its temporary files', (t) => {
+test('a failed image conversion sends nothing and removes its temporary files', (t) => {
   let converted: string | undefined;
   const execute = childProcess.execFileSync;
-  t.after(() => {
-    t.mock.restoreAll();
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
   });
-  t.mock.method(
-    childProcess,
-    'execFileSync',
+  vi.spyOn(childProcess, 'execFileSync').mockImplementation(
     (...call: Parameters<typeof execute>) => {
       const [file, args] = call;
       assert.equal(file, '/usr/bin/sips');
@@ -147,7 +143,7 @@ await test('a failed image conversion sends nothing and removes its temporary fi
   assert.equal(existsSync(converted), false);
 });
 
-await test('a FIFO or a file over 64 MiB named like an image shows and reads nothing, so it cannot stall a render', async () => {
+test('a FIFO or a file over 64 MiB named like an image shows and reads nothing, so it cannot stall a render', async () => {
   const directory = await scratch('witch-images-');
   const source = join(directory, 'source.png');
   await writeFile(source, png(16, 16));
@@ -169,7 +165,7 @@ await test('a FIFO or a file over 64 MiB named like an image shows and reads not
   }
 });
 
-await test('a path that failed to load is tried again, so an image written after a message names it still shows', async () => {
+test('a path that failed to load is tried again, so an image written after a message names it still shows', async () => {
   const directory = await scratch('witch-images-');
   const graphics = new Graphics(() => {});
   assert.deepEqual(graphics.rows('shot.png', directory, 80), []);

@@ -28,7 +28,9 @@ for (const name of ['claude', 'codex'] as const) {
       ? 'Claude exit stops native activity and permits task release'
       : 'Codex exit after its reply stops its familiar and permits task release',
     async (t) => {
-      const { root, start, registry } = await coordinationFixture(t);
+      const { root, start, registry } = await coordinationFixture(
+        t.after.bind(t),
+      );
       const cwd = join(root, 'A');
       const executable = fileURLToPath(
         new URL(`fixtures/${name}.mjs`, import.meta.url),
@@ -164,7 +166,7 @@ for (const name of ['claude', 'codex'] as const) {
 }
 
 await test('native closure preserves finished work and ends running activity once', async (t) => {
-  const { start } = await coordinationFixture(t);
+  const { start } = await coordinationFixture(t.after.bind(t));
   const { coordinator, a } = await start();
   const native = a.sessions[0]!;
   for (const [id, status, tools, report] of [
@@ -216,7 +218,7 @@ await test('native closure preserves finished work and ends running activity onc
 });
 
 await test('coordination context stays before the exact user request and raw steered spells', async (t) => {
-  const { root, start } = await coordinationFixture(t);
+  const { root, start } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     b = await start('B');
   await b.claim('task:peer', 'Distinct peer task');
@@ -249,7 +251,7 @@ await test('coordination context stays before the exact user request and raw ste
 
 for (const name of ['claude', 'codex'] as const) {
   await test(`${name} receives the native spell contract with fresh coordination context`, async (t) => {
-    const { root, start } = await coordinationFixture(t);
+    const { root, start } = await coordinationFixture(t.after.bind(t));
     const script = fileURLToPath(
       new URL(`fixtures/${name}.mjs`, import.meta.url),
     );
@@ -313,7 +315,9 @@ for (const name of ['claude', 'codex'] as const) {
 }
 
 await test('switch revokes old authority before native close and releases the departed claim', async (t) => {
-  const { start, ledger, registry } = await coordinationFixture(t);
+  const { start, ledger, registry } = await coordinationFixture(
+    t.after.bind(t),
+  );
   const a = await start(),
     b = await start('B');
   await a.claim();
@@ -359,8 +363,9 @@ await test('switch revokes old authority before native close and releases the de
 
 for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
   await test(`${replacement} replaces native authority without releasing the conversation's task`, async (t) => {
-    const { root, start, registry, ledger, store } =
-      await coordinationFixture(t);
+    const { root, start, registry, ledger, store } = await coordinationFixture(
+      t.after.bind(t),
+    );
     const a = await start();
     const peer = replacement === 'rollback' ? await start('B') : undefined;
     await a.claim();
@@ -436,7 +441,7 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
 }
 
 await test('an interrupted handoff summary restores registration before source resume', async (t) => {
-  const { start, store } = await coordinationFixture(t);
+  const { start, store } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     peer = await start('B');
   await a.coordinator.send('Seed source history');
@@ -468,7 +473,7 @@ await test('an interrupted handoff summary restores registration before source r
     assert.equal(a.a.sessions.length, 1);
     assert.equal(a.a.inputs.length, inputs);
     assert.deepEqual(a.b.inputs, []);
-    const choosing = await selectionTurn(t, peer);
+    const choosing = await selectionTurn(t.after.bind(t), peer);
     assert.equal((await choosing.select()).position, 1);
     await choosing.finish();
     assert.equal((await peer.claim('task:independent')).kind, 'claimed');
@@ -484,7 +489,7 @@ await test('an interrupted handoff summary restores registration before source r
 });
 
 await test('closing during a handoff summary does not restore registration', async (t) => {
-  const { start, store, registry } = await coordinationFixture(t);
+  const { start, store, registry } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     peer = await start('B');
   await a.coordinator.send('Seed source history');
@@ -526,7 +531,7 @@ await test('closing during a handoff summary does not restore registration', asy
 });
 
 await test('reopening starts without a claim and old authority cannot release newly claimed work', async (t) => {
-  const { start } = await coordinationFixture(t);
+  const { start } = await coordinationFixture(t.after.bind(t));
   const a = await start();
   await a.claim();
   const before = (await a.query()).ownClaim!,
@@ -548,7 +553,7 @@ await test('reopening starts without a claim and old authority cannot release ne
 });
 
 await test('target lock and preparation failures keep source authority and free a prepared target lock', async (t) => {
-  const { root, start, store } = await coordinationFixture(t);
+  const { root, start, store } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     bound = await a.binding();
   const target = await store.create(record(randomUUID(), join(root, 'A')));
@@ -586,7 +591,9 @@ await test('target lock and preparation failures keep source authority and free 
 for (const boundary of ['write', 'remove'] as const) {
   for (const preparation of ['ordinary', 'delayed'] as const) {
     await test(`a failed source presence ${boundary} still revokes authority and adopts the prepared target (${preparation} preparation)`, async (t) => {
-      const { start, store, registry } = await coordinationFixture(t);
+      const { start, store, registry } = await coordinationFixture(
+        t.after.bind(t),
+      );
       const a = await start(),
         bound = await a.binding();
       const entered = Promise.withResolvers<void>(),
@@ -681,7 +688,7 @@ for (const boundary of ['write', 'remove'] as const) {
 }
 
 await test('failed target activation holds its selected lock without starting native work and retries with fresh authority', async (t) => {
-  const { start, store, registry } = await coordinationFixture(t);
+  const { start, store, registry } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     bound = await a.binding();
   await a.claim();
@@ -739,7 +746,7 @@ await test('failed target activation holds its selected lock without starting na
 });
 
 await test('compaction publishes a running presence and refuses a held native turn', async (t) => {
-  const { start } = await coordinationFixture(t);
+  const { start } = await coordinationFixture(t.after.bind(t));
   const a = await start(),
     b = await start('B');
   await a.coordinator.send('seed');

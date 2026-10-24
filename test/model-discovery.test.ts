@@ -4,15 +4,20 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
-async function discovery(t: TestContext, agent: string, first = 'catalog') {
+async function discovery(
+  register: RegisterCleanup,
+  agent: string,
+  first = 'catalog',
+) {
   const cwd = await scratch('witch-discovery-');
   const children: { child: ChildProcessWithoutNullStreams; closed: boolean }[] =
     [];
@@ -31,7 +36,7 @@ async function discovery(t: TestContext, agent: string, first = 'catalog') {
       entry.closed = true;
     });
     children.push(entry);
-    t.after(async () => {
+    register(async () => {
       if (entry.closed) return;
       const closing = new Promise<void>((resolve) =>
         child.once('close', () => resolve()),
@@ -68,8 +73,9 @@ async function discovery(t: TestContext, agent: string, first = 'catalog') {
   };
 }
 
-await test('standalone Codex catalogs include every page without opening a thread', async (t) => {
-  const probe = await discovery(t, 'codex');
+test('standalone Codex catalogs include every page without opening a thread', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const probe = await discovery(cleanup, 'codex');
   assert.deepEqual(await probe.read(), [
     { id: 'model-a', label: 'A', efforts: ['low'] },
     { id: 'model-b', label: 'B', efforts: ['high'] },
@@ -81,8 +87,9 @@ await test('standalone Codex catalogs include every page without opening a threa
   assert.equal(probe.children[0]!.closed, true);
 });
 
-await test('standalone Claude catalogs preserve settings without prompts or history', async (t) => {
-  const probe = await discovery(t, 'claude');
+test('standalone Claude catalogs preserve settings without prompts or history', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const probe = await discovery(cleanup, 'claude');
   assert.deepEqual(await probe.read(), [
     { id: 'claude-a', label: 'Claude fixture', efforts: ['low', 'high'] },
   ]);
@@ -103,8 +110,9 @@ await test('standalone Claude catalogs preserve settings without prompts or hist
 });
 
 for (const agent of ['claude', 'codex']) {
-  await test(`${agent} discovery joins initialization failure cleanup and can retry`, async (t) => {
-    const probe = await discovery(t, agent, 'exit-on-init');
+  test(`${agent} discovery joins initialization failure cleanup and can retry`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const probe = await discovery(cleanup, agent, 'exit-on-init');
     await assert.rejects(
       within(probe.read(), 3000, 'discovery failure'),
       /init exit text/,
@@ -114,8 +122,9 @@ for (const agent of ['claude', 'codex']) {
     assert.equal(probe.children[1]!.closed, true);
   });
   for (const alreadyAborted of [false, true]) {
-    await test(`${agent} discovery joins ${alreadyAborted ? 'pre-aborted' : 'pending'} cancellation`, async (t) => {
-      const probe = await discovery(t, agent, 'hang-on-init');
+    test(`${agent} discovery joins ${alreadyAborted ? 'pre-aborted' : 'pending'} cancellation`, async (t) => {
+      const cleanup = orderedCleanup(t.onTestFinished);
+      const probe = await discovery(cleanup, agent, 'hang-on-init');
       const abort = new AbortController();
       if (alreadyAborted) abort.abort();
       const pending = probe.read(abort.signal);

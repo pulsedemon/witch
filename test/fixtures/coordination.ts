@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
-import type { TestContext } from 'node:test';
+import type { vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { controlPrefix } from '../../src/cli-control.js';
@@ -19,22 +19,21 @@ import { openLocked } from '../../src/persistence/lock.js';
 import { StateStore } from '../../src/persistence/store.js';
 import { FixtureAgent } from './agent.js';
 import { scratch } from './scratch.js';
+import type { RegisterCleanup } from './cleanup.js';
 
 const execute = promisify(execFile);
 export const git = (...args: string[]) => execute('git', args);
 const entry = fileURLToPath(new URL('../../src/cli.tsx', import.meta.url));
 
 /** keeps mailbox polling live while tests control periodic session discovery. */
-export function pauseDiscovery(t: TestContext) {
+export function pauseDiscovery(spyOn: typeof vi.spyOn) {
   const refreshes: (() => void)[] = [];
   const interval = globalThis.setInterval;
-  t.mock.method(
-    globalThis,
-    'setInterval',
-    (
-      run: (...args: unknown[]) => void,
+  spyOn(globalThis, 'setInterval').mockImplementation(
+    <Args extends unknown[]>(
+      run: (...args: Args) => void,
       milliseconds?: number,
-      ...args: unknown[]
+      ...args: Args
     ) => {
       if (milliseconds !== 2000) return interval(run, milliseconds, ...args);
       refreshes.push(() => run(...args));
@@ -44,22 +43,22 @@ export function pauseDiscovery(t: TestContext) {
   return refreshes;
 }
 
-export async function measureControl<T>(t: TestContext, run: () => Promise<T>) {
+export async function measureControl<T>(
+  spyOn: typeof vi.spyOn,
+  run: () => Promise<T>,
+) {
   let discoveries = 0;
   let reads = 0;
   const open = StateStore.prototype.openConversations;
-  const opening = t.mock.method(
+  const opening = spyOn(
     StateStore.prototype,
     'openConversations',
-    function (this: StateStore, ids?: readonly string[]) {
-      if (ids === undefined) discoveries++;
-      return open.call(this, ids);
-    },
-  );
+  ).mockImplementation(function (this: StateStore, ids?: readonly string[]) {
+    if (ids === undefined) discoveries++;
+    return open.call(this, ids);
+  });
   const read = files.readFile;
-  const reading = t.mock.method(
-    files,
-    'readFile',
+  const reading = spyOn(files, 'readFile').mockImplementation(
     async (...args: Parameters<typeof read>) => {
       if (String(args[0]).endsWith('/coordination/claims.json')) reads++;
       return read(...args);
@@ -69,8 +68,8 @@ export async function measureControl<T>(t: TestContext, run: () => Promise<T>) {
   try {
     return { value: await run(), discoveries, reads };
   } finally {
-    opening.mock.restore();
-    reading.mock.restore();
+    opening.mockRestore();
+    reading.mockRestore();
     syncBuiltinESMExports();
   }
 }
@@ -84,7 +83,7 @@ export function legacyLock(store: StateStore, id: string): Promise<FileHandle> {
 }
 
 export async function coordinationFixture(
-  t: TestContext,
+  register: RegisterCleanup,
   assign: Parameters<typeof SessionCoordination.open>[4] = async () => {},
 ) {
   const root = await scratch('witch-coordination-');
@@ -100,7 +99,7 @@ export async function coordinationFixture(
   const memory = new Memory(join(store.root, 'memory.git'));
   const registry = await CoordinationStore.open(store.root);
   const clients: Coordinator[] = [];
-  t.after(async () => {
+  register(async () => {
     for (const coordinator of clients) await coordinator.close();
   });
   const start = async (

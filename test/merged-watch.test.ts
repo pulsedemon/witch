@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test, vi } from 'vitest';
 import type { Snapshot } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const status = (
@@ -33,7 +33,7 @@ const pr = (
   base: 'main',
 });
 
-function fixture(t: TestContext) {
+function fixture(register: RegisterCleanup) {
   const listeners = {
     repository: new Set<() => void>(),
     coordinator: new Set<() => void>(),
@@ -81,13 +81,15 @@ function fixture(t: TestContext) {
     await tick();
   };
   const stop = watchMerges(repository, coordinator, '/install');
-  t.after(stop);
+  register(stop);
   return { calls, publishRepository, publish, settle, stop };
 }
 
-await test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const { calls, publishRepository, publish, settle, stop } = fixture(t);
+test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { calls, publishRepository, publish, settle, stop } = fixture(
+    t.onTestFinished,
+  );
   await publishRepository(status(pr('OPEN', 'c1')));
   assert.equal(calls.length, 0, 'an open pull request');
   await publishRepository(status(pr('MERGED', 'c1'), { modified: 1 }));
@@ -98,7 +100,7 @@ await test('the watch cleans up after each merged commit once, only on its branc
   await publish();
   assert.equal(calls.length, 1, 'publishes while the cleanup runs');
   await settle(true);
-  t.mock.timers.tick(10_000);
+  vi.advanceTimersByTime(10_000);
   await publishRepository();
   await publish();
   assert.equal(calls.length, 1, 'publishes after it acted');
@@ -117,7 +119,7 @@ await test('the watch cleans up after each merged commit once, only on its branc
   await publishRepository();
   assert.equal(calls.length, 3, 'the next status publish');
   await settle(new Error('failed'));
-  t.mock.timers.tick(10_000);
+  vi.advanceTimersByTime(10_000);
   await publishRepository();
   assert.equal(calls.length, 3, 'a status publish after a failure');
   await publishRepository(status(pr('MERGED', 'c3', 'feat/y')));
@@ -128,37 +130,41 @@ await test('the watch cleans up after each merged commit once, only on its branc
   assert.equal(calls.length, 3, 'after the stop');
 });
 
-await test('deferred cleanups retry without repository updates and settle after acting', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const { calls, publishRepository, publish, settle } = fixture(t);
+test('deferred cleanups retry without repository updates and settle after acting', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { calls, publishRepository, publish, settle } = fixture(
+    t.onTestFinished,
+  );
   await publishRepository(status(pr('MERGED', 'c1')));
   for (const expected of [2, 3]) {
     await settle(false);
     await publish();
-    t.mock.timers.tick(4999);
+    vi.advanceTimersByTime(4999);
     await tick();
     assert.equal(calls.length, expected - 1);
-    t.mock.timers.tick(1);
+    vi.advanceTimersByTime(1);
     await tick();
     assert.equal(calls.length, expected);
     assert.deepEqual(calls.at(-1), [pr('MERGED', 'c1'), '/install']);
-    t.mock.timers.tick(10_000);
+    vi.advanceTimersByTime(10_000);
     await tick();
     assert.equal(calls.length, expected, 'a cleanup still running');
   }
   await settle(true);
-  t.mock.timers.tick(10_000);
+  vi.advanceTimersByTime(10_000);
   await publish();
   assert.equal(calls.length, 3);
 });
 
-await test('an expired retry waits for the local turn and queue to finish', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const { calls, publishRepository, publish, settle } = fixture(t);
+test('an expired retry waits for the local turn and queue to finish', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { calls, publishRepository, publish, settle } = fixture(
+    t.onTestFinished,
+  );
   await publishRepository(status(pr('MERGED', 'c1')));
   await settle(false);
   await publish({ phase: 'running' });
-  t.mock.timers.tick(5000);
+  vi.advanceTimersByTime(5000);
   await tick();
   assert.equal(calls.length, 1);
   await publish({ phase: 'idle', queue: ['queued'] });
@@ -168,33 +174,35 @@ await test('an expired retry waits for the local turn and queue to finish', asyn
   await settle(true);
 });
 
-await test('a repository update replaces the pending retry', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const { calls, publishRepository, settle } = fixture(t);
+test('a repository update replaces the pending retry', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { calls, publishRepository, settle } = fixture(t.onTestFinished);
   await publishRepository(status(pr('MERGED', 'c1')));
   await settle(false);
-  t.mock.timers.tick(1000);
+  vi.advanceTimersByTime(1000);
   await publishRepository();
   assert.equal(calls.length, 2);
   await settle(false);
-  t.mock.timers.tick(4000);
+  vi.advanceTimersByTime(4000);
   await tick();
   assert.equal(calls.length, 2);
-  t.mock.timers.tick(1000);
+  vi.advanceTimersByTime(1000);
   await tick();
   assert.equal(calls.length, 3);
   await settle(true);
 });
 
 for (const pending of ['retry', 'cleanup'] as const)
-  await test(`stopping the watch with a pending ${pending} prevents later cleanup`, async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const { calls, publishRepository, publish, settle, stop } = fixture(t);
+  test(`stopping the watch with a pending ${pending} prevents later cleanup`, async (t) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { calls, publishRepository, publish, settle, stop } = fixture(
+      t.onTestFinished,
+    );
     await publishRepository(status(pr('MERGED', 'c1')));
     if (pending === 'retry') await settle(false);
     stop();
     if (pending === 'cleanup') await settle(false);
-    t.mock.timers.tick(10_000);
+    vi.advanceTimersByTime(10_000);
     await tick();
     await publishRepository();
     await publish();

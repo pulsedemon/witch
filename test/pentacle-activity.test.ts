@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { PentacleActivity } from '../src/core/pentacle-activity.js';
 
-await test('pentacle activity belongs to its sources and publishes only aggregate changes', () => {
+test('pentacle activity belongs to its sources and publishes only aggregate changes', () => {
   const activity = new PentacleActivity();
   const other = new PentacleActivity();
   const a = Symbol('work');

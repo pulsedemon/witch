@@ -4,8 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test, vi } from 'vitest';
 import type {
   SelectionScope,
   SelectionState,
@@ -20,6 +19,8 @@ import { StateStore } from '../src/persistence/store.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const verify = async () => {};
 const deadline = () => Date.now() + 5000;
@@ -28,7 +29,7 @@ const input = (number: number) => ({
   summary: `Issue ${number}`,
 });
 
-async function fixture(t: TestContext) {
+async function fixture(register: RegisterCleanup) {
   const root = await scratch('witch-selection-');
   const store = await CoordinationStore.open(root);
   const identity = (await identifyProcess(process.pid))!;
@@ -39,7 +40,7 @@ async function fixture(t: TestContext) {
       turn: randomUUID(),
     };
     const release = await store.holdActivation(value.activation);
-    t.after(release);
+    register(release);
     return value;
   };
   return {
@@ -57,7 +58,7 @@ async function fixture(t: TestContext) {
   };
 }
 
-function contender(t: TestContext, root: string, name: string) {
+function contender(register: RegisterCleanup, root: string, name: string) {
   const child = fork(
     new URL('fixtures/task-selector.mts', import.meta.url),
     [root, name],
@@ -69,7 +70,7 @@ function contender(t: TestContext, root: string, name: string) {
     },
   );
   const exited = once(child, 'exit');
-  t.after(async () => {
+  register(async () => {
     if (child.exitCode === null && child.signalCode === null)
       child.kill('SIGKILL');
     await exited;
@@ -96,11 +97,12 @@ function contender(t: TestContext, root: string, name: string) {
   };
 }
 
-await test('three processes advance in enqueue order and reserve distinct tasks', async (t) => {
-  const f = await fixture(t);
-  const a = contender(t, f.root, 'A');
-  const b = contender(t, f.root, 'B');
-  const c = contender(t, f.root, 'C');
+test('three processes advance in enqueue order and reserve distinct tasks', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
+  const a = contender(cleanup, f.root, 'A');
+  const b = contender(cleanup, f.root, 'B');
+  const c = contender(cleanup, f.root, 'C');
   await Promise.all([a.ready, b.ready, c.ready]);
   const states = [
     await a.call('begin'),
@@ -144,10 +146,11 @@ await test('three processes advance in enqueue order and reserve distinct tasks'
   assert.deepEqual(state.selections, []);
 });
 
-await test('a dead head advances the next process while other live claims remain', async (t) => {
-  const f = await fixture(t);
-  const a = contender(t, f.root, 'A');
-  const b = contender(t, f.root, 'B');
+test('a dead head advances the next process while other live claims remain', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
+  const a = contender(cleanup, f.root, 'A');
+  const b = contender(cleanup, f.root, 'B');
   await Promise.all([a.ready, b.ready]);
   await a.call('begin');
   assert.equal(((await b.call('begin')) as SelectionState).position, 2);
@@ -163,10 +166,11 @@ await test('a dead head advances the next process while other live claims remain
   assert.deepEqual(await f.store.claims(), [active]);
 });
 
-await test('a crashed active owner releases its task while another process keeps its claim', async (t) => {
-  const f = await fixture(t);
-  const a = contender(t, f.root, 'A'),
-    b = contender(t, f.root, 'B');
+test('a crashed active owner releases its task while another process keeps its claim', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
+  const a = contender(cleanup, f.root, 'A'),
+    b = contender(cleanup, f.root, 'B');
   await Promise.all([a.ready, b.ready]);
   await a.call('claim', 90);
   const live = await b.call('claim', 91);
@@ -181,8 +185,9 @@ await test('a crashed active owner releases its task while another process keeps
   );
 });
 
-await test('non-head and alias-conflicting recommendations preserve every byte and ticket', async (t) => {
-  const f = await fixture(t);
+test('non-head and alias-conflicting recommendations preserve every byte and ticket', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.scope('A'),
     b = await f.scope('B');
   const first = await f.begin(a),
@@ -214,8 +219,9 @@ await test('non-head and alias-conflicting recommendations preserve every byte a
   );
 });
 
-await test('separate projects choose independently and recommendation retries cannot revise ownership', async (t) => {
-  const f = await fixture(t);
+test('separate projects choose independently and recommendation retries cannot revise ownership', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.scope('A'),
     b = await f.scope('B', 'project-q');
   await f.begin(a);
@@ -240,8 +246,9 @@ await test('separate projects choose independently and recommendation retries ca
   assert.equal(await readFile(f.file, 'utf8'), before);
 });
 
-await test('owner, activation and turn fence status, recommendation and cancellation', async (t) => {
-  const f = await fixture(t);
+test('owner, activation and turn fence status, recommendation and cancellation', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.scope('A');
   const first = await f.begin(a);
   const before = await readFile(f.file, 'utf8');
@@ -280,8 +287,9 @@ await test('owner, activation and turn fence status, recommendation and cancella
   );
 });
 
-await test('promotion keeps identity and aliases while different work replaces a suggestion', async (t) => {
-  const f = await fixture(t);
+test('promotion keeps identity and aliases while different work replaces a suggestion', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.scope('A');
   const first = await f.begin(a);
   const suggestion = await f.store.recommend(
@@ -310,8 +318,9 @@ await test('promotion keeps identity and aliases while different work replaces a
   assert.equal(replacement.suggestion, undefined);
 });
 
-await test('failed replacement preserves a suggestion and reselect releases it at the tail', async (t) => {
-  const f = await fixture(t);
+test('failed replacement preserves a suggestion and reselect releases it at the tail', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.scope('A'),
     b = await f.scope('B');
   const first = await f.begin(a);
@@ -337,8 +346,9 @@ await test('failed replacement preserves a suggestion and reselect releases it a
   );
 });
 
-await test('only a successful direct claim removes its selection', async (t) => {
-  const f = await fixture(t);
+test('only a successful direct claim removes its selection', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.scope('A'),
     b = await f.scope('B');
   const first = await f.begin(a);
@@ -351,15 +361,16 @@ await test('only a successful direct claim removes its selection', async (t) => 
 });
 
 for (const active of [false, true])
-  await test(`a ${active ? 'claim' : 'suggestion'} survives activation loss but not a different process incarnation`, async (t) => {
-    const f = await fixture(t);
+  test(`a ${active ? 'claim' : 'suggestion'} survives activation loss but not a different process incarnation`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const f = await fixture(cleanup);
     const a = {
       owner: { conversation: 'A', project: 'project-p' },
       activation: randomUUID(),
       turn: randomUUID(),
     };
     const release = await f.store.holdActivation(a.activation);
-    t.after(release);
+    cleanup(release);
     const first = await f.begin(a);
     const reserved = await f.recommend(a, first.ticket.id, 17);
     const suggestion = active ? await f.claim(a, 17) : reserved;
@@ -392,8 +403,9 @@ for (const active of [false, true])
     );
   });
 
-await test('deadline and unknown activation failures preserve the ledger', async (t) => {
-  const f = await fixture(t);
+test('deadline and unknown activation failures preserve the ledger', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const a = await f.scope('A');
   const first = await f.begin(a);
   const before = await readFile(f.file, 'utf8');
@@ -406,12 +418,12 @@ await test('deadline and unknown activation failures preserve the ledger', async
       f.identity,
       expires,
       async () => {
-        t.mock.method(Date, 'now', () => expires);
+        vi.spyOn(Date, 'now').mockImplementation(() => expires);
       },
     ),
     /expired/,
   );
-  t.mock.restoreAll();
+  vi.restoreAllMocks();
   assert.equal(await readFile(f.file, 'utf8'), before);
   const lock = join(f.root, 'coordination', 'sessions', `${a.activation}.lock`);
   await chmod(lock, 0o000);
@@ -424,11 +436,12 @@ await test('deadline and unknown activation failures preserve the ledger', async
   }
 });
 
-await test('version one migrates only on a change and unsupported ledgers stay untouched', async (t) => {
-  const f = await fixture(t);
+test('version one migrates only on a change and unsupported ledgers stay untouched', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
   const conversations = await StateStore.open(f.root);
   const opened = await conversations.create(record('old', f.root));
-  t.after(() => opened.close());
+  cleanup(() => opened.close());
   const old = {
     id: randomUUID(),
     owner: { conversation: 'old', project: 'project-p' },

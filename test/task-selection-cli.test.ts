@@ -3,8 +3,7 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -14,9 +13,16 @@ import type { ControlOutcome } from '../src/persistence/control.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const execute = promisify(execFile);
-function invoke(t: TestContext, prefix: string, cwd: string, args: string) {
+function invoke(
+  register: RegisterCleanup,
+  prefix: string,
+  cwd: string,
+  args: string,
+) {
   const operation = execute('/bin/zsh', ['-c', `${prefix} ${args} --json`], {
     cwd,
     timeout: 30000,
@@ -25,7 +31,7 @@ function invoke(t: TestContext, prefix: string, cwd: string, args: string) {
   const ended = new Promise<void>((resolve) =>
     child.once('exit', () => resolve()),
   );
-  t.after(async () => {
+  register(async () => {
     if (child.exitCode === null && child.signalCode === null)
       child.kill('SIGKILL');
     await ended;
@@ -56,19 +62,20 @@ function invoke(t: TestContext, prefix: string, cwd: string, args: string) {
   return { result, child };
 }
 
-await test('waiting helpers leave the host responsive beyond a request deadline and start work in FIFO order', async (t) => {
-  const f = await coordinationFixture(t);
+test('waiting helpers leave the host responsive beyond a request deadline and start work in FIFO order', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   await git('clone', join(f.root, 'origin'), join(f.root, 'D'));
   const a = await f.start(),
     b = await f.start('B'),
     c = await f.start('D');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b),
-    third = await selectionTurn(t, c);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b),
+    third = await selectionTurn(cleanup, c);
   const markers = join(f.root, 'selected');
   const choose = async (turn: typeof first, name: string) => {
     const result = await invoke(
-      t,
+      cleanup,
       turn.prefix,
       f.root,
       `--select-next ${turn.turn}`,
@@ -103,13 +110,13 @@ await test('waiting helpers leave the host responsive beyond a request deadline 
   assert.equal(secondDone, false);
   assert.equal(thirdDone, false);
   const peers = await within(
-    invoke(t, second.prefix, f.root, '--peers').result,
+    invoke(cleanup, second.prefix, f.root, '--peers').result,
     5000,
     'peers while helper waits',
   );
   assert.equal(peers.outcome.kind, 'peers');
   await invoke(
-    t,
+    cleanup,
     first.prefix,
     f.root,
     `--recommend https://github.com/acme/queue/issues/17 --selection ${chosen.selection.ticket.id} --summary 'Issue 17'`,
@@ -138,15 +145,16 @@ await test('waiting helpers leave the host responsive beyond a request deadline 
   assert.deepEqual((await f.registry.state()).selections, []);
 });
 
-await test('a waiting helper can cancel without ending its native turn and rejoin at the tail', async (t) => {
-  const f = await coordinationFixture(t);
+test('a waiting helper can cancel without ending its native turn and rejoin at the tail', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b);
   const head = await first.select();
   const waiting = invoke(
-    t,
+    cleanup,
     second.prefix,
     f.root,
     `--select-next ${second.turn}`,
@@ -157,7 +165,8 @@ await test('a waiting helper can cancel without ending its native turn and rejoi
   );
   const queued = (await f.registry.state()).selections[1]!;
   const cancel = await within(
-    invoke(t, second.prefix, f.root, `--cancel-selection ${queued.id}`).result,
+    invoke(cleanup, second.prefix, f.root, `--cancel-selection ${queued.id}`)
+      .result,
     5000,
     'cancel while helper waits',
   );
@@ -176,15 +185,16 @@ await test('a waiting helper can cancel without ending its native turn and rejoi
   );
 });
 
-await test('SIGTERM cancels the waiting helper ticket with one final result', async (t) => {
-  const f = await coordinationFixture(t);
+test('SIGTERM cancels the waiting helper ticket with one final result', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
-  const first = await selectionTurn(t, a),
-    second = await selectionTurn(t, b);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b);
   const head = await first.select();
   const waiting = invoke(
-    t,
+    cleanup,
     second.prefix,
     f.root,
     `--select-next ${second.turn}`,
@@ -206,16 +216,17 @@ for (const [failure, signal] of [
   ['error', 'SIGINT'],
   ['malformed', 'SIGTERM'],
 ] as const)
-  await test(`${signal} cancels a known ticket after the ${failure} status reply`, async (t) => {
-    const f = await coordinationFixture(t);
+  test(`${signal} cancels a known ticket after the ${failure} status reply`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const f = await coordinationFixture(cleanup);
     const a = await f.start(),
       b = await f.start('B');
-    const first = await selectionTurn(t, a),
-      second = await selectionTurn(t, b);
+    const first = await selectionTurn(cleanup, a),
+      second = await selectionTurn(cleanup, b);
     const head = await first.select();
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    t.after(() => release.resolve());
+    cleanup(() => release.resolve());
     const binding = { ...second.binding, directory: join(f.root, 'proxy') };
     const actions: string[] = [];
     const failures: unknown[] = [];
@@ -234,12 +245,17 @@ for (const [failure, signal] of [
       },
       (error) => failures.push(error),
     );
-    t.after(() => host.close());
+    cleanup(() => host.close());
     const prefix = controlPrefix(
       binding,
       fileURLToPath(new URL('../src/cli.tsx', import.meta.url)),
     );
-    const waiting = invoke(t, prefix, f.root, `--select-next ${second.turn}`);
+    const waiting = invoke(
+      cleanup,
+      prefix,
+      f.root,
+      `--select-next ${second.turn}`,
+    );
     await within(entered.promise, 5000, 'status request');
     const queued = (await f.registry.state()).selections[1]!;
     waiting.child.kill(signal);
@@ -262,7 +278,7 @@ for (const [failure, signal] of [
     assert.deepEqual(failures, []);
   });
 
-await test('selection commands validate bindings and action-specific arguments before startup', () => {
+test('selection commands validate bindings and action-specific arguments before startup', () => {
   const turn = randomUUID(),
     ticket = randomUUID();
   const binding = [

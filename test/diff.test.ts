@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../src/agents/types.js';
@@ -15,7 +15,7 @@ const red = '\u001b[48;2;122;41;54m';
 const addedWord = '\u001b[48;2;56;166;96m';
 const removedWord = '\u001b[48;2;179;89;107m';
 
-await test('a prepared diff preserves earlier rows while rendering new widths', () => {
+test('a prepared diff preserves earlier rows while rendering new widths', () => {
   const files: FileDiff[] = [
     {
       path: '/work/new.ts',
@@ -56,7 +56,7 @@ await test('a prepared diff preserves earlier rows while rendering new widths', 
   assert.deepEqual(files, original);
 });
 
-await test('whole-file expansion exposes every supplied line without changing updates or stored hunks', () => {
+test('whole-file expansion exposes every supplied line without changing updates or stored hunks', () => {
   for (const kind of ['add', 'delete'] as const) {
     const marker = kind === 'add' ? '+' : '-';
     const file: FileDiff = {
@@ -105,7 +105,7 @@ await test('whole-file expansion exposes every supplied line without changing up
   assert.equal(canExpandDiff([]), false);
 });
 
-await test('an edited file shows under a header counting its lines, each row numbered from its own side, added and removed rows padded on green and red, and hunks apart', () => {
+test('an edited file shows under a header counting its lines, each row numbered from its own side, added and removed rows padded on green and red, and hunks apart', () => {
   const files: FileDiff[] = [
     {
       path: '/work/a.txt',
@@ -149,7 +149,7 @@ await test('an edited file shows under a header counting its lines, each row num
   assert.ok(drawn[0]!.includes('vscode://file/work/a.txt'));
 });
 
-await test('a new file shows its first 10 lines and counts the rest, a deleted one numbers its old lines, and a move names both paths', () => {
+test('a new file shows its first 10 lines and counts the rest, a deleted one numbers its old lines, and a move names both paths', () => {
   const added = Array.from({ length: 12 }, (_, index) => `+l${index + 1}`);
   assert.deepEqual(
     plainRows([
@@ -186,7 +186,7 @@ await test('a new file shows its first 10 lines and counts the rest, a deleted o
   );
 });
 
-await test('tabs and wide characters keep every row within the width, and a long line wraps under its code past a blank gutter', () => {
+test('tabs and wide characters keep every row within the width, and a long line wraps under its code past a blank gutter', () => {
   const files: FileDiff[] = [
     {
       path: '/work/a.txt',
@@ -210,7 +210,7 @@ await test('tabs and wide characters keep every row within the width, and a long
   assert.ok(shown.includes('   ' + 'a'.repeat(13)), shown.join('\n'));
 });
 
-await test('escape sequences and carriage returns in a file never reach the terminal', () => {
+test('escape sequences and carriage returns in a file never reach the terminal', () => {
   const drawn = rows([
     {
       path: '/work/a\u001b]8;;https://y\u0007.txt',
@@ -235,7 +235,7 @@ await test('escape sequences and carriage returns in a file never reach the term
   );
 });
 
-await test(
+test(
   'a column narrower than its line numbers still draws every line',
   { timeout: 2000 },
   () => {
@@ -253,7 +253,7 @@ await test(
   },
 );
 
-await test('a no-newline marker gets no row and leaves the numbering', () => {
+test('a no-newline marker gets no row and leaves the numbering', () => {
   assert.deepEqual(
     plainRows([
       {
@@ -278,7 +278,7 @@ const syntaxOf = (row: string) =>
     .replaceAll('\u001b[38;2;80;200;80m', '')
     .replaceAll('\u001b[38;2;220;90;90m', '');
 
-await test('code reads as the language its extension names, colored as Claude Code colors it, while removed rows stay plain and every row keeps its background and width', () => {
+test('code reads as the language its extension names, colored as Claude Code colors it, while removed rows stay plain and every row keeps its background and width', () => {
   const files: FileDiff[] = [
     {
       path: '/work/a.ts',
@@ -329,7 +329,7 @@ await test('code reads as the language its extension names, colored as Claude Co
   ]);
 });
 
-await test('each line reads alone, as Claude Code reads it, so a hunk that opens inside a string colors the code after it as code', () => {
+test('each line reads alone, as Claude Code reads it, so a hunk that opens inside a string colors the code after it as code', () => {
   const drawn = rows(
     [
       {
@@ -352,7 +352,7 @@ await test('each line reads alone, as Claude Code reads it, so a hunk that opens
   assert.ok(row(' class A(B):').includes('\u001b[38;2;166;226;46mA'));
 });
 
-await test('a line whose colored runs would split a character, such as an emoji or a keycap, or change one, as the CSS grammars change U+2028, draws plain and keeps it whole, while the lines around it keep their colors', () => {
+test('a line whose colored runs would split a character, such as an emoji or a keycap, or change one, as the CSS grammars change U+2028, draws plain and keeps it whole, while the lines around it keep their colors', () => {
   const drawn = rows(
     [
       {
@@ -387,14 +387,14 @@ await test('a line whose colored runs would split a character, such as an emoji 
   assert.ok(row(' my $x = 1;').includes('\u001b[38;2;249;38;114mmy'));
 });
 
-await test('a line highlight.js fails on draws plain', () => {
+test('a line highlight.js fails on draws plain', () => {
   // an unknown language makes it throw, as a nesting deep enough to overflow the stack does
   assert.deepEqual(syntaxSpans(['const a = 1;'], 'not-a-language'), [
     [{ text: 'const a = 1;' }],
   ]);
 });
 
-await test("the language comes from the file's name ahead of its extension, a move's new name, or a shebang, PHP or XML opening on the file's first line, read only from a context or added row of a first hunk at line 1, and a file that names none draws plain", () => {
+test("the language comes from the file's name ahead of its extension, a move's new name, or a shebang, PHP or XML opening on the file's first line, read only from a context or added row of a first hunk at line 1, and a file that names none draws plain", () => {
   const colored = (
     path: string,
     lines: string[],
@@ -444,7 +444,7 @@ await test("the language comes from the file's name ahead of its extension, a mo
     assert.ok(!colored(path, [' const a = 1', '+if (a) return']), path);
 });
 
-await test("words a removed row and the added row at its place in the next run changed show brighter, even across a no-newline marker, unless over 40% of their text changed, and a longer run's extra rows pair with nothing", () => {
+test("words a removed row and the added row at its place in the next run changed show brighter, even across a no-newline marker, unless over 40% of their text changed, and a longer run's extra rows pair with nothing", () => {
   const drawn = rows(
     [
       {
@@ -526,7 +526,7 @@ await test("words a removed row and the added row at its place in the next run c
     );
 });
 
-await test('repeated shared tokens keep a pair at 400 token edits colored and 401 uncolored, counting emoji tokens rather than their string lengths', () => {
+test('repeated shared tokens keep a pair at 400 token edits colored and 401 uncolored, counting emoji tokens rather than their string lengths', () => {
   const prefix = '+ '.repeat(250) + 'x'.repeat(1200) + ' ';
   const before = '🧙'.repeat(200);
   for (const [suffix, colored] of [
@@ -560,7 +560,7 @@ await test('repeated shared tokens keep a pair at 400 token edits colored and 40
   }
 });
 
-await test('reordered tokens still receive word colors when their occurrence counts match', () => {
+test('reordered tokens still receive word colors when their occurrence counts match', () => {
   const prefix = 'x '.repeat(250);
   const drawn = rows(
     [
@@ -582,7 +582,7 @@ await test('reordered tokens still receive word colors when their occurrence cou
   assert.ok(drawn.includes(`${addedWord} one\u001b[49m`));
 });
 
-await test('unrelated large diff lines draw within twice the cost of equally sized colorable lines', () => {
+test('unrelated large diff lines draw within twice the cost of equally sized colorable lines', () => {
   const before = Array.from({ length: 1000 }, (_, index) => `old${index}`).join(
     ' ',
   );
@@ -630,7 +630,7 @@ await test('unrelated large diff lines draw within twice the cost of equally siz
   );
 });
 
-await test("a long line past the highlighting budget draws plain while shorter lines keep their colors, the budget adds up across a file's hunks, counts a line's indent and starts again in the next file, and a pair needing over 400 token edits gets no word colors, so long lines draw quickly", () => {
+test("a long line past the highlighting budget draws plain while shorter lines keep their colors, the budget adds up across a file's hunks, counts a line's indent and starts again in the next file, and a pair needing over 400 token edits gets no word colors, so long lines draw quickly", () => {
   // each costs about 9,000,000, so the second passes the 16,000,000 budget
   const long = (name: string) =>
     `+const ${name} = [` + 'a, '.repeat(1000) + '];';
@@ -704,7 +704,7 @@ await test("a long line past the highlighting budget draws plain while shorter l
   assert.ok(!paired.some((row) => row.includes('\u001b[48;2;56;166;96m')));
 });
 
-await test('an html line opening many script tags draws quickly, with JavaScript and CSS colors and no XML comment colors', () => {
+test('an html line opening many script tags draws quickly, with JavaScript and CSS colors and no XML comment colors', () => {
   const started = performance.now();
   const drawn = rows(
     [
@@ -754,7 +754,7 @@ for (const [name, before, after, oldWord, newWord] of [
   ['Unicode identifiers', 'const café = 1;', 'const cafè = 1;', 'café', 'cafè'],
   ['changed graphemes', 'const icon = "👍🏻";', 'const icon = "👍🏽";', '👍🏻', '👍🏽'],
 ] as const) {
-  await test(`word colors cover whole ${name} and preserve their text`, () => {
+  test(`word colors cover whole ${name} and preserve their text`, () => {
     const [, removed, added] = rows(
       [
         {
@@ -776,7 +776,7 @@ for (const [name, before, after, oldWord, newWord] of [
   });
 }
 
-await test('word colors include exactly 40 percent changed text and exclude one additional changed character', () => {
+test('word colors include exactly 40 percent changed text and exclude one additional changed character', () => {
   for (const [after, colored] of [
     ['bbbb', true],
     ['bbbbb', false],
@@ -805,7 +805,7 @@ await test('word colors include exactly 40 percent changed text and exclude one 
   }
 });
 
-await test('syntax coloring includes the exact file budget and charges only lines longer than 256 characters', () => {
+test('syntax coloring includes the exact file budget and charges only lines longer than 256 characters', () => {
   const line = (length: number) =>
     'const x = "' + 'a'.repeat(length - 13) + '";';
   const inputs = [line(4000), line(4001), line(256), line(257)];
@@ -828,7 +828,7 @@ await test('syntax coloring includes the exact file budget and charges only line
   );
 });
 
-await test('a declaration word used as a function name keeps its title color', () => {
+test('a declaration word used as a function name keeps its title color', () => {
   const [, row] = rows([
     {
       path: '/work/a.py',
@@ -841,7 +841,7 @@ await test('a declaration word used as a function name keeps its title color', (
   assert.equal(stripAnsi(row!).trimEnd(), '1 +def type(): pass');
 });
 
-await test('a Python shebang selects Python syntax for code in updates and added files', () => {
+test('a Python shebang selects Python syntax for code in updates and added files', () => {
   for (const kind of ['update', 'add'] as const) {
     const [, , code] = rows([
       {
@@ -865,7 +865,7 @@ await test('a Python shebang selects Python syntax for code in updates and added
   }
 });
 
-await test('a later hunk retains syntax colors while the file has budget', () => {
+test('a later hunk retains syntax colors while the file has budget', () => {
   const drawn = rows([
     {
       path: '/work/a.ts',

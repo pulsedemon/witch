@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { Lexer } from 'marked';
 import stripAnsi from 'strip-ansi';
 import { Graphics, placeholder } from '../src/ui/images.js';
@@ -12,7 +12,7 @@ import { applyDisplayUpdate, foldDisplayUpdates } from '../src/core/state.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
-await test('full diff choices survive cached renders and resizes', () => {
+test('full diff choices survive cached renders and resizes', () => {
   const item: DisplayItem = {
     id: 'full',
     kind: 'tool',
@@ -83,7 +83,7 @@ await test('full diff choices survive cached renders and resizes', () => {
   );
 });
 
-await test('expanding a tool shows its complete output without losing links', () => {
+test('expanding a tool shows its complete output without losing links', () => {
   const item: DisplayItem = {
     id: 'tool',
     kind: 'tool',
@@ -107,7 +107,7 @@ await test('expanding a tool shows its complete output without losing links', ()
   );
 });
 
-await test('completed output is cached when another message streams', () => {
+test('completed output is cached when another message streams', () => {
   const items: DisplayItem[] = [
     {
       id: 'large',
@@ -130,7 +130,7 @@ await test('completed output is cached when another message streams', () => {
   assert.match(stripAnsi(second.lines.at(-2) ?? ''), /First response/);
 });
 
-await test('a reading anchor follows its original log line when a narrower window wraps earlier lines', () => {
+test('a reading anchor follows its original log line when a narrower window wraps earlier lines', () => {
   const item: DisplayItem = {
     id: 'log',
     kind: 'tool',
@@ -154,7 +154,7 @@ await test('a reading anchor follows its original log line when a narrower windo
   assert.doesNotMatch(stripAnsi(narrow.lines.at(row)!), /^Line 700:/);
 });
 
-await test('expanded logs exceed the argument limit with complete output and usable anchors', () => {
+test('expanded logs exceed the argument limit with complete output and usable anchors', () => {
   const layout = new TranscriptLayout();
   for (const wrapped of [false, true]) {
     const item: DisplayItem = {
@@ -186,7 +186,7 @@ await test('expanded logs exceed the argument limit with complete output and usa
   }
 });
 
-await test('a reading anchor keeps its position within a wrapped line after resize', () => {
+test('a reading anchor keeps its position within a wrapped line after resize', () => {
   const item: DisplayItem = {
     id: 'log',
     kind: 'tool',
@@ -204,7 +204,7 @@ await test('a reading anchor keeps its position within a wrapped line after resi
   assert.equal(layout.render([item], 160, expanded).rowOf(anchor), 45);
 });
 
-await test('an anchor on a line that no longer renders falls back to its item start', () => {
+test('an anchor on a line that no longer renders falls back to its item start', () => {
   const item: DisplayItem = {
     id: 'log',
     kind: 'tool',
@@ -227,7 +227,7 @@ await test('an anchor on a line that no longer renders falls back to its item st
   assert.equal(collapsed.rowOf(anchor), collapsed.starts.get('log'));
 });
 
-await test('a reading anchor includes spaces trimmed while wrapping a title', () => {
+test('a reading anchor includes spaces trimmed while wrapping a title', () => {
   const item: DisplayItem = {
     id: 'log',
     kind: 'tool',
@@ -248,7 +248,7 @@ await test('a reading anchor includes spaces trimmed while wrapping a title', ()
   assert.match(stripAnsi(wide.lines.at(wide.rowOf(anchor))!), /^word009/);
 });
 
-await test('a title row changed by wrapping does not take another row’s anchor', () => {
+test('a title row changed by wrapping does not take another row’s anchor', () => {
   const item: DisplayItem = {
     id: 'tool',
     kind: 'tool',
@@ -268,7 +268,7 @@ await test('a title row changed by wrapping does not take another row’s anchor
   );
 });
 
-await test('anchors keep item boundaries and wrapped offsets in their own render frame', () => {
+test('anchors keep item boundaries and wrapped offsets in their own render frame', () => {
   const items: DisplayItem[] = [
     { id: 'first', kind: 'notice', text: 'first', cwd: '/work' },
     {
@@ -324,7 +324,7 @@ await test('anchors keep item boundaries and wrapped offsets in their own render
   });
 });
 
-await test('anchor lookups stay fast across ten thousand messages', () => {
+test('anchor lookups stay fast across ten thousand messages', () => {
   const items: DisplayItem[] = Array.from({ length: 10000 }, (_, index) => ({
     id: `message-${index}`,
     kind: 'user',
@@ -375,7 +375,7 @@ const tool = (text: string, done = false): DisplayItem => ({
 const early =
   'PASS src/a.ts:1 https://example.com/a\nPASS test/b.test.ts:2\nrun';
 
-await test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
+test('an OSC 8 separator arriving after a terminator rebuilds the uncertain tail', () => {
   for (const stable of ['', 'stable\n']) {
     const prefix =
       stable +
@@ -428,7 +428,7 @@ for (const [name, prefix, suffix, body, target] of [
   ],
   ['grapheme', 'a\ud83d', '\ude00z', ['a😀z'], undefined],
 ] as const)
-  await test(`an append completes a ${name} without changing earlier output`, () => {
+  test(`an append completes a ${name} without changing earlier output`, () => {
     let items = applyDisplayUpdate([], tool(prefix));
     const layout = new TranscriptLayout();
     const expanded = new Map([['tool', true]]);
@@ -672,10 +672,10 @@ for (const [name, frames] of [
     ],
   ],
 ] as [string, Frame[]][])
-  await test(`incremental layout matches a full render for ${name}`, () =>
+  test(`incremental layout matches a full render for ${name}`, () =>
     sameAsFull(frames));
 
-await test('a warm append to a 20k-line tool costs under a tenth of a full render', () => {
+test('a warm append to a 20k-line tool costs under a tenth of a full render', () => {
   let text = '';
   for (let index = 0; index < 20000; index++)
     text += `PASS test/case-${index}.test.ts (12 ms) see src/a.ts:${index}\n`;
@@ -702,7 +702,7 @@ await test('a warm append to a 20k-line tool costs under a tenth of a full rende
   );
 });
 
-await test('layout receives every skipped append and rebuilds after replacements or unrelated history', () => {
+test('layout receives every skipped append and rebuilds after replacements or unrelated history', () => {
   for (const replay of [false, true]) {
     const seed = [tool('first\n'), tool('part')];
     let items = replay
@@ -752,7 +752,7 @@ await test('layout receives every skipped append and rebuilds after replacements
   }
 });
 
-await test('an earlier layout frame retains its rows and anchors after the tool grows', () => {
+test('an earlier layout frame retains its rows and anchors after the tool grows', () => {
   const following: DisplayItem = {
     id: 'after',
     kind: 'notice',
@@ -802,7 +802,7 @@ await test('an earlier layout frame retains its rows and anchors after the tool 
   assert.deepEqual(after.lines.slice(-2), ['after', '']);
 });
 
-await test('warm tool appends and a fixed page do not scale with completed prefix rows', () => {
+test('warm tool appends and a fixed page do not scale with completed prefix rows', () => {
   const expanded = new Map([['tool', true]]);
   const results: number[] = [];
   for (const count of [2000, 100000]) {
@@ -835,7 +835,7 @@ await test('warm tool appends and a fixed page do not scale with completed prefi
   );
 });
 
-await test('an image arriving with an append replaces the text-only cached block', async () => {
+test('an image arriving with an append replaces the text-only cached block', async () => {
   const directory = await scratch('witch-layout-');
   await writeFile(join(directory, 'shot.png'), png(160, 80));
   const layout = new TranscriptLayout(new Graphics(() => {}));
@@ -857,7 +857,7 @@ await test('an image arriving with an append replaces the text-only cached block
   assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
 });
 
-await test('an append retries a named image that was unavailable during the first render', async () => {
+test('an append retries a named image that was unavailable during the first render', async () => {
   for (const [initial, imageLine] of [
     ['', 2],
     ['waiting\n', 3],
@@ -893,7 +893,7 @@ await test('an append retries a named image that was unavailable during the firs
   }
 });
 
-await test('a message shows the images it names below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
+test('a message shows the images it names below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
   const directory = await scratch('witch-layout-');
   await writeFile(join(directory, 'shot.png'), png(160, 80));
   const layout = new TranscriptLayout(new Graphics(() => {}));
@@ -939,7 +939,7 @@ await test('a message shows the images it names below its text, and a tool shows
 });
 
 for (const kind of ['tool', 'user'] as const) {
-  await test(`a ${kind}'s image anchors keep their image and closing blank across resizes`, async () => {
+  test(`a ${kind}'s image anchors keep their image and closing blank across resizes`, async () => {
     const directory = await scratch('witch-layout-');
     await writeFile(join(directory, 'a.png'), png(800, 200));
     await writeFile(join(directory, 'b.png'), png(800, 160));
@@ -970,7 +970,7 @@ for (const kind of ['tool', 'user'] as const) {
   });
 }
 
-await test('an image anchor follows wrapped diff output', async () => {
+test('an image anchor follows wrapped diff output', async () => {
   const directory = await scratch('witch-layout-');
   await writeFile(join(directory, 'a.png'), png(800, 200));
   const item: DisplayItem = {
@@ -1010,7 +1010,7 @@ await test('an image anchor follows wrapped diff output', async () => {
   assert.equal(wide.rowOf(narrow.anchorAt(narrowImage + 2)!), wideImage + 2);
 });
 
-await test("a shell tool row shows expanded until toggled, and an agent's tool row collapsed until toggled", () => {
+test("a shell tool row shows expanded until toggled, and an agent's tool row collapsed until toggled", () => {
   const items: DisplayItem[] = [
     {
       id: 's',
@@ -1052,7 +1052,7 @@ await test("a shell tool row shows expanded until toggled, and an agent's tool r
   assert.ok(toggled.includes('agent-x'));
 });
 
-await test('a tool that changed a file under its directory shows its diff until toggled, one elsewhere collapsed until toggled, and a diff that arrives under unchanged output still shows', () => {
+test('a tool that changed a file under its directory shows its diff until toggled, one elsewhere collapsed until toggled, and a diff that arrives under unchanged output still shows', () => {
   const diff = (path: string): FileDiff[] => [
     {
       path,
@@ -1126,7 +1126,7 @@ await test('a tool that changed a file under its directory shows its diff until 
   );
 });
 
-await test('a tool in a conversation at / shows the diff of a file anywhere until toggled', () => {
+test('a tool in a conversation at / shows the diff of a file anywhere until toggled', () => {
   const item: DisplayItem = {
     id: 'root',
     kind: 'tool',
@@ -1154,7 +1154,7 @@ await test('a tool in a conversation at / shows the diff of a file anywhere unti
   assert.ok(lines(new Map([['root', false]])).includes('+ ✓ Edit root'));
 });
 
-await test('explicit expansion choices survive a project diff arriving', () => {
+test('explicit expansion choices survive a project diff arriving', () => {
   const pending: DisplayItem = {
     id: 'edit',
     kind: 'tool',
@@ -1204,7 +1204,7 @@ await test('explicit expansion choices survive a project diff arriving', () => {
   }
 });
 
-await test('a scroll anchor on a diff line stays on that line when a resize rewraps the lines above it', () => {
+test('a scroll anchor on a diff line stays on that line when a resize rewraps the lines above it', () => {
   const item: DisplayItem = {
     id: 't',
     kind: 'tool',
@@ -1255,7 +1255,7 @@ const assistant = (text: string): DisplayItem => ({
   cwd: '/work',
 });
 
-await test('assistant appends keep Markdown rows and anchors correct through syntax changes', () => {
+test('assistant appends keep Markdown rows and anchors correct through syntax changes', () => {
   for (const source of [
     'First.\n\nSecond.\n\nHeading\n---\n\nAfter',
     'First.\n\nSecond.\n\n- first\n\n  next\n\nAfter',
@@ -1282,7 +1282,7 @@ await test('assistant appends keep Markdown rows and anchors correct through syn
   }
 });
 
-await test('assistant layout follows batched ancestry and rebuilds for replacements or metadata changes', () => {
+test('assistant layout follows batched ancestry and rebuilds for replacements or metadata changes', () => {
   for (const replay of [false, true]) {
     const seed = [assistant('First.\n\nSecond.\n\n'), assistant('part')];
     let items = replay
@@ -1346,7 +1346,7 @@ await test('assistant layout follows batched ancestry and rebuilds for replaceme
   }
 });
 
-await test('earlier assistant frames survive appends and a reference that changes completed rows', () => {
+test('earlier assistant frames survive appends and a reference that changes completed rows', () => {
   const layout = new TranscriptLayout();
   let items = applyDisplayUpdate(
     [],
@@ -1389,24 +1389,26 @@ await test('earlier assistant frames survive appends and a reference that change
   assert.equal(stripAnsi(final.lines.at(-2)!), 'following notice');
 });
 
-await test('completed assistant blocks have bounded parsing and wrapping work', (t) => {
+test('completed assistant blocks have bounded parsing and wrapping work', () => {
   const lex = Lexer.prototype.lex;
   const normalize = String.prototype.normalize;
   let parsed = 0;
   let wrapped = 0;
   let measure = false;
-  t.mock.method(Lexer.prototype, 'lex', function (this: Lexer, source: string) {
+  vi.spyOn(Lexer.prototype, 'lex').mockImplementation(function (
+    this: Lexer,
+    source: string,
+  ) {
     if (measure) parsed += source.length;
     return lex.call(this, source);
   });
-  t.mock.method(
-    String.prototype,
-    'normalize',
-    function (this: string, form?: string) {
-      if (measure) wrapped += this.length;
-      return normalize.call(this, form);
-    },
-  );
+  vi.spyOn(String.prototype, 'normalize').mockImplementation(function (
+    this: string,
+    form?: string,
+  ) {
+    if (measure) wrapped += this.length;
+    return normalize.call(this, form);
+  });
   const counts: { parsed: number; wrapped: number }[] = [];
   for (const size of [51200, 102400]) {
     const paragraph =
@@ -1444,13 +1446,13 @@ await test('completed assistant blocks have bounded parsing and wrapping work', 
       'A completed paragraph has text, emphasis, and src/main.ts:9.',
     );
     assert.ok(final.lines.at(1)!.includes('vscode://file/work/src/main.ts:9'));
-    t.diagnostic(JSON.stringify({ size, parsed, wrapped }));
+    console.info(JSON.stringify({ size, parsed, wrapped }));
   }
   for (const field of ['parsed', 'wrapped'] as const)
     assert.ok(counts[1]![field] <= counts[0]![field] * 2.3 + 8192, field);
 });
 
-await test('a late setext underline reinterprets every preceding thematic line', () => {
+test('a late setext underline reinterprets every preceding thematic line', () => {
   for (const [source, heading] of [
     ['a\n***\nb\n', ['a', '***', 'b']],
     ['a\n___\nb\n___\nc\n', ['a', '___', 'b', '___', 'c']],

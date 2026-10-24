@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
 import { statusLines } from '../src/ui/status-line.js';
 
 const now = Date.parse('2026-10-13T12:00:00Z');
 const seconds = now / 1000;
 
-await test('the status line shows reported fields with the context capacity beside its percentage', () => {
+test('the status line shows reported fields with the context capacity beside its percentage', () => {
   const [first, second] = statusLines(
     {
       model: 'GPT-5.5-Codex',
@@ -61,7 +61,7 @@ await test('the status line shows reported fields with the context capacity besi
   );
 });
 
-await test('what no agent or repository reported yet takes the script defaults, and Git and limits stay out', () => {
+test('what no agent or repository reported yet takes the script defaults, and Git and limits stay out', () => {
   const lines = statusLines({ usage: {}, cwd: '/work/witch' }, now).map(
     (line) => stripAnsi(line),
   );
@@ -71,7 +71,7 @@ await test('what no agent or repository reported yet takes the script defaults, 
   ]);
 });
 
-await test('a directory name with a line break stays on the second status row', () => {
+test('a directory name with a line break stays on the second status row', () => {
   const lines = statusLines({ usage: {}, cwd: '/work/dry\nline' }, now).map(
     (line) => stripAnsi(line),
   );
@@ -81,7 +81,7 @@ await test('a directory name with a line break stays on the second status row', 
   ]);
 });
 
-await test('a model or effort carrying a link sequence shows as plain text', () => {
+test('a model or effort carrying a link sequence shows as plain text', () => {
   const forged = (text: string) =>
     `\u001b]8;;x-evil:payload\u0007${text}\u001b]8;;\u0007`;
   const [first] = statusLines(
@@ -92,7 +92,7 @@ await test('a model or effort carrying a link sequence shows as plain text', () 
   assert.equal(stripAnsi(first!), 'MODEL | HIGH | 0M');
 });
 
-await test('a conversation opened since the clock was last read shows 0M, not a negative time', () => {
+test('a conversation opened since the clock was last read shows 0M, not a negative time', () => {
   const [first] = statusLines(
     { usage: {}, cwd: '/w', openedAt: now + 300 },
     now,
@@ -100,7 +100,7 @@ await test('a conversation opened since the clock was last read shows 0M, not a 
   assert.equal(stripAnsi(first), '? | DEFAULT | 0M');
 });
 
-await test('limits turn yellow at 70% and red at 90%, a past reset shows no time, and the bar warms from 40%', () => {
+test('limits turn yellow at 70% and red at 90%, a past reset shows no time, and the bar warms from 40%', () => {
   const [first] = statusLines(
     {
       usage: {
@@ -125,7 +125,7 @@ await test('limits turn yellow at 70% and red at 90%, a past reset shows no time
   assert.ok(bar(60).includes('\u001b[38;2;255;0;0m'));
 });
 
-await test('a merged pull request says so in magenta, a closed one plainly, and failing or pending checks get their marks', () => {
+test('a merged pull request says so in magenta, a closed one plainly, and failing or pending checks get their marks', () => {
   const line = (
     state: 'OPEN' | 'MERGED' | 'CLOSED',
     checks?: 'failing' | 'pending',

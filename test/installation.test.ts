@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { scratch } from './fixtures/scratch.js';
@@ -38,7 +38,7 @@ async function fixture() {
   return { root, checkout, entry, launcher, install };
 }
 
-await test('launcher preserves arguments and diagnoses a moved checkout', async () => {
+test('launcher preserves arguments and diagnoses a moved checkout', async () => {
   const { root, checkout, entry, launcher, install } = await fixture();
   await install();
   const cwd = join(root, 'caller');
@@ -67,7 +67,7 @@ await test('launcher preserves arguments and diagnoses a moved checkout', async 
   assert.deepEqual(JSON.parse((await run()).stdout), expected);
 });
 
-await test('installing over the legacy symlink leaves its target unchanged', async () => {
+test('installing over the legacy symlink leaves its target unchanged', async () => {
   const { entry, launcher, install } = await fixture();
   await symlink(entry, launcher);
   await install();
@@ -76,7 +76,7 @@ await test('installing over the legacy symlink leaves its target unchanged', asy
   assert.equal((await execute(launcher, [])).stderr, '');
 });
 
-await test('installing refuses an unrelated regular file', async () => {
+test('installing refuses an unrelated regular file', async () => {
   const { launcher, install } = await fixture();
   await writeFile(launcher, 'kept unrelated file');
   await assert.rejects(install(), /Refusing to replace/);

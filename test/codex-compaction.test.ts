@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { fixture, close } from './fixtures/codex-adapter.js';
@@ -70,7 +70,7 @@ const item = (
   params: { threadId, turnId, item: { id, type: 'contextCompaction' } },
 });
 
-await test('Codex compaction waits for its matching item and turn after acknowledgement', async () => {
+test('Codex compaction waits for its matching item and turn after acknowledgement', async () => {
   const f = await scripted();
   try {
     const pending = await f.compact();
@@ -101,7 +101,7 @@ await test('Codex compaction waits for its matching item and turn after acknowle
   }
 });
 
-await test('Codex does not accept another compaction item as its own completion', async () => {
+test('Codex does not accept another compaction item as its own completion', async () => {
   const f = await scripted();
   try {
     const pending = await f.compact();
@@ -118,7 +118,7 @@ await test('Codex does not accept another compaction item as its own completion'
   }
 });
 
-await test('Codex replacement is reported even when a later hook interrupts the compact turn', async () => {
+test('Codex replacement is reported even when a later hook interrupts the compact turn', async () => {
   const f = await scripted();
   try {
     const pending = await f.compact();
@@ -136,7 +136,7 @@ await test('Codex replacement is reported even when a later hook interrupts the 
   }
 });
 
-await test('Codex reports automatic replacement and drops context sampled for another model', async () => {
+test('Codex reports automatic replacement and drops context sampled for another model', async () => {
   const f = await scripted();
   try {
     await f.emit(item('item/completed', 'auto', 'ordinary-turn'), {
@@ -161,7 +161,7 @@ await test('Codex reports automatic replacement and drops context sampled for an
   }
 });
 
-await test('Codex process closure settles a compact request that never started', async () => {
+test('Codex process closure settles a compact request that never started', async () => {
   const f = await scripted();
   const pending = await f.compact();
   await writeFile(join(f.cwd, 'exit'), '');

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
 import { markdown, markdownAppend } from '../src/ui/markdown.js';
 
-await test('nested lists and task lists render indented with each checkbox inline', () => {
+test('nested lists and task lists render indented with each checkbox inline', () => {
   for (const [input, expected] of [
     ['- a\n  - b\n  - c', '• a\n  • b\n  • c'],
     ['- [ ] a\n  - [x] b', '• [ ] a\n  • [x] b'],
@@ -12,7 +12,7 @@ await test('nested lists and task lists render indented with each checkbox inlin
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
 
-await test('relative link targets resolve against their own base or stay text without one, while web links, absolute targets and bare paths keep theirs', () => {
+test('relative link targets resolve against their own base or stay text without one, while web links, absolute targets and bare paths keep theirs', () => {
   const text =
     '[Ports](ports.md) [Line](ports.md:3) [Abs](/work/abs.md) [Web](https://example.com/x) docs/rules.md';
   const links = (output: string, targets: string[]) =>
@@ -34,7 +34,7 @@ await test('relative link targets resolve against their own base or stay text wi
   assert.ok(!unlinked.includes('ports.md'));
 });
 
-await test('image alt text renders as plain text, and HTML gets the link checks other text gets', () => {
+test('image alt text renders as plain text, and HTML gets the link checks other text gets', () => {
   const forged =
     '\u001b\\]8;;https://evil.example/share\u0007src/app.ts:12\u001b\\]8;;\u0007';
   const output = markdown(
@@ -52,7 +52,7 @@ await test('image alt text renders as plain text, and HTML gets the link checks 
   );
 });
 
-await test('character references render as their characters in text and link targets, while code and backslash escapes keep them literal', () => {
+test('character references render as their characters in text and link targets, while code and backslash escapes keep them literal', () => {
   for (const [input, expected] of [
     ['Tom &amp; Jerry &lt;T&gt;', 'Tom & Jerry <T>'],
     ['a&nbsp;b it&#x27;s', "a\u00a0b it's"],
@@ -70,7 +70,7 @@ await test('character references render as their characters in text and link tar
   );
 });
 
-await test('a URL in inline code links to itself, alone, after a command or after a quoted path', () => {
+test('a URL in inline code links to itself, alone, after a command or after a quoted path', () => {
   for (const input of [
     'Run `curl http://localhost:3000/api` to check.',
     'Open `http://localhost:3000/api` now.',
@@ -84,7 +84,7 @@ await test('a URL in inline code links to itself, alone, after a command or afte
     );
 });
 
-await test('ordered items number from their start, and continuation lines and code indent under their item text', () => {
+test('ordered items number from their start, and continuation lines and code indent under their item text', () => {
   for (const [input, expected] of [
     ['- line1\n  line2', '• line1\n  line2'],
     ['9. a\n10. b\n    more', '9. a\n10. b\n    more'],
@@ -98,7 +98,7 @@ await test('ordered items number from their start, and continuation lines and co
     assert.equal(stripAnsi(markdown(input, '/work')), expected, input);
 });
 
-await test('headings, emphasis, line breaks, quotes, rules and tables render as terminal text', () => {
+test('headings, emphasis, line breaks, quotes, rules and tables render as terminal text', () => {
   assert.equal(
     stripAnsi(
       markdown(
@@ -177,7 +177,7 @@ for (const [name, source, expected] of [
     'Settled.\n\nbold em & src/a.ts file e\u0301 🐈\n\nAfter',
   ],
 ] as const)
-  await test(`streamed Markdown keeps ${name} correct across every chunk boundary`, () => {
+  test(`streamed Markdown keeps ${name} correct across every chunk boundary`, () => {
     for (let split = 0; split <= source.length; split++) {
       const frames = streamMarkdown([
         source.slice(0, split),
@@ -188,7 +188,7 @@ for (const [name, source, expected] of [
     assert.equal(stripAnsi(streamMarkdown(source.split('')).at(-1)!), expected);
   });
 
-await test('an empty fence opener removes separators until its body arrives', () => {
+test('an empty fence opener removes separators until its body arrives', () => {
   const frames = streamMarkdown([
     'first\n\nSecond.\n\n`',
     '`',
@@ -205,14 +205,14 @@ await test('an empty fence opener removes separators until its body arrives', ()
   ]);
 });
 
-await test('a streamed setext delimiter restyles its earlier line', () => {
+test('a streamed setext delimiter restyles its earlier line', () => {
   assert.deepEqual(streamMarkdown(['Heading\n', '---\n']), [
     'Heading',
     '\u001b[1mHeading\u001b[22m',
   ]);
 });
 
-await test('late and nested definitions rebuild earlier references and retain the first target', () => {
+test('late and nested definitions rebuild earlier references and retain the first target', () => {
   for (const definition of ['[g]: src/guide.ts\n', '> [g]: src/guide.ts\n']) {
     const frames = streamMarkdown([
       '[Guide][g]\n\nSettled.\n\nLast.\n\n',
@@ -232,7 +232,7 @@ await test('late and nested definitions rebuild earlier references and retain th
   }
 });
 
-await test('HTML state across streamed paragraphs keeps the existing link interpretation', () => {
+test('HTML state across streamed paragraphs keeps the existing link interpretation', () => {
   const frames = streamMarkdown([
     'Settled.\n\nNext.\n\nfirst <a href="https://example.com">\n\n',
     'www.example',

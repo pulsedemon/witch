@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { once } from 'node:events';
 import { access, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setImmediate as tick } from 'node:timers/promises';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import type {
@@ -31,7 +31,7 @@ const running = (pattern: string) =>
 const stop = (pattern: string) =>
   execute('pkill', ['-f', pattern]).catch(() => {});
 
-await test("a shell command runs in the session's directory as one open tool row, sends Claude nothing, and its record goes ahead of the next prompt once", async () => {
+test("a shell command runs in the session's directory as one open tool row, sends Claude nothing, and its record goes ahead of the next prompt once", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -62,7 +62,7 @@ await test("a shell command runs in the session's directory as one open tool row
 });
 
 for (const closed of [false, true]) {
-  await test(`unsent command context can be taken once ${closed ? 'after close' : 'before the next prompt'}`, async () => {
+  test(`unsent command context can be taken once ${closed ? 'after close' : 'before the next prompt'}`, async () => {
     const { session, cwd } = await fixture();
     try {
       await session.shell('printf alpha');
@@ -89,7 +89,7 @@ for (const condition of [
   'throwing writer',
   'control before input',
 ]) {
-  await test(`dispatch failure recovers only unwritten command context (${condition})`, async () => {
+  test(`dispatch failure recovers only unwritten command context (${condition})`, async () => {
     const { session, cwd, child } = await fixture(undefined, 'hold-initial');
     const command = "printf 'boundary-output\\n'";
     const record = `<bash-input>${command}</bash-input>\n<bash-stdout>boundary-output\n</bash-stdout><bash-stderr></bash-stderr>`;
@@ -149,7 +149,7 @@ for (const condition of [
   });
 }
 
-await test('dispatch failure recovers only the later unsent command in a turn', async () => {
+test('dispatch failure recovers only the later unsent command in a turn', async () => {
   const { connect, children, cwd } = await launcher();
   let commands = 0;
   const session = await connect({
@@ -192,7 +192,7 @@ await test('dispatch failure recovers only the later unsent command in a turn', 
   }
 });
 
-await test("a shell command refuses steering, and an interrupt kills it, ends it interrupted and keeps its record for the next prompt with the next command's", async () => {
+test("a shell command refuses steering, and an interrupt kills it, ends it interrupted and keeps its record for the next prompt with the next command's", async () => {
   const output: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') output.push(event.text);
@@ -236,7 +236,7 @@ await test("a shell command refuses steering, and an interrupt kills it, ends it
   }
 });
 
-await test('closing the session during a shell command kills it, and the shell settles without throwing', async () => {
+test('closing the session during a shell command kills it, and the shell settles without throwing', async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -253,7 +253,7 @@ await test('closing the session during a shell command kills it, and the shell s
   }
 });
 
-await test('close waits for the interrupted command record when a detached child holds its output pipe', async () => {
+test('close waits for the interrupted command record when a detached child holds its output pipe', async () => {
   let output = '';
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') output += event.text;
@@ -303,7 +303,7 @@ setInterval(() => {}, 1000);
 });
 
 for (const fails of [false, true]) {
-  await test(`close waits for the final shell report to ${fails ? 'reject' : 'finish'} before clearing the native process`, async () => {
+  test(`close waits for the final shell report to ${fails ? 'reject' : 'finish'} before clearing the native process`, async () => {
     const reporting = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const reports: string[] = [];
@@ -342,7 +342,7 @@ for (const fails of [false, true]) {
   });
 }
 
-await test("a shell command reports its shell's pid as it starts and undefined once it ends, after the start's report settles", async () => {
+test("a shell command reports its shell's pid as it starts and undefined once it ends, after the start's report settles", async () => {
   const done = Promise.withResolvers<void>();
   const texts: string[] = [];
   const reports: string[] = [];
@@ -372,7 +372,7 @@ await test("a shell command reports its shell's pid as it starts and undefined o
   }
 });
 
-await test('a shell report that rejects fails the command once it ends, without an unhandled rejection', async () => {
+test('a shell report that rejects fails the command once it ends, without an unhandled rejection', async () => {
   const texts: string[] = [];
   const { connect } = await launcher();
   const session = await connect({
@@ -428,7 +428,7 @@ const allow = (cwd: string, ...names: string[]) =>
   Promise.all(names.map((name) => writeFile(join(cwd, name), 'yes')));
 const gated = 'until [ -e go ]; do sleep 0.05; done; echo held';
 
-await test('a command steered after the result runs, refuses other prompts while it runs, then steers its record and reply', async () => {
+test('a command steered after the result runs, refuses other prompts while it runs, then steers its record and reply', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -454,7 +454,7 @@ await test('a command steered after the result runs, refuses other prompts while
   }
 });
 
-await test("a turn whose familiar reports while a steered command runs stays open through Claude Code's idle until the command's reply is answered", async () => {
+test("a turn whose familiar reports while a steered command runs stays open through Claude Code's idle until the command's reply is answered", async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -476,7 +476,7 @@ await test("a turn whose familiar reports while a steered command runs stays ope
   }
 });
 
-await test("a command that ends while Claude Code answers the familiar's report sends its reply only once Claude Code is idle", async () => {
+test("a command that ends while Claude Code answers the familiar's report sends its reply only once Claude Code is idle", async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -498,7 +498,7 @@ await test("a command that ends while Claude Code answers the familiar's report 
   }
 });
 
-await test('a command that ends while Claude Code runs again after idle sends its reply only once Claude Code is idle again', async () => {
+test('a command that ends while Claude Code runs again after idle sends its reply only once Claude Code is idle again', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -522,7 +522,7 @@ await test('a command that ends while Claude Code runs again after idle sends it
   }
 });
 
-await test("a reply waiting for Claude Code's idle goes once Claude Code starts another familiar", async () => {
+test("a reply waiting for Claude Code's idle goes once Claude Code starts another familiar", async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -545,7 +545,7 @@ await test("a reply waiting for Claude Code's idle goes once Claude Code starts 
   }
 });
 
-await test('an interrupt during a steered command after Claude Code is idle kills it and ends the turn interrupted, sending the idle CLI no interrupt and no reply', async () => {
+test('an interrupt during a steered command after Claude Code is idle kills it and ends the turn interrupted, sending the idle CLI no interrupt and no reply', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -569,7 +569,7 @@ await test('an interrupt during a steered command after Claude Code is idle kill
   }
 });
 
-await test('an interrupt after the reply while a familiar holds the turn open ends the turn interrupted, though Claude Code sends no fresh result', async () => {
+test('an interrupt after the reply while a familiar holds the turn open ends the turn interrupted, though Claude Code sends no fresh result', async () => {
   const seen = observe();
   const { session } = await fixture(seen.onEvent);
   try {
@@ -585,7 +585,7 @@ await test('an interrupt after the reply while a familiar holds the turn open en
   }
 });
 
-await test('a model change waits for the turn, unless it has replied and a familiar holds it open', async () => {
+test('a model change waits for the turn, unless it has replied and a familiar holds it open', async () => {
   const busy = working();
   const seen = observe();
   const { session, cwd } = await fixture((event) => {
@@ -616,7 +616,7 @@ await test('a model change waits for the turn, unless it has replied and a famil
 });
 
 for (const mode of [undefined, 'first-reply-read']) {
-  await test(
+  test(
     mode
       ? 'an interrupt recovers only command records named by its receipt'
       : 'an interrupt returns unread command records separately from ordinary prompts',
@@ -668,7 +668,7 @@ for (const mode of [undefined, 'first-reply-read']) {
   );
 }
 
-await test('an interrupt recovers a completed idle command from its initial reply', async () => {
+test('an interrupt recovers a completed idle command from its initial reply', async () => {
   const { session, cwd } = await fixture(undefined, 'hold-initial');
   const command = "printf 'once\\n' >> executions; printf 'initial-output\\n'";
   const record = `<bash-input>${command}</bash-input>\n<bash-stdout>initial-output\n</bash-stdout><bash-stderr></bash-stderr>`;
@@ -702,7 +702,7 @@ await test('an interrupt recovers a completed idle command from its initial repl
   }
 });
 
-await test("a turn stays open while a steered command's end report is still settling", async () => {
+test("a turn stays open while a steered command's end report is still settling", async () => {
   const seen = observe();
   const settled = Promise.withResolvers<void>();
   const { cwd, connect } = await launcher();
@@ -739,7 +739,7 @@ await test("a turn stays open while a steered command's end report is still sett
   }
 });
 
-await test('a steered command that fails posts its error and sends no reply', async () => {
+test('a steered command that fails posts its error and sends no reply', async () => {
   const seen = observe();
   const { cwd, connect } = await launcher();
   const session = await connect({
@@ -770,7 +770,7 @@ await test('a steered command that fails posts its error and sends no reply', as
   }
 });
 
-await test('a held turn fails when the CLI dies after idle, and its steered command stops', async () => {
+test('a held turn fails when the CLI dies after idle, and its steered command stops', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -795,7 +795,7 @@ await test('a held turn fails when the CLI dies after idle, and its steered comm
   }
 });
 
-await test('a shell command run with no turn open keeps running when the CLI dies', async () => {
+test('a shell command run with no turn open keeps running when the CLI dies', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -816,7 +816,7 @@ await test('a shell command run with no turn open keeps running when the CLI die
   }
 });
 
-await test('an interrupt while a command that ended waits for idle sends no reply', async () => {
+test('an interrupt while a command that ended waits for idle sends no reply', async () => {
   const seen = observe();
   const { session, cwd } = await fixture(seen.onEvent);
   try {
@@ -850,7 +850,7 @@ async function insideAnotherWitch(body: () => Promise<void>) {
   }
 }
 
-await test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI doesn't get the mark", async () => {
+test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI doesn't get the mark", async () => {
   await insideAnotherWitch(async () => {
     const { envs, connect } = await launcher();
     const session = await connect({ mark });
@@ -863,10 +863,10 @@ await test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI d
   });
 });
 
-await test("a ! command's shell gets the mark's environment over Witch's", async (t) => {
+test("a ! command's shell gets the mark's environment over Witch's", async (t) => {
   const temporary = await scratch('witch-shell-environment-');
   const previous = process.env.TMPDIR;
-  t.after(() => {
+  t.onTestFinished(() => {
     if (previous === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = previous;
   });

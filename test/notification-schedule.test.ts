@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { promisify } from 'node:util';
 import { openLocked } from '../src/persistence/lock.js';
 import { NotificationSchedule } from '../src/persistence/notifications.js';
@@ -24,10 +24,10 @@ async function fixture() {
   return { directory, schedule, file, output, write };
 }
 
-await test('notification intervals follow the last actual write across schedule instances', async (t) => {
+test('notification intervals follow the last actual write across schedule instances', async () => {
   const { directory, schedule, file, output, write } = await fixture();
   let now = 10_000_000_000n;
-  t.mock.method(process.hrtime, 'bigint', () => now);
+  vi.spyOn(process.hrtime, 'bigint').mockImplementation(() => now);
   assert.equal(
     await schedule.attempt(
       () => 'first',
@@ -60,7 +60,7 @@ await test('notification intervals follow the last actual write across schedule 
   assert.deepEqual(output, ['first', 'second', 'second']);
 });
 
-await test('a competing lock defers notification output until it is released', async () => {
+test('a competing lock defers notification output until it is released', async () => {
   const { directory, schedule, output, write } = await fixture();
   const lock = await openLocked(
     join(directory, 'lock'),
@@ -83,9 +83,9 @@ await test('a competing lock defers notification output until it is released', a
   assert.deepEqual(output, ['available']);
 });
 
-await test('another process reads the prior send before deciding its interval', async (t) => {
+test('another process reads the prior send before deciding its interval', async () => {
   const { directory, schedule, write } = await fixture();
-  t.mock.method(process.hrtime, 'bigint', () => 40_000_000n);
+  vi.spyOn(process.hrtime, 'bigint').mockImplementation(() => 40_000_000n);
   await schedule.attempt(() => 'prior', write);
   const { stdout } = await promisify(execFile)(
     process.execPath,
@@ -105,9 +105,9 @@ await test('another process reads the prior send before deciding its interval', 
   assert.equal(stdout.trim(), '1000');
 });
 
-await test('a previous boot cannot delay a notification on the current boot', async (t) => {
+test('a previous boot cannot delay a notification on the current boot', async () => {
   const { schedule, file, output, write } = await fixture();
-  t.mock.method(process.hrtime, 'bigint', () => 100_000_000n);
+  vi.spyOn(process.hrtime, 'bigint').mockImplementation(() => 100_000_000n);
   await schedule.attempt(() => 'first', write);
   const previous = JSON.parse(await readFile(file, 'utf8'));
   await writeFile(
@@ -119,7 +119,7 @@ await test('a previous boot cannot delay a notification on the current boot', as
   assert.equal(JSON.parse(await readFile(file, 'utf8')).boot, previous.boot);
 });
 
-await test('cancellation during an asynchronous attempt leaves the schedule unchanged', async () => {
+test('cancellation during an asynchronous attempt leaves the schedule unchanged', async () => {
   const { schedule, file, output, write } = await fixture();
   let eligible = true;
   const attempt = schedule.attempt(
@@ -132,7 +132,7 @@ await test('cancellation during an asynchronous attempt leaves the schedule unch
   await assert.rejects(readFile(file), { code: 'ENOENT' });
 });
 
-await test('invalid schedule data rejects and releases the lock on every attempt', async () => {
+test('invalid schedule data rejects and releases the lock on every attempt', async () => {
   const { schedule, file, output, write } = await fixture();
   for (const value of ['{', '{"boot":"invalid","sentAt":0,"digest":"bad"}']) {
     await writeFile(file, value);
@@ -143,7 +143,7 @@ await test('invalid schedule data rejects and releases the lock on every attempt
   }
 });
 
-await test('a failed output does not record a send or retain the lock', async () => {
+test('a failed output does not record a send or retain the lock', async () => {
   const { schedule, file, output, write } = await fixture();
   await assert.rejects(
     schedule.attempt(

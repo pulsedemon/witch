@@ -6,8 +6,7 @@ import { writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test, vi } from 'vitest';
 import type {
   Query,
   SDKControlGetUsageResponse,
@@ -25,6 +24,7 @@ import { App } from '../src/ui/app.js';
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
 import { show } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const timeout = 10_000;
 const idle = {
@@ -141,13 +141,30 @@ function endpoint(child: ChildProcessWithoutNullStreams, cwd: string) {
 type Endpoint = ReturnType<typeof endpoint>;
 
 async function controlled(
-  t: TestContext,
+  register: RegisterCleanup,
   options: Partial<SessionOptions> = {},
   mode = 'background',
   usageMode = 'background',
   holdMain = false,
 ) {
   const f = await launcher(mode, usageMode);
+  let session: AgentSession | undefined = undefined;
+  register(async () => {
+    vi.useRealTimers();
+    try {
+      await session?.close();
+    } finally {
+      for (const child of [
+        ...f.children,
+        ...f.usageChildren.map((h) => h.child),
+      ]) {
+        if (child.exitCode !== null || child.signalCode !== null) continue;
+        const closed = once(child, 'close');
+        child.kill('SIGKILL');
+        await closed;
+      }
+    }
+  });
   const helpers: Endpoint[] = [];
   const events: AgentEvent[] = [];
   const identities: (number | undefined)[] = [];
@@ -163,7 +180,7 @@ async function controlled(
     }
     await options.onUsageProcess?.(pid);
   };
-  const session = await f.connect({
+  session = await f.connect({
     ...options,
     onUsageProcess: prepare,
     onEvent: (event) => {
@@ -172,22 +189,6 @@ async function controlled(
     },
   });
   const main = endpoint(f.children[0]!, f.cwd);
-  t.after(async () => {
-    t.mock.timers.reset();
-    try {
-      await session.close();
-    } finally {
-      for (const child of [
-        ...f.children,
-        ...f.usageChildren.map((h) => h.child),
-      ]) {
-        if (child.exitCode !== null || child.signalCode !== null) continue;
-        const closed = once(child, 'close');
-        child.kill('SIGKILL');
-        await closed;
-      }
-    }
-  });
   return { ...f, session, main, helpers, events, identities, prepare };
 }
 
@@ -197,8 +198,8 @@ async function initial(f: Fixture) {
   await until('initial usage', () => !!f.session.usage.limits);
 }
 
-async function poll(t: TestContext, f: Fixture, index = 0) {
-  t.mock.timers.tick(60_000);
+async function poll(f: Fixture, index = 0) {
+  vi.advanceTimersByTime(60_000);
   await until('usage helper', () => !!f.helpers[index]);
   const helper = f.helpers[index]!;
   await helper.pending();
@@ -218,12 +219,12 @@ async function complete(f: Fixture) {
 }
 
 for (const state of ['foreground', 'familiar', 'idle'] as const) {
-  await test(
+  test(
     `periodic Claude limits refresh during ${state} without a new result or idle event`,
     { timeout },
     async (t) => {
-      t.mock.timers.enable({ apis: ['setTimeout'] });
-      const f = await controlled(t, {}, 'compaction');
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const f = await controlled(t.onTestFinished, {}, 'compaction');
       await initial(f);
       let finished = false;
       if (state !== 'idle') {
@@ -238,11 +239,11 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
             : f.session.replied,
         );
       }
-      const writes = t.mock.method(f.children[0]!.stdin, 'write');
-      t.mock.timers.tick(59_999);
+      const writes = vi.spyOn(f.children[0]!.stdin, 'write');
+      vi.advanceTimersByTime(59_999);
       await f.main.barrier();
       assert.equal(f.helpers.length, 0);
-      t.mock.timers.tick(1);
+      vi.advanceTimersByTime(1);
       await until('first periodic helper', () => !!f.helpers[0]);
       const helper = f.helpers[0]!;
       const first = await helper.reply();
@@ -253,15 +254,15 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
             e.type === 'usage' && e.usage.limits === f.session.usage.limits,
         ),
       );
-      t.mock.timers.tick(59_999);
+      vi.advanceTimersByTime(59_999);
       await helper.barrier();
       assert.equal((await helper.requests()).length, 1);
-      t.mock.timers.tick(1);
+      vi.advanceTimersByTime(1);
       await helper.reply(report(true), first);
       assert.deepEqual(f.session.usage.limits, nextLimits);
       assert.equal(finished, false);
       assert.equal(
-        writes.mock.calls.filter(({ arguments: args }) =>
+        writes.mock.calls.filter((args) =>
           String(args[0]).includes('"get_usage"'),
         ).length,
         0,
@@ -271,37 +272,43 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
   );
 }
 
-await test(
+test(
   'connect and completion usage serialize before periodic polling starts',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t, {}, 'background', 'background', true);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(
+      t.onTestFinished,
+      {},
+      'background',
+      'background',
+      true,
+    );
     await f.main.pending();
     await complete(f);
     await f.main.barrier();
     assert.equal((await f.main.requests()).length, 1);
-    t.mock.timers.tick(60_000);
+    vi.advanceTimersByTime(60_000);
     await f.main.barrier();
     assert.equal(f.helpers.length, 0);
     const id = await f.main.reply();
     await f.main.reply(report(true), id);
     assert.equal((await f.main.requests()).length, 2);
     assert.deepEqual(f.session.usage.limits, nextLimits);
-    const helper = await poll(t, f);
+    const helper = await poll(f);
     await helper.reply();
     assert.equal((await f.main.requests()).length, 2);
   },
 );
 
-await test(
+test(
   'completion requests fresh context before a held helper read and queues one main statistics read',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(t.onTestFinished);
     await initial(f);
-    const helper = await poll(t, f);
+    const helper = await poll(f);
     await writeFile(join(f.cwd, 'hold-context'), '');
     await complete(f);
     let context: Control | undefined;
@@ -336,15 +343,21 @@ await test(
 
 for (const source of ['main', 'helper'] as const) {
   for (const variant of ['rejected', 'malformed', 'null', 'partial'] as const) {
-    await test(
+    test(
       `${source} ${variant} account report retains the missing valid windows and later recovers`,
       { timeout },
       async (t) => {
-        t.mock.timers.enable({ apis: ['setTimeout'] });
-        const f = await controlled(t, {}, 'background', 'background', true);
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const f = await controlled(
+          t.onTestFinished,
+          {},
+          'background',
+          'background',
+          true,
+        );
         const mainId = await f.main.reply();
         assert.deepEqual(f.session.usage.limits, firstLimits);
-        const target = source === 'main' ? f.main : await poll(t, f);
+        const target = source === 'main' ? f.main : await poll(f);
         if (source === 'main') await complete(f);
         const bad = report();
         if (variant === 'null') bad.rate_limits = null;
@@ -368,10 +381,10 @@ for (const source of ['main', 'helper'] as const) {
             ? [{ window: '5H', percent: 0 }, firstLimits[1]]
             : firstLimits,
         );
-        const helper = f.helpers[0] ?? (await poll(t, f));
+        const helper = f.helpers[0] ?? (await poll(f));
         const last =
           source === 'helper' ? (await helper.pending()).request_id : '';
-        if (source === 'helper') t.mock.timers.tick(60_000);
+        if (source === 'helper') vi.advanceTimersByTime(60_000);
         await helper.reply(report(true), last);
         assert.deepEqual(f.session.usage.limits, nextLimits);
         assert.equal(f.helpers.length, 1);
@@ -380,17 +393,17 @@ for (const source of ['main', 'helper'] as const) {
   }
 }
 
-await test(
+test(
   'helper totals and stream messages cannot replace main statistics or identity',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t, {}, 'compaction');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(t.onTestFinished, {}, 'compaction');
     await initial(f);
     await f.session.send('hello');
     await until('main line totals', () => f.session.usage.lines?.added === 4);
     const info = { ...f.session.info };
-    const helper = await poll(t, f);
+    const helper = await poll(f);
     const before = f.events.length;
     await helper.emit(
       {
@@ -423,18 +436,18 @@ await test(
   },
 );
 
-await test(
+test(
   'foreground context, steering and interruption finish before a helper reply',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t, {}, 'compaction');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(t.onTestFinished, {}, 'compaction');
     await initial(f);
     const turn = f.session.send('steerable');
     await until('foreground text', () =>
       f.events.some((event) => event.type === 'text'),
     );
-    const helper = await poll(t, f);
+    const helper = await poll(f);
     assert.equal(await f.session.contextUsage(), 12.5);
     assert.equal(await f.session.steer('extra context'), true);
     await f.main.barrier();
@@ -446,14 +459,14 @@ await test(
 );
 
 for (const phase of ['initialization', 'registration'] as const) {
-  await test(
+  test(
     `main controls remain usable and close joins delayed helper ${phase}`,
     { timeout },
     async (t) => {
-      t.mock.timers.enable({ apis: ['setTimeout'] });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const registered = Promise.withResolvers<void>();
       const f = await controlled(
-        t,
+        t.onTestFinished,
         {
           onUsageProcess: (pid) =>
             pid === undefined || phase !== 'registration'
@@ -466,7 +479,7 @@ for (const phase of ['initialization', 'registration'] as const) {
       try {
         await initial(f);
         assert.equal(f.helpers.length, 0);
-        t.mock.timers.tick(60_000);
+        vi.advanceTimersByTime(60_000);
         await until('helper spawned', () => !!f.helpers[0]);
         const helper = f.helpers[0]!;
         await until(
@@ -489,7 +502,7 @@ for (const phase of ['initialization', 'registration'] as const) {
         registered.resolve();
         await closing;
         assert.deepEqual(f.identities, [helper.child.pid, undefined]);
-        t.mock.timers.tick(60_000);
+        vi.advanceTimersByTime(60_000);
         assert.equal(f.helpers.length, 1);
       } finally {
         registered.resolve();
@@ -498,15 +511,15 @@ for (const phase of ['initialization', 'registration'] as const) {
   );
 }
 
-await test(
+test(
   'registration failure stops pending initialization and releases queued statistics',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const registered = Promise.withResolvers<void>();
     let starts = 0;
     const f = await controlled(
-      t,
+      t.onTestFinished,
       {
         onUsageProcess: async (pid) => {
           if (pid !== undefined && ++starts === 1) await registered.promise;
@@ -517,7 +530,7 @@ await test(
     );
     try {
       await initial(f);
-      t.mock.timers.tick(60_000);
+      vi.advanceTimersByTime(60_000);
       await until('helper spawned', () => !!f.helpers[0]);
       const helper = f.helpers[0]!;
       await until(
@@ -535,10 +548,10 @@ await test(
         () => f.session.usage.lines?.added === 4,
       );
       assert.equal(f.session.closed, false);
-      t.mock.timers.tick(59_999);
+      vi.advanceTimersByTime(59_999);
       await f.main.barrier();
       assert.equal(f.helpers.length, 1);
-      t.mock.timers.tick(1);
+      vi.advanceTimersByTime(1);
       await until('replacement helper', () => f.helpers.length === 2);
       assert.equal(await f.session.contextUsage(), 12.5);
       assert.equal(f.children.length, 1);
@@ -549,13 +562,13 @@ await test(
 );
 
 for (const failure of ['startup', 'registration'] as const) {
-  await test(
+  test(
     `helper ${failure} failure retains usage and retries at the next interval`,
     { timeout },
     async (t) => {
-      t.mock.timers.enable({ apis: ['setTimeout'] });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       let starts = 0;
-      const f = await controlled(t, {
+      const f = await controlled(t.onTestFinished, {
         onUsageProcess: async (pid) => {
           if (pid === undefined || ++starts !== 1) return;
           if (failure === 'registration')
@@ -567,7 +580,7 @@ for (const failure of ['startup', 'registration'] as const) {
       const before = structuredClone(f.session.usage);
       const mainPid = f.children[0]!.pid;
       const sessionId = f.session.info.id;
-      t.mock.timers.tick(60_000);
+      vi.advanceTimersByTime(60_000);
       await until(
         'failed helper stopped',
         () =>
@@ -578,10 +591,10 @@ for (const failure of ['startup', 'registration'] as const) {
       await f.main.barrier();
       assert.deepEqual(f.session.usage, before);
       assert.equal(f.session.closed, false);
-      t.mock.timers.tick(59_999);
+      vi.advanceTimersByTime(59_999);
       await f.main.barrier();
       assert.equal(f.helpers.length, 1);
-      t.mock.timers.tick(1);
+      vi.advanceTimersByTime(1);
       await until('replacement helper', () => f.helpers.length === 2);
       await f.helpers[1]!.reply(report(true));
       assert.deepEqual(f.session.usage.limits, nextLimits);
@@ -591,12 +604,12 @@ for (const failure of ['startup', 'registration'] as const) {
   );
 }
 
-await test(
+test(
   'an exited helper is replaced after cleanup without reconnecting the conversation',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(t.onTestFinished);
     await initial(f);
     const turn = f.session.send('held before helper exit');
     await until('native session identity', () =>
@@ -605,7 +618,7 @@ await test(
           event.type === 'skills' && event.skills[0]?.name === 'result-1',
       ),
     );
-    const helper = await poll(t, f);
+    const helper = await poll(f);
     await helper.reply();
     const firstPid = helper.child.pid;
     const sessionId = f.session.info.id;
@@ -620,10 +633,10 @@ await test(
     assert.equal(f.helpers.length, 1);
     assert.equal(f.session.closed, false);
     assert.equal(f.session.info.id, sessionId);
-    t.mock.timers.tick(59_999);
+    vi.advanceTimersByTime(59_999);
     await f.main.barrier();
     assert.equal(f.helpers.length, 1);
-    t.mock.timers.tick(1);
+    vi.advanceTimersByTime(1);
     await until('second helper', () => !!f.helpers[1]);
     await f.helpers[1]!.reply(report(true));
     assert.deepEqual(f.identities, [
@@ -642,31 +655,29 @@ for (const reason of [
   'active exit',
   'unread interruption',
 ] as const) {
-  await test(
+  test(
     `helper shutdown joins both children and cancels the scheduled callback on ${reason}`,
     { timeout },
     async (t) => {
-      t.mock.timers.enable({ apis: ['setTimeout'] });
-      const timers: ReturnType<typeof t.mock.fn<() => void>>[] = [];
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const timers: ReturnType<typeof vi.fn<() => void>>[] = [];
       const schedule = setTimeout;
-      const scheduling = t.mock.method(
-        globalThis,
-        'setTimeout',
-        (
-          callback: (...args: unknown[]) => void,
+      vi.spyOn(globalThis, 'setTimeout').mockImplementation(
+        <Args extends unknown[]>(
+          callback: (...args: Args) => void,
           ms?: number,
-          ...args: unknown[]
+          ...args: Args
         ) => {
           if (ms !== 60_000) return schedule(callback, ms, ...args);
-          const run = t.mock.fn(() => callback(...args));
+          const run = vi.fn(() => callback(...args));
           timers.push(run);
           return schedule(run, ms);
         },
       );
       try {
-        const f = await controlled(t);
+        const f = await controlled(t.onTestFinished);
         await initial(f);
-        const helper = await poll(t, f);
+        const helper = await poll(f);
         await helper.reply();
         let turn: ReturnType<AgentSession['send']> | undefined;
         if (reason === 'active exit' || reason === 'unread interruption') {
@@ -678,7 +689,7 @@ for (const reason of [
             ),
           );
         }
-        const callbacks = timers.map((timer) => timer.mock.callCount());
+        const callbacks = timers.map((timer) => timer.mock.calls.length);
         if (reason === 'close') await f.session.close();
         else if (reason === 'unread interruption') {
           assert.equal(await f.session.steer('queued input'), true);
@@ -711,39 +722,52 @@ for (const reason of [
         );
         if (reason === 'active exit')
           assert.equal((await turn!).status, 'failed');
-        t.mock.timers.tick(60_000);
+        vi.advanceTimersByTime(60_000);
         assert.deepEqual(
-          timers.map((timer) => timer.mock.callCount()),
+          timers.map((timer) => timer.mock.calls.length),
           callbacks,
         );
         assert.equal(f.helpers.length, 1);
       } finally {
-        scheduling.mock.restore();
+        vi.restoreAllMocks();
       }
     },
   );
 }
 
-await test(
+test('usage shutdown restores a live timeout for the following case', async () => {
+  let fired = false;
+  const timer = setTimeout(() => {
+    fired = true;
+  }, 0);
+  try {
+    await until('real timeout after usage shutdown', () => fired);
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+test(
   'a successful helper response after close cannot publish or rearm polling',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(t.onTestFinished);
     await initial(f);
-    const helper = await poll(t, f);
+    const helper = await poll(f);
     await helper.reply();
     const reader = Reflect.get(f.session, 'usageReader') as {
       helper: { query: Query };
     };
     const delayed = Promise.withResolvers<SDKControlGetUsageResponse>();
-    const method = t.mock.method(
-      reader.helper.query,
-      'usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET',
-      () => delayed.promise,
-    );
-    t.mock.timers.tick(60_000);
-    await until('deferred SDK request', () => method.mock.callCount() === 1);
+    const method = vi
+      .spyOn(
+        reader.helper.query,
+        'usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET',
+      )
+      .mockImplementation(() => delayed.promise);
+    vi.advanceTimersByTime(60_000);
+    await until('deferred SDK request', () => method.mock.calls.length === 1);
     await f.session.close();
     const events = f.events.length;
     const usage = structuredClone(f.session.usage);
@@ -751,18 +775,18 @@ await test(
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(f.events.length, events);
     assert.deepEqual(f.session.usage, usage);
-    t.mock.timers.tick(60_000);
-    assert.equal(method.mock.callCount(), 1);
+    vi.advanceTimersByTime(60_000);
+    assert.equal(method.mock.calls.length, 1);
     assert.equal(f.helpers.length, 1);
   },
 );
 
-await test(
+test(
   'periodic limits render during familiar work and idle and explicit unavailability clears them',
   { timeout },
-  async (t) => {
-    t.mock.method(Date, 'now', () => 1_999_996_400_000);
-    t.mock.timers.enable({ apis: ['setTimeout'] });
+  async () => {
+    vi.spyOn(Date, 'now').mockImplementation(() => 1_999_996_400_000);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const f = await launcher('background');
     const helpers: Endpoint[] = [];
     let session: AgentSession | undefined;
@@ -808,18 +832,18 @@ await test(
         description: 'Held familiar',
         tool_use_id: 'helper-tool',
       });
-      t.mock.timers.tick(60_000);
+      vi.advanceTimersByTime(60_000);
       await until('usage helper', () => !!helpers[0]);
       const helper = helpers[0]!;
       let id = await helper.reply();
       await until('first rendered limits', () => {
-        t.mock.timers.tick(40);
+        vi.advanceTimersByTime(40);
         return /5H 24% 1h0m\s+7D 61% 1d1h/.test(ui!.text());
       });
-      t.mock.timers.tick(60_000);
+      vi.advanceTimersByTime(60_000);
       id = await helper.reply(report(true), id);
       await until('changed held limits', () => {
-        t.mock.timers.tick(40);
+        vi.advanceTimersByTime(40);
         return /5H 0% 2h0m\s+7D 72% 2d1h/.test(ui!.text());
       });
       assert.equal(coordinator.snapshot.phase, 'running');
@@ -856,26 +880,26 @@ await test(
           coordinator.snapshot.phase === 'idle' &&
           session?.usage.lines?.added === 4,
       );
-      t.mock.timers.tick(60_000);
+      vi.advanceTimersByTime(60_000);
       id = await helper.reply(report(true), id);
       await until('changed idle limits', () => {
-        t.mock.timers.tick(40);
+        vi.advanceTimersByTime(40);
         return /5H 0% 2h0m\s+7D 72% 2d1h/.test(ui!.text());
       });
       assert.equal(coordinator.snapshot.phase, 'idle');
       const unavailable = report();
       unavailable.rate_limits_available = false;
       unavailable.rate_limits = null;
-      t.mock.timers.tick(60_000);
+      vi.advanceTimersByTime(60_000);
       await helper.reply(unavailable, id);
       await until('unavailable windows cleared', () => {
-        t.mock.timers.tick(40);
+        vi.advanceTimersByTime(40);
         return !ui!.text().includes('5H ') && !ui!.text().includes('7D ');
       });
       assert.deepEqual(session!.usage.limits, []);
       assert.deepEqual(session!.usage.lines, { added: 4, removed: 1 });
     } finally {
-      t.mock.timers.reset();
+      vi.useRealTimers();
       ui?.unmount();
       await coordinator.close();
       for (const child of [
@@ -887,14 +911,14 @@ await test(
   },
 );
 
-await test(
+test(
   'close stops a helper whose native usage response is still pending',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(t.onTestFinished);
     await initial(f);
-    const helper = await poll(t, f);
+    const helper = await poll(f);
     const usageEvents = f.events.filter(
       (event) => event.type === 'usage',
     ).length;
@@ -910,24 +934,24 @@ await test(
       usageEvents,
     );
     assert.deepEqual(f.identities, [helper.child.pid, undefined]);
-    t.mock.timers.tick(60_000);
+    vi.advanceTimersByTime(60_000);
     assert.equal(f.helpers.length, 1);
   },
 );
 
-await test(
+test(
   'helper exit during registration preserves a queued completion refresh',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const registered = Promise.withResolvers<void>();
-    const f = await controlled(t, {
+    const f = await controlled(t.onTestFinished, {
       onUsageProcess: (pid) =>
         pid === undefined ? Promise.resolve() : registered.promise,
     });
     try {
       await initial(f);
-      t.mock.timers.tick(60_000);
+      vi.advanceTimersByTime(60_000);
       await until('helper registration started', () => !!f.helpers[0]);
       const helper = f.helpers[0]!;
       await helper.barrier();
@@ -953,15 +977,20 @@ await test(
   },
 );
 
-await test(
+test(
   'a failed helper spawn reports no identity and retries without closing the conversation',
   { timeout },
   async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    const f = await controlled(t, {}, 'background', 'spawn-error');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const f = await controlled(
+      t.onTestFinished,
+      {},
+      'background',
+      'spawn-error',
+    );
     await initial(f);
     const before = structuredClone(f.session.usage);
-    t.mock.timers.tick(60_000);
+    vi.advanceTimersByTime(60_000);
     await until(
       'failed spawn closed',
       () => !!f.usageChildren[0] && f.usageChildren[0].child.exitCode !== null,
@@ -970,10 +999,10 @@ await test(
     assert.deepEqual(f.identities, []);
     assert.deepEqual(f.session.usage, before);
     assert.equal(f.session.closed, false);
-    t.mock.timers.tick(59_999);
+    vi.advanceTimersByTime(59_999);
     await f.main.barrier();
     assert.equal(f.usageChildren.length, 1);
-    t.mock.timers.tick(1);
+    vi.advanceTimersByTime(1);
     await until('spawn retried', () => f.usageChildren.length === 2);
     await f.session.close();
     assert.deepEqual(f.identities, []);

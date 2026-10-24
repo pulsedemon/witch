@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { promisify } from 'node:util';
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import stripAnsi from 'strip-ansi';
@@ -34,7 +34,7 @@ function linkSpans(text: string) {
   return spans;
 }
 
-await test('bare URLs retain their exact browser target across wrapping', () => {
+test('bare URLs retain their exact browser target across wrapping', () => {
   const url = 'https://iterm2.com/documentation-escape-codes.html';
   const rendered = wrapAnsi(linkify(`Read ${url}.`, '/work'), 24, {
     hard: true,
@@ -55,7 +55,7 @@ await test('bare URLs retain their exact browser target across wrapping', () => 
   }
 });
 
-await test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
+test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
   const link = (text: string) =>
     `\u001b]8;;https://example.com\u0007\u001b[4m${text}\u001b[24m\u001b]8;;\u0007`;
   assert.equal(
@@ -69,7 +69,7 @@ await test('a link is underlined inside its OSC 8 sequence on each of its lines,
   assert.equal(hyperlink('label', 'smb://example.com/share', '/work'), 'label');
 });
 
-await test('a link stays plain OSC 8 when Witch runs under tmux', async () => {
+test('a link stays plain OSC 8 when Witch runs under tmux', async () => {
   const links = new URL('../src/ui/links.ts', import.meta.url).href;
   const { stdout } = await execute(
     process.execPath,
@@ -94,7 +94,7 @@ await test('a link stays plain OSC 8 when Witch runs under tmux', async () => {
   );
 });
 
-await test('relative files resolve against their originating project with encoded spaces and locations', () => {
+test('relative files resolve against their originating project with encoded spaces and locations', () => {
   assert.equal(
     linkTarget('src/My File.ts:12:4', '/work/My Project'),
     'vscode://file/work/My%20Project/src/My%20File.ts:12:4',
@@ -110,7 +110,7 @@ await test('relative files resolve against their originating project with encode
   );
 });
 
-await test('non-ASCII and punctuation filenames link whole', () => {
+test('non-ASCII and punctuation filenames link whole', () => {
   for (const [text, target] of [
     ['docs/über/x.md', 'vscode://file/proj/docs/%C3%BCber/x.md'],
     ['src/naïve.ts:3', 'vscode://file/proj/src/na%C3%AFve.ts:3'],
@@ -131,7 +131,7 @@ await test('non-ASCII and punctuation filenames link whole', () => {
   }
 });
 
-await test('bare file URLs do not produce relative suffix links', () => {
+test('bare file URLs do not produce relative suffix links', () => {
   for (const text of [
     'at file:///Users/me/My%20Project/src/a.ts:12:3',
     'file:///Users/me/My%20Project/README.md',
@@ -142,7 +142,7 @@ await test('bare file URLs do not produce relative suffix links', () => {
   }
 });
 
-await test('filename boundaries preserve prose and complete names', () => {
+test('filename boundaries preserve prose and complete names', () => {
   for (const [text, expected] of [
     [
       'Edited src/naïve.ts:3',
@@ -195,7 +195,7 @@ await test('filename boundaries preserve prose and complete names', () => {
   }
 });
 
-await test('a non-ASCII filename keeps its whole target through appends and wrapping', () => {
+test('a non-ASCII filename keeps its whole target through appends and wrapping', () => {
   const first = linkifyAppend('docs/', '/proj');
   const next = linkifyAppend(
     first.pending + 'über/x.md\n',
@@ -216,7 +216,7 @@ await test('a non-ASCII filename keeps its whole target through appends and wrap
   assert.equal(stripAnsi(rows.join('')), 'docs/über/x.md');
 });
 
-await test('a prefixed or absolute path followed by a colon links without it, keeping a line and column', () => {
+test('a prefixed or absolute path followed by a colon links without it, keeping a line and column', () => {
   for (const [text, target] of [
     ['./src/a.ts:12:const x = 1;', 'vscode://file/work/project/src/a.ts:12'],
     ['/work/src/b.c:7:5: error: bad', 'vscode://file/work/src/b.c:7:5'],
@@ -228,7 +228,7 @@ await test('a prefixed or absolute path followed by a colon links without it, ke
     );
 });
 
-await test('a #L location links as a line and column, a heading fragment drops, and a Markdown target with no file stays text', () => {
+test('a #L location links as a line and column, a heading fragment drops, and a Markdown target with no file stays text', () => {
   assert.ok(
     linkify('`src/a.ts#L10C2`', '/work').includes(
       '\u001b]8;;vscode://file/work/src/a.ts:10:2\u0007',
@@ -256,7 +256,7 @@ await test('a #L location links as a line and column, a heading fragment drops, 
     );
 });
 
-await test('Markdown labels and links in code blocks remain clickable', () => {
+test('Markdown labels and links in code blocks remain clickable', () => {
   const rendered = markdown(
     '[Documentation](https://example.com/docs)\n\n```text\nhttps://example.com/log\nsrc/main.ts:42\n```',
     '/work/project',
@@ -270,7 +270,7 @@ await test('Markdown labels and links in code blocks remain clickable', () => {
     assert.ok(rendered.includes(target));
 });
 
-await test('long URLs and preexisting terminal hyperlinks keep their targets, and a file URL opens in VS Code', () => {
+test('long URLs and preexisting terminal hyperlinks keep their targets, and a file URL opens in VS Code', () => {
   const url = `https://example.com/search?q=${'x'.repeat(1000)}`;
   assert.ok(linkify(url, '/work').includes(`\u001b]8;;${url}\u0007`));
   const explicit =
@@ -290,7 +290,7 @@ await test('long URLs and preexisting terminal hyperlinks keep their targets, an
     );
 });
 
-await test('quoted and Markdown file links preserve spaces without linking command names', () => {
+test('quoted and Markdown file links preserve spaces without linking command names', () => {
   const prose = '/help PageUp/PageDown ↑/↓';
   assert.equal(linkify(prose, '/work'), prose);
   for (const rendered of [
@@ -303,7 +303,7 @@ await test('quoted and Markdown file links preserve spaces without linking comma
   }
 });
 
-await test('bare source references take precedence over fuzzy domains while explicit web URLs stay web links', () => {
+test('bare source references take precedence over fuzzy domains while explicit web URLs stay web links', () => {
   for (const file of ['server.py:42', 'foo.sh', 'README.md', 'src/main.py:4']) {
     const rendered = linkify(file, '/work/project');
     assert.ok(rendered.includes(`vscode://file/work/project/${file}`));
@@ -317,12 +317,12 @@ await test('bare source references take precedence over fuzzy domains while expl
   assert.ok(linkify('example.com', '/work').includes('http://example.com'));
 });
 
-await test('a dotted word or a name with an unlisted extension and no directory stays text', () => {
+test('a dotted word or a name with an unlisted extension and no directory stays text', () => {
   const prose = 'Use e.g. or i.e. with foo.bar.';
   assert.equal(linkify(prose, '/work'), prose);
 });
 
-await test('malformed file URLs remain readable without breaking a persisted transcript', () => {
+test('malformed file URLs remain readable without breaking a persisted transcript', () => {
   assert.equal(
     stripAnsi(markdown('[Open report](file:///tmp/100%.txt)', '/work')),
     'Open report',
@@ -335,14 +335,14 @@ await test('malformed file URLs remain readable without breaking a persisted tra
   );
 });
 
-await test('long runs of filename characters, and links on many lines or one, link in linear time', () => {
-  // compare CPU time so scheduling delays do not count as parsing work.
+test('long runs of filename characters, and links on many lines or one, link in linear time', () => {
+  // measure the parsing thread so other threads' CPU work cannot skew the ratio.
   const fastest = (text: string) =>
     Math.min(
       ...[1, 2, 3].map(() => {
-        const start = process.cpuUsage();
+        const start = process.threadCpuUsage();
         linkify(text, '/work');
-        const { user, system } = process.cpuUsage(start);
+        const { user, system } = process.threadCpuUsage(start);
         return user + system;
       }),
     );
@@ -376,7 +376,7 @@ await test('long runs of filename characters, and links on many lines or one, li
   }
 });
 
-await test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, so a link across the cut stays whole', () => {
+test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, so a link across the cut stays whole', () => {
   const file = `src/notes ${'n'.repeat(20)}.md`;
   for (const [text, target] of [
     [
@@ -405,7 +405,7 @@ await test('text past 2000 characters is cut after a newline, else after a space
   assert.equal(linkify(unbroken, '/work'), unbroken);
 });
 
-await test('multi-dot names, dotfiles and quoted or prefixed paths after a dash link whole', () => {
+test('multi-dot names, dotfiles and quoted or prefixed paths after a dash link whole', () => {
   for (const [text, target] of [
     ['test/claude.test.ts:3', 'vscode://file/work/test/claude.test.ts:3'],
     ['.eslintrc.json', 'vscode://file/work/.eslintrc.json'],
@@ -419,7 +419,7 @@ await test('multi-dot names, dotfiles and quoted or prefixed paths after a dash 
     );
 });
 
-await test('a web target with a control character stays plain text', () => {
+test('a web target with a control character stays plain text', () => {
   assert.equal(
     hyperlink('label', 'https://example.com/\u001b]8;;x', '/work'),
     'label',
@@ -430,7 +430,7 @@ await test('a web target with a control character stays plain text', () => {
   );
 });
 
-await test('a stray escape or bell left by a dropped sequence cannot rejoin into a link', () => {
+test('a stray escape or bell left by a dropped sequence cannot rejoin into a link', () => {
   const forged =
     '\u001b\u001b[31m]8;;smb://evil.example/share\u0007name\u001b\u001b[0m]8;;\u0007';
   const c1 = '\u009d8;;smb://evil.example/share\u0007name\u009d8;;\u0007';
@@ -442,7 +442,7 @@ await test('a stray escape or bell left by a dropped sequence cannot rejoin into
   assert.equal(linkify('a\r\nb\tc', '/work'), 'a\r\nb\tc');
 });
 
-await test('plain text keeps no link, including one that stripping a sequence would build', () => {
+test('plain text keeps no link, including one that stripping a sequence would build', () => {
   assert.equal(
     plain(
       '\u001b\u001b[31m]8;;https://evil.example/share\u0007name\u001b\u001b[0m]8;;\u0007',
@@ -455,7 +455,7 @@ await test('plain text keeps no link, including one that stripping a sequence wo
   );
 });
 
-await test('streaming links retain their targets and unresolved controls across chunks', () => {
+test('streaming links retain their targets and unresolved controls across chunks', () => {
   const target = 'https://x.test/';
   const cases = [
     {

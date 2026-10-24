@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import type { Profiler } from 'node:inspector';
 import { Session } from 'node:inspector/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { Lexer } from 'marked';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../src/agents/types.js';
@@ -14,7 +14,7 @@ import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
-await test('unchanged resizes reuse text and diff preparation', async () => {
+test('unchanged resizes reuse text and diff preparation', async () => {
   const watched = new Map([
     [
       new URL('../src/ui/markdown.ts', import.meta.url).href,
@@ -171,12 +171,12 @@ await test('unchanged resizes reuse text and diff preparation', async () => {
   }
 });
 
-await test('a cached image variant restores its placement after intervening widths', (t) => {
+test('a cached image variant restores its placement after intervening widths', (t) => {
   const placements: string[] = [];
   const graphics = new Graphics((data) => {
     if (data.includes('a=p,')) placements.push(data);
   });
-  t.after(() => graphics.release());
+  t.onTestFinished(() => graphics.release());
   const layout = new TranscriptLayout(graphics);
   const item: DisplayItem = {
     id: 'tool',
@@ -227,7 +227,7 @@ await test('a cached image variant restores its placement after intervening widt
   assert.ok(stripAnsi(frame.lines.slice().join('\n')).includes('12 +line_12'));
 });
 
-await test('cached expansion variants use the current width and item', () => {
+test('cached expansion variants use the current width and item', () => {
   const diff = (label: string): FileDiff[] => [
     {
       path: `/work/${label}.ts`,
@@ -293,10 +293,10 @@ await test('cached expansion variants use the current width and item', () => {
   }
 });
 
-await test('a resize retries a missing image without reparsing its text', async (t) => {
+test('a resize retries a missing image without reparsing its text', async (t) => {
   const directory = await scratch('witch-resize-image-');
   const graphics = new Graphics(() => {});
-  t.after(() => graphics.release());
+  t.onTestFinished(() => graphics.release());
   const layout = new TranscriptLayout(graphics);
   const item: DisplayItem = {
     id: 'image',
@@ -306,7 +306,10 @@ await test('a resize retries a missing image without reparsing its text', async 
   };
   const lex = Lexer.prototype.lex;
   let parsed = 0;
-  t.mock.method(Lexer.prototype, 'lex', function (this: Lexer, source: string) {
+  vi.spyOn(Lexer.prototype, 'lex').mockImplementation(function (
+    this: Lexer,
+    source: string,
+  ) {
     parsed++;
     return lex.call(this, source);
   });

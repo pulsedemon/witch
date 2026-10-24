@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { close, fixture } from './fixtures/codex-adapter.js';
 import { until, within } from './fixtures/within.js';
 
@@ -14,7 +14,7 @@ async function inserted(cwd: string) {
   );
 }
 
-await test('Codex inserts complete context before the exact user request', async () => {
+test('Codex inserts complete context before the exact user request', async () => {
   const { session, cwd } = await fixture(
     (event) => {
       if (event.type === 'request')
@@ -59,7 +59,7 @@ await test('Codex inserts complete context before the exact user request', async
 });
 
 for (const mode of ['context-error', 'context-exit']) {
-  await test(`Codex reports unwritten input when insertion fails (${mode})`, async () => {
+  test(`Codex reports unwritten input when insertion fails (${mode})`, async () => {
     const { session, cwd } = await fixture(undefined, { mode });
     try {
       const result = await within(
@@ -77,7 +77,7 @@ for (const mode of ['context-error', 'context-exit']) {
 }
 
 for (const action of ['interrupt', 'close'] as const) {
-  await test(`Codex ${action} during insertion never submits a turn`, async () => {
+  test(`Codex ${action} during insertion never submits a turn`, async () => {
     const { session, cwd } = await fixture(undefined, { mode: 'context-held' });
     try {
       const sending = session.send('request 17', undefined, 'context 29');
@@ -98,7 +98,7 @@ for (const action of ['interrupt', 'close'] as const) {
   });
 }
 
-await test('a failed turn-start response does not prove the input was unwritten', async () => {
+test('a failed turn-start response does not prove the input was unwritten', async () => {
   const { session, cwd } = await fixture(undefined, {
     mode: 'context-start-error',
   });
