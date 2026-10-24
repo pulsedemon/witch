@@ -19,11 +19,13 @@ Setup, local checks and focused test commands are in [README.md](README.md#devel
 - Adapters implement `AgentAdapter` from `src/agents/types.ts`. Codex's JSON-RPC transport is `src/agents/json-rpc.ts`. [ModelCatalog](src/core/models.ts) owns the combined picker catalog and explicit runtime/model identity.
 - The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/memory.ts` and `src/cli.tsx`, which places `memory.git`, `jobs/` and `scratch/`. [instanceDirectory](src/persistence/instance.ts) owns job-report directories; [ScratchSpace](src/persistence/scratch.ts) owns scratch.
 
-macOS assumptions are deliberate: memory editing launches VS Code from `/Applications`, clicked links open with `/usr/bin/open`, copied text goes to `/usr/bin/pbcopy`, images other than PNG convert with `/usr/bin/sips`, process identity reads `/bin/ps`, an instance directory holding a read-only directory is made removable with `/bin/chmod`, and conversation locks and the merge cleanup's lock on a checkout's git directory use `O_EXLOCK`.
+Witch's desktop behavior targets macOS. Linux support is limited to the [development checks and native verification procedure](README.md#development). [Locking](src/persistence/lock.ts), [control-file access](src/persistence/control.ts) and [process inspection](src/persistence/process.ts) own their platform boundaries.
 
 ## Tests
 
-Tests use `node:test` and `node:assert/strict` with top-level `await test(...)` and real temp directories and Git repos. Temp directories come from `scratch()` in `test/fixtures/scratch.ts`, which removes them, never from `mkdtemp`. Adapter tests inject a launch function that spawns `test/fixtures/claude.mjs` or `test/fixtures/codex.mjs`, scripted stand-ins for the native protocols. Coordinator tests use the in-process `FixtureAgent` in `test/fixtures/agent.ts`. UI tests render through `ink-testing-library`, or through `show()` in `test/fixtures/ui.ts` when they depend on the terminal's height. Spawned fixtures run with a temp cwd and an absolute fixture path, since they write files into their cwd.
+Tests use Vitest for the files selected by [scripts/test-suite.ts](scripts/test-suite.ts) and `node:test` for the remainder. Vitest files import `test` without awaiting registration; Node files retain top-level `await test(...)`. Both use `node:assert/strict` and real temp directories and Git repos. Vitest lifecycle setup lives in [test/fixtures/vitest-setup.ts](test/fixtures/vitest-setup.ts).
+
+Temp directories come from `scratch()` in `test/fixtures/scratch.ts`, which removes them, never from `mkdtemp`. Adapter tests inject a launch function that spawns `test/fixtures/claude.mjs` or `test/fixtures/codex.mjs`, scripted stand-ins for the native protocols. Coordinator tests use the in-process `FixtureAgent` in `test/fixtures/agent.ts`. UI tests render through `ink-testing-library`, or through `show()` in `test/fixtures/ui.ts` when they depend on the terminal's height. Spawned fixtures run with a temp cwd and an absolute fixture path, since they write files into their cwd.
 
 ## Conventions
 

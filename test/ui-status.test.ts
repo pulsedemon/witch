@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { Snapshot } from '../src/core/coordinator.js';
@@ -10,7 +10,7 @@ import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { ENTER } from './fixtures/ui.js';
 
-await test('the status line shows the stored model and its label until the session reports one, and the phase row its permission mode', async () => {
+test('the status line shows the stored model and its label until the session reports one, and the phase row its permission mode', async () => {
   const { app, coordinator } = fake({
     conversation: {
       id: 'c',
@@ -48,7 +48,7 @@ await test('the status line shows the stored model and its label until the sessi
   }
 });
 
-await test('a project name, model and permission mode carrying a link sequence show as plain text', async () => {
+test('a project name, model and permission mode carrying a link sequence show as plain text', async () => {
   const forged = (name: string) => forgedLink('x-evil:payload', name);
   const { app } = fake({
     conversation: {
@@ -80,7 +80,7 @@ await test('a project name, model and permission mode carrying a link sequence s
   }
 });
 
-await test('the pentacle follows independent activity across sidebar visibility changes and returns to rest', async () => {
+test('the pentacle follows independent activity across sidebar visibility changes and returns to rest', async () => {
   const braille = (text: string) => text.match(/[⠁-⣿]/g)?.join('');
   // the working row's spinner is braille too, so only the sidebar's cells count
   const inSidebar = (text: string) =>
@@ -145,7 +145,7 @@ await test('the pentacle follows independent activity across sidebar visibility 
 const sidebarRows = (text: string) =>
   text.split('\n').map((line) => line.slice(82).trimEnd());
 
-await test('the sidebar lists only running familiars, depth first under the familiar that started them, each with its time, tool count and latest tool call, one whose parent is not listed as a root, and no heading once none are running', async () => {
+test('the sidebar lists only running familiars, depth first under the familiar that started them, each with its time, tool count and latest tool call, one whose parent is not listed as a root, and no heading once none are running', async () => {
   const now = Date.now();
   const subagents: Snapshot['subagents'] = [
     {
@@ -232,7 +232,7 @@ await test('the sidebar lists only running familiars, depth first under the fami
   }
 });
 
-await test("a familiar's name and kind with line breaks stay on its sidebar row", async () => {
+test("a familiar's name and kind with line breaks stay on its sidebar row", async () => {
   const { app } = fake({
     subagents: [
       {
@@ -262,7 +262,7 @@ await test("a familiar's name and kind with line breaks stay on its sidebar row"
   }
 });
 
-await test("a running familiar's time ticks once a second, also when it starts after the sidebar shows", async () => {
+test("a running familiar's time ticks once a second, also when it starts after the sidebar shows", async () => {
   const { app, coordinator } = fake({});
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
@@ -292,7 +292,7 @@ await test("a running familiar's time ticks once a second, also when it starts a
   }
 });
 
-await test('familiars that overflow the sidebar show the last whole familiars in tree order under a count of the rest, above the whole pentacle', async () => {
+test('familiars that overflow the sidebar show the last whole familiars in tree order under a count of the rest, above the whole pentacle', async () => {
   const { app } = fake({
     // the newest, 6, started under the oldest, so tree order puts it second
     subagents: [1, 2, 3, 4, 5, 6].map((index) => ({
@@ -342,7 +342,7 @@ const brew = (index: number): Snapshot['backgroundCommands'][number] => ({
   status: 'running',
 });
 
-await test('the sidebar lists running brews above the familiars, each with what it is for on one row, and no heading once none run', async () => {
+test('the sidebar lists running brews above the familiars, each with what it is for on one row, and no heading once none run', async () => {
   const { app, coordinator } = fake({
     backgroundCommands: [
       {
@@ -373,7 +373,7 @@ await test('the sidebar lists running brews above the familiars, each with what 
   }
 });
 
-await test('brews take the sidebar rows first and show their last whole brews under a count when they overflow, leave a running familiar its heading and count, and familiars take the rows they leave', async () => {
+test('brews take the sidebar rows first and show their last whole brews under a count when they overflow, leave a running familiar its heading and count, and familiars take the rows they leave', async () => {
   const { app, coordinator } = fake({
     backgroundCommands: [1, 2, 3, 4, 5, 6, 7, 8].map(brew),
   });
@@ -439,7 +439,7 @@ await test('brews take the sidebar rows first and show their last whole brews un
   }
 });
 
-await test("the status line shows the model's label, the effort the agent runs, its usage and the repository as it changes", async () => {
+test("the status line shows the model's label, the effort the agent runs, its usage and the repository as it changes", async () => {
   const { app } = fake({
     native: {
       id: 's',
@@ -500,7 +500,7 @@ await test("the status line shows the model's label, the effort the agent runs, 
   }
 });
 
-await test('while the agent works, a row above the composer names a verb and counts the seconds, and it leaves at idle', async () => {
+test('while the agent works, a row above the composer names a verb and counts the seconds, and it leaves at idle', async () => {
   const { app, coordinator } = fake({ phase: 'running' });
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const row = () => {
@@ -526,7 +526,7 @@ for (const [key, label] of [
   ['\u001b', 'Escape'],
   ['\u0003', 'Ctrl+C'],
 ] as const) {
-  await test(`compacting stays visible without a sidebar and ${label} restores queued input for editing`, async () => {
+  test(`compacting stays visible without a sidebar and ${label} restores queued input for editing`, async () => {
     const f = await coordinatorFixture();
     await f.coordinator.send('existing transcript');
     const gate = new TurnGate();

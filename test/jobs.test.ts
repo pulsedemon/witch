@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { chmod, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { runShell } from '../src/agents/user-shell.js';
@@ -46,7 +46,6 @@ const agentRow: Row = {
   identity: '100000 a',
 };
 
-/** an agent's command led by `group`, as the process table shows it. */
 function commandRows(group: number, identity: string): Row[] {
   return [
     agentRow,
@@ -61,7 +60,6 @@ function commandRows(group: number, identity: string): Row[] {
   ];
 }
 
-/** describes each process as leading a group of its own. */
 async function leaders(pids: number[]) {
   return pids.map((pid) => ({
     pid,
@@ -72,7 +70,7 @@ async function leaders(pids: number[]) {
   }));
 }
 
-await test("jobs are the groups an agent's commands start, one stays listed after its leader exits, and stop kills a member that ignores SIGTERM and leaves other groups alone", async () => {
+test("jobs are the groups an agent's commands start, one stays listed after its leader exits, and stop kills a member that ignores SIGTERM and leaves other groups alone", async () => {
   const jobs = new JobWatch({ interval: 50, grace: 300 });
   const spawnedAt = Date.now();
   // this test stands in for Witch, so its child stands in for an agent
@@ -102,10 +100,30 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
       'sleep 60.5',
       'sleep 61.5',
     ]);
-    for (const { startedAt } of list) {
-      // lstart has whole seconds
-      assert.ok(startedAt >= spawnedAt - 1000);
-      assert.ok(startedAt < spawnedAt + 1000);
+    if (process.platform === 'linux') {
+      const { stdout } = await promisify(execFile)(
+        '/bin/ps',
+        ['-A', '-o', 'pgid=,stat=,lstart='],
+        { env: { ...process.env, LC_ALL: 'C.UTF-8', TZ: 'UTC' } },
+      );
+      for (const { group, startedAt } of list) {
+        const starts = stdout.split('\n').flatMap((line) => {
+          const match = /^\s*(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line);
+          return match &&
+            Number(match[1]) === group &&
+            !match[2]!.startsWith('Z')
+            ? [Date.parse(`${match[3]!} UTC`)]
+            : [];
+        });
+        assert.ok(starts.length > 0);
+        assert.equal(startedAt, Math.min(...starts));
+      }
+    } else {
+      for (const { startedAt } of list) {
+        // lstart has whole seconds
+        assert.ok(startedAt >= spawnedAt - 1000);
+        assert.ok(startedAt < spawnedAt + 1000);
+      }
     }
     await jobs.stop({ group: server, generation: 1 });
     assert.doesNotThrow(() => process.kill(-server, 0));
@@ -124,7 +142,7 @@ await test("jobs are the groups an agent's commands start, one stays listed afte
   }
 });
 
-await test('the process-tree fixture and its MCP helpers exit after their test parent is killed', async () => {
+test('the process-tree fixture and its MCP helpers exit after their test parent is killed', async () => {
   const cwd = await scratch('witch-jobs-fixture-');
   const parent = spawn(
     process.execPath,
@@ -201,7 +219,7 @@ await test('the process-tree fixture and its MCP helpers exit after their test p
   }
 });
 
-await test("a group that a process its command's shell left behind starts or moves to is a job that stops", async () => {
+test("a group that a process its command's shell left behind starts or moves to is a job that stops", async () => {
   const jobs = new JobWatch({ interval: 50 });
   const agent = spawn(
     process.execPath,
@@ -234,7 +252,7 @@ await test("a group that a process its command's shell left behind starts or mov
   }
 });
 
-await test("a group that a process below its command's leader moves to is a job", async () => {
+test("a group that a process below its command's leader moves to is a job", async () => {
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => [
@@ -283,7 +301,7 @@ await test("a group that a process below its command's leader moves to is a job"
   }
 });
 
-await test("a later group given a tracked group's id is not a job", async () => {
+test("a later group given a tracked group's id is not a job", async () => {
   let rows = commandRows(4242, '4242 a');
   const jobs = new JobWatch({
     interval: 60_000,
@@ -295,7 +313,6 @@ await test("a later group given a tracked group's id is not a job", async () => 
       (await jobs.list()).map((job) => job.group),
       [4242],
     );
-    // the command's group ended and a process outside the agents' commands was given its id
     rows = [
       {
         pid: 4242,
@@ -312,7 +329,7 @@ await test("a later group given a tracked group's id is not a job", async () => 
   }
 });
 
-await test('a process given the pid of one that exited has another identity', () => {
+test('a process given the pid of one that exited has another identity', () => {
   const [exited, later] = parseProcesses([
     '  501     1   501 Ss   Thu Oct 15 18:50:27 2026 sh',
     '  501     1   501 Ss   Thu Oct 15 19:02:03 2026 sh',
@@ -320,7 +337,7 @@ await test('a process given the pid of one that exited has another identity', ()
   assert.notEqual(later?.identity, exited?.identity);
 });
 
-await test("a job listed while a read gives its id to the agent's next command can't stop that command", async () => {
+test("a job listed while a read gives its id to the agent's next command can't stop that command", async () => {
   const sleep = spawn('/bin/sleep', ['66.5'], {
     detached: true,
     stdio: 'ignore',
@@ -347,7 +364,7 @@ await test("a job listed while a read gives its id to the agent's next command c
   }
 });
 
-await test('a job listed during a slower read keeps its generation', async () => {
+test('a job listed during a slower read keeps its generation', async () => {
   let reads = 0;
   const jobs = new JobWatch({
     interval: 60_000,
@@ -374,8 +391,7 @@ await test('a job listed during a slower read keeps its generation', async () =>
   }
 });
 
-await test('a process that left its tracked group before ps describes it is not a job', async () => {
-  // the read saw 4243 in the leader's group, which it has since left for a group of its own
+test('a process that left its tracked group before ps describes it is not a job', async () => {
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => [
@@ -401,7 +417,7 @@ await test('a process that left its tracked group before ps describes it is not 
   }
 });
 
-await test('a time zone change keeps a job and its generation', async () => {
+test('a time zone change keeps a job and its generation', async () => {
   const jobs = new JobWatch({ interval: 60_000 });
   const agent = spawn(
     process.execPath,
@@ -439,7 +455,7 @@ await test('a time zone change keeps a job and its generation', async () => {
   }
 });
 
-await test('a job lists with its command intact under any locale', async () => {
+test('a job lists with its command intact under any locale', async () => {
   const sleep = spawn('/bin/sleep', ['69.5'], {
     argv0: 'slëep',
     detached: true,
@@ -470,7 +486,7 @@ await test('a job lists with its command intact under any locale', async () => {
   }
 });
 
-await test("a job sums parsed CPU and keeps its earliest start and oldest non-leader's command", async () => {
+test("a job sums parsed CPU and keeps its earliest start and oldest non-leader's command", async () => {
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => [
@@ -519,7 +535,7 @@ await test("a job sums parsed CPU and keeps its earliest start and oldest non-le
   }
 });
 
-await test('a start date parses whether or not ps pads its day', () => {
+test('a start date parses whether or not ps pads its day', () => {
   assert.deepEqual(
     parseDetails([
       '  501   501   0.0 Fri Oct  9 22:34:18 2026     sleep 60',
@@ -529,7 +545,7 @@ await test('a start date parses whether or not ps pads its day', () => {
   );
 });
 
-await test('a command holding a line separator is described', () => {
+test('a command holding a line separator is described', () => {
   assert.deepEqual(
     parseDetails([
       '  501   501   0.0 Thu Oct 15 18:50:27 2026     node -e a\u2028b',
@@ -538,7 +554,7 @@ await test('a command holding a line separator is described', () => {
   );
 });
 
-await test('a failed background read keeps the jobs it had', async () => {
+test('a failed background read keeps the jobs it had', async () => {
   let rows: Row[] | undefined = commandRows(4242, '4242 a');
   let failures = 0;
   const jobs = new JobWatch({
@@ -572,12 +588,12 @@ await test('a failed background read keeps the jobs it had', async () => {
   }
 });
 
-await test('a failed ps listing of every process rejects rather than listing none', async () => {
+test('a failed ps listing of every process rejects rather than listing none', async () => {
   // an unknown keyword exits 1, as a listed pid that is gone does
   await assert.rejects(ps('bogus='), { code: 1 });
 });
 
-await test('a job whose processes exit after a read lists as nothing and stops without an error', async () => {
+test('a job whose processes exit after a read lists as nothing and stops without an error', async () => {
   const sleep = spawn('/bin/sleep', ['72.5'], {
     detached: true,
     stdio: 'ignore',
@@ -605,7 +621,7 @@ await test('a job whose processes exit after a read lists as nothing and stops w
   }
 });
 
-await test('a job whose processes exited is gone before they are reaped', async () => {
+test('a job whose processes exited is gone before they are reaped', async () => {
   const jobs = new JobWatch({ interval: 60_000 });
   // an agent that never reaps its command
   const agent = spawn(
@@ -630,7 +646,7 @@ await test('a job whose processes exited is gone before they are reaped', async 
   }
 });
 
-await test('stop sends SIGTERM before SIGKILL', async () => {
+test('stop sends SIGTERM before SIGKILL', async () => {
   const cwd = await scratch('witch-jobs-');
   const shell = spawn(
     '/bin/sh',
@@ -661,7 +677,7 @@ await test('stop sends SIGTERM before SIGKILL', async () => {
   }
 });
 
-await test('stop rejects while reads still show a job it signalled', async () => {
+test('stop rejects while reads still show a job it signalled', async () => {
   // the echo comes after the trap, so SIGTERM can't arrive first
   const sleep = spawn(
     '/bin/sh',
@@ -691,7 +707,7 @@ await test('stop rejects while reads still show a job it signalled', async () =>
   }
 });
 
-await test("a ! command's group handed to track is a job from the first read, though its shell has already exited, and stops", async () => {
+test("a ! command's group handed to track is a job from the first read, though its shell has already exited, and stops", async () => {
   const jobs = new JobWatch({ interval: 60_000 });
   try {
     await runShell('sleep 60.271 &', {
@@ -714,7 +730,7 @@ await test("a ! command's group handed to track is a job from the first read, th
   }
 });
 
-await test('a group handed to track while a read runs is a job at the next read and after, along with the groups its process starts', async () => {
+test('a group handed to track while a read runs is a job at the next read and after, along with the groups its process starts', async () => {
   // a `!` command's shell is Witch's own child, which a read never walks from by identity as it does an orphan.
   // pids above 99999 can't be this test's
   const shell: Row = {
@@ -775,7 +791,7 @@ await test('a group handed to track while a read runs is a job at the next read 
   }
 });
 
-await test('a handed group stays a job while any process holds its id, and once a read finds it empty, a later group given its id is not', async () => {
+test('a handed group stays a job while any process holds its id, and once a read finds it empty, a later group given its id is not', async () => {
   // each orphan is new to its read, so only the handed group reaches it
   const orphan = (pid: number): Row => ({
     pid,
@@ -812,7 +828,7 @@ await test('a handed group stays a job while any process holds its id, and once 
   }
 });
 
-await test('a shell that reports its pid makes its group a job after it exits, and its report is consumed', async () => {
+test('a shell that reports its pid makes its group a job after it exits, and its report is consumed', async () => {
   const directory = await scratch('witch-jobs-');
   const jobs = new JobWatch({ directory, interval: 60_000 });
   // as Claude Code runs a Bash command after its CLAUDE_ENV_FILE
@@ -851,7 +867,7 @@ await test('a shell that reports its pid makes its group a job after it exits, a
   }
 });
 
-await test("the report script, run ahead of a command by zsh or bash, reports that shell's pid, marks the command and drops CLAUDE_ENV_FILE, and the command runs unchanged when it can't write its report, even under errexit", async () => {
+test("the report script, run ahead of a command by zsh or bash, reports that shell's pid, marks the command and drops CLAUDE_ENV_FILE, and the command runs unchanged when it can't write its report, even under errexit", async () => {
   const directory = await scratch("witch-jobs-'q-");
   const jobs = new JobWatch({ directory, interval: 60_000 });
   const text = await readFile(jobs.script!, 'utf8');
@@ -895,7 +911,7 @@ await test("the report script, run ahead of a command by zsh or bash, reports th
   }
 });
 
-await test('a report from a pid that leads no group adds no job, though the group it sits in runs', async () => {
+test('a report from a pid that leads no group adds no job, though the group it sits in runs', async () => {
   const directory = await scratch('witch-jobs-');
   const jobs = new JobWatch({
     directory,
@@ -921,7 +937,7 @@ await test('a report from a pid that leads no group adds no job, though the grou
   }
 });
 
-await test("a report written while a read's ps runs is a job at the next read, and stays one after its shell exits", async () => {
+test("a report written while a read's ps runs is a job at the next read, and stays one after its shell exits", async () => {
   const directory = await scratch('witch-jobs-');
   const tables: (() => Promise<Row[]>)[] = [
     async () => {
@@ -979,7 +995,7 @@ await test("a report written while a read's ps runs is a job at the next read, a
   }
 });
 
-await test('a removed report directory leaves the jobs the walk reaches', async () => {
+test('a removed report directory leaves the jobs the walk reaches', async () => {
   const directory = await scratch('witch-jobs-');
   const jobs = new JobWatch({
     directory,
@@ -998,7 +1014,7 @@ await test('a removed report directory leaves the jobs the walk reaches', async 
   }
 });
 
-await test("the first read only learns the processes, so the terminal Witch runs in isn't a job though processes below it carry the mark", async () => {
+test("the first read only learns the processes, so the terminal Witch runs in isn't a job though processes below it carry the mark", async () => {
   const jobs = new JobWatch({
     directory: await scratch('witch-jobs-'),
     interval: 60_000,
@@ -1031,7 +1047,7 @@ await test("the first read only learns the processes, so the terminal Witch runs
   }
 });
 
-await test("a marked process orphaned in Witch's own group doesn't make that group a job", async () => {
+test("a marked process orphaned in Witch's own group doesn't make that group a job", async () => {
   const witch: Row = {
     pid: process.pid,
     ppid: 100030,
@@ -1088,7 +1104,7 @@ function orphanRow(pid: number): Row {
   };
 }
 
-await test("a launchd child the last read didn't list is a job when it or a process below it carries the mark, and one the last read listed isn't checked", async () => {
+test("a launchd child the last read didn't list is a job when it or a process below it carries the mark, and one the last read listed isn't checked", async () => {
   const now = new Set<number>();
   const old = orphanRow(100001);
   const later = [
@@ -1131,7 +1147,7 @@ await test("a launchd child the last read didn't list is a job when it or a proc
   }
 });
 
-await test('a failed mark check fails the read, and the next read checks the same processes', async () => {
+test('a failed mark check fails the read, and the next read checks the same processes', async () => {
   const later = [orphanRow(100001), orphanRow(100004)];
   const tables = [[], later, later];
   let checks = 0;
@@ -1157,7 +1173,7 @@ await test('a failed mark check fails the read, and the next read checks the sam
   }
 });
 
-await test("a launchd child carrying another instance's mark, or one extending this mark's path, is not a job", async () => {
+test("a launchd child carrying another instance's mark, or one extending this mark's path, is not a job", async () => {
   const directory = await scratch('witch-jobs-');
   const cwd = await scratch('witch-jobs-');
   const jobs = new JobWatch({ directory, interval: 60_000 });
@@ -1197,7 +1213,7 @@ await test("a launchd child carrying another instance's mark, or one extending t
   }
 });
 
-await test('process names do not alter start identities', () => {
+test('process names do not alter start identities', () => {
   const rows = parseProcesses([
     '100101 1 100101 Ss Fri Oct  9 22:34:18 2026 tmux',
     '100102 1 100102 S Tue Oct 20 22:34:18 2026 node',
@@ -1218,7 +1234,7 @@ await test('process names do not alter start identities', () => {
 });
 
 for (const admission of ['direct', 'handed', 'reported', 'marked']) {
-  await test(`tmux trees stay out of ${admission} admission`, async () => {
+  test(`tmux trees stay out of ${admission} admission`, async () => {
     const directory = await scratch('witch-jobs-tmux-');
     const server = {
       ...orphanRow(100101),
@@ -1269,7 +1285,7 @@ for (const admission of ['direct', 'handed', 'reported', 'marked']) {
   });
 }
 
-await test('a mixed group preserves ordinary ownership while excluding tmux', async (t) => {
+test('a mixed group preserves ordinary ownership while excluding tmux', async () => {
   const command = commandRows(100201, '100201 a')[1]!;
   const orphan = { ...command, ppid: 1 };
   const tmux = {
@@ -1297,7 +1313,7 @@ await test('a mixed group preserves ordinary ownership while excluding tmux', as
           startedAt: 0,
         })),
   });
-  const kill = t.mock.method(process, 'kill', (pid: number) => {
+  const kill = vi.spyOn(process, 'kill').mockImplementation((pid: number) => {
     const parents = new Set(
       rows.filter(({ pgid }) => pgid === -pid).map(({ pid }) => pid),
     );
@@ -1317,23 +1333,20 @@ await test('a mixed group preserves ordinary ownership while excluding tmux', as
       [100204],
     );
     await jobs.stop(original);
-    assert.equal(kill.mock.callCount(), 0);
+    assert.equal(kill.mock.calls.length, 0);
     rows = [orphan, child];
     const restored = (await jobs.list()).find(({ group }) => group === 100201);
     assert.ok(restored, 'ordinary orphan returns after tmux exits');
     assert.notEqual(restored.generation, original.generation);
     await jobs.stop(original);
-    assert.equal(kill.mock.callCount(), 0);
+    assert.equal(kill.mock.calls.length, 0);
     rows = [orphan, child, later];
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
       [100201, 100204, 100205],
     );
     await jobs.stop(restored);
-    assert.deepEqual(
-      kill.mock.calls.map(({ arguments: args }) => args),
-      [[-100201, 'SIGTERM']],
-    );
+    assert.deepEqual(kill.mock.calls, [[-100201, 'SIGTERM']]);
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
       [100204, 100205],
@@ -1343,7 +1356,7 @@ await test('a mixed group preserves ordinary ownership while excluding tmux', as
   }
 });
 
-await test("an enclosing tmux leaves this Witch's own agent jobs available", async () => {
+test("an enclosing tmux leaves this Witch's own agent jobs available", async () => {
   const server = { ...orphanRow(100301), name: 'tmux' };
   const jobs = new JobWatch({
     interval: 60_000,
@@ -1367,7 +1380,7 @@ await test("an enclosing tmux leaves this Witch's own agent jobs available", asy
   }
 });
 
-await test('observed tmux descendants stay excluded after reparenting and group changes', async () => {
+test('observed tmux descendants stay excluded after reparenting and group changes', async () => {
   let rows: Row[] = [];
   const jobs = new JobWatch({
     directory: await scratch('witch-jobs-tmux-'),
@@ -1405,14 +1418,14 @@ await test('observed tmux descendants stay excluded after reparenting and group 
   }
 });
 
-await test('a stale selection cannot stop a group that became tmux', async (t) => {
+test('a stale selection cannot stop a group that became tmux', async () => {
   let rows = commandRows(100501, '100501 a');
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => rows,
     describe: leaders,
   });
-  const kill = t.mock.method(process, 'kill', () => {
+  const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
     rows = [];
     return true;
   });
@@ -1421,14 +1434,14 @@ await test('a stale selection cannot stop a group that became tmux', async (t) =
     assert.ok(original);
     rows = [agentRow, { ...rows[1]!, name: 'tmux' }];
     await jobs.stop(original);
-    assert.equal(kill.mock.callCount(), 0);
+    assert.equal(kill.mock.calls.length, 0);
     assert.deepEqual(await jobs.list(), []);
   } finally {
     jobs.close();
   }
 });
 
-await test('a failed read does not commit partial tmux exclusions', async () => {
+test('a failed read does not commit partial tmux exclusions', async () => {
   const original = commandRows(100601, '100601 a');
   let rows = original;
   let fail = false;

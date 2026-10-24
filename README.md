@@ -6,13 +6,15 @@ A personal terminal app for installed Codex and Claude Code, with Git-backed sha
 
 Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing, and a signed-in `gh` adds the branch's pull request to the status line and lets Witch clean up after it merges.
 
-Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` and `JSON::PP` modules.
+Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` and `JSON::PP` modules. Installing the native dependency requires Python 3 and Xcode Command Line Tools.
 
 ```sh
-pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
+pnpm install && pnpm build && pnpm install:cli
 ```
 
 Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation. When a built Witch finishes cleaning up after a merge into Witch's own repository, it also pulls and rebuilds this checkout, if this one sits on the base branch with nothing staged, modified or conflicted. If another Witch is updating this checkout, the refresh is skipped with a notice.
+
+If the checkout moves, the installed launcher names its missing target. Run `pnpm build && pnpm install:cli` from the relocated Witch checkout to repair it.
 
 ## Usage
 
@@ -26,6 +28,8 @@ Use `/compact` while idle to compact the current native conversation. Automatic 
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 
+For a moved project directory, use the directory-recovery commands in `witch --help` from its replacement directory. Preview first; applying recovery requires every Witch using that state directory to be closed and retains the original files in a backup.
+
 Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns eligibility and title selection. [Desktop scheduling](src/persistence/notifications.ts) spaces alerts across sessions sharing a state directory; bursts can wait, and stale alerts cancel. Titles and bells keep their timing.
 
 Ghostty controls banners, sound and dock attention. It suppresses notifications for its focused tab in the active window; macOS notification permission and Focus settings also apply. Other state directories and unrelated programs can still collide with Witch's sends. Terminal buffering or a crash between output and schedule persistence can also defeat spacing. Manual tab titles can override Witch's title, and notification forwarding through tmux is not guaranteed.
@@ -36,7 +40,9 @@ The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md
 
 ## Development
 
-Local checks require macOS and Git, with no native agent login. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. With nvm, run from the repository root:
+Checks run on macOS or Ubuntu 24.04 ARM without a native agent login. Witch remains a macOS application. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. On macOS, install the [native build prerequisites](#install). On Ubuntu, install `build-essential`, `python3`, `git`, `perl`, `procps` and `zsh`.
+
+Run checks as an ordinary user so permission assertions remain effective. Linux needs `/proc` mounted in the same PID namespace as the test processes. Give Linux containers an init process, such as Docker's `--init`, to reap orphaned test children. With nvm, run from the repository root:
 
 ```sh
 nvm install
@@ -45,24 +51,40 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
-Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint:eslint` across the working tree using the existing [ESLint configuration](eslint.config.js). Fix reported errors and retry the commit. `pnpm lint` includes formatting checks, and ci runs `pnpm check`.
+Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint:eslint` across the working tree using the existing [ESLint configuration](eslint.config.js). Fix reported errors and retry the commit. `pnpm lint` includes formatting checks. The [ci workflow](.github/workflows/ci.yml) runs the complete `pnpm check` on Linux.
 
-`pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Running the app and native checks requires the [installation prerequisites](#install).
+`pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Keep `TMPDIR` outside that copy so fixtures that model non-repositories do not inherit its Git identity. Running the app and native checks requires the [installation prerequisites](#install).
 
 The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
 
-Run one test file or one named test through the [UI compiler preload](scripts/register.mjs):
+`pnpm test` runs the Vitest selection followed by the remaining Node tests. [scripts/test-suite.ts](scripts/test-suite.ts) owns the migrated-file selection and worker policy.
+
+Run a migrated file or one of its named tests with Vitest:
 
 ```sh
-pnpm exec node --import ./scripts/register.mjs --test test/memory.test.ts
+pnpm exec vitest run test/memory.test.ts
+pnpm exec vitest run test/coordinator-session.test.ts -t 'completion in a later turn'
+```
+
+Run remaining files through the [UI compiler preload](scripts/register.mjs):
+
+```sh
+pnpm exec node --import ./scripts/register.mjs --test test/claude.test.ts
 pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='invalid effort' test/claude.test.ts
 ```
 
-`pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
+Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
 `pnpm test:integration:codex-brews` checks native child brews with the installed Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
 
-`python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.tsx"` checks scratch retention through the real CLI with fixture agents and no account usage. It requires Python 3 and tmux; pass an absolute built `cli.js` path to check a build.
+For native macOS verification, run `pnpm check` locally to exercise Darwin locks, boot/process identity and real `sips` conversion. Linux uses a fixture at the `sips` command boundary. The desktop CLI test uses command fixtures for link opening and clipboard writes on both platforms; actual desktop operations remain manual checks.
+
+Then run both scratch-lifetime checks below. They use fixture agents and private tmux sessions with no account usage, and verify scratch retention after exit and repeated `/restart`. They require Python 3, tmux and a writable `TMPDIR` short enough for a tmux socket. Evidence is retained under `TMPDIR`; inspect it and the recorded processes before removing it.
+
+```sh
+python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.tsx"
+python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
+```
 
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 

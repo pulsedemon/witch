@@ -15,7 +15,7 @@ import type {
 } from '../src/core/coordination-state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
-import { exclusiveLock } from '../src/persistence/lock.js';
+import { openLocked } from '../src/persistence/lock.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import {
@@ -813,10 +813,10 @@ await test('closing rejects a mutation waiting for the ledger and drains one alr
   const { start, store, registry } = await coordinationFixture(t);
   const a = await start();
   const bound = await a.binding();
-  const lock = await files.open(
+  const lock = await openLocked(
     join(store.root, 'coordination', 'lock'),
-    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
-    0o600,
+    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
+    { mode: 0o600 },
   );
   t.after(() => lock.close());
   const attempt = a.claim();

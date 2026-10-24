@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test, vi } from 'vitest';
 import { setImmediate as next } from 'node:timers/promises';
 import { join } from 'node:path';
 import { NotificationSchedule } from '../src/persistence/notifications.js';
@@ -110,12 +109,12 @@ const elicitation: UserRequest = {
   schema: { type: 'object', properties: { project: { type: 'string' } } },
 };
 
-await test('terminal titles follow claim-only updates, mutable titles and conversation ownership', (t) => {
+test('terminal titles follow claim-only updates, mutable titles and conversation ownership', (t) => {
   const { coordinator, coordination, output, stop } = fixture({
     phase: 'starting',
     conversation: undefined,
   });
-  t.after(stop);
+  t.onTestFinished(stop);
   assert.deepEqual(output, ['\u001b]2;Witch | starting\u001b\\']);
   const conversation = { ...record('first', '/project'), title: 'First task' };
   coordinator.publish({ phase: 'idle', conversation });
@@ -150,21 +149,21 @@ await test('terminal titles follow claim-only updates, mutable titles and conver
   assert.equal(output.at(-1), '\u001b]2;Witch | idle | Second task\u001b\\');
 });
 
-await test('unrelated updates preserve reminder deadlines, and each next request gets its own reminder', (t) => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+test('unrelated updates preserve reminder deadlines, and each next request gets its own reminder', (t) => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   const { coordinator, output, stop, notices } = fixture({
     phase: 'running',
     requests: [approval, question, elicitation],
   });
-  t.after(stop);
+  t.onTestFinished(stop);
   assert.equal(output[0], '\u001b]2;Witch | waiting | First task\u001b\\');
   assert.deepEqual(notices(), ['Approval required: First task']);
-  t.mock.timers.tick(5000);
+  vi.advanceTimersByTime(5000);
   coordinator.snapshot.conversation!.title = 'Current task';
   coordinator.publish({ usage: { context: 3 } });
-  t.mock.timers.tick(9999);
+  vi.advanceTimersByTime(9999);
   assert.deepEqual(notices(), ['Approval required: First task']);
-  t.mock.timers.tick(1);
+  vi.advanceTimersByTime(1);
   assert.deepEqual(notices(), [
     'Approval required: First task',
     'Approval required: Current task',
@@ -179,12 +178,12 @@ await test('unrelated updates preserve reminder deadlines, and each next request
     output.at(-1),
     '\u001b]2;Witch | running | Current task\u001b\\',
   );
-  t.mock.timers.tick(30_000);
+  vi.advanceTimersByTime(30_000);
   assert.equal(notices().length, 4);
 });
 
-await test('recovery and fatal errors repeat in view order, while ordinary idle reports stay quiet', (t) => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+test('recovery and fatal errors repeat in view order, while ordinary idle reports stay quiet', (t) => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   const recovery = {
     kind: 'pending' as const,
     paths: [],
@@ -196,16 +195,16 @@ await test('recovery and fatal errors repeat in view order, while ordinary idle 
     recovery,
     requests: [approval],
   });
-  t.after(stop);
+  t.onTestFinished(stop);
   assert.deepEqual(notices(), ['Approval required: First task']);
   coordinator.publish({ requests: [] });
-  t.mock.timers.tick(15_000);
+  vi.advanceTimersByTime(15_000);
   assert.deepEqual(notices().slice(1), [
     'Memory recovery required: First task',
     'Memory recovery required: First task',
   ]);
   coordinator.publish({ phase: 'editing', recovery: undefined });
-  t.mock.timers.tick(30_000);
+  vi.advanceTimersByTime(30_000);
   assert.equal(notices().length, 3);
   coordinator.publish({ phase: 'recovery', recovery });
   assert.equal(notices().length, 4);
@@ -214,19 +213,19 @@ await test('recovery and fatal errors repeat in view order, while ordinary idle 
     recovery: undefined,
     error: 'Lost session',
   });
-  t.mock.timers.tick(15_000);
+  vi.advanceTimersByTime(15_000);
   assert.deepEqual(notices().slice(4), [
     'Restart required: First task',
     'Restart required: First task',
   ]);
   coordinator.publish({ phase: 'idle', error: 'Ordinary report' });
-  t.mock.timers.tick(30_000);
+  vi.advanceTimersByTime(30_000);
   assert.equal(notices().length, 6);
 });
 
-await test('terminal framing sanitizes names and preserves reasons within the UTF-8 limit', (t) => {
+test('terminal framing sanitizes names and preserves reasons within the UTF-8 limit', (t) => {
   const { coordinator, output, stop, notices } = fixture();
-  t.after(stop);
+  t.onTestFinished(stop);
   coordinator.publish({
     conversation: {
       ...record('first', '/project'),
@@ -269,32 +268,32 @@ await test('terminal framing sanitizes names and preserves reasons within the UT
 });
 
 for (const closing of [false, true])
-  await test(`${closing ? 'closing' : 'explicit stop'} cancels attention without terminal I/O`, (t) => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
+  test(`${closing ? 'closing' : 'explicit stop'} cancels attention without terminal I/O`, (t) => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const { coordinator, coordination, output, stop } = fixture({
       requests: [approval],
     });
-    t.after(stop);
+    t.onTestFinished(stop);
     const before = output.slice();
     if (closing) coordinator.publish({ phase: 'closing' });
     else stop();
     stop();
-    t.mock.timers.tick(30_000);
+    vi.advanceTimersByTime(30_000);
     coordinator.publish({ phase: 'running', requests: [question] });
     coordination.publish({ error: 'Peer read failed' });
     assert.deepEqual(output, before);
   });
 
-await test('switching conversations cancels the old request timer', (t) => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+test('switching conversations cancels the old request timer', (t) => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   const { coordinator, stop, notices } = fixture({ requests: [approval] });
-  t.after(stop);
-  t.mock.timers.tick(10_000);
+  t.onTestFinished(stop);
+  vi.advanceTimersByTime(10_000);
   coordinator.publish({
     conversation: { ...record('second', '/project'), title: 'Second task' },
     requests: [],
   });
-  t.mock.timers.tick(30_000);
+  vi.advanceTimersByTime(30_000);
   assert.deepEqual(notices(), ['Approval required: First task']);
   coordinator.publish({ requests: [approval] });
   assert.deepEqual(notices(), [
@@ -303,11 +302,11 @@ await test('switching conversations cancels the old request timer', (t) => {
   ]);
 });
 
-await test('completion baselines existing turns and notifies once with the current claim', async (t) => {
+test('completion baselines existing turns and notifies once with the current claim', async (t) => {
   const { coordinator, coordination, notices, stop } = fixture({
     completedTurn: 'old',
   });
-  t.after(stop);
+  t.onTestFinished(stop);
   await next();
   assert.deepEqual(notices(), []);
   coordinator.publish({ phase: 'running', completedTurn: undefined });
@@ -342,9 +341,9 @@ await test('completion baselines existing turns and notifies once with the curre
   assert.ok(!body.includes('\ufffd'));
 });
 
-await test('the idle gap before a queued turn cannot announce its predecessor', async (t) => {
+test('the idle gap before a queued turn cannot announce its predecessor', async (t) => {
   const { coordinator, notices, stop } = fixture({ phase: 'running' });
-  t.after(stop);
+  t.onTestFinished(stop);
   coordinator.publish({
     phase: 'idle',
     completedTurn: 'first',
@@ -367,9 +366,9 @@ for (const condition of [
   'switch',
   'stop',
 ] as const)
-  await test(`${condition} cancels a deferred completion without later replay`, async (t) => {
+  test(`${condition} cancels a deferred completion without later replay`, async (t) => {
     const { coordinator, notices, stop } = fixture();
-    t.after(stop);
+    t.onTestFinished(stop);
     coordinator.publish({ completedTurn: 'finished' });
     if (condition === 'recovery')
       coordinator.publish({
@@ -409,7 +408,7 @@ for (const condition of [
     );
   });
 
-await test('real compaction emits no ordinary completion notification and the following turn still does', async () => {
+test('real compaction emits no ordinary completion notification and the following turn still does', async () => {
   const f = await coordinatorFixture();
   await f.coordinator.send('seed');
   const output: string[] = [];
@@ -436,7 +435,7 @@ await test('real compaction emits no ordinary completion notification and the fo
   }
 });
 
-async function scheduled(t: TestContext) {
+async function scheduled() {
   const schedule = await NotificationSchedule.open(
     join(await scratch('witch-terminal-'), 'notifications'),
   );
@@ -445,9 +444,7 @@ async function scheduled(t: TestContext) {
     write: (data: string) => void;
     result: PromiseWithResolvers<number | undefined>;
   }[] = [];
-  t.mock.method(
-    schedule,
-    'attempt',
+  vi.spyOn(schedule, 'attempt').mockImplementation(
     (message: () => string | undefined, write: (data: string) => void) => {
       const result = Promise.withResolvers<number | undefined>();
       attempts.push({ message, write, result });
@@ -455,7 +452,6 @@ async function scheduled(t: TestContext) {
     },
   );
   const f = fixture({}, schedule);
-  t.after(f.stop);
   const finish = async (index: number) => {
     const attempt = attempts[index]!;
     const message = attempt.message();
@@ -472,19 +468,22 @@ async function scheduled(t: TestContext) {
   return { ...f, schedule, attempts, finish, notices };
 }
 
-await test('scheduled waits keep title and bell timing while coalescing pending reminders and reading the latest label', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
-  const f = await scheduled(t);
+test('scheduled waits keep title and bell timing while coalescing pending reminders and reading the latest label', async (t) => {
+  vi.useFakeTimers({
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+  });
+  const f = await scheduled();
+  t.onTestFinished(f.stop);
   f.coordinator.publish({ phase: 'running', requests: [approval] });
   assert.equal(f.output.at(-1), '\u0007');
   assert.ok(f.output.includes('\u001b]2;Witch | waiting | First task\u001b\\'));
   assert.deepEqual(f.notices(), []);
-  t.mock.timers.tick(15_000);
+  vi.advanceTimersByTime(15_000);
   assert.equal(f.output.filter((x) => x === '\u0007').length, 2);
   assert.equal(f.attempts.length, 1);
   f.attempts[0]!.result.resolve(1200);
   await next();
-  t.mock.timers.tick(1199);
+  vi.advanceTimersByTime(1199);
   assert.equal(f.attempts.length, 1);
   f.coordination.publish({
     ownClaim: {
@@ -496,11 +495,11 @@ await test('scheduled waits keep title and bell timing while coalescing pending 
     },
   });
   f.coordinator.publish({ usage: { context: 2 } });
-  t.mock.timers.tick(1);
+  vi.advanceTimersByTime(1);
   assert.equal(f.attempts.length, 2);
   await f.finish(1);
   assert.deepEqual(f.notices(), ['Approval required: Current label']);
-  t.mock.timers.tick(13_800);
+  vi.advanceTimersByTime(13_800);
   assert.equal(f.attempts.length, 3);
   await f.finish(2);
   assert.deepEqual(f.notices(), [
@@ -510,9 +509,12 @@ await test('scheduled waits keep title and bell timing while coalescing pending 
 });
 
 for (const action of ['response', 'switch', 'stop', 'closing'] as const)
-  await test(`a scheduled wait cancels in-flight reads and retry timers on ${action}`, async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
-    const f = await scheduled(t);
+  test(`a scheduled wait cancels in-flight reads and retry timers on ${action}`, async (t) => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+    });
+    const f = await scheduled();
+    t.onTestFinished(f.stop);
     f.coordinator.publish({ phase: 'running', requests: [approval] });
     f.attempts[0]!.result.resolve(1200);
     await next();
@@ -525,15 +527,16 @@ for (const action of ['response', 'switch', 'stop', 'closing'] as const)
     else if (action === 'closing') f.coordinator.publish({ phase: 'closing' });
     else f.stop();
     const output = f.output.join('');
-    t.mock.timers.tick(1200);
+    vi.advanceTimersByTime(1200);
     assert.equal(f.attempts.length, 1);
     assert.equal(f.attempts[0]!.message(), undefined);
     assert.equal(f.output.join(''), output);
     assert.deepEqual(f.notices(), []);
   });
 
-await test('an old wait callback stays cancelled when the same request returns', async (t) => {
-  const f = await scheduled(t);
+test('an old wait callback stays cancelled when the same request returns', async (t) => {
+  const f = await scheduled();
+  t.onTestFinished(f.stop);
   f.coordinator.publish({ requests: [approval] });
   f.coordinator.publish({ requests: [] });
   f.coordinator.publish({ requests: [approval] });
@@ -544,8 +547,16 @@ await test('an old wait callback stays cancelled when the same request returns',
   assert.deepEqual(f.notices(), ['Approval required: First task']);
 });
 
-await test('scheduled completion is single delivery and reconstruction does not replay it', async (t) => {
-  const f = await scheduled(t);
+test('scheduled completion is single delivery and reconstruction does not replay it', async (t) => {
+  const f = await scheduled();
+  let stop: ReturnType<typeof watchTerminal> | undefined = undefined;
+  t.onTestFinished(() => {
+    try {
+      f.stop();
+    } finally {
+      stop?.();
+    }
+  });
   f.coordinator.publish({ completedTurn: 'done' });
   await next();
   f.coordinator.publish({ usage: { context: 2 } });
@@ -559,7 +570,7 @@ await test('scheduled completion is single delivery and reconstruction does not 
   assert.equal(f.attempts.length, 1);
   f.stop();
   const output: string[] = [];
-  const stop = watchTerminal(
+  stop = watchTerminal(
     f.coordinator,
     undefined,
     (data) => {
@@ -567,7 +578,6 @@ await test('scheduled completion is single delivery and reconstruction does not 
     },
     f.schedule,
   );
-  t.after(stop);
   await next();
   assert.equal(f.attempts.length, 1);
   assert.equal(
@@ -588,8 +598,9 @@ for (const invalid of [
   { completedTurn: 'replacement' },
   { conversation: record('other', '/elsewhere') },
 ] satisfies Partial<Snapshot>[])
-  await test(`a delayed completion cancels when ${JSON.stringify(invalid)} replaces its eligible state`, async (t) => {
-    const f = await scheduled(t);
+  test(`a delayed completion cancels when ${JSON.stringify(invalid)} replaces its eligible state`, async (t) => {
+    const f = await scheduled();
+    t.onTestFinished(f.stop);
     f.coordinator.publish({ completedTurn: 'done' });
     await next();
     f.coordinator.publish(invalid);
@@ -598,9 +609,12 @@ for (const invalid of [
     assert.deepEqual(f.notices(), []);
   });
 
-await test('a scheduling failure reports once without retrying output while bells and titles continue', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
-  const f = await scheduled(t);
+test('a scheduling failure reports once without retrying output while bells and titles continue', async (t) => {
+  vi.useFakeTimers({
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+  });
+  const f = await scheduled();
+  t.onTestFinished(f.stop);
   f.coordinator.publish({ requests: [approval] });
   const first = f.attempts[0]!;
   first.write(first.message()!);
@@ -609,7 +623,7 @@ await test('a scheduling failure reports once without retrying output while bell
   assert.equal(f.errors.length, 1);
   assert.deepEqual(f.notices(), ['Approval required: First task']);
   f.coordinator.publish({ requests: [question] });
-  t.mock.timers.tick(30_000);
+  vi.advanceTimersByTime(30_000);
   await next();
   assert.equal(f.attempts.length, 1);
   assert.equal(f.errors.length, 1);

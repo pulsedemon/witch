@@ -18,6 +18,7 @@ import {
   jsonLines,
   content,
 } from './fixtures/claude-adapter.js';
+import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
 const execute = promisify(execFile);
@@ -862,7 +863,14 @@ await test("Claude Code gets the mark's script as CLAUDE_ENV_FILE, and the CLI d
   });
 });
 
-await test("a ! command's shell gets the mark's environment over Witch's", async () => {
+await test("a ! command's shell gets the mark's environment over Witch's", async (t) => {
+  const temporary = await scratch('witch-shell-environment-');
+  const previous = process.env.TMPDIR;
+  t.after(() => {
+    if (previous === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previous;
+  });
+  process.env.TMPDIR = temporary;
   await insideAnotherWitch(async () => {
     const texts: string[] = [];
     const { connect } = await launcher();
@@ -878,7 +886,7 @@ await test("a ! command's shell gets the mark's environment over Witch's", async
         3000,
         'the command',
       );
-      assert.equal(texts.join(''), `/x/jobs|${process.env.TMPDIR}`);
+      assert.equal(texts.join(''), `/x/jobs|${temporary}`);
     } finally {
       await session.close();
     }

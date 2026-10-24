@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { scratch } from './fixtures/scratch.js';
 import { ControlHost } from '../src/persistence/control.js';
@@ -55,9 +55,14 @@ for (const [args, expected] of [
   [['--state-dir', ''], /--state-dir/],
   [['--state-dir', '--continue'], /--state-dir/],
   [['-v'], /^witch: Unknown option '-v'/],
+  [['--apply'], /--apply requires --recover-directory/],
+  [['--recover-directory', ''], /needs a saved directory/],
+  [['--recover-directory', '/old', '--continue'], /cannot include/],
+  [['--recover-directory', '/old', 'prompt'], /cannot include/],
+  [['--recover-directory', '/old'], /ENOENT/],
   [['hi'], /^witch: Witch needs an interactive terminal\.\n$/],
 ] as const) {
-  await test(`witch ${JSON.stringify(args)} exits 1 with a one-line error before opening the store`, async () => {
+  test(`witch ${JSON.stringify(args)} exits 1 with a one-line error before opening the store`, async () => {
     const { code, stderr, files } = await run(args);
     assert.equal(code, 1);
     assert.match(stderr, /^witch: /);
@@ -67,14 +72,14 @@ for (const [args, expected] of [
   });
 }
 
-await test('witch --help with stdout piped prints the usage and exits 0 before opening the store', async () => {
+test('witch --help with stdout piped prints the usage and exits 0 before opening the store', async () => {
   const { code, stdout, files } = await run(['--help']);
   assert.equal(code, 0);
   assert.match(stdout, /^Usage: witch /);
   assert.deepEqual(files, []);
 });
 
-await test('headless controls preserve quoted paths, JSON, errors and conflicts without normal startup', async () => {
+test('headless controls preserve quoted paths, JSON, errors and conflicts without normal startup', async () => {
   const root = await scratch('witch-cli-control-');
   const directory = join(root, "owner's control files");
   const binding = { directory, conversation: 'a', activation: randomUUID() };
@@ -185,7 +190,7 @@ await test('headless controls preserve quoted paths, JSON, errors and conflicts 
   }
 });
 
-await test('claim warnings survive the control transport in JSON and plain output without failing local ownership', async () => {
+test('claim warnings survive the control transport in JSON and plain output without failing local ownership', async () => {
   const root = await scratch('witch-cli-assignment-');
   const binding = {
     directory: join(root, 'control'),
@@ -232,7 +237,7 @@ await test('claim warnings survive the control transport in JSON and plain outpu
   }
 });
 
-await test('an unavailable control host reports JSON failure without opening state', async () => {
+test('an unavailable control host reports JSON failure without opening state', async () => {
   const root = await scratch('witch-cli-unavailable-');
   const result = await run([
     '--control-dir',
@@ -258,7 +263,7 @@ for (const extra of [
   ['--continue'],
   ['--summary', 'Extra'],
 ]) {
-  await test(`headless controls reject ${JSON.stringify(extra)} before startup`, async () => {
+  test(`headless controls reject ${JSON.stringify(extra)} before startup`, async () => {
     const result = await run([
       '--control-dir',
       '/unused',
@@ -276,7 +281,7 @@ for (const extra of [
   });
 }
 
-await test('witch sessions remains a positional prompt', async () => {
+test('witch sessions remains a positional prompt', async () => {
   const result = await run(['sessions']);
   assert.equal(result.code, 1);
   assert.match(result.stderr, /interactive terminal/);
