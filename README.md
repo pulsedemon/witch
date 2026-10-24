@@ -57,7 +57,7 @@ Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which 
 
 The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
 
-`pnpm test` runs Vitest through the [migration launcher](scripts/test.ts). [scripts/test-suite.ts](scripts/test-suite.ts) owns suite selection and worker policy until the final runner cutover.
+`pnpm test` runs the suite with Vitest. [vitest.config.ts](vitest.config.ts) owns discovery, worker policy and the React compiler transform.
 
 Run a file or one of its named tests with Vitest:
 
@@ -66,6 +66,15 @@ pnpm exec vitest run test/memory.test.ts
 pnpm exec vitest run test/coordinator-session.test.ts -t 'completion in a later turn'
 pnpm exec vitest run test/coordinator-turns.test.ts -t '^pending command context waits until a prompt is dispatched > turn: connect$'
 ```
+
+Watch a selected file, or pause its worker for a source debugger:
+
+```sh
+pnpm exec vitest --watch test/rpc.test.ts --clearScreen=false
+pnpm exec vitest run test/rpc.test.ts --inspect-brk=127.0.0.1:9229 --no-file-parallelism
+```
+
+Fixture edits rerun the selected watch set, including fixtures loaded only by spawned children. Press `q` to quit watch mode. Attach a Node Inspector client to the printed address to set TypeScript source breakpoints and inspect locals, then resume execution.
 
 Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
