@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { FileDiff } from '../src/agents/types.js';
-import { canExpandDiff, diffRows } from '../src/ui/diff.js';
+import { canExpandDiff, diffRows, prepareDiff } from '../src/ui/diff.js';
 import { syntaxSpans } from '../src/ui/syntax.js';
 
 const rows = (files: FileDiff[], width = 30) =>
@@ -14,6 +14,47 @@ const green = '\u001b[48;2;34;92;43m';
 const red = '\u001b[48;2;122;41;54m';
 const addedWord = '\u001b[48;2;56;166;96m';
 const removedWord = '\u001b[48;2;179;89;107m';
+
+await test('a prepared diff preserves earlier rows while rendering new widths', () => {
+  const files: FileDiff[] = [
+    {
+      path: '/work/new.ts',
+      kind: 'add',
+      hunks: [
+        {
+          oldStart: 0,
+          newStart: 1,
+          lines: [
+            '+\tconst wide = "' + 'wide '.repeat(30) + '";',
+            ...Array.from(
+              { length: 11 },
+              (_, i) => `+const value_${i + 2} = ${i + 2};`,
+            ),
+          ],
+        },
+      ],
+    },
+  ];
+  const original = structuredClone(files);
+  for (const full of [false, true]) {
+    const render = prepareDiff(files, '/work', full);
+    const earlier = render(78);
+    const saved = structuredClone(earlier);
+    for (const width of [28, 198, 78]) {
+      const drawn = render(width);
+      const plain = drawn.flat().map((line) => stripAnsi(line).trimEnd());
+      assert.equal(plain[0], 'Create ./new.ts +12');
+      assert.ok(plain.includes('10 +const value_10 = 10;'));
+      assert.equal(plain.includes('12 +const value_12 = 12;'), full);
+      assert.equal(plain.includes('… +2 lines'), !full);
+      assert.ok(drawn.flat().every((line) => stringWidth(line) <= width));
+      assert.deepEqual(drawn, diffRows(files, width, '/work', full));
+      assert.deepEqual(earlier, saved);
+    }
+    assert.deepEqual(render(78), saved);
+  }
+  assert.deepEqual(files, original);
+});
 
 await test('whole-file expansion exposes every supplied line without changing updates or stored hunks', () => {
   for (const kind of ['add', 'delete'] as const) {
