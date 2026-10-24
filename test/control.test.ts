@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { constants, promises as files } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import { callControl, ControlHost } from '../src/persistence/control.js';
@@ -12,7 +12,7 @@ import type {
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { writeJson } from '../src/persistence/json.js';
-import { exclusiveLock } from '../src/persistence/lock.js';
+import { openLocked } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
@@ -255,6 +255,72 @@ await test('the host cannot create a reply through a redirected parent', async (
   }
 });
 
+await test('replacing a parent after open cannot redirect the request being read', async (t) => {
+  const bound = await binding();
+  const target = await scratch('witch-control-open-target-');
+  const request = envelope(bound);
+  request.action = { kind: 'release', claim: randomUUID() };
+  const name = `${request.id}.json`;
+  const inbox = join(bound.directory, 'inbox');
+  const outside = { ...request, action: { kind: 'peers' } };
+  await writeJson(join(target, name), outside);
+  const failures: unknown[] = [];
+  const actions: unknown[] = [];
+  const host = await ControlHost.open(
+    bound.directory,
+    async ({ action }) => {
+      actions.push(action);
+      return { kind: 'released' };
+    },
+    (error) => failures.push(error),
+  );
+  t.after(() => host.close());
+  await host.drain();
+  let redirected = false;
+  const originalOpen = files.open;
+  t.mock.method(
+    files,
+    'open',
+    async (...args: Parameters<typeof files.open>) => {
+      const handle = await originalOpen(...args);
+      try {
+        if (
+          !redirected &&
+          basename(String(args[0])) ===
+            (process.platform === 'linux' ? 'inbox' : name)
+        ) {
+          redirected = true;
+          await files.rename(inbox, `${inbox}-held`);
+          await files.symlink(target, inbox);
+        }
+        return handle;
+      } catch (error) {
+        await handle.close();
+        throw error;
+      }
+    },
+  );
+  await writeJson(join(inbox, name), request);
+  await until(
+    'original request handled',
+    () => actions.length > 0 || failures.length > 0,
+  );
+  await host.close();
+  assert.equal(redirected, true);
+  assert.deepEqual(actions, [request.action]);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(
+    JSON.parse(await files.readFile(join(target, name), 'utf8')),
+    outside,
+  );
+  assert.equal(
+    JSON.parse(
+      await files.readFile(join(bound.directory, 'replies', name), 'utf8'),
+    ).kind,
+    'released',
+  );
+});
+
 await test('a missing host reply leaves the result unknown and keeps the published request', async () => {
   const bound = await binding();
   await files.mkdir(join(bound.directory, 'inbox'));
@@ -349,18 +415,18 @@ await test('a listed request removed before its read is acknowledged without dis
   const request = envelope(bound);
   const inbox = join(bound.directory, 'inbox', `${request.id}.json`);
   const reached = Promise.withResolvers<void>();
-  const originalRead = files.readFile;
+  const originalOpen = files.open;
   let calls = 0;
   const failures: unknown[] = [];
   t.mock.method(
     files,
-    'readFile',
-    async (...args: Parameters<typeof files.readFile>) => {
-      if (args[0] === inbox) {
+    'open',
+    async (...args: Parameters<typeof files.open>) => {
+      if (basename(String(args[0])) === `${request.id}.json`) {
         await files.unlink(inbox);
         reached.resolve();
       }
-      return originalRead(...args);
+      return originalOpen(...args);
     },
   );
   const host = await ControlHost.open(
@@ -386,10 +452,10 @@ await test('a listed request removed before its read is acknowledged without dis
 await test('a mutation that expires while waiting for the ledger lock stores no claim', async () => {
   const bound = await binding();
   const store = await CoordinationStore.open(bound.directory);
-  const lock = await files.open(
+  const lock = await openLocked(
     join(bound.directory, 'coordination', 'lock'),
-    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
-    0o600,
+    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
+    { mode: 0o600 },
   );
   try {
     await assert.rejects(
@@ -664,7 +730,8 @@ await test('expiry cleanup tolerates concurrent acknowledgement', async (t) => {
         replyRead.resolve();
         await acknowledge.promise;
       } else if (
-        String(args[0]).startsWith(inbox) &&
+        typeof args[0] === 'object' &&
+        'fd' in args[0] &&
         clientWaiting &&
         !hostWaiting
       ) {

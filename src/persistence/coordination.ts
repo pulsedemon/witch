@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -24,7 +24,7 @@ import type {
 } from '../core/coordination-state.js';
 import type { ProcessIdentity } from '../core/state.js';
 import { identifyProcesses } from './process.js';
-import { exclusiveLock, lockedFiles } from './lock.js';
+import { lockedFiles, openLocked } from './lock.js';
 import { writeJson } from './json.js';
 import { StateStore } from './store.js';
 
@@ -178,14 +178,13 @@ export class CoordinationStore {
   /** a failed presence removal cannot register a later holder of the conversation lock. */
   async holdActivation(activation: string): Promise<() => Promise<void>> {
     const file = join(this.directory, 'sessions', `${activation}.lock`);
-    const lock = await open(
+    const lock = await openLocked(
       file,
       constants.O_CREAT |
         constants.O_EXCL |
         constants.O_RDWR |
-        constants.O_NONBLOCK |
-        exclusiveLock,
-      0o600,
+        constants.O_NONBLOCK,
+      { mode: 0o600 },
     );
     return async () => {
       await lock.close();
@@ -462,13 +461,10 @@ export class CoordinationStore {
     while (true) {
       checkDeadline(deadline);
       try {
-        return await open(
+        return await openLocked(
           join(this.directory, 'lock'),
-          constants.O_RDWR |
-            constants.O_CREAT |
-            constants.O_NONBLOCK |
-            exclusiveLock,
-          0o600,
+          constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
+          { mode: 0o600 },
         );
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
