@@ -38,7 +38,6 @@ const held = async () => {
   while (!existsSync(file('release'))) await delay(5);
 };
 let skillAdded = false;
-let usageMicros = 0;
 let lastPrompt = '';
 /** a `!` command of `hold` runs until an interrupt or the test's release. */
 let shellHeld = false;
@@ -184,14 +183,6 @@ for await (const line of lines) {
         limitId: 'codex',
         primary: window(12, 300, 2000000000),
         secondary: window(40, 10080, 2000500000),
-      },
-    });
-  if (request.method === 'account/usage/read')
-    reply({
-      summary: {},
-      threadUsage: {
-        threadId: request.params.threadId,
-        estimatedUsageUsdMicros: usageMicros,
       },
     });
   if (
@@ -365,7 +356,6 @@ for await (const line of lines) {
         });
       limits('codex', window(15, 300, 2000000100));
       limits('other', window(99, 300, 2000000100));
-      usageMicros = 1500000;
       finish('completed');
       continue;
     }

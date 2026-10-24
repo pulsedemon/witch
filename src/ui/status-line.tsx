@@ -115,7 +115,6 @@ export function statusLines(status: Status, now: number): [string, string] {
     piped([
       white(plain(status.model || '?').toUpperCase()),
       plain(status.effort || 'default').toUpperCase(),
-      white(`$${(usage.cost ?? 0).toFixed(2)}`),
       // a conversation can open after the clock was last read
       duration(Math.max(0, now - (status.openedAt ?? now))),
       ...(limits ? [limits] : []),

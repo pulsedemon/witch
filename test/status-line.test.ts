@@ -14,7 +14,6 @@ await test('the status line shows reported fields with the context capacity besi
       usage: {
         context: 45.8,
         contextWindow: 828400,
-        cost: 1.234,
         limits: [
           { window: '5H', percent: 23.4, resetsAt: seconds + 2 * 3600 + 600 },
           { window: '7D', percent: 41, resetsAt: seconds + 3 * 86_400 + 7200 },
@@ -46,7 +45,7 @@ await test('the status line shows reported fields with the context capacity besi
   );
   assert.equal(
     stripAnsi(first),
-    'GPT-5.5-CODEX | XHIGH | $1.23 | 1H05M | 5H 23% 2h10m 7D 41% 3d2h',
+    'GPT-5.5-CODEX | XHIGH | 1H05M | 5H 23% 2h10m 7D 41% 3d2h',
   );
   assert.equal(
     stripAnsi(second),
@@ -67,7 +66,7 @@ await test('what no agent or repository reported yet takes the script defaults, 
     (line) => stripAnsi(line),
   );
   assert.deepEqual(lines, [
-    '? | DEFAULT | $0.00 | 0M',
+    '? | DEFAULT | 0M',
     'CTX 0% ░░░░░░░░░░ | witch | 0+/0-',
   ]);
 });
@@ -77,7 +76,7 @@ await test('a directory name with a line break stays on the second status row', 
     (line) => stripAnsi(line),
   );
   assert.deepEqual(lines, [
-    '? | DEFAULT | $0.00 | 0M',
+    '? | DEFAULT | 0M',
     'CTX 0% ░░░░░░░░░░ | dry line | 0+/0-',
   ]);
 });
@@ -90,7 +89,7 @@ await test('a model or effort carrying a link sequence shows as plain text', () 
     now,
   );
   assert.ok(!first!.includes('\u001b]8;;'), JSON.stringify(first));
-  assert.equal(stripAnsi(first!), 'MODEL | HIGH | $0.00 | 0M');
+  assert.equal(stripAnsi(first!), 'MODEL | HIGH | 0M');
 });
 
 await test('a conversation opened since the clock was last read shows 0M, not a negative time', () => {
@@ -98,7 +97,7 @@ await test('a conversation opened since the clock was last read shows 0M, not a 
     { usage: {}, cwd: '/w', openedAt: now + 300 },
     now,
   );
-  assert.equal(stripAnsi(first), '? | DEFAULT | $0.00 | 0M');
+  assert.equal(stripAnsi(first), '? | DEFAULT | 0M');
 });
 
 await test('limits turn yellow at 70% and red at 90%, a past reset shows no time, and the bar warms from 40%', () => {
@@ -115,10 +114,7 @@ await test('limits turn yellow at 70% and red at 90%, a past reset shows no time
     },
     now,
   );
-  assert.equal(
-    stripAnsi(first),
-    '? | DEFAULT | $0.00 | 0M | 5H 69% 7D 70% 30D 90%',
-  );
+  assert.equal(stripAnsi(first), '? | DEFAULT | 0M | 5H 69% 7D 70% 30D 90%');
   assert.ok(first.includes('7D \u001b[33m70%\u001b[39m'), first);
   assert.ok(first.includes('30D \u001b[31m90%\u001b[39m'), first);
   const bar = (context: number) =>

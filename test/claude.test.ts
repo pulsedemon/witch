@@ -374,10 +374,11 @@ await test('a prompt steered into a turn reaches Claude Code, and none is taken 
 
 await test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
   const texts: string[] = [];
-  const costs: (number | undefined)[] = [];
+  const skills: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'text') texts.push(event.text);
-    if (event.type === 'usage') costs.push(event.usage.cost);
+    if (event.type === 'skills')
+      skills.push(...event.skills.map(({ name }) => name));
   });
   try {
     // familiars that finished in an earlier turn stay in the session
@@ -387,15 +388,14 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
       finished = true;
       return result;
     });
-    // each result reports the session's running cost
-    await until('the result', () => costs.includes(0.5));
+    await until('the result', () => skills.includes('result-2'));
     assert.equal(await session.steer('meanwhile'), true);
     await until('the answer', () => texts.includes('Answered.'));
     assert.equal(
       await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
       '"meanwhile"\n',
     );
-    await until('the report', () => costs.includes(1));
+    await until('the report', () => skills.includes('result-4'));
     assert.equal(finished, false);
     assert.equal(await session.steer('after the report'), false);
     await writeFile(join(cwd, 'allow-idle'), 'yes');
@@ -407,23 +407,24 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
 
 await test("a background workflow holds the turn open for a prompt as a familiar does, until it reports, and isn't a familiar", async () => {
   const texts: string[] = [];
-  const costs: (number | undefined)[] = [];
+  const skills: string[] = [];
   const subagents: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'text') texts.push(event.text);
-    if (event.type === 'usage') costs.push(event.usage.cost);
+    if (event.type === 'skills')
+      skills.push(...event.skills.map(({ name }) => name));
     if (event.type === 'subagent') subagents.push(event.subagent.id);
   });
   try {
     const turn = session.send('background workflow');
-    await until('the result', () => costs.includes(0.25));
+    await until('the result', () => skills.includes('result-1'));
     assert.equal(await session.steer('meanwhile'), true);
     await until('the answer', () => texts.includes('Answered.'));
     assert.equal(
       await readFile(join(cwd, 'steered.jsonl'), 'utf8'),
       '"meanwhile"\n',
     );
-    await until('the report', () => costs.includes(0.75));
+    await until('the report', () => skills.includes('result-3'));
     assert.equal(await session.steer('after the report'), false);
     await writeFile(join(cwd, 'allow-idle'), 'yes');
     assert.equal((await within(turn, 2000, 'turn')).status, 'completed');
@@ -436,17 +437,18 @@ await test("a background workflow holds the turn open for a prompt as a familiar
 await test('a background familiar, workflow or brew that leaves the live set with no notification ends stopped, and the turn no longer holds open for the familiar or workflow, while a foreground familiar the live set never listed keeps running', async () => {
   const subagents: [string, string][] = [];
   const commands: [string, string][] = [];
-  const costs: (number | undefined)[] = [];
+  const skills: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'subagent')
       subagents.push([event.subagent.id, event.subagent.status]);
     if (event.type === 'command')
       commands.push([event.command.id, event.command.status]);
-    if (event.type === 'usage') costs.push(event.usage.cost);
+    if (event.type === 'skills')
+      skills.push(...event.skills.map(({ name }) => name));
   });
   try {
     const turn = session.send('dropped tasks');
-    await until('the result', () => costs.includes(0.25));
+    await until('the result', () => skills.includes('result-1'));
     await writeFile(join(cwd, 'allow-drop'), 'yes');
     await until('the drop', () =>
       subagents.some(([id, status]) => id === 'helper' && status === 'stopped'),
@@ -1088,7 +1090,7 @@ await test('a process report that rejects fails the connect without an unhandled
   }
 });
 
-await test('reports the cost from each result, and context, the 5H and 7D limits and lines once the session is idle', async () => {
+await test('reports context, the 5H and 7D limits and lines once the session is idle', async () => {
   const reported: Usage[] = [];
   const { session } = await fixture((event) => {
     if (event.type === 'usage') reported.push(event.usage);
@@ -1101,7 +1103,6 @@ await test('reports the cost from each result, and context, the 5H and 7D limits
       () => session.usage.lines?.added === 4,
     );
     assert.deepEqual(session.usage, {
-      cost: 0.25,
       context: 12.5,
       contextWindow: 200000,
       lines: { added: 4, removed: 1 },
@@ -1111,23 +1112,11 @@ await test('reports the cost from each result, and context, the 5H and 7D limits
       ],
     });
     assert.deepEqual(reported.at(-1), session.usage);
-    // each result carries the session's total so far
     assert.equal((await session.send('again')).status, 'completed');
     await until(
       'the usage after the second turn',
       () => session.usage.lines?.added === 8,
     );
-    assert.equal(session.usage.cost, 0.5);
-  } finally {
-    await session.close();
-  }
-});
-
-await test('a result that arrives with no turn open still reports the cost', async () => {
-  const { session } = await fixture();
-  try {
-    assert.equal((await session.send('background result')).status, 'completed');
-    await until('the background result', () => session.usage.cost === 0.5);
   } finally {
     await session.close();
   }

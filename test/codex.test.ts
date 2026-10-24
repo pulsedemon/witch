@@ -1298,7 +1298,7 @@ await test('native secret questions and MCP form answers reach their protocol co
   }
 });
 
-await test("reports context, lines summed over the thread's turns, limits merged from sparse updates and the cost estimate, leaving out other threads and limits", async () => {
+await test("reports context, lines summed over the thread's turns and limits merged from sparse updates, leaving out other threads and limits", async () => {
   const reported: Usage[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'usage') reported.push(event.usage);
@@ -1306,7 +1306,6 @@ await test("reports context, lines summed over the thread's turns, limits merged
   try {
     await until('the limits', () => !!session.usage.limits);
     assert.equal((await session.send('usage')).status, 'completed');
-    await until('the cost', () => session.usage.cost === 1.5);
     assert.deepEqual(session.usage, {
       context: 25,
       contextWindow: 256000,
@@ -1315,7 +1314,6 @@ await test("reports context, lines summed over the thread's turns, limits merged
         { window: '5H', percent: 15, resetsAt: 2000000100 },
         { window: '7D', percent: 40, resetsAt: 2000500000 },
       ],
-      cost: 1.5,
     });
     assert.deepEqual(reported.at(-1), session.usage);
   } finally {
@@ -1326,9 +1324,11 @@ await test("reports context, lines summed over the thread's turns, limits merged
 await test('a Codex that cannot read its limits still connects, and leaves limits out', async () => {
   const { session, cwd } = await fixture(() => {}, { mode: 'no-limits' });
   try {
-    // the limits read is answered before the cost read
-    await until('the cost', () => session.usage.cost !== undefined);
-    assert.deepEqual(session.usage, { cost: 0 });
+    assert.deepEqual(
+      (await session.models()).map(({ id }) => id),
+      ['model-a', 'model-b'],
+    );
+    assert.deepEqual(session.usage, {});
     assert.equal(session.closed, false);
   } finally {
     await close(session, cwd);

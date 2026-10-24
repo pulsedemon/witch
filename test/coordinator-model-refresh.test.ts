@@ -9,7 +9,7 @@ import { until, within } from './fixtures/within.js';
 
 await test('interrupting inactive model discovery keeps the connected session', async () => {
   const { coordinator, a, b, root } = await fixture(undefined, (a) => {
-    a.connectUsage = { cost: 0.75 };
+    a.connectUsage = { context: 0.75 };
     a.skills = [{ name: 'spell', description: 'Current spell' }];
   });
   const entered = Promise.withResolvers<AbortSignal>();

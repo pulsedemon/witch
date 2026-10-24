@@ -45,7 +45,9 @@ async function background() {
     completions++;
     return outcome;
   });
-  await until('initial result', () => f.session.usage.cost === 0.25);
+  await until('initial result', () =>
+    events.some((e) => e.type === 'skills' && e.skills[0]?.name === 'result-1'),
+  );
   const inputs = async () =>
     (await jsonLines(join(f.cwd, 'inputs.jsonl'))) as SDKUserMessage[];
   const steer = async (text: string) => {

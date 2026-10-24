@@ -454,7 +454,6 @@ await test("the status line shows the model's label, the effort the agent runs, 
       { agent: 'a', id: 'gpt-x-2026', label: 'GPT-X', efforts: [] },
     ],
     usage: {
-      cost: 0.5,
       context: 30,
       contextWindow: 1000000,
       lines: { added: 2, removed: 1 },
@@ -490,7 +489,7 @@ await test("the status line shows the model's label, the effort the agent runs, 
   try {
     await until('the status line', () => status()[0]!.startsWith('GPT-X'));
     assert.deepEqual(status(), [
-      'GPT-X | MEDIUM | $0.50 | 0M',
+      'GPT-X | MEDIUM | 0M',
       'CTX 30% (1M) ███░░░░░░░ | work | main ↑1 | 2+/1-',
     ]);
     repository.snapshot = { ...repository.snapshot, branch: 'feat/y' };

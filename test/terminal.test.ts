@@ -121,10 +121,10 @@ await test('terminal titles follow claim-only updates, mutable titles and conver
   coordinator.publish({ phase: 'idle', conversation });
   assert.equal(output.at(-1), '\u001b]2;Witch | idle | First task\u001b\\');
   const before = output.length;
-  coordinator.publish({ usage: { cost: 1 } });
+  coordinator.publish({ usage: { context: 1 } });
   assert.equal(output.length, before);
   conversation.title = 'Renamed conversation';
-  coordinator.publish({ usage: { cost: 2 } });
+  coordinator.publish({ usage: { context: 2 } });
   assert.equal(
     output.at(-1),
     '\u001b]2;Witch | idle | Renamed conversation\u001b\\',
@@ -161,7 +161,7 @@ await test('unrelated updates preserve reminder deadlines, and each next request
   assert.deepEqual(notices(), ['Approval required: First task']);
   t.mock.timers.tick(5000);
   coordinator.snapshot.conversation!.title = 'Current task';
-  coordinator.publish({ usage: { cost: 3 } });
+  coordinator.publish({ usage: { context: 3 } });
   t.mock.timers.tick(9999);
   assert.deepEqual(notices(), ['Approval required: First task']);
   t.mock.timers.tick(1);
@@ -324,7 +324,7 @@ await test('completion baselines existing turns and notifies once with the curre
   });
   await next();
   assert.deepEqual(notices(), ['Turn complete: Current claim']);
-  coordinator.publish({ usage: { cost: 42 } });
+  coordinator.publish({ usage: { context: 42 } });
   coordination.publish({ error: 'Peer read failed' });
   await next();
   assert.deepEqual(notices(), ['Turn complete: Current claim']);
@@ -495,7 +495,7 @@ await test('scheduled waits keep title and bell timing while coalescing pending 
       createdAt: 0,
     },
   });
-  f.coordinator.publish({ usage: { cost: 2 } });
+  f.coordinator.publish({ usage: { context: 2 } });
   t.mock.timers.tick(1);
   assert.equal(f.attempts.length, 2);
   await f.finish(1);
@@ -548,13 +548,13 @@ await test('scheduled completion is single delivery and reconstruction does not 
   const f = await scheduled(t);
   f.coordinator.publish({ completedTurn: 'done' });
   await next();
-  f.coordinator.publish({ usage: { cost: 2 } });
+  f.coordinator.publish({ usage: { context: 2 } });
   await next();
   assert.equal(f.attempts.length, 1);
   assert.equal(f.output.filter((x) => x === '\u0007').length, 1);
   await f.finish(0);
   assert.deepEqual(f.notices(), ['Turn complete: First task']);
-  f.coordinator.publish({ usage: { cost: 3 } });
+  f.coordinator.publish({ usage: { context: 3 } });
   await next();
   assert.equal(f.attempts.length, 1);
   f.stop();

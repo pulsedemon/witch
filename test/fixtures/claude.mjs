@@ -153,10 +153,24 @@ const result = (fields = {}) => {
     usage: {},
     modelUsage: {},
     permission_denials: [],
-    // the session's running total
-    total_cost_usd: results * 0.25,
+    total_cost_usd: 0,
     ...fields,
   });
+  // a later native frame proves the adapter consumed the result before a test continues.
+  if (
+    mode === 'background' ||
+    [
+      'background familiar',
+      'background workflow',
+      'reporting familiar',
+      'dropped tasks',
+    ].includes(lastPrompt)
+  )
+    task('commands_changed', {
+      commands: [
+        { name: `result-${results}`, description: '', argumentHint: '' },
+      ],
+    });
 };
 /** exits once a grandchild sharing stderr is running; it writes a line about 65 ms later. */
 const exitBeforeGrandchild = (code) => {
@@ -184,8 +198,6 @@ const finish = () => {
   } else {
     state('idle');
     if (mode === 'exit-when-idle') exitBeforeGrandchild(1);
-    // a background task's result, with no turn open
-    if (lastPrompt === 'background result') setTimeout(() => result(), 20);
   }
 };
 for await (const line of lines) {

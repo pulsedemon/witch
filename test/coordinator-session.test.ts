@@ -96,16 +96,16 @@ await test('the pentacle follows foreground work and every running local task', 
 
 await test("a session's usage at connect and while it lists its models reaches the snapshot, a closed session's later usage does not, and a failed handoff clears it", async () => {
   const { coordinator, a } = await fixture(undefined, (a, b) => {
-    a.connectUsage = { cost: 1 };
-    b.connectUsage = { cost: 2 };
-    b.modelsUsage = { cost: 3 };
+    a.connectUsage = { context: 1 };
+    b.connectUsage = { context: 2 };
+    b.modelsUsage = { context: 3 };
   });
   try {
-    assert.deepEqual(coordinator.snapshot.usage, { cost: 1 });
+    assert.deepEqual(coordinator.snapshot.usage, { context: 1 });
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
-    assert.deepEqual(coordinator.snapshot.usage, { cost: 3 });
-    a.sessions[0]!.options.onEvent({ type: 'usage', usage: { cost: 9 } });
-    assert.deepEqual(coordinator.snapshot.usage, { cost: 3 });
+    assert.deepEqual(coordinator.snapshot.usage, { context: 3 });
+    a.sessions[0]!.options.onEvent({ type: 'usage', usage: { context: 9 } });
+    assert.deepEqual(coordinator.snapshot.usage, { context: 3 });
     a.failConnect = true;
     await assert.rejects(
       coordinator.selectModel({ agent: 'a', id: 'a-model' }),
@@ -560,9 +560,9 @@ await test('a skills change while a session lists its models reaches the snapsho
 await test("the live session's usage reaches the snapshot, and a new conversation starts with none and its own open time even when its agent fails to connect", async () => {
   const { coordinator, a, b } = await fixture();
   try {
-    a.turnUsage = { cost: 0.5, context: 10 };
+    a.turnUsage = { context: 10 };
     await coordinator.send('hello');
-    assert.deepEqual(coordinator.snapshot.usage, { cost: 0.5, context: 10 });
+    assert.deepEqual(coordinator.snapshot.usage, { context: 10 });
     b.failConnect = true;
     const before = Date.now();
     await coordinator.newConversation('b').catch(() => {});
@@ -854,7 +854,7 @@ await test('a model chosen to keep the current effort stores the effort in force
 
 await test('catalog refresh preserves the active session, process, transcript, usage and skills and reports each failed runtime', async () => {
   const { coordinator, a, b, root } = await fixture(undefined, (a) => {
-    a.connectUsage = { cost: 0.75 };
+    a.connectUsage = { context: 0.75 };
     a.skills = [{ name: 'spell', description: 'Current spell' }];
   });
   try {
@@ -1053,7 +1053,7 @@ await test('a listed /skill reaches the agent as a skill call, and an unlisted o
 await test("a model list that fails at connect is reported, and the session's skills and usage still reach the snapshot", async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
-    a.connectUsage = { cost: 5 };
+    a.connectUsage = { context: 5 };
     a.failModels = true;
   });
   try {
@@ -1062,7 +1062,7 @@ await test("a model list that fails at connect is reported, and the session's sk
       coordinator.snapshot.skills.map((skill) => skill.name),
       ['review'],
     );
-    assert.deepEqual(coordinator.snapshot.usage, { cost: 5 });
+    assert.deepEqual(coordinator.snapshot.usage, { context: 5 });
     await coordinator.send('/review now');
     assert.deepEqual(a.inputs.at(-1)!.skill, { name: 'review', args: 'now' });
   } finally {
