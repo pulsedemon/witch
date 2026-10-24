@@ -12,6 +12,7 @@ export const vitestFiles: readonly string[] = [
   'test/scratch-lifetime.test.ts',
   'test/scratch.test.ts',
   'test/terminal.test.ts',
+  'test/test-runner.test.ts',
   'test/ui-status.test.ts',
 ];
 

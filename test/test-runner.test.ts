@@ -11,7 +11,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { vitestFiles } from '../scripts/test-suite.js';
 import { scratch } from './fixtures/scratch.js';
@@ -44,6 +44,7 @@ async function fixture(sharedTmp?: string) {
     'scripts/register.mjs',
     'test/fixtures/vitest-setup.ts',
     'test/fixtures/scratch.ts',
+    'test/fixtures/cleanup.ts',
   ]) {
     const target = join(root, file);
     await mkdir(dirname(target), { recursive: true });
@@ -107,7 +108,7 @@ async function fixture(sharedTmp?: string) {
   };
 }
 
-await test('the mixed runner executes each discovered file once, finishing Vitest before Node, and discovers newly added files', async () => {
+test('the mixed runner executes each discovered file once, finishing Vitest before Node, and discovers newly added files', async () => {
   const f = await fixture();
   for (const added of [false, true]) {
     if (added)
@@ -136,7 +137,7 @@ await test('the mixed runner executes each discovered file once, finishing Vites
 });
 
 for (const runner of ['vitest', 'node:test'] as const)
-  await test(`a ${runner} assertion fails the mixed command without hiding its diagnostic`, async () => {
+  test(`a ${runner} assertion fails the mixed command without hiding its diagnostic`, async () => {
     const f = await fixture();
     const file = runner === 'vitest' ? join(f.root, vitestFiles[0]!) : f.native;
     await writeFile(file, suite(runner, 'failing', `${runner} sentinel`));
@@ -151,7 +152,7 @@ for (const runner of ['vitest', 'node:test'] as const)
         assert.ok(result.markers.includes(`${migrated}:end`), result.output);
   });
 
-await test('a missing migrated file fails before either runner can silently omit it', async () => {
+test('a missing migrated file fails before either runner can silently omit it', async () => {
   const f = await fixture();
   await rm(join(f.root, vitestFiles[0]!));
   const result = await f.run();
@@ -162,7 +163,7 @@ await test('a missing migrated file fails before either runner can silently omit
   assert.deepEqual(result.markers, []);
 });
 
-await test('an empty Node complement does not rediscover migrated files or fixtures', async () => {
+test('an empty Node complement does not rediscover migrated files or fixtures', async () => {
   const f = await fixture();
   await rm(f.native);
   const result = await f.run();
@@ -174,7 +175,7 @@ await test('an empty Node complement does not rediscover migrated files or fixtu
 });
 
 for (const failure of [false, true])
-  await test(`Vitest removes a ${failure ? 'failing' : 'passing'} file's scratch after its last case`, async () => {
+  test(`Vitest removes a ${failure ? 'failing' : 'passing'} file's scratch after its last case`, async () => {
     const f = await fixture();
     await writeFile(
       join(f.root, vitestFiles[0]!),
@@ -208,7 +209,7 @@ test('later case retains earlier scratch', async () => {
     assert.equal(existsSync(dirname(paths[0]!)), false);
   });
 
-await test('a later Vitest run recovers killed-worker scratch while another live run retains its files', async () => {
+test('a later Vitest run recovers killed-worker scratch while another live run retains its files', async () => {
   const killed = await fixture();
   const live = await fixture(killed.tmp);
   const recovery = await fixture(killed.tmp);
@@ -270,7 +271,7 @@ test('recovers a dead worker', async () => { await scratch('next-'); });
 });
 
 for (const failure of [false, true])
-  await test(`setup restores clocks and spies after resource cleanup in a ${failure ? 'failing' : 'passing'} case`, async () => {
+  test(`setup restores clocks and spies after resource cleanup in a ${failure ? 'failing' : 'passing'} case`, async () => {
     const f = await fixture();
     await writeFile(
       join(f.root, vitestFiles[0]!),
@@ -303,3 +304,62 @@ test('the following case sees restored state', () => report({phase:'next', value
       ],
     );
   });
+
+for (const [clock, toFake] of [
+  ['Date', ['Date']],
+  ['timeouts', ['setTimeout', 'clearTimeout']],
+  ['intervals', ['setInterval', 'clearInterval']],
+] as const)
+  for (const failure of [false, true])
+    test(`ordered cleanup restores ${clock} after a ${failure ? 'failing' : 'passing'} case`, async () => {
+      const f = await fixture();
+      await writeFile(
+        join(f.root, vitestFiles[0]!),
+        `import assert from 'node:assert/strict';
+import { appendFileSync } from 'node:fs';
+import { test, vi } from 'vitest';
+import { orderedCleanup } from './fixtures/cleanup.js';
+const original = { Date, setTimeout, clearTimeout, setInterval, clearInterval };
+const target = { value: () => 'original' };
+const report = value => appendFileSync(process.env.MARKERS, 'ordered:' + JSON.stringify(value) + '\\n');
+test('dependent resources close before restoration', context => {
+  const cleanup = orderedCleanup(context.onTestFinished);
+  vi.useFakeTimers({ toFake: ${JSON.stringify(toFake)}, now: 1000 });
+  vi.spyOn(target, 'value').mockReturnValue('mocked');
+  let firstClosed = false;
+  let callbacks = 0;
+  ${clock === 'Date' ? '' : `const timer = ${clock === 'timeouts' ? 'setTimeout' : 'setInterval'}(() => callbacks++, 20);`}
+  cleanup(async () => {
+    await new Promise(resolve => original.setTimeout(resolve, 10));
+    firstClosed = true;
+    report({ phase: 'first', value: target.value() });
+  });
+  cleanup(() => {
+    assert.equal(firstClosed, true, 'first resource must finish before the dependent release');
+    ${clock === 'Date' ? '' : `${clock === 'timeouts' ? 'clearTimeout' : 'clearInterval'}(timer);`}
+    vi.advanceTimersByTime(100);
+    report({ phase: 'second', value: target.value(), callbacks });
+  });
+  ${failure ? "assert.fail('ordered cleanup sentinel');" : ''}
+});
+test('the following case sees restored globals', () => {
+  for (const [name, value] of Object.entries(original)) assert.equal(globalThis[name], value, name);
+  report({ phase: 'next', value: target.value() });
+});
+`,
+      );
+      const result = await f.run();
+      assert.equal(result.code, failure ? 1 : 0, result.output);
+      if (failure)
+        assert.ok(result.output.includes('ordered cleanup sentinel'));
+      assert.deepEqual(
+        result.markers
+          .filter((line) => line.startsWith('ordered:'))
+          .map((line) => JSON.parse(line.slice('ordered:'.length)) as unknown),
+        [
+          { phase: 'first', value: 'mocked' },
+          { phase: 'second', value: 'mocked', callbacks: 0 },
+          { phase: 'next', value: 'original' },
+        ],
+      );
+    });
