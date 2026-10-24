@@ -10,12 +10,16 @@ const execute = promisify(execFile);
 let parent: Promise<string> | undefined;
 let made: string | undefined;
 
-// not a root after(): node:test runs that once the first awaited top-level test ends
-process.once('exit', () => {
-  if (made) rmSync(made, { recursive: true, force: true });
-});
+process.once('exit', cleanScratch);
 
-/** a new directory for a test, removed with the rest of this process's when it exits. the path is real, as a spawned fixture's process.cwd() reports it. */
+/** clean at file teardown because Vitest can stop workers without exit handlers. */
+export function cleanScratch(): void {
+  if (made) rmSync(made, { recursive: true, force: true });
+  made = undefined;
+  parent = undefined;
+}
+
+/** a real path under a shared parent retained through this file's tests, then removed at file teardown or process exit. */
 export async function scratch(prefix: string): Promise<string> {
   parent ??= open();
   return mkdtemp(join(await parent, prefix));

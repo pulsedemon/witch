@@ -15,8 +15,8 @@ import files, {
 import { syncBuiltinESMExports } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { test } from 'node:test';
-import type { TestContext } from 'node:test';
+import { test, vi } from 'vitest';
+import type { TestContext } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { z } from 'zod';
@@ -73,7 +73,7 @@ async function holdFixture(
     if (child.exitCode === null && child.signalCode === null) child.kill();
     await ended;
   };
-  t.after(close);
+  t.onTestFinished(close);
   const [directory] = (await within(
     once(output, 'line'),
     5000,
@@ -94,16 +94,14 @@ async function holdFixture(
   };
 }
 
-await test('fresh scratch waits for a competing sweep and records its owner', async (t) => {
+test('fresh scratch waits for a competing sweep and records its owner', async (t) => {
   const parent = await scratch('witch-scratch-contention-');
   const created = Promise.withResolvers<string>();
   const mkdir = files.mkdir;
   let holder: Awaited<ReturnType<typeof holdFixture>> | undefined;
   let opening: Promise<ScratchSpace> | undefined;
   try {
-    t.mock.method(
-      files,
-      'mkdir',
+    vi.spyOn(files, 'mkdir').mockImplementation(
       async (...args: Parameters<typeof files.mkdir>) => {
         const result = await mkdir(...args);
         const directory = String(args[0]);
@@ -143,7 +141,7 @@ await test('fresh scratch waits for a competing sweep and records its owner', as
       { version: 1, boot: bootA, owner },
     );
   } finally {
-    t.mock.restoreAll();
+    vi.restoreAllMocks();
     syncBuiltinESMExports();
     try {
       await holder?.release();
@@ -156,7 +154,7 @@ await test('fresh scratch waits for a competing sweep and records its owner', as
   }
 });
 
-await test('concurrent scratch opens retain distinct owned directories', async (t) => {
+test('concurrent scratch opens retain distinct owned directories', async (t) => {
   const parent = await scratch('witch-scratch-concurrent-');
   const holders = await Promise.all(
     Array.from({ length: 8 }, () => holdFixture(t, parent)),
@@ -178,7 +176,7 @@ await test('concurrent scratch opens retain distinct owned directories', async (
   await Promise.all(holders.map((holder) => holder.release()));
 });
 
-await test('scratch resumes in place, stays private and survives clean close', async () => {
+test('scratch resumes in place, stays private and survives clean close', async () => {
   const parent = await scratch('witch-scratch-');
   const [before, after] = await runFixture(parent);
   assert.ok(before);
@@ -199,7 +197,7 @@ await test('scratch resumes in place, stays private and survives clean close', a
   }
 });
 
-await test('retained scratch survives its boot and is swept after a different boot', async () => {
+test('retained scratch survives its boot and is swept after a different boot', async () => {
   const parent = await scratch('witch-scratch-');
   const retained = await ScratchSpace.open(parent, firstBoot);
   await writeFile(join(retained.directory, 'marker'), 'survivor');
@@ -233,7 +231,7 @@ await test('retained scratch survives its boot and is swept after a different bo
   }
 });
 
-await test("a held directory remains untouched during another instance's sweep", async (t) => {
+test("a held directory remains untouched during another instance's sweep", async (t) => {
   const parent = await scratch('witch-scratch-');
   const holder = await holdFixture(t, parent);
   const contender = await ScratchSpace.open(parent, laterBoot);
@@ -248,7 +246,7 @@ await test("a held directory remains untouched during another instance's sweep",
   assert.equal(existsSync(holder.directory), false);
 });
 
-await test('the first restart adopts its numeric scratch without moving files', async () => {
+test('the first restart adopts its numeric scratch without moving files', async () => {
   const parent = await scratch('witch-scratch-');
   const live = join(parent, String(process.pid));
   await mkdir(live);
@@ -275,7 +273,7 @@ for (const [mode, restarts] of [
   ['survivor', 2],
   ['survivor-legacy', 2],
 ] as const) {
-  await test(`scratch remains usable by a worker and its later child after ${mode} with ${restarts} restarts`, async () => {
+  test(`scratch remains usable by a worker and its later child after ${mode} with ${restarts} restarts`, async () => {
     const parent = await scratch('witch-scratch-worker-');
     const gone = (pid: number) => {
       try {
@@ -334,7 +332,7 @@ for (const [mode, restarts] of [
   });
 }
 
-await test('uncertain legacy scratch establishes a boot boundary without deleting data', async (t) => {
+test('uncertain legacy scratch establishes a boot boundary without deleting data', async () => {
   const parent = await scratch('witch-scratch-');
   const child = spawn('/usr/bin/true');
   await once(child, 'exit');
@@ -348,10 +346,8 @@ await test('uncertain legacy scratch establishes a boot boundary without deletin
   }
   await writeFile(join(invalid, '.witch-scratch.json'), '{invalid');
   const kill = process.kill.bind(process);
-  t.mock.method(
-    process,
-    'kill',
-    (pid: number, signal?: NodeJS.Signals | number) => {
+  vi.spyOn(process, 'kill').mockImplementation(
+    (pid: number, signal?: Parameters<typeof process.kill>[1]) => {
       if (pid === 100001)
         throw Object.assign(new Error('denied'), { code: 'EPERM' });
       return kill(pid, signal);
@@ -377,7 +373,7 @@ await test('uncertain legacy scratch establishes a boot boundary without deletin
     assert.equal(await readFile(join(directory, 'marker'), 'utf8'), directory);
 });
 
-await test('scratch resume rejects a different owner or an invalid location', async () => {
+test('scratch resume rejects a different owner or an invalid location', async () => {
   const parent = await scratch('witch-scratch-');
   const original = await ScratchSpace.open(parent, firstBoot);
   let resuming: Promise<ScratchSpace> | undefined;

@@ -49,14 +49,23 @@ pnpm check
 
 Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint:eslint` across the working tree using the existing [ESLint configuration](eslint.config.js). Fix reported errors and retry the commit. `pnpm lint` includes formatting checks. The [ci workflow](.github/workflows/ci.yml) runs the complete `pnpm check` on Linux.
 
-`pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Running the app and native checks requires the [installation prerequisites](#install).
+`pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Keep `TMPDIR` outside that copy so fixtures that model non-repositories do not inherit its Git identity. Running the app and native checks requires the [installation prerequisites](#install).
 
 The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
 
-Run one test file or one named test through the [UI compiler preload](scripts/register.mjs):
+`pnpm test` runs the Vitest selection followed by the remaining Node tests. [scripts/test-suite.ts](scripts/test-suite.ts) owns the migrated-file selection and worker policy.
+
+Run a migrated file or one of its named tests with Vitest:
 
 ```sh
-pnpm exec node --import ./scripts/register.mjs --test test/memory.test.ts
+pnpm exec vitest run test/memory.test.ts
+pnpm exec vitest run test/coordinator-session.test.ts -t 'completion in a later turn'
+```
+
+Run remaining files through the [UI compiler preload](scripts/register.mjs):
+
+```sh
+pnpm exec node --import ./scripts/register.mjs --test test/claude.test.ts
 pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='invalid effort' test/claude.test.ts
 ```
 

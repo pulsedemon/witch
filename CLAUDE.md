@@ -23,7 +23,9 @@ Witch's desktop behavior targets macOS. Linux support is limited to the [develop
 
 ## Tests
 
-Tests use `node:test` and `node:assert/strict` with top-level `await test(...)` and real temp directories and Git repos. Temp directories come from `scratch()` in `test/fixtures/scratch.ts`, which removes them, never from `mkdtemp`. Adapter tests inject a launch function that spawns `test/fixtures/claude.mjs` or `test/fixtures/codex.mjs`, scripted stand-ins for the native protocols. Coordinator tests use the in-process `FixtureAgent` in `test/fixtures/agent.ts`. UI tests render through `ink-testing-library`, or through `show()` in `test/fixtures/ui.ts` when they depend on the terminal's height. Spawned fixtures run with a temp cwd and an absolute fixture path, since they write files into their cwd.
+Tests use Vitest for the files selected by [scripts/test-suite.ts](scripts/test-suite.ts) and `node:test` for the remainder. Vitest files import `test` without awaiting registration; Node files retain top-level `await test(...)`. Both use `node:assert/strict` and real temp directories and Git repos. Vitest lifecycle setup lives in [test/fixtures/vitest-setup.ts](test/fixtures/vitest-setup.ts).
+
+Temp directories come from `scratch()` in `test/fixtures/scratch.ts`, which removes them, never from `mkdtemp`. Adapter tests inject a launch function that spawns `test/fixtures/claude.mjs` or `test/fixtures/codex.mjs`, scripted stand-ins for the native protocols. Coordinator tests use the in-process `FixtureAgent` in `test/fixtures/agent.ts`. UI tests render through `ink-testing-library`, or through `show()` in `test/fixtures/ui.ts` when they depend on the terminal's height. Spawned fixtures run with a temp cwd and an absolute fixture path, since they write files into their cwd.
 
 ## Conventions
 

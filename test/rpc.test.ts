@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
@@ -30,7 +30,7 @@ async function write(
   await within(received, 2000, 'the output chunk');
 }
 
-await test('preserves Unicode separators across fragmented UTF-8 messages', async () => {
+test('preserves Unicode separators across fragmented UTF-8 messages', async () => {
   const child = server();
   const rpc = new JsonRpc(child);
   const messages: RpcMessage[] = [];
@@ -67,7 +67,7 @@ await test('preserves Unicode separators across fragmented UTF-8 messages', asyn
   }
 });
 
-await test('reads a final reply without a newline when stdout ends', async () => {
+test('reads a final reply without a newline when stdout ends', async () => {
   const child = server();
   const rpc = new JsonRpc(child);
   const reply = rpc.request('hold', {});
@@ -88,7 +88,7 @@ await test('reads a final reply without a newline when stdout ends', async () =>
   }
 });
 
-await test('rejects a truncated reply when stdout ends', async () => {
+test('rejects a truncated reply when stdout ends', async () => {
   const child = server();
   const rpc = new JsonRpc(child);
   const rejected = assert.rejects(rpc.request('hold', {}), SyntaxError);
@@ -103,7 +103,7 @@ await test('rejects a truncated reply when stdout ends', async () => {
   }
 });
 
-await test('pairs out-of-order replies with the original request', async () => {
+test('pairs out-of-order replies with the original request', async () => {
   const rpc = new JsonRpc(server());
   try {
     const first = rpc.request('reverse', { value: 'first' });
@@ -117,7 +117,7 @@ await test('pairs out-of-order replies with the original request', async () => {
   }
 });
 
-await test('returns the approval response to the native request id', async () => {
+test('returns the approval response to the native request id', async () => {
   const rpc = new JsonRpc(server());
   const observed = new Promise<unknown>((resolve) => {
     rpc.onMessage = (message) => {
@@ -135,7 +135,7 @@ await test('returns the approval response to the native request id', async () =>
   }
 });
 
-await test('rejects pending requests with the native diagnostic when its process exits', async () => {
+test('rejects pending requests with the native diagnostic when its process exits', async () => {
   const rpc = new JsonRpc(server());
   const pending = rpc.request('hold', {});
   rpc.notify('exit', {});
@@ -143,7 +143,7 @@ await test('rejects pending requests with the native diagnostic when its process
   await rpc.close();
 });
 
-await test('a garbage line from the agent kills it', async () => {
+test('a garbage line from the agent kills it', async () => {
   const child = server();
   const rpc = new JsonRpc(child);
   try {
@@ -156,7 +156,7 @@ await test('a garbage line from the agent kills it', async () => {
 });
 
 for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
-  await test(`${adapter.label} with a missing executable fails to connect and cleans up`, async () => {
+  test(`${adapter.label} with a missing executable fails to connect and cleans up`, async () => {
     const cwd = await scratch('witch-missing-');
     const reports: (number | undefined)[] = [];
     await within(
@@ -174,12 +174,11 @@ for (const adapter of [new CodexAdapter(), new ClaudeAdapter()]) {
       2000,
       'connect',
     );
-    // the failed spawn reports no pid, then the cleanup reports the process gone
     assert.deepEqual(reports, [undefined, undefined]);
   });
 }
 
-await test('a failed spawn whose process report rejects at once signals no one', async () => {
+test('a failed spawn whose process report rejects at once signals no one', async () => {
   const child = spawn(
     process.execPath,
     [

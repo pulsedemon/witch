@@ -5,7 +5,7 @@ import { once } from 'node:events';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { scratch } from './fixtures/scratch.js';
@@ -22,7 +22,7 @@ interface DesktopEvent {
   configured?: string;
 }
 
-await test('the CLI opens the pressed link, copies selected text and reports desktop failures', async () => {
+test('the CLI opens the pressed link, copies selected text and reports desktop failures', async () => {
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const root = await scratch('witch-cli-desktop-');
   const build = join(root, 'dist');
