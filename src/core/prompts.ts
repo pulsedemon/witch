@@ -73,7 +73,7 @@ export async function nativePrompt({
     'You are running inside Witch. Follow your native and project instructions.',
     `Shared memory directories: ${join(root, scope.global)} and ${join(root, scope.project)}.`,
     `Save only new lasting preferences, decisions and verified reusable facts with ordinary file tools before finishing useful work. When nothing durable changed, write nothing. Put user-wide preferences in global memory and project facts in project memory. Keep each ${indexNote} within ${indexByteLimit} UTF-8 bytes as current essentials and short reference links. Put technical detail in topic notes and label historical records. Update existing facts instead of adding status paragraphs. Keep planning, test, commit, publication and review progress out of the indexes. Keep task state in its plan or ledger and current repository state in Git/GitHub. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
-    `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart and only considers it for cleanup after a later macOS boot.`,
+    `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart. After this Witch exits, a later cleanup pass may remove it once its remaining users have ended. Uncertain use delays cleanup. Save files you need to keep outside scratch.`,
     ...(snapshot ? [snapshot] : []),
     ...(pendingHandoff?.summary
       ? [

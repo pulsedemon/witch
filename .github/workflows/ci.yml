@@ -28,10 +28,10 @@ jobs:
         with:
           run_install: false
           cache: true
-      - name: Install test shell
+      - name: Install test prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends zsh
+          sudo apt-get install --yes --no-install-recommends zsh lsof
       - name: Tool versions
         run: |
           node --version

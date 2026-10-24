@@ -40,7 +40,7 @@ The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md
 
 ## Development
 
-Checks run on macOS or Ubuntu 24.04 ARM without a native agent login. Witch remains a macOS application. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. On macOS, install the [native build prerequisites](#install). On Ubuntu, install `build-essential`, `python3`, `git`, `perl`, `procps` and `zsh`.
+Checks run on macOS or Ubuntu 24.04 ARM without a native agent login. Witch remains a macOS application. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. On macOS, install the [native build prerequisites](#install). On Ubuntu, install `build-essential`, `python3`, `git`, `perl`, `procps`, `zsh` and `lsof`.
 
 Run checks as an ordinary user so permission assertions remain effective. Linux needs `/proc` mounted in the same PID namespace as the test processes. Give Linux containers an init process, such as Docker's `--init`, to reap orphaned test children. With nvm, run from the repository root:
 
@@ -79,7 +79,7 @@ Confirm before running `pnpm test:integration`: it runs real turns with your nat
 
 For native macOS verification, run `pnpm check` locally to exercise Darwin locks, boot/process identity and real `sips` conversion. Linux uses a fixture at the `sips` command boundary. The desktop CLI test uses command fixtures for link opening and clipboard writes on both platforms; actual desktop operations remain manual checks.
 
-Then run both scratch-lifetime checks below. They use fixture agents and private tmux sessions with no account usage, and verify scratch retention after exit and repeated `/restart`. They require Python 3, tmux and a writable `TMPDIR` short enough for a tmux socket. Evidence is retained under `TMPDIR`; inspect it and the recorded processes before removing it.
+Then run both scratch-lifetime checks below. They use fixture agents and private tmux sessions with no account usage, and verify scratch retention, reclamation and uncertainty after exit and repeated `/restart`. They require Python 3, tmux and a writable `TMPDIR` short enough for a tmux socket, and wait through a maintenance interval. Use `--case` to select a scenario. Evidence is retained under `TMPDIR`; inspect it and the recorded processes before removing it.
 
 ```sh
 python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.tsx"

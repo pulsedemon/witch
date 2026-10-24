@@ -25,7 +25,7 @@ export async function bootSession(): Promise<string> {
 export async function ps(
   format: string,
   pids?: number[],
-  options: { environment?: boolean } = {},
+  options: { environment?: boolean; timeout?: number } = {},
 ): Promise<string[]> {
   try {
     const { stdout } = await execute(
@@ -41,6 +41,9 @@ export async function ps(
         format,
       ],
       {
+        ...(options.timeout === undefined
+          ? {}
+          : { timeout: options.timeout, killSignal: 'SIGKILL' as const }),
         env: {
           ...process.env,
           LC_ALL: process.platform === 'linux' ? 'C.UTF-8' : undefined,
@@ -63,9 +66,10 @@ export async function ps(
 
 export async function identifyProcesses(
   pids: readonly number[],
+  options: { timeout?: number } = {},
 ): Promise<Map<number, ProcessIdentity>> {
   if (!pids.length) return new Map();
-  const lines = await ps('pid=,lstart=', [...new Set(pids)]);
+  const lines = await ps('pid=,lstart=', [...new Set(pids)], options);
   return new Map(
     lines.map((line) => {
       const [, id, started] = /^\s*(\d+)\s+(.+?)\s*$/.exec(line)!;
