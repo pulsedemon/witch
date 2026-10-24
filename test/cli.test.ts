@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { readdir } from 'node:fs/promises';
+import { readdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { scratch } from './fixtures/scratch.js';
 import { ControlHost } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
@@ -14,19 +15,38 @@ import { controlPrefix } from '../src/cli-control.js';
 
 const identity = (await identifyProcess(process.pid))!;
 
-const cli = fileURLToPath(new URL('../src/cli.tsx', import.meta.url));
+const repository = fileURLToPath(new URL('../', import.meta.url));
+const sourceCli = join(repository, 'src/cli.tsx');
+let compiled: Promise<string> | undefined;
+
+function compiledCli(): Promise<string> {
+  return (compiled ??= buildCli());
+}
+
+async function buildCli(): Promise<string> {
+  const root = await scratch('witch-cli-build-');
+  const output = join(root, 'dist');
+  await promisify(execFile)(process.execPath, [
+    join(repository, 'scripts/build.mjs'),
+    output,
+  ]);
+  await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
+  await symlink(join(repository, 'package.json'), join(root, 'package.json'));
+  return join(output, 'cli.js');
+}
 
 /** runs the CLI in an empty directory that is also its HOME, so a store opened at the default ~/.witch shows in `files`. */
-async function run(args: readonly string[] | string) {
+async function run(args: readonly string[] | string, entry?: string) {
   const directory = await scratch('witch-cli-');
   const child = spawn(
     typeof args === 'string' ? '/bin/zsh' : process.execPath,
     typeof args === 'string'
       ? ['-c', args]
       : [
-          '--import',
-          import.meta.resolve('../scripts/register.mjs'),
-          cli,
+          ...(entry === sourceCli
+            ? ['--import', import.meta.resolve('../scripts/register.mjs')]
+            : []),
+          entry ?? (await compiledCli()),
           ...args,
         ],
     {
@@ -73,10 +93,12 @@ for (const [args, expected] of [
 }
 
 test('witch --help with stdout piped prints the usage and exits 0 before opening the store', async () => {
-  const { code, stdout, files } = await run(['--help']);
-  assert.equal(code, 0);
-  assert.match(stdout, /^Usage: witch /);
-  assert.deepEqual(files, []);
+  for (const entry of [sourceCli, await compiledCli()]) {
+    const { code, stdout, files } = await run(['--help'], entry);
+    assert.equal(code, 0);
+    assert.match(stdout, /^Usage: witch /);
+    assert.deepEqual(files, []);
+  }
 });
 
 test('headless controls preserve quoted paths, JSON, errors and conflicts without normal startup', async () => {
@@ -127,7 +149,7 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
     },
     (error) => failures.push(error),
   );
-  const prefix = controlPrefix(binding, cli);
+  const prefix = controlPrefix(binding, sourceCli);
   try {
     const query = await run(`${prefix} --peers --json`);
     assert.equal(query.code, 0);
@@ -219,7 +241,7 @@ test('claim warnings survive the control transport in JSON and plain output with
     (error) => failures.push(error),
   );
   try {
-    const command = `${controlPrefix(binding, cli)} --claim https://github.com/acme/widget/issues/42 --summary 'Current work'`;
+    const command = `${controlPrefix(binding, await compiledCli())} --claim https://github.com/acme/widget/issues/42 --summary 'Current work'`;
     const json = await run(`${command} --json`);
     assert.equal(json.code, 0);
     assert.equal(json.stderr, '');
