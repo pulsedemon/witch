@@ -141,8 +141,7 @@ export class ClaudeUsage {
             void this.stop(helper).catch(() => {});
           }
         })();
-        await stream.initializationResult();
-        await helper.registered;
+        await Promise.all([stream.initializationResult(), helper.registered]);
       } catch (error) {
         await this.stop(helper);
         throw error;

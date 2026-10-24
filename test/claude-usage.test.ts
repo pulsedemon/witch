@@ -494,6 +494,56 @@ for (const phase of ['initialization', 'registration'] as const) {
   );
 }
 
+await test(
+  'registration failure stops pending initialization and releases queued statistics',
+  { timeout },
+  async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const registered = Promise.withResolvers<void>();
+    let starts = 0;
+    const f = await controlled(
+      t,
+      {
+        onUsageProcess: async (pid) => {
+          if (pid !== undefined && ++starts === 1) await registered.promise;
+        },
+      },
+      'background',
+      'hang-on-init',
+    );
+    try {
+      await initial(f);
+      t.mock.timers.tick(60_000);
+      await until('helper spawned', () => !!f.helpers[0]);
+      const helper = f.helpers[0]!;
+      await until(
+        'pending initialization',
+        async () =>
+          (await jsonLines(join(helper.cwd, 'initialize.json'))).length === 1,
+      );
+      await complete(f);
+      assert.equal((await f.main.requests()).length, 1);
+      const closed = once(helper.child, 'close');
+      registered.reject(new Error('Cannot register helper'));
+      await closed;
+      await until(
+        'queued statistics',
+        () => f.session.usage.lines?.added === 4,
+      );
+      assert.equal(f.session.closed, false);
+      t.mock.timers.tick(59_999);
+      await f.main.barrier();
+      assert.equal(f.helpers.length, 1);
+      t.mock.timers.tick(1);
+      await until('replacement helper', () => f.helpers.length === 2);
+      assert.equal(await f.session.contextUsage(), 12.5);
+      assert.equal(f.children.length, 1);
+    } finally {
+      registered.resolve();
+    }
+  },
+);
+
 for (const failure of ['startup', 'registration'] as const) {
   await test(
     `helper ${failure} failure retains usage and retries at the next interval`,
