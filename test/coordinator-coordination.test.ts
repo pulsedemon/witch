@@ -580,65 +580,100 @@ await test('target lock and preparation failures keep source authority and free 
 });
 
 for (const boundary of ['write', 'remove'] as const) {
-  await test(`a failed source presence ${boundary} still revokes authority and adopts the prepared target`, async (t) => {
-    const { start, store, registry } = await coordinationFixture(t);
-    const a = await start(),
-      bound = await a.binding();
-    const entered = Promise.withResolvers<void>(),
-      finish = Promise.withResolvers<void>();
-    const publish = CoordinationStore.prototype.publish;
-    let writes = 0;
-    t.mock.method(
-      CoordinationStore.prototype,
-      'publish',
-      async function (
-        this: CoordinationStore,
-        presence: Parameters<typeof publish>[0],
-      ) {
-        if (presence.activation === bound.activation) {
-          writes++;
-          entered.resolve();
-          await finish.promise;
-          if (boundary === 'write') throw new Error('presence flush failed');
-        }
-        return publish.call(this, presence);
-      },
-    );
-    const remove = CoordinationStore.prototype.removePresence;
-    t.mock.method(
-      CoordinationStore.prototype,
-      'removePresence',
-      function (this: CoordinationStore, id: string, activation: string) {
-        if (activation === bound.activation && boundary === 'remove')
-          return Promise.reject(new Error('presence removal failed'));
-        return remove.call(this, id, activation);
-      },
-    );
-    a.a.sessions.at(-1)!.options.onEvent({
-      type: 'request',
-      request: { id: 'q', kind: 'approval', title: 'Wait', detail: '' },
+  for (const preparation of ['ordinary', 'delayed'] as const) {
+    await test(`a failed source presence ${boundary} still revokes authority and adopts the prepared target (${preparation} preparation)`, async (t) => {
+      const { start, store, registry } = await coordinationFixture(t);
+      const a = await start(),
+        bound = await a.binding();
+      const entered = Promise.withResolvers<void>(),
+        finish = Promise.withResolvers<void>(),
+        starting = Promise.withResolvers<void>();
+      const publish = CoordinationStore.prototype.publish;
+      let writes = 0;
+      let writesAtRemoval: number | undefined;
+      t.mock.method(
+        CoordinationStore.prototype,
+        'publish',
+        async function (
+          this: CoordinationStore,
+          presence: Parameters<typeof publish>[0],
+        ) {
+          if (presence.activation === bound.activation) {
+            writes++;
+            if (presence.phase === 'starting' && presence.requests === 1)
+              starting.resolve();
+            entered.resolve();
+            await finish.promise;
+            if (boundary === 'write') throw new Error('presence flush failed');
+          }
+          return publish.call(this, presence);
+        },
+      );
+      const remove = CoordinationStore.prototype.removePresence;
+      t.mock.method(
+        CoordinationStore.prototype,
+        'removePresence',
+        function (this: CoordinationStore, id: string, activation: string) {
+          if (activation === bound.activation) {
+            writesAtRemoval = writes;
+            if (boundary === 'remove')
+              return Promise.reject(new Error('presence removal failed'));
+          }
+          return remove.call(this, id, activation);
+        },
+      );
+      if (preparation === 'delayed') {
+        const create = store.create.bind(store);
+        t.mock.method(
+          store,
+          'create',
+          async (...args: Parameters<typeof create>) => {
+            await within(starting.promise, 5000, 'starting presence');
+            return create(...args);
+          },
+        );
+      }
+      let switching: Promise<void> | undefined;
+      try {
+        a.a.sessions.at(-1)!.options.onEvent({
+          type: 'request',
+          request: { id: 'q', kind: 'approval', title: 'Wait', detail: '' },
+        });
+        await within(entered.promise, 5000, 'old writer');
+        switching = a.coordinator.newConversation();
+        finish.resolve();
+        await switching;
+        const current = await a.binding();
+        assert.notEqual(current.conversation, bound.conversation);
+        assert.equal(
+          (await callControl(bound, { kind: 'peers' })).kind,
+          'error',
+        );
+        assert.equal(
+          (await callControl(current, { kind: 'peers' })).kind,
+          'peers',
+        );
+        assert.match(
+          a.coordinator.snapshot.error ?? '',
+          boundary === 'write'
+            ? /presence flush failed/
+            : /presence removal failed/,
+        );
+        const old = await store.claim(bound.conversation);
+        await old.close();
+        assert.equal(writes, writesAtRemoval);
+        assert.ok(
+          (await registry.presences()).some(
+            (p) => p.activation === current.activation,
+          ),
+        );
+      } finally {
+        finish.resolve();
+        starting.resolve();
+        await switching?.catch(() => {});
+      }
     });
-    await within(entered.promise, 5000, 'old writer');
-    const switching = a.coordinator.newConversation();
-    finish.resolve();
-    await switching;
-    const current = await a.binding();
-    assert.notEqual(current.conversation, bound.conversation);
-    assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
-    assert.equal((await callControl(current, { kind: 'peers' })).kind, 'peers');
-    assert.match(
-      a.coordinator.snapshot.error ?? '',
-      /presence (flush|removal) failed/,
-    );
-    const old = await store.claim(bound.conversation);
-    await old.close();
-    assert.equal(writes, 1);
-    assert.ok(
-      (await registry.presences()).some(
-        (p) => p.activation === current.activation,
-      ),
-    );
-  });
+  }
 }
 
 await test('failed target activation holds its selected lock without starting native work and retries with fresh authority', async (t) => {
