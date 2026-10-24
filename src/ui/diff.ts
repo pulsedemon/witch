@@ -161,12 +161,11 @@ function paint(
   return text;
 }
 
-function fileRows(
+function prepareFile(
   file: FileDiff,
-  width: number,
   cwd: string,
   full: boolean,
-): string[][] {
+): (width: number) => string[][] {
   // undefined separates hunks
   const rows: (Row | undefined)[] = [];
   const whole = file.kind !== 'update';
@@ -235,36 +234,58 @@ function fileRows(
     ...(file.kind === 'delete' ? [] : [colors.green(`+${added}`)]),
     ...(file.kind === 'add' ? [] : [colors.red(`-${removed}`)]),
   ].join(' ');
-  const lines = [wrapAnsi(header, width, { hard: true }).split('\n')];
   const gutter = ' '.repeat(digits + 2);
-  for (const row of rows) {
-    if (!row) {
-      lines.push([colors.dim('...')]);
-      continue;
-    }
+  const painted = rows.map((row) => {
+    if (!row) return undefined;
     const change = changes[row.marker];
-    // wrapping the code on its own expands its tabs from its first column
-    const code = wrapAnsi(
-      paint(row.spans, row.words, change?.word),
-      width - digits - 2,
-      { hard: true, trim: false },
-    ).split('\n');
     const number = String(row.number).padStart(digits);
-    lines.push(
-      code.map((part, index) => {
-        if (!change)
-          return index ? gutter + part : `${colors.dim(number)}  ${part}`;
-        const text = index
-          ? gutter + part
-          : colors.hex(change.marker)(`${number} ${row.marker}`) + part;
-        return colors.bgHex(change.line)(
-          text + ' '.repeat(Math.max(0, width - stringWidth(text))),
-        );
-      }),
-    );
-  }
-  if (hidden) lines.push([colors.dim(`… +${hidden} lines`)]);
-  return lines;
+    return {
+      code: paint(row.spans, row.words, change?.word),
+      prefix: change
+        ? colors.hex(change.marker)(`${number} ${row.marker}`)
+        : `${colors.dim(number)}  `,
+      background: change?.line,
+    };
+  });
+  return (width) => {
+    const lines = [wrapAnsi(header, width, { hard: true }).split('\n')];
+    for (const row of painted) {
+      if (!row) {
+        lines.push([colors.dim('...')]);
+        continue;
+      }
+      // wrapping the code on its own expands its tabs from its first column
+      const code = wrapAnsi(row.code, width - digits - 2, {
+        hard: true,
+        trim: false,
+      }).split('\n');
+      lines.push(
+        code.map((part, index) => {
+          const text = (index ? gutter : row.prefix) + part;
+          return row.background
+            ? colors.bgHex(row.background)(
+                text + ' '.repeat(Math.max(0, width - stringWidth(text))),
+              )
+            : text;
+        }),
+      );
+    }
+    if (hidden) lines.push([colors.dim(`… +${hidden} lines`)]);
+    return lines;
+  };
+}
+
+export function prepareDiff(
+  files: readonly FileDiff[],
+  cwd: string,
+  full = false,
+): (width: number) => string[][] {
+  const prepared = files.map((file) => prepareFile(file, cwd, full));
+  return (width) =>
+    prepared.flatMap((render, index) => [
+      ...(index ? [['']] : []),
+      ...render(width),
+    ]);
 }
 
 /** each file's header and numbered lines, a blank line apart, as the rows each line wraps into. every row fits `width` while it leaves the code two cells, the widest a character takes. */
@@ -274,8 +295,5 @@ export function diffRows(
   cwd: string,
   full = false,
 ): string[][] {
-  return files.flatMap((file, index) => [
-    ...(index ? [['']] : []),
-    ...fileRows(file, width, cwd, full),
-  ]);
+  return prepareDiff(files, cwd, full)(width);
 }
