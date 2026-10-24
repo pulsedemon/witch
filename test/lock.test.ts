@@ -2,16 +2,12 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { constants } from 'node:fs';
-import { access, chmod, open, writeFile } from 'node:fs/promises';
+import { access, chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import {
-  exclusiveLock,
-  lockedFiles,
-  sharedLock,
-} from '../src/persistence/lock.js';
+import { openLocked, lockedFiles } from '../src/persistence/lock.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
@@ -109,15 +105,15 @@ await test('batch observation preserves path identity and filesystem failures', 
   const free = join(root, 'free');
   const missing = join(root, 'missing');
   await Promise.all([writeFile(heldPath, ''), writeFile(free, '')]);
-  const held = await open(
+  const held = await openLocked(
     heldPath,
-    constants.O_RDONLY | constants.O_NONBLOCK | exclusiveLock,
+    constants.O_RDONLY | constants.O_NONBLOCK,
   );
   t.after(() => held.close());
-  const shared = await open(
+  const shared = await openLocked(
     sharedPath,
-    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | sharedLock,
-    0o600,
+    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
+    { mode: 0o600, shared: true },
   );
   t.after(() => shared.close());
   assert.deepEqual(
