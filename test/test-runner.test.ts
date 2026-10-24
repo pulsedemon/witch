@@ -334,7 +334,8 @@ test('dependent resources close before restoration', context => {
     firstClosed = true;
     report({ phase: 'first', value: target.value() });
   });
-  cleanup(() => {
+  cleanup(async () => {
+    await new Promise(resolve => original.setTimeout(resolve, 10));
     assert.equal(firstClosed, true, 'first resource must finish before the dependent release');
     ${clock === 'Date' ? '' : `${clock === 'timeouts' ? 'clearTimeout' : 'clearInterval'}(timer);`}
     vi.advanceTimersByTime(100);
