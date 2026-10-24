@@ -36,7 +36,7 @@ The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md
 
 ## Development
 
-Checks run on macOS or Ubuntu 24.04 ARM without a native agent login. Witch remains a macOS application. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. macOS uses the [installation prerequisites](#install). On Ubuntu, install `build-essential`, `python3`, `git`, `perl`, `procps` and `zsh`.
+Checks run on macOS or Ubuntu 24.04 ARM without a native agent login. Witch remains a macOS application. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. On macOS, install the [native build prerequisites](#install). On Ubuntu, install `build-essential`, `python3`, `git`, `perl`, `procps` and `zsh`.
 
 Run checks as an ordinary user so permission assertions remain effective. Linux needs `/proc` mounted in the same PID namespace as the test processes. Give Linux containers an init process, such as Docker's `--init`, to reap orphaned test children. With nvm, run from the repository root:
 
