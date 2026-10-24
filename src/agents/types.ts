@@ -234,6 +234,8 @@ export interface SessionOptions {
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
   onProcess(pid: number | undefined): Promise<void>;
+  /** the end report follows successful registration and closure of the separate usage process. */
+  onUsageProcess?(pid: number | undefined): Promise<void>;
   /**
    * an adapter that runs a `!` command itself reports its shell when it starts and `undefined` once it ends. the end
    * comes once the start's report resolves, and none comes when it rejects.

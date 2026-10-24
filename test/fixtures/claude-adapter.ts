@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,13 +12,39 @@ import { until } from './within.js';
 
 const claude = fileURLToPath(new URL('claude.mjs', import.meta.url));
 
-export async function launcher(mode?: string) {
+export async function launcher(mode?: string, usageMode = 'background') {
   const cwd = await scratch('witch-claude-');
   const children: ChildProcessWithoutNullStreams[] = [];
   const args: string[][] = [];
   const envs: NodeJS.ProcessEnv[] = [];
+  const usageChildren: {
+    child: ChildProcessWithoutNullStreams;
+    cwd: string;
+    args: string[];
+    env: NodeJS.ProcessEnv;
+  }[] = [];
   const adapter = new ClaudeAdapter((options) => {
     assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
+    if (options.args.includes('--no-session-persistence')) {
+      const directory = join(cwd, `usage-${usageChildren.length}`);
+      mkdirSync(directory);
+      const executable =
+        usageMode === 'spawn-error'
+          ? join(directory, 'missing-claude')
+          : process.execPath;
+      const child = spawn(executable, [claude, usageMode], {
+        cwd: directory,
+        stdio: 'pipe',
+        signal: options.signal,
+      });
+      usageChildren.push({
+        child,
+        cwd: directory,
+        args: options.args,
+        env: options.env,
+      });
+      return child;
+    }
     assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
     args.push(options.args);
     envs.push(options.env);
@@ -38,7 +65,7 @@ export async function launcher(mode?: string) {
       onProcess: async () => {},
       ...options,
     });
-  return { cwd, children, args, envs, adapter, connect };
+  return { cwd, children, args, envs, usageChildren, adapter, connect };
 }
 
 export async function fixture(

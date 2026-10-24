@@ -1079,11 +1079,10 @@ export class Coordinator {
     await this.coordination?.activate(conversation, scope.project);
     const stored = conversation.sessions[agent];
     const identify =
-      (key: 'process' | 'shell') => async (pid: number | undefined) => {
-        const identity =
-          pid === undefined ? undefined : await identifyProcess(pid);
+      (key: 'process' | 'usageProcess' | 'shell') => async (pid?: number) => {
+        const id = pid === undefined ? undefined : await identifyProcess(pid);
         if (files.closed) return;
-        conversation[key] = identity;
+        conversation[key] = id;
         await files.save(conversation);
       };
     this.connecting = new AbortController();
@@ -1105,6 +1104,7 @@ export class Coordinator {
           if (!files.closed) this.receive(conversation, agent, event, tools);
         },
         onProcess: identify('process'),
+        onUsageProcess: identify('usageProcess'),
         // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
         onShell: async (pid) => {
           if (pid !== undefined) this.jobs?.track(pid);
