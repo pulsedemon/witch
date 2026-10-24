@@ -2,7 +2,7 @@ import wrapAnsi from 'wrap-ansi';
 import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
 import { appendedDisplayText } from '../core/state.js';
-import { diffRows } from './diff.js';
+import { prepareDiff } from './diff.js';
 import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from './theme.js';
 import type { Graphics } from './images.js';
@@ -20,8 +20,8 @@ type Anchor = Omit<ScrollAnchor, 'item'>;
 type Expansion = 'closed' | 'preview' | 'full';
 type TextRows = Pick<readonly string[], 'length' | 'at' | 'slice'>;
 type Append =
-  | ({ kind: 'tool'; line: number } & Pick<LinkedAppend, 'pending' | 'target'>)
-  | { kind: 'assistant'; line: number; pending: string }
+  | ({ kind: 'tool' } & Pick<LinkedAppend, 'pending' | 'target'>)
+  | { kind: 'assistant'; pending: string }
   | { kind: 'full-markdown' };
 
 interface Row {
@@ -29,13 +29,24 @@ interface Row {
   anchor: Anchor;
 }
 
-interface Block {
+interface Content {
   item: DisplayItem;
-  headRows: number;
+  title: string[];
+  complete: string[];
+  /** later appends share storage; each snapshot keeps its own boundary. */
+  count: number;
+  tail: string[];
+  diff?: ReturnType<typeof prepareDiff>;
+  images: readonly string[];
+  append?: Append;
+}
+
+interface Block {
+  content: Content;
+  width: number;
   complete: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
-  append?: Append;
 }
 
 function textRows(
@@ -64,23 +75,21 @@ function textRows(
 
 /** capture the completed prefix's length so later appends cannot change an earlier frame. */
 function block(
-  item: DisplayItem,
-  headRows: number,
+  content: Content,
+  width: number,
   complete: Row[],
   suffix: Row[],
-  append?: Append,
 ): Block {
   const count = complete.length;
   const length = count + suffix.length;
   const row = (index: number) =>
     index < count ? complete[index] : suffix[index - count];
   return {
-    item,
-    headRows,
+    content,
+    width,
     complete,
     row,
     lines: textRows(length, (index) => row(index)?.text),
-    append,
   };
 }
 
@@ -109,13 +118,12 @@ function section(
   return { rows, next: sourceLine };
 }
 
-function build(
+function prepare(
   item: DisplayItem,
-  width: number,
   expansion: Expansion,
   graphics: Graphics | undefined,
   fullMarkdown = false,
-): Block {
+): Content {
   const tool = item.kind === 'tool';
   const expanded = expansion !== 'closed';
   const title =
@@ -141,32 +149,47 @@ function build(
       : tool && expanded
         ? (item.images ?? [])
         : [];
-  const images = graphics
-    ? sources
-        .map((source) => graphics.rows(source, item.cwd, width))
-        .filter((rows) => rows.length)
-    : [];
   const diff =
     tool && expanded && item.diff?.length
-      ? diffRows(item.diff, width, item.cwd, expansion === 'full')
-      : [];
-  const head = section(title.split('\n'), width, true, 0);
-  const complete = section(
-    linked?.complete ?? assistant?.complete ?? [],
-    width,
-    false,
-    head.next,
-  );
+      ? prepareDiff(item.diff, item.cwd, expansion === 'full')
+      : undefined;
+  const complete = linked?.complete ?? assistant?.complete ?? [];
   const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
-  const rendered = section(
-    hasBody ? (linked?.tail ?? body).split('\n') : [],
-    width,
-    false,
-    complete.next,
-  );
+  return {
+    item,
+    title: title.split('\n'),
+    complete,
+    count: complete.length,
+    tail: hasBody ? (linked?.tail ?? body).split('\n') : [],
+    diff,
+    images: sources,
+    append:
+      linked && !diff && (!graphics || !sources.length)
+        ? { kind: 'tool', pending: linked.pending, target: linked.target }
+        : item.kind === 'assistant'
+          ? assistant
+            ? { kind: 'assistant', pending: assistant.pending }
+            : { kind: 'full-markdown' }
+          : undefined,
+  };
+}
+
+function ending(
+  content: Content,
+  width: number,
+  first: number,
+  graphics: Graphics | undefined,
+): Row[] {
+  const rendered = section(content.tail, width, false, first);
+  const diff = content.diff?.(width) ?? [];
+  const images = graphics
+    ? content.images
+        .map((source) => graphics.rows(source, content.item.cwd, width))
+        .filter((rows) => rows.length)
+    : [];
   const next = rendered.next;
   // row offsets preserve diff and image rows across resizes and when copying.
-  const suffix = rendered.rows.concat(
+  return rendered.rows.concat(
     diff.concat(images).flatMap((rows, index) =>
       rows.map((text, offset) => ({
         text,
@@ -178,27 +201,25 @@ function build(
       anchor: { line: next + diff.length + images.length, offset: 0 },
     },
   );
+}
+
+function wrap(
+  content: Content,
+  width: number,
+  graphics: Graphics | undefined,
+): Block {
+  const head = section(content.title, width, true, 0);
+  const complete = section(
+    content.complete.slice(0, content.count),
+    width,
+    false,
+    head.next,
+  );
   return block(
-    item,
-    head.rows.length,
+    content,
+    width,
     head.rows.concat(complete.rows),
-    suffix,
-    linked && !diff.length && (!graphics || !sources.length)
-      ? {
-          kind: 'tool',
-          line: complete.next,
-          pending: linked.pending,
-          target: linked.target,
-        }
-      : item.kind === 'assistant'
-        ? assistant
-          ? {
-              kind: 'assistant',
-              line: complete.next,
-              pending: assistant.pending,
-            }
-          : { kind: 'full-markdown' }
-        : undefined,
+    ending(content, width, complete.next, graphics),
   );
 }
 
@@ -206,9 +227,10 @@ function extend(
   previous: Block,
   item: DisplayItem,
   width: number,
+  graphics: Graphics | undefined,
 ): Block | undefined {
-  const before = previous.item;
-  const tail = previous.append;
+  const before = previous.content.item;
+  const tail = previous.content.append;
   if (
     !tail ||
     item.kind !== before.kind ||
@@ -222,42 +244,41 @@ function extend(
   const appended = appendedDisplayText(before, item);
   if (appended === undefined) return undefined;
   if (tail.kind === 'full-markdown')
-    return build(item, width, 'closed', undefined, true);
+    return wrap(prepare(item, 'closed', undefined, true), width, graphics);
   const linked =
     tail.kind === 'tool'
       ? linkifyAppend(tail.pending + appended, item.cwd, tail.target)
       : undefined;
   const content = linked ?? markdownAppend(tail.pending + appended, item.cwd);
-  if (!content) return build(item, width, 'closed', undefined, true);
-  const complete = section(content.complete, width, false, tail.line);
-  const hasBody =
-    previous.complete.length > previous.headRows ||
-    content.complete.length > 0 ||
-    !!content.tail;
-  const rendered = section(
-    hasBody ? content.tail.split('\n') : [],
+  if (!content)
+    return wrap(prepare(item, 'closed', undefined, true), width, graphics);
+  const source = previous.content;
+  const count = source.count + content.complete.length;
+  const prepared: Content = {
+    ...source,
+    item,
+    count,
+    tail: count > 0 || content.tail ? content.tail.split('\n') : [],
+    append:
+      tail.kind === 'tool'
+        ? { kind: 'tool', pending: content.pending, target: linked?.target }
+        : { kind: 'assistant', pending: content.pending },
+  };
+  for (const line of content.complete) source.complete.push(line);
+  if (previous.width !== width) return wrap(prepared, width, graphics);
+  const complete = section(
+    content.complete,
     width,
     false,
-    complete.next,
+    source.title.length + source.count,
   );
   // a large chunk can exceed the argument limit if spread into push().
   for (const row of complete.rows) previous.complete.push(row);
   return block(
-    item,
-    previous.headRows,
+    prepared,
+    width,
     previous.complete,
-    rendered.rows.concat({
-      text: '',
-      anchor: { line: rendered.next, offset: 0 },
-    }),
-    tail.kind === 'tool'
-      ? {
-          kind: 'tool',
-          line: complete.next,
-          pending: content.pending,
-          target: linked?.target,
-        }
-      : { kind: 'assistant', line: complete.next, pending: content.pending },
+    ending(prepared, width, complete.next, graphics),
   );
 }
 
@@ -279,7 +300,6 @@ export function isExpanded(
 
 export class TranscriptLayout {
   private cache = new Map<string, Map<Expansion, Block>>();
-  private width = 0;
 
   /** without `graphics`, images stay out of the transcript. */
   constructor(private readonly graphics?: Graphics) {}
@@ -290,8 +310,6 @@ export class TranscriptLayout {
     expanded: ReadonlyMap<string, boolean>,
     full?: ReadonlySet<string>,
   ) {
-    if (width !== this.width) this.cache = new Map();
-    this.width = width;
     let length = 0;
     const blocks: TextRows[] = [];
     const starts = new Map<string, number>();
@@ -306,10 +324,16 @@ export class TranscriptLayout {
       const variants = this.cache.get(item.id) ?? new Map<Expansion, Block>();
       const previous = variants.get(expansion);
       const current =
-        previous?.item === item
-          ? previous
-          : ((previous && extend(previous, item, width)) ??
-            build(item, width, expansion, this.graphics));
+        previous?.content.item === item
+          ? previous.width === width
+            ? previous
+            : wrap(previous.content, width, this.graphics)
+          : ((previous && extend(previous, item, width, this.graphics)) ??
+            wrap(
+              prepare(item, expansion, this.graphics),
+              width,
+              this.graphics,
+            ));
       variants.set(expansion, current);
       cache.set(item.id, variants);
       starts.set(item.id, length);
