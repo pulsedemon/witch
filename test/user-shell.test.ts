@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { bashRecord, runShell } from '../src/agents/user-shell.js';
@@ -34,7 +34,7 @@ function run(
   return { chunks, result };
 }
 
-await test("a command runs in its directory through the user's shell without a login or stdin and returns its merged output and exit code", async () => {
+test("a command runs in its directory through the user's shell without a login or stdin and returns its merged output and exit code", async () => {
   const cwd = await scratch('witch-shell-');
   // an open stdin would leave `cat` waiting, and `ps` isn't the last command, so the shell doesn't exec it
   const { result } = run(
@@ -56,7 +56,7 @@ await test("a command runs in its directory through the user's shell without a l
   assert.equal(shell.interrupted, false);
 });
 
-await test("an abort kills the command's whole process group and reports it interrupted", async () => {
+test("an abort kills the command's whole process group and reports it interrupted", async () => {
   const cwd = await scratch('witch-shell-');
   try {
     // a child forked as the first kill lands is missed now and then, so five runs catch a runner without the second
@@ -85,7 +85,7 @@ await test("an abort kills the command's whole process group and reports it inte
   }
 });
 
-await test('a command whose background child holds its output ends when the shell exits and forwards nothing after', async () => {
+test('a command whose background child holds its output ends when the shell exits and forwards nothing after', async () => {
   const cwd = await scratch('witch-shell-');
   const { chunks, result } = run('echo parent; (sleep 0.3; echo late) &', cwd);
   const shell = await within(result, 2000, 'the command');
@@ -95,7 +95,7 @@ await test('a command whose background child holds its output ends when the shel
   assert.doesNotMatch(chunks.join(''), /late/);
 });
 
-await test("a background child holding a command's output doesn't keep the process alive", async () => {
+test("a background child holding a command's output doesn't keep the process alive", async () => {
   const cwd = await scratch('witch-shell-');
   const script = join(cwd, 'quit.mts');
   await writeFile(
@@ -134,7 +134,7 @@ console.log('settled');
   }
 });
 
-await test('output past 1 MiB is cut once with a note, and the command still runs to its end', async () => {
+test('output past 1 MiB is cut once with a note, and the command still runs to its end', async () => {
   const cwd = await scratch('witch-shell-');
   // a runner that stopped reading would leave `tr` blocked on a full pipe
   const { chunks, result } = run("head -c 2000000 /dev/zero | tr '\\0' a", cwd);
@@ -146,7 +146,7 @@ await test('output past 1 MiB is cut once with a note, and the command still run
   assert.equal(chunks.join(''), shell.output);
 });
 
-await test('the record escapes output, keeps the command as typed, puts any other end in stderr with its note, and cuts long output in the middle', () => {
+test('the record escapes output, keeps the command as typed, puts any other end in stderr with its note, and cuts long output in the middle', () => {
   assert.equal(
     bashRecord('cat <a> && x', {
       output: 'x<y>&z\n',

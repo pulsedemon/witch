@@ -5,7 +5,9 @@ export const vitestFiles: readonly string[] = [
   'test/claude-background.test.ts',
   'test/cli-desktop.test.ts',
   'test/cli.test.ts',
+  'test/command.test.ts',
   'test/completion.test.ts',
+  'test/control.test.ts',
   'test/coordinator-session.test.ts',
   'test/diff.test.ts',
   'test/files.test.ts',
@@ -13,10 +15,12 @@ export const vitestFiles: readonly string[] = [
   'test/input-queue.test.ts',
   'test/input.test.ts',
   'test/instance.test.ts',
+  'test/jobs-restart.test.ts',
   'test/jobs.test.ts',
   'test/layout-resize.test.ts',
   'test/layout.test.ts',
   'test/links.test.ts',
+  'test/lock.test.ts',
   'test/markdown.test.ts',
   'test/memory-adoption.test.ts',
   'test/memory-context.test.ts',
@@ -27,6 +31,7 @@ export const vitestFiles: readonly string[] = [
   'test/notification-schedule.test.ts',
   'test/pentacle-activity.test.ts',
   'test/pentacle.test.ts',
+  'test/process.test.ts',
   'test/registry.test.ts',
   'test/repository.test.ts',
   'test/rpc.test.ts',
@@ -39,6 +44,7 @@ export const vitestFiles: readonly string[] = [
   'test/terminal.test.ts',
   'test/test-runner.test.ts',
   'test/ui-status.test.ts',
+  'test/user-shell.test.ts',
 ];
 
 export function partitionTests(files: readonly string[]): {
