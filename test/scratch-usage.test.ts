@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, open, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import {
   classifyScratch,
   inspectScratch,
@@ -269,7 +269,7 @@ const cases: {
 ];
 
 for (const { name, expected, change } of cases) {
-  await test(`scratch usage classifies ${name}`, () => {
+  test(`scratch usage classifies ${name}`, () => {
     const candidate: ScratchCandidate = {
       directory,
       owner,
@@ -286,7 +286,7 @@ for (const { name, expected, change } of cases) {
   });
 }
 
-await test('scratch inspection finds a real open file without modifying candidate contents', async () => {
+test('scratch inspection finds a real open file without modifying candidate contents', async () => {
   const root = await scratch('witch-usage-');
   const directory = join(root, 'root with spaces');
   await mkdir(directory);

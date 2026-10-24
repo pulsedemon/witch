@@ -54,6 +54,7 @@ export const vitestFiles: readonly string[] = [
   'test/repository.test.ts',
   'test/rpc.test.ts',
   'test/scratch-lifetime.test.ts',
+  'test/scratch-usage.test.ts',
   'test/scratch.test.ts',
   'test/screen.test.ts',
   'test/selection.test.ts',
