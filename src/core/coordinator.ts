@@ -64,7 +64,6 @@ type Activity = NonNullable<ConversationRecord['activity']>;
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
   startedAt: number;
-  /** the ids of its run's start and end rows. */
   rows: { start: string; end?: string };
 }
 
@@ -233,7 +232,6 @@ export class Coordinator {
     );
   }
 
-  /** a new conversation on the agent, model and effort of the most recently used one. */
   private async launchRecord(cwd: string): Promise<Conversation> {
     const [source] = await this.store.conversations();
     const installed = this.agents.filter(({ executable }) => executable);
@@ -244,7 +242,6 @@ export class Coordinator {
     return createConversation(cwd, agent.adapter.id, source);
   }
 
-  /** stops orphans, publishes stranded memory and reports what it can't settle in conversations no instance holds. */
   private async sweep(skip: string | undefined): Promise<string | undefined> {
     const { records, unreadable } = await this.store.records();
     const ahead = new Set(await this.memory.unpublished());
@@ -386,10 +383,6 @@ export class Coordinator {
     return queue;
   }
 
-  /**
-   * a prompt behind queued ones or sent after an interrupt waits in the queue, and so does a slash command or `!`
-   * command, apart from a spell or `!` command sent once the turn has replied.
-   */
   private async steer(prompt: string): Promise<boolean> {
     const session = this.session;
     if (
@@ -439,7 +432,6 @@ export class Coordinator {
     return !!this.snapshot.error || this.turnFailed;
   }
 
-  /** runs the queue while idle: a slash command or `!` command alone, otherwise every prompt before the next one, a line each. */
   private async drain(): Promise<void> {
     if (this.draining) return;
     this.draining = true;
@@ -716,6 +708,13 @@ export class Coordinator {
       this.editorCancellation = new AbortController();
       try {
         await this.editFile(file, this.editorCancellation.signal);
+      } catch (error) {
+        if (
+          !this.cancelled ||
+          !(error instanceof Error) ||
+          error.name !== 'AbortError'
+        )
+          throw error;
       } finally {
         this.editorCancellation = undefined;
       }
@@ -726,10 +725,7 @@ export class Coordinator {
     });
   }
 
-  /**
-   * returns whether merge cleanup acted, refreshing `install` after Witch's own cleanup.
-   * skips unreadable records and peer turns with a running native process anywhere in this checkout.
-   */
+  /** returns whether merge cleanup acted, refreshing `install` after Witch's own cleanup. */
   async cleanUpMerge(
     pullRequest: PullRequest,
     install?: string,
@@ -891,7 +887,6 @@ export class Coordinator {
     const conversation = this.current();
     if (kind === 'turn') this.publish({ completedTurn: undefined });
     const { activity, scope } = await this.beginActivity(kind);
-    // an interrupt that aborts this connect interrupts the turn, as one after it does
     const session = await this.connect(conversation.agent, scope).catch(
       (error: unknown) => {
         if (
@@ -1077,7 +1072,7 @@ export class Coordinator {
     if (live && (!turnScope || turnScope.project === this.sessionProject))
       return live;
     // an initial connect keeps the activation published when its conversation opened
-    await this.disconnect(!this.session);
+    await this.disconnect(!this.session, agent === this.current().agent);
     const conversation = this.current();
     const files = this.files!;
     const tools = new Map<string, string>();
@@ -1153,19 +1148,30 @@ export class Coordinator {
     this.pendingContext.set(id, [...pending, ...context]);
   }
 
-  private async disconnect(keepActivation = false): Promise<void> {
+  private async disconnect(
+    keepActivation = false,
+    keepQuestions = false,
+  ): Promise<void> {
     if (!keepActivation && this.coordination) await this.coordination.quiesce();
     const conversationId = this.record?.id;
     const session = this.session;
     this.session = undefined;
     this.stopBackgroundActivity();
-    this.publish({ skills: [], subagents: [], requests: [] });
+    this.publish({
+      skills: [],
+      subagents: [],
+      requests: keepQuestions
+        ? this.snapshot.requests.filter((request) => request.replyAsPrompt)
+        : [],
+    });
     try {
       await session?.close();
       if (!this.record) return;
       delete this.record.process;
       await this.save();
     } finally {
+      // discard questions delivered while the old process was closing
+      if (!keepQuestions) this.publish({ requests: [] });
       if (conversationId)
         this.retainContext(conversationId, session?.takeUnreadContext?.());
       if (!keepActivation) await this.coordination?.deactivate();
@@ -1202,12 +1208,14 @@ export class Coordinator {
       this.publish({ requests: [...this.snapshot.requests, event.request] });
     } else if (event.type === 'closed') {
       this.stopBackgroundActivity();
-      this.publish({ requests: [] });
-    } else if (event.type === 'request-resolved') {
       this.publish({
         requests: this.snapshot.requests.filter(
-          (request) => request.id !== event.id,
+          (request) => request.replyAsPrompt,
         ),
+      });
+    } else if (event.type === 'request-resolved') {
+      this.publish({
+        requests: this.snapshot.requests.filter(({ id }) => id !== event.id),
       });
     } else if (event.type === 'notice') {
       this.notice(event.text);
@@ -1253,7 +1261,6 @@ export class Coordinator {
     }
   }
 
-  /** lists a familiar's update and writes its run's start and end rows, which the transcript keeps after a turn drops the familiar. */
   private familiar(conversation: ConversationRecord, subagent: Subagent): void {
     const previous = this.snapshot.subagents.find(
       ({ id }) => id === subagent.id,
@@ -1301,7 +1308,6 @@ export class Coordinator {
       );
   }
 
-  /** lists a background command, which Witch calls a brew, while it runs, and writes its start and end rows. */
   private brew(
     conversation: ConversationRecord,
     command: BackgroundCommand,
@@ -1342,9 +1348,7 @@ export class Coordinator {
 
   private display(update: DisplayUpdate): void {
     const stamped = { ...update, at: new Date().toISOString() };
-    this.publish({
-      items: applyDisplayUpdate(this.snapshot.items, stamped),
-    });
+    this.publish({ items: applyDisplayUpdate(this.snapshot.items, stamped) });
     this.persist(this.files!.append(stamped));
   }
 
@@ -1393,7 +1397,6 @@ export class Coordinator {
     return registration;
   }
 
-  /** a load passes its report here, so the phase leaves `starting` with it. */
   private async settle(report?: string): Promise<void> {
     if (this.closed) return;
     await this.files!.flush();

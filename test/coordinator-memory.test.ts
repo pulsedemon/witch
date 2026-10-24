@@ -692,13 +692,12 @@ for (const action of ['interrupt', 'close'] as const) {
   await test(
     `${action} cancels an open memory editor and preserves pending-write provenance`,
     { timeout: 5000 },
-    async () => {
+    async (t) => {
       const opened = Promise.withResolvers<void>();
       const { coordinator, store, memory, root, project, a, workspace, note } =
         await fixture(async (path, signal) => {
           await writeFile(path, 'Pending manual preference.');
-          opened.resolve();
-          await new Promise<void>((_, reject) =>
+          const stopped = new Promise<void>((_, reject) =>
             signal.addEventListener(
               'abort',
               () =>
@@ -706,11 +705,14 @@ for (const action of ['interrupt', 'close'] as const) {
               { once: true },
             ),
           );
+          opened.resolve();
+          await stopped;
         });
-      const editing = coordinator.editMemory().catch(() => {});
+      t.after(() => coordinator.close());
+      const editing = assert.doesNotReject(coordinator.editMemory());
       await opened.promise;
-      await coordinator[action]();
-      await editing;
+      await Promise.all([coordinator[action](), editing]);
+      assert.equal(coordinator.snapshot.error, undefined);
       assert.equal(await workspace().isDirty(), true);
       if (action === 'interrupt')
         assert.equal(coordinator.snapshot.phase, 'recovery');
@@ -743,6 +745,47 @@ for (const action of ['interrupt', 'close'] as const) {
       } finally {
         await recovered.close();
       }
+    },
+  );
+}
+
+for (const interrupted of [true, false]) {
+  await test(
+    interrupted
+      ? 'a memory editor failure during cancellation remains an error'
+      : 'an unrequested editor abort remains an error',
+    { timeout: 5000 },
+    async (t) => {
+      const opened = Promise.withResolvers<void>();
+      const finish = Promise.withResolvers<void>();
+      const failure = interrupted
+        ? new Error('Editor failed')
+        : new DOMException('Editor aborted independently', 'AbortError');
+      const { coordinator, workspace, note } = await fixture(async (path) => {
+        await writeFile(path, 'Pending manual preference.');
+        opened.resolve();
+        await finish.promise;
+        throw failure;
+      });
+      t.after(async () => {
+        finish.resolve();
+        await coordinator.close();
+      });
+      const editing = assert.rejects(
+        coordinator.editMemory(),
+        (error: unknown) => error === failure,
+      );
+      await opened.promise;
+      if (interrupted) await coordinator.interrupt();
+      finish.resolve();
+      await editing;
+      assert.equal(coordinator.snapshot.error, failure.message);
+      assert.equal(coordinator.snapshot.phase, 'recovery');
+      assert.equal(await workspace().isDirty(), true);
+      assert.equal(
+        await readFile(join(workspace().root, await note()), 'utf8'),
+        'Pending manual preference.',
+      );
     },
   );
 }

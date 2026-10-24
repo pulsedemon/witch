@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { ExecFileException } from 'node:child_process';
+import type { ExecFileException, ExecFileOptions } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Run } from './repository.js';
 
@@ -9,7 +9,7 @@ const execute = promisify(execFile);
 export async function runCommand(
   command: string,
   args: string[],
-  options: Parameters<Run>[2] & { env?: NodeJS.ProcessEnv },
+  options: Parameters<Run>[2] & Pick<ExecFileOptions, 'env' | 'killSignal'>,
 ): ReturnType<Run> {
   try {
     return await execute(command, args, options);
