@@ -20,6 +20,9 @@ import termios
 import time
 
 
+RECLAMATION_TIMEOUT = 80
+
+
 def read_json(file):
     try:
         return json.loads(file.read_text())
@@ -313,7 +316,7 @@ child.unref();
                     wait_for('tmux exit', lambda: subprocess.run([tmux, '-S', str(socket), 'list-sessions'],
                                                                capture_output=True, timeout=5).returncode != 0)
             if monitor:
-                monitor.wait('periodic reclamation', lambda: not directory.exists(), seconds=80)
+                monitor.wait('periodic reclamation', lambda: not directory.exists(), seconds=RECLAMATION_TIMEOUT)
                 report['periodic_reclamation'] = True
                 monitor.quit()
             else:
@@ -323,7 +326,7 @@ child.unref();
                         assert (directory / 'marker').read_text() == expected
                         report['uncertain_retained'] = True
                     else:
-                        assert not directory.exists(), report
+                        cleaner.wait('same-boot reclamation', lambda: not directory.exists(), seconds=RECLAMATION_TIMEOUT)
                         report['same_boot_reclaimed'] = True
                     cleaner.quit()
     finally:
@@ -370,7 +373,8 @@ def main():
     if entry.suffix == '.tsx':
         command += ['--import', str(repo / 'scripts/register.mjs')]
     command.append(str(entry))
-    root = Path(tempfile.mkdtemp(prefix='scratch-check-', dir=os.environ['TMPDIR'])).resolve()
+    # indexing fixture files can create orphaned processes during reclamation checks.
+    root = Path(tempfile.mkdtemp(prefix='sc-', suffix='.noindex', dir=os.environ['TMPDIR'])).resolve()
     print('Artifacts: ' + str(root), flush=True)
     bin_dir = root / 'bin'
     bin_dir.mkdir()
