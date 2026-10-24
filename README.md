@@ -6,7 +6,7 @@ A personal terminal app for installed Codex and Claude Code, with Git-backed sha
 
 Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing, and a signed-in `gh` adds the branch's pull request to the status line and lets Witch clean up after it merges.
 
-Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` and `JSON::PP` modules.
+Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` and `JSON::PP` modules. Installing the native dependency requires Python 3 and Xcode Command Line Tools.
 
 ```sh
 pnpm install && pnpm build && ln -s "$PWD/dist/cli.js" ~/.local/bin/witch
@@ -36,7 +36,9 @@ The lifecycle, recovery rules and scope are defined in the [rules](docs/rules.md
 
 ## Development
 
-Local checks require macOS and Git, with no native agent login. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. With nvm, run from the repository root:
+Checks run on macOS or Ubuntu 24.04 ARM without a native agent login. Witch remains a macOS application. Use the Node version in [.nvmrc](.nvmrc); [package.json](package.json) pins pnpm and owns the development scripts. macOS uses the [installation prerequisites](#install). On Ubuntu, install `build-essential`, `python3`, `git`, `perl`, `procps` and `zsh`.
+
+Run checks as an ordinary user so permission assertions remain effective. Linux needs `/proc` mounted in the same PID namespace as the test processes. Give Linux containers an init process, such as Docker's `--init`, to reap orphaned test children. With nvm, run from the repository root:
 
 ```sh
 nvm install
@@ -45,7 +47,7 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
-Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint:eslint` across the working tree using the existing [ESLint configuration](eslint.config.js). Fix reported errors and retry the commit. `pnpm lint` includes formatting checks, and ci runs `pnpm check`.
+Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint:eslint` across the working tree using the existing [ESLint configuration](eslint.config.js). Fix reported errors and retry the commit. `pnpm lint` includes formatting checks. The [ci workflow](.github/workflows/ci.yml) runs the complete `pnpm check` on Linux.
 
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Running the app and native checks requires the [installation prerequisites](#install).
 
@@ -58,11 +60,18 @@ pnpm exec node --import ./scripts/register.mjs --test test/memory.test.ts
 pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='invalid effort' test/claude.test.ts
 ```
 
-`pnpm test:integration` runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
+Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
 `pnpm test:integration:codex-brews` checks native child brews with the installed Codex and a localhost model fixture, without account usage, and retains its evidence under `TMPDIR`.
 
-`python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.tsx"` checks scratch retention through the real CLI with fixture agents and no account usage. It requires Python 3 and tmux; pass an absolute built `cli.js` path to check a build.
+For native macOS verification, run `pnpm check` locally to exercise Darwin locks, boot/process identity and real `sips` conversion. Linux uses a fixture at the `sips` command boundary. The desktop CLI test uses command fixtures for link opening and clipboard writes on both platforms; actual desktop operations remain manual checks.
+
+Then run both scratch-lifetime checks below. They use fixture agents and private tmux sessions with no account usage, and verify scratch retention after exit and repeated `/restart`. They require Python 3, tmux and a writable `TMPDIR` short enough for a tmux socket. Evidence is retained under `TMPDIR`; inspect it and the recorded processes before removing it.
+
+```sh
+python3 scripts/check-scratch-lifetime.py "$PWD/src/cli.tsx"
+python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
+```
 
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
