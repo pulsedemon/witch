@@ -446,6 +446,35 @@ for (const [name, prefix, suffix, body, target] of [
 
 for (const [name, frames] of [
   [
+    'skipped link updates in the same frame as a resize',
+    [
+      { updates: [tool('first\nsee src/ma')], width: 80, expanded: ['tool'] },
+      {
+        updates: [tool('in.ts:3\nhttps://exa'), tool('mple.com/log\nlast')],
+        width: 30,
+        expanded: ['tool'],
+      },
+      { updates: [], width: 80, expanded: ['tool'] },
+    ],
+  ],
+  [
+    'an unresolved OSC opener across resizes and appends',
+    [
+      {
+        updates: [tool('first\n\u001b]8;x\u0007\nfoo')],
+        width: 80,
+        expanded: ['tool'],
+      },
+      { updates: [], width: 30, expanded: ['tool'] },
+      {
+        updates: [tool(';https://x.test/\u0007one\ntwo')],
+        width: 40,
+        expanded: ['tool'],
+      },
+      { updates: [], width: 80, expanded: ['tool'] },
+    ],
+  ],
+  [
     'an append to an expanded running tool',
     [
       { updates: [tool(early)], width: 40, expanded: ['tool'] },
@@ -740,9 +769,13 @@ await test('an earlier layout frame retains its rows and anchors after the tool 
   const positions = anchors.map((anchor) => before.rowOf(anchor));
   const starts = [...before.starts];
   assert.equal(before.starts.get('after'), 4);
-  for (const delta of ['ial', '\nsecond\n', 'third']) {
+  for (const [delta, width] of [
+    ['ial', 40],
+    ['\nsecond\n', 80],
+    ['third', 30],
+  ] as const) {
     items = applyDisplayUpdate(items, tool(delta));
-    layout.render(items, 80, expanded);
+    layout.render(items, width, expanded);
   }
   const after = layout.render(items, 80, expanded);
   assert.deepEqual(after.lines.slice(1, 5).map(stripAnsi), [
@@ -1240,6 +1273,12 @@ await test('assistant appends keep Markdown rows and anchors correct through syn
       expanded: [],
     }));
     sameAsFull(frames);
+    sameAsFull(
+      frames.map((frame, index) => ({
+        ...frame,
+        width: [40, 80, 31][index % 3]!,
+      })),
+    );
   }
 });
 
@@ -1324,10 +1363,14 @@ await test('earlier assistant frames survive appends and a reference that change
   const anchors = lines.map((_, row) => before.anchorAt(row)!);
   const rows = anchors.map((anchor) => before.rowOf(anchor));
   const starts = [...before.starts];
-  for (const text of ['ial\n\nNext.', '\n\n[g]: src/guide.ts\n', '\nLast.']) {
+  for (const [text, width] of [
+    ['ial\n\nNext.', 80],
+    ['\n\n[g]: src/guide.ts\n', 30],
+    ['\nLast.', 40],
+  ] as const) {
     items = applyDisplayUpdate(items, assistant(text));
-    const frame = layout.render(items, 40, new Map());
-    const fresh = new TranscriptLayout().render(items, 40, new Map());
+    const frame = layout.render(items, width, new Map());
+    const fresh = new TranscriptLayout().render(items, width, new Map());
     assert.deepEqual(frame.lines.slice(), fresh.lines.slice());
     assert.ok(frame.starts.get('following')! > before.starts.get('following')!);
     assert.deepEqual(before.lines.slice(), lines);
