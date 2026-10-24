@@ -55,6 +55,7 @@ export function agentWorking(phase: Phase): boolean {
 
 export const conversationRecordSchema = conversationSchema.extend({
   process: processIdentity.optional(),
+  usageProcess: processIdentity.optional(),
   // the shell of a running `!` command Witch runs for Claude
   shell: processIdentity.optional(),
   activity: z

@@ -200,12 +200,19 @@ export class StateStore {
     try {
       const record = await readRecord(directory);
       const files = new ConversationStore(directory, unlock, record);
-      if (record.shell || record.process) {
+      if (record.shell || record.process || record.usageProcess) {
         // the shell goes first, so a CLI that won't stop still leaves the command killed
         if (record.shell) await stopPreviousShell(record.shell);
-        if (record.process) await stopPreviousProcess(record.process);
+        const stopped = await Promise.allSettled(
+          [record.process, record.usageProcess].flatMap((identity) =>
+            identity ? [stopPreviousProcess(identity)] : [],
+          ),
+        );
+        for (const result of stopped)
+          if (result.status === 'rejected') throw result.reason;
         delete record.shell;
         delete record.process;
+        delete record.usageProcess;
         await files.save(record);
       }
       return files;

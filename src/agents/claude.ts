@@ -1,10 +1,8 @@
 import { spawn } from 'node:child_process';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  SpawnOptions,
   Query,
   SDKMessage,
   SDKUserMessage,
@@ -13,6 +11,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
+import { ClaudeUsage } from './claude-usage.js';
+import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
 import { proposedDiff, reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
@@ -35,8 +35,7 @@ import type {
   UserResponse,
 } from './types.js';
 
-type Launch = (options: SpawnOptions) => ChildProcessWithoutNullStreams;
-const launch: Launch = (options) =>
+const launch: ClaudeLaunch = (options) =>
   spawn(options.command, options.args, {
     cwd: options.cwd,
     env: options.env,
@@ -51,11 +50,14 @@ const limitWindow = z
   })
   .nullish();
 /** the experimental usage report may change shape, so only what parses is shown. */
-const usageReport = z.object({
+const sessionUsage = z.object({
   session: z.object({
     total_lines_added: z.number(),
     total_lines_removed: z.number(),
   }),
+});
+const accountUsage = z.object({
+  rate_limits_available: z.boolean(),
   // percentages of 0 to 100
   rate_limits: z
     .object({ five_hour: limitWindow, seven_day: limitWindow })
@@ -96,7 +98,7 @@ export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
   readonly label = 'Claude Code';
 
-  constructor(private readonly start: Launch = launch) {}
+  constructor(private readonly start: ClaudeLaunch = launch) {}
 
   async models(options: ModelDiscoveryOptions): Promise<Model[]> {
     const input = new InputQueue<SDKUserMessage>();
@@ -202,6 +204,7 @@ class ClaudeSession implements AgentSession {
   closed = false;
   private readonly input = new InputQueue<SDKUserMessage>();
   private readonly query: Query;
+  private readonly usageReader: ClaudeUsage;
   private readonly reading: Promise<void>;
   private registered = Promise.resolve();
   private child?: ChildExit;
@@ -233,7 +236,7 @@ class ClaudeSession implements AgentSession {
 
   constructor(
     private readonly options: SessionOptions,
-    start: Launch,
+    start: ClaudeLaunch,
   ) {
     options.signal?.addEventListener('abort', this.cancelConnection, {
       once: true,
@@ -376,6 +379,12 @@ class ClaudeSession implements AgentSession {
         },
       },
     });
+    this.usageReader = new ClaudeUsage(
+      options,
+      start,
+      this.query,
+      (report, source) => this.applyUsage(report, source),
+    );
     this.reading = this.read();
   }
 
@@ -394,7 +403,7 @@ class ClaudeSession implements AgentSession {
     }
     this.connected = true;
     await this.registered;
-    void this.readUsage();
+    this.readUsage();
   }
 
   async models(refresh = false): Promise<Model[]> {
@@ -655,6 +664,7 @@ class ClaudeSession implements AgentSession {
         (uuid) => turn.commandRecords.get(uuid)?.records ?? [],
       );
       this.closed = true;
+      void this.usageReader.close().catch(() => {});
       this.finish(turn, {
         status: 'interrupted',
         text: [...turn.messages.values()].join('\n\n'),
@@ -672,11 +682,14 @@ class ClaudeSession implements AgentSession {
     const command = this.command;
     command?.controller.abort();
     this.closed = true;
+    const usageClosed = this.usageReader.close();
+    void usageClosed.catch(() => {});
     this.input.close();
     this.query.close();
     await this.reading;
     await this.child?.closed;
     await command?.finished;
+    await usageClosed;
     this.options.signal?.removeEventListener('abort', this.cancelConnection);
     await this.options.onProcess(undefined);
   }
@@ -754,6 +767,7 @@ class ClaudeSession implements AgentSession {
       await this.end(errorMessage(failure));
     } finally {
       this.closed = true;
+      await this.usageReader.close().catch(() => {});
       for (const request of this.requests.values())
         request.resolve({ decision: 'cancel' });
       if (this.connected) this.options.onEvent({ type: 'closed' });
@@ -1073,45 +1087,48 @@ class ClaudeSession implements AgentSession {
     }
   }
 
-  /** context from the CLI's estimate, and limits and lines from the usage report Claude Code's `/usage` reads. */
-  private async readUsage(): Promise<void> {
-    const [, report] = await Promise.allSettled([
-      this.contextUsage(),
-      this.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
-        skipBehaviors: true,
-      }),
-    ]);
+  private readUsage(): void {
+    void this.contextUsage();
+    this.usageReader.refresh();
+  }
+
+  private applyUsage(report: unknown, source: UsageSource): void {
     const update: Usage = {};
-    const usage =
-      report.status === 'fulfilled'
-        ? usageReport.safeParse(report.value)
-        : undefined;
-    if (usage?.success) {
-      const { session, rate_limits: limits } = usage.data;
+    const session =
+      source === 'main' ? sessionUsage.safeParse(report) : undefined;
+    if (session?.success) {
       update.lines = {
-        added: session.total_lines_added,
-        removed: session.total_lines_removed,
+        added: session.data.session.total_lines_added,
+        removed: session.data.session.total_lines_removed,
       };
-      update.limits = (
-        [
-          ['5H', limits?.five_hour],
-          ['7D', limits?.seven_day],
-        ] as const
-      ).flatMap(([name, limit]) =>
-        limit?.utilization == null
-          ? []
-          : [
-              {
-                window: name,
-                percent: limit.utilization,
-                ...(limit.resets_at
-                  ? { resetsAt: Date.parse(limit.resets_at) / 1000 }
-                  : {}),
-              },
-            ],
-      );
     }
-    if (!this.closed && Object.keys(update).length) this.report(update);
+    const account = accountUsage.safeParse(report);
+    if (account.success) {
+      const { rate_limits: limits, rate_limits_available: available } =
+        account.data;
+      update.limits = !available
+        ? []
+        : (
+            [
+              ['5H', limits?.five_hour],
+              ['7D', limits?.seven_day],
+            ] as const
+          ).flatMap(([name, limit]) =>
+            limit?.utilization == null
+              ? (this.usage.limits?.filter((entry) => entry.window === name) ??
+                [])
+              : [
+                  {
+                    window: name,
+                    percent: limit.utilization,
+                    ...(limit.resets_at
+                      ? { resetsAt: Date.parse(limit.resets_at) / 1000 }
+                      : {}),
+                  },
+                ],
+          );
+    }
+    if (Object.keys(update).length) this.report(update);
   }
 
   /** ends the turn a stopped CLI leaves, once its stderr is complete. */
@@ -1119,6 +1136,7 @@ class ClaudeSession implements AgentSession {
     const closed = this.closed;
     // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
+    void this.usageReader.close().catch(() => {});
     const turn = this.turn;
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI
     if (turn) this.command?.controller.abort();
@@ -1164,7 +1182,7 @@ class ClaudeSession implements AgentSession {
             }
           : turn.result!,
       );
-      void this.readUsage();
+      this.readUsage();
     }
   }
 

@@ -432,6 +432,110 @@ await test('a claim that cannot stop the recorded process still kills the record
   }
 });
 
+for (const main of [false, true]) {
+  await test(`a claim stops the recorded usage helper${main ? ' and main process' : ' without a main process'}`, async () => {
+    const store = await StateStore.open(await scratch('witch-usage-claim-'));
+    const children = Array.from({ length: main ? 2 : 1 }, () =>
+      spawn('/bin/sleep', ['30'], { stdio: 'ignore' }),
+    );
+    try {
+      const files = await store.create(conversation('usage'));
+      await files.save({
+        ...files.record,
+        usageProcess: await identifyProcess(children[0]!.pid!),
+        ...(main ? { process: await identifyProcess(children[1]!.pid!) } : {}),
+      });
+      await files.close();
+      const closed = children.map((child) => once(child, 'close'));
+      const recovered = await store.claim('usage');
+      await Promise.all(closed);
+      assert.equal(recovered.record.process, undefined);
+      assert.equal(recovered.record.usageProcess, undefined);
+      await recovered.close();
+      const saved = JSON.parse(
+        await readFile(
+          join(store.root, 'conversations', 'usage', 'state.json'),
+          'utf8',
+        ),
+      ) as { usageProcess?: unknown; process?: unknown };
+      assert.equal(saved.process, undefined);
+      assert.equal(saved.usageProcess, undefined);
+    } finally {
+      for (const child of children) child.kill('SIGKILL');
+    }
+  });
+}
+
+await test('a claim does not signal a process that reused the usage helper pid', async () => {
+  const store = await StateStore.open(await scratch('witch-usage-reused-'));
+  const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  try {
+    const files = await store.create(conversation('reused-usage'));
+    await files.save({
+      ...files.record,
+      usageProcess: { pid: child.pid!, started: 'Thu Jan  1 00:00:00 1970' },
+    });
+    await files.close();
+    const recovered = await store.claim('reused-usage');
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    assert.equal(recovered.record.usageProcess, undefined);
+    await recovered.close();
+  } finally {
+    child.kill('SIGKILL');
+  }
+});
+
+await test('a failed main stop retains the recovery lock until the usage helper stop settles', async (t) => {
+  const store = await StateStore.open(await scratch('witch-usage-stop-'));
+  const main = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  const helper = spawn(
+    process.execPath,
+    [
+      '-e',
+      "process.on('SIGTERM',()=>process.stdout.write('stopping\\n'));process.stdin.on('data',()=>process.exit());console.log('ready')",
+    ],
+    { stdio: 'pipe' },
+  );
+  const kill = process.kill.bind(process);
+  let recovering: Promise<unknown> | undefined;
+  try {
+    await once(helper.stdout, 'data');
+    const files = await store.create(conversation('usage-stop'));
+    await files.save({
+      ...files.record,
+      process: await identifyProcess(main.pid!),
+      usageProcess: await identifyProcess(helper.pid!),
+    });
+    await files.close();
+    const signalled = once(helper.stdout, 'data');
+    t.mock.method(process, 'kill', (pid: number, signal?: string | number) => {
+      if (pid === main.pid && signal === 'SIGTERM')
+        throw new Error('Main stop failed');
+      return kill(pid, signal);
+    });
+    let settled = false;
+    recovering = assert
+      .rejects(store.claim('usage-stop'), /Main stop failed/)
+      .finally(() => {
+        settled = true;
+      });
+    await signalled;
+    assert.equal(await store.isOpen('usage-stop'), true);
+    assert.equal(settled, false);
+    const closed = once(helper, 'close');
+    helper.stdin.write('finish');
+    await recovering;
+    await closed;
+    assert.equal(await store.isOpen('usage-stop'), false);
+  } finally {
+    t.mock.restoreAll();
+    main.kill('SIGKILL');
+    helper.kill('SIGKILL');
+    await recovering;
+  }
+});
+
 await test('a claim succeeds when the recorded process exits before its signal', async (t) => {
   const store = await StateStore.open(await scratch('witch-exited-claim-'));
   const child = spawn('/bin/sleep', ['20'], { stdio: 'ignore' });
