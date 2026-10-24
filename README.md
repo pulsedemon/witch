@@ -65,8 +65,8 @@ pnpm exec vitest run test/coordinator-session.test.ts -t 'completion in a later 
 Run remaining files through the [UI compiler preload](scripts/register.mjs):
 
 ```sh
-pnpm exec node --import ./scripts/register.mjs --test test/claude.test.ts
-pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='invalid effort' test/claude.test.ts
+pnpm exec node --import ./scripts/register.mjs --test test/coordinator-turns.test.ts
+pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='pending command context' test/coordinator-turns.test.ts
 ```
 
 Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.

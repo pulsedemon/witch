@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { setImmediate as tick } from 'node:timers/promises';
 import { proposedDiff } from '../src/agents/claude-diff.js';
 import type { AgentEvent, UserRequest } from '../src/agents/types.js';
@@ -149,7 +149,7 @@ const examples = [
 ] as const;
 
 for (const example of examples)
-  await test(`Claude previews preserve ${example.name} without writing`, async () => {
+  test(`Claude previews preserve ${example.name} without writing`, async () => {
     const cwd = await scratch('witch-claude-preview-');
     const path = join(cwd, 'file.txt');
     if (example.original !== null) await fs.writeFile(path, example.original);
@@ -191,7 +191,7 @@ for (const example of examples)
     else assert.equal(await fs.readFile(path, 'utf8'), example.original);
   });
 
-await test('previews preserve quote styles without stalling on long replacements', async () => {
+test('previews preserve quote styles without stalling on long replacements', async () => {
   const cwd = await scratch('witch-claude-preview-');
   const path = join(cwd, 'quotes.txt');
   for (const [opening, straight, other, replacement] of [
@@ -220,7 +220,7 @@ await test('previews preserve quote styles without stalling on long replacements
   }
 });
 
-await test('replace_all previews both distant changes', async () => {
+test('replace_all previews both distant changes', async () => {
   const cwd = await scratch('witch-claude-preview-');
   const path = join(cwd, 'distant.txt');
   await fs.writeFile(
@@ -259,12 +259,14 @@ await test('replace_all previews both distant changes', async () => {
   );
 });
 
-await test('a diff deadline yields no partial preview', async (t) => {
+test('a diff deadline yields no partial preview', async () => {
   const cwd = await scratch('witch-claude-preview-');
   const path = join(cwd, 'deadline.txt');
   await fs.writeFile(path, 'before\n');
   let calls = 0;
-  const clock = t.mock.method(Date, 'now', () => (calls++ === 0 ? 0 : 6000));
+  const clock = vi
+    .spyOn(Date, 'now')
+    .mockImplementation(() => (calls++ === 0 ? 0 : 6000));
   try {
     assert.equal(
       await proposedDiff(
@@ -276,12 +278,12 @@ await test('a diff deadline yields no partial preview', async (t) => {
       undefined,
     );
   } finally {
-    clock.mock.restore();
+    clock.mockRestore();
   }
   assert.equal(await fs.readFile(path, 'utf8'), 'before\n');
 });
 
-await test('unpreviewable requests retain approval behavior and original inputs', async (t) => {
+test('unpreviewable requests retain approval behavior and original inputs', async () => {
   const requests: UserRequest[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'request') {
@@ -292,13 +294,15 @@ await test('unpreviewable requests retain approval behavior and original inputs'
   const path = join(cwd, 'file.txt');
   const denied = join(cwd, 'denied.txt');
   const read = fs.readFile;
-  t.mock.method(fs, 'readFile', (...args: Parameters<typeof fs.readFile>) => {
-    if (String(args[0]) === denied)
-      return Promise.reject(
-        Object.assign(new Error('unreadable'), { code: 'EACCES' }),
-      );
-    return read(...args);
-  });
+  vi.spyOn(fs, 'readFile').mockImplementation(
+    (...args: Parameters<typeof fs.readFile>) => {
+      if (String(args[0]) === denied)
+        return Promise.reject(
+          Object.assign(new Error('unreadable'), { code: 'EACCES' }),
+        );
+      return read(...args);
+    },
+  );
   try {
     await fs.writeFile(path, 'twice twice');
     await fs.writeFile(denied, 'kept');
@@ -353,7 +357,7 @@ await test('unpreviewable requests retain approval behavior and original inputs'
 });
 
 for (const action of ['withdraw', 'close'] as const)
-  await test(`preview ${action} publishes no request or resolution after cancellation`, async (t) => {
+  test(`preview ${action} publishes no request or resolution after cancellation`, async () => {
     const events: AgentEvent[] = [];
     const { session, cwd } = await fixture((event) => events.push(event));
     const path = join(cwd, 'pending.txt');
@@ -368,14 +372,16 @@ for (const action of ['withdraw', 'close'] as const)
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const stat = fs.stat;
-    t.mock.method(fs, 'stat', async (...args: Parameters<typeof fs.stat>) => {
-      const result = await stat(...args);
-      if (String(args[0]) === path) {
-        entered.resolve();
-        await release.promise;
-      }
-      return result;
-    });
+    vi.spyOn(fs, 'stat').mockImplementation(
+      async (...args: Parameters<typeof fs.stat>) => {
+        const result = await stat(...args);
+        if (String(args[0]) === path) {
+          entered.resolve();
+          await release.promise;
+        }
+        return result;
+      },
+    );
     try {
       const turn = session.send(
         action === 'withdraw' ? 'preview-withdrawn' : 'preview',
@@ -402,7 +408,7 @@ for (const action of ['withdraw', 'close'] as const)
     }
   });
 
-await test('a previewed approval passes the original decision and input', async () => {
+test('a previewed approval passes the original decision and input', async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   const path = join(cwd, 'original.txt');

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { setImmediate } from 'node:timers/promises';
 import { ModelCatalog, modelKey, modelTarget } from '../src/core/models.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
-await test('catalogs preserve runtime order and identity, and reuse inactive lists until a refresh, without connecting inactive agents', async () => {
+test('catalogs preserve runtime order and identity, and reuse inactive lists until a refresh, without connecting inactive agents', async () => {
   const [a, b, missing] = ['a', 'b', 'missing'].map(
     (id) => new FixtureAgent(id),
   );
@@ -68,7 +68,7 @@ await test('catalogs preserve runtime order and identity, and reuse inactive lis
   }
 });
 
-await test('catalog cancellation waits for every discovery to finish cleanup before rejecting', async () => {
+test('catalog cancellation waits for every discovery to finish cleanup before rejecting', async () => {
   const agents = ['a', 'b'].map((id) => new FixtureAgent(id));
   const entered = agents.map(() => Promise.withResolvers<AbortSignal>());
   const closed = agents.map(() => Promise.withResolvers<void>());
@@ -127,7 +127,7 @@ await test('catalog cancellation waits for every discovery to finish cleanup bef
   }
 });
 
-await test('explicit targets parse registered prefixes and retain native IDs containing colons', () => {
+test('explicit targets parse registered prefixes and retain native IDs containing colons', () => {
   for (const [text, expected] of [
     ['haiku', { agent: 'codex', id: 'haiku' }],
     ['claude:haiku', { agent: 'claude', id: 'haiku' }],

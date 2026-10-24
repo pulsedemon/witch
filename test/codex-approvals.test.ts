@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { AgentEvent, UserRequest } from '../src/agents/types.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { fixture, close } from './fixtures/codex-adapter.js';
@@ -100,7 +100,7 @@ async function approvalsFixture() {
   return { ...context, events, emit, request, receipt };
 }
 
-await test('file approvals use their exact thread, turn and item proposal', async () => {
+test('file approvals use their exact thread, turn and item proposal', async () => {
   const f = await approvalsFixture();
   try {
     await f.emit(
@@ -197,7 +197,7 @@ await test('file approvals use their exact thread, turn and item proposal', asyn
   }
 });
 
-await test('completed proposals cannot leak into a later approval', async () => {
+test('completed proposals cannot leak into a later approval', async () => {
   const f = await approvalsFixture();
   const changes = (name: string) => [
     { path: `/work/${name}.txt`, kind: { type: 'add' }, diff: `${name}\n` },
@@ -290,7 +290,7 @@ await test('completed proposals cannot leak into a later approval', async () => 
 });
 
 for (const status of ['completed', 'interrupted', 'failed'])
-  await test(`a turn ending ${status} resolves only requests owned by that thread and turn`, async () => {
+  test(`a turn ending ${status} resolves only requests owned by that thread and turn`, async () => {
     const f = await approvalsFixture();
     try {
       await f.emit(
@@ -347,7 +347,7 @@ for (const status of ['completed', 'interrupted', 'failed'])
     }
   });
 
-await test('native resolution retires a retained request after the main turn ends', async () => {
+test('native resolution retires a retained request after the main turn ends', async () => {
   const f = await approvalsFixture();
   try {
     await f.emit(
@@ -393,7 +393,7 @@ await test('native resolution retires a retained request after the main turn end
 });
 
 for (const loss of [false, true])
-  await test(`${loss ? 'process exit' : 'close'} retires requests retained after the main turn`, async () => {
+  test(`${loss ? 'process exit' : 'close'} retires requests retained after the main turn`, async () => {
     const f = await approvalsFixture();
     try {
       await f.emit(

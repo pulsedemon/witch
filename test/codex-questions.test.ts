@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import { fixture, close } from './fixtures/codex-adapter.js';
 import { within } from './fixtures/within.js';
 
-await test('native async question messages produce one shared request with choices and free-text questions', async () => {
+test('native async question messages produce one shared request with choices and free-text questions', async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event), {
     mode: 'file-approvals',

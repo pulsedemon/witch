@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { AbortError } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
 import {
@@ -15,7 +15,7 @@ import {
 } from './fixtures/claude-adapter.js';
 import { until, within } from './fixtures/within.js';
 
-await test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
+test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
   const { args, connect } = await launcher();
   const session = await connect({ effort: 'high' });
   try {
@@ -26,7 +26,7 @@ await test('a stored effort reaches Claude Code on connect and shows before any 
   }
 });
 
-await test('refresh consumes a fresh native catalog without replacing the default system prompt', async () => {
+test('refresh consumes a fresh native catalog without replacing the default system prompt', async () => {
   const { session, cwd } = await fixture();
   try {
     assert.deepEqual(
@@ -46,7 +46,7 @@ await test('refresh consumes a fresh native catalog without replacing the defaul
   }
 });
 
-await test('skills leave out built-ins and the rows they shadow, before and after a native change', async () => {
+test('skills leave out built-ins and the rows they shadow, before and after a native change', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -72,7 +72,7 @@ await test('skills leave out built-ins and the rows they shadow, before and afte
   }
 });
 
-await test('a skill goes last after its context, and a plain prompt stays a string', async () => {
+test('a skill goes last after its context, and a plain prompt stays a string', async () => {
   const { session, cwd } = await fixture();
   try {
     await session.send('context', { name: 'review', args: 'main' });
@@ -87,7 +87,7 @@ await test('a skill goes last after its context, and a plain prompt stays a stri
   }
 });
 
-await test('invalid effort preserves the displayed and native model', async () => {
+test('invalid effort preserves the displayed and native model', async () => {
   const { session, cwd } = await fixture();
   try {
     await session.selectModel('claude-a', 'low');
@@ -104,7 +104,7 @@ await test('invalid effort preserves the displayed and native model', async () =
   }
 });
 
-await test('a model chosen without an effort keeps the effort in force and sends none', async () => {
+test('a model chosen without an effort keeps the effort in force and sends none', async () => {
   const { session, cwd } = await fixture();
   try {
     await session.selectModel('claude-a', 'high');
@@ -118,7 +118,7 @@ await test('a model chosen without an effort keeps the effort in force and sends
   }
 });
 
-await test('a null effort clears the effort in force', async () => {
+test('a null effort clears the effort in force', async () => {
   const { session, cwd } = await fixture();
   try {
     await session.selectModel('claude-a', 'high');
@@ -133,7 +133,7 @@ await test('a null effort clears the effort in force', async () => {
   }
 });
 
-await test('a new session has history and the native permission mode once its first prompt starts', async () => {
+test('a new session has history and the native permission mode once its first prompt starts', async () => {
   const { session } = await fixture();
   try {
     assert.equal(session.info.hasHistory, false);
@@ -145,7 +145,7 @@ await test('a new session has history and the native permission mode once its fi
   }
 });
 
-await test('a stored session resumes by its id instead of starting a new one', async () => {
+test('a stored session resumes by its id instead of starting a new one', async () => {
   const { args, connect } = await launcher();
   const session = await connect({ resume: 'stored-session' });
   try {
@@ -156,7 +156,7 @@ await test('a stored session resumes by its id instead of starting a new one', a
   }
 });
 
-await test(
+test(
   'a result followed by running and requires_action waits for native idle',
   { timeout: 3000 },
   async () => {
@@ -189,7 +189,7 @@ await test(
 );
 
 for (const decision of ['accept', 'decline'] as const) {
-  await test(`Claude approval ${decision} returns the matching tool decision`, async () => {
+  test(`Claude approval ${decision} returns the matching tool decision`, async () => {
     const { session, cwd } = await fixture((event) => {
       if (event.type === 'request')
         session.respond(event.request.id, { decision });
@@ -208,7 +208,7 @@ for (const decision of ['accept', 'decline'] as const) {
   });
 }
 
-await test('a Claude question lists its choices and returns a multiple choice joined', async () => {
+test('a Claude question lists its choices and returns a multiple choice joined', async () => {
   const requests: UserRequest[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
@@ -241,7 +241,7 @@ await test('a Claude question lists its choices and returns a multiple choice jo
   }
 });
 
-await test('a Claude elicitation returns the accepted content', async () => {
+test('a Claude elicitation returns the accepted content', async () => {
   const requests: UserRequest[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
@@ -268,7 +268,7 @@ await test('a Claude elicitation returns the accepted content', async () => {
   }
 });
 
-await test('a permission prompt the CLI withdraws leaves the queue', async () => {
+test('a permission prompt the CLI withdraws leaves the queue', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -284,7 +284,7 @@ await test('a permission prompt the CLI withdraws leaves the queue', async () =>
   }
 });
 
-await test('a mid-turn interrupt ends the turn with the native result', async () => {
+test('a mid-turn interrupt ends the turn with the native result', async () => {
   const { seen, onEvent } = working();
   const { session } = await fixture(onEvent);
   try {
@@ -300,7 +300,7 @@ await test('a mid-turn interrupt ends the turn with the native result', async ()
   }
 });
 
-await test('a connection cancellation keeps its native abort diagnostic', async () => {
+test('a connection cancellation keeps its native abort diagnostic', async () => {
   const { connect } = await launcher();
   const { seen, onEvent } = working();
   const controller = new AbortController();
@@ -320,7 +320,7 @@ await test('a connection cancellation keeps its native abort diagnostic', async 
   }
 });
 
-await test('an interrupt that leaves the prompt queued closes the session', async () => {
+test('an interrupt that leaves the prompt queued closes the session', async () => {
   const { seen, onEvent } = working();
   const { session, child } = await fixture(onEvent);
   try {
@@ -340,7 +340,7 @@ await test('an interrupt that leaves the prompt queued closes the session', asyn
   }
 });
 
-await test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result with no familiar running', async () => {
+test('a prompt steered into a turn reaches Claude Code, and none is taken with no turn open or once the turn has its result with no familiar running', async () => {
   const { seen, onEvent } = working();
   // the fixture sends this text after the result, while the turn waits for native idle
   const awaitingIdle = Promise.withResolvers<void>();
@@ -372,7 +372,7 @@ await test('a prompt steered into a turn reaches Claude Code, and none is taken 
   }
 });
 
-await test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
+test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
   const texts: string[] = [];
   const skills: string[] = [];
   const { session, cwd } = await fixture((event) => {
@@ -405,7 +405,7 @@ await test("a prompt sent after the turn's result while a familiar runs in the b
   }
 });
 
-await test("a background workflow holds the turn open for a prompt as a familiar does, until it reports, and isn't a familiar", async () => {
+test("a background workflow holds the turn open for a prompt as a familiar does, until it reports, and isn't a familiar", async () => {
   const texts: string[] = [];
   const skills: string[] = [];
   const subagents: string[] = [];
@@ -434,7 +434,7 @@ await test("a background workflow holds the turn open for a prompt as a familiar
   }
 });
 
-await test('a background familiar, workflow or brew that leaves the live set with no notification ends stopped, and the turn no longer holds open for the familiar or workflow, while a foreground familiar the live set never listed keeps running', async () => {
+test('a background familiar, workflow or brew that leaves the live set with no notification ends stopped, and the turn no longer holds open for the familiar or workflow, while a foreground familiar the live set never listed keeps running', async () => {
   const subagents: [string, string][] = [];
   const commands: [string, string][] = [];
   const skills: string[] = [];
@@ -471,7 +471,7 @@ await test('a background familiar, workflow or brew that leaves the live set wit
   }
 });
 
-await test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
+test('no prompt is steered into a turn once it is interrupted or its session closes', async () => {
   const { seen, onEvent } = working();
   const { session } = await fixture(onEvent);
   try {
@@ -491,7 +491,7 @@ await test('no prompt is steered into a turn once it is interrupted or its sessi
   }
 });
 
-await test('an interrupt that leaves steered prompts queued closes the session and reports only those unread', async () => {
+test('an interrupt that leaves steered prompts queued closes the session and reports only those unread', async () => {
   const { seen, onEvent } = working();
   const { session, child, cwd } = await fixture(onEvent);
   try {
@@ -519,7 +519,7 @@ await test('an interrupt that leaves steered prompts queued closes the session a
   }
 });
 
-await test('a dispatch failure reports its transport cause', async () => {
+test('a dispatch failure reports its transport cause', async () => {
   const { session, child } = await fixture();
   try {
     assert.equal(child.kill('SIGTERM'), true);
@@ -534,7 +534,7 @@ await test('a dispatch failure reports its transport cause', async () => {
   }
 });
 
-await test('a CLI that exits mid-turn ends the turn only once its stderr is complete, and posts no notice', async () => {
+test('a CLI that exits mid-turn ends the turn only once its stderr is complete, and posts no notice', async () => {
   const { seen, onEvent } = working();
   const notices: AgentEvent[] = [];
   let closures = 0;
@@ -572,7 +572,7 @@ await test('a CLI that exits mid-turn ends the turn only once its stderr is comp
   assert.equal(closures, 1);
 });
 
-await test('an interrupt after the CLI died resolves and the turn ends', async () => {
+test('an interrupt after the CLI died resolves and the turn ends', async () => {
   const { seen, onEvent } = working();
   const { session, child } = await fixture(onEvent);
   try {
@@ -594,7 +594,7 @@ for (const [prompt, expected] of [
     { status: 'failed', text: 'API Error: 500', error: 'API Error: 500' },
   ],
 ] as const)
-  await test(`an ${prompt} result fails the turn with its error`, async () => {
+  test(`an ${prompt} result fails the turn with its error`, async () => {
     const { session } = await fixture();
     try {
       assert.deepEqual(await session.send(prompt), expected);
@@ -603,7 +603,7 @@ for (const [prompt, expected] of [
     }
   });
 
-await test('a CLI that exits cleanly before idle fails the turn with its stderr', async () => {
+test('a CLI that exits cleanly before idle fails the turn with its stderr', async () => {
   let closures = 0;
   const { session } = await fixture((event) => {
     if (event.type === 'closed') closures++;
@@ -624,7 +624,7 @@ await test('a CLI that exits cleanly before idle fails the turn with its stderr'
   assert.equal(closures, 1);
 });
 
-await test('a CLI that dies while idle posts its stderr as a notice', async () => {
+test('a CLI that dies while idle posts its stderr as a notice', async () => {
   const notice = Promise.withResolvers<string>();
   let closures = 0;
   const { session } = await fixture((event) => {
@@ -644,7 +644,7 @@ await test('a CLI that dies while idle posts its stderr as a notice', async () =
   assert.equal(closures, 1);
 });
 
-await test('a clean idle EOF reports closure once', async () => {
+test('a clean idle EOF reports closure once', async () => {
   let closures = 0;
   const { session, child } = await fixture((event) => {
     if (event.type === 'closed') closures++;
@@ -663,7 +663,7 @@ await test('a clean idle EOF reports closure once', async () => {
   assert.equal(closures, 1);
 });
 
-await test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
+test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -720,7 +720,7 @@ await test("Claude tool use and its result update one tool titled by what it act
   }
 });
 
-await test('a Claude edit or write arrives as the diff its result reports, at its path under the session, in place of the result text, while a failed edit, an empty patch or a staged write keeps its text', async () => {
+test('a Claude edit or write arrives as the diff its result reports, at its path under the session, in place of the result text, while a failed edit, an empty patch or a staged write keeps its text', async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -769,7 +769,7 @@ await test('a Claude edit or write arrives as the diff its result reports, at it
   }
 });
 
-await test('Claude edit and write diffs resolve home paths outside the session directory', async () => {
+test('Claude edit and write diffs resolve home paths outside the session directory', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -802,7 +802,7 @@ await test('Claude edit and write diffs resolve home paths outside the session d
   }
 });
 
-await test('Claude Edit creations keep their reported patch and staged creations keep their text', async () => {
+test('Claude Edit creations keep their reported patch and staged creations keep their text', async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -852,7 +852,7 @@ await test('Claude Edit creations keep their reported patch and staged creations
   }
 });
 
-await test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
+test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -923,7 +923,7 @@ await test("a Claude familiar's tool calls give its latest activity, with a path
   }
 });
 
-await test("Claude's subagent tasks report their parent, run and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
+test("Claude's subagent tasks report their parent, run and how they finished, its shell and ambient tasks are not subagents, and an earlier run's late start and notification are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -984,7 +984,7 @@ await test("Claude's subagent tasks report their parent, run and how they finish
   }
 });
 
-await test("Claude's background shells are commands from when the live set lists them, whether started there or moved there, until their notification, and neither foreground shells nor agents are", async () => {
+test("Claude's background shells are commands from when the live set lists them, whether started there or moved there, until their notification, and neither foreground shells nor agents are", async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
@@ -1022,7 +1022,7 @@ await test("Claude's background shells are commands from when the live set lists
   }
 });
 
-await test('a CLI that exits during initialize fails the connect without a notice', async () => {
+test('a CLI that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
   const { connect } = await launcher('exit-on-init');
   await assert.rejects(
@@ -1036,7 +1036,7 @@ await test('a CLI that exits during initialize fails the connect without a notic
   assert.deepEqual(events, []);
 });
 
-await test('an aborted connect rejects', async () => {
+test('an aborted connect rejects', async () => {
   const { children, connect } = await launcher('hang-on-init');
   const controller = new AbortController();
   const connecting = connect({ signal: controller.signal });
@@ -1057,7 +1057,7 @@ await test('an aborted connect rejects', async () => {
   }
 });
 
-await test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
+test('a failed initialize reports the CLI stderr even while the CLI lives', async () => {
   const { children, connect } = await launcher('init-error');
   try {
     await assert.rejects(within(connect(), 3000, 'connect'), {
@@ -1069,7 +1069,7 @@ await test('a failed initialize reports the CLI stderr even while the CLI lives'
   }
 });
 
-await test('a process report that rejects fails the connect without an unhandled rejection', async () => {
+test('a process report that rejects fails the connect without an unhandled rejection', async () => {
   const unhandled: unknown[] = [];
   const record = (reason: unknown) => unhandled.push(reason);
   process.on('unhandledRejection', record);
@@ -1090,7 +1090,7 @@ await test('a process report that rejects fails the connect without an unhandled
   }
 });
 
-await test('reports context, the 5H and 7D limits and lines once the session is idle', async () => {
+test('reports context, the 5H and 7D limits and lines once the session is idle', async () => {
   const reported: Usage[] = [];
   const { session } = await fixture((event) => {
     if (event.type === 'usage') reported.push(event.usage);
@@ -1122,7 +1122,7 @@ await test('reports context, the 5H and 7D limits and lines once the session is 
   }
 });
 
-await test('reports the effort Claude Code says it will send', async () => {
+test('reports the effort Claude Code says it will send', async () => {
   const { session } = await fixture(() => {}, 'init-effort');
   try {
     assert.equal(session.info.nativeEffort, undefined);

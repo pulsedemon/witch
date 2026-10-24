@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { describe, test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type { AgentEvent, Usage } from '../src/agents/types.js';
@@ -113,7 +113,7 @@ async function brewsFixture() {
   };
 }
 
-await test('Codex commands become brews only after their originating turn ends', async () => {
+test('Codex commands become brews only after their originating turn ends', async () => {
   const f = await brewsFixture();
   try {
     const first = f.session.send('first');
@@ -159,7 +159,7 @@ await test('Codex commands become brews only after their originating turn ends',
   }
 });
 
-await test('Codex brew order follows command starts', async () => {
+test('Codex brew order follows command starts', async () => {
   const f = await brewsFixture();
   try {
     const sending = f.session.send('order');
@@ -182,9 +182,9 @@ await test('Codex brew order follows command starts', async () => {
   }
 });
 
-await test('a stale terminal list cannot revive a completed command or admit a later foreground command', async (t) => {
+describe('a stale terminal list cannot revive a completed command or admit a later foreground command', () => {
   for (const stale of [true, false])
-    await t.test(stale ? 'old snapshot' : 'later snapshot', async () => {
+    test(stale ? 'old snapshot' : 'later snapshot', async () => {
       const f = await brewsFixture();
       try {
         const first = f.session.send('first');
@@ -227,63 +227,51 @@ await test('a stale terminal list cannot revive a completed command or admit a l
     });
 });
 
-await test('Codex brews survive turn interruption and retain native terminal results', async (t) => {
+describe('Codex brews survive turn interruption and retain native terminal results', () => {
   for (const [turnStatus, status, exitCode, expected] of [
     ['interrupted', 'completed', 0, 'completed'],
     ['failed', 'failed', -1, 'failed'],
     ['completed', 'declined', -1, 'failed'],
     ['completed', 'failed', 7, 'failed'],
   ] as const)
-    await t.test(
-      `${turnStatus} turn, ${status} command, exit ${exitCode}`,
-      async () => {
-        const f = await brewsFixture();
-        try {
-          const sending = f.session.send('status');
-          await appears(join(f.cwd, 'turn-1.json'));
-          await f.emit(
-            commandFrame('command'),
-            turnFrame('turn-1', turnStatus),
-          );
-          assert.equal((await sending).status, turnStatus);
-          await f.reply(1, {
-            result: terminals(['command', 'surviving command']),
-          });
+    test(`${turnStatus} turn, ${status} command, exit ${exitCode}`, async () => {
+      const f = await brewsFixture();
+      try {
+        const sending = f.session.send('status');
+        await appears(join(f.cwd, 'turn-1.json'));
+        await f.emit(commandFrame('command'), turnFrame('turn-1', turnStatus));
+        assert.equal((await sending).status, turnStatus);
+        await f.reply(1, {
+          result: terminals(['command', 'surviving command']),
+        });
+        assert.deepEqual(
+          f.commands().map(({ status }) => status),
+          ['running'],
+        );
+        if (turnStatus === 'interrupted') {
+          const later = f.session.send('later');
+          await appears(join(f.cwd, 'turn-2.json'));
+          await f.emit(turnFrame('turn-2', 'interrupted'));
+          assert.equal((await later).status, 'interrupted');
           assert.deepEqual(
             f.commands().map(({ status }) => status),
             ['running'],
           );
-          if (turnStatus === 'interrupted') {
-            const later = f.session.send('later');
-            await appears(join(f.cwd, 'turn-2.json'));
-            await f.emit(turnFrame('turn-2', 'interrupted'));
-            assert.equal((await later).status, 'interrupted');
-            assert.deepEqual(
-              f.commands().map(({ status }) => status),
-              ['running'],
-            );
-          }
-          await f.emit(
-            commandFrame(
-              'command',
-              'turn-1',
-              'native-thread',
-              status,
-              exitCode,
-            ),
-          );
-          assert.deepEqual(
-            f.commands().map(({ status }) => status),
-            ['running', expected],
-          );
-        } finally {
-          await close(f.session, f.cwd);
         }
-      },
-    );
+        await f.emit(
+          commandFrame('command', 'turn-1', 'native-thread', status, exitCode),
+        );
+        assert.deepEqual(
+          f.commands().map(({ status }) => status),
+          ['running', expected],
+        );
+      } finally {
+        await close(f.session, f.cwd);
+      }
+    });
 });
 
-await test("a child's late command completion ends only its own brew", async () => {
+test("a child's late command completion ends only its own brew", async () => {
   const f = await brewsFixture();
   try {
     await f.emit(
@@ -329,7 +317,7 @@ await test("a child's late command completion ends only its own brew", async () 
   }
 });
 
-await test('terminal discovery failure preserves the turn and retries at the next turn end', async () => {
+test('terminal discovery failure preserves the turn and retries at the next turn end', async () => {
   const f = await brewsFixture();
   try {
     for (let index = 1; index <= 3; index++) {
@@ -367,9 +355,9 @@ await test('terminal discovery failure preserves the turn and retries at the nex
   }
 });
 
-await test('closing or losing Codex clears brews and ignores pending discovery', async (t) => {
+describe('closing or losing Codex clears brews and ignores pending discovery', () => {
   for (const loss of [false, true])
-    await t.test(loss ? 'process exit' : 'close', async () => {
+    test(loss ? 'process exit' : 'close', async () => {
       const f = await brewsFixture();
       try {
         const first = f.session.send('first');
@@ -416,7 +404,7 @@ await test('closing or losing Codex clears brews and ignores pending discovery',
 });
 
 for (const resume of [undefined, 'native-thread']) {
-  await test(`${resume ? 'resumed' : 'new'} threads receive current roots and load every model page without native overrides`, async () => {
+  test(`${resume ? 'resumed' : 'new'} threads receive current roots and load every model page without native overrides`, async () => {
     const { session, cwd } = await fixture(undefined, { resume });
     try {
       assert.deepEqual(
@@ -452,7 +440,7 @@ for (const resume of [undefined, 'native-thread']) {
   });
 }
 
-await test("threads start with the mark in Codex's shell environment policy", async () => {
+test("threads start with the mark in Codex's shell environment policy", async () => {
   const { session, cwd } = await fixture(undefined, {
     mark: { environment: { WITCH_JOBS: '/x/jobs' } },
   });
@@ -466,7 +454,7 @@ await test("threads start with the mark in Codex's shell environment policy", as
   }
 });
 
-await test('a Codex that exits while idle posts the exit as a notice', async () => {
+test('a Codex that exits while idle posts the exit as a notice', async () => {
   const notice = Promise.withResolvers<string>();
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notice.resolve(event.text);
@@ -479,7 +467,7 @@ await test('a Codex that exits while idle posts the exit as a notice', async () 
   }
 });
 
-await test('closing a Codex session posts no exit notice', async () => {
+test('closing a Codex session posts no exit notice', async () => {
   const notices: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notices.push(event);
@@ -488,7 +476,7 @@ await test('closing a Codex session posts no exit notice', async () => {
   assert.deepEqual(notices, []);
 });
 
-await test('a Codex that exits during a model change fails the change without a notice', async () => {
+test('a Codex that exits during a model change fails the change without a notice', async () => {
   const notices: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notices.push(event);
@@ -501,7 +489,7 @@ await test('a Codex that exits during a model change fails the change without a 
   }
 });
 
-await test('an aborted connect rejects', async () => {
+test('an aborted connect rejects', async () => {
   const controller = new AbortController();
   const connecting = fixture(() => {}, {
     mode: 'hang-on-init',
@@ -514,7 +502,7 @@ await test('an aborted connect rejects', async () => {
   });
 });
 
-await test('a missing stored thread fails the connect with no exit notice', async () => {
+test('a missing stored thread fails the connect with no exit notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(
     fixture((event) => events.push(event), { resume: 'stored-thread' }).then(
@@ -525,7 +513,7 @@ await test('a missing stored thread fails the connect with no exit notice', asyn
   assert.deepEqual(events, []);
 });
 
-await test('a request Codex resolves itself leaves the queue before the turn ends', async () => {
+test('a request Codex resolves itself leaves the queue before the turn ends', async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -545,7 +533,7 @@ await test('a request Codex resolves itself leaves the queue before the turn end
   }
 });
 
-await test('an accepted permissions request grants the requested permissions for the turn', async () => {
+test('an accepted permissions request grants the requested permissions for the turn', async () => {
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'request')
       session.respond(event.request.id, { decision: 'accept' });
@@ -561,7 +549,7 @@ await test('an accepted permissions request grants the requested permissions for
   }
 });
 
-await test('a file change approval reaches the user and returns its decision', async () => {
+test('a file change approval reaches the user and returns its decision', async () => {
   const kinds: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
@@ -585,7 +573,7 @@ await test('a file change approval reaches the user and returns its decision', a
 });
 
 for (const decision of ['accept', 'decline'] as const) {
-  await test(`native approval ${decision} controls the requested side effect`, async () => {
+  test(`native approval ${decision} controls the requested side effect`, async () => {
     const { session, cwd } = await fixture((event) => {
       if (event.type === 'request')
         session.respond(event.request.id, { decision });
@@ -616,7 +604,7 @@ for (const decision of ['accept', 'decline'] as const) {
   });
 }
 
-await test('skills keep the first enabled entry per name and prefer its interface description', async () => {
+test('skills keep the first enabled entry per name and prefer its interface description', async () => {
   const changed = Promise.withResolvers<AgentEvent>();
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'skills') changed.resolve(event);
@@ -642,7 +630,7 @@ await test('skills keep the first enabled entry per name and prefer its interfac
   }
 });
 
-await test('a skill send names the first listed path, and a plain send names none', async () => {
+test('a skill send names the first listed path, and a plain send names none', async () => {
   const { session, cwd } = await fixture();
   const input = async () =>
     JSON.parse(await readFile(join(cwd, 'prompt.json'), 'utf8')).params
@@ -663,7 +651,7 @@ await test('a skill send names the first listed path, and a plain send names non
   }
 });
 
-await test('a prompt steered into a turn goes to Codex for that turn, and one Codex refuses or with no turn open is left to the next turn', async () => {
+test('a prompt steered into a turn goes to Codex for that turn, and one Codex refuses or with no turn open is left to the next turn', async () => {
   const { session, cwd } = await fixture();
   try {
     assert.equal(await session.steer('too early'), false);
@@ -688,7 +676,7 @@ await test('a prompt steered into a turn goes to Codex for that turn, and one Co
   }
 });
 
-await test('interrupt waits for the native turn to complete', async () => {
+test('interrupt waits for the native turn to complete', async () => {
   const { session, cwd } = await fixture();
   try {
     const turn = session.send('hold');
@@ -707,7 +695,7 @@ await test('interrupt waits for the native turn to complete', async () => {
 });
 
 for (const prompt of ['die on interrupt', 'die after interrupt'])
-  await test(`a Codex that exits during an interrupt ends the turn interrupted, and the interrupt resolves (${prompt})`, async () => {
+  test(`a Codex that exits during an interrupt ends the turn interrupted, and the interrupt resolves (${prompt})`, async () => {
     const { session, cwd } = await fixture();
     try {
       const turn = session.send(prompt);
@@ -719,7 +707,7 @@ for (const prompt of ['die on interrupt', 'die after interrupt'])
     }
   });
 
-await test('an interrupt a running Codex refuses rejects, and the turn goes on', async () => {
+test('an interrupt a running Codex refuses rejects, and the turn goes on', async () => {
   const { session, cwd } = await fixture();
   try {
     const turn = session.send('refuse interrupt');
@@ -735,7 +723,7 @@ await test('an interrupt a running Codex refuses rejects, and the turn goes on',
   }
 });
 
-await test('model selection waits for the settings notification', async () => {
+test('model selection waits for the settings notification', async () => {
   const { session, cwd } = await fixture();
   try {
     const selecting = session.selectModel('held');
@@ -750,7 +738,7 @@ await test('model selection waits for the settings notification', async () => {
   }
 });
 
-await test('malformed notifications post one notice per method and the turn completes', async () => {
+test('malformed notifications post one notice per method and the turn completes', async () => {
   const notices: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notices.push(event.text);
@@ -767,7 +755,7 @@ await test('malformed notifications post one notice per method and the turn comp
   }
 });
 
-await test('a retried native error posts a notice, and the final one only fails the turn', async () => {
+test('a retried native error posts a notice, and the final one only fails the turn', async () => {
   const notices: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notices.push(event.text);
@@ -781,7 +769,7 @@ await test('a retried native error posts a notice, and the final one only fails 
   }
 });
 
-await test('a malformed settings notification fails the model change', async () => {
+test('a malformed settings notification fails the model change', async () => {
   const { session, cwd } = await fixture();
   try {
     await assert.rejects(
@@ -798,7 +786,7 @@ for (const [prompt, error] of [
   ['in-progress', /status inProgress/],
   ['failed', /^native failure$/],
 ] as const) {
-  await test(`a turn completed as ${prompt} fails only that turn`, async () => {
+  test(`a turn completed as ${prompt} fails only that turn`, async () => {
     const { session, cwd } = await fixture();
     try {
       const result = await within(session.send(prompt), 2000, `${prompt} turn`);
@@ -811,7 +799,7 @@ for (const [prompt, error] of [
   });
 }
 
-await test('an unparseable native request gets an error reply and the turn continues', async () => {
+test('an unparseable native request gets an error reply and the turn continues', async () => {
   const notices: string[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notices.push(event.text);
@@ -835,7 +823,7 @@ await test('an unparseable native request gets an error reply and the turn conti
   }
 });
 
-await test('an unsupported native request gets an error reply and the turn continues', async () => {
+test('an unsupported native request gets an error reply and the turn continues', async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'request' || event.type === 'notice') events.push(event);
@@ -861,7 +849,7 @@ await test('an unsupported native request gets an error reply and the turn conti
   }
 });
 
-await test("a command streams its output into one tool that completes once in the command's cwd, and the user message and reasoning show none", async () => {
+test("a command streams its output into one tool that completes once in the command's cwd, and the user message and reasoning show none", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -887,7 +875,7 @@ await test("a command streams its output into one tool that completes once in th
   }
 });
 
-await test("Codex items are titled by what they act on, with a path under the session's directory shown relative, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
+test("Codex items are titled by what they act on, with a path under the session's directory shown relative, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -930,7 +918,7 @@ await test("Codex items are titled by what they act on, with a path under the se
   }
 });
 
-await test('a Codex file change arrives as its diffs from its start, a new or deleted file as one hunk of its lines, a move without its note, and a declined change says so', async () => {
+test('a Codex file change arrives as its diffs from its start, a new or deleted file as one hunk of its lines, a move without its note, and a declined change says so', async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -992,7 +980,7 @@ await test('a Codex file change arrives as its diffs from its start, a new or de
   }
 });
 
-await test('a Codex that exits during initialize fails the connect without a notice', async () => {
+test('a Codex that exits during initialize fails the connect without a notice', async () => {
   const events: AgentEvent[] = [];
   await assert.rejects(
     within(
@@ -1005,7 +993,7 @@ await test('a Codex that exits during initialize fails the connect without a not
   assert.deepEqual(events, []);
 });
 
-await test('a grandchild holding the native pipes cannot keep a dead turn open, and the exit posts no notice', async () => {
+test('a grandchild holding the native pipes cannot keep a dead turn open, and the exit posts no notice', async () => {
   const notices: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'notice') notices.push(event);
@@ -1027,7 +1015,7 @@ await test('a grandchild holding the native pipes cannot keep a dead turn open, 
   }
 });
 
-await test("a model chosen without an effort keeps the requested one and never reports Codex's default as requested", async () => {
+test("a model chosen without an effort keeps the requested one and never reports Codex's default as requested", async () => {
   const { session, cwd } = await fixture();
   try {
     assert.equal(session.info.effort, undefined);
@@ -1041,7 +1029,7 @@ await test("a model chosen without an effort keeps the requested one and never r
   }
 });
 
-await test('a null effort stops requesting one', async () => {
+test('a null effort stops requesting one', async () => {
   const { session, cwd } = await fixture();
   try {
     await session.selectModel('model-a', 'high');
@@ -1055,7 +1043,7 @@ await test('a null effort stops requesting one', async () => {
   }
 });
 
-await test("a turn after connecting with an effort requests it, not Codex's own", async () => {
+test("a turn after connecting with an effort requests it, not Codex's own", async () => {
   const { session, cwd } = await fixture(() => {}, { effort: 'high' });
   try {
     assert.equal((await session.send('tool')).status, 'completed');
@@ -1066,7 +1054,7 @@ await test("a turn after connecting with an effort requests it, not Codex's own"
   }
 });
 
-await test('a model choice that changes no native setting returns and shows the choice', async () => {
+test('a model choice that changes no native setting returns and shows the choice', async () => {
   const { session, cwd } = await fixture(() => {}, { effort: 'high' });
   try {
     assert.equal(session.info.effort, 'high');
@@ -1085,7 +1073,7 @@ await test('a model choice that changes no native setting returns and shows the 
   }
 });
 
-await test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
+test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -1137,7 +1125,7 @@ await test("a spawned thread's tool items, not its prompt or thinking, give its 
   }
 });
 
-await test("a spawned thread's turns show it as a subagent under its parent with the turn as its run, its text, settings and completion stay out of the parent's turn, and a restart keeps its parent, name and kind", async () => {
+test("a spawned thread's turns show it as a subagent under its parent with the turn as its run, its text, settings and completion stay out of the parent's turn, and a restart keeps its parent, name and kind", async () => {
   const events: AgentEvent[] = [];
   const named = Promise.withResolvers<void>();
   const { session, cwd } = await fixture((event) => {
@@ -1250,7 +1238,7 @@ await test("a spawned thread's turns show it as a subagent under its parent with
   }
 });
 
-await test('a reroute shows the model in use, and choosing the thread model again returns', async () => {
+test('a reroute shows the model in use, and choosing the thread model again returns', async () => {
   const { session, cwd } = await fixture();
   try {
     assert.equal((await session.send('reroute')).status, 'completed');
@@ -1262,7 +1250,7 @@ await test('a reroute shows the model in use, and choosing the thread model agai
   }
 });
 
-await test('native secret questions and MCP form answers reach their protocol consumers unchanged', async () => {
+test('native secret questions and MCP form answers reach their protocol consumers unchanged', async () => {
   const { session, cwd } = await fixture((event) => {
     if (event.type !== 'request') return;
     if (event.request.kind === 'question') {
@@ -1298,7 +1286,7 @@ await test('native secret questions and MCP form answers reach their protocol co
   }
 });
 
-await test("reports context, lines summed over the thread's turns and limits merged from sparse updates, leaving out other threads and limits", async () => {
+test("reports context, lines summed over the thread's turns and limits merged from sparse updates, leaving out other threads and limits", async () => {
   const reported: Usage[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'usage') reported.push(event.usage);
@@ -1321,7 +1309,7 @@ await test("reports context, lines summed over the thread's turns and limits mer
   }
 });
 
-await test('a Codex that cannot read its limits still connects, and leaves limits out', async () => {
+test('a Codex that cannot read its limits still connects, and leaves limits out', async () => {
   const { session, cwd } = await fixture(() => {}, { mode: 'no-limits' });
   try {
     assert.deepEqual(
@@ -1335,7 +1323,7 @@ await test('a Codex that cannot read its limits still connects, and leaves limit
   }
 });
 
-await test('reports the effort Codex runs, its own default first and then the one a settings update makes', async () => {
+test('reports the effort Codex runs, its own default first and then the one a settings update makes', async () => {
   const { session, cwd } = await fixture();
   try {
     assert.equal(session.info.nativeEffort, 'low');
@@ -1347,7 +1335,7 @@ await test('reports the effort Codex runs, its own default first and then the on
   }
 });
 
-await test('a shell command runs through thread/shellCommand as its own turn and shows open, titled as typed', async () => {
+test('a shell command runs through thread/shellCommand as its own turn and shows open, titled as typed', async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -1384,7 +1372,7 @@ await test('a shell command runs through thread/shellCommand as its own turn and
   }
 });
 
-await test('a prompt steered while a shell command runs is refused, and an interrupt ends it by the id turn/started gave', async () => {
+test('a prompt steered while a shell command runs is refused, and an interrupt ends it by the id turn/started gave', async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -1408,7 +1396,7 @@ await test('a prompt steered while a shell command runs is refused, and an inter
   }
 });
 
-await test('an interrupt waiting on a shell turn that never started ends when Codex exits', async () => {
+test('an interrupt waiting on a shell turn that never started ends when Codex exits', async () => {
   const { session, cwd } = await fixture();
   try {
     const shell = session.shell('die soon');
@@ -1422,7 +1410,7 @@ await test('an interrupt waiting on a shell turn that never started ends when Co
   }
 });
 
-await test("a refused shell command fails its turn with Codex's reason and leaves the session free", async () => {
+test("a refused shell command fails its turn with Codex's reason and leaves the session free", async () => {
   const { session, cwd } = await fixture();
   try {
     const refused = await within(
