@@ -51,10 +51,19 @@ Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which 
 
 The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
 
-Run one test file or one named test through the [UI compiler preload](scripts/register.mjs):
+`pnpm test` runs the Vitest selection followed by the remaining Node tests. [scripts/test-suite.ts](scripts/test-suite.ts) owns the migrated-file selection and worker policy.
+
+Run a migrated file or one of its named tests with Vitest:
 
 ```sh
-pnpm exec node --import ./scripts/register.mjs --test test/memory.test.ts
+pnpm exec vitest run test/memory.test.ts
+pnpm exec vitest run test/coordinator-session.test.ts -t 'completion in a later turn'
+```
+
+Run remaining files through the [UI compiler preload](scripts/register.mjs):
+
+```sh
+pnpm exec node --import ./scripts/register.mjs --test test/claude.test.ts
 pnpm exec node --import ./scripts/register.mjs --test --test-name-pattern='invalid effort' test/claude.test.ts
 ```
 
