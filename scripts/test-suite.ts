@@ -1,7 +1,11 @@
 import { availableParallelism } from 'node:os';
 
 export const testWorkers = Math.min(4, availableParallelism());
-export const vitestFiles: readonly string[] = ['test/rpc.test.ts'];
+export const vitestFiles: readonly string[] = [
+  'test/rpc.test.ts',
+  'test/scratch-lifetime.test.ts',
+  'test/scratch.test.ts',
+];
 
 export function partitionTests(files: readonly string[]): {
   vitest: string[];

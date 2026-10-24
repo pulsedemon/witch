@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import {
   copyFile,
   mkdir,
@@ -14,7 +15,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { vitestFiles } from '../scripts/test-suite.js';
 import { scratch } from './fixtures/scratch.js';
-import { within } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
 
@@ -32,7 +33,7 @@ test(${JSON.stringify(label)}, async () => {
 `;
 }
 
-async function fixture() {
+async function fixture(sharedTmp?: string) {
   const root = await scratch('witch-test-runner-');
   for (const file of [
     'package.json',
@@ -49,16 +50,19 @@ async function fixture() {
     await copyFile(join(repository, file), target);
   }
   await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
-  const tmp = join(root, 'tmp');
-  await mkdir(tmp);
+  const tmp = sharedTmp ?? join(root, 'tmp');
+  await mkdir(tmp, { recursive: true });
   for (const file of vitestFiles)
     await writeFile(join(root, file), suite('vitest', file));
   const markers = join(root, 'markers');
+  await writeFile(markers, '');
   const native = join(root, 'test/native.test.ts');
   await writeFile(native, suite('node:test', 'native'));
   return {
     root,
     native,
+    tmp,
+    markers,
     async run() {
       await writeFile(markers, '');
       const child = spawn(
@@ -167,4 +171,100 @@ await test('an empty Node complement does not rediscover migrated files or fixtu
     result.markers.sort(),
     vitestFiles.flatMap((file) => [`${file}:start`, `${file}:end`]).sort(),
   );
+});
+
+for (const failure of [false, true])
+  await test(`Vitest removes a ${failure ? 'failing' : 'passing'} file's scratch after its last case`, async () => {
+    const f = await fixture();
+    await writeFile(
+      join(f.root, vitestFiles[0]!),
+      `import assert from 'node:assert/strict';
+import { appendFileSync, existsSync } from 'node:fs';
+import { test } from 'vitest';
+import { scratch } from './fixtures/scratch.js';
+const report = path => appendFileSync(process.env.MARKERS, 'scratch:' + path + '\\n');
+let first;
+test('first allocations survive the case', async () => {
+  const paths = await Promise.all([scratch('a-'), scratch('b-')]);
+  first = paths[0];
+  paths.forEach(report);
+});
+test('later case retains earlier scratch', async () => {
+  assert.equal(existsSync(first), true);
+  report(await scratch('c-'));
+  ${failure ? "assert.fail('scratch failure sentinel');" : ''}
+});
+`,
+    );
+    const result = await f.run();
+    assert.equal(result.code, failure ? 1 : 0, result.output);
+    if (failure) assert.ok(result.output.includes('scratch failure sentinel'));
+    const paths = result.markers
+      .filter((line) => line.startsWith('scratch:'))
+      .map((line) => line.slice('scratch:'.length));
+    assert.equal(paths.length, 3, result.output);
+    assert.equal(new Set(paths).size, 3);
+    assert.equal(new Set(paths.map((path) => dirname(path))).size, 1);
+    assert.equal(existsSync(dirname(paths[0]!)), false);
+  });
+
+await test('a later Vitest run recovers killed-worker scratch while another live run retains its files', async () => {
+  const killed = await fixture();
+  const live = await fixture(killed.tmp);
+  const recovery = await fixture(killed.tmp);
+  const held = `import { appendFileSync, existsSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { test } from 'vitest';
+import { scratch } from './fixtures/scratch.js';
+test('holds scratch until released', async () => {
+  const directory = await scratch('held-');
+  appendFileSync(process.env.MARKERS, 'held:' + JSON.stringify({directory, pid: process.pid}) + '\\n');
+  while (!existsSync('release')) await delay(20);
+});
+`;
+  for (const f of [killed, live])
+    await writeFile(join(f.root, vitestFiles[0]!), held);
+  const owner = async (f: typeof killed) => {
+    let value: { directory: string; pid: number } | undefined;
+    await until('held Vitest scratch', async () => {
+      const line = (await readFile(f.markers, 'utf8'))
+        .split('\n')
+        .find((line) => line.startsWith('held:'));
+      if (line) value = JSON.parse(line.slice('held:'.length)) as typeof value;
+      return value !== undefined;
+    });
+    return value!;
+  };
+  let dying: ReturnType<typeof killed.run> | undefined;
+  let surviving: ReturnType<typeof live.run> | undefined;
+  try {
+    dying = killed.run();
+    const dead = await owner(killed);
+    surviving = live.run();
+    const survivor = await owner(live);
+    process.kill(dead.pid, 'SIGKILL');
+    const failed = await dying;
+    assert.equal(failed.code, 1, failed.output);
+    assert.equal(existsSync(dead.directory), true);
+    assert.equal(existsSync(survivor.directory), true);
+    await writeFile(
+      join(recovery.root, vitestFiles[0]!),
+      `import { test } from 'vitest';
+import { scratch } from './fixtures/scratch.js';
+test('recovers a dead worker', async () => { await scratch('next-'); });
+`,
+    );
+    const recovered = await recovery.run();
+    assert.equal(recovered.code, 0, recovered.output);
+    assert.equal(existsSync(dirname(dead.directory)), false);
+    assert.equal(existsSync(survivor.directory), true);
+    await writeFile(join(live.root, 'release'), 'release');
+    const finished = await surviving;
+    assert.equal(finished.code, 0, finished.output);
+    assert.equal(existsSync(dirname(survivor.directory)), false);
+  } finally {
+    for (const f of [killed, live])
+      await writeFile(join(f.root, 'release'), 'release');
+    await Promise.allSettled([dying, surviving]);
+  }
 });
