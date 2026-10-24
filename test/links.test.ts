@@ -336,13 +336,13 @@ test('malformed file URLs remain readable without breaking a persisted transcrip
 });
 
 test('long runs of filename characters, and links on many lines or one, link in linear time', () => {
-  // compare CPU time so scheduling delays do not count as parsing work.
+  // measure the parsing thread so other threads' CPU work cannot skew the ratio.
   const fastest = (text: string) =>
     Math.min(
       ...[1, 2, 3].map(() => {
-        const start = process.cpuUsage();
+        const start = process.threadCpuUsage();
         linkify(text, '/work');
-        const { user, system } = process.cpuUsage(start);
+        const { user, system } = process.threadCpuUsage(start);
         return user + system;
       }),
     );
