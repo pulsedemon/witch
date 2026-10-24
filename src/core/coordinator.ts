@@ -213,10 +213,24 @@ export class Coordinator {
       () => undefined,
       errorMessage,
     );
+    /** startup diagnostics must not make an unused conversation resumable. */
+    const showStartupNotice = (text: string) =>
+      this.publish({
+        items: [
+          ...this.snapshot.items,
+          {
+            id: randomUUID(),
+            kind: 'notice',
+            text,
+            cwd: this.current().cwd,
+            at: new Date().toISOString(),
+          },
+        ],
+      });
     try {
       const missing = await missingConversationDirectories(this.store);
       if (missing.length)
-        this.notice(
+        showStartupNotice(
           [
             'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
             ...missing.map(
@@ -226,7 +240,7 @@ export class Coordinator {
           ].join('\n'),
         );
     } catch (error) {
-      this.notice(
+      showStartupNotice(
         `Could not inspect missing conversation directories: ${errorMessage(error)}`,
       );
     }

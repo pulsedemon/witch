@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
+import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Snapshot } from '../src/core/coordinator.js';
@@ -56,6 +57,76 @@ await test('startup reports missing conversation directories without blocking th
     await coordinator.close();
   }
 });
+
+for (const unreadable of [false, true]) {
+  await test(`startup ${unreadable ? 'inspection errors' : 'missing-directory notices'} do not become saved conversation history`, async () => {
+    const f = await fixture();
+    const previous = f.coordinator.snapshot.conversation!.id;
+    try {
+      await f.coordinator.send('previous task');
+    } finally {
+      await f.coordinator.close();
+    }
+    const history = join(
+      f.root,
+      'state/conversations',
+      previous,
+      'history.jsonl',
+    );
+    const original = await readFile(history);
+    const modified = (await stat(history)).mtimeMs;
+    const parent = join(f.root, 'old parent');
+    await mkdir(parent);
+    await (
+      await f.store.create(record('missing', join(parent, 'missing checkout')))
+    ).close();
+    if (unreadable) await chmod(parent, 0);
+    try {
+      const coordinator = new Coordinator(f.store, f.memory, [
+        { adapter: f.a, executable: 'a' },
+      ]);
+      const ui = show(
+        createElement(App, {
+          coordinator,
+          store: f.store,
+          onExit: () => {},
+        }),
+      );
+      try {
+        await coordinator.initialize(f.project);
+        await until('the visible startup notice', () =>
+          ui
+            .text()
+            .includes(unreadable ? 'Could not inspect' : '--recover-directory'),
+        );
+        assert.equal(coordinator.snapshot.error, undefined);
+        assert.equal(f.a.inputs.length, 1);
+        assert.deepEqual(
+          (await coordinator.conversations()).map(({ id }) => id),
+          [previous],
+        );
+        ui.stdin.write('still typing');
+        await until('the usable composer', () =>
+          ui.text().includes('still typing'),
+        );
+      } finally {
+        ui.unmount();
+        await coordinator.close();
+      }
+      const continued = await f.reopen();
+      try {
+        assert.equal(continued.snapshot.conversation!.id, previous);
+        assert.deepEqual(await readFile(history), original);
+        assert.equal((await stat(history)).mtimeMs, modified);
+        assert.equal(f.a.inputs.length, 1);
+      } finally {
+        await continued.close();
+      }
+    } finally {
+      if (unreadable) await chmod(parent, 0o700);
+    }
+  });
+}
 
 for (const cleanup of [false, true]) {
   await test(`an initial prompt is sent once when ${cleanup ? 'merge cleanup' : 'the load'} ends idle with nothing reported`, async () => {
