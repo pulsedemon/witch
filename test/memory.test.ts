@@ -411,8 +411,8 @@ await test('a project name fits the native filename limit beside its hash withou
   };
   const linux = process.platform === 'linux';
   assert.match(
-    await name('fits', '字'.repeat(80)),
-    linux ? /^字{79}-[0-9a-f]{16}$/ : /^字{80}-[0-9a-f]{16}$/,
+    await name('fits', `${'字'.repeat(79)}ab`),
+    linux ? /^字{79}a-[0-9a-f]{16}$/ : /^字{79}ab-[0-9a-f]{16}$/,
   );
   assert.match(
     await name('long', `x${'é'.repeat(250)}`),
