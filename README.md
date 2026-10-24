@@ -45,6 +45,8 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
+Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint:eslint` across the working tree using the existing [ESLint configuration](eslint.config.js). Fix reported errors and retry the commit. `pnpm lint` includes formatting checks, and ci runs `pnpm check`.
+
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Running the app and native checks requires the [installation prerequisites](#install).
 
 The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
