@@ -136,20 +136,25 @@ export function taskReference(reference: string, project: string): string {
     const name = value.slice(5).trim().replace(/\s+/g, ' ').toLowerCase();
     if (name) return `task:${project}:${name}`;
   } else {
-    const url = new URL(value);
-    const match =
-      /^\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/([1-9]\d*)\/*$/.exec(
-        decodeURIComponent(url.pathname),
-      );
-    if (
-      url.protocol === 'https:' &&
-      url.hostname === 'github.com' &&
-      !url.port &&
-      !url.username &&
-      !url.password &&
-      match
-    )
-      return `github:${match[1]!.toLowerCase()}/${match[2]!.toLowerCase()}#${match[3]}`;
+    try {
+      const url = new URL(value);
+      const match =
+        /^\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/([1-9]\d*)\/*$/.exec(
+          decodeURIComponent(url.pathname),
+        );
+      if (
+        url.protocol === 'https:' &&
+        url.hostname === 'github.com' &&
+        !url.port &&
+        !url.username &&
+        !url.password &&
+        match
+      )
+        return `github:${match[1]!.toLowerCase()}/${match[2]!.toLowerCase()}#${match[3]}`;
+    } catch (error) {
+      if (!(error instanceof TypeError || error instanceof URIError))
+        throw error;
+    }
   }
   throw new Error('Use a full GitHub issue or pr URL, or task:<name>.');
 }
