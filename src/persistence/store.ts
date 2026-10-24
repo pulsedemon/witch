@@ -105,7 +105,7 @@ export class StateStore {
     try {
       return await tryLock(
         join(this.root, 'directory-recovery.lock'),
-        mode === 'shared' ? sharedLock : exclusiveLock,
+        mode === 'shared',
       );
     } catch (error) {
       if (error instanceof LockedElsewhere)
