@@ -19,7 +19,7 @@ Setup, local checks and focused test commands are in [README.md](README.md#devel
 - Adapters implement `AgentAdapter` from `src/agents/types.ts`. Codex's JSON-RPC transport is `src/agents/json-rpc.ts`. [ModelCatalog](src/core/models.ts) owns the combined picker catalog and explicit runtime/model identity.
 - The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/memory.ts` and `src/cli.tsx`, which places `memory.git`, `jobs/` and `scratch/`. [instanceDirectory](src/persistence/instance.ts) owns job-report directories; [ScratchSpace](src/persistence/scratch.ts) owns scratch.
 
-macOS assumptions are deliberate: memory editing launches VS Code from `/Applications`, clicked links open with `/usr/bin/open`, copied text goes to `/usr/bin/pbcopy`, images other than PNG convert with `/usr/bin/sips`, process identity reads `/bin/ps`, an instance directory holding a read-only directory is made removable with `/bin/chmod`, and conversation locks and the merge cleanup's lock on a checkout's git directory use `O_EXLOCK`.
+Witch's desktop behavior targets macOS. Linux support is limited to the [development checks and native verification procedure](README.md#development). [Locking](src/persistence/lock.ts), [control-file access](src/persistence/control.ts) and [process inspection](src/persistence/process.ts) own their platform boundaries.
 
 ## Tests
 

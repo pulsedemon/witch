@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { killGroup } from '../agents/user-shell.js';
@@ -7,6 +8,8 @@ import type { ProcessIdentity } from '../core/state.js';
 const execute = promisify(execFile);
 
 export async function bootSession(): Promise<string> {
+  if (process.platform === 'linux')
+    return (await readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
   const { stdout } = await execute('/usr/sbin/sysctl', [
     '-n',
     'kern.bootsessionuuid',
@@ -17,8 +20,7 @@ export async function bootSession(): Promise<string> {
 /**
  * `ps -o format` for the listed processes, or every process without a list, with each command's environment after it
  * when `environment` is set. dates and decimals are C's, which Date and Number parse, and dates are in UTC so a time
- * zone change keeps every identity. LC_ALL goes, since it overrides both; LC_ALL=C instead would escape non-ASCII in
- * commands.
+ * zone change keeps every identity. Linux's C.UTF-8 keeps command text intact even when a user's locale is unavailable.
  */
 export async function ps(
   format: string,
@@ -29,7 +31,11 @@ export async function ps(
     const { stdout } = await execute(
       '/bin/ps',
       [
-        ...(options.environment ? ['-E'] : []),
+        ...(process.platform === 'linux'
+          ? [options.environment ? 'eww' : 'ww']
+          : options.environment
+            ? ['-E']
+            : []),
         ...(pids ? ['-p', pids.join(',')] : ['-A']),
         '-o',
         format,
@@ -37,7 +43,7 @@ export async function ps(
       {
         env: {
           ...process.env,
-          LC_ALL: undefined,
+          LC_ALL: process.platform === 'linux' ? 'C.UTF-8' : undefined,
           LC_TIME: 'C',
           LC_NUMERIC: 'C',
           TZ: 'UTC',

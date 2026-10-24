@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { open, readFile, stat, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { exclusiveLock } from '../src/persistence/lock.js';
+import { openLocked } from '../src/persistence/lock.js';
 import { NotificationSchedule } from '../src/persistence/notifications.js';
 import { scratch } from './fixtures/scratch.js';
 
@@ -62,10 +62,10 @@ await test('notification intervals follow the last actual write across schedule 
 
 await test('a competing lock defers notification output until it is released', async () => {
   const { directory, schedule, output, write } = await fixture();
-  const lock = await open(
+  const lock = await openLocked(
     join(directory, 'lock'),
-    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | exclusiveLock,
-    0o600,
+    constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
+    { mode: 0o600 },
   );
   try {
     assert.equal(

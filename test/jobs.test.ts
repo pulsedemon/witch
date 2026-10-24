@@ -100,10 +100,30 @@ test("jobs are the groups an agent's commands start, one stays listed after its 
       'sleep 60.5',
       'sleep 61.5',
     ]);
-    for (const { startedAt } of list) {
-      // lstart has whole seconds
-      assert.ok(startedAt >= spawnedAt - 1000);
-      assert.ok(startedAt < spawnedAt + 1000);
+    if (process.platform === 'linux') {
+      const { stdout } = await promisify(execFile)(
+        '/bin/ps',
+        ['-A', '-o', 'pgid=,stat=,lstart='],
+        { env: { ...process.env, LC_ALL: 'C.UTF-8', TZ: 'UTC' } },
+      );
+      for (const { group, startedAt } of list) {
+        const starts = stdout.split('\n').flatMap((line) => {
+          const match = /^\s*(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line);
+          return match &&
+            Number(match[1]) === group &&
+            !match[2]!.startsWith('Z')
+            ? [Date.parse(`${match[3]!} UTC`)]
+            : [];
+        });
+        assert.ok(starts.length > 0);
+        assert.equal(startedAt, Math.min(...starts));
+      }
+    } else {
+      for (const { startedAt } of list) {
+        // lstart has whole seconds
+        assert.ok(startedAt >= spawnedAt - 1000);
+        assert.ok(startedAt < spawnedAt + 1000);
+      }
     }
     await jobs.stop({ group: server, generation: 1 });
     assert.doesNotThrow(() => process.kill(-server, 0));

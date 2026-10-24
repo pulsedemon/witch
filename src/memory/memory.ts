@@ -92,12 +92,17 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
     child.stdin.end(input);
   });
 
-/** a key named for its repository, cut to fit the 255 UTF-16 units an APFS name holds with the hash. */
+/** preserves APFS keys while fitting Linux's byte limit, without splitting a code point. */
 function projectKey(identity: string): string {
   let name = '';
   for (const char of basename(identity)) {
-    if (name.length + char.length > 238) break;
-    name += char;
+    const next = name + char;
+    if (
+      (process.platform === 'linux' ? Buffer.byteLength(next) : next.length) >
+      238
+    )
+      break;
+    name = next;
   }
   return `projects/${name}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`;
 }

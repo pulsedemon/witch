@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { processIdentity } from '../core/state.js';
 import { processRunning, removeDirectory } from './instance.js';
 import { writeJson } from './json.js';
-import { exclusiveLock } from './lock.js';
+import { openLocked } from './lock.js';
 import { bootSession, identifyProcess } from './process.js';
 
 const metadata = '.witch-scratch.json';
@@ -21,13 +21,12 @@ async function lockDirectory(
   directory: string,
   nonblocking = true,
 ): Promise<FileHandle> {
-  return open(
+  return openLocked(
     directory,
     constants.O_RDONLY |
       constants.O_DIRECTORY |
       constants.O_NOFOLLOW |
-      (nonblocking ? constants.O_NONBLOCK : 0) |
-      exclusiveLock,
+      (nonblocking ? constants.O_NONBLOCK : 0),
   );
 }
 
