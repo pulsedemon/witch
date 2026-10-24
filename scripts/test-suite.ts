@@ -24,6 +24,7 @@ export const vitestFiles: readonly string[] = [
   'test/coordinator-attention.test.ts',
   'test/coordinator-claude.test.ts',
   'test/coordinator-compaction.test.ts',
+  'test/coordinator-coordination.test.ts',
   'test/coordinator-launch.test.ts',
   'test/coordinator-memory.test.ts',
   'test/coordinator-merge.test.ts',
@@ -76,6 +77,7 @@ export const vitestFiles: readonly string[] = [
   'test/task-selection.test.ts',
   'test/terminal.test.ts',
   'test/test-runner.test.ts',
+  'test/ui-peers.test.ts',
   'test/ui-status.test.ts',
   'test/user-shell.test.ts',
 ];

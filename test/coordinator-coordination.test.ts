@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
@@ -18,19 +18,19 @@ import {
 import { TurnGate } from './fixtures/agent.js';
 import { frameWriter } from './fixtures/claude-adapter.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
 for (const name of ['claude', 'codex'] as const) {
-  await test(
+  test(
     name === 'claude'
       ? 'Claude exit stops native activity and permits task release'
       : 'Codex exit after its reply stops its familiar and permits task release',
     async (t) => {
-      const { root, start, registry } = await coordinationFixture(
-        t.after.bind(t),
-      );
+      const cleanup = orderedCleanup(t.onTestFinished);
+      const { root, start, registry } = await coordinationFixture(cleanup);
       const cwd = join(root, 'A');
       const executable = fileURLToPath(
         new URL(`fixtures/${name}.mjs`, import.meta.url),
@@ -154,8 +154,11 @@ for (const name of ['claude', 'codex'] as const) {
         await coordinator.releaseTask();
         assert.deepEqual(await registry.claims(), []);
       } finally {
-        if (child?.exitCode === null && child.signalCode === null)
+        if (child?.exitCode === null && child.signalCode === null) {
+          const closed = once(child, 'close');
           child.kill('SIGKILL');
+          await within(closed, 3000, 'fixture exit');
+        }
         await coordinator.close();
         await Promise.allSettled([turn]);
         assert.ok(child);
@@ -165,8 +168,9 @@ for (const name of ['claude', 'codex'] as const) {
   );
 }
 
-await test('native closure preserves finished work and ends running activity once', async (t) => {
-  const { start } = await coordinationFixture(t.after.bind(t));
+test('native closure preserves finished work and ends running activity once', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
   const { coordinator, a } = await start();
   const native = a.sessions[0]!;
   for (const [id, status, tools, report] of [
@@ -217,8 +221,9 @@ await test('native closure preserves finished work and ends running activity onc
   assert.deepEqual(endings(), expected);
 });
 
-await test('coordination context stays before the exact user request and raw steered spells', async (t) => {
-  const { root, start } = await coordinationFixture(t.after.bind(t));
+test('coordination context stays before the exact user request and raw steered spells', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { root, start } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await b.claim('task:peer', 'Distinct peer task');
@@ -250,8 +255,9 @@ await test('coordination context stays before the exact user request and raw ste
 });
 
 for (const name of ['claude', 'codex'] as const) {
-  await test(`${name} receives the native spell contract with fresh coordination context`, async (t) => {
-    const { root, start } = await coordinationFixture(t.after.bind(t));
+  test(`${name} receives the native spell contract with fresh coordination context`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const { root, start } = await coordinationFixture(cleanup);
     const script = fileURLToPath(
       new URL(`fixtures/${name}.mjs`, import.meta.url),
     );
@@ -314,10 +320,9 @@ for (const name of ['claude', 'codex'] as const) {
   });
 }
 
-await test('switch revokes old authority before native close and releases the departed claim', async (t) => {
-  const { start, ledger, registry } = await coordinationFixture(
-    t.after.bind(t),
-  );
+test('switch revokes old authority before native close and releases the departed claim', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, ledger, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.claim();
@@ -362,10 +367,10 @@ await test('switch revokes old authority before native close and releases the de
 });
 
 for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
-  await test(`${replacement} replaces native authority without releasing the conversation's task`, async (t) => {
-    const { root, start, registry, ledger, store } = await coordinationFixture(
-      t.after.bind(t),
-    );
+  test(`${replacement} replaces native authority without releasing the conversation's task`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const { root, start, registry, ledger, store } =
+      await coordinationFixture(cleanup);
     const a = await start();
     const peer = replacement === 'rollback' ? await start('B') : undefined;
     await a.claim();
@@ -440,8 +445,9 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
   });
 }
 
-await test('an interrupted handoff summary restores registration before source resume', async (t) => {
-  const { start, store } = await coordinationFixture(t.after.bind(t));
+test('an interrupted handoff summary restores registration before source resume', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, store } = await coordinationFixture(cleanup);
   const a = await start(),
     peer = await start('B');
   await a.coordinator.send('Seed source history');
@@ -473,7 +479,7 @@ await test('an interrupted handoff summary restores registration before source r
     assert.equal(a.a.sessions.length, 1);
     assert.equal(a.a.inputs.length, inputs);
     assert.deepEqual(a.b.inputs, []);
-    const choosing = await selectionTurn(t.after.bind(t), peer);
+    const choosing = await selectionTurn(cleanup, peer);
     assert.equal((await choosing.select()).position, 1);
     await choosing.finish();
     assert.equal((await peer.claim('task:independent')).kind, 'claimed');
@@ -488,8 +494,9 @@ await test('an interrupted handoff summary restores registration before source r
   }
 });
 
-await test('closing during a handoff summary does not restore registration', async (t) => {
-  const { start, store, registry } = await coordinationFixture(t.after.bind(t));
+test('closing during a handoff summary does not restore registration', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, store, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     peer = await start('B');
   await a.coordinator.send('Seed source history');
@@ -530,8 +537,9 @@ await test('closing during a handoff summary does not restore registration', asy
   }
 });
 
-await test('reopening starts without a claim and old authority cannot release newly claimed work', async (t) => {
-  const { start } = await coordinationFixture(t.after.bind(t));
+test('reopening starts without a claim and old authority cannot release newly claimed work', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
   const a = await start();
   await a.claim();
   const before = (await a.query()).ownClaim!,
@@ -552,8 +560,9 @@ await test('reopening starts without a claim and old authority cannot release ne
   assert.deepEqual((await reopened.query()).ownClaim, next.claim);
 });
 
-await test('target lock and preparation failures keep source authority and free a prepared target lock', async (t) => {
-  const { root, start, store } = await coordinationFixture(t.after.bind(t));
+test('target lock and preparation failures keep source authority and free a prepared target lock', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { root, start, store } = await coordinationFixture(cleanup);
   const a = await start(),
     bound = await a.binding();
   const target = await store.create(record(randomUUID(), join(root, 'A')));
@@ -567,15 +576,13 @@ await test('target lock and preparation failures keep source authority and free 
     await target.close();
   }
   const items = ConversationStore.prototype.items;
-  t.mock.method(
-    ConversationStore.prototype,
-    'items',
-    function (this: ConversationStore) {
-      return this.record.id === target.record.id
-        ? Promise.reject(new Error('target history unreadable'))
-        : items.call(this);
-    },
-  );
+  vi.spyOn(ConversationStore.prototype, 'items').mockImplementation(function (
+    this: ConversationStore,
+  ) {
+    return this.record.id === target.record.id
+      ? Promise.reject(new Error('target history unreadable'))
+      : items.call(this);
+  });
   await assert.rejects(
     a.coordinator.selectConversation(target.record.id),
     /target history unreadable/,
@@ -590,10 +597,9 @@ await test('target lock and preparation failures keep source authority and free 
 
 for (const boundary of ['write', 'remove'] as const) {
   for (const preparation of ['ordinary', 'delayed'] as const) {
-    await test(`a failed source presence ${boundary} still revokes authority and adopts the prepared target (${preparation} preparation)`, async (t) => {
-      const { start, store, registry } = await coordinationFixture(
-        t.after.bind(t),
-      );
+    test(`a failed source presence ${boundary} still revokes authority and adopts the prepared target (${preparation} preparation)`, async (t) => {
+      const cleanup = orderedCleanup(t.onTestFinished);
+      const { start, store, registry } = await coordinationFixture(cleanup);
       const a = await start(),
         bound = await a.binding();
       const entered = Promise.withResolvers<void>(),
@@ -602,9 +608,7 @@ for (const boundary of ['write', 'remove'] as const) {
       const publish = CoordinationStore.prototype.publish;
       let writes = 0;
       let writesAtRemoval: number | undefined;
-      t.mock.method(
-        CoordinationStore.prototype,
-        'publish',
+      vi.spyOn(CoordinationStore.prototype, 'publish').mockImplementation(
         async function (
           this: CoordinationStore,
           presence: Parameters<typeof publish>[0],
@@ -621,23 +625,24 @@ for (const boundary of ['write', 'remove'] as const) {
         },
       );
       const remove = CoordinationStore.prototype.removePresence;
-      t.mock.method(
+      vi.spyOn(
         CoordinationStore.prototype,
         'removePresence',
-        function (this: CoordinationStore, id: string, activation: string) {
-          if (activation === bound.activation) {
-            writesAtRemoval = writes;
-            if (boundary === 'remove')
-              return Promise.reject(new Error('presence removal failed'));
-          }
-          return remove.call(this, id, activation);
-        },
-      );
+      ).mockImplementation(function (
+        this: CoordinationStore,
+        id: string,
+        activation: string,
+      ) {
+        if (activation === bound.activation) {
+          writesAtRemoval = writes;
+          if (boundary === 'remove')
+            return Promise.reject(new Error('presence removal failed'));
+        }
+        return remove.call(this, id, activation);
+      });
       if (preparation === 'delayed') {
         const create = store.create.bind(store);
-        t.mock.method(
-          store,
-          'create',
+        vi.spyOn(store, 'create').mockImplementation(
           async (...args: Parameters<typeof create>) => {
             await within(starting.promise, 5000, 'starting presence');
             return create(...args);
@@ -687,17 +692,16 @@ for (const boundary of ['write', 'remove'] as const) {
   }
 }
 
-await test('failed target activation holds its selected lock without starting native work and retries with fresh authority', async (t) => {
-  const { start, store, registry } = await coordinationFixture(t.after.bind(t));
+test('failed target activation holds its selected lock without starting native work and retries with fresh authority', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, store, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     bound = await a.binding();
   await a.claim();
   const publish = CoordinationStore.prototype.publish;
   let failing = true,
     rejected = '';
-  t.mock.method(
-    CoordinationStore.prototype,
-    'publish',
+  vi.spyOn(CoordinationStore.prototype, 'publish').mockImplementation(
     async function (
       this: CoordinationStore,
       presence: Parameters<typeof publish>[0],
@@ -745,8 +749,9 @@ await test('failed target activation holds its selected lock without starting na
   await released.close();
 });
 
-await test('compaction publishes a running presence and refuses a held native turn', async (t) => {
-  const { start } = await coordinationFixture(t.after.bind(t));
+test('compaction publishes a running presence and refuses a held native turn', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.coordinator.send('seed');

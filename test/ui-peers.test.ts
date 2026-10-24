@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { createElement } from 'react';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
 import { callControl } from '../src/persistence/control.js';
 import { App } from '../src/ui/app.js';
 import { TurnGate } from './fixtures/agent.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { fake, forgedLink, show } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
@@ -77,7 +78,7 @@ const enter = (ui: ReturnType<typeof show>, text: string) => {
   ui.stdin.write('\x1b[13u');
 };
 
-await test('peer sidebar uses the task, agent, actual status and linked checkout on two rows and removes its empty heading', async () => {
+test('peer sidebar uses the task, agent, actual status and linked checkout on two rows and removes its empty heading', async () => {
   const claimed = peer(3),
     unclaimed = peer(1);
   delete unclaimed.claim;
@@ -138,7 +139,7 @@ for (const [height, expected] of [
   ],
   [16, ['BREWS', '+2 MORE', '● BREW 3', 'FAMILIARS', '+1 MORE']],
 ] as const) {
-  await test(`at ${height} rows peers preserve local group counts and the whole pentacle`, async () => {
+  test(`at ${height} rows peers preserve local group counts and the whole pentacle`, async () => {
     const fixture = peersApp(snapshot([0, 1, 2, 3, 4].map(peer)));
     fixture.coordinator.publish({
       backgroundCommands: [1, 2, 3].map((i) => ({
@@ -178,7 +179,7 @@ for (const [height, expected] of [
   });
 }
 
-await test('peer labels cannot insert extra rows or forged terminal links', async () => {
+test('peer labels cannot insert extra rows or forged terminal links', async () => {
   const changed = peer(2);
   changed.claim!.summary = forgedLink('x-evil:task', 'Title') + '\nnext';
   changed.presence.agent = 'agent\nname';
@@ -198,7 +199,7 @@ await test('peer labels cannot insert extra rows or forged terminal links', asyn
   }
 });
 
-await test('the narrow peers page stays live and read-only during work and describes reservations without invented session fields', async () => {
+test('the narrow peers page stays live and read-only during work and describes reservations without invented session fields', async () => {
   const first = peer(0),
     outside = peer(1).claim!,
     legacy = peer(2).presence;
@@ -245,8 +246,9 @@ await test('the narrow peers page stays live and read-only during work and descr
   }
 });
 
-await test('a real peer updates its summary and keeps its reservation across an origin change until closing', async (t) => {
-  const { root, start, registry } = await coordinationFixture(t.after.bind(t));
+test('a real peer updates its summary and keeps its reservation across an origin change until closing', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { root, start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await start('C');
@@ -294,8 +296,9 @@ await test('a real peer updates its summary and keeps its reservation across an 
   }
 });
 
-await test('task release refuses running or background work without changing phase, and then releases only this conversation', async (t) => {
-  const { start, registry } = await coordinationFixture(t.after.bind(t));
+test('task release refuses running or background work without changing phase, and then releases only this conversation', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.claim('task:mine', 'My current task');
@@ -352,7 +355,7 @@ await test('task release refuses running or background work without changing pha
   }
 });
 
-await test('queue and suggestion rows preserve task links and detailed native phase', async () => {
+test('queue and suggestion rows preserve task links and detailed native phase', async () => {
   const choosing = peer(1),
     queued = peer(2),
     suggested = peer(3);
@@ -409,15 +412,16 @@ await test('queue and suggestion rows preserve task links and detailed native ph
   }
 });
 
-await test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
-  const f = await coordinationFixture(t.after.bind(t));
+test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
   await git('clone', join(f.root, 'origin'), join(f.root, 'D'));
   const a = await f.start(),
     b = await f.start('B'),
     c = await f.start('D');
-  const first = await selectionTurn(t.after.bind(t), a),
-    second = await selectionTurn(t.after.bind(t), b),
-    third = await selectionTurn(t.after.bind(t), c);
+  const first = await selectionTurn(cleanup, a),
+    second = await selectionTurn(cleanup, b),
+    third = await selectionTurn(cleanup, c);
   const head = await first.select(),
     queued = await second.select();
   await third.select();
