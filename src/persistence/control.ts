@@ -144,12 +144,6 @@ async function read(
   }
 }
 
-async function remove(file: string): Promise<void> {
-  await files.unlink(file).catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  });
-}
-
 export async function callControl(
   binding: ControlBinding,
   action: CoordinationAction,
@@ -176,8 +170,8 @@ export async function callControl(
         const result = controlResultSchema.parse(JSON.parse(text));
         if (result.id !== request.id)
           throw new Error('Reply id does not match.');
-        await remove(inbox);
-        await remove(reply);
+        await files.rm(inbox, { force: true });
+        await files.rm(reply, { force: true });
         return result;
       }
       await delay(25);
@@ -253,7 +247,9 @@ export class ControlHost {
             ),
           );
         for (const handle of directories)
-          await remove(`/proc/self/fd/${handle.fd}/${id}.json`);
+          await files.rm(`/proc/self/fd/${handle.fd}/${id}.json`, {
+            force: true,
+          });
       } finally {
         await Promise.all(directories.map((handle) => handle.close()));
       }

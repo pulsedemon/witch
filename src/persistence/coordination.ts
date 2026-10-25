@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -235,9 +235,7 @@ export class CoordinationStore {
     );
     return async () => {
       await lock.close();
-      await unlink(file).catch((error: unknown) => {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      });
+      await rm(file, { force: true });
     };
   }
 
