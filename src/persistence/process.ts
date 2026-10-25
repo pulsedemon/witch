@@ -85,10 +85,16 @@ export async function identifyProcess(
   return (await identifyProcesses([pid])).get(pid);
 }
 
+export function sameProcess(
+  left: ProcessIdentity | undefined,
+  right: ProcessIdentity,
+): boolean {
+  return left?.pid === right.pid && left.started === right.started;
+}
+
 /** false once the recorded process has exited, even when a later one holds its pid. */
-async function runs(recorded: ProcessIdentity): Promise<boolean> {
-  const current = await identifyProcess(recorded.pid);
-  return current?.started === recorded.started;
+export async function runs(recorded: ProcessIdentity): Promise<boolean> {
+  return sameProcess(await identifyProcess(recorded.pid), recorded);
 }
 
 /** waits up to 5 s for the recorded process to exit, and throws if it hasn't. */

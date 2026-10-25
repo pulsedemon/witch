@@ -26,7 +26,7 @@ import type { ProcessIdentity } from '../core/state.js';
 import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
 import type { MergeEvent } from '../core/merge-events.js';
 import type { PullRequest } from '../core/repository.js';
-import { identifyProcesses } from './process.js';
+import { identifyProcesses, sameProcess } from './process.js';
 import { lockedFiles, openLocked } from './lock.js';
 import { writeJson } from './json.js';
 import { StateStore } from './store.js';
@@ -54,10 +54,6 @@ function sameScope(left: SelectionScope, right: SelectionScope): boolean {
     left.activation === right.activation &&
     left.turn === right.turn
   );
-}
-
-function sameProcess(left: ProcessIdentity, right: ProcessIdentity): boolean {
-  return left.pid === right.pid && left.started === right.started;
 }
 
 function claimInput(owner: ClaimOwner, input: ClaimInput) {
@@ -475,7 +471,7 @@ export class CoordinationStore {
     return {
       claims: ledger.claims.filter((claim) =>
         claim.process
-          ? processes.get(claim.process.pid)?.started === claim.process.started
+          ? sameProcess(processes.get(claim.process.pid), claim.process)
           : opened.has(claim.owner.conversation),
       ),
       selections: ledger.selections.filter((ticket) =>

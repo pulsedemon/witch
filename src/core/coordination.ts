@@ -13,7 +13,11 @@ import type {
   ControlOutcome,
   ControlRequest,
 } from '../persistence/control.js';
-import { identifyProcess, identifyProcesses } from '../persistence/process.js';
+import {
+  identifyProcess,
+  identifyProcesses,
+  sameProcess,
+} from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import {
   conversationSummarySchema,
@@ -221,8 +225,7 @@ export class SessionCoordination {
         // restart must recover releases for conversations this process has already left.
         if (
           claim.owner.conversation !== conversation.id &&
-          claim.process?.pid === this.process.pid &&
-          claim.process.started === this.process.started &&
+          sameProcess(claim.process, this.process) &&
           !(await this.store.isOpen(claim.owner.conversation))
         )
           this.claimReleases.add(claim.owner.conversation);
@@ -1165,8 +1168,7 @@ export class SessionCoordination {
       if (
         presence &&
         activations.has(presence.activation) &&
-        processes.get(presence.process.pid)?.started ===
-          presence.process.started
+        sameProcess(processes.get(presence.process.pid), presence.process)
       ) {
         live.set(record.id, presence);
         continue;

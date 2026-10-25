@@ -21,7 +21,7 @@ import type { ConversationRecord } from '../core/state.js';
 import type { Memory } from '../memory/memory.js';
 import { quote } from '../shell.js';
 import { writeJson } from './json.js';
-import { identifyProcesses } from './process.js';
+import { identifyProcesses, sameProcess } from './process.js';
 import { promptSchema } from './store.js';
 import type { StateStore } from './store.js';
 
@@ -232,7 +232,9 @@ async function admission(
   );
   const running = await identifyProcesses(identities.map(({ pid }) => pid));
   if (
-    identities.some(({ pid, started }) => running.get(pid)?.started === started)
+    identities.some((identity) =>
+      sameProcess(running.get(identity.pid), identity),
+    )
   )
     report.blockers.push(
       'An affected native process or shell is still running. Wait for it to end before applying recovery.',
