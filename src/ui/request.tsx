@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
@@ -11,7 +10,8 @@ import { linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
 import { useWheel } from './mouse.js';
 import { piped } from './theme.js';
-import { canExpandDiff, diffRows } from './diff.js';
+import { canExpandDiff, diffExpansionHint, diffRows } from './diff.js';
+import { wrapLines } from './wrap.js';
 
 interface Props {
   request: UserRequest;
@@ -46,10 +46,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
     : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
   const lines = useMemo(() => {
-    const wrap = (text: string) =>
-      wrapAnsi(linkify(text, cwd), width, { hard: true, trim: false }).split(
-        '\n',
-      );
+    const wrap = (text: string) => wrapLines(linkify(text, cwd), width);
     if (question || !request.diff?.length) return wrap(detail);
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
@@ -166,11 +163,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       <Box height={bodyHeight} overflow="hidden">
         <Text>{lines.slice(top, top + bodyHeight).join('\n')}</Text>
       </Box>
-      {expandable && (
-        <Text dimColor>
-          {full ? 'CTRL+O SHOW PREVIEW' : 'CTRL+O SHOW ALL LINES'}
-        </Text>
-      )}
+      {expandable && <Text dimColor>{diffExpansionHint(full)}</Text>}
       {request.kind === 'approval' ? (
         <Box flexDirection="column">
           <Text>

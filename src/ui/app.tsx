@@ -9,7 +9,6 @@ import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement, Key } from 'ink';
 import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
-import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
 import { modelKey, modelTarget } from '../core/models.js';
@@ -27,7 +26,7 @@ import {
   tokenKey,
 } from './completion.js';
 import { Request } from './request.js';
-import { canExpandDiff } from './diff.js';
+import { canExpandDiff, diffExpansionHint } from './diff.js';
 import type { Graphics } from './images.js';
 import { isExpanded, TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
@@ -43,6 +42,7 @@ import { Sidebar, sidebarWidth } from './sidebar.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
 import { accent, colors, piped, potion } from './theme.js';
+import { wrapLines } from './wrap.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
@@ -263,10 +263,7 @@ export function App({
   const errorLimit = Math.max(1, Math.floor(height / 3));
   // an error can quote an agent-written note name
   const errorLines = state.error
-    ? wrapAnsi(linkify(plain(state.error), cwd), width - 2, {
-        hard: true,
-        trim: false,
-      }).split('\n')
+    ? wrapLines(linkify(plain(state.error), cwd), width - 2)
     : [];
   const errorRows =
     errorLines.length > errorLimit
@@ -347,9 +344,7 @@ export function App({
   const selectedTool = tools[toolSelection];
   const diffHint =
     toolFocus && selectedTool?.diff && canExpandDiff(selectedTool.diff)
-      ? fullDiffs.has(selectedTool.id)
-        ? 'CTRL+O SHOW PREVIEW'
-        : 'CTRL+O SHOW ALL LINES'
+      ? diffExpansionHint(fullDiffs.has(selectedTool.id))
       : undefined;
   const listRows = list
     ? Math.min(8, list.items.length, Math.max(1, bodyHeight - 7))
@@ -830,10 +825,7 @@ export function App({
         : pageView?.kind === 'coordination'
           ? coordinationText(pageCoordination, pageView.mode)
           : '';
-    return wrapAnsi(pageText, bodyWidth, {
-      hard: true,
-      trim: false,
-    }).split('\n');
+    return wrapLines(pageText, bodyWidth);
   }, [
     recovering,
     recovery,

@@ -8,27 +8,19 @@ import {
 import type { Ref } from 'react';
 import { Box, Text, measureElement, useCursor, useInput, usePaste } from 'ink';
 import type { DOMElement } from 'ink';
-import wrapAnsi from 'wrap-ansi';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import { boundaries, editInput, initialInput, lineAt } from './input-buffer.js';
 import type { Edit, InputBuffer, Step } from './input-buffer.js';
 import { useLiveState } from './live-state.js';
+import { normalizeText, wrapLines } from './wrap.js';
 
-// wrapping at Infinity still expands tabs and applies NFC, which the cursor column depends on
 const visible = (value: string, secret = false) =>
-  wrapAnsi(
-    stripAnsi(secret ? value.replace(/[^\n]/gu, '•') : value),
-    Infinity,
-    { trim: false },
-  );
+  normalizeText(stripAnsi(secret ? value.replace(/[^\n]/gu, '•') : value));
 
-/** `display` wrapped to `width`. text that ends the buffer gets a cell after its last character for the cursor. */
+/** text that ends the buffer needs a cell after its last character for the cursor. */
 const wrap = (display: string, width: number, last = true) =>
-  wrapAnsi(last ? `${display} ` : display, width, {
-    hard: true,
-    trim: false,
-  }).split('\n');
+  wrapLines(last ? `${display} ` : display, width);
 
 const backward = new Set<Edit['type']>([
   'backspace',

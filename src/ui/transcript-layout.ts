@@ -1,4 +1,3 @@
-import wrapAnsi from 'wrap-ansi';
 import stripAnsi from 'strip-ansi';
 import type { DisplayItem } from '../core/state.js';
 import { appendedDisplayText } from '../core/state.js';
@@ -9,6 +8,7 @@ import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
 import { linkify, linkifyAppend } from './links.js';
 import type { LinkedAppend } from './links.js';
+import { normalizeText, wrapLines } from './wrap.js';
 
 export interface ScrollAnchor {
   item: string;
@@ -105,11 +105,9 @@ function section(
   const rows: Row[] = [];
   let sourceLine = first;
   for (const line of text) {
-    const source = trim
-      ? stripAnsi(wrapAnsi(line, Infinity, { trim: false }))
-      : undefined;
+    const source = trim ? stripAnsi(normalizeText(line)) : undefined;
     let offset = 0;
-    for (const row of wrapAnsi(line, width, { hard: true, trim }).split('\n')) {
+    for (const row of wrapLines(line, width, trim)) {
       const plain = stripAnsi(row);
       if (source !== undefined) offset = source.indexOf(plain, offset);
       rows.push({ text: row, anchor: { line: sourceLine, offset } });
