@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createElement, Profiler } from 'react';
 import { Lexer } from 'marked';
 import type { Coordinator } from '../src/core/coordinator.js';
@@ -133,6 +134,72 @@ test('recovery snapshots and scrolling reuse wrapping while changed diffs and wi
     ui.resize(60);
     await until('resized page', () => wraps > beforeResize);
     assert.ok(ui.text().includes('updated-line 15'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('page movement starts from the visible top after content shrinks', async () => {
+  const recovery = (label: string, count: number) => ({
+    kind: 'pending' as const,
+    paths: [],
+    root: '/memory',
+    diff: Array.from({ length: count }, (_, i) => `+${label} ${i + 1}`).join(
+      '\n',
+    ),
+  });
+  const { app, coordinator, calls } = fake({
+    phase: 'recovery',
+    recovery: recovery('long', 60),
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    100,
+    24,
+  );
+  const first = (label: string) =>
+    Number(new RegExp(`${label} (\\d+)`).exec(ui.text())?.[1]);
+  try {
+    await until('initial recovery', () => first('long') === 1);
+    ui.stdin.write('\u001b[6~'.repeat(4));
+    await until('last page', () => first('long') === 45);
+    coordinator.publish({ recovery: recovery('short', 25) });
+    await until('clamped short page', () => first('short') === 10);
+    ui.stdin.write('\u001b[<64;10;10M'.repeat(2));
+    await until('two rows up', () => first('short') === 8);
+    ui.stdin.write('\u001b[A');
+    await until('one row up', () => first('short') === 7);
+    assert.deepEqual(calls, []);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('page key releases do not scroll', async () => {
+  const { app } = fake({
+    phase: 'recovery',
+    recovery: {
+      kind: 'pending',
+      paths: [],
+      root: '/memory',
+      diff: Array.from({ length: 60 }, (_, i) => `+row ${i + 1}`).join('\n'),
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    100,
+    24,
+  );
+  const first = () => Number(/row (\d+)/.exec(ui.text())?.[1]);
+  try {
+    await until('initial page', () => first() === 1);
+    ui.stdin.write('\u001b[6;1:1~\u001b[6;1:3~');
+    await until('page press', () => first() !== 1);
+    await delay(60);
+    assert.equal(first(), 17);
+    ui.stdin.write('\u001b[1;1:3A');
+    await delay(60);
+    assert.equal(first(), 17);
   } finally {
     ui.unmount();
   }
