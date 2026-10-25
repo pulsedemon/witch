@@ -4,7 +4,7 @@ import { readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import { openLocked } from '../persistence/lock.js';
-import { identifyProcess } from '../persistence/process.js';
+import { runs } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import { runCommand } from './command.js';
 import type { Coordinator } from './coordinator.js';
@@ -44,8 +44,7 @@ export async function peerTurnIn(
       (record.cwd === top || record.cwd.startsWith(`${top}/`)) &&
       record.activity &&
       record.process &&
-      (await identifyProcess(record.process.pid))?.started ===
-        record.process.started
+      (await runs(record.process))
     )
       return true;
   return false;

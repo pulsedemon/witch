@@ -11,7 +11,12 @@ import type { ProcessIdentity } from '../core/state.js';
 import { processRunning } from './instance.js';
 import { writeJson } from './json.js';
 import { openLocked } from './lock.js';
-import { bootSession, identifyProcess, identifyProcesses } from './process.js';
+import {
+  bootSession,
+  identifyProcess,
+  identifyProcesses,
+  sameProcess,
+} from './process.js';
 import {
   inspectScratch,
   scratchProbeTimeout,
@@ -101,8 +106,7 @@ async function sweep(
           record?.boot === boot &&
           (record.version === 1 ||
             record.requiresBoot ||
-            (record.owner.pid === owner.pid &&
-              record.owner.started === owner.started))
+            sameProcess(record.owner, owner))
         )
           continue;
         observed.set(directory, record);
@@ -123,7 +127,7 @@ async function sweep(
       if (
         (previous?.boot === boot &&
           previous.owner &&
-          owners.get(previous.owner.pid)?.started === previous.owner.started) ||
+          sameProcess(owners.get(previous.owner.pid), previous.owner)) ||
         (!previous && numeric && processRunning(Number(name)))
       )
         continue;
@@ -170,9 +174,7 @@ async function sweep(
       const { directory, owner, previousBoot } = candidate;
       if (
         decisions.get(directory) !== 'unused' ||
-        (!previousBoot &&
-          owner &&
-          live.get(owner.pid)?.started === owner.started)
+        (!previousBoot && owner && sameProcess(live.get(owner.pid), owner))
       )
         continue;
       try {
@@ -248,9 +250,7 @@ export class ScratchSpace {
         const legacy = !record && basename(directory) === String(process.pid);
         if (
           !legacy &&
-          (record?.boot !== boot ||
-            record.owner?.pid !== owner.pid ||
-            record.owner.started !== owner.started)
+          (record?.boot !== boot || !sameProcess(record.owner, owner))
         )
           throw new Error('Scratch does not belong to this restarting Witch.');
         requiresBoot = record?.version === 2 ? record.requiresBoot : true;

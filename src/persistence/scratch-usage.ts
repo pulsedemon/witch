@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import type { ProcessIdentity } from '../core/state.js';
-import { ps } from './process.js';
+import { ps, sameProcess } from './process.js';
 
 const execute = promisify(execFile);
 export const scratchProbeTimeout = 10_000;
@@ -117,8 +117,7 @@ function independent(
   const seen = new Set<number>();
   let current: Process | undefined = row;
   while (current && current.pid > 1 && !seen.has(current.pid)) {
-    if (current.pid === owner.pid && current.started === owner.started)
-      return false;
+    if (sameProcess(current, owner)) return false;
     if (current.name === 'tmux') return false;
     if (current.time < began) return true;
     seen.add(current.pid);
@@ -188,9 +187,7 @@ export function classifyScratch(
       if (
         referenced ||
         named ||
-        (!previousBoot &&
-          owner &&
-          after.get(owner.pid)?.started === owner.started)
+        (!previousBoot && owner && sameProcess(after.get(owner.pid), owner))
       ) {
         results.set(directory, 'used');
         continue;
@@ -200,14 +197,14 @@ export function classifyScratch(
         (row) =>
           row.pid > 1 &&
           ((row.uid === process.getuid!() &&
-            before.get(row.pid)?.started === row.started) ||
+            sameProcess(before.get(row.pid), row)) ||
             (!previousBoot && !independent(row, owner!, after))),
       );
       const uncertain = relevant.some((row) => {
         const earlier = before.get(row.pid);
         return (
-          earlier?.started !== row.started ||
-          earlier.ppid !== row.ppid ||
+          !sameProcess(earlier, row) ||
+          earlier?.ppid !== row.ppid ||
           !opened.pids.has(row.pid) ||
           !commands.has(row.pid) ||
           (!previousBoot && !independent(row, owner!, after))
@@ -227,7 +224,7 @@ export function classifyScratch(
         (row) =>
           !previousBoot &&
           !independent(row, owner!, before) &&
-          after.get(row.pid)?.started !== row.started,
+          !sameProcess(after.get(row.pid), row),
       );
       if (!uncertain && !incomplete && !disappeared)
         results.set(directory, 'unused');
