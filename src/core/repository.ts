@@ -4,17 +4,19 @@ import { z } from 'zod';
 
 const execute = promisify(execFile);
 
-export interface PullRequest {
-  number: number;
-  url: string;
-  state: 'OPEN' | 'MERGED' | 'CLOSED';
+export const pullRequestSchema = z.object({
+  number: z.number(),
+  url: z.string(),
+  state: z.enum(['OPEN', 'MERGED', 'CLOSED']),
   /** the branch it merges, that branch's last commit, and the branch it merges into. */
-  branch: string;
-  commit: string;
-  base: string;
+  branch: z.string(),
+  commit: z.string(),
+  base: z.string(),
   /** an open pull request's checks, pending while it has none. */
-  checks?: 'passing' | 'failing' | 'pending';
-}
+  checks: z.enum(['passing', 'failing', 'pending']).optional(),
+});
+
+export type PullRequest = z.infer<typeof pullRequestSchema>;
 
 export interface Repository {
   /** `HEAD` when detached. */
@@ -27,6 +29,7 @@ export interface Repository {
   /** entries, so a wholly untracked directory counts once. */
   untracked: number;
   pullRequest?: PullRequest;
+  pullRequestProject?: string;
 }
 
 /** reads `git status --porcelain=v2 --branch`. */
@@ -135,13 +138,19 @@ export class RepositoryWatch {
   snapshot?: Repository;
   private readonly listeners = new Set<() => void>();
   private readonly timer: ReturnType<typeof setInterval>;
-  private pullRequest?: { branch: string; at: number; value?: PullRequest };
+  private pullRequest?: {
+    branch: string;
+    at: number;
+    value?: PullRequest;
+    project?: string;
+  };
   private fetching = false;
   private refreshing = false;
 
   constructor(
     private readonly cwd: string,
     private readonly run: Run = execute,
+    private readonly project?: () => Promise<string>,
   ) {
     this.timer = setInterval(() => void this.refresh(), 5000);
     this.timer.unref();
@@ -176,8 +185,11 @@ export class RepositoryWatch {
       this.refreshing = false;
     }
     const known = this.pullRequest;
-    if (repository && known?.branch === repository.branch)
+    if (repository && known?.branch === repository.branch) {
       repository.pullRequest = known.value;
+      if (known.project !== undefined)
+        repository.pullRequestProject = known.project;
+    }
     this.publish(repository);
     if (
       repository &&
@@ -191,7 +203,9 @@ export class RepositoryWatch {
   private async fetchPullRequest(branch: string): Promise<void> {
     this.fetching = true;
     let value: PullRequest | undefined;
+    let project: string | undefined;
     try {
+      project = await this.project?.();
       const { stdout } = await this.run(
         'gh',
         [
@@ -203,14 +217,19 @@ export class RepositoryWatch {
         { cwd: this.cwd, timeout: 30_000 },
       );
       value = parsePullRequest(stdout);
+      if (this.project && project !== (await this.project())) value = undefined;
     } catch {
       // no pull request, no gh or no network
     } finally {
       this.fetching = false;
     }
-    this.pullRequest = { branch, at: Date.now(), value };
+    this.pullRequest = { branch, at: Date.now(), value, project };
     if (this.snapshot?.branch === branch)
-      this.publish({ ...this.snapshot, pullRequest: value });
+      this.publish({
+        ...this.snapshot,
+        pullRequest: value,
+        ...(project === undefined ? {} : { pullRequestProject: project }),
+      });
   }
 
   /** an unchanged status publishes nothing, so a quiet repository costs no redraws. */

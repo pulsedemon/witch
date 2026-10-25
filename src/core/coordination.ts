@@ -26,7 +26,9 @@ import type {
 } from './coordination-state.js';
 import type { Snapshot } from './coordinator.js';
 import { assignGitHubTask } from './github-assignment.js';
-import type { Repository } from './repository.js';
+import type { PullRequest, Repository } from './repository.js';
+import { mergeEventId } from './merge-events.js';
+import type { MergeEvent } from './merge-events.js';
 import type { Conversation, ProcessIdentity } from './state.js';
 
 interface Activation {
@@ -43,6 +45,7 @@ interface Discovery {
   revision: number;
   live: Map<string, SessionPresence>;
   opened: Awaited<ReturnType<StateStore['openConversations']>>;
+  records: Awaited<ReturnType<StateStore['records']>>['records'];
   unregistered: Map<string, CoordinationSnapshot['unregistered']>;
 }
 
@@ -69,6 +72,23 @@ export class SessionCoordination {
   private active?: Activation;
   private state?: Snapshot;
   private branch?: string;
+  private repository?: Repository;
+  private merges?: {
+    conversation: string;
+    project: string;
+    events: MergeEvent[];
+  };
+  private readonly pendingMerges = new Map<
+    string,
+    {
+      project: string;
+      source: string;
+      pullRequest: PullRequest;
+      recipients?: string[];
+    }
+  >();
+  private readonly observedMerges = new Set<string>();
+  private publishingMerges?: Promise<void>;
   private host!: ControlHost;
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;
@@ -78,6 +98,11 @@ export class SessionCoordination {
   private retrying?: Promise<void>;
   private operations: Promise<void> = Promise.resolve();
   private refreshing?: {
+    active: Activation;
+    project: string;
+    promise: Promise<void>;
+  };
+  private refreshingMerges?: {
     active: Activation;
     project: string;
     promise: Promise<void>;
@@ -136,7 +161,9 @@ export class SessionCoordination {
     coordination.timer = setInterval(() => {
       void coordination.maintain();
       void coordination.refresh();
+      void coordination.refreshMerges();
       void coordination.retryPresence();
+      void coordination.publishMerges();
     }, 2000);
     coordination.timer.unref();
     return coordination;
@@ -207,6 +234,7 @@ export class SessionCoordination {
         throw new Error('Coordination is closing.');
       active.accepting = true;
       this.failures.delete('project');
+      this.updateRepository(this.repository);
       await this.inspect();
       return active.binding;
     } catch (error) {
@@ -285,8 +313,73 @@ export class SessionCoordination {
   }
 
   updateRepository(repository: Repository | undefined): void {
+    this.repository = repository;
     this.branch = repository?.branch;
     if (this.state) this.update(this.state);
+    const active = this.active;
+    const pullRequest = repository?.pullRequest;
+    if (
+      !active?.accepting ||
+      pullRequest?.state !== 'MERGED' ||
+      repository!.branch !== pullRequest.branch ||
+      repository!.pullRequestProject === undefined
+    )
+      return;
+    const project = repository!.pullRequestProject;
+    const id = mergeEventId(project, pullRequest);
+    if (this.observedMerges.has(id)) return;
+    if (!this.pendingMerges.has(id))
+      this.pendingMerges.set(id, {
+        project,
+        source: active.conversation.id,
+        pullRequest,
+      });
+    void this.publishMerges();
+  }
+
+  private publishMerges(): Promise<void> {
+    if (this.closed || !this.pendingMerges.size) return Promise.resolve();
+    this.publishingMerges ??= this.serialize(async () => {
+      for (const [id, observation] of this.pendingMerges) {
+        const { project, source, pullRequest } = observation;
+        if (!observation.recipients) {
+          const active = this.active;
+          if (active?.conversation.id === source)
+            await this.refreshProject(active);
+          const discovery = await this.discover(++this.revision);
+          const recipients = await Promise.all(
+            discovery.records.map(async (record) => {
+              const scope = await this.memory.scopePaths(record.cwd);
+              return scope.project === project ? record.id : undefined;
+            }),
+          );
+          observation.recipients = recipients.filter((id) => id !== undefined);
+        }
+        await this.registry.recordMerge(
+          project,
+          pullRequest,
+          source,
+          observation.recipients,
+        );
+        this.pendingMerges.delete(id);
+        this.observedMerges.add(id);
+      }
+      this.failures.delete('merge-publish');
+      await this.refreshMerges();
+    })
+      .catch((error: unknown) => this.fail('merge-publish', error))
+      .finally(() => {
+        this.publishingMerges = undefined;
+      });
+    return this.publishingMerges;
+  }
+
+  mergeEvents(conversation: string): readonly MergeEvent[] {
+    return this.active?.conversation.id === conversation &&
+      this.merges?.conversation === conversation &&
+      this.merges.project === this.active.project
+      ? this.merges.events
+      : [];
   }
 
   beginTurn(turn: string): void {
@@ -453,7 +546,10 @@ export class SessionCoordination {
       }
     } finally {
       await this.host.close();
-      await this.refreshing?.promise;
+      await Promise.all([
+        this.refreshing?.promise,
+        this.refreshingMerges?.promise,
+      ]);
     }
   }
 
@@ -902,19 +998,24 @@ export class SessionCoordination {
   private async refreshProject(active: Activation): Promise<void> {
     try {
       const { project } = await this.memory.scopePaths(active.conversation.cwd);
+      if (this.active !== active || !active.publishing || this.closed) return;
       active.project = project;
       if (this.turn && this.turn.owner.project !== project) this.revokeTurn();
       this.failures.delete('project');
       if (this.state) this.update(this.state);
     } catch (error) {
-      this.fail('project', error);
+      if (this.active === active && active.publishing && !this.closed)
+        this.fail('project', error);
       throw error;
     }
   }
 
   private async inspect(): Promise<CoordinationSnapshot> {
-    await this.refreshing?.promise;
-    await this.refresh();
+    await Promise.all([
+      this.refreshing?.promise,
+      this.refreshingMerges?.promise,
+    ]);
+    await Promise.all([this.refresh(), this.refreshMerges()]);
     return this.snapshot;
   }
 
@@ -957,6 +1058,53 @@ export class SessionCoordination {
         this.refreshing = undefined;
       });
     this.refreshing = { active, project, promise };
+    return promise;
+  }
+
+  private refreshMerges(): Promise<void> {
+    const active = this.active;
+    if (!active?.publishing || this.closed) return Promise.resolve();
+    const project = active.project;
+    if (this.refreshingMerges)
+      return this.refreshingMerges.active === active &&
+        this.refreshingMerges.project === project
+        ? this.refreshingMerges.promise
+        : this.refreshingMerges.promise.then(() => this.refreshMerges());
+    const current = () =>
+      this.active === active &&
+      active.project === project &&
+      active.publishing &&
+      !this.closed;
+    const promise = this.registry
+      .mergeEvents(project, active.conversation.id)
+      .then(
+        async (events) => {
+          try {
+            await this.refreshProject(active);
+          } catch {
+            return;
+          }
+          if (!current()) return;
+          const merges = {
+            conversation: active.conversation.id,
+            project,
+            events,
+          };
+          const changed =
+            JSON.stringify(merges) !== JSON.stringify(this.merges);
+          this.merges = merges;
+          this.failures.delete('merge-events');
+          this.publish(this.snapshot);
+          if (changed) for (const listener of this.listeners) listener();
+        },
+        (error: unknown) => {
+          if (current()) this.fail('merge-events', error);
+        },
+      )
+      .finally(() => {
+        this.refreshingMerges = undefined;
+      });
+    this.refreshingMerges = { active, project, promise };
     return promise;
   }
 
@@ -1016,7 +1164,7 @@ export class SessionCoordination {
         if (code !== 'ENOENT' || syscall !== 'realpath') throw error;
       }
     }
-    return { revision, live, opened, unregistered };
+    return { revision, live, opened, records, unregistered };
   }
 
   private projectDiscovery(
