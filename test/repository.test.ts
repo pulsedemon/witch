@@ -11,6 +11,7 @@ import {
   parseStatus,
 } from '../src/core/repository.js';
 import { scratch } from './fixtures/scratch.js';
+import { until } from './fixtures/within.js';
 
 const execute = promisify(execFile);
 
@@ -270,6 +271,64 @@ test('a detached head reads no pull request', async () => {
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'HEAD');
     assert.deepEqual(commands, ['git', 'git']);
+  } finally {
+    watch.close();
+  }
+});
+
+test('a cached pull request keeps its observed project until a fresh scoped read', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
+  let project = 'project-a';
+  const watch = new RepositoryWatch(
+    '/work',
+    async (command) => ({
+      stdout:
+        command === 'gh' ? view({ state: 'MERGED' }) : '# branch.head feat/x\n',
+    }),
+    async () => project,
+  );
+  try {
+    await until(
+      'initial scoped observation',
+      () => watch.snapshot?.pullRequestProject === 'project-a',
+    );
+    project = 'project-b';
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.equal(watch.snapshot?.pullRequestProject, 'project-a');
+    vi.advanceTimersByTime(85_000);
+    await until(
+      'fresh scoped observation',
+      () => watch.snapshot?.pullRequestProject === 'project-b',
+    );
+    assert.equal(watch.snapshot?.pullRequest?.state, 'MERGED');
+  } finally {
+    watch.close();
+  }
+});
+
+test('a project change during a pull request read invalidates the observation', async () => {
+  let project = 'project-a';
+  let scopeReads = 0;
+  const watch = new RepositoryWatch(
+    '/work',
+    async (command) => {
+      if (command === 'git') return { stdout: '# branch.head feat/x\n' };
+      project = 'project-b';
+      return { stdout: view({ state: 'MERGED' }) };
+    },
+    async () => {
+      scopeReads++;
+      return project;
+    },
+  );
+  try {
+    await until('scope recheck', () => scopeReads === 2);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(watch.snapshot?.pullRequest, undefined);
   } finally {
     watch.close();
   }

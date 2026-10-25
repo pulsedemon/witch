@@ -39,6 +39,7 @@ import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import type { ModelChoice, ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
+import { watchMergeNotices } from './merge-events.js';
 import {
   agentWorking,
   applyDisplayUpdate,
@@ -168,6 +169,13 @@ export class Coordinator {
       })),
     };
     this.publish({});
+    watchMergeNotices(
+      coordination,
+      () => this.snapshot,
+      (notice) => {
+        if (!this.closed) this.display(notice);
+      },
+    );
   }
 
   subscribe(listener: () => void): () => void {
@@ -881,6 +889,7 @@ export class Coordinator {
           coordination,
           pendingContext,
           command,
+          merges: this.coordination?.mergeEvents(conversation.id),
         });
       let input = await context();
       // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
@@ -927,9 +936,17 @@ export class Coordinator {
       this.retainContext(conversation.id, result.unreadContext);
       await this.finishActivity(activity, result);
       if (result.status === 'completed') {
-        if (generation === this.contextGeneration)
-          conversation.sessions[activity.agent]!.deliveredRevision =
-            activity.baseRevision;
+        if (generation === this.contextGeneration) {
+          const reference = conversation.sessions[activity.agent]!;
+          reference.deliveredRevision = activity.baseRevision;
+          if (input.merges.length)
+            reference.deliveredMerges = [
+              ...new Set([
+                ...(reference.deliveredMerges ?? []),
+                ...input.merges,
+              ]),
+            ];
+        }
         if (pendingHandoff === conversation.handoff)
           delete conversation.handoff;
       }
@@ -1170,7 +1187,10 @@ export class Coordinator {
     } else if (event.type === 'compacted') {
       this.contextGeneration++;
       const reference = conversation.sessions[agent];
-      if (reference) delete reference.deliveredRevision;
+      if (reference) {
+        delete reference.deliveredRevision;
+        delete reference.deliveredMerges;
+      }
       this.persist(this.save());
       this.notice('Conversation compacted');
     } else if (event.type === 'request') {

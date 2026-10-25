@@ -498,20 +498,35 @@ test('an origin change inside ledger verification rejects and cancels without ne
   const a = await f.start();
   const turn = await selectionTurn(cleanup, a),
     choice = await turn.select();
-  const scopePaths = f.memory.scopePaths.bind(f.memory);
-  let reads = 0;
-  vi.spyOn(f.memory, 'scopePaths').mockImplementation(async (cwd: string) => {
-    if (cwd === join(f.root, 'A') && ++reads === 2)
-      await git(
-        '-C',
-        cwd,
-        'remote',
-        'set-url',
-        'origin',
-        join(f.root, 'other'),
+  const recommend = CoordinationStore.prototype.recommend;
+  vi.spyOn(CoordinationStore.prototype, 'recommend').mockImplementation(
+    function (
+      this: CoordinationStore,
+      ...[scope, id, input, process, deadline, verify]: Parameters<
+        typeof recommend
+      >
+    ) {
+      return recommend.call(
+        this,
+        scope,
+        id,
+        input,
+        process,
+        deadline,
+        async (ledger) => {
+          await git(
+            '-C',
+            join(f.root, 'A'),
+            'remote',
+            'set-url',
+            'origin',
+            join(f.root, 'other'),
+          );
+          await verify(ledger);
+        },
       );
-    return scopePaths(cwd);
-  });
+    },
+  );
   const result = await within(
     callControl(turn.binding, {
       kind: 'recommend',

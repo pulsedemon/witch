@@ -23,6 +23,9 @@ import type {
   TaskClaim,
 } from '../core/coordination-state.js';
 import type { ProcessIdentity } from '../core/state.js';
+import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
+import type { MergeEvent } from '../core/merge-events.js';
+import type { PullRequest } from '../core/repository.js';
 import { identifyProcesses } from './process.js';
 import { lockedFiles, openLocked } from './lock.js';
 import { writeJson } from './json.js';
@@ -166,6 +169,54 @@ export class CoordinationStore {
         result.push(sessionPresenceSchema.parse(JSON.parse(text)));
     }
     return result;
+  }
+
+  private async readMerges(): Promise<MergeEvent[]> {
+    const text = await readFile(
+      join(this.directory, 'merges.json'),
+      'utf8',
+    ).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '[]';
+      throw error;
+    });
+    return z.array(mergeEventSchema).parse(JSON.parse(text));
+  }
+
+  async mergeEvents(
+    project: string,
+    conversation: string,
+  ): Promise<MergeEvent[]> {
+    return (await this.readMerges()).filter(
+      (event) =>
+        event.project === project && event.recipients.includes(conversation),
+    );
+  }
+
+  async recordMerge(
+    project: string,
+    pullRequest: PullRequest,
+    source: string,
+    recipients: readonly string[],
+  ): Promise<MergeEvent> {
+    const id = mergeEventId(project, pullRequest);
+    const lock = await this.lock(Date.now() + 1000);
+    try {
+      const events = await this.readMerges();
+      const existing = events.find((event) => event.id === id);
+      if (existing) return existing;
+      const event = mergeEventSchema.parse({
+        id,
+        project,
+        source,
+        observedAt: new Date().toISOString(),
+        pullRequest,
+        recipients: [...new Set(recipients)],
+      });
+      await writeJson(join(this.directory, 'merges.json'), [...events, event]);
+      return event;
+    } finally {
+      await lock.close();
+    }
   }
 
   async publish(presence: SessionPresence): Promise<void> {

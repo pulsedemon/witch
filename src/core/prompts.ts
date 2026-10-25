@@ -5,6 +5,8 @@ import { indexByteLimit, indexNote } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';
+import { mergeContext } from './merge-events.js';
+import type { MergeEvent } from './merge-events.js';
 
 // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
 export const ranCommand =
@@ -42,6 +44,7 @@ export async function nativePrompt({
   coordination,
   pendingContext,
   command,
+  merges = [],
 }: {
   prompt: string;
   memory: Memory;
@@ -53,7 +56,8 @@ export async function nativePrompt({
   coordination?: string;
   pendingContext?: readonly string[];
   command?: string;
-}): Promise<{ prompt: string; context: string }> {
+  merges?: readonly MergeEvent[];
+}): Promise<{ prompt: string; context: string; merges: string[] }> {
   const root = workspace.root;
   // the project marker moves before delivery, even when the turn later fails
   if (reference.deliveredProject !== scope.project) {
@@ -69,6 +73,9 @@ export async function nativePrompt({
           scope,
           reference.deliveredRevision,
         );
+  const pendingMerges = merges.filter(
+    ({ id }) => !reference.deliveredMerges?.includes(id),
+  );
   const context = [
     'You are running inside Witch. Witch operating rules take precedence over conflicting user-global rules and skill instructions, including skills supplied by the native runtime. Follow all other applicable native and project instructions. Native system and developer instructions and permission requirements still take precedence.',
     'For each conflict with a Witch rule that you encounter, write a brief, single-line warning in the transcript using this format: "Witch rule conflict: source=<file or skill>; conflict=<conflicting instruction>; witch=<applicable Witch rule>; resolution=<rule followed>". Then continue under the applicable rule without asking the user to resolve the conflict.',
@@ -82,6 +89,7 @@ export async function nativePrompt({
         ]
       : []),
     ...(coordination ? [coordination] : []),
+    ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),
     ...(pendingContext
       ? [
           'These commands already ran before an interrupt. Use their output as context without running them again:',
@@ -90,5 +98,5 @@ export async function nativePrompt({
       : []),
     ...(command === undefined ? [] : [ranCommand]),
   ].join('\n\n');
-  return { prompt, context };
+  return { prompt, context, merges: pendingMerges.map(({ id }) => id) };
 }

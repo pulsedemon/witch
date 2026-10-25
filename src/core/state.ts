@@ -10,6 +10,7 @@ const session = z.object({
   effort: z.string().optional(),
   deliveredRevision: z.string().optional(),
   deliveredProject: z.string().optional(),
+  deliveredMerges: z.array(z.string()).optional(),
 });
 
 export const conversationSchema = z.object({
@@ -150,6 +151,8 @@ export function recordSession(
     deliveredRevision:
       previous?.id === info.id ? previous.deliveredRevision : undefined,
   };
+  if (previous?.id !== info.id)
+    delete conversation.sessions[agent]!.deliveredMerges;
 }
 
 function merge(

@@ -233,7 +233,11 @@ if (control) {
       restarting = true;
       shutdown();
     };
-    const repository = new RepositoryWatch(process.cwd());
+    const repository = new RepositoryWatch(
+      process.cwd(),
+      undefined,
+      async () => (await memory.scopePaths(process.cwd())).project,
+    );
     const stopCoordinationRepository = repository.subscribe(() =>
       coordination.updateRepository(repository.snapshot),
     );
