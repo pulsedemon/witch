@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fixture, save } from './fixtures/memory.js';
+import { passThrough } from './fixtures/git.js';
 
 async function context() {
-  const { memory, open, project } = await fixture();
+  const { memory, open, project, hook } = await fixture();
   const { workspace } = await open('context');
   const scope = await memory.scopePaths(project);
   const projectIndex = `${scope.project}/MEMORY.md`;
@@ -15,6 +16,7 @@ async function context() {
     'global/kept.md': 'Reference detail 53.\n',
   });
   return {
+    hook,
     memory,
     workspace,
     scope,
@@ -29,6 +31,42 @@ async function context() {
       ),
   };
 }
+
+test('a snapshot reads its captured commit when the branch advances after enumeration', async () => {
+  const f = await context();
+  f.hook.current = async (command, run) => {
+    const result = await run();
+    if (command[0] === 'ls-tree' && command[1] === '-r') {
+      f.hook.current = passThrough;
+      await save(f.workspace, {
+        'global/MEMORY.md': 'Later global preference 71.\n',
+        [f.projectIndex]: 'Later project preference 73.\n',
+      });
+    }
+    return result;
+  };
+  const snapshot = await f.memory.snapshot(f.before, f.workspace.root, f.scope);
+  assert.notEqual(await f.workspace.revision(), f.before);
+  assert.ok(snapshot.includes('Global preference 17.\n'));
+  assert.ok(snapshot.includes('Project preference 29.\n'));
+  assert.doesNotMatch(snapshot, /Later global|Later project/);
+});
+
+test('snapshots and standalone text and byte reads reject a committed symlink index', async () => {
+  const f = await context();
+  const index = 'global/MEMORY.md';
+  await rm(join(f.workspace.root, index));
+  await symlink('kept.md', join(f.workspace.root, index));
+  await f.memory.git(f.workspace.root, ['add', '--all']);
+  await f.memory.git(f.workspace.root, ['commit', '-m', 'legacy symlink']);
+  const revision = await f.workspace.revision();
+  await assert.rejects(
+    f.memory.snapshot(revision, f.workspace.root, f.scope),
+    /regular files/,
+  );
+  await assert.rejects(f.memory.read(revision, index), /regular files/);
+  await assert.rejects(f.memory.readBytes(revision, index), /regular files/);
+});
 
 test('an unrelated project commit produces no memory update', async () => {
   const f = await context();
