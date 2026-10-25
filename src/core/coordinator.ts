@@ -1,3 +1,4 @@
+import { updateFamiliar } from './familiars.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -168,6 +169,11 @@ export class Coordinator {
         installed: !!executable,
       })),
     };
+    this.coordination?.setFamiliarHandler(async (action, deadline) => {
+      if (!this.session?.reportFamiliar)
+        throw new Error('The active runtime cannot report Claude familiars.');
+      return this.session.reportFamiliar(action, deadline);
+    });
     this.publish({});
     watchMergeNotices(
       coordination,
@@ -747,6 +753,7 @@ export class Coordinator {
   async close(options: { restart?: boolean } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.coordination?.setFamiliarHandler(undefined);
     const quiescing = this.coordination?.quiesce();
     // interrupt() reads the phase before `closing` replaces it
     const interrupting = this.interrupt();
@@ -1102,6 +1109,7 @@ export class Coordinator {
           await identify('shell')(pid);
         },
         mark: this.jobs,
+        familiarBinding: this.coordination?.familiarBinding(),
       });
       this.session = session;
       this.sessionProject = scope.project;
@@ -1255,54 +1263,35 @@ export class Coordinator {
     const index = this.snapshot.subagents.findIndex(
       ({ id }) => id === subagent.id,
     );
-    const previous = this.snapshot.subagents[index];
-    // only a start lists a familiar, so a late update cannot restore one a turn dropped
-    if (!previous && subagent.status !== 'running') return;
-    const running = subagent.status === 'running';
-    // a new run can start before the last one's end arrives, so a start under another run is a restart
-    const started =
-      running &&
-      (previous?.status !== 'running' || previous.run !== subagent.run);
-    const ended = !running && previous?.status === 'running';
-    const rows = started
-      ? { start: randomUUID() }
-      : { ...previous!.rows, ...(ended ? { end: randomUUID() } : {}) };
+    const update = updateFamiliar(this.snapshot.subagents[index], subagent);
+    if (!update) return;
     const subagents = [...this.snapshot.subagents];
-    subagents[index < 0 ? subagents.length : index] = {
-      ...subagent,
-      startedAt: started ? Date.now() : previous!.startedAt,
-      rows,
-    };
+    subagents[index < 0 ? subagents.length : index] = update.entry;
     this.publish({ subagents });
-    // a name or kind can arrive after the rows, as a Codex thread's does, and retitles them in place
-    const renamed =
-      !started &&
-      (subagent.name !== previous!.name || subagent.kind !== previous!.kind);
-    if (started || renamed)
-      this.taskRow(conversation, rows.start, [
-        'Familiar started',
-        subagent.name,
-        subagent.kind,
-      ]);
-    if (rows.end && (ended || renamed))
-      this.taskRow(
-        conversation,
-        rows.end,
-        [
-          `Familiar ${subagent.status}`,
-          subagent.name,
-          subagent.tools
-            ? `${subagent.tools} tool${subagent.tools === 1 ? '' : 's'}`
-            : '',
-        ],
-        ended ? (subagent.report ?? '') : '',
-      );
+    for (const row of update.rows)
+      this.taskRow(conversation, row.id, row.title, row.text);
   }
 
   private brew(
     conversation: ConversationRecord,
     command: BackgroundCommand,
   ): void {
+    if (command.familiar) {
+      if (
+        this.snapshot.backgroundCommands.some(({ id }) => id === command.id)
+      ) {
+        this.publish({
+          backgroundCommands: this.snapshot.backgroundCommands.filter(
+            ({ id }) => id !== command.id,
+          ),
+        });
+        this.taskRow(conversation, randomUUID(), [
+          'Brew became familiar',
+          command.description,
+        ]);
+      }
+      return;
+    }
     const running = command.status === 'running';
     const listed = this.snapshot.backgroundCommands.some(
       ({ id }) => id === command.id,

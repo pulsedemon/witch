@@ -8,6 +8,11 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
 import {
+  familiarActionSchema,
+  familiarOutcomeSchema,
+} from '../agents/familiar-report.js';
+import type { FamiliarAction } from '../agents/familiar-report.js';
+import {
   coordinationActionSchema,
   coordinationSnapshotSchema,
   conversationSummarySchema,
@@ -48,10 +53,11 @@ export const controlRequestSchema = controlBindingSchema
     version: z.literal(1),
     id: idSchema,
     deadline: z.number(),
-    action: coordinationActionSchema,
+    action: z.union([coordinationActionSchema, familiarActionSchema]),
   });
 
 const controlOutcomeSchema = z.discriminatedUnion('kind', [
+  familiarOutcomeSchema,
   z.object({ kind: z.literal('peers'), snapshot: coordinationSnapshotSchema }),
   z.object({
     kind: z.literal('claimed'),
@@ -152,14 +158,15 @@ async function remove(file: string): Promise<void> {
 
 export async function callControl(
   binding: ControlBinding,
-  action: CoordinationAction,
+  action: CoordinationAction | FamiliarAction,
+  deadline = Date.now() + 10_000,
 ): Promise<ControlResult> {
   const request = controlRequestSchema.parse({
     version: 1,
     id: randomUUID(),
     conversation: binding.conversation,
     activation: binding.activation,
-    deadline: Date.now() + 10_000,
+    deadline,
     action,
   });
   const inbox = join(binding.directory, 'inbox', `${request.id}.json`);

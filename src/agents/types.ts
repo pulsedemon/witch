@@ -1,3 +1,6 @@
+import type { ControlBinding } from '../persistence/control.js';
+import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+
 export interface Model {
   id: string;
   label: string;
@@ -49,7 +52,13 @@ export interface Limit {
   resetsAt?: number;
 }
 
-export type TaskStatus = 'running' | 'completed' | 'failed' | 'stopped';
+export const taskStatuses = [
+  'running',
+  'completed',
+  'failed',
+  'stopped',
+] as const;
+export type TaskStatus = (typeof taskStatuses)[number];
 
 /** a subagent the native agent started; a later event with the same id replaces it. */
 export interface Subagent {
@@ -59,6 +68,8 @@ export interface Subagent {
   name: string;
   /** its native type or role, empty when the agent reports none. */
   kind: string;
+  runtime?: string;
+  model?: string;
   status: TaskStatus;
   /** the run this state belongs to; a running start under another run is a restart. */
   run?: string;
@@ -73,6 +84,7 @@ export interface Subagent {
 /** a command the native agent left running in the background; a running event starts it, a later one with another status ends it, and a repeated start changes nothing. */
 export interface BackgroundCommand {
   id: string;
+  familiar?: string;
   /** what the agent said it's for, or the command when it said nothing. */
   description: string;
   status: TaskStatus;
@@ -166,6 +178,10 @@ export interface TurnResult {
 }
 
 export interface AgentSession {
+  reportFamiliar?(
+    action: FamiliarAction,
+    deadline: number,
+  ): Promise<FamiliarOutcome>;
   readonly info: SessionInfo;
   readonly usage: Usage;
   readonly closed: boolean;
@@ -226,6 +242,7 @@ export interface CommandMark {
 }
 
 export interface SessionOptions {
+  familiarBinding?: ControlBinding;
   cwd: string;
   executable: string;
   resume?: string;

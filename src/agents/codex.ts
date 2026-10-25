@@ -4,13 +4,14 @@ import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
+import { CodexCommands } from './codex-commands.js';
+import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import { shortPath, toolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
-  BackgroundCommand,
   FileDiff,
   Hunk,
   Model,
@@ -29,7 +30,6 @@ import type {
 const object = z.record(z.string(), z.unknown());
 const stringValue = z.string();
 const nullishString = stringValue.nullish();
-const commandStatus = z.enum(['completed', 'failed', 'declined']);
 const completedTurn = z.object({
   turn: z.object({ id: stringValue, status: stringValue }),
 });
@@ -340,15 +340,7 @@ class CodexSession implements AgentSession {
   private readonly malformed = new Set<string>();
   /** spawned threads by id. */
   private readonly subagents = new Map<string, Subagent>();
-  private readonly commands = new Map<
-    string,
-    {
-      threadId: string;
-      turnId: string;
-      ended: boolean;
-      command?: BackgroundCommand;
-    }
-  >();
+  private readonly commands: CodexCommands;
   /** each listed skill's SKILL.md, which a skill input names. */
   private readonly skillPaths = new Map<string, string>();
   /** each turn's latest diff count, since a turn's diff grows as it edits. */
@@ -373,12 +365,23 @@ class CodexSession implements AgentSession {
       hasHistory: !!options.resume,
       effort: options.effort,
     };
+    this.commands = new CodexCommands(
+      rpc,
+      options.familiarBinding,
+      () => this.info.id,
+      (thread) => thread === this.info.id || this.subagents.has(thread),
+      (thread, turn) =>
+        thread === this.info.id &&
+        this.turn?.id === turn &&
+        this.turn.interrupted,
+      options.onEvent,
+    );
     rpc.onMessage = (message) => this.receive(message);
     rpc.onExit = (error) => {
       // a turn or settings change in flight reports the exit itself
       const reported = !!(this.turn || this.settings);
       this.settings?.reject(error);
-      this.stopBackgroundCommands();
+      this.commands.stop();
       this.proposals.clear();
       this.closed = true;
       if (this.connected) this.options.onEvent({ type: 'closed' });
@@ -610,6 +613,15 @@ class CodexSession implements AgentSession {
     await turn.finished.promise;
   }
 
+  async reportFamiliar(
+    action: FamiliarAction,
+    deadline: number,
+  ): Promise<FamiliarOutcome> {
+    if (this.closing || this.closed)
+      throw new Error('The native session is closing.');
+    return this.commands.report(action, deadline);
+  }
+
   respond(id: string, response: UserResponse): void {
     const request = this.requests.get(id);
     if (!request || request.id === undefined) return;
@@ -656,7 +668,7 @@ class CodexSession implements AgentSession {
 
   async close(): Promise<void> {
     this.closing = true;
-    this.stopBackgroundCommands();
+    await this.commands.close();
     try {
       await this.interrupt();
     } finally {
@@ -693,6 +705,8 @@ class CodexSession implements AgentSession {
     }
     const child = this.childThread(message);
     try {
+      if (message.method === 'item/commandExecution/outputDelta')
+        this.commands.output(message.params);
       const item =
         message.method === 'item/started' ||
         message.method === 'item/completed';
@@ -713,7 +727,7 @@ class CodexSession implements AgentSession {
         item: item ? object.parse(params.item) : undefined,
       };
       const diff = this.fileChangeDiff(notification);
-      this.commandNotification(notification);
+      this.commands.receive(notification);
       if (child) this.subagentNotification(notification, child);
       else this.notification(notification, diff);
     } catch (error) {
@@ -755,96 +769,6 @@ class CodexSession implements AgentSession {
       else this.proposals.delete(key);
     }
     return diff;
-  }
-
-  /** late command ends belong to their original turn, even after a familiar starts its next one. */
-  private commandNotification(message: Notification): void {
-    if (this.closing || this.closed) return;
-    const { params, item } = message;
-    if (!item && message.method !== 'turn/completed') return;
-    if (item && item.type !== 'commandExecution') return;
-    const threadId = stringValue.parse(params.threadId);
-    if (threadId !== this.info.id && !this.subagents.has(threadId)) return;
-    if (!item) {
-      const completed = turnId.parse(params).turn.id;
-      for (const entry of this.commands.values())
-        if (entry.threadId === threadId && entry.turnId === completed)
-          entry.ended = true;
-      void this.readBackgroundCommands(threadId);
-      return;
-    }
-    const id = `${threadId}/${stringValue.parse(item.id)}`;
-    if (message.method === 'item/started') {
-      this.commands.set(id, {
-        threadId,
-        turnId: stringValue.parse(params.turnId),
-        ended: false,
-      });
-    } else {
-      const command = this.commands.get(id)?.command;
-      if (command) {
-        const status = commandStatus.parse(item.status);
-        this.options.onEvent({
-          type: 'command',
-          command: {
-            ...command,
-            status: status === 'completed' ? 'completed' : 'failed',
-          },
-        });
-      }
-      this.commands.delete(id);
-    }
-  }
-
-  /** the native list includes foreground commands, so only ended turns can supply candidates. */
-  private async readBackgroundCommands(threadId: string): Promise<void> {
-    const candidates = [...this.commands].filter(
-      ([, entry]) =>
-        entry.threadId === threadId && entry.ended && !entry.command,
-    );
-    if (!candidates.length) return;
-    try {
-      const { data } = z
-        .object({
-          data: z.array(z.object({ itemId: z.string(), command: z.string() })),
-        })
-        .parse(
-          await this.rpc.request('thread/backgroundTerminals/list', {
-            threadId,
-          }),
-        );
-      if (this.closing || this.closed) return;
-      const listed = new Map(
-        data.map(({ itemId, command }) => [`${threadId}/${itemId}`, command]),
-      );
-      for (const [id, entry] of candidates) {
-        const description = listed.get(id);
-        if (
-          description === undefined ||
-          this.commands.get(id) !== entry ||
-          entry.command
-        )
-          continue;
-        entry.command = { id, description, status: 'running' };
-        this.options.onEvent({ type: 'command', command: entry.command });
-      }
-    } catch (error) {
-      if (!this.closing && !this.closed)
-        this.options.onEvent({
-          type: 'notice',
-          text: `Witch could not list Codex's background commands: ${errorMessage(error)}`,
-        });
-    }
-  }
-
-  private stopBackgroundCommands(): void {
-    for (const { command } of this.commands.values())
-      if (command)
-        this.options.onEvent({
-          type: 'command',
-          command: { ...command, status: 'stopped' },
-        });
-    this.commands.clear();
   }
 
   /** Codex sends a spawned thread's notifications to every connection, under that thread's id. */

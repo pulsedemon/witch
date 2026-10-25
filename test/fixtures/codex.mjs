@@ -72,6 +72,7 @@ const skill = (name, fields) => ({
 });
 let brewTurn = 0;
 let terminalReads = 0;
+const reportedTerminals = new Set();
 const waitFor = async (name) => {
   while (!existsSync(file(name))) {
     if (existsSync(file('exit'))) process.exit(1);
@@ -84,8 +85,17 @@ if (['brews', 'file-approvals', 'compaction'].includes(mode))
       await waitFor(`events-${index}.json`);
       for (const message of JSON.parse(
         readFileSync(file(`events-${index}.json`), 'utf8'),
-      ))
+      )) {
+        if (
+          message.method === 'item/started' &&
+          message.params.item?.type === 'commandExecution' &&
+          message.params.item.processId
+        )
+          reportedTerminals.add(
+            `${message.params.threadId}/${message.params.item.processId}`,
+          );
         send(message);
+      }
     }
   })();
 for await (const line of lines) {
@@ -149,6 +159,18 @@ for await (const line of lines) {
         writeFileSync(file(`list-replied-${index}`), '');
       })();
     }
+    continue;
+  }
+  if (request.method === 'thread/backgroundTerminals/terminate') {
+    appendFileSync(
+      file('terminated.jsonl'),
+      `${JSON.stringify(request.params)}\n`,
+    );
+    reply({
+      terminated: reportedTerminals.delete(
+        `${request.params.threadId}/${request.params.processId}`,
+      ),
+    });
     continue;
   }
   if (request.method === 'model/list') {

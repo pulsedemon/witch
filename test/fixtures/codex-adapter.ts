@@ -9,6 +9,7 @@ import type {
   CommandMark,
 } from '../../src/agents/types.js';
 import { scratch } from './scratch.js';
+import type { ControlBinding } from '../../src/persistence/control.js';
 
 const codex = fileURLToPath(new URL('codex.mjs', import.meta.url));
 
@@ -20,12 +21,14 @@ export async function fixture(
     mode,
     signal,
     mark,
+    familiarBinding,
   }: {
     effort?: string;
     resume?: string;
     mode?: string;
     signal?: AbortSignal;
     mark?: CommandMark;
+    familiarBinding?: ControlBinding;
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
@@ -46,6 +49,7 @@ export async function fixture(
     onEvent,
     onProcess: async () => {},
     mark,
+    familiarBinding,
   });
   return { session, cwd };
 }
