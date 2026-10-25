@@ -6,8 +6,9 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { resolveFile } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image
 const diacritics = [
@@ -53,9 +54,7 @@ export class Graphics {
 
   /** the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none when it can't load. */
   rows(source: string, cwd: string, columns: number): string[] {
-    const key = source.startsWith('data:')
-      ? source
-      : resolve(cwd, source.replace(/^~(?=\/)/, homedir()));
+    const key = source.startsWith('data:') ? source : resolveFile(source, cwd);
     if (!this.images.has(key)) {
       const loaded = this.load(key);
       // a file can be written after a message names it, so only a data URL's failure is kept

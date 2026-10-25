@@ -1,13 +1,35 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { setImmediate as tick } from 'node:timers/promises';
-import { proposedDiff } from '../src/agents/claude-diff.js';
+import { proposedDiff, reportedDiff } from '../src/agents/claude-diff.js';
 import type { AgentEvent, UserRequest } from '../src/agents/types.js';
 import { fixture } from './fixtures/claude-adapter.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
+
+test('reported home paths keep repeated separators under home', () => {
+  assert.deepEqual(
+    reportedDiff(
+      {
+        filePath: '~//note.txt',
+        type: 'create',
+        content: 'x',
+        structuredPatch: [],
+      },
+      '/work',
+    ),
+    [
+      {
+        path: join(homedir(), 'note.txt'),
+        kind: 'add',
+        hunks: [{ oldStart: 0, newStart: 1, lines: ['+x'] }],
+      },
+    ],
+  );
+});
 
 const examples = [
   {
