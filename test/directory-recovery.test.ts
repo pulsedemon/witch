@@ -24,11 +24,11 @@ import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { Memory } from '../src/memory/memory.js';
 import { quote } from '../src/shell.js';
+import { compiledCli } from './fixtures/compiled-cli.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
 const execute = promisify(execFile);
-const repository = fileURLToPath(new URL('../', import.meta.url));
 const storeModule = fileURLToPath(
   new URL('../src/persistence/store.ts', import.meta.url),
 );
@@ -119,14 +119,13 @@ async function fixture() {
     "Object.defineProperty(process.stdin, 'isTTY', { value: true }); Object.defineProperty(process.stdout, 'isTTY', { value: true });\n",
   );
   const cli = async (args: string[] = [], normal = false) => {
+    const entry = await compiledCli();
     try {
       const output = await execute(
         process.execPath,
         [
-          '--import',
-          join(repository, 'scripts/register.mjs'),
           ...(normal ? ['--import', tty] : []),
-          join(repository, 'src/cli.tsx'),
+          entry,
           '--state-dir',
           store.root,
           ...(normal ? ['-c'] : ['--recover-directory', source]),
