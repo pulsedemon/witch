@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 
 export async function within<T>(
   promise: Promise<T>,
@@ -28,7 +28,11 @@ export async function until(
   attempts = 150,
 ) {
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (await predicate()) return;
+    if (await predicate()) {
+      // a view shown after an await attaches its Ink input listeners in a later React task, so keys sent before it reach the previous view
+      await setImmediate();
+      return;
+    }
     await delay(20);
   }
   assert.fail(`timed out waiting for ${what}`);
