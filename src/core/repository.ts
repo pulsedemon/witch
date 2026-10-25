@@ -32,6 +32,14 @@ export interface Repository {
   pullRequestProject?: string;
 }
 
+/** avoid optional locks that contend with the user's Git commands. */
+export const statusArgs = [
+  '--no-optional-locks',
+  'status',
+  '--porcelain=v2',
+  '--branch',
+] as const;
+
 /** reads `git status --porcelain=v2 --branch`. */
 export function parseStatus(text: string): Repository {
   const repository: Repository = {
@@ -172,12 +180,10 @@ export class RepositoryWatch {
     this.refreshing = true;
     let repository: Repository | undefined;
     try {
-      // optional locks would contend with the user's own Git commands
-      const { stdout } = await this.run(
-        'git',
-        ['--no-optional-locks', 'status', '--porcelain=v2', '--branch'],
-        { cwd: this.cwd, timeout: 10_000 },
-      );
+      const { stdout } = await this.run('git', [...statusArgs], {
+        cwd: this.cwd,
+        timeout: 10_000,
+      });
       repository = parseStatus(stdout);
     } catch {
       // not a repository, or Git is busy; the status line leaves Git out
