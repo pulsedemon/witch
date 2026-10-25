@@ -103,6 +103,10 @@ test('relative files resolve against their originating project with encoded spac
     linkTarget('/work/other.ts:7', '/work/My Project'),
     'vscode://file/work/other.ts:7',
   );
+  assert.equal(
+    linkTarget('~//note.txt:12:4', '/work/My Project'),
+    `vscode://file${homedir().split('/').map(encodeURIComponent).join('/')}/note.txt:12:4`,
+  );
   assert.ok(
     linkify('See src/main.ts:42 and README.md.', '/work/project').includes(
       'vscode://file/work/project/src/main.ts:42',

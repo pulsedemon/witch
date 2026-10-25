@@ -3,7 +3,8 @@ import childProcess, { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { truncate, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
-import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join, relative } from 'node:path';
 import { test, vi } from 'vitest';
 import { Graphics, imagePaths } from '../src/ui/images.js';
 import { png } from './fixtures/png.js';
@@ -35,11 +36,12 @@ test('a dropped path keeps its escaped spaces and unescaped U+202F, a quoted pat
 test('an image is sent once as its PNG data, shown by rows whose color names it and whose first cell names its row, and placed again without resending when the width changes', async () => {
   const directory = await scratch('witch-images-');
   const image = png(160, 80);
-  await writeFile(join(directory, 'shot.png'), image);
+  const path = join(directory, 'shot.png');
+  await writeFile(path, image);
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
 
-  const rows = graphics.rows('shot.png', directory, 100);
+  const rows = graphics.rows(`~/${relative(homedir(), path)}`, directory, 100);
   // 160 pixels at 8 a column is 20 columns, and half as tall in cells as the image's 2:1 shape
   assert.deepEqual(
     rows,
@@ -54,6 +56,7 @@ test('an image is sent once as its PNG data, shown by rows whose color names it 
   assert.equal(writes.at(-1), '\u001b_Ga=p,U=1,i=1,p=1,c=20,r=5,q=2\u001b\\');
 
   writes.length = 0;
+  assert.deepEqual(graphics.rows(path, directory, 100), rows);
   assert.deepEqual(graphics.rows('shot.png', directory, 100), rows);
   assert.deepEqual(writes, []);
   assert.equal(graphics.rows('shot.png', directory, 10).length, 3);
