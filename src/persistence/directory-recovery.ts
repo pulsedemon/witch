@@ -20,7 +20,7 @@ import {
 import type { ConversationRecord } from '../core/state.js';
 import type { Memory } from '../memory/memory.js';
 import { quote } from '../shell.js';
-import { writeJson } from './json.js';
+import { readJson, writeJson } from './json.js';
 import { identifyProcesses, sameProcess } from './process.js';
 import { promptSchema } from './store.js';
 import type { StateStore } from './store.js';
@@ -91,15 +91,7 @@ function hash(content: Buffer): string {
 }
 
 async function pending(root: string): Promise<Journal | undefined> {
-  const content = await readFile(join(root, journalName), 'utf8').catch(
-    (error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      return undefined;
-    },
-  );
-  return content === undefined
-    ? undefined
-    : journalSchema.parse(JSON.parse(content));
+  return readJson(join(root, journalName), journalSchema);
 }
 
 function command(root: string, source: string, destination: string): string {

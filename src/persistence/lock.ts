@@ -101,6 +101,20 @@ export async function openLocked(
   return handle;
 }
 
+/** undefined while another descriptor holds a conflicting lock. */
+export async function tryOpenLocked(
+  file: string,
+  flags: number,
+  options: { shared?: boolean; mode?: number } = {},
+): Promise<FileHandle | undefined> {
+  return openLocked(file, flags | constants.O_NONBLOCK, options).catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
+      return undefined;
+    },
+  );
+}
+
 /** observes kernel lock records without competing with a concurrent acquisition. */
 export async function lockedFiles(
   files: readonly string[],

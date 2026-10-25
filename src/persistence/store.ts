@@ -1,6 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -16,8 +15,9 @@ import type {
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
+import { writeJson } from './json.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
-import { lockedFiles, openLocked } from './lock.js';
+import { lockedFiles, tryOpenLocked } from './lock.js';
 
 export const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
@@ -45,20 +45,16 @@ function historyPath(directory: string): string {
 export class LockedElsewhere extends Error {}
 
 async function tryLock(file: string, shared = false): Promise<FileHandle> {
-  try {
-    return await openLocked(
-      file,
-      constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
-      { mode: 0o600, shared },
+  const handle = await tryOpenLocked(
+    file,
+    constants.O_RDWR | constants.O_CREAT,
+    { mode: 0o600, shared },
+  );
+  if (!handle)
+    throw new LockedElsewhere(
+      'This conversation is open in another Witch instance or being recovered.',
     );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EAGAIN')
-      throw new LockedElsewhere(
-        'This conversation is open in another Witch instance or being recovered.',
-        { cause: error },
-      );
-    throw error;
-  }
+  return handle;
 }
 
 /** current Witches serialize on `coordinated`; the shared conversation lock excludes legacy owners and identifies current ones. */
@@ -288,19 +284,9 @@ export class ConversationStore {
   }
 
   save(record: ConversationRecord): Promise<void> {
-    const content = `${JSON.stringify(record, null, 2)}\n`;
+    const captured = JSON.parse(JSON.stringify(record)) as ConversationRecord;
     this.drainHistory();
-    return this.enqueue(async () => {
-      const temporary = join(this.directory, `state-${randomUUID()}.tmp`);
-      const file = await open(temporary, 'wx', 0o600);
-      try {
-        await file.writeFile(content);
-        await file.sync();
-      } finally {
-        await file.close();
-      }
-      await rename(temporary, recordPath(this.directory));
-    });
+    return this.enqueue(() => writeJson(recordPath(this.directory), captured));
   }
 
   append(update: DisplayUpdate): Promise<void> {

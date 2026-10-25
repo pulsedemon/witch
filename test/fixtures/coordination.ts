@@ -97,7 +97,7 @@ export async function coordinationFixture(
     );
   const store = await StateStore.open(join(root, 'state'));
   const memory = new Memory(join(store.root, 'memory.git'));
-  const registry = await CoordinationStore.open(store.root);
+  const registry = await CoordinationStore.open(store);
   const clients: Coordinator[] = [];
   register(async () => {
     for (const coordinator of clients) await coordinator.close();
