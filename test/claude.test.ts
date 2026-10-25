@@ -663,11 +663,32 @@ test('a clean idle EOF reports closure once', async () => {
   assert.equal(closures, 1);
 });
 
+test('a failed Claude result keeps accumulated text in message order', async () => {
+  const { session } = await fixture();
+  try {
+    assert.deepEqual(await session.send('text error'), {
+      status: 'failed',
+      text: 'alpha final\n\nbravo tail',
+      error: 'fixture failure',
+    });
+    assert.deepEqual(await session.send('execution error'), {
+      status: 'failed',
+      text: '',
+      error: 'tool crashed',
+    });
+  } finally {
+    await session.close();
+  }
+});
+
 test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
-    assert.equal((await session.send('tools')).status, 'completed');
+    assert.deepEqual(await session.send('tools'), {
+      status: 'completed',
+      text: 'Finished.',
+    });
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')

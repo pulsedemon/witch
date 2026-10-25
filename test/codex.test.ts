@@ -755,6 +755,23 @@ test('malformed notifications post one notice per method and the turn completes'
   }
 });
 
+test('Codex turn text keeps message order and empty replacements', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    assert.deepEqual(await session.send('turn text'), {
+      status: 'completed',
+      text: 'alpha final\n\nbravo tail\n\n',
+    });
+    assert.deepEqual(await session.send('error'), {
+      status: 'failed',
+      text: '',
+      error: 'native error',
+    });
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('a retried native error posts a notice, and the final one only fails the turn', async () => {
   const notices: string[] = [];
   const { session, cwd } = await fixture((event) => {

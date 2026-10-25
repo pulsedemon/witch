@@ -3,6 +3,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
+import { TurnText } from './turn-text.js';
 import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import { shortPath, toolTitle } from './tool-title.js';
@@ -318,7 +319,7 @@ class CodexSession implements AgentSession {
   private turn?: {
     started: ReturnType<typeof Promise.withResolvers<string>>;
     finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
-    messages: Map<string, string>;
+    messages: TurnText;
     interrupted: boolean;
     id?: string;
     compaction?: { item?: string; completed: boolean };
@@ -481,7 +482,7 @@ class CodexSession implements AgentSession {
     const turn = {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
-      messages: new Map<string, string>(),
+      messages: new TurnText(),
       interrupted: false,
     };
     this.turn = turn;
@@ -1001,7 +1002,7 @@ class CodexSession implements AgentSession {
       case 'item/agentMessage/delta': {
         const id = stringValue.parse(data.itemId);
         const text = stringValue.parse(data.delta);
-        this.turn?.messages.set(id, (this.turn.messages.get(id) ?? '') + text);
+        this.turn?.messages.append(id, text);
         this.options.onEvent({ type: 'text', id, text });
         break;
       }
@@ -1022,7 +1023,7 @@ class CodexSession implements AgentSession {
           }
         } else if (type === 'agentMessage') {
           if (typeof item.text === 'string') {
-            this.turn?.messages.set(id, item.text);
+            this.turn?.messages.replace(id, item.text);
             this.options.onEvent({
               type: 'text',
               id,
@@ -1330,7 +1331,7 @@ class CodexSession implements AgentSession {
     }
     turn?.finished.resolve({
       status,
-      text: turn.compaction ? '' : [...turn.messages.values()].join('\n\n'),
+      text: turn.compaction ? '' : turn.messages.text,
       ...(error ? { error } : {}),
     });
   }
