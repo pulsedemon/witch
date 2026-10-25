@@ -10,7 +10,11 @@ import {
   ConversationStore,
   LockedElsewhere,
 } from '../src/persistence/store.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import {
+  coordinationFixture,
+  git,
+  pauseDiscovery,
+} from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
@@ -659,8 +663,9 @@ test('a recommendation survives final cleanup failure and advances the next wait
   }
 });
 
-test('a lost recommendation reply reconciles to one claim and one advancement', async (t) => {
+test('a lost recommendation reply reconciles after a delayed ledger read to one claim and one advancement', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
   const f = await coordinationFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
@@ -691,7 +696,23 @@ test('a lost recommendation reply reconciles to one claim and one advancement', 
       summary: 'Issue 17',
     },
   };
-  assert.equal((await callControl(first.binding, action)).kind, 'error');
+  const failed = await callControl(first.binding, action);
+  if (failed.kind !== 'error') assert.fail(JSON.stringify(failed));
+  assert.equal(failed.message, 'Reply unavailable after commit');
+  const state = CoordinationStore.prototype.state;
+  vi.spyOn(CoordinationStore.prototype, 'state').mockImplementationOnce(
+    async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof state>
+    ) {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1500);
+      try {
+        return await state.apply(this, args);
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
   const recorded = (await a.query()).ownClaim;
   assert.ok(recorded);
   const before = await f.ledger();

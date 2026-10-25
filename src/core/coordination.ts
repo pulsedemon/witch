@@ -55,6 +55,7 @@ interface LedgerView {
 }
 
 interface RequestState {
+  deadline?: number;
   ledger?: LedgerView;
   discovery?: { revision: number; promise: Promise<Discovery> };
 }
@@ -689,9 +690,12 @@ export class SessionCoordination {
       return true;
     };
     try {
-      const ledger = await this.registry.state(Date.now() + 1000, () => {
-        revision = ++this.revision;
-      });
+      const ledger = await this.registry.state(
+        state?.deadline ?? Date.now() + 1000,
+        () => {
+          revision = ++this.revision;
+        },
+      );
       if (accept()) this.failures.delete('ledger');
       const value = { revision, ledger };
       if (state) state.ledger = value;
@@ -818,6 +822,7 @@ export class SessionCoordination {
     state: RequestState = {},
   ): Promise<ControlOutcome> {
     const active = this.admit(request);
+    state.deadline = request.deadline;
     let outcome: ControlOutcome | undefined;
     try {
       const action = request.action;
