@@ -389,17 +389,25 @@ for await (const line of lines) {
         notify('turn/diff/updated', {
           threadId,
           turnId,
-          diff: `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n${body}`,
+          diff: body
+            ? `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n${body}`
+            : '',
         });
+      const first = ' kept\n-old\n+one\n+++ added\n';
+      const second =
+        '+two\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b\n';
       diff('+one\n');
       // the turn's diff grows, and a content line can start like a header
-      diff(' kept\n-old\n+one\n+++ added\n');
+      diff(first);
       // a later turn adds to the total, its second file's headers do not, and another thread's turn does not
-      diff(
-        '+two\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b\n',
-        'turn-2',
-      );
+      diff(second, 'turn-2');
       diff('+three\n+four\n-five\n', 'subagent-turn', 'subagent-thread');
+      diff('+one\n');
+      diff('', 'turn-2');
+      diff('');
+      diff(first);
+      diff(second, 'turn-2');
+      diff(second, 'turn-2');
       const limits = (limitId, primary) =>
         notify('account/rateLimits/updated', {
           rateLimits: { limitId, primary, secondary: null },

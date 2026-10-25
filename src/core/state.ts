@@ -189,7 +189,7 @@ export function applyDisplayUpdate(
   items: readonly DisplayItem[],
   update: DisplayUpdate,
 ): DisplayItem[] {
-  const index = items.findIndex((item) => item.id === update.id);
+  const index = items.findLastIndex((item) => item.id === update.id);
   if (index < 0) return [...items, merge(undefined, update)];
   const next = [...items];
   next[index] = merge(items[index], update);

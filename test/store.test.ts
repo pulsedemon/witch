@@ -18,8 +18,16 @@ import { fileURLToPath } from 'node:url';
 import { openLocked } from '../src/persistence/lock.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { LockedElsewhere, StateStore } from '../src/persistence/store.js';
-import { displayUpdateSchema, foldDisplayUpdates } from '../src/core/state.js';
-import type { Conversation, DisplayUpdate } from '../src/core/state.js';
+import {
+  applyDisplayUpdate,
+  displayUpdateSchema,
+  foldDisplayUpdates,
+} from '../src/core/state.js';
+import type {
+  Conversation,
+  DisplayItem,
+  DisplayUpdate,
+} from '../src/core/state.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
@@ -1138,62 +1146,77 @@ for (const [name, complete, partial, expectedRead] of [
   });
 }
 
-test('replay folds appends, replacements and new ids, keeping a title an empty replacement omits', () => {
-  assert.deepEqual(
-    foldDisplayUpdates([
-      { id: 'm', kind: 'assistant', text: 'Hel', cwd: '/p', title: 'codex' },
-      {
-        id: 't',
-        kind: 'tool',
-        text: 'partial',
-        cwd: '/p',
-        title: 'npm test',
-        done: false,
-      },
-      { id: 'm', kind: 'assistant', text: 'lo', cwd: '/p' },
-      {
-        id: 't',
-        kind: 'tool',
-        text: 'final',
-        cwd: '/p',
-        title: '',
-        done: true,
-        replace: true,
-      },
-      { id: 'n', kind: 'notice', text: 'new', cwd: '/p' },
-    ]),
-    [
-      { id: 'm', kind: 'assistant', text: 'Hello', cwd: '/p', title: 'codex' },
-      {
-        id: 't',
-        kind: 'tool',
-        text: 'final',
-        cwd: '/p',
-        title: 'npm test',
-        done: true,
-      },
-      { id: 'n', kind: 'notice', text: 'new', cwd: '/p' },
-    ],
-  );
-});
+for (const [path, reduce] of [
+  ['replay', foldDisplayUpdates],
+  [
+    'live',
+    (updates: readonly DisplayUpdate[]) =>
+      updates.reduce<DisplayItem[]>(applyDisplayUpdate, []),
+  ],
+] as const) {
+  test(`${path} folds appends, replacements and new ids, keeping a title an empty replacement omits`, () => {
+    assert.deepEqual(
+      reduce([
+        { id: 'm', kind: 'assistant', text: 'Hel', cwd: '/p', title: 'codex' },
+        {
+          id: 't',
+          kind: 'tool',
+          text: 'partial',
+          cwd: '/p',
+          title: 'npm test',
+          done: false,
+        },
+        { id: 'm', kind: 'assistant', text: 'lo', cwd: '/p' },
+        {
+          id: 't',
+          kind: 'tool',
+          text: 'final',
+          cwd: '/p',
+          title: '',
+          done: true,
+          replace: true,
+        },
+        { id: 'n', kind: 'notice', text: 'new', cwd: '/p' },
+      ]),
+      [
+        {
+          id: 'm',
+          kind: 'assistant',
+          text: 'Hello',
+          cwd: '/p',
+          title: 'codex',
+        },
+        {
+          id: 't',
+          kind: 'tool',
+          text: 'final',
+          cwd: '/p',
+          title: 'npm test',
+          done: true,
+        },
+        { id: 'n', kind: 'notice', text: 'new', cwd: '/p' },
+      ],
+    );
+  });
 
-test('an append keeps the cwd its item has, and a replacement takes its own', () => {
-  const tool = { id: 't', kind: 'tool', title: '', done: false } as const;
-  assert.equal(
-    foldDisplayUpdates([
-      { ...tool, text: '', cwd: '/p/sub', replace: true },
-      { ...tool, text: 'a.md', cwd: '/p' },
-    ])[0]?.cwd,
-    '/p/sub',
-  );
-  assert.equal(
-    foldDisplayUpdates([
-      { ...tool, text: '', cwd: '/p' },
-      { ...tool, text: 'a.md', cwd: '/p/sub', replace: true },
-    ])[0]?.cwd,
-    '/p/sub',
-  );
-});
+  test(`${path}: an append keeps the cwd its item has, and a replacement takes its own`, () => {
+    const tool = { id: 't', kind: 'tool', title: '', done: false } as const;
+    assert.equal(
+      reduce([
+        { ...tool, text: '', cwd: '/p/sub', replace: true },
+        { ...tool, text: 'a.md', cwd: '/p' },
+      ])[0]?.cwd,
+      '/p/sub',
+    );
+    assert.equal(
+      reduce([
+        { ...tool, text: '', cwd: '/p' },
+        { ...tool, text: 'a.md', cwd: '/p/sub', replace: true },
+      ])[0]?.cwd,
+      '/p/sub',
+    );
+  });
+}
 
 test("listing keeps this directory's conversations with history, newest history first, and a stray file is no unreadable record", async () => {
   const root = await scratch('witch-listing-');

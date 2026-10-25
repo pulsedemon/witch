@@ -345,7 +345,10 @@ export class Memory {
         .filter((index) => !changed || changed.has(index))
         .map(async (index) => {
           const content = files.has(index)
-            ? await this.read(revision, index)
+            ? await this.git(this.root, [
+                'show',
+                `${revision}:${notePath(index)}`,
+              ])
             : '(No saved essentials.)';
           const bytes = Buffer.byteLength(content, 'utf8');
           const body =

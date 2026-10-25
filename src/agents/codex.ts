@@ -1112,13 +1112,21 @@ class CodexSession implements AgentSession {
       }
       case 'turn/diff/updated': {
         const turn = turnDiff.parse(data);
-        this.turnLines.set(turn.turnId, diffLines(turn.diff));
-        const lines = { added: 0, removed: 0 };
-        for (const { added, removed } of this.turnLines.values()) {
-          lines.added += added;
-          lines.removed += removed;
-        }
-        this.report({ lines });
+        const previous = this.turnLines.get(turn.turnId);
+        const lines = diffLines(turn.diff);
+        this.turnLines.set(turn.turnId, lines);
+        this.report({
+          lines: {
+            added:
+              (this.usage.lines?.added ?? 0) -
+              (previous?.added ?? 0) +
+              lines.added,
+            removed:
+              (this.usage.lines?.removed ?? 0) -
+              (previous?.removed ?? 0) +
+              lines.removed,
+          },
+        });
         break;
       }
       case 'account/rateLimits/updated':
