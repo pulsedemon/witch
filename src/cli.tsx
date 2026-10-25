@@ -14,6 +14,7 @@ import {
   runControl,
   writeControl,
 } from './cli-control.js';
+import { runClaudeFamiliar } from './cli-familiar.js';
 import { Coordinator } from './core/coordinator.js';
 import { SessionCoordination } from './core/coordination.js';
 import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
@@ -65,6 +66,10 @@ Agent control (use the prefix supplied in the current Witch context):
   --cancel-selection <id>  leave this turn's queue
   --json              print the control result as JSON
 
+Claude reviews (use the familiar prefix supplied in the current Witch context):
+  --familiar-claude <name> --report-file <file> -- <native Claude arguments>
+                      report a native Claude review as a familiar
+
 Every word that starts with - is read as an option, so quote a prompt that
 contains one, and put -- before a prompt that starts with -.
 Use /help inside the app for controls.
@@ -80,21 +85,23 @@ delete process.env.WITCH_JOBS_RESUME;
 let values;
 let positionals;
 let control;
+let familiar;
 let store: StateStore | undefined;
 let directoryLock: FileHandle | undefined;
 try {
-  ({ values, positionals, control } = parseCommand());
+  ({ values, positionals, control, familiar } = parseCommand());
   // parseArgs accepts an empty value, which would put state in the project
   if (values['state-dir'] === '')
     throw new Error("Option '--state-dir' needs a directory");
   if (
     !control &&
+    !familiar &&
     !values.help &&
     values['recover-directory'] === undefined &&
     !(process.stdin.isTTY && process.stdout.isTTY)
   )
     throw new Error('Witch needs an interactive terminal.');
-  if (!control && !values.help) {
+  if (!control && !familiar && !values.help) {
     const root = resolve(values['state-dir'] ?? defaultState);
     if (values['recover-directory'] !== undefined)
       await access(join(root, 'conversations'));
@@ -110,7 +117,19 @@ try {
   else process.stderr.write(`witch: ${errorMessage(error)}\n`);
   process.exit(1);
 }
-if (control) {
+if (familiar) {
+  try {
+    process.exitCode = await runClaudeFamiliar(
+      familiar.binding,
+      familiar.name,
+      familiar.reportFile,
+      familiar.args,
+    );
+  } catch (error) {
+    process.stderr.write(`witch: ${errorMessage(error)}\n`);
+    process.exitCode = 1;
+  }
+} else if (control) {
   process.exitCode = await runControl(control);
 } else if (!store) {
   process.stdout.write(usage);
