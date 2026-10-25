@@ -16,7 +16,10 @@ interface Command {
   turnId: string;
   itemId: string;
   processId?: string;
+  lookup?: Promise<void>;
+  lookupError?: string;
   ended: boolean;
+  interrupted?: boolean;
   done?: boolean;
   command?: BackgroundCommand;
   partial: string;
@@ -28,13 +31,21 @@ interface Command {
 
 const commandStatus = z.enum(['completed', 'failed', 'declined']);
 const backgroundList = z.object({
-  data: z.array(z.object({ itemId: z.string(), command: z.string() })),
+  data: z.array(
+    z.object({
+      itemId: z.string(),
+      command: z.string(),
+      processId: z.string().optional(),
+    }),
+  ),
+  nextCursor: z.string().nullish(),
 });
 
 /** one native command owns its brew or reported familiar, including after its turn ends. */
 export class CodexCommands {
   private readonly entries = new Map<string, Command>();
   private stopped = false;
+  private closing = false;
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -58,11 +69,17 @@ export class CodexCommands {
     if (!this.knownThread(threadId)) return;
     if (!item) {
       const { turn } = z
-        .object({ turn: z.object({ id: z.string() }) })
+        .object({
+          turn: z.object({ id: z.string(), status: z.string().optional() }),
+        })
         .parse(params);
       for (const entry of this.entries.values())
-        if (entry.threadId === threadId && entry.turnId === turn.id)
+        if (entry.threadId === threadId && entry.turnId === turn.id) {
           entry.ended = true;
+          entry.interrupted =
+            turn.status === 'interrupted' ||
+            this.interrupted(threadId, turn.id);
+        }
       void this.readBackground(threadId);
       return;
     }
@@ -82,16 +99,22 @@ export class CodexCommands {
     }
     const entry = this.entries.get(key);
     if (!entry || entry.done) return;
-    const status = commandStatus.parse(item.status);
+    const status =
+      entry.command && !entry.familiar
+        ? commandStatus.parse(item.status)
+        : undefined;
     entry.done = true;
     if (entry.familiar) {
       const subagent = entry.familiar.subagent;
       if (subagent.status === 'running') {
         entry.familiar.subagent = {
           ...subagent,
-          status: this.interrupted(entry.threadId, entry.turnId)
-            ? 'stopped'
-            : 'failed',
+          status:
+            this.closing ||
+            entry.interrupted ||
+            this.interrupted(entry.threadId, entry.turnId)
+              ? 'stopped'
+              : 'failed',
         };
         this.emit({ type: 'subagent', subagent: entry.familiar.subagent });
       }
@@ -154,7 +177,7 @@ export class CodexCommands {
 
   report(action: FamiliarAction, deadline: number): FamiliarOutcome {
     checkDeadline(deadline);
-    if (this.stopped || !this.binding)
+    if (this.stopped || this.closing || !this.binding)
       throw new Error('Familiar reporting is unavailable.');
     const matches = [...this.entries.values()].filter(
       (entry) => entry.marker?.run === action.run,
@@ -179,10 +202,17 @@ export class CodexCommands {
       }
       if (entry.done)
         throw new Error('The familiar command has already ended.');
-      if (!entry.processId)
-        throw new Error(
-          'Use a native exec_command with a terminal handle for this review.',
-        );
+      if (!entry.processId) {
+        if (entry.lookupError) throw new Error(entry.lookupError);
+        entry.lookup ??= this.readHandle(entry)
+          .catch((error: unknown) => {
+            entry.lookupError = errorMessage(error);
+          })
+          .finally(() => {
+            entry.lookup = undefined;
+          });
+        return { kind: 'familiar-pending' };
+      }
       const subagent: Subagent = {
         id: `claude-review/${action.run}`,
         run: action.run,
@@ -217,6 +247,7 @@ export class CodexCommands {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     await Promise.all(
       [...this.entries.values()]
         .filter((entry) => entry.familiar)
@@ -264,6 +295,35 @@ export class CodexCommands {
     return entry.cleanup;
   }
 
+  /** approval starts omit the handle and suppress the later native start; the list retains the same item id. */
+  private async readHandle(entry: Command): Promise<void> {
+    let cursor: string | undefined;
+    do {
+      const page = backgroundList.parse(
+        await this.rpc.request('thread/backgroundTerminals/list', {
+          threadId: entry.threadId,
+          cursor,
+          limit: 100,
+        }),
+      );
+      if (
+        this.stopped ||
+        this.closing ||
+        entry.done ||
+        this.entries.get(`${entry.threadId}/${entry.itemId}`) !== entry
+      )
+        return;
+      const terminal = page.data.find((item) => item.itemId === entry.itemId);
+      if (terminal) {
+        if (!terminal.processId)
+          throw new Error('The native terminal has no process handle.');
+        entry.processId = terminal.processId;
+        return;
+      }
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+  }
+
   private async readBackground(threadId: string): Promise<void> {
     const candidates = [...this.entries].filter(
       ([, entry]) =>
@@ -278,7 +338,7 @@ export class CodexCommands {
       const { data } = backgroundList.parse(
         await this.rpc.request('thread/backgroundTerminals/list', { threadId }),
       );
-      if (this.stopped) return;
+      if (this.stopped || this.closing) return;
       const listed = new Map(
         data.map(({ itemId, command }) => [`${threadId}/${itemId}`, command]),
       );
@@ -296,7 +356,7 @@ export class CodexCommands {
         this.emit({ type: 'command', command: entry.command });
       }
     } catch (error) {
-      if (!this.stopped)
+      if (!this.stopped && !this.closing)
         this.emit({
           type: 'notice',
           text: `Witch could not list Codex's background commands: ${errorMessage(error)}`,

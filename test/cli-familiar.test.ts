@@ -272,6 +272,59 @@ test('an error exit overrides a native success result', async () => {
   }
 });
 
+test('an exhausted reporting outage stops the child within the ten-second retry budget', async () => {
+  const gate = Promise.withResolvers<void>();
+  const f = await fixture('ignore-term', async (request) => {
+    if (request.action.kind === 'familiar-register')
+      return { kind: 'familiar-registered' };
+    await gate.promise;
+    return { kind: 'familiar-updated' };
+  });
+  try {
+    await f.ready();
+    const launch = await f.launch();
+    assert.equal(
+      await within(f.closed, 14_000, 'outage budget and cleanup'),
+      1,
+    );
+    assert.match(
+      await readFile(join(f.root, 'report.txt'), 'utf8'),
+      /Familiar reporting failed: Coordination result unknown/,
+    );
+    assert.equal(await identifyProcess(launch.pid), undefined);
+  } finally {
+    gate.resolve();
+    await f.close();
+  }
+});
+
+test('a descendant retaining stdout cannot hold the wrapper open after the review child exits', async () => {
+  const f = await fixture('held-pipe');
+  let descendant: Awaited<ReturnType<typeof identifyProcess>>;
+  try {
+    assert.equal(await within(f.closed, 3000, 'bounded pipe drain'), 0);
+    const pid = Number(await readFile(join(f.root, 'descendant.pid'), 'utf8'));
+    descendant = await identifyProcess(pid);
+    assert.ok(
+      descendant,
+      'the inherited pipe was still held when the wrapper completed',
+    );
+    assert.equal(f.updates().at(-1)!.progress.status, 'completed');
+  } finally {
+    if (
+      descendant &&
+      (await identifyProcess(descendant.pid))?.started === descendant.started
+    ) {
+      process.kill(descendant.pid, 'SIGKILL');
+      await until(
+        'fixture descendant cleanup',
+        async () => !(await identifyProcess(descendant!.pid)),
+      );
+    }
+    await f.close();
+  }
+});
+
 for (const refusal of ['registration', 'existing report'] as const)
   test(`${refusal} prevents the native launch`, async () => {
     const f = await fixture(

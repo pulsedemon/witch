@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 import { clearInterval, setInterval } from 'node:timers';
+import { spawn } from 'node:child_process';
 
 const mode = process.env.WITCH_REVIEW_FIXTURE;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -46,7 +47,13 @@ emit({
 });
 writeFileSync('result-sent', 'yes');
 if (mode === 'nonzero') process.exitCode = 2;
-else if (mode === 'gated' || mode === 'ignore-term') {
+else if (mode === 'held-pipe') {
+  const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{},5000)'], {
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  writeFileSync('descendant.pid', String(child.pid));
+  child.unref();
+} else if (mode === 'gated' || mode === 'ignore-term') {
   const timer = setInterval(() => {
     if (existsSync('exit')) {
       clearInterval(timer);

@@ -166,6 +166,8 @@ for await (const line of lines) {
       file('terminated.jsonl'),
       `${JSON.stringify(request.params)}\n`,
     );
+    if (existsSync(file('hold-termination')))
+      await waitFor('release-termination');
     reply({
       terminated: reportedTerminals.delete(
         `${request.params.threadId}/${request.params.processId}`,

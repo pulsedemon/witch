@@ -20,8 +20,20 @@ async function reportedFixture() {
     familiarBinding: binding,
   });
   let sequence = 0;
-  const emit = (...messages: unknown[]) =>
-    writeJson(join(cwd, `events-${++sequence}.json`), messages);
+  const emit = async (...messages: unknown[]) => {
+    const index = ++sequence;
+    const text = `reported fixture barrier ${index}`;
+    await writeJson(join(cwd, `events-${index}.json`), [
+      ...messages,
+      {
+        method: 'error',
+        params: { error: { message: text }, willRetry: true },
+      },
+    ]);
+    await until(text, () =>
+      events.some((event) => event.type === 'notice' && event.text === text),
+    );
+  };
   const run = randomUUID();
   const marker = `WITCH_FAMILIAR ${JSON.stringify({ version: 1, conversation: binding.conversation, activation: binding.activation, run })}\r\n`;
   const params = { threadId: 'native-thread', turnId: 'reported-turn' };
@@ -201,15 +213,12 @@ test('a registration accepted during native background listing cannot become a d
       'registration',
       async () => (await f.register()).kind === 'familiar-registered',
     );
-    await writeFile(
-      join(f.cwd, 'list-reply-1.json'),
-      JSON.stringify({
-        result: {
-          data: [{ itemId: f.item.id, command: 'review' }],
-          nextCursor: null,
-        },
-      }),
-    );
+    await writeJson(join(f.cwd, 'list-reply-1.json'), {
+      result: {
+        data: [{ itemId: f.item.id, command: 'review' }],
+        nextCursor: null,
+      },
+    });
     await until(
       'list returned',
       async () =>
@@ -233,6 +242,275 @@ test('a registration accepted during native background listing cannot become a d
       [],
     );
     assert.equal(f.familiarEvents().at(-1)!.tools, 4);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('stale markers and expired admission cannot register, and another command cannot reuse an admitted run', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker.replace(f.binding.activation, randomUUID())),
+    );
+    assert.equal((await f.register()).kind, 'familiar-pending');
+    await f.emit(f.output(`${'x'.repeat(5000)}\n${f.marker}`));
+    await assert.rejects(
+      f.session.reportFamiliar!(
+        { kind: 'familiar-register', run: f.run, name: 'plan review' },
+        Date.now() - 1,
+      ),
+      /expired/i,
+    );
+    assert.deepEqual(f.familiarEvents(), []);
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await f.emit(
+      {
+        method: 'item/started',
+        params: {
+          ...f.params,
+          item: { ...f.item, id: 'another-command', processId: '43' },
+        },
+      },
+      {
+        method: 'item/commandExecution/outputDelta',
+        params: { ...f.params, itemId: 'another-command', delta: f.marker },
+      },
+    );
+    await assert.rejects(f.register(), /more than one command/);
+    assert.equal(f.familiarEvents().length, 1);
+  } finally {
+    await f.session.close();
+  }
+  await assert.rejects(f.register(), /session is closing/);
+});
+
+test('registration requires a live native process handle and cannot adopt an ended command', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      {
+        method: 'item/started',
+        params: { ...f.params, item: { ...f.item, processId: null } },
+      },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-pending');
+    await writeJson(join(f.cwd, 'list-reply-1.json'), {
+      result: { data: [], nextCursor: null },
+    });
+    await f.emit({
+      method: 'item/completed',
+      params: { ...f.params, item: { ...f.item, status: 'completed' } },
+    });
+    await assert.rejects(f.register(), /already ended/);
+    assert.deepEqual(f.familiarEvents(), []);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('an approval-first start resolves only its own native handle before admitting the familiar', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      {
+        method: 'item/started',
+        params: {
+          ...f.params,
+          item: { ...f.item, source: 'agent', processId: null },
+        },
+      },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-pending');
+    assert.deepEqual(f.familiarEvents(), []);
+    await writeJson(join(f.cwd, 'list-reply-1.json'), {
+      result: {
+        data: [{ itemId: 'unrelated', processId: '99', command: 'other' }],
+        nextCursor: 'second-page',
+      },
+    });
+    await until('second handle page', () =>
+      readFile(join(f.cwd, 'list-2.json')).then(
+        () => true,
+        () => false,
+      ),
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(f.cwd, 'list-2.json'), 'utf8')).params,
+      { threadId: 'native-thread', cursor: 'second-page', limit: 100 },
+    );
+    await writeJson(join(f.cwd, 'list-reply-2.json'), {
+      result: {
+        data: [{ itemId: f.item.id, processId: '73', command: 'review' }],
+        nextCursor: null,
+      },
+    });
+    await until(
+      'resolved handle admission',
+      async () => (await f.register()).kind === 'familiar-registered',
+    );
+    await f.session.close();
+    assert.deepEqual(
+      JSON.parse(
+        (await readFile(join(f.cwd, 'terminated.jsonl'), 'utf8')).trim(),
+      ),
+      { threadId: 'native-thread', processId: '73' },
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('native handle discovery cannot register after the command ended while its list request was pending', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      {
+        method: 'item/started',
+        params: { ...f.params, item: { ...f.item, processId: null } },
+      },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-pending');
+    await f.emit({
+      method: 'item/completed',
+      params: { ...f.params, item: { ...f.item, status: 'failed' } },
+    });
+    await writeJson(join(f.cwd, 'list-reply-1.json'), {
+      result: {
+        data: [{ itemId: f.item.id, processId: '73', command: 'review' }],
+        nextCursor: null,
+      },
+    });
+    await f.session.models();
+    await assert.rejects(f.register(), /already ended/);
+    assert.deepEqual(f.familiarEvents(), []);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a late wrapper exit retains the originating turn interruption', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    await f.register();
+    await f.emit({
+      method: 'turn/completed',
+      params: {
+        threadId: f.params.threadId,
+        turn: { id: f.params.turnId, status: 'interrupted', error: null },
+      },
+    });
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'failed', exitCode: 130 },
+      },
+    });
+    assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('closing a native connection reports stopped even when command completion arrives before cleanup acknowledgment', async () => {
+  const f = await reportedFixture();
+  let closing: Promise<void> | undefined;
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    await f.register();
+    await writeFile(join(f.cwd, 'hold-termination'), 'yes');
+    closing = f.session.close();
+    await until('cleanup request', () =>
+      readFile(join(f.cwd, 'terminated.jsonl')).then(
+        () => true,
+        () => false,
+      ),
+    );
+    await f.emit({
+      method: 'item/completed',
+      params: { ...f.params, item: { ...f.item, status: 'failed' } },
+    });
+    assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
+  } finally {
+    await writeFile(join(f.cwd, 'release-termination'), 'yes');
+    await (closing ?? f.session.close());
+  }
+});
+
+test('registration transfers an existing brew and leaves an unrelated background command visible', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      {
+        method: 'item/started',
+        params: {
+          ...f.params,
+          item: { ...f.item, id: 'unrelated', processId: '99' },
+        },
+      },
+      {
+        method: 'turn/completed',
+        params: {
+          threadId: f.params.threadId,
+          turn: { id: f.params.turnId, status: 'completed', error: null },
+        },
+      },
+    );
+    await until('background list', () =>
+      readFile(join(f.cwd, 'list-1.json')).then(
+        () => true,
+        () => false,
+      ),
+    );
+    await writeJson(join(f.cwd, 'list-reply-1.json'), {
+      result: {
+        data: [
+          { itemId: f.item.id, command: 'review' },
+          { itemId: 'unrelated', command: 'server' },
+        ],
+        nextCursor: null,
+      },
+    });
+    await until(
+      'two brews',
+      () => f.events.filter((e) => e.type === 'command').length === 2,
+    );
+    await f.emit(f.output(f.marker));
+    await f.register();
+    assert.deepEqual(
+      f.events.flatMap((e) => (e.type === 'command' ? [e.command] : [])),
+      [
+        {
+          id: 'native-thread/review-command',
+          description: 'review',
+          status: 'running',
+        },
+        {
+          id: 'native-thread/unrelated',
+          description: 'server',
+          status: 'running',
+        },
+        {
+          id: 'native-thread/review-command',
+          description: 'review',
+          status: 'running',
+          familiar: `claude-review/${f.run}`,
+        },
+      ],
+    );
   } finally {
     await f.session.close();
   }

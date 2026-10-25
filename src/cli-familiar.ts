@@ -173,9 +173,10 @@ export async function runClaudeFamiliar(
       reports.push(progress),
     );
     child = spawn('claude', argv, {
-      stdio: ['inherit', 'pipe', 'inherit'],
+      stdio: ['inherit', 'pipe', 'pipe'],
       detached: false,
     });
+    child.stderr!.pipe(process.stderr, { end: false });
     let pending = '';
     const line = (text: string) => {
       if (!text.trim()) return;
@@ -203,10 +204,12 @@ export async function runClaudeFamiliar(
     );
     child.once('exit', () => {
       clearTimeout(escalation);
-      // descendants can retain stdout after Claude exits; native command cleanup owns that group.
+      // descendants can retain output pipes after Claude exits; native command cleanup owns that group.
       drain = setTimeout(() => {
-        child!.stdout!.push(null);
-        child!.stdout!.destroy();
+        for (const stream of [child!.stdout!, child!.stderr!]) {
+          stream.push(null);
+          stream.destroy();
+        }
       }, 100);
     });
     const { code, signal } = await new Promise<{
