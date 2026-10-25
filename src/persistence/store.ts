@@ -1,6 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -16,6 +15,7 @@ import type {
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
+import { writeJson } from './json.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
 import { lockedFiles, openLocked } from './lock.js';
 
@@ -288,19 +288,9 @@ export class ConversationStore {
   }
 
   save(record: ConversationRecord): Promise<void> {
-    const content = `${JSON.stringify(record, null, 2)}\n`;
+    const captured = JSON.parse(JSON.stringify(record)) as ConversationRecord;
     this.drainHistory();
-    return this.enqueue(async () => {
-      const temporary = join(this.directory, `state-${randomUUID()}.tmp`);
-      const file = await open(temporary, 'wx', 0o600);
-      try {
-        await file.writeFile(content);
-        await file.sync();
-      } finally {
-        await file.close();
-      }
-      await rename(temporary, recordPath(this.directory));
-    });
+    return this.enqueue(() => writeJson(recordPath(this.directory), captured));
   }
 
   append(update: DisplayUpdate): Promise<void> {
