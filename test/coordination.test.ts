@@ -53,8 +53,12 @@ test('discovery batches conversation ownership and keeps only open peers', async
     vi.restoreAllMocks();
     syncBuiltinESMExports();
   }
-  assert.equal(batch.mock.calls.length, 1);
-  const call = batch.mock.results[0]!;
+  // the ledger's reconcile shares this store and asks about no conversations here
+  const lookups = batch.mock.calls.flatMap(([ids], index) =>
+    ids === undefined || ids.length ? [batch.mock.results[index]!] : [],
+  );
+  assert.equal(lookups.length, 1);
+  const call = lookups[0]!;
   assert.deepEqual(
     reading.mock.calls
       .map(([path]) => path)

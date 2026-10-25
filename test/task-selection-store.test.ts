@@ -31,7 +31,7 @@ const input = (number: number) => ({
 
 async function fixture(register: RegisterCleanup) {
   const root = await scratch('witch-selection-');
-  const store = await CoordinationStore.open(root);
+  const store = await CoordinationStore.open(await StateStore.open(root));
   const identity = (await identifyProcess(process.pid))!;
   const scope = async (conversation: string, project = 'project-p') => {
     const value = {

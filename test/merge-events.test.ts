@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { CoordinationStore } from '../src/persistence/coordination.js';
+import { StateStore } from '../src/persistence/store.js';
 import type { PullRequest } from '../src/core/repository.js';
 import { scratch } from './fixtures/scratch.js';
 
@@ -15,8 +16,8 @@ const merged: PullRequest = {
 
 test('concurrent observers freeze one recipient set and retain the event after reopening', async () => {
   const root = await scratch('witch-merge-events-');
-  const a = await CoordinationStore.open(root);
-  const b = await CoordinationStore.open(root);
+  const a = await CoordinationStore.open(await StateStore.open(root));
+  const b = await CoordinationStore.open(await StateStore.open(root));
   const [first, second] = await Promise.all([
     a.recordMerge('project-a', merged, 'observer-a', ['a', 'b']),
     b.recordMerge('project-a', merged, 'observer-b', ['a', 'b']),
@@ -28,13 +29,13 @@ test('concurrent observers freeze one recipient set and retain the event after r
   await b.recordMerge('project-a', merged, 'late', ['a', 'b', 'late']);
   assert.deepEqual(await a.mergeEvents('project-a', 'late'), []);
   assert.deepEqual(await a.mergeEvents('project-b', 'b'), []);
-  const reopened = await CoordinationStore.open(root);
+  const reopened = await CoordinationStore.open(await StateStore.open(root));
   assert.deepEqual(await reopened.mergeEvents('project-a', 'a'), [first]);
 });
 
 test('different projects, pull requests and head revisions retain distinct events', async () => {
   const store = await CoordinationStore.open(
-    await scratch('witch-merge-identity-'),
+    await StateStore.open(await scratch('witch-merge-identity-')),
   );
   const first = await store.recordMerge('project-a', merged, 'source', [
     'recipient',

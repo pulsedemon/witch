@@ -10,6 +10,7 @@ import type {
   ControlRequest,
 } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
+import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { writeJson } from '../src/persistence/json.js';
 import { openLocked } from '../src/persistence/lock.js';
@@ -44,7 +45,9 @@ test('control requests preserve their binding and action through a real ledger m
   await files.mkdir(directory);
   await files.symlink(directory, alias);
   bound.directory = alias;
-  const store = await CoordinationStore.open(bound.directory);
+  const store = await CoordinationStore.open(
+    await StateStore.open(bound.directory),
+  );
   const failures: unknown[] = [];
   const host = await ControlHost.open(
     bound.directory,
@@ -441,7 +444,9 @@ test('a listed request removed before its read is acknowledged without dispatch 
 
 test('a mutation that expires while waiting for the ledger lock stores no claim', async () => {
   const bound = await binding();
-  const store = await CoordinationStore.open(bound.directory);
+  const store = await CoordinationStore.open(
+    await StateStore.open(bound.directory),
+  );
   const lock = await openLocked(
     join(bound.directory, 'coordination', 'lock'),
     constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
@@ -467,7 +472,9 @@ test('a mutation that expires while waiting for the ledger lock stores no claim'
 test('expiry after asynchronous authority verification removes the exchange without committing the claim', async () => {
   vi.useFakeTimers({ toFake: ['Date'], now: 1000 });
   const bound = await binding();
-  const store = await CoordinationStore.open(bound.directory);
+  const store = await CoordinationStore.open(
+    await StateStore.open(bound.directory),
+  );
   const verified = Promise.withResolvers<void>();
   const proceed = Promise.withResolvers<void>();
   const failures: unknown[] = [];
@@ -567,7 +574,9 @@ test('an unread successful reply expires without undoing its claim', async () =>
     now: 1000,
   });
   const bound = await binding();
-  const store = await CoordinationStore.open(bound.directory);
+  const store = await CoordinationStore.open(
+    await StateStore.open(bound.directory),
+  );
   const failures: unknown[] = [];
   const host = await ControlHost.open(
     bound.directory,

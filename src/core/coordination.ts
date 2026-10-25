@@ -152,7 +152,7 @@ export class SessionCoordination {
     const coordination = new SessionCoordination(
       store,
       memory,
-      await CoordinationStore.open(store.root),
+      await CoordinationStore.open(store),
       directory,
       prefix,
       identity,

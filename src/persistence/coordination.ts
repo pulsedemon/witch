@@ -29,7 +29,7 @@ import type { PullRequest } from '../core/repository.js';
 import { identifyProcesses, sameProcess } from './process.js';
 import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
 import { readJson, writeJson } from './json.js';
-import { StateStore } from './store.js';
+import type { StateStore } from './store.js';
 
 const ledgerSchema = z.discriminatedUnion('version', [
   z.object({ version: z.literal(1), claims: z.array(taskClaimSchema) }),
@@ -144,10 +144,10 @@ export class CoordinationStore {
     private readonly store: StateStore,
   ) {}
 
-  static async open(root: string): Promise<CoordinationStore> {
-    const directory = join(root, 'coordination');
+  static async open(store: StateStore): Promise<CoordinationStore> {
+    const directory = join(store.root, 'coordination');
     await mkdir(join(directory, 'sessions'), { recursive: true, mode: 0o700 });
-    return new CoordinationStore(directory, await StateStore.open(root));
+    return new CoordinationStore(directory, store);
   }
 
   async presences(): Promise<SessionPresence[]> {
