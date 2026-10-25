@@ -1,7 +1,6 @@
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
 import { tokenize } from '@alcalzone/ansi-tokenize';
 import LinkifyIt from 'linkify-it';
+import { resolveFile } from '../paths.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
@@ -23,9 +22,7 @@ export function linkTarget(target: string, cwd: string): string {
   const location =
     /:(\d+)(?::(\d+))?$/.exec(target) ?? /#L(\d+)(?:C(\d+))?$/.exec(target);
   const file = location ? target.slice(0, location.index) : target;
-  const path = file.startsWith('~/')
-    ? resolve(homedir(), file.slice(2))
-    : resolve(cwd, file);
+  const path = resolveFile(file, cwd);
   const suffix = location
     ? `:${location[1]}${location[2] ? `:${location[2]}` : ''}`
     : '';

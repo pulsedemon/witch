@@ -22,6 +22,7 @@ import type { StateStore } from '../persistence/store.js';
 import {
   conversationSummarySchema,
   selectionStates,
+  taskActivity,
 } from './coordination-state.js';
 import type {
   CoordinationSnapshot,
@@ -569,6 +570,7 @@ export class SessionCoordination {
 
   private presence(active: Activation): SessionPresence {
     const state = this.state;
+    const { familiars, brews } = taskActivity(state);
     const { id, title, cwd, agent } = active.conversation;
     return {
       id,
@@ -585,10 +587,8 @@ export class SessionCoordination {
           ? 'running'
           : (state?.phase ?? 'starting'),
       requests: state?.requests.length ?? 0,
-      familiars:
-        state?.subagents.filter((entry) => entry.status === 'running').length ??
-        0,
-      brews: state?.backgroundCommands.length ?? 0,
+      familiars,
+      brews,
       ...(this.branch ? { branch: this.branch } : {}),
       openedAt: active.openedAt,
       updatedAt: Date.now(),
@@ -655,10 +655,7 @@ export class SessionCoordination {
       throw new Error(
         'Wait for idle and resolve memory recovery before releasing the task.',
       );
-    if (
-      this.state?.subagents.some((entry) => entry.status === 'running') ||
-      this.state?.backgroundCommands.length
-    )
+    if (taskActivity(this.state).running)
       throw new Error(
         'Stop the running familiars and brews before releasing the task.',
       );

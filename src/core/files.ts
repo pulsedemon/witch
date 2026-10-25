@@ -4,25 +4,26 @@ import { runGit } from '../memory/memory.js';
 
 const unreadable = new Set(['EACCES', 'EPERM', 'ENOENT', 'ENOTDIR']);
 
-const paths = (output: Buffer) =>
-  output.toString('utf8').split('\0').filter(Boolean);
-
 /** paths relative to `cwd` for `@` completion: Git's tracked and untracked files, honoring ignores, or outside a work tree a walk that skips dot entries. */
 export async function listFiles(
   cwd: string,
   limit = 10_000,
 ): Promise<string[]> {
+  // each entry is a status tag, a space and the path; a deleted tracked file also gets an `R` entry
   const listed = await runGit(
-    ['ls-files', '-co', '--exclude-standard', '--deduplicate', '-z'],
+    ['ls-files', '-c', '-d', '-o', '--exclude-standard', '-t', '-z'],
     { cwd },
   );
   if (listed.code !== 0) return walk(cwd, limit);
+  const entries = listed.stdout.toString('utf8').split('\0').filter(Boolean);
   const deleted = new Set(
-    paths((await runGit(['ls-files', '--deleted', '-z'], { cwd })).stdout),
+    entries.filter((entry) => entry[0] === 'R').map((entry) => entry.slice(2)),
   );
-  return paths(listed.stdout)
-    .filter((path) => !deleted.has(path))
-    .slice(0, limit);
+  // a conflicted path has an entry per stage
+  const present = new Set(
+    entries.map((entry) => entry.slice(2)).filter((path) => !deleted.has(path)),
+  );
+  return [...present].slice(0, limit);
 }
 
 async function walk(root: string, limit: number): Promise<string[]> {
