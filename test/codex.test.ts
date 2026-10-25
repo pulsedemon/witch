@@ -1304,6 +1304,24 @@ test("reports context, lines summed over the thread's turns and limits merged fr
       ],
     });
     assert.deepEqual(reported.at(-1), session.usage);
+    const lineUpdates = reported.flatMap(({ lines }, index) =>
+      lines && lines !== reported[index - 1]?.lines ? [lines] : [],
+    );
+    assert.deepEqual(
+      lineUpdates.map(({ added, removed }) => [added, removed]),
+      [
+        [1, 0],
+        [2, 1],
+        [4, 2],
+        [3, 1],
+        [1, 0],
+        [0, 0],
+        [2, 1],
+        [4, 2],
+        [4, 2],
+      ],
+    );
+    assert.deepEqual(lineUpdates[0], { added: 1, removed: 0 });
   } finally {
     await close(session, cwd);
   }
