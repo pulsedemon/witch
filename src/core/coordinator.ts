@@ -34,6 +34,7 @@ import {
 } from './prompts.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
+import { taskActivity } from './coordination-state.js';
 import { cleanUpMerge, peerTurnIn, refreshInstall } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
@@ -1488,9 +1489,7 @@ export class Coordinator {
     this.snapshot = { ...this.snapshot, ...update };
     this.pentacle.set(
       localActivity,
-      agentWorking(this.snapshot.phase) ||
-        this.snapshot.subagents.some(({ status }) => status === 'running') ||
-        this.snapshot.backgroundCommands.length > 0,
+      agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running,
     );
     this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();

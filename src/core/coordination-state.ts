@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Snapshot } from './coordinator.js';
 import { conversationSchema, phaseSchema, processIdentity } from './state.js';
 
 export const claimInputSchema = z.object({
@@ -120,6 +121,16 @@ export function selectionStates(tickets: SelectionTicket[]): SelectionState[] {
     positions.set(ticket.owner.project, position);
     return { ticket, position };
   });
+}
+
+export function taskActivity(
+  snapshot?: Pick<Snapshot, 'subagents' | 'backgroundCommands'>,
+): Pick<SessionPresence, 'familiars' | 'brews'> & { running: boolean } {
+  let familiars = 0;
+  for (const { status } of snapshot?.subagents ?? [])
+    if (status === 'running') familiars++;
+  const brews = snapshot?.backgroundCommands.length ?? 0;
+  return { familiars, brews, running: familiars > 0 || brews > 0 };
 }
 
 export function presenceStatus(presence: SessionPresence): string {
