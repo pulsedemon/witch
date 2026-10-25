@@ -3,7 +3,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
-import { openLocked } from '../persistence/lock.js';
+import { tryOpenLocked } from '../persistence/lock.js';
 import { runs } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import { runCommand } from './command.js';
@@ -106,13 +106,10 @@ const list = (items: string[]) =>
 
 /** skips a checkout another Witch is updating; locking the git directory leaves no file behind. */
 async function lockCheckout(cwd: string): Promise<FileHandle | undefined> {
-  return openLocked(
+  return tryOpenLocked(
     await git(cwd, 'rev-parse', '--absolute-git-dir'),
-    constants.O_RDONLY | constants.O_NONBLOCK,
-  ).catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
-    return undefined;
-  });
+    constants.O_RDONLY,
+  );
 }
 
 /**

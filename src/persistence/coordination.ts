@@ -27,7 +27,7 @@ import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
 import type { MergeEvent } from '../core/merge-events.js';
 import type { PullRequest } from '../core/repository.js';
 import { identifyProcesses, sameProcess } from './process.js';
-import { lockedFiles, openLocked } from './lock.js';
+import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
 import { readJson, writeJson } from './json.js';
 import { StateStore } from './store.js';
 
@@ -490,16 +490,13 @@ export class CoordinationStore {
   private async lock(deadline: number): Promise<FileHandle> {
     while (true) {
       checkDeadline(deadline);
-      try {
-        return await openLocked(
-          join(this.directory, 'lock'),
-          constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
-          { mode: 0o600 },
-        );
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
-        await delay(Math.min(25, Math.max(0, deadline - Date.now())));
-      }
+      const lock = await tryOpenLocked(
+        join(this.directory, 'lock'),
+        constants.O_RDWR | constants.O_CREAT,
+        { mode: 0o600 },
+      );
+      if (lock) return lock;
+      await delay(Math.min(25, Math.max(0, deadline - Date.now())));
     }
   }
 }

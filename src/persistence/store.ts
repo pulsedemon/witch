@@ -17,7 +17,7 @@ import type {
 } from '../core/state.js';
 import { writeJson } from './json.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
-import { lockedFiles, openLocked } from './lock.js';
+import { lockedFiles, tryOpenLocked } from './lock.js';
 
 export const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
@@ -45,20 +45,16 @@ function historyPath(directory: string): string {
 export class LockedElsewhere extends Error {}
 
 async function tryLock(file: string, shared = false): Promise<FileHandle> {
-  try {
-    return await openLocked(
-      file,
-      constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
-      { mode: 0o600, shared },
+  const handle = await tryOpenLocked(
+    file,
+    constants.O_RDWR | constants.O_CREAT,
+    { mode: 0o600, shared },
+  );
+  if (!handle)
+    throw new LockedElsewhere(
+      'This conversation is open in another Witch instance or being recovered.',
     );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EAGAIN')
-      throw new LockedElsewhere(
-        'This conversation is open in another Witch instance or being recovered.',
-        { cause: error },
-      );
-    throw error;
-  }
+  return handle;
 }
 
 /** current Witches serialize on `coordinated`; the shared conversation lock excludes legacy owners and identifies current ones. */

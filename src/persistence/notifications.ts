@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { readJson, writeJson } from './json.js';
-import { openLocked } from './lock.js';
+import { tryOpenLocked } from './lock.js';
 import { bootSession } from './process.js';
 
 const recordSchema = z.object({
@@ -30,14 +30,11 @@ export class NotificationSchedule {
     message: () => string | undefined,
     write: (data: string) => void,
   ): Promise<number | undefined> {
-    const lock = await openLocked(
+    const lock = await tryOpenLocked(
       join(this.directory, 'lock'),
-      constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
+      constants.O_RDWR | constants.O_CREAT,
       { mode: 0o600 },
-    ).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'EAGAIN') return undefined;
-      throw error;
-    });
+    );
     if (!lock) return 25;
     try {
       const file = join(this.directory, 'schedule.json');
