@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { processIdentity } from '../core/state.js';
 import type { ProcessIdentity } from '../core/state.js';
 import { processRunning } from './instance.js';
-import { writeJson } from './json.js';
+import { readJson, writeJson } from './json.js';
 import { openLocked } from './lock.js';
 import {
   bootSession,
@@ -54,14 +54,7 @@ async function lockDirectory(
 }
 
 async function readRecord(directory: string) {
-  try {
-    return recordSchema.parse(
-      JSON.parse(await readFile(join(directory, metadata), 'utf8')),
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  }
+  return readJson(join(directory, metadata), recordSchema);
 }
 
 async function removeScratch(directory: string): Promise<void> {
