@@ -1402,6 +1402,40 @@ test("an edit made during the install's fetch keeps it from being pulled and bui
   assert.equal(await git(install, 'rev-parse', 'HEAD'), head);
 });
 
+test('a branch switched to during the install fetch is left as it was and skips rebuilding', async () => {
+  const { root, origin, other } = await merged();
+  const install = join(root, 'install');
+  await git(root, 'clone', origin, install);
+  await git(install, 'branch', '--track', 'elsewhere', 'origin/main');
+  const before = await git(install, 'rev-parse', 'HEAD');
+  await git(other, 'commit', '--allow-empty', '-m', 'ahead');
+  await git(other, 'push');
+  const pack = join(root, 'upload-pack');
+  await write(
+    pack,
+    `#!/bin/sh\ngit -C ${quote(install)} switch -q elsewhere\nexec git upload-pack "$@"\n`,
+  );
+  await chmod(pack, 0o755);
+  await git(install, 'config', 'remote.origin.uploadpack', pack);
+  const calls: string[][] = [];
+  const result = await refreshInstall(
+    install,
+    'main',
+    async (command, args) => {
+      calls.push([command, ...args]);
+      return { stdout: '' };
+    },
+  );
+  assert.equal(
+    result,
+    `Witch's checkout at ${install} isn't clean on main, so it wasn't rebuilt.`,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(await git(install, 'branch', '--show-current'), 'elsewhere');
+  for (const ref of ['HEAD', 'main'])
+    assert.equal(await git(install, 'rev-parse', ref), before);
+});
+
 test("an ignored file the install's incoming commits would start tracking stops its rebuild before overwriting it", async () => {
   const { root, origin, other } = await merged({}, ['secret.txt']);
   const install = join(root, 'install');

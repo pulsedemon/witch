@@ -10,6 +10,7 @@ import {
   parsePullRequest,
   parseStatus,
 } from '../src/core/repository.js';
+import type { Run } from '../src/core/repository.js';
 import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
 
@@ -260,9 +261,9 @@ test('a detached head reads no pull request', async () => {
     toFake: ['setInterval', 'clearInterval', 'Date'],
     now: 0,
   });
-  const commands: string[] = [];
-  const watch = new RepositoryWatch('/work', async (command) => {
-    commands.push(command);
+  const calls: Parameters<Run>[] = [];
+  const watch = new RepositoryWatch('/work', async (...args) => {
+    calls.push(args);
     return { stdout: '# branch.head (detached)\n' };
   });
   try {
@@ -270,7 +271,13 @@ test('a detached head reads no pull request', async () => {
     vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'HEAD');
-    assert.deepEqual(commands, ['git', 'git']);
+    assert.equal(calls.length, 2);
+    for (const call of calls)
+      assert.deepEqual(call, [
+        'git',
+        ['--no-optional-locks', 'status', '--porcelain=v2', '--branch'],
+        { cwd: '/work', timeout: 10_000 },
+      ]);
   } finally {
     watch.close();
   }

@@ -8,7 +8,7 @@ import { identifyProcess } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import { runCommand } from './command.js';
 import type { Coordinator } from './coordinator.js';
-import { parseStatus } from './repository.js';
+import { parseStatus, statusArgs } from './repository.js';
 import type {
   PullRequest,
   Repository,
@@ -72,16 +72,7 @@ const succeeds = (promise: Promise<unknown>) =>
     () => false,
   );
 
-const read = async (cwd: string) =>
-  parseStatus(
-    await git(
-      cwd,
-      '--no-optional-locks',
-      'status',
-      '--porcelain=v2',
-      '--branch',
-    ),
-  );
+const read = async (cwd: string) => parseStatus(await git(cwd, ...statusArgs));
 
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */
 const ignored = (cwd: string, path: string) =>
@@ -99,6 +90,15 @@ const ignored = (cwd: string, path: string) =>
  */
 const changed = ({ staged, modified, conflicts }: Repository) =>
   !!(staged || modified || conflicts);
+
+/** checks after fetching because another terminal can switch or edit the checkout meanwhile. */
+async function fastForward(cwd: string, base: string): Promise<boolean> {
+  await fetchRemote(cwd);
+  const status = await read(cwd);
+  if (status.branch !== base || changed(status)) return false;
+  await git(cwd, 'merge', '--ff-only', '--no-overwrite-ignore', '@{upstream}');
+  return true;
+}
 
 const list = (items: string[]) =>
   items.length > 1
@@ -245,19 +245,9 @@ async function clean(
     .join(' and ');
   // after the branch and its plans go, so a base that can't fast-forward still deletes them
   try {
-    // the first fetch reached only the merged branch's remote, and the base can track another
-    await fetchRemote(cwd);
-    // another terminal can switch or edit meanwhile, and the merge would pull whatever branch it left
-    const fetched = await read(cwd);
-    if (fetched.branch !== base || changed(fetched))
+    // fetch again on the base, which can track a different remote
+    if (!(await fastForward(cwd, base)))
       throw new Error(`the checkout left ${base} or changed during the fetch`);
-    await git(
-      cwd,
-      'merge',
-      '--ff-only',
-      '--no-overwrite-ignore',
-      '@{upstream}',
-    );
   } catch (error) {
     throw new Error(
       `#${number} merged: switched to ${base} and deleted branch ${branch}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward: ${errorMessage(error)}`,
@@ -472,19 +462,8 @@ export async function refreshInstall(
   if (!lock)
     return `Witch's checkout at ${root} is busy, so it wasn't rebuilt.`;
   try {
-    await fetchRemote(root);
-    // after the fetch, so a switch or an edit made during it isn't pulled and built
-    const status = await read(root);
-    if (status.branch !== base || changed(status))
+    if (!(await fastForward(root, base)))
       return `Witch's checkout at ${root} isn't clean on ${base}, so it wasn't rebuilt.`;
-    // a pull would overwrite an ignored file the incoming commits start tracking
-    await git(
-      root,
-      'merge',
-      '--ff-only',
-      '--no-overwrite-ignore',
-      '@{upstream}',
-    );
     await run('pnpm', ['install', '--frozen-lockfile'], {
       cwd: root,
       timeout: 300_000,
