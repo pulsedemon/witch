@@ -922,15 +922,18 @@ class CodexSession implements AgentSession {
     }
   }
 
-  /** a spawned thread's parent, nickname and role, which no notification carries. */
   private async readSubagent(threadId: string): Promise<void> {
     try {
       const { thread } = z
         .object({
           thread: z.object({
             parentThreadId: z.string().nullable(),
-            agentNickname: z.string().nullable(),
             agentRole: z.string().nullable(),
+            source: z.object({
+              subAgent: z.object({
+                thread_spawn: z.object({ agent_path: z.string() }),
+              }),
+            }),
           }),
         })
         .parse(await this.rpc.request('thread/read', { threadId }));
@@ -941,7 +944,10 @@ class CodexSession implements AgentSession {
           thread.parentThreadId === this.info.id
             ? undefined
             : (thread.parentThreadId ?? undefined),
-        name: thread.agentNickname || 'agent',
+        name: thread.source.subAgent.thread_spawn.agent_path
+          .split('/')
+          .at(-1)!
+          .replaceAll('_', ' '),
         kind: thread.agentRole ?? '',
       });
     } catch {
