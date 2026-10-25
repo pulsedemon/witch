@@ -896,6 +896,9 @@ export class Coordinator {
           coordination,
           pendingContext,
           command,
+          familiarCommand: session.reportFamiliar
+            ? this.coordination?.familiarCommand()
+            : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),
         });
       let input = await context();

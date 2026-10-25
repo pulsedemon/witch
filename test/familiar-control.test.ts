@@ -113,3 +113,24 @@ test('an explicit control deadline reaches the host and prevents late report acc
     now?.mockRestore();
   }
 });
+
+test('only a supporting session receives familiar instructions and the exact user prompt stays separate', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  const client = await f.start();
+  const prompt = 'Review this\n  exact user input.';
+  await client.coordinator.send(prompt);
+  assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
+  client.a.sessions[0]!.session.reportFamiliar = async () => ({
+    kind: 'familiar-registered',
+  });
+  await client.coordinator.send(prompt);
+  const input = client.a.inputs.at(-1)!;
+  assert.equal(input.prompt, prompt);
+  assert.ok(!input.context!.includes(prompt));
+  assert.ok(input.context!.includes(client.coordination.familiarCommand()));
+  assert.match(input.context!, /--familiar-claude <task-name> --report-file/);
+  assert.match(input.context!, /--permission-prompts none/);
+  assert.match(input.context!, /keep its stdout connected/);
+});

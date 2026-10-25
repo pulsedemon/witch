@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import { basename } from 'node:path';
 import type { BackgroundCommand } from '../agents/types.js';
 import type { TimedSubagent } from '../core/coordinator.js';
+import { familiarIdentity } from '../core/familiars.js';
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
 import type { PentacleActivity } from '../core/pentacle-activity.js';
 import { elapsed } from './activity.js';
@@ -18,20 +19,19 @@ const rows = 11;
 export const sidebarWidth = columns + 3;
 /** turned a little, so the pentacle shows its depth at rest. */
 const restAngle = 0.45;
-/** a familiar's name, its time and tool count, and its latest tool call. */
-const familiarRows = 3;
-
-/** the last entries of `each` rows that fit in `room` rows, with a row for a count of the rest when some don't. */
+/** retain the last complete entries and reserve a count row when any are hidden. */
 function fit<T>(
   entries: readonly T[],
-  each: number,
+  cost: (entry: T) => number,
   room: number,
 ): { shown: readonly T[]; hidden: number } {
-  const shown =
-    entries.length * each > room
-      ? entries.slice(entries.length - Math.floor(Math.max(room - 1, 0) / each))
-      : entries;
-  return { shown, hidden: entries.length - shown.length };
+  let used = entries.reduce((sum, entry) => sum + cost(entry), 0);
+  let hidden = 0;
+  if (used > room) {
+    while (hidden < entries.length && used > room - 1)
+      used -= cost(entries[hidden++]!);
+  }
+  return { shown: entries.slice(hidden), hidden };
 }
 
 /** depth first, each subagent under the one that started it; one whose parent isn't listed is a root. */
@@ -99,7 +99,7 @@ export function Sidebar({
     8,
     Math.max(0, height - rows) - (brews.length ? 2 : 0) - (running ? 2 : 0),
   );
-  const listedPeers = fit(peers, 2, peerRoom - 1);
+  const listedPeers = fit(peers, () => 2, peerRoom - 1);
   const peerRows =
     peers.length && peerRoom >= 2
       ? 1 + (listedPeers.hidden ? 1 : 0) + listedPeers.shown.length * 2
@@ -107,13 +107,17 @@ export function Sidebar({
   const above = height - rows - peerRows;
   const brewRoom = above - (running ? 2 : 0) - 1;
   const brewing = brews.length > 0 && brewRoom > 0;
-  const listedBrews = fit(brews, 1, brewRoom);
+  const listedBrews = fit(brews, () => 1, brewRoom);
   const brewRows = brewing
     ? 1 + (listedBrews.hidden ? 1 : 0) + listedBrews.shown.length
     : 0;
   // the last familiars in tree order show and a count stands in for the rest
   const room = above - brewRows - 1;
-  const { shown, hidden } = fit(familiars, familiarRows, room);
+  const { shown, hidden } = fit(
+    familiars,
+    ({ subagent }) => (familiarIdentity(subagent) ? 4 : 3),
+    room,
+  );
   return (
     <Box
       flexDirection="column"
@@ -178,6 +182,12 @@ export function Sidebar({
                     <Text dimColor> {oneLine(subagent.kind)}</Text>
                   )}
                 </Text>
+                {familiarIdentity(subagent) && (
+                  <Text wrap="truncate-end" dimColor>
+                    {'  '.repeat(depth + 1)}
+                    {oneLine(familiarIdentity(subagent))}
+                  </Text>
+                )}
                 <Text wrap="truncate-end" dimColor>
                   {'  '.repeat(depth + 1)}
                   {piped([
