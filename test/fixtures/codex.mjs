@@ -246,14 +246,40 @@ for await (const line of lines) {
   }
   if (request.method === 'thread/read') {
     const threads = {
-      'child-thread': ['native-thread', 'Euclid', 'explorer'],
-      'grandchild-thread': ['child-thread', 'Hypatia', null],
+      'child-thread': [
+        'native-thread',
+        'Euclid',
+        'explorer',
+        '/root/inspect_config',
+      ],
+      'grandchild-thread': [
+        'child-thread',
+        'Hypatia',
+        null,
+        '/root/inspect_config/check_defaults',
+      ],
     };
     const thread = threads[request.params.threadId];
     if (thread) {
-      const [parentThreadId, agentNickname, agentRole] = thread;
+      const [parentThreadId, agentNickname, agentRole, agentPath] = thread;
       reply({
-        thread: { parentThreadId, agentNickname, agentRole, preview: '' },
+        thread: {
+          parentThreadId,
+          agentNickname,
+          agentRole,
+          preview: '',
+          source: {
+            subAgent: {
+              thread_spawn: {
+                parent_thread_id: parentThreadId,
+                depth: parentThreadId === 'native-thread' ? 1 : 2,
+                agent_path: agentPath,
+                agent_nickname: agentNickname,
+                agent_role: agentRole,
+              },
+            },
+          },
+        },
       });
     } else
       send({ id: request.id, error: { code: -32600, message: 'no thread' } });

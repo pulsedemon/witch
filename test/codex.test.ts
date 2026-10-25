@@ -1125,12 +1125,12 @@ test("a spawned thread's tool items, not its prompt or thinking, give its famili
   }
 });
 
-test("a spawned thread's turns show it as a subagent under its parent with the turn as its run, its text, settings and completion stay out of the parent's turn, and a restart keeps its parent, name and kind", async () => {
+test("a spawned thread's task names its subagent under its parent with the turn as its run, its text, settings and completion stay out of the parent's turn, and a restart keeps its parent, task name and kind", async () => {
   const events: AgentEvent[] = [];
   const named = Promise.withResolvers<void>();
   const { session, cwd } = await fixture((event) => {
     events.push(event);
-    if (event.type === 'subagent' && event.subagent.name === 'Hypatia')
+    if (event.type === 'subagent' && event.subagent.name === 'check defaults')
       named.resolve();
   });
   try {
@@ -1153,7 +1153,7 @@ test("a spawned thread's turns show it as a subagent under its parent with the t
         {
           id: 'child-thread',
           parent: undefined,
-          name: 'Euclid',
+          name: 'inspect config',
           kind: 'explorer',
           status: 'running',
           run: 'child-thread-turn',
@@ -1161,7 +1161,7 @@ test("a spawned thread's turns show it as a subagent under its parent with the t
         {
           id: 'grandchild-thread',
           parent: 'child-thread',
-          name: 'Hypatia',
+          name: 'check defaults',
           kind: '',
           status: 'stopped',
           run: 'grandchild-thread-turn',
@@ -1218,7 +1218,7 @@ test("a spawned thread's turns show it as a subagent under its parent with the t
       [
         {
           id: 'child-thread',
-          name: 'Euclid',
+          name: 'inspect config',
           kind: 'explorer',
           status: 'running',
           run: 'child-thread-turn-2',
@@ -1226,7 +1226,7 @@ test("a spawned thread's turns show it as a subagent under its parent with the t
         {
           id: 'grandchild-thread',
           parent: 'child-thread',
-          name: 'Hypatia',
+          name: 'check defaults',
           kind: '',
           status: 'running',
           run: 'grandchild-thread-turn-2',
