@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import wrapAnsi from 'wrap-ansi';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { fullFormats } from 'ajv-formats/dist/formats.js';
@@ -9,9 +8,10 @@ import { Input } from './input.js';
 import { useKeysReady } from './keys-ready.js';
 import { linkify, plain } from './links.js';
 import { useLiveState } from './live-state.js';
-import { useWheel } from './mouse.js';
 import { piped } from './theme.js';
-import { canExpandDiff, diffRows } from './diff.js';
+import { canExpandDiff, diffExpansionHint, diffRows } from './diff.js';
+import { wrapLines } from './wrap.js';
+import { ScrollPage } from './scroll-page.js';
 
 interface Props {
   request: UserRequest;
@@ -32,7 +32,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
   const [questionIndex, questionIndexRef, setQuestionIndex] = useLiveState(0);
   // never rendered, so a ref alone carries answers between keys
   const answers = useRef<Record<string, string[]>>({});
-  const [scroll, scrollRef, setScroll] = useLiveState(0);
+  const [scroll, setScroll] = useState(0);
   const [error, setError] = useState('');
   const [full, setFull] = useState(false);
   // Request mounts per request, so the guard counts from when this one appeared
@@ -46,10 +46,7 @@ export function Request({ request, width, height, cwd, respond }: Props) {
     ? `${question.title}\n\n${options.map((option, index) => `${index === selection ? '›' : ' '} ${index + 1}. ${option}`).join('\n')}`
     : `${request.title}\n\n${request.url ?? ''}\n${fields}`;
   const lines = useMemo(() => {
-    const wrap = (text: string) =>
-      wrapAnsi(linkify(text, cwd), width, { hard: true, trim: false }).split(
-        '\n',
-      );
+    const wrap = (text: string) => wrapLines(linkify(text, cwd), width);
     if (question || !request.diff?.length) return wrap(detail);
     return [
       ...wrap(`${request.title}\n\n${request.url ?? ''}`),
@@ -58,20 +55,8 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       ...wrap(fields),
     ];
   }, [request, detail, fields, question, width, cwd, full]);
-  const last = Math.max(0, lines.length - bodyHeight);
-  const top = Math.min(scroll, last);
-  /** steps from the shown top, so a move past either end is felt at once. */
-  const scrollBy = (rows: number) =>
-    setScroll(
-      Math.max(0, Math.min(last, Math.min(scrollRef.current, last) + rows)),
-    );
-  // scrolling answers nothing, so the wheel and page keys work before other keys do
-  useWheel(scrollBy);
-
   useInput((input, key) => {
     if (key.eventType === 'release') return;
-    if (key.pageUp) scrollBy(-bodyHeight);
-    if (key.pageDown) scrollBy(bodyHeight);
     if (key.ctrl && input === 'o' && expandable) {
       setFull((previous) => !previous);
       setScroll(0);
@@ -163,14 +148,13 @@ export function Request({ request, width, height, cwd, respond }: Props) {
             ? 'Approval required'
             : 'Input requested'}
       </Text>
-      <Box height={bodyHeight} overflow="hidden">
-        <Text>{lines.slice(top, top + bodyHeight).join('\n')}</Text>
-      </Box>
-      {expandable && (
-        <Text dimColor>
-          {full ? 'CTRL+O SHOW PREVIEW' : 'CTRL+O SHOW ALL LINES'}
-        </Text>
-      )}
+      <ScrollPage
+        lines={lines}
+        height={bodyHeight}
+        scroll={scroll}
+        setScroll={setScroll}
+      />
+      {expandable && <Text dimColor>{diffExpansionHint(full)}</Text>}
       {request.kind === 'approval' ? (
         <Box flexDirection="column">
           <Text>

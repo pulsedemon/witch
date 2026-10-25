@@ -4,7 +4,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../src/ui/app.js';
 import type { UserRequest } from '../src/agents/types.js';
-import { show, fake, ENTER, DOWN, approval } from './fixtures/ui.js';
+import {
+  show,
+  fake,
+  ENTER,
+  DOWN,
+  approval,
+  openCommand,
+} from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
 const fileApproval = (id: string, title: string): UserRequest => ({
@@ -341,6 +348,64 @@ test('Ctrl+C cancels an idle question without exiting Witch', async () => {
     await until('the interrupt', () => calls.length > 0 || exited);
     assert.equal(exited, false);
     assert.deepEqual(calls, [['interrupt']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a request preserves the page it covers and keeps arrows for selection', async () => {
+  const wheelDown = '\u001b[<65;10;10M';
+  const { app, coordinator, calls } = fake({});
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    100,
+    16,
+  );
+  const rows = () =>
+    ui
+      .text()
+      .split('\n')
+      .map((row) => row.trim());
+  const helpBody = () => {
+    const all = rows();
+    const title = all.indexOf('Keyboard help');
+    return all.slice(title + 1, title + 11);
+  };
+  const requestTop = () => {
+    const all = rows();
+    return all[all.indexOf('Approval required') + 1];
+  };
+  try {
+    await delay(60);
+    await openCommand(ui, '/help', '/new  New');
+    ui.stdin.write(wheelDown.repeat(5));
+    await until('scrolled help', () => !ui.text().includes('/new  New'));
+    const before = helpBody();
+    assert.equal(before.length, 10);
+    coordinator.publish({
+      phase: 'running',
+      requests: [
+        {
+          ...approval,
+          id: 'cover',
+          detail: Array.from({ length: 200 }, (_, i) => `d${i + 1}`).join('\n'),
+        },
+      ],
+    });
+    await until('request', () => ui.text().includes('d1\n'));
+    ui.stdin.write(wheelDown.repeat(5));
+    await until('request scrolled', () => requestTop() === 'd3');
+    await delay(600);
+    ui.stdin.write(DOWN);
+    await until('decline selected', () => ui.text().includes('› Decline'));
+    assert.equal(requestTop(), 'd3');
+    assert.deepEqual(calls, []);
+    ui.stdin.write(ENTER);
+    await until('response', () => calls.length > 0);
+    assert.deepEqual(calls, [['respond', 'cover', { decision: 'decline' }]]);
+    coordinator.publish({ phase: 'idle', requests: [] });
+    await until('restored help', () => ui.text().includes('Keyboard help'));
+    assert.deepEqual(helpBody(), before);
   } finally {
     ui.unmount();
   }

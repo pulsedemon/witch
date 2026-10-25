@@ -1,11 +1,11 @@
 import { diffArrays } from 'diff';
 import stringWidth from 'string-width';
-import wrapAnsi from 'wrap-ansi';
 import { shortPath } from '../agents/tool-title.js';
 import type { FileDiff } from '../agents/types.js';
 import { hyperlink, oneLine, plain } from './links.js';
 import type { Span } from './syntax.js';
 import { languageOf, syntaxSpans } from './syntax.js';
+import { wrapLines } from './wrap.js';
 import {
   colors,
   diffAdded,
@@ -28,6 +28,10 @@ export function canExpandDiff(files: readonly FileDiff[]): boolean {
           return true;
     return false;
   });
+}
+
+export function diffExpansionHint(full: boolean): string {
+  return full ? 'CTRL+O SHOW PREVIEW' : 'CTRL+O SHOW ALL LINES';
 }
 
 const verbs = { add: 'Create', delete: 'Delete', update: 'Update' };
@@ -248,17 +252,14 @@ function prepareFile(
     };
   });
   return (width) => {
-    const lines = [wrapAnsi(header, width, { hard: true }).split('\n')];
+    const lines = [wrapLines(header, width, true)];
     for (const row of painted) {
       if (!row) {
         lines.push([colors.dim('...')]);
         continue;
       }
       // wrapping the code on its own expands its tabs from its first column
-      const code = wrapAnsi(row.code, width - digits - 2, {
-        hard: true,
-        trim: false,
-      }).split('\n');
+      const code = wrapLines(row.code, width - digits - 2);
       lines.push(
         code.map((part, index) => {
           const text = (index ? gutter : row.prefix) + part;

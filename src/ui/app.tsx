@@ -6,10 +6,9 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
-import type { DOMElement, Key } from 'ink';
+import type { DOMElement } from 'ink';
 import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
-import wrapAnsi from 'wrap-ansi';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
 import { modelKey, modelTarget } from '../core/models.js';
@@ -27,7 +26,7 @@ import {
   tokenKey,
 } from './completion.js';
 import { Request } from './request.js';
-import { canExpandDiff } from './diff.js';
+import { canExpandDiff, diffExpansionHint } from './diff.js';
 import type { Graphics } from './images.js';
 import { isExpanded, TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
@@ -42,7 +41,9 @@ import { Activity, elapsed } from './activity.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
+import { ScrollPage } from './scroll-page.js';
 import { accent, colors, piped, potion } from './theme.js';
+import { wrapLines } from './wrap.js';
 
 const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
@@ -263,10 +264,7 @@ export function App({
   const errorLimit = Math.max(1, Math.floor(height / 3));
   // an error can quote an agent-written note name
   const errorLines = state.error
-    ? wrapAnsi(linkify(plain(state.error), cwd), width - 2, {
-        hard: true,
-        trim: false,
-      }).split('\n')
+    ? wrapLines(linkify(plain(state.error), cwd), width - 2)
     : [];
   const errorRows =
     errorLines.length > errorLimit
@@ -347,9 +345,7 @@ export function App({
   const selectedTool = tools[toolSelection];
   const diffHint =
     toolFocus && selectedTool?.diff && canExpandDiff(selectedTool.diff)
-      ? fullDiffs.has(selectedTool.id)
-        ? 'CTRL+O SHOW PREVIEW'
-        : 'CTRL+O SHOW ALL LINES'
+      ? diffExpansionHint(fullDiffs.has(selectedTool.id))
       : undefined;
   const listRows = list
     ? Math.min(8, list.items.length, Math.max(1, bodyHeight - 7))
@@ -830,10 +826,7 @@ export function App({
         : pageView?.kind === 'coordination'
           ? coordinationText(pageCoordination, pageView.mode)
           : '';
-    return wrapAnsi(pageText, bodyWidth, {
-      hard: true,
-      trim: false,
-    }).split('\n');
+    return wrapLines(pageText, bodyWidth);
   }, [
     recovering,
     recovery,
@@ -844,25 +837,6 @@ export function App({
     bodyWidth,
   ]);
   const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
-  const pageLast = Math.max(0, pageLines.length - pageRows);
-  const pageTop = Math.min(pageScroll, pageLast);
-  /** steps from the shown top, so a move past either end is felt at once. */
-  const scrollPageBy = (rows: number) =>
-    setPageScroll((value) =>
-      Math.max(0, Math.min(pageLast, Math.min(value, pageLast) + rows)),
-    );
-  const scrollPage = (key: Key) => {
-    const rows = key.pageDown
-      ? pageRows
-      : key.downArrow
-        ? 1
-        : key.pageUp
-          ? -pageRows
-          : key.upArrow
-            ? -1
-            : 0;
-    if (rows) scrollPageBy(rows);
-  };
   usePointer((pointer, { column, row }) => {
     // a press or release ends the drag even while another view covers the transcript
     if (pointer !== 'drag') pressedAt.current = undefined;
@@ -893,16 +867,8 @@ export function App({
       setRange({ from: pressedAt.current, to: end });
     }
   });
-  // a request scrolls itself, and a picker follows its selection
   useWheel((rows) => {
-    if (request) return;
-    if (
-      state.phase === 'recovery' ||
-      view.kind === 'page' ||
-      view.kind === 'coordination'
-    )
-      scrollPageBy(rows);
-    else if (view.kind === 'chat') scrollBy(rows);
+    if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
   });
 
   useInput((input, key) => {
@@ -927,7 +893,6 @@ export function App({
     if (request) return;
     const modified = key.ctrl || key.meta || key.super;
     if (state.phase === 'recovery') {
-      scrollPage(key);
       if (!recoveryReady || modified) return;
       const kind = recovery?.kind;
       if (input === 'd') run(coordinator.recoverMemory('discard'));
@@ -967,7 +932,6 @@ export function App({
       return;
     }
     if (view.kind === 'page' || view.kind === 'coordination') {
-      scrollPage(key);
       if (view.kind === 'page' && view.note && !modified) {
         if (input === 'e') {
           setView({ kind: 'chat' });
@@ -1043,9 +1007,13 @@ export function App({
             ? 'Another conversation published changes to the same notes. Keep mine merges your current changes.'
             : 'Accept these changes with their original attribution, or discard them.'}
         </Text>
-        <Box height={pageRows} overflow="hidden">
-          <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
-        </Box>
+        <ScrollPage
+          lines={pageLines}
+          height={pageRows}
+          scroll={pageScroll}
+          setScroll={setPageScroll}
+          arrows
+        />
         <Text bold>
           {piped([
             ...(conflict
@@ -1124,9 +1092,13 @@ export function App({
             ? hyperlink(title, view.link, cwd)
             : title}
         </Text>
-        <Box height={pageRows} overflow="hidden">
-          <Text>{pageLines.slice(pageTop, pageTop + pageRows).join('\n')}</Text>
-        </Box>
+        <ScrollPage
+          lines={pageLines}
+          height={pageRows}
+          scroll={pageScroll}
+          setScroll={setPageScroll}
+          arrows
+        />
         <Text dimColor>
           {piped([
             ...(view.kind === 'page' && view.note
