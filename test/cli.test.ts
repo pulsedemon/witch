@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { readdir, symlink } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import { compiledCli } from './fixtures/compiled-cli.js';
 import { scratch } from './fixtures/scratch.js';
 import { ControlHost } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
@@ -17,23 +17,6 @@ const identity = (await identifyProcess(process.pid))!;
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
 const sourceCli = join(repository, 'src/cli.tsx');
-let compiled: Promise<string> | undefined;
-
-function compiledCli(): Promise<string> {
-  return (compiled ??= buildCli());
-}
-
-async function buildCli(): Promise<string> {
-  const root = await scratch('witch-cli-build-');
-  const output = join(root, 'dist');
-  await promisify(execFile)(process.execPath, [
-    join(repository, 'scripts/build.mjs'),
-    output,
-  ]);
-  await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
-  await symlink(join(repository, 'package.json'), join(root, 'package.json'));
-  return join(output, 'cli.js');
-}
 
 /** runs the CLI in an empty directory that is also its HOME, so a store opened at the default ~/.witch shows in `files`. */
 async function run(args: readonly string[] | string, entry?: string) {
