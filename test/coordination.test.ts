@@ -127,6 +127,32 @@ test('clones expose current task metadata without themselves or another project,
   );
 });
 
+test('in-place title, cwd and agent changes publish without a phase change', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { root, start, registry } = await coordinationFixture(cleanup);
+  const { coordinator, coordination } = await start();
+  const snapshot = coordinator.snapshot;
+  const conversation = snapshot.conversation!;
+  for (const [field, value] of [
+    ['title', 'Changed title'],
+    ['cwd', join(root, 'B')],
+    ['agent', 'b'],
+  ] as const) {
+    conversation[field] = value;
+    coordination.update(snapshot);
+    await until(`published ${field}`, async () =>
+      (await registry.presences()).some(
+        (presence) =>
+          presence.id === conversation.id && presence[field] === value,
+      ),
+    );
+    const presence = (await registry.presences())[0]!;
+    assert.equal(presence.phase, snapshot.phase);
+    assert.ok(!('sessions' in presence));
+    assert.ok(!('createdAt' in presence));
+  }
+});
+
 for (const assignmentFails of [false, true]) {
   test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
@@ -465,6 +491,7 @@ test('waiting and idle background work stay visible and retain ownership through
     async () =>
       presenceStatus((await b.query()).peers[0]!.presence) === 'waiting',
   );
+  assert.equal((await b.query()).peers[0]!.presence.requests, 1);
   emit({ type: 'request-resolved', id: 'q' });
   emit({
     type: 'command',
@@ -475,6 +502,7 @@ test('waiting and idle background work stay visible and retain ownership through
     async () =>
       presenceStatus((await b.query()).peers[0]!.presence) === 'background',
   );
+  assert.equal((await b.query()).peers[0]!.presence.brews, 1);
   await assert.rejects(a.coordinator.releaseTask(), /familiars and brews/);
   emit({
     type: 'command',
@@ -483,6 +511,14 @@ test('waiting and idle background work stay visible and retain ownership through
   emit({
     type: 'subagent',
     subagent: { id: 'f', name: 'Worker', kind: 'review', status: 'running' },
+  });
+  await until('familiar presence replaces completed brew', async () => {
+    const presence = (await b.query()).peers[0]!.presence;
+    return (
+      presence.familiars === 1 &&
+      presence.brews === 0 &&
+      presence.requests === 0
+    );
   });
   await assert.rejects(a.coordinator.releaseTask(), /familiars and brews/);
   emit({

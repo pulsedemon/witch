@@ -93,7 +93,7 @@ export class SessionCoordination {
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;
   private pending?: SessionPresence;
-  private projected?: string;
+  private projected?: SessionPresence;
   private writing: Promise<void> = Promise.resolve();
   private retrying?: Promise<void>;
   private operations: Promise<void> = Promise.resolve();
@@ -228,7 +228,7 @@ export class SessionCoordination {
       }
       await this.retireProject(active);
       const presence = this.presence(active);
-      this.projected = JSON.stringify({ ...presence, updatedAt: undefined });
+      this.projected = presence;
       await this.write(presence);
       if (this.ending || this.closed)
         throw new Error('Coordination is closing.');
@@ -297,9 +297,19 @@ export class SessionCoordination {
     )
       return;
     const presence = this.presence(active);
-    const projected = JSON.stringify({ ...presence, updatedAt: undefined });
-    if (projected === this.projected) return;
-    this.projected = projected;
+    const projected = this.projected;
+    const keys = Object.keys(presence) as (keyof SessionPresence)[];
+    if (
+      projected &&
+      keys.length === Object.keys(projected).length &&
+      keys.every(
+        (key) =>
+          key === 'updatedAt' ||
+          (Object.hasOwn(projected, key) && presence[key] === projected[key]),
+      )
+    )
+      return;
+    this.projected = presence;
     this.pending = presence;
     if (this.scheduled) return;
     this.scheduled = setTimeout(() => {
@@ -555,8 +565,12 @@ export class SessionCoordination {
 
   private presence(active: Activation): SessionPresence {
     const state = this.state;
+    const { id, title, cwd, agent } = active.conversation;
     return {
-      ...conversationSummarySchema.parse(active.conversation),
+      id,
+      title,
+      cwd,
+      agent,
       version: 1,
       selectionQueue: 1,
       project: active.project,
