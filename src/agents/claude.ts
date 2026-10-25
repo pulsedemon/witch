@@ -11,6 +11,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
+import { TurnText } from './turn-text.js';
 import { ClaudeUsage } from './claude-usage.js';
 import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
 import { proposedDiff, reportedDiff } from './claude-diff.js';
@@ -94,6 +95,20 @@ function modelsOf(models: readonly ModelInfo[]): Model[] {
   }));
 }
 
+/** bounds stderr collection when startup fails while the CLI is still alive. */
+async function startupFailure(
+  error: unknown,
+  child: ChildExit | undefined,
+): Promise<Error> {
+  await Promise.race([child?.closed, delay(1000)]);
+  const failure = new Error(
+    withTail(errorMessage(error), child?.tail() ?? ''),
+    { cause: error },
+  );
+  if (error instanceof AbortError) failure.name = 'AbortError';
+  return failure;
+}
+
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
   readonly label = 'Claude Code';
@@ -134,13 +149,7 @@ export class ClaudeAdapter implements AgentAdapter {
       })().catch(() => {});
       return modelsOf(await discovery.supportedModels());
     } catch (error) {
-      await Promise.race([child?.closed, delay(1000)]);
-      const failure = new Error(
-        withTail(errorMessage(error), child?.tail() ?? ''),
-        { cause: error },
-      );
-      if (error instanceof AbortError) failure.name = 'AbortError';
-      throw failure;
+      throw await startupFailure(error, child);
     } finally {
       input.close();
       discovery?.close();
@@ -166,7 +175,7 @@ interface Turn {
   finished: ReturnType<typeof Promise.withResolvers<TurnResult>>;
   result?: TurnResult;
   interrupted: boolean;
-  messages: Map<string, string>;
+  messages: TurnText;
   /** retain consumed input for interrupt receipts; omit command replies' text to prevent replay. */
   steered: Map<string, { prompt?: string; pending: boolean }>;
   inputError?: string;
@@ -392,14 +401,7 @@ class ClaudeSession implements AgentSession {
     try {
       await this.query.initializationResult();
     } catch (error) {
-      // the CLI may still be alive, holding its stderr open
-      await Promise.race([this.child?.closed, delay(1000)]);
-      const failure = new Error(
-        withTail(errorMessage(error), this.child?.tail() ?? ''),
-        { cause: error },
-      );
-      if (error instanceof AbortError) failure.name = 'AbortError';
-      throw failure;
+      throw await startupFailure(error, this.child);
     }
     this.connected = true;
     await this.registered;
@@ -468,7 +470,7 @@ class ClaudeSession implements AgentSession {
     const turn: Turn = {
       finished: Promise.withResolvers<TurnResult>(),
       interrupted: false,
-      messages: new Map<string, string>(),
+      messages: new TurnText(),
       steered: new Map(),
       commandRecords: new Map(),
       held: false,
@@ -673,7 +675,7 @@ class ClaudeSession implements AgentSession {
       void this.usageReader.close().catch(() => {});
       this.finish(turn, {
         status: 'interrupted',
-        text: [...turn.messages.values()].join('\n\n'),
+        text: turn.messages.text,
         unread: receipt.still_queued.flatMap(
           (uuid) => turn.steered.get(uuid)?.prompt ?? [],
         ),
@@ -916,7 +918,7 @@ class ClaudeSession implements AgentSession {
       ) {
         const text = event.delta.text;
         const id = this.currentMessage;
-        this.turn?.messages.set(id, (this.turn.messages.get(id) ?? '') + text);
+        this.turn?.messages.append(id, text);
         this.options.onEvent({ type: 'text', id, text });
       }
     } else if (
@@ -929,7 +931,7 @@ class ClaudeSession implements AgentSession {
         .map((block) => block.text)
         .join('\n');
       if (text) {
-        this.turn?.messages.set(id, text);
+        this.turn?.messages.replace(id, text);
         this.options.onEvent({ type: 'text', id, text, replace: true });
       }
       for (const block of message.message.content) {
@@ -1040,7 +1042,7 @@ class ClaudeSession implements AgentSession {
         text:
           message.subtype === 'success'
             ? message.result
-            : [...this.turn.messages.values()].join('\n\n'),
+            : this.turn.messages.text,
         ...(!success
           ? {
               error:

@@ -576,6 +576,26 @@ for await (const line of lines) {
       finish('completed');
       continue;
     }
+    if (prompt === 'turn text') {
+      for (const [itemId, delta] of [
+        ['message-z', 'alpha draft'],
+        ['message-a', 'bravo'],
+        ['message-a', ' tail'],
+      ])
+        notify('item/agentMessage/delta', { itemId, delta });
+      notify('item/completed', {
+        item: { type: 'agentMessage', id: 'message-z', text: 'alpha final' },
+      });
+      notify('item/agentMessage/delta', {
+        itemId: 'message-m',
+        delta: 'discard',
+      });
+      notify('item/completed', {
+        item: { type: 'agentMessage', id: 'message-m', text: '' },
+      });
+      finish('completed');
+      continue;
+    }
     if (prompt === 'error') {
       const error = (message) => ({
         message,

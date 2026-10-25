@@ -1066,6 +1066,26 @@ for await (const line of lines) {
       // holds stdout, so the SDK's read loop outlives the exit
       spawn('/bin/sleep', ['1'], { stdio: ['ignore', 'inherit', 'ignore'] });
       process.exit(1);
+    } else if (lastPrompt === 'text error') {
+      assistant('alpha draft', undefined, null, undefined, 'message-z');
+      assistant('bravo', undefined, null, undefined, 'message-a');
+      streamEvent(
+        {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: ' tail' },
+        },
+        null,
+      );
+      assistant('alpha final', undefined, null, undefined, 'message-z');
+      assistant('', [], null, undefined, 'message-a');
+      result({
+        subtype: 'error_during_execution',
+        is_error: true,
+        result: undefined,
+        errors: ['fixture failure'],
+      });
+      state('idle');
     } else if (lastPrompt === 'execution error') {
       result({
         subtype: 'error_during_execution',
