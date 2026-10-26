@@ -340,6 +340,10 @@ class CodexSession implements AgentSession {
   private readonly malformed = new Set<string>();
   /** spawned threads by id. */
   private readonly subagents = new Map<string, Subagent>();
+  private readonly subagentModels = new Map<
+    string,
+    { configured?: string; rerouted?: string }
+  >();
   private readonly commands: CodexCommands;
   /** each listed skill's SKILL.md, which a skill input names. */
   private readonly skillPaths = new Map<string, string>();
@@ -717,7 +721,9 @@ class CodexSession implements AgentSession {
         child &&
         !item &&
         message.method !== 'turn/started' &&
-        message.method !== 'turn/completed'
+        message.method !== 'turn/completed' &&
+        message.method !== 'thread/settings/updated' &&
+        message.method !== 'model/rerouted'
       )
         return;
       const params =
@@ -738,7 +744,7 @@ class CodexSession implements AgentSession {
       // a subagent's notification settles nothing of this thread's
       if (!child && message.method === 'turn/completed')
         this.finish('failed', text);
-      else if (message.method === 'thread/settings/updated')
+      else if (!child && message.method === 'thread/settings/updated')
         this.settings?.reject(new Error(text));
       if (this.malformed.has(message.method!)) return;
       this.malformed.add(message.method!);
@@ -792,6 +798,25 @@ class CodexSession implements AgentSession {
   private subagentNotification(message: Notification, threadId: string): void {
     const subagent = this.subagents.get(threadId);
     const { params, item } = message;
+    if (subagent && message.method === 'thread/settings/updated') {
+      const configured = stringValue.parse(
+        object.parse(params.threadSettings).model,
+      );
+      const identity = { ...this.subagentModels.get(threadId), configured };
+      this.subagentModels.set(threadId, identity);
+      this.subagent({ ...subagent, model: identity.rerouted ?? configured });
+      return;
+    }
+    if (subagent && message.method === 'model/rerouted') {
+      if (params.turnId !== subagent.run) return;
+      const rerouted = stringValue.parse(params.toModel);
+      this.subagentModels.set(threadId, {
+        ...this.subagentModels.get(threadId),
+        rerouted,
+      });
+      this.subagent({ ...subagent, model: rerouted });
+      return;
+    }
     if (subagent && item) {
       if (subagent.run !== undefined && params.turnId !== subagent.run) return;
       const type = stringValue.parse(item.type);
@@ -816,7 +841,6 @@ class CodexSession implements AgentSession {
       return;
     // shown before a completion parses, so a malformed one still lists the thread
     if (!subagent || message.method === 'turn/started') {
-      if (!subagent) void this.readSubagent(threadId);
       // a new turn is a new run, so it starts without the last one's activity, tool count and report
       const { id, parent, name, kind } = subagent ?? {
         id: threadId,
@@ -825,14 +849,19 @@ class CodexSession implements AgentSession {
         kind: '',
       };
       const run = turnId.safeParse(message.params).data?.turn.id;
+      const configured = this.subagentModels.get(threadId)?.configured;
+      this.subagentModels.set(threadId, { configured });
       this.subagent({
         id,
         ...(parent === undefined ? {} : { parent }),
         name,
         kind,
+        runtime: 'codex',
+        ...(configured ? { model: configured } : {}),
         status: 'running',
         ...(run ? { run } : {}),
       });
+      void this.readSubagent(threadId);
     }
     if (message.method === 'turn/completed') {
       const { turn } = completedTurn.parse(params);
@@ -851,12 +880,15 @@ class CodexSession implements AgentSession {
   }
 
   private async readSubagent(threadId: string): Promise<void> {
+    const run = this.subagents.get(threadId)!.run;
+    const identity = this.subagentModels.get(threadId);
     try {
       const { thread } = z
         .object({
           thread: z.object({
             parentThreadId: z.string().nullable(),
             agentRole: z.string().nullable(),
+            model: z.string().nullish(),
             source: z.object({
               subAgent: z.object({
                 thread_spawn: z.object({ agent_path: z.string() }),
@@ -865,9 +897,18 @@ class CodexSession implements AgentSession {
           }),
         })
         .parse(await this.rpc.request('thread/read', { threadId }));
-      if (this.closing) return;
+      const current = this.subagents.get(threadId);
+      if (this.closing || this.closed || !current || current.run !== run)
+        return;
+      // settings and reroutes received during the read supersede its model snapshot
+      const model =
+        this.subagentModels.get(threadId) === identity && thread.model
+          ? thread.model
+          : undefined;
+      if (model) this.subagentModels.set(threadId, { configured: model });
       this.subagent({
-        ...this.subagents.get(threadId)!,
+        ...current,
+        ...(model ? { model } : {}),
         parent:
           thread.parentThreadId === this.info.id
             ? undefined

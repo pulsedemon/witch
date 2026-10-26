@@ -1,63 +1,20 @@
 import assert from 'node:assert/strict';
-import { access, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type { AgentEvent, Usage } from '../src/agents/types.js';
 import { until, within } from './fixtures/within.js';
-import { fixture, close } from './fixtures/codex-adapter.js';
+import {
+  fixture,
+  close,
+  controlledFixture,
+  appears,
+  settled,
+  commandFrame,
+  turnFrame,
+} from './fixtures/codex-adapter.js';
 
-async function appears(path: string) {
-  await until(path, () =>
-    access(path).then(
-      () => true,
-      () => false,
-    ),
-  );
-}
-
-function settled(promise: Promise<unknown>) {
-  let done = false;
-  void promise.then(
-    () => (done = true),
-    () => (done = true),
-  );
-  return () => done;
-}
-
-const commandFrame = (
-  id: string,
-  turnId = 'turn-1',
-  threadId = 'native-thread',
-  status = 'inProgress',
-  exitCode = 0,
-): RpcMessage => ({
-  method: status === 'inProgress' ? 'item/started' : 'item/completed',
-  params: {
-    threadId,
-    turnId,
-    item: {
-      type: 'commandExecution',
-      id,
-      command: `provisional ${id}`,
-      source: 'agent',
-      processId: null,
-      cwd: '/fixture',
-      status,
-      aggregatedOutput: status === 'inProgress' ? null : 'finished\n',
-      exitCode: status === 'inProgress' ? null : exitCode,
-    },
-  },
-});
-const turnFrame = (
-  id = 'turn-1',
-  status = 'completed',
-  threadId = 'native-thread',
-): RpcMessage => ({
-  method: status === 'inProgress' ? 'turn/started' : 'turn/completed',
-  params: { threadId, turn: { id, status, error: null } },
-});
 const terminals = (...entries: [string, string][]) => ({
   data: entries.map(([itemId, command], index) => ({
     itemId,
@@ -71,50 +28,8 @@ const terminals = (...entries: [string, string][]) => ({
   nextCursor: null,
 });
 
-async function brewsFixture() {
-  const events: AgentEvent[] = [];
-  const context = await fixture((event) => events.push(event), {
-    mode: 'brews',
-  });
-  const { session, cwd } = context;
-  let sequence = 0;
-  const write = async (name: string, value: unknown) => {
-    await writeFile(join(cwd, `${name}.next`), JSON.stringify(value));
-    await rename(join(cwd, `${name}.next`), join(cwd, name));
-  };
-  const emit = async (...frames: RpcMessage[]) => {
-    const index = ++sequence;
-    const text = `fixture barrier ${index}`;
-    await write(`events-${index}.json`, [
-      ...frames,
-      {
-        method: 'error',
-        params: { error: { message: text }, willRetry: true },
-      },
-    ]);
-    await until(text, () =>
-      events.some((event) => event.type === 'notice' && event.text === text),
-    );
-    await session.skills();
-  };
-  const reply = async (index: number, response: unknown) => {
-    await appears(join(cwd, `list-${index}.json`));
-    await write(`list-reply-${index}.json`, response);
-    await appears(join(cwd, `list-replied-${index}`));
-    await emit();
-  };
-  return {
-    ...context,
-    events,
-    emit,
-    reply,
-    commands: () =>
-      events.flatMap((e) => (e.type === 'command' ? [e.command] : [])),
-  };
-}
-
 test('Codex commands become brews only after their originating turn ends', async () => {
-  const f = await brewsFixture();
+  const f = await controlledFixture();
   try {
     const first = f.session.send('first');
     await appears(join(f.cwd, 'turn-1.json'));
@@ -160,7 +75,7 @@ test('Codex commands become brews only after their originating turn ends', async
 });
 
 test('Codex brew order follows command starts', async () => {
-  const f = await brewsFixture();
+  const f = await controlledFixture();
   try {
     const sending = f.session.send('order');
     await appears(join(f.cwd, 'turn-1.json'));
@@ -185,7 +100,7 @@ test('Codex brew order follows command starts', async () => {
 describe('a stale terminal list cannot revive a completed command or admit a later foreground command', () => {
   for (const stale of [true, false])
     test(stale ? 'old snapshot' : 'later snapshot', async () => {
-      const f = await brewsFixture();
+      const f = await controlledFixture();
       try {
         const first = f.session.send('first');
         await appears(join(f.cwd, 'turn-1.json'));
@@ -235,7 +150,7 @@ describe('Codex brews survive turn interruption and retain native terminal resul
     ['completed', 'failed', 7, 'failed'],
   ] as const)
     test(`${turnStatus} turn, ${status} command, exit ${exitCode}`, async () => {
-      const f = await brewsFixture();
+      const f = await controlledFixture();
       try {
         const sending = f.session.send('status');
         await appears(join(f.cwd, 'turn-1.json'));
@@ -272,7 +187,7 @@ describe('Codex brews survive turn interruption and retain native terminal resul
 });
 
 test("a child's late command completion ends only its own brew", async () => {
-  const f = await brewsFixture();
+  const f = await controlledFixture();
   try {
     await f.emit(
       turnFrame('old', 'inProgress', 'child-thread'),
@@ -318,7 +233,7 @@ test("a child's late command completion ends only its own brew", async () => {
 });
 
 test('terminal discovery failure preserves the turn and retries at the next turn end', async () => {
-  const f = await brewsFixture();
+  const f = await controlledFixture();
   try {
     for (let index = 1; index <= 3; index++) {
       const sending = f.session.send(`turn ${index}`);
@@ -358,7 +273,7 @@ test('terminal discovery failure preserves the turn and retries at the next turn
 describe('closing or losing Codex clears brews and ignores pending discovery', () => {
   for (const loss of [false, true])
     test(loss ? 'process exit' : 'close', async () => {
-      const f = await brewsFixture();
+      const f = await controlledFixture();
       try {
         const first = f.session.send('first');
         await appears(join(f.cwd, 'turn-1.json'));
@@ -1102,6 +1017,7 @@ test("a spawned thread's tool items, not its prompt or thinking, give its famili
       id: 'worker-thread',
       name: 'agent',
       kind: '',
+      runtime: 'codex',
       status: 'running',
       run: 'worker-thread-turn',
     };
@@ -1172,6 +1088,7 @@ test("a spawned thread's task names its subagent under its parent with the turn 
           parent: undefined,
           name: 'inspect config',
           kind: 'explorer',
+          runtime: 'codex',
           status: 'running',
           run: 'child-thread-turn',
         },
@@ -1180,6 +1097,7 @@ test("a spawned thread's task names its subagent under its parent with the turn 
           parent: 'child-thread',
           name: 'check defaults',
           kind: '',
+          runtime: 'codex',
           status: 'stopped',
           run: 'grandchild-thread-turn',
         },
@@ -1188,6 +1106,7 @@ test("a spawned thread's task names its subagent under its parent with the turn 
           id: 'failed-thread',
           name: 'agent',
           kind: '',
+          runtime: 'codex',
           status: 'failed',
           run: 'failed-thread-turn',
         },
@@ -1195,11 +1114,18 @@ test("a spawned thread's task names its subagent under its parent with the turn 
           id: 'done-thread',
           name: 'agent',
           kind: '',
+          runtime: 'codex',
           status: 'completed',
           run: 'done-thread-turn',
         },
         // its completion names no turn, so no run
-        { id: 'stray-thread', name: 'agent', kind: '', status: 'running' },
+        {
+          id: 'stray-thread',
+          name: 'agent',
+          kind: '',
+          runtime: 'codex',
+          status: 'running',
+        },
       ],
     );
     assert.deepEqual(
@@ -1237,6 +1163,7 @@ test("a spawned thread's task names its subagent under its parent with the turn 
           id: 'child-thread',
           name: 'inspect config',
           kind: 'explorer',
+          runtime: 'codex',
           status: 'running',
           run: 'child-thread-turn-2',
         },
@@ -1245,6 +1172,7 @@ test("a spawned thread's task names its subagent under its parent with the turn 
           parent: 'child-thread',
           name: 'check defaults',
           kind: '',
+          runtime: 'codex',
           status: 'running',
           run: 'grandchild-thread-turn-2',
         },
