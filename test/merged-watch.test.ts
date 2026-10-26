@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
-import type { Snapshot } from '../src/core/coordinator.js';
+import type { Snapshot } from '../src/core/snapshot.js';
 import { watchMerges } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';

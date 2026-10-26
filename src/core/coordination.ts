@@ -32,7 +32,7 @@ import type {
   SessionPresence,
   SelectionScope,
 } from './coordination-state.js';
-import type { Snapshot } from './coordinator.js';
+import type { Snapshot } from './snapshot.js';
 import { assignGitHubTask } from './github-assignment.js';
 import type { PullRequest, Repository } from './repository.js';
 import { mergeEventId } from './merge-events.js';

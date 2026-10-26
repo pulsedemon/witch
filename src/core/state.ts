@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { SessionInfo } from '../agents/types.js';
+import type { AgentEvent, SessionInfo } from '../agents/types.js';
 
 const session = z.object({
   id: z.string(),
@@ -151,8 +151,25 @@ export function recordSession(
     deliveredRevision:
       previous?.id === info.id ? previous.deliveredRevision : undefined,
   };
-  if (previous?.id !== info.id)
-    delete conversation.sessions[agent]!.deliveredMerges;
+  if (previous?.id !== info.id) clearDelivery(conversation.sessions[agent]!);
+}
+
+type NativeSession = z.infer<typeof session>;
+
+/** adds the events a completed turn's context delivered to the native session. */
+export function recordDelivery(
+  reference: NativeSession,
+  delivered: { merges: readonly string[] },
+): void {
+  if (delivered.merges.length)
+    reference.deliveredMerges = [
+      ...new Set([...(reference.deliveredMerges ?? []), ...delivered.merges]),
+    ];
+}
+
+/** a native session that compacted or was replaced has seen none of the delivered events. */
+export function clearDelivery(reference: NativeSession): void {
+  delete reference.deliveredMerges;
 }
 
 function merge(
@@ -194,6 +211,37 @@ export function applyDisplayUpdate(
   const next = [...items];
   next[index] = merge(items[index], update);
   return next;
+}
+
+/** the transcript row a native text or tool event updates. */
+export function nativeDisplay(
+  event: Extract<AgentEvent, { type: 'text' | 'tool' }>,
+  id: string,
+  agent: string,
+  cwd: string,
+): DisplayUpdate {
+  return event.type === 'text'
+    ? {
+        id,
+        kind: 'assistant',
+        title: agent,
+        text: event.text,
+        replace: event.replace,
+        cwd,
+      }
+    : {
+        id,
+        kind: 'tool',
+        title: event.title,
+        text: event.text,
+        replace: !event.append,
+        done: event.done,
+        cwd: event.cwd ?? cwd,
+        ...(event.images ? { images: event.images } : {}),
+        ...(event.diff ? { diff: event.diff } : {}),
+        // an append leaves it out, and keeps the one its row has
+        ...(event.shell ? { shell: true } : {}),
+      };
 }
 
 export function foldDisplayUpdates(

@@ -108,7 +108,7 @@ export async function assertNoPendingDirectoryRecovery(
     );
 }
 
-export async function missingConversationDirectories(
+async function missingConversationDirectories(
   store: StateStore,
 ): Promise<Array<{ cwd: string; conversations: number }>> {
   const groups = new Map<string, number>();
@@ -124,6 +124,25 @@ export async function missingConversationDirectories(
     }
   }
   return missing.sort((a, b) => a.cwd.localeCompare(b.cwd));
+}
+
+/** the startup notice for saved conversations whose directories are gone, or why they couldn't be checked. */
+export async function missingDirectoryNotice(
+  store: StateStore,
+): Promise<string | undefined> {
+  try {
+    const missing = await missingConversationDirectories(store);
+    if (!missing.length) return undefined;
+    return [
+      'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
+      ...missing.map(
+        ({ cwd, conversations }) =>
+          `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(store.root)} --recover-directory ${quote(cwd)}`,
+      ),
+    ].join('\n');
+  } catch (error) {
+    return `Could not inspect missing conversation directories: ${errorMessage(error)}`;
+  }
 }
 
 function rewriteLines(

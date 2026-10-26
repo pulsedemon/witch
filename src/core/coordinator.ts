@@ -1,4 +1,4 @@
-import { updateFamiliar } from './familiars.js';
+import { updateBrew, updateFamiliar } from './familiars.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -8,12 +8,9 @@ import type {
   AgentEvent,
   AgentSession,
   BackgroundCommand,
-  SessionInfo,
   Skill,
   Subagent,
   TurnResult,
-  Usage,
-  UserRequest,
   UserResponse,
 } from '../agents/types.js';
 import { indexNote, main, printable } from '../memory/memory.js';
@@ -21,8 +18,7 @@ import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { MemoryConflict, Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
-import { missingConversationDirectories } from '../persistence/directory-recovery.js';
-import { quote } from '../shell.js';
+import { missingDirectoryNotice } from '../persistence/directory-recovery.js';
 import { recoverConversations } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { listFiles } from './files.js';
@@ -40,20 +36,23 @@ import { taskActivity } from './coordination-state.js';
 import { cleanUpMerge, peerTurnIn, refreshInstall } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
-import type { ModelChoice, ModelSelection } from './models.js';
+import type { ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
+import type { Recovery, Snapshot } from './snapshot.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
   agentWorking,
   applyDisplayUpdate,
+  clearDelivery,
   createConversation,
+  nativeDisplay,
+  recordDelivery,
   recordSession,
   untitled,
 } from './state.js';
 import type {
   Conversation,
   ConversationRecord,
-  DisplayItem,
   DisplayUpdate,
   Phase,
 } from './state.js';
@@ -61,12 +60,6 @@ import type {
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
-/** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
-export interface TimedSubagent extends Subagent {
-  startedAt: number;
-  rows: { start: string; end?: string };
-}
-
 /** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
 function noteName(path: string): string {
   return printable(path).replace(/[\\[\]]/g, '\\$&');
@@ -77,38 +70,6 @@ function memoryAttribution(conversation: string, turn: string): string {
 }
 
 class RestartRequired extends Error {}
-export interface Snapshot {
-  phase: Phase;
-  conversation?: Conversation;
-  items: readonly DisplayItem[];
-  /** prompts waiting for a turn, oldest first. */
-  queue: readonly string[];
-  requests: readonly UserRequest[];
-  models: readonly ModelChoice[];
-  skills: readonly Skill[];
-  /** the live session's subagents in start order; a turn drops the finished ones. */
-  subagents: readonly TimedSubagent[];
-  /** the live session's running background commands, which Witch calls brews, in start order. */
-  backgroundCommands: readonly BackgroundCommand[];
-  agents: readonly { id: string; label: string; installed: boolean }[];
-  native?: SessionInfo;
-  usage: Usage;
-  /** when this instance opened the conversation, in epoch milliseconds. */
-  openedAt?: number;
-  /** a successful normal turn whose memory and final record save finished; never persisted. */
-  completedTurn?: string;
-  recovery?: Recovery;
-  error?: string;
-}
-
-interface Recovery {
-  kind: 'pending' | 'conflict';
-  /** the conflicting paths; empty when the conflict has no single path. */
-  paths: string[];
-  diff: string;
-  root: string;
-}
-
 /** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
 interface MemoryView {
   revision: string;
@@ -233,37 +194,21 @@ export class Coordinator {
       () => undefined,
       errorMessage,
     );
-    /** startup diagnostics must not make an unused conversation resumable. */
-    const showStartupNotice = (text: string) =>
+    const notice = await missingDirectoryNotice(this.store);
+    // startup diagnostics must not make an unused conversation resumable
+    if (notice)
       this.publish({
         items: [
           ...this.snapshot.items,
           {
             id: randomUUID(),
             kind: 'notice',
-            text,
+            text: notice,
             cwd: this.current().cwd,
             at: new Date().toISOString(),
           },
         ],
       });
-    try {
-      const missing = await missingConversationDirectories(this.store);
-      if (missing.length)
-        showStartupNotice(
-          [
-            'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
-            ...missing.map(
-              ({ cwd, conversations }) =>
-                `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(this.store.root)} --recover-directory ${quote(cwd)}`,
-            ),
-          ].join('\n'),
-        );
-    } catch (error) {
-      showStartupNotice(
-        `Could not inspect missing conversation directories: ${errorMessage(error)}`,
-      );
-    }
     // a failed scope read fails both, so its message shows once
     await this.settle(
       [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
@@ -956,13 +901,7 @@ export class Coordinator {
         if (generation === this.contextGeneration) {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
-          if (input.merges.length)
-            reference.deliveredMerges = [
-              ...new Set([
-                ...(reference.deliveredMerges ?? []),
-                ...input.merges,
-              ]),
-            ];
+          recordDelivery(reference, input);
         }
         if (pendingHandoff === conversation.handoff)
           delete conversation.handoff;
@@ -1207,7 +1146,7 @@ export class Coordinator {
       const reference = conversation.sessions[agent];
       if (reference) {
         delete reference.deliveredRevision;
-        delete reference.deliveredMerges;
+        clearDelivery(reference);
       }
       this.persist(this.save());
       this.notice('Conversation compacted');
@@ -1242,30 +1181,7 @@ export class Coordinator {
         if (event.done) tools.delete(event.id);
         else tools.set(event.id, id);
       }
-      this.display(
-        event.type === 'text'
-          ? {
-              id,
-              kind: 'assistant',
-              title: agent,
-              text: event.text,
-              replace: event.replace,
-              cwd: conversation.cwd,
-            }
-          : {
-              id,
-              kind: 'tool',
-              title: event.title,
-              text: event.text,
-              replace: !event.append,
-              done: event.done,
-              cwd: event.cwd ?? conversation.cwd,
-              ...(event.images ? { images: event.images } : {}),
-              ...(event.diff ? { diff: event.diff } : {}),
-              // an append leaves it out, and keeps the one its row has
-              ...(event.shell ? { shell: true } : {}),
-            },
-      );
+      this.display(nativeDisplay(event, id, agent, conversation.cwd));
     }
   }
 
@@ -1286,38 +1202,11 @@ export class Coordinator {
     conversation: ConversationRecord,
     command: BackgroundCommand,
   ): void {
-    if (command.familiar) {
-      if (
-        this.snapshot.backgroundCommands.some(({ id }) => id === command.id)
-      ) {
-        this.publish({
-          backgroundCommands: this.snapshot.backgroundCommands.filter(
-            ({ id }) => id !== command.id,
-          ),
-        });
-        this.taskRow(conversation, randomUUID(), [
-          'Brew became familiar',
-          command.description,
-        ]);
-      }
-      return;
-    }
-    const running = command.status === 'running';
-    const listed = this.snapshot.backgroundCommands.some(
-      ({ id }) => id === command.id,
-    );
-    if (running === listed) return;
-    this.publish({
-      backgroundCommands: running
-        ? [...this.snapshot.backgroundCommands, command]
-        : this.snapshot.backgroundCommands.filter(
-            ({ id }) => id !== command.id,
-          ),
-    });
-    this.taskRow(conversation, randomUUID(), [
-      `Brew ${running ? 'started' : command.status}`,
-      command.description,
-    ]);
+    const update = updateBrew(this.snapshot.backgroundCommands, command);
+    if (!update) return;
+    this.publish({ backgroundCommands: update.commands });
+    for (const row of update.rows)
+      this.taskRow(conversation, randomUUID(), row.title);
   }
 
   private taskRow(

@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import chalk from 'chalk';
 import { createElement } from 'react';
-import type { Snapshot } from '../src/core/coordinator.js';
+import type { Snapshot } from '../src/core/snapshot.js';
 import { App } from '../src/ui/app.js';
 import {
   show,

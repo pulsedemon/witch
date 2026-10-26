@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Box, Text } from 'ink';
 import { basename } from 'node:path';
 import type { BackgroundCommand } from '../agents/types.js';
-import type { TimedSubagent } from '../core/coordinator.js';
+import type { TimedSubagent } from '../core/snapshot.js';
 import { familiarIdentity } from '../core/familiars.js';
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
 import type { PentacleActivity } from '../core/pentacle-activity.js';
