@@ -85,7 +85,14 @@ test('child model observations survive delayed reads and restarts', async () => 
     assert.equal(current().model, 'second-reroute');
     await f.emit(start('three'));
     assert.equal(current().model, 'third-model');
+    const refreshed = f.events.filter(
+      (event) => event.type === 'subagent',
+    ).length;
     await f.reply(3, metadata('third-model'), 'read');
+    assert.equal(
+      f.events.filter((event) => event.type === 'subagent').length,
+      refreshed,
+    );
     await f.emit(start('four'), start('five'));
     await f.reply(5, metadata('fifth-model'), 'read');
     await f.reply(4, metadata('old-run'), 'read');

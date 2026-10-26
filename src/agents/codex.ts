@@ -906,18 +906,28 @@ class CodexSession implements AgentSession {
           ? thread.model
           : undefined;
       if (model) this.subagentModels.set(threadId, { configured: model });
+      const parent =
+        thread.parentThreadId === this.info.id
+          ? undefined
+          : (thread.parentThreadId ?? undefined);
+      const name = thread.source.subAgent.thread_spawn.agent_path
+        .split('/')
+        .at(-1)!
+        .replaceAll('_', ' ');
+      const kind = thread.agentRole ?? '';
+      if (
+        current.parent === parent &&
+        current.name === name &&
+        current.kind === kind &&
+        (!model || current.model === model)
+      )
+        return;
       this.subagent({
         ...current,
         ...(model ? { model } : {}),
-        parent:
-          thread.parentThreadId === this.info.id
-            ? undefined
-            : (thread.parentThreadId ?? undefined),
-        name: thread.source.subAgent.thread_spawn.agent_path
-          .split('/')
-          .at(-1)!
-          .replaceAll('_', ' '),
-        kind: thread.agentRole ?? '',
+        parent,
+        name,
+        kind,
       });
     } catch {
       // the subagent keeps its defaults
