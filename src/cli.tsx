@@ -65,6 +65,10 @@ Agent control (use the prefix supplied in the current Witch context):
   --recommend <ref>   reserve a recommendation and advance the queue
   --selection <id>    identify the selection for --recommend
   --cancel-selection <id>  leave this turn's queue
+  --ask <claim-id>    ask the owner of a claimed task; needs --message
+  --answer <id>       answer a peer request; needs --message
+  --message <text>    the request or answer text
+  --peer-request <id> show a peer request you sent or received
   --json              print the control result as JSON
 
 Delegated tasks (use the familiar prefix supplied in the current Witch context):

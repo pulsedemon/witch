@@ -20,6 +20,10 @@ import {
   selectionStateSchema,
 } from '../core/coordination-state.js';
 import type { CoordinationAction } from '../core/coordination-state.js';
+import {
+  peerRequestSchema,
+  peerRequestStatusSchema,
+} from '../core/peer-requests.js';
 import { ClaimConflict, checkDeadline } from './coordination.js';
 import { writeJson } from './json.js';
 
@@ -71,6 +75,11 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
     snapshot: coordinationSnapshotSchema,
   }),
   z.object({ kind: z.literal('selection-cancelled'), selection: idSchema }),
+  z.object({
+    kind: z.literal('peer-request'),
+    request: peerRequestSchema,
+    status: peerRequestStatusSchema,
+  }),
   z.object({
     kind: z.literal('conflict'),
     claim: taskClaimSchema,

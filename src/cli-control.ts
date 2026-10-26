@@ -33,6 +33,10 @@ export function parseCommand(args = process.argv.slice(2)) {
       'cancel-selection': { type: 'string' },
       recommend: { type: 'string' },
       selection: { type: 'string' },
+      ask: { type: 'string' },
+      answer: { type: 'string' },
+      message: { type: 'string' },
+      'peer-request': { type: 'string' },
       json: { type: 'boolean' },
       'familiar-claude': { type: 'string' },
       'familiar-codex': { type: 'string' },
@@ -112,6 +116,10 @@ export function parseCommand(args = process.argv.slice(2)) {
     'cancel-selection',
     'recommend',
     'selection',
+    'ask',
+    'answer',
+    'message',
+    'peer-request',
     'json',
   ] as const;
   if (!controls.some((name) => values[name] !== undefined))
@@ -123,10 +131,13 @@ export function parseCommand(args = process.argv.slice(2)) {
     values['select-next'] !== undefined,
     values['cancel-selection'] !== undefined,
     values.recommend !== undefined,
+    values.ask !== undefined,
+    values.answer !== undefined,
+    values['peer-request'] !== undefined,
   ].filter(Boolean).length;
   if (actions !== 1)
     throw new Error(
-      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend or --cancel-selection.',
+      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection, --ask, --answer or --peer-request.',
     );
   if (
     positionals.length ||
@@ -156,6 +167,11 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error('--recommend requires --selection.');
   if (values.recommend === undefined && values.selection !== undefined)
     throw new Error('--selection requires --recommend.');
+  const asking = values.ask !== undefined || values.answer !== undefined;
+  if (asking && values.message === undefined)
+    throw new Error('--ask and --answer require --message.');
+  if (!asking && values.message !== undefined)
+    throw new Error('--message requires --ask or --answer.');
   const binding = controlBindingSchema.parse({
     directory: resolve(values['control-dir']),
     conversation: values['control-conversation'],
@@ -174,14 +190,24 @@ export function parseCommand(args = process.argv.slice(2)) {
               aliases: values.alias,
             },
           }
-        : values['select-next'] !== undefined
-          ? { kind: 'select-next', turn: values['select-next'] }
-          : values['cancel-selection'] !== undefined
+        : values.ask !== undefined
+          ? { kind: 'ask', claim: values.ask, message: values.message }
+          : values.answer !== undefined
             ? {
-                kind: 'cancel-selection',
-                selection: values['cancel-selection'],
+                kind: 'answer',
+                request: values.answer,
+                message: values.message,
               }
-            : { kind: 'release', claim: values.release },
+            : values['peer-request'] !== undefined
+              ? { kind: 'peer-request', request: values['peer-request'] }
+              : values['select-next'] !== undefined
+                ? { kind: 'select-next', turn: values['select-next'] }
+                : values['cancel-selection'] !== undefined
+                  ? {
+                      kind: 'cancel-selection',
+                      selection: values['cancel-selection'],
+                    }
+                  : { kind: 'release', claim: values.release },
   );
   return {
     ...parsed,
@@ -234,6 +260,22 @@ function describe(outcome: ControlOutcome): string {
       return `${outcome.message}${outcome.owner ? `\nCheckout: ${outcome.owner.cwd}` : ''}\nClaim id: ${outcome.claim.id}`;
     case 'error':
       return outcome.message;
+    case 'peer-request': {
+      const { request, status } = outcome;
+      return [
+        `Peer request ${request.id} from ${oneLine(request.from)} to ${oneLine(request.to)} about ${oneLine(request.reference)}: ${status}`,
+        `Request: ${oneLine(request.message)}`,
+        ...(request.answer
+          ? [`Answer: ${oneLine(request.answer.message)}`]
+          : status === 'attempted'
+            ? [
+                "The owner's Witch took this request for its one answer turn; no answer is recorded yet.",
+              ]
+            : status === 'undeliverable'
+              ? ['The owner no longer holds that claim.']
+              : []),
+      ].join('\n');
+    }
     case 'peers': {
       const snapshot = outcome.snapshot;
       return (
