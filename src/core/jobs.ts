@@ -106,7 +106,7 @@ async function carrying(entry: string, pids: number[]): Promise<number[]> {
   );
 }
 
-/** each listed process's executable path. */
+/** each listed process's argv[0], which LaunchServices and Chromium set to the executable's full path. */
 async function executables(pids: number[]): Promise<Map<number, string>> {
   return new Map(
     (await ps('pid=,comm=', pids)).flatMap((line) => {
@@ -121,8 +121,9 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
  * `track`, and of any group a process inside one moves to. a listed group keeps its generation while a process from
  * the last read remains in it, so a command orphaned to launchd still shows.
  *
- * tmux processes and their observed descendants are excluded, including after reparenting. their entire groups are
- * withheld, but ordinary peers keep their ownership and return with a new generation once the exclusion ends.
+ * tmux processes, the apps described below and their observed descendants are excluded, including after reparenting.
+ * their entire groups are withheld, but ordinary peers keep their ownership and return with a new generation once the
+ * exclusion ends.
  * exclusion stops at this Witch so running it inside tmux leaves its own agent commands available.
  *
  * with a `directory`, Claude Code runs `script` as its `CLAUDE_ENV_FILE` ahead of each Bash command, in the shell that
@@ -165,7 +166,7 @@ export class JobWatch {
       directory?: string;
       /** the listed processes whose environment holds the mark, from `ps` without it. */
       marked?: (pids: number[]) => Promise<number[]>;
-      /** each listed process's executable path, from `ps` without it. */
+      /** each listed process's argv[0], from `ps -o comm=` without it. */
       executables?: (pids: number[]) => Promise<Map<number, string>>;
       resume?: JobCheckpoint;
     } = {},
@@ -366,23 +367,19 @@ export class JobWatch {
               markedRoots.map(({ pid }) => pid),
             )
           : new Map<number, string>();
-        const apps = new Set(
-          markedRoots
-            .filter(({ pid, pgid }) => {
-              const bundle = /\.app\/Contents\/(MacOS\/)?/.exec(
-                paths.get(pid) ?? '',
-              );
-              return bundle && (pid === pgid || !bundle[1]);
-            })
-            .map(({ pid }) => pid),
-        );
+        for (const root of markedRoots) {
+          const bundle = /\.app\/Contents\/(MacOS\/)?/.exec(
+            paths.get(root.pid) ?? '',
+          );
+          if (!bundle || (root.pid !== root.pgid && bundle[1])) continue;
+          // excluded like a tmux tree, so a process that joins the app's group later can't bring the app back
+          for (const row of below(root)) {
+            excluded.add(row.identity);
+            excludedGroups.add(row.pgid);
+          }
+        }
         // an unmarked root can sit above a command's session in a group that isn't the command's
-        pending.push(
-          ...roots
-            .filter(({ pid }) => !apps.has(pid))
-            .flatMap(below)
-            .filter(({ pid }) => marked.has(pid)),
-        );
+        pending.push(...candidates.filter(({ pid }) => marked.has(pid)));
         walk();
       }
     }

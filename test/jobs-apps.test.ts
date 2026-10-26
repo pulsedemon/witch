@@ -68,6 +68,49 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
   }
 });
 
+test("a marked process that later joins an opened app's group brings back neither the app nor its terminals", async () => {
+  const app = orphanRow(100801);
+  const terminal = { ...orphanRow(100802), ppid: app.pid };
+  const stray = { ...orphanRow(100803), pgid: app.pid };
+  const tables = [
+    [],
+    [app, terminal],
+    [app, terminal, stray],
+    [app, terminal, stray],
+  ];
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-'),
+    interval: 60_000,
+    processes: async () => tables.shift()!,
+    describe: async (pids) =>
+      [app, terminal, stray]
+        .filter(({ pid }) => pids.includes(pid))
+        .map(({ pid, pgid }) => ({
+          pid,
+          pgid,
+          cpu: 0,
+          startedAt: 0,
+          command: '',
+        })),
+    marked: async (pids) => pids,
+    executables: async () =>
+      new Map([
+        [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
+        [stray.pid, '/usr/local/bin/node'],
+      ]),
+  });
+  try {
+    await jobs.list();
+    for (let read = 0; read < 3; read++)
+      assert.deepEqual(
+        (await jobs.list()).map(({ group }) => group),
+        [],
+      );
+  } finally {
+    jobs.close();
+  }
+});
+
 test.skipIf(process.platform !== 'darwin')(
   'a marked launchd child leading its own group from an app bundle is not a job, and one outside a bundle is',
   async () => {
