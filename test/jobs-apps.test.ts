@@ -22,14 +22,16 @@ function orphanRow(pid: number): Row {
   };
 }
 
-test("a marked app opened in a group of its own is not a job, nor is anything below it or a helper launchd adopted from its frameworks, though a bundle's main executable run in its command's group, or a tool elsewhere in a bundle, is", async () => {
+test("a marked app opened in a group of its own is not a job, nor is anything below it or a helper launchd adopted from its frameworks, though a bundle's main executable run in its command's group, or a tool inside a bundle or a framework, is", async () => {
   const app = orphanRow(100701);
   const helper = { ...orphanRow(100702), ppid: app.pid, pgid: app.pid };
   const terminal = { ...orphanRow(100703), ppid: helper.pid };
   const direct = { ...orphanRow(100705), pgid: 100704 };
   const plain = orphanRow(100706);
   const crashHandler = { ...orphanRow(100708), pgid: 100707 };
-  const xcodePython = { ...orphanRow(100710), pgid: 100709 };
+  const xcodePython = orphanRow(100709);
+  const frameworkPython = orphanRow(100711);
+  const jdk = orphanRow(100712);
   const later = [
     app,
     helper,
@@ -38,6 +40,8 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     plain,
     crashHandler,
     xcodePython,
+    frameworkPython,
+    jdk,
   ];
   const paths = new Map([
     [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
@@ -51,6 +55,11 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
       xcodePython.pid,
       '/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python',
     ],
+    [
+      frameworkPython.pid,
+      '/opt/homebrew/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python',
+    ],
+    [jdk.pid, '/Applications/IDEA.app/Contents/jbr/Contents/Home/bin/java'],
   ]);
   const tables = [[], later];
   const jobs = new JobWatch({
@@ -74,7 +83,7 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     await jobs.list();
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100704, 100706, 100709],
+      [100704, 100706, 100709, 100711, 100712],
     );
   } finally {
     jobs.close();

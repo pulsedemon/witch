@@ -130,9 +130,9 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
  * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
  * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
- * those below it, are then tracked, unless it runs an app's main executable while leading its own group, as
- * LaunchServices starts apps, or a helper from an app's Frameworks directory. an orphan no read saw is missed unless
- * its group was handed over or reported, or a process in it carries the mark.
+ * those below it, are then tracked. a marked launchd child that runs an app's main executable while leading its own
+ * group, as LaunchServices starts apps, or a helper from an app's Frameworks directory is excluded instead. an orphan
+ * no read saw is missed unless its group was handed over or reported, or a process in it carries the mark.
  */
 export class JobWatch {
   /** the report script's path, `<directory>/env`. */
@@ -369,10 +369,12 @@ export class JobWatch {
             )
           : new Map<number, string>();
         for (const root of markedRoots) {
-          // only MacOS and Frameworks, since Xcode's python3 and IDE-bundled JDKs run from elsewhere in a bundle
-          const bundle = /\.app\/Contents\/(MacOS|Frameworks)\//.exec(
-            paths.get(root.pid) ?? '',
-          );
+          // the outermost bundle only, outside any framework, since Xcode's toolchain, framework builds of python3 and
+          // IDE-bundled JDKs run from inside a bundle without being its app
+          const bundle =
+            /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
+              paths.get(root.pid) ?? '',
+            );
           if (!bundle || (root.pid !== root.pgid && bundle[1] === 'MacOS'))
             continue;
           // excluded like a tmux tree, so a process that joins the app's group later can't bring the app back
