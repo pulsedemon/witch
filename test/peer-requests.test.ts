@@ -71,6 +71,26 @@ test('concurrent writers keep every change', async () => {
   for (const request of stored.values()) assert.ok(request.attemptedAt);
 });
 
+test('a repeated ask matches the asker, the claim and the text', async () => {
+  const [store] = await stores();
+  const claimB = await claim(store!, b, 'b');
+  const claimC = await claim(store!, c, 'c');
+  const ask = (sender: ClaimOwner, id: string) =>
+    store!.askPeer(sender, id, 'Same?', deadline(), verify);
+  const first = await ask(a, claimB.id);
+  const toC = await ask(a, claimC.id);
+  const fromC = await ask(c, claimB.id);
+  assert.equal((await ask(a, claimB.id)).id, first.id);
+  assert.equal(new Set([first.id, toC.id, fromC.id]).size, 3);
+  assert.deepEqual(
+    [toC, fromC].map(({ from, to }) => ({ from, to })),
+    [
+      { from: 'a', to: 'c' },
+      { from: 'c', to: 'b' },
+    ],
+  );
+});
+
 test('an attempted request is not admitted again', async () => {
   const [store] = await stores();
   const owned = await claim(store!, b, 'b');
