@@ -22,6 +22,7 @@ const read = {
   session_id: 'review',
   parent_tool_use_id: null,
   message: {
+    model: 'native-model',
     content: [
       {
         type: 'tool_use',
@@ -85,6 +86,44 @@ test('native permission denials remain in the final report even when the review 
     review.closed(0, null).report,
     'Reviewed.\n\nPermission denied: Write  ./forbidden.txt',
   );
+});
+
+test('delegated Claude observes assistant model changes', () => {
+  const events: FamiliarProgress[] = [];
+  const task = new ClaudeTask('/work', (progress) => events.push(progress));
+  const thinking = (model: string) => ({
+    ...read,
+    message: {
+      model,
+      content: [
+        { type: 'thinking', thinking: 'Inspecting', signature: 'signature' },
+      ],
+    },
+  });
+  task.message(init);
+  task.message(read);
+  task.message(thinking('observed-response'));
+  task.message(thinking('<synthetic>'));
+  task.message({ ...thinking('foreign-response'), session_id: 'foreign' });
+  task.message({
+    ...thinking('nested-response'),
+    agent_id: 'nested',
+    parent_tool_use_id: 'spawn-tool',
+  });
+  assert.deepEqual(events.at(-1), {
+    status: 'running',
+    model: 'observed-response',
+    tools: 1,
+    activity: 'Read  ./plan.md',
+  });
+  task.message(success);
+  assert.deepEqual(task.closed(0, null), {
+    status: 'completed',
+    model: 'observed-response',
+    tools: 1,
+    activity: 'Read  ./plan.md',
+    report: 'Reviewed.',
+  });
 });
 
 test('native session model switches and reversions change displayed identity while local fallback leaves it alone', () => {

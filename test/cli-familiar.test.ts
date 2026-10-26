@@ -169,7 +169,7 @@ test('the wrapper retries a lost marker, preserves native inputs and saves a ful
     await writeFile(join(f.root, 'exit'), 'yes');
     assert.equal(await f.closed, 0, f.output().stderr);
     assert.equal(f.requests[0]!.deadline, f.requests[1]!.deadline);
-    assert.equal(f.updates().at(-1)!.progress.model, 'claude-observed');
+    assert.equal(f.updates().at(-1)!.progress.model, 'claude-response');
     assert.equal(f.updates().at(-1)!.progress.tools, 2);
     assert.equal(f.updates().at(-1)!.progress.status, 'completed');
     const expected = 'Full review.\n'.repeat(7000);

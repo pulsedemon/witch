@@ -85,6 +85,7 @@ const skill = (name, fields) => ({
 });
 let brewTurn = 0;
 let terminalReads = 0;
+let threadReads = 0;
 let questionTurn = 0;
 const finishQuestion = () => {
   notify('item/completed', {
@@ -108,7 +109,18 @@ const waitFor = async (name) => {
     await delay(5);
   }
 };
-if (['brews', 'file-approvals', 'compaction'].includes(mode))
+const deferReply = (kind, index, request) => {
+  writeFileSync(file(`${kind}-${index}.json`), JSON.stringify(request));
+  void (async () => {
+    await waitFor(`${kind}-reply-${index}.json`);
+    send({
+      id: request.id,
+      ...JSON.parse(readFileSync(file(`${kind}-reply-${index}.json`), 'utf8')),
+    });
+    writeFileSync(file(`${kind}-replied-${index}`), '');
+  })();
+};
+if (['brews', 'identity', 'file-approvals', 'compaction'].includes(mode))
   void (async () => {
     for (let index = 1; ; index++) {
       await waitFor(`events-${index}.json`);
@@ -176,18 +188,7 @@ for await (const line of lines) {
   }
   if (request.method === 'thread/backgroundTerminals/list') {
     if (mode !== 'brews') reply({ data: [], nextCursor: null });
-    else {
-      const index = ++terminalReads;
-      writeFileSync(file(`list-${index}.json`), JSON.stringify(request));
-      void (async () => {
-        await waitFor(`list-reply-${index}.json`);
-        send({
-          id: request.id,
-          ...JSON.parse(readFileSync(file(`list-reply-${index}.json`), 'utf8')),
-        });
-        writeFileSync(file(`list-replied-${index}`), '');
-      })();
-    }
+    else deferReply('list', ++terminalReads, request);
     continue;
   }
   if (request.method === 'thread/backgroundTerminals/terminate') {
@@ -282,6 +283,11 @@ for await (const line of lines) {
     reply(session());
   }
   if (request.method === 'thread/settings/update') {
+    if (mode === 'identity') {
+      writeFileSync(file('settings.json'), JSON.stringify(request));
+      reply({});
+      continue;
+    }
     if (request.params.model === 'exit') process.exit(1);
     const previous = `${model}/${effort}`;
     model = request.params.model;
@@ -298,6 +304,10 @@ for await (const line of lines) {
       });
   }
   if (request.method === 'thread/read') {
+    if (mode === 'identity') {
+      deferReply('read', ++threadReads, request);
+      continue;
+    }
     const threads = {
       'child-thread': [
         'native-thread',
