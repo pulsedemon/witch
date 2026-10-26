@@ -148,6 +148,11 @@ export function printable(path: string): string {
   return path.replace(/\p{Cc}/gu, '');
 }
 
+/** text for a notice, which renders as Markdown, escaped so it can't carry a Markdown link of its own. */
+export function noticeText(text: string): string {
+  return printable(text).replace(/[\\[\]]/g, '\\$&');
+}
+
 export class Memory {
   constructor(
     readonly root: string,

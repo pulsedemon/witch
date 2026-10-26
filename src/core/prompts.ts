@@ -13,6 +13,8 @@ import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';
 import { mergeContext } from './merge-events.js';
 import type { MergeEvent } from './merge-events.js';
+import { answerContext, requestContext } from './peer-requests.js';
+import type { PeerRequest } from './peer-requests.js';
 
 // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
 export const ranCommand =
@@ -64,6 +66,8 @@ export async function nativePrompt({
   command,
   familiarCommand,
   merges = [],
+  requests,
+  answers = [],
 }: {
   prompt: string;
   memory: Memory;
@@ -80,7 +84,15 @@ export async function nativePrompt({
     runtime: NonNullable<AgentSession['familiar']>['runtime'];
   };
   merges?: readonly MergeEvent[];
-}): Promise<{ prompt: string; context: string; merges: string[] }> {
+  /** an answer turn's requests; such a turn writes no memory. */
+  requests?: readonly PeerRequest[];
+  answers?: readonly PeerRequest[];
+}): Promise<{
+  prompt: string;
+  context: string;
+  merges: string[];
+  answers: string[];
+}> {
   const root = workspace.root;
   // the project marker moves before delivery, even when the turn later fails
   if (reference.deliveredProject !== scope.project) {
@@ -99,11 +111,18 @@ export async function nativePrompt({
   const pendingMerges = merges.filter(
     ({ id }) => !reference.deliveredMerges?.includes(id),
   );
+  const pendingAnswers = answers.filter(
+    ({ id }) => !reference.deliveredAnswers?.includes(id),
+  );
   const context = [
     'You are running inside Witch. Witch operating rules take precedence over conflicting user-global rules and skill instructions, including skills supplied by the native runtime. Follow all other applicable native and project instructions. Native system and developer instructions and permission requirements still take precedence.',
     'For each conflict with a Witch rule that you encounter, write a brief, single-line warning in the transcript using this format: "Witch rule conflict: source=<file or skill>; conflict=<conflicting instruction>; witch=<applicable Witch rule>; resolution=<rule followed>". Then continue under the applicable rule without asking the user to resolve the conflict.',
     `Shared memory directories: ${join(root, scope.global)} and ${join(root, scope.project)}.`,
-    `Save only new lasting preferences, decisions and verified reusable facts with ordinary file tools before finishing useful work. When nothing durable changed, write nothing. Put user-wide preferences in global memory and project facts in project memory. Keep each ${indexNote} within ${indexByteLimit} UTF-8 bytes as current essentials and short reference links. Put technical detail in topic notes and label historical records. Update existing facts instead of adding status paragraphs. Keep planning, test, commit, publication and review progress out of the indexes. Keep task state in its plan or ledger and current repository state in Git/GitHub. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
+    ...(requests
+      ? []
+      : [
+          `Save only new lasting preferences, decisions and verified reusable facts with ordinary file tools before finishing useful work. When nothing durable changed, write nothing. Put user-wide preferences in global memory and project facts in project memory. Keep each ${indexNote} within ${indexByteLimit} UTF-8 bytes as current essentials and short reference links. Put technical detail in topic notes and label historical records. Update existing facts instead of adding status paragraphs. Keep planning, test, commit, publication and review progress out of the indexes. Keep task state in its plan or ledger and current repository state in Git/GitHub. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
+        ]),
     `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart. After this Witch exits, a later cleanup pass may remove it once its remaining users have ended. Uncertain use delays cleanup. Save files you need to keep outside scratch.`,
     ...(snapshot ? [snapshot] : []),
     ...(pendingHandoff?.summary
@@ -120,6 +139,8 @@ export async function nativePrompt({
         ]
       : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),
+    ...(requests ? [requestContext(requests)] : []),
+    ...(pendingAnswers.length ? [answerContext(pendingAnswers)] : []),
     ...(pendingContext
       ? [
           'These commands already ran before an interrupt. Use their output as context without running them again:',
@@ -128,5 +149,10 @@ export async function nativePrompt({
       : []),
     ...(command === undefined ? [] : [ranCommand]),
   ].join('\n\n');
-  return { prompt, context, merges: pendingMerges.map(({ id }) => id) };
+  return {
+    prompt,
+    context,
+    merges: pendingMerges.map(({ id }) => id),
+    answers: pendingAnswers.map(({ id }) => id),
+  };
 }

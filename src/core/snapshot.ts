@@ -35,6 +35,8 @@ export interface Snapshot {
   openedAt?: number;
   /** a successful normal turn whose memory and final record save finished; never persisted. */
   completedTurn?: string;
+  /** a Witch-started turn answering peer requests holds the phase. */
+  answering?: boolean;
   recovery?: Recovery;
   error?: string;
 }

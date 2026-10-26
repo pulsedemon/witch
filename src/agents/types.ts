@@ -204,11 +204,12 @@ export interface AgentSession {
   contextUsage(): Promise<number | undefined>;
   /** replaces native history in place; resolves after native completion, independently of replacement events. */
   compact(): Promise<TurnResult>;
-  /** generated context must not replace the user's request in native authorization evidence. */
+  /** generated context never replaces the user's request in native authorization evidence; a `witch` prompt is Witch's own instruction for a turn with no user request. */
   send(
     prompt: string,
     skill?: SkillCall,
     context?: string,
+    author?: 'user' | 'witch',
   ): Promise<TurnResult>;
   /**
    * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to

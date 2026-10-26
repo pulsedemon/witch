@@ -13,7 +13,7 @@ import type {
   TurnResult,
   UserResponse,
 } from '../agents/types.js';
-import { indexNote, main, printable } from '../memory/memory.js';
+import { indexNote, main, noticeText } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { MemoryConflict, Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
@@ -41,6 +41,12 @@ import type { PullRequest } from './repository.js';
 import type { Recovery, Snapshot } from './snapshot.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
+  answerInstruction,
+  answered,
+  watchPeerRequestNotices,
+} from './peer-requests.js';
+import type { PeerRequest } from './peer-requests.js';
+import {
   agentWorking,
   applyDisplayUpdate,
   clearDelivery,
@@ -60,16 +66,16 @@ import type {
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
-/** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
-function noteName(path: string): string {
-  return printable(path).replace(/[\\[\]]/g, '\\$&');
-}
-
 function memoryAttribution(conversation: string, turn: string): string {
   return `conversation: ${conversation}\nturn: ${turn}`;
 }
 
 class RestartRequired extends Error {}
+
+interface TurnOptions {
+  delivered?: () => void;
+  requests?: readonly PeerRequest[];
+}
 /** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
 interface MemoryView {
   revision: string;
@@ -108,6 +114,9 @@ export class Coordinator {
   private draining = false;
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
+  private admissions = 0;
+  /** a stop holds answer turns until the user's next send or another conversation. */
+  private answersHeld = false;
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
 
@@ -144,13 +153,23 @@ export class Coordinator {
       return this.session.familiar.report(action, deadline);
     });
     this.publish({});
-    watchMergeNotices(
-      coordination,
-      () => this.snapshot,
-      (notice) => {
-        if (!this.closed) this.display(notice);
-      },
-    );
+    for (const watch of [watchMergeNotices, watchPeerRequestNotices])
+      watch(
+        coordination,
+        () => this.snapshot,
+        (notice) => {
+          if (!this.closed) this.display(notice);
+        },
+      );
+    // requests that arrive during work wait for the drain that follows it
+    coordination?.subscribe(() => {
+      if (
+        this.snapshot.phase === 'idle' &&
+        !this.snapshot.queue.length &&
+        !this.task
+      )
+        this.drainAfter();
+    });
   }
 
   subscribe(listener: () => void): () => void {
@@ -268,6 +287,7 @@ export class Coordinator {
       }
       this.files = files;
       this.record = files.record;
+      this.answersHeld = false;
       this.workspace = workspace;
       if (!this.record.handoff?.activated) delete this.record.handoff;
       this.publish({
@@ -296,16 +316,24 @@ export class Coordinator {
     // only a restart leaves the error phase, so nothing would run what waits
     if (this.snapshot.phase === 'error') throw new Error(this.snapshot.error);
     if (this.opening) throw new Error('Wait for the next conversation to open');
+    this.answersHeld = false;
     // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
     const during = this.snapshot.phase !== 'idle';
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
+    this.admissions++;
     const admitted = this.admitting.then(async () => {
       if (await this.steer(prompt)) return true;
       this.publish({ queue: [...this.snapshot.queue, prompt] });
       return false;
     });
     this.admitting = admitted.catch(() => {});
-    if (!(await admitted) && !(during && this.halted())) await this.drain();
+    let steered: boolean;
+    try {
+      steered = await admitted;
+    } finally {
+      this.admissions--;
+    }
+    if (!steered && !(during && this.halted())) await this.drain();
   }
 
   unqueue(): string[] {
@@ -318,6 +346,7 @@ export class Coordinator {
     const session = this.session;
     if (
       this.snapshot.phase !== 'running' ||
+      this.snapshot.answering ||
       this.cancelled ||
       this.snapshot.queue.length ||
       !session
@@ -363,11 +392,19 @@ export class Coordinator {
     return !!this.snapshot.error || this.turnFailed;
   }
 
+  /** queued prompts run first; with none, waiting peer requests get one answer turn. */
   private async drain(): Promise<void> {
     if (this.draining) return;
     this.draining = true;
     try {
-      while (this.snapshot.phase === 'idle' && this.snapshot.queue.length) {
+      while (this.snapshot.phase === 'idle') {
+        if (!this.snapshot.queue.length) {
+          if (!this.answerReady()) return;
+          if (await this.answerPeers()) {
+            if (this.halted()) return;
+          } else if (!this.snapshot.queue.length) return;
+          continue;
+        }
         const queue = this.snapshot.queue;
         const command = queue.findIndex(alone);
         const batch = queue.slice(
@@ -377,27 +414,13 @@ export class Coordinator {
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
         try {
-          await this.operate('running', async () => {
-            try {
-              const session = await this.connectForTurn();
-              if (!session) return;
-              const usage = session.info.hasHistory
-                ? await session.contextUsage()
-                : undefined;
-              if (this.cancelled || session.closed || this.session !== session)
-                return;
-              if (usage !== undefined && usage >= compactAt) {
-                this.publish({ phase: 'compacting' });
-                if (!(await this.performCompaction())) return;
-                this.publish({ phase: 'running' });
-              }
-              await this.performTurn(batch.join('\n'), 'turn', () => {
+          await this.operate('running', () =>
+            this.runTurn(batch.join('\n'), 'turn', {
+              delivered: () => {
                 delivered = true;
-              });
-            } catch (error) {
-              this.report(error);
-            }
-          });
+              },
+            }),
+          );
         } finally {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
@@ -407,6 +430,65 @@ export class Coordinator {
     } finally {
       this.draining = false;
     }
+  }
+
+  /** what each turn Witch starts from the queue or for peer requests goes through, including pre-turn compaction. */
+  private async runTurn(
+    prompt: string,
+    kind: 'turn' | 'answer',
+    options: TurnOptions,
+  ): Promise<void> {
+    try {
+      const session = await this.connectForTurn();
+      if (!session) return;
+      const usage = session.info.hasHistory
+        ? await session.contextUsage()
+        : undefined;
+      if (this.cancelled || session.closed || this.session !== session) return;
+      if (usage !== undefined && usage >= compactAt) {
+        this.publish({ phase: 'compacting' });
+        if (!(await this.performCompaction())) return;
+        this.publish({ phase: 'running' });
+      }
+      await this.performTurn(prompt, kind, options);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+
+  /** an answer turn starts only when nothing the user started or must decide is waiting. */
+  private answerReady(): boolean {
+    const id = this.record?.id;
+    return (
+      this.snapshot.phase === 'idle' &&
+      !this.task &&
+      !this.admissions &&
+      !this.snapshot.queue.length &&
+      !this.halted() &&
+      !this.opening &&
+      !this.closed &&
+      !this.snapshot.requests.length &&
+      !this.answersHeld &&
+      id !== undefined &&
+      !!this.coordination?.answerable(id)
+    );
+  }
+
+  /** runs once `answerReady` holds; true when admitted requests got their one answer turn. */
+  private async answerPeers(): Promise<boolean> {
+    let ran = false;
+    this.publish({ answering: true });
+    try {
+      await this.operate('running', async () => {
+        const requests = await this.coordination!.beginAnswer();
+        if (!requests.length) return;
+        ran = true;
+        await this.runTurn(answerInstruction, 'answer', { requests });
+      });
+    } finally {
+      this.publish({ answering: false });
+    }
+    return ran;
   }
 
   /** without an agent, continues on this conversation's agent, model and effort. */
@@ -531,6 +613,7 @@ export class Coordinator {
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
+    this.answersHeld = true;
     this.publish({
       requests: this.snapshot.requests.filter(
         (request) => !request.replyAsPrompt,
@@ -629,7 +712,7 @@ export class Coordinator {
       const note =
         path ??
         `${(await this.memory.scopePaths(this.current().cwd)).project}/${indexNote}`;
-      this.notice(`Memory edit: ${noteName(note)}`, this.workspace!.root);
+      this.notice(`Memory edit: ${noticeText(note)}`, this.workspace!.root);
       await this.beginActivity('memory-edit');
       const file = await this.workspace!.prepareNote(note);
       this.editorCancellation = new AbortController();
@@ -682,7 +765,7 @@ export class Coordinator {
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
       this.notice(
-        `Memory restore: ${noteName(path)} at ${revision.slice(0, 8)}`,
+        `Memory restore: ${noticeText(path)} at ${revision.slice(0, 8)}`,
         this.workspace!.root,
       );
       await this.beginActivity('memory-edit');
@@ -807,17 +890,21 @@ export class Coordinator {
     }
   }
 
+  /** an answer turn has no user request: it sends Witch's instruction and leaves pending user context for the next turn. */
   private async performTurn(
     prompt: string,
-    kind: 'turn' | 'handoff',
-    delivered?: () => void,
+    kind: 'turn' | 'handoff' | 'answer',
+    { delivered, requests }: TurnOptions = {},
   ): Promise<TurnResult> {
     const conversation = this.current();
+    const answer = kind === 'answer';
     if (kind === 'turn') this.publish({ completedTurn: undefined });
-    const { activity, scope } = await this.beginActivity(kind);
+    const { activity, scope } = await this.beginActivity(
+      answer ? 'turn' : kind,
+    );
     const session = await this.connectForTurn(scope);
     if (!session || this.cancelled) return { status: 'interrupted', text: '' };
-    this.coordination?.beginTurn(activity.id);
+    if (!answer) this.coordination?.beginTurn(activity.id);
     try {
       this.publish({
         subagents: this.snapshot.subagents.filter(
@@ -827,11 +914,13 @@ export class Coordinator {
       const command = kind === 'turn' ? shellCommand(prompt) : undefined;
       const handoff = conversation.handoff;
       const pendingHandoff =
-        handoff?.activated && handoff.to === conversation.agent
+        !answer && handoff?.activated && handoff.to === conversation.agent
           ? handoff
           : undefined;
       const coordination = await this.coordination?.context();
-      const pendingContext = this.pendingContext.get(conversation.id);
+      const pendingContext = answer
+        ? undefined
+        : this.pendingContext.get(conversation.id);
       const context = () =>
         nativePrompt({
           prompt,
@@ -845,13 +934,23 @@ export class Coordinator {
           pendingContext,
           command,
           familiarCommand:
-            session.familiar && this.coordination
+            !answer && session.familiar && this.coordination
               ? {
                   command: this.coordination.familiarCommand(),
                   runtime: session.familiar.runtime,
                 }
               : undefined,
-          merges: this.coordination?.mergeEvents(conversation.id),
+          merges: answer
+            ? undefined
+            : this.coordination?.mergeEvents(conversation.id),
+          requests,
+          answers:
+            kind === 'turn' && this.coordination
+              ? answered(
+                  this.coordination.peerRequests(conversation.id),
+                  conversation.id,
+                )
+              : undefined,
         });
       let input = await context();
       // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
@@ -859,10 +958,13 @@ export class Coordinator {
         return { status: 'interrupted', text: '' };
       if (kind === 'turn' && conversation.title === untitled)
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
+      const ids = requests?.map(({ id }) => id) ?? [];
       this.display({
         id: randomUUID(),
-        kind: kind === 'handoff' ? 'notice' : 'user',
-        text: prompt,
+        kind: kind === 'turn' ? 'user' : 'notice',
+        text: answer
+          ? `Witch started a turn to answer peer request${ids.length === 1 ? '' : 's'} ${ids.join(', ')}.`
+          : prompt,
         cwd: conversation.cwd,
       });
       this.persist(this.save());
@@ -878,12 +980,13 @@ export class Coordinator {
           if (this.cancelled || session.closed)
             result = { status: 'interrupted', text: '' };
           else {
-            this.pendingContext.delete(conversation.id);
+            if (!answer) this.pendingContext.delete(conversation.id);
             generation = this.contextGeneration;
             result = await session.send(
               input.prompt,
               skillCall(prompt, this.snapshot.skills),
               input.context,
+              answer ? 'witch' : 'user',
             );
           }
         }

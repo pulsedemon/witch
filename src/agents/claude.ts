@@ -454,11 +454,14 @@ class ClaudeSession implements AgentSession {
     prompt: string,
     skill?: SkillCall,
     context?: string,
+    author: 'user' | 'witch' = 'user',
   ): Promise<TurnResult> {
     const turn = this.beginTurn();
     const records = this.records;
     const input =
-      context === undefined ? prompt : `${context}\n\nUser request:\n${prompt}`;
+      context === undefined
+        ? prompt
+        : `${context}\n\n${author === 'witch' ? 'Witch' : 'User'} request:\n${prompt}`;
     const uuid = this.push(this.content(input, skill));
     turn.initialInput = uuid;
     turn.commandRecords.set(uuid, { records, writeAttempted: false });

@@ -39,9 +39,10 @@ function waiting(snapshot: Snapshot) {
   return undefined;
 }
 
+/** a Witch-started answer turn doesn't hold back a user turn's completion. */
 function settled(snapshot: Snapshot): boolean {
   return (
-    snapshot.phase === 'idle' &&
+    (snapshot.phase === 'idle' || !!snapshot.answering) &&
     !snapshot.queue.length &&
     !snapshot.requests.length &&
     !snapshot.recovery &&
