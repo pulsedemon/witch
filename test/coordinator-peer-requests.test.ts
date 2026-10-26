@@ -663,7 +663,7 @@ test('an answer turn reads and answers requests but cannot ask or change claims'
 });
 
 test('answers follow native session receipts', async (t) => {
-  const { a, b, claim } = await owners(t.onTestFinished);
+  const { f, a, b, claim } = await owners(t.onTestFinished);
   const first = await ask(a, claim, 'First?');
   const gate = new TurnGate();
   a.a.gate = gate;
@@ -700,6 +700,14 @@ test('answers follow native session receipts', async (t) => {
   assert.deepEqual(listed(a.b.inputs.at(-1)!.context), [first.id, second.id]);
   await a.coordinator.send('once');
   assert.deepEqual(listed(a.b.inputs.at(-1)!.context), []);
+
+  const conversation = a.coordinator.snapshot.conversation!.id;
+  await a.coordinator.close({ restart: true });
+  const restarted = await f.start('A', { conversation });
+  await refreshed(restarted);
+  assert.equal(restarted.coordination.peerRequests(conversation).length, 2);
+  await restarted.coordinator.send('restarted');
+  assert.deepEqual(listed(restarted.b.inputs.at(-1)!.context), []);
 });
 
 test('peer notices stay single across restart', async (t) => {
