@@ -22,14 +22,23 @@ function orphanRow(pid: number): Row {
   };
 }
 
-test("a marked app opened in a group of its own is not a job, nor is anything below it or a helper launchd adopted from a bundle, though a bundle's main executable run in its command's group is", async () => {
+test("a marked app opened in a group of its own is not a job, nor is anything below it or a helper launchd adopted from its frameworks, though a bundle's main executable run in its command's group, or a tool elsewhere in a bundle, is", async () => {
   const app = orphanRow(100701);
   const helper = { ...orphanRow(100702), ppid: app.pid, pgid: app.pid };
   const terminal = { ...orphanRow(100703), ppid: helper.pid };
   const direct = { ...orphanRow(100705), pgid: 100704 };
   const plain = orphanRow(100706);
   const crashHandler = { ...orphanRow(100708), pgid: 100707 };
-  const later = [app, helper, terminal, direct, plain, crashHandler];
+  const xcodePython = { ...orphanRow(100710), pgid: 100709 };
+  const later = [
+    app,
+    helper,
+    terminal,
+    direct,
+    plain,
+    crashHandler,
+    xcodePython,
+  ];
   const paths = new Map([
     [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
     [direct.pid, '/Applications/Chrome.app/Contents/MacOS/Chrome'],
@@ -37,6 +46,10 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     [
       crashHandler.pid,
       '/Applications/Code.app/Contents/Frameworks/Helpers/crashpad_handler',
+    ],
+    [
+      xcodePython.pid,
+      '/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python',
     ],
   ]);
   const tables = [[], later];
@@ -61,7 +74,7 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     await jobs.list();
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100704, 100706],
+      [100704, 100706, 100709],
     );
   } finally {
     jobs.close();
