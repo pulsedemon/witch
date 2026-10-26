@@ -106,6 +106,16 @@ async function carrying(entry: string, pids: number[]): Promise<number[]> {
   );
 }
 
+/** each listed process's executable path. */
+async function executables(pids: number[]): Promise<Map<number, string>> {
+  return new Map(
+    (await ps('pid=,comm=', pids)).flatMap((line) => {
+      const [, pid, path] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+      return pid ? [[Number(pid), path!] as const] : [];
+    }),
+  );
+}
+
 /**
  * the process groups of the agents' commands, which both agents start as session leaders, of the groups handed to
  * `track`, and of any group a process inside one moves to. a listed group keeps its generation while a process from
@@ -119,8 +129,8 @@ async function carrying(entry: string, pids: number[]): Promise<number[]> {
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
  * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
  * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
- * those below it, are then tracked. an orphan no read saw is missed unless its group was handed over or reported, or a
- * process in it carries the mark.
+ * those below it, are then tracked, unless it is an app LaunchServices opened or a helper from an app's bundle. an
+ * orphan no read saw is missed unless its group was handed over or reported, or a process in it carries the mark.
  */
 export class JobWatch {
   /** the report script's path, `<directory>/env`. */
@@ -155,6 +165,8 @@ export class JobWatch {
       directory?: string;
       /** the listed processes whose environment holds the mark, from `ps` without it. */
       marked?: (pids: number[]) => Promise<number[]>;
+      /** each listed process's executable path, from `ps` without it. */
+      executables?: (pids: number[]) => Promise<Map<number, string>>;
       resume?: JobCheckpoint;
     } = {},
   ) {
@@ -333,12 +345,11 @@ export class JobWatch {
         excluded.has(row.identity)
           ? []
           : [row, ...(children.get(row.pid) ?? []).flatMap(below)];
-      const candidates = rows
-        .filter(
-          ({ ppid, pgid, identity }) =>
-            ppid === 1 && !seen.has(identity) && !groups.has(pgid),
-        )
-        .flatMap(below);
+      const roots = rows.filter(
+        ({ ppid, pgid, identity }) =>
+          ppid === 1 && !seen.has(identity) && !groups.has(pgid),
+      );
+      const candidates = roots.flatMap(below);
       if (candidates.length) {
         const marked = new Set(
           await (
@@ -346,8 +357,32 @@ export class JobWatch {
             ((pids) => carrying(`${mark}=${directory}`, pids))
           )(candidates.map(({ pid }) => pid)),
         );
+        // LaunchServices starts an app in a group of its own, and `open --env` hands it the mark, as VS Code's `code`
+        // does. the app, its terminals and helpers such as its crash handler are the user's, but a command can run a
+        // bundle's main executable itself
+        const markedRoots = roots.filter(({ pid }) => marked.has(pid));
+        const paths = markedRoots.length
+          ? await (this.options.executables ?? executables)(
+              markedRoots.map(({ pid }) => pid),
+            )
+          : new Map<number, string>();
+        const apps = new Set(
+          markedRoots
+            .filter(({ pid, pgid }) => {
+              const bundle = /\.app\/Contents\/(MacOS\/)?/.exec(
+                paths.get(pid) ?? '',
+              );
+              return bundle && (pid === pgid || !bundle[1]);
+            })
+            .map(({ pid }) => pid),
+        );
         // an unmarked root can sit above a command's session in a group that isn't the command's
-        pending.push(...candidates.filter(({ pid }) => marked.has(pid)));
+        pending.push(
+          ...roots
+            .filter(({ pid }) => !apps.has(pid))
+            .flatMap(below)
+            .filter(({ pid }) => marked.has(pid)),
+        );
         walk();
       }
     }
