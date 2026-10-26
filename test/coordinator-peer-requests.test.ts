@@ -135,6 +135,7 @@ test('idle owner answers in one attributed turn', async (t) => {
     "To ask the owner of another session's claimed task",
     'Before starting a new task',
     'Save only new lasting',
+    'Record a temporary execution hold',
     'Selection turn:',
   ])
     assert.ok(!input!.context!.includes(absent), absent);
@@ -183,6 +184,7 @@ test('idle owner answers in one attributed turn', async (t) => {
     "To ask the owner of another session's claimed task",
     'Before starting a new task',
     'Save only new lasting',
+    'Record a temporary execution hold',
   ])
     assert.ok(user.context!.includes(present), present);
   assert.equal(b.coordinator.snapshot.conversation!.title, 'owner work');
