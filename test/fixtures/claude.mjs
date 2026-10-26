@@ -1,5 +1,6 @@
 import { setInterval, clearInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
+import { Buffer } from 'node:buffer';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import {
@@ -287,6 +288,24 @@ for await (const line of lines) {
     }
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
+    if (request.subtype === 'get_task_output') {
+      const outputs = JSON.parse(
+        readFileSync(join(process.cwd(), 'task-outputs.json'), 'utf8'),
+      );
+      const output = outputs[request.task_id] ?? '';
+      response = {
+        output,
+        total_bytes: Buffer.byteLength(output),
+        truncated: false,
+      };
+    }
+    if (request.subtype === 'stop_task')
+      task('task_notification', {
+        task_id: request.task_id,
+        status: 'stopped',
+        output_file: '',
+        summary: 'Stopped',
+      });
     if (request.subtype === 'get_usage')
       response = {
         session: {

@@ -22,20 +22,23 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
     await release.promise;
   });
   const client = await f.start();
-  client.a.sessions[0]!.session.reportFamiliar = async (action) => {
-    if (action.kind === 'familiar-update') {
-      client.a.sessions[0]!.options.onEvent({
-        type: 'subagent',
-        subagent: {
-          id: 'review',
-          name: 'Claude review',
-          kind: '',
-          ...action.progress,
-        },
-      });
-      return { kind: 'familiar-updated' };
-    }
-    return { kind: 'familiar-registered' };
+  client.a.sessions[0]!.session.familiar = {
+    runtime: 'claude',
+    report: async (action) => {
+      if (action.kind === 'familiar-update') {
+        client.a.sessions[0]!.options.onEvent({
+          type: 'subagent',
+          subagent: {
+            id: 'review',
+            name: 'Claude review',
+            kind: '',
+            ...action.progress,
+          },
+        });
+        return { kind: 'familiar-updated' };
+      }
+      return { kind: 'familiar-registered' };
+    },
   };
   const binding = client.coordination.familiarBinding();
   const claiming = client.claim('https://github.com/acme/widget/issues/42');
@@ -122,9 +125,12 @@ test('only a supporting session receives familiar instructions and the exact use
   const prompt = 'Review this\n  exact user input.';
   await client.coordinator.send(prompt);
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
-  client.a.sessions[0]!.session.reportFamiliar = async () => ({
-    kind: 'familiar-registered',
-  });
+  client.a.sessions[0]!.session.familiar = {
+    runtime: 'claude',
+    report: async () => ({
+      kind: 'familiar-registered',
+    }),
+  };
   await client.coordinator.send(prompt);
   const input = client.a.inputs.at(-1)!;
   assert.equal(input.prompt, prompt);

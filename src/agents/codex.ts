@@ -613,14 +613,17 @@ class CodexSession implements AgentSession {
     await turn.finished.promise;
   }
 
-  async reportFamiliar(
-    action: FamiliarAction,
-    deadline: number,
-  ): Promise<FamiliarOutcome> {
-    if (this.closing || this.closed)
-      throw new Error('The native session is closing.');
-    return this.commands.report(action, deadline);
-  }
+  readonly familiar = {
+    runtime: 'claude' as const,
+    report: async (
+      action: FamiliarAction,
+      deadline: number,
+    ): Promise<FamiliarOutcome> => {
+      if (this.closing || this.closed)
+        throw new Error('The native session is closing.');
+      return this.commands.report(action, deadline);
+    },
+  };
 
   respond(id: string, response: UserResponse): void {
     const request = this.requests.get(id);

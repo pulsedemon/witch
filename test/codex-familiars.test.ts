@@ -55,7 +55,7 @@ async function reportedFixture() {
     params: { ...params, threadId, itemId: item.id, delta },
   });
   const register = () =>
-    session.reportFamiliar!(
+    session.familiar!.report(
       { kind: 'familiar-register', run, name: 'plan review' },
       Date.now() + 5000,
     );
@@ -109,7 +109,7 @@ test('a split registration marker and a live native handle are both required bef
     assert.equal(start.name, 'plan review');
     assert.equal(start.runtime, 'claude');
     assert.equal(start.model, undefined);
-    await f.session.reportFamiliar!(
+    await f.session.familiar!.report(
       {
         kind: 'familiar-update',
         run: f.run,
@@ -123,7 +123,7 @@ test('a split registration marker and a live native handle are both required bef
       },
       Date.now() + 5000,
     );
-    await f.session.reportFamiliar!(
+    await f.session.familiar!.report(
       {
         kind: 'familiar-update',
         run: f.run,
@@ -135,7 +135,7 @@ test('a split registration marker and a live native handle are both required bef
     assert.equal(f.familiarEvents().length, 2);
     assert.equal(f.familiarEvents().at(-1)!.tools, 2);
     assert.equal(start.model, undefined);
-    await f.session.reportFamiliar!(
+    await f.session.familiar!.report(
       {
         kind: 'familiar-update',
         run: f.run,
@@ -150,7 +150,7 @@ test('a split registration marker and a live native handle are both required bef
       Date.now() + 5000,
     );
     await assert.rejects(
-      f.session.reportFamiliar!(
+      f.session.familiar!.report(
         {
           kind: 'familiar-update',
           run: f.run,
@@ -228,7 +228,7 @@ test('a registration accepted during native background listing cannot become a d
         ),
     );
     await f.session.models();
-    await f.session.reportFamiliar!(
+    await f.session.familiar!.report(
       {
         kind: 'familiar-update',
         run: f.run,
@@ -257,7 +257,7 @@ test('stale markers and expired admission cannot register, and another command c
     assert.equal((await f.register()).kind, 'familiar-pending');
     await f.emit(f.output(`${'x'.repeat(5000)}\n${f.marker}`));
     await assert.rejects(
-      f.session.reportFamiliar!(
+      f.session.familiar!.report(
         { kind: 'familiar-register', run: f.run, name: 'plan review' },
         Date.now() - 1,
       ),

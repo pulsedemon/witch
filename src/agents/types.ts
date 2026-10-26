@@ -178,10 +178,10 @@ export interface TurnResult {
 }
 
 export interface AgentSession {
-  reportFamiliar?(
-    action: FamiliarAction,
-    deadline: number,
-  ): Promise<FamiliarOutcome>;
+  familiar?: {
+    runtime: 'claude' | 'codex';
+    report(action: FamiliarAction, deadline: number): Promise<FamiliarOutcome>;
+  };
   readonly info: SessionInfo;
   readonly usage: Usage;
   readonly closed: boolean;

@@ -175,9 +175,11 @@ export class Coordinator {
       })),
     };
     this.coordination?.setFamiliarHandler(async (action, deadline) => {
-      if (!this.session?.reportFamiliar)
-        throw new Error('The active runtime cannot report Claude familiars.');
-      return this.session.reportFamiliar(action, deadline);
+      if (!this.session?.familiar)
+        throw new Error(
+          'The active runtime cannot report delegated familiars.',
+        );
+      return this.session.familiar.report(action, deadline);
     });
     this.publish({});
     watchMergeNotices(
@@ -901,9 +903,10 @@ export class Coordinator {
           coordination,
           pendingContext,
           command,
-          familiarCommand: session.reportFamiliar
-            ? this.coordination?.familiarCommand()
-            : undefined,
+          familiarCommand:
+            session.familiar?.runtime === 'claude'
+              ? this.coordination?.familiarCommand()
+              : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),
         });
       let input = await context();
