@@ -109,22 +109,25 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
 });
 
 for (const joins of ['later', 'in the read that opens the app']) {
-  test(`a marked process that joins an opened app's group ${joins} brings back neither the app nor its terminals`, async () => {
+  test(`a marked process that joins the group of an opened app or its terminal ${joins} brings back neither the app nor its terminals`, async () => {
     const app = orphanRow(100801);
     const terminal = { ...orphanRow(100802), ppid: app.pid };
-    const stray = { ...orphanRow(100803), pgid: app.pid };
+    const strays = [
+      { ...orphanRow(100803), pgid: app.pid },
+      { ...orphanRow(100804), pgid: terminal.pid },
+    ];
     const tables = [
       [],
-      joins === 'later' ? [app, terminal] : [app, terminal, stray],
-      [app, terminal, stray],
-      [app, terminal, stray],
+      joins === 'later' ? [app, terminal] : [app, terminal, ...strays],
+      [app, terminal, ...strays],
+      [app, terminal, ...strays],
     ];
     const jobs = new JobWatch({
       directory: await scratch('witch-jobs-'),
       interval: 60_000,
       processes: async () => tables.shift()!,
       describe: async (pids) =>
-        [app, terminal, stray]
+        [app, terminal, ...strays]
           .filter(({ pid }) => pids.includes(pid))
           .map(({ pid, pgid }) => ({
             pid,
@@ -137,7 +140,7 @@ for (const joins of ['later', 'in the read that opens the app']) {
       executables: async () =>
         new Map([
           [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
-          [stray.pid, '/usr/local/bin/node'],
+          ...strays.map(({ pid }) => [pid, '/usr/local/bin/node'] as const),
         ]),
     });
     try {
