@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { CoordinationStore } from '../../src/persistence/coordination.js';
+import { StateStore } from '../../src/persistence/store.js';
 import { identifyProcess } from '../../src/persistence/process.js';
 
 const [root, conversation] = process.argv.slice(2);
-const store = await CoordinationStore.open(root!);
+const store = await CoordinationStore.open(await StateStore.open(root!));
 const scope = {
   owner: { conversation: conversation!, project: 'project-p' },
   activation: randomUUID(),

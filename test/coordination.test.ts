@@ -7,6 +7,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { TaskStatus } from '../src/agents/types.js';
 import { parseStatus } from '../src/core/repository.js';
 import { presenceStatus } from '../src/core/coordination-state.js';
 import type {
@@ -53,8 +54,12 @@ test('discovery batches conversation ownership and keeps only open peers', async
     vi.restoreAllMocks();
     syncBuiltinESMExports();
   }
-  assert.equal(batch.mock.calls.length, 1);
-  const call = batch.mock.results[0]!;
+  // the ledger's reconcile shares this store and asks about no conversations here
+  const lookups = batch.mock.calls.flatMap(([ids], index) =>
+    ids === undefined || ids.length ? [batch.mock.results[index]!] : [],
+  );
+  assert.equal(lookups.length, 1);
+  const call = lookups[0]!;
   assert.deepEqual(
     reading.mock.calls
       .map(([path]) => path)
@@ -538,6 +543,56 @@ test('waiting and idle background work stay visible and retain ownership through
   a.a.interruptNext = true;
   await a.coordinator.send('interrupted turn');
   assert.equal(await ledger(), before);
+});
+
+test('task counts, pentacle and release follow running work', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, registry } = await coordinationFixture(cleanup);
+  const a = await start(),
+    b = await start('B');
+  assert.equal((await a.claim()).kind, 'claimed');
+  const claims = await registry.claims();
+  const emit = a.a.sessions.at(-1)!.options.onEvent;
+  const familiar = (id: string, status: TaskStatus) =>
+    emit({
+      type: 'subagent',
+      subagent: { id, name: id, kind: 'review', status },
+    });
+  const brew = (id: string, status: TaskStatus) =>
+    emit({
+      type: 'command',
+      command: { id, description: id, status },
+    });
+
+  familiar('first', 'running');
+  familiar('second', 'running');
+  for (const status of ['completed', 'failed', 'stopped'] as const) {
+    familiar(status, 'running');
+    familiar(status, status);
+  }
+  for (const id of ['one', 'two', 'three']) brew(id, 'running');
+  await until('mixed activity counts', async () => {
+    const { familiars, brews } = (await b.query()).peers[0]!.presence;
+    return familiars === 2 && brews === 3;
+  });
+  assert.equal(a.coordinator.pentacle.active, true);
+  await assert.rejects(a.coordinator.releaseTask(), /familiars and brews/);
+  assert.deepEqual(await registry.claims(), claims);
+
+  familiar('first', 'completed');
+  familiar('second', 'stopped');
+  for (const id of ['one', 'two', 'three']) brew(id, 'completed');
+  await until('finished activity counts', async () => {
+    const { familiars, brews } = (await b.query()).peers[0]!.presence;
+    return familiars === 0 && brews === 0;
+  });
+  assert.deepEqual(
+    a.coordinator.snapshot.subagents.map(({ status }) => status),
+    ['completed', 'stopped', 'completed', 'failed', 'stopped'],
+  );
+  assert.equal(a.coordinator.pentacle.active, false);
+  await a.coordinator.releaseTask();
+  assert.deepEqual(await registry.claims(), []);
 });
 
 test('a live legacy owner blocks new work until its lock closes, and a reused identity is never treated as registered', async (t) => {

@@ -25,6 +25,7 @@ test('a work tree lists tracked and untracked files under the cwd, without ignor
     'tracked.txt': '',
     'gone.txt': '',
     'sub/inner.txt': '',
+    'two words.txt': '',
   });
   await git('add', '.');
   await git(
@@ -43,6 +44,7 @@ test('a work tree lists tracked and untracked files under the cwd, without ignor
     'new.txt',
     'sub/inner.txt',
     'tracked.txt',
+    'two words.txt',
   ]);
   assert.deepEqual(await listFiles(join(root, 'sub')), ['inner.txt']);
   assert.equal((await listFiles(root, 2)).length, 2);

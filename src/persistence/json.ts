@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { open, rename } from 'node:fs/promises';
+import { open, readFile, rename } from 'node:fs/promises';
+import type { ZodType } from 'zod';
 
 /** readers see the complete old or new value, and private files never inherit permissive defaults. */
 export async function writeJson(file: string, value: unknown): Promise<void> {
@@ -13,4 +14,16 @@ export async function writeJson(file: string, value: unknown): Promise<void> {
     await handle.close();
   }
   await rename(temporary, file);
+}
+
+/** undefined when the file is missing; unreadable, malformed or schema-invalid content throws. */
+export async function readJson<T>(
+  file: string,
+  schema: ZodType<T>,
+): Promise<T | undefined> {
+  const text = await readFile(file, 'utf8').catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  });
+  return text === undefined ? undefined : schema.parse(JSON.parse(text));
 }

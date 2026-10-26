@@ -1,16 +1,9 @@
 import fs from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
 import { structuredPatch } from 'diff';
 import { z } from 'zod';
+import { resolveFile } from '../paths.js';
 import type { FileDiff } from './types.js';
 import { wholeFile } from './file-diff.js';
-
-function resolveFile(path: string, cwd: string): string {
-  return path.startsWith('~/')
-    ? resolve(homedir(), path.slice(2))
-    : resolve(cwd, path);
-}
 
 /** what Claude Code's Edit and Write report of the file they changed. */
 const fileResult = z.object({

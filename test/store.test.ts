@@ -683,6 +683,19 @@ test('serialized saves of one record keep the latest after restart', async () =>
   await reopened.close();
 });
 
+test('a save writes the record as it was when called', async () => {
+  const store = await StateStore.open(await scratch('witch-state-'));
+  const files = await store.create(conversation('snapshot'));
+  const record = { ...files.record, title: 'saved' };
+  const saving = files.save(record);
+  record.title = 'changed';
+  await saving;
+  await files.close();
+  const reopened = await store.claim('snapshot');
+  assert.equal(reopened.record.title, 'saved');
+  await reopened.close();
+});
+
 test('display history keeps streamed deltas without duplicating final messages', async () => {
   const store = await StateStore.open(await scratch('witch-history-'));
   const files = await store.create(conversation('streamed'));

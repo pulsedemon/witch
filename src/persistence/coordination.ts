@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -27,9 +27,9 @@ import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
 import type { MergeEvent } from '../core/merge-events.js';
 import type { PullRequest } from '../core/repository.js';
 import { identifyProcesses, sameProcess } from './process.js';
-import { lockedFiles, openLocked } from './lock.js';
-import { writeJson } from './json.js';
-import { StateStore } from './store.js';
+import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
+import { readJson, writeJson } from './json.js';
+import type { StateStore } from './store.js';
 
 const ledgerSchema = z.discriminatedUnion('version', [
   z.object({ version: z.literal(1), claims: z.array(taskClaimSchema) }),
@@ -144,10 +144,10 @@ export class CoordinationStore {
     private readonly store: StateStore,
   ) {}
 
-  static async open(root: string): Promise<CoordinationStore> {
-    const directory = join(root, 'coordination');
+  static async open(store: StateStore): Promise<CoordinationStore> {
+    const directory = join(store.root, 'coordination');
     await mkdir(join(directory, 'sessions'), { recursive: true, mode: 0o700 });
-    return new CoordinationStore(directory, await StateStore.open(root));
+    return new CoordinationStore(directory, store);
   }
 
   async presences(): Promise<SessionPresence[]> {
@@ -155,27 +155,22 @@ export class CoordinationStore {
     const result: SessionPresence[] = [];
     for (const name of await readdir(directory)) {
       if (!name.endsWith('.json')) continue;
-      const text = await readFile(join(directory, name), 'utf8').catch(
-        (error: unknown) => {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-          throw error;
-        },
+      const presence = await readJson(
+        join(directory, name),
+        sessionPresenceSchema,
       );
-      if (text !== undefined)
-        result.push(sessionPresenceSchema.parse(JSON.parse(text)));
+      if (presence) result.push(presence);
     }
     return result;
   }
 
   private async readMerges(): Promise<MergeEvent[]> {
-    const text = await readFile(
-      join(this.directory, 'merges.json'),
-      'utf8',
-    ).catch((error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '[]';
-      throw error;
-    });
-    return z.array(mergeEventSchema).parse(JSON.parse(text));
+    return (
+      (await readJson(
+        join(this.directory, 'merges.json'),
+        z.array(mergeEventSchema),
+      )) ?? []
+    );
   }
 
   async mergeEvents(
@@ -235,9 +230,7 @@ export class CoordinationStore {
     );
     return async () => {
       await lock.close();
-      await unlink(file).catch((error: unknown) => {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      });
+      await rm(file, { force: true });
     };
   }
 
@@ -260,14 +253,8 @@ export class CoordinationStore {
     activation: string,
   ): Promise<void> {
     const file = join(this.directory, 'sessions', `${conversation}.json`);
-    try {
-      const presence = sessionPresenceSchema.parse(
-        JSON.parse(await readFile(file, 'utf8')),
-      );
-      if (presence.activation === activation) await unlink(file);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
+    const presence = await readJson(file, sessionPresenceSchema);
+    if (presence?.activation === activation) await rm(file, { force: true });
   }
 
   /** bounded reads notify observers under the reservation lock to preserve read order. */
@@ -439,19 +426,15 @@ export class CoordinationStore {
   }
 
   private async read(): Promise<Ledger> {
-    try {
-      const ledger = ledgerSchema.parse(
-        JSON.parse(await readFile(join(this.directory, 'claims.json'), 'utf8')),
-      );
-      return {
-        claims: ledger.claims,
-        selections: ledger.version === 2 ? ledger.selections : [],
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return { claims: [], selections: [] };
-      throw error;
-    }
+    const ledger = await readJson(
+      join(this.directory, 'claims.json'),
+      ledgerSchema,
+    );
+    if (!ledger) return { claims: [], selections: [] };
+    return {
+      claims: ledger.claims,
+      selections: ledger.version === 2 ? ledger.selections : [],
+    };
   }
 
   private async reconcile(ledger: Ledger): Promise<Ledger> {
@@ -507,16 +490,13 @@ export class CoordinationStore {
   private async lock(deadline: number): Promise<FileHandle> {
     while (true) {
       checkDeadline(deadline);
-      try {
-        return await openLocked(
-          join(this.directory, 'lock'),
-          constants.O_RDWR | constants.O_CREAT | constants.O_NONBLOCK,
-          { mode: 0o600 },
-        );
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
-        await delay(Math.min(25, Math.max(0, deadline - Date.now())));
-      }
+      const lock = await tryOpenLocked(
+        join(this.directory, 'lock'),
+        constants.O_RDWR | constants.O_CREAT,
+        { mode: 0o600 },
+      );
+      if (lock) return lock;
+      await delay(Math.min(25, Math.max(0, deadline - Date.now())));
     }
   }
 }

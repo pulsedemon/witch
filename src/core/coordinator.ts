@@ -35,6 +35,7 @@ import {
 } from './prompts.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
+import { taskActivity } from './coordination-state.js';
 import { cleanUpMerge, peerTurnIn, refreshInstall } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
@@ -68,6 +69,10 @@ export interface TimedSubagent extends Subagent {
 /** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
 function noteName(path: string): string {
   return printable(path).replace(/[\\[\]]/g, '\\$&');
+}
+
+function memoryAttribution(conversation: string, turn: string): string {
+  return `conversation: ${conversation}\nturn: ${turn}`;
 }
 
 class RestartRequired extends Error {}
@@ -651,7 +656,7 @@ export class Coordinator {
               : (origin?.agent ?? 'manual');
           if (decision === 'accept')
             await workspace.commit(
-              `chore(memory): recover ${actor} changes\n\nconversation: ${origin ? this.current().id : 'manual'}\nturn: ${origin?.id ?? 'manual'}`,
+              `chore(memory): recover ${actor} changes\n\n${memoryAttribution(origin ? this.current().id : 'manual', origin?.id ?? 'manual')}`,
             );
           else if (decision === 'discard') await workspace.discardPending();
           else throw new Error('Accept these memory changes or discard them.');
@@ -1008,7 +1013,7 @@ export class Coordinator {
     await this.files!.flush();
     if (result.status === 'completed') {
       await workspace.commit(
-        `chore(memory): save ${activity.agent} notes\n\nconversation: ${conversation.id}\nturn: ${activity.id}`,
+        `chore(memory): save ${activity.agent} notes\n\n${memoryAttribution(conversation.id, activity.id)}`,
       );
       delete conversation.activity;
     } else {
@@ -1476,9 +1481,7 @@ export class Coordinator {
     this.snapshot = { ...this.snapshot, ...update };
     this.pentacle.set(
       localActivity,
-      agentWorking(this.snapshot.phase) ||
-        this.snapshot.subagents.some(({ status }) => status === 'running') ||
-        this.snapshot.backgroundCommands.length > 0,
+      agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running,
     );
     this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();

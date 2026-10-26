@@ -5,9 +5,10 @@ import {
   ClaimConflict,
   CoordinationStore,
 } from '../../src/persistence/coordination.js';
+import { StateStore } from '../../src/persistence/store.js';
 
 const [root, conversation] = process.argv.slice(2);
-const store = await CoordinationStore.open(root!);
+const store = await CoordinationStore.open(await StateStore.open(root!));
 const identity = (await identifyProcess(process.pid))!;
 setTimeout(() => process.exit(1), 30_000);
 process.once('message', () => {

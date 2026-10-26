@@ -10,6 +10,7 @@ import { compiledCli } from './fixtures/compiled-cli.js';
 import { scratch } from './fixtures/scratch.js';
 import { ControlHost } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
+import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { controlPrefix } from '../src/cli-control.js';
 
@@ -88,7 +89,7 @@ test('headless controls preserve quoted paths, JSON, errors and conflicts withou
   const root = await scratch('witch-cli-control-');
   const directory = join(root, "owner's control files");
   const binding = { directory, conversation: 'a', activation: randomUUID() };
-  const store = await CoordinationStore.open(root);
+  const store = await CoordinationStore.open(await StateStore.open(root));
   const occupied = await store.claim(
     { conversation: 'b', project: 'project-p' },
     { reference: 'task:occupied', summary: 'Other work' },
@@ -202,7 +203,7 @@ test('claim warnings survive the control transport in JSON and plain output with
     conversation: 'a',
     activation: randomUUID(),
   };
-  const registry = await CoordinationStore.open(root);
+  const registry = await CoordinationStore.open(await StateStore.open(root));
   const failures: unknown[] = [];
   const warning = 'GitHub assignment failed: permission denied';
   const host = await ControlHost.open(

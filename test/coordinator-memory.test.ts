@@ -21,9 +21,28 @@ import { passThrough } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
 
 test('a fresh conversation receives committed memory without a handoff', async () => {
-  const { coordinator, a, b } = await fixture();
+  const { coordinator, a, b, root, memory, note } = await fixture();
+  const gate = new TurnGate();
   try {
-    await coordinator.send('remember-port');
+    a.gate = gate;
+    const sending = coordinator.send('remember-port');
+    await within(gate.entered, 3000, 'the memory-writing turn');
+    const id = coordinator.snapshot.conversation!.id;
+    const origin = (await readRecord(root, id)).activity!;
+    gate.open();
+    await sending;
+    const [saved] = await memory.history(main, await note());
+    assert.equal(
+      (
+        await memory.git(memory.root, [
+          'log',
+          '-1',
+          '--format=%B',
+          saved!.revision,
+        ])
+      ).trimEnd(),
+      `chore(memory): save a notes\n\nconversation: ${id}\nturn: ${origin.id}`,
+    );
     await coordinator.newConversation('b');
     await coordinator.send('Which port should this project use?');
     assert.match(b.inputs.at(-1)!.context!, /Use port 4567/);
@@ -39,23 +58,34 @@ test('a fresh conversation receives committed memory without a handoff', async (
     assert.match(b.inputs.at(-1)!.context!, /Uncertain use delays cleanup/);
     assert.equal(a.inputs.length, 1);
   } finally {
+    gate.open();
     await coordinator.close();
   }
 });
 
 test('unfinished memory holds a prompt until recovery, which preserves the original attribution', async () => {
-  const { coordinator, memory, a, workspace, note } = await fixture();
+  const { coordinator, memory, a, workspace, note, root } = await fixture();
   try {
     a.interruptNext = true;
     await coordinator.send('remember-port');
     assert.equal(coordinator.snapshot.phase, 'recovery');
+    const id = coordinator.snapshot.conversation!.id;
+    const origin = (await readRecord(root, id)).activity!;
     await coordinator.send('unrelated task');
     assert.deepEqual(coordinator.snapshot.queue, ['unrelated task']);
     assert.equal(a.inputs.length, 1);
     await coordinator.recoverMemory('accept');
+    const [recovered] = await memory.history(main, await note());
     assert.equal(
-      (await memory.history(main, await note()))[0]!.subject,
-      'chore(memory): recover a changes',
+      (
+        await memory.git(memory.root, [
+          'log',
+          '-1',
+          '--format=%B',
+          recovered!.revision,
+        ])
+      ).trimEnd(),
+      `chore(memory): recover a changes\n\nconversation: ${id}\nturn: ${origin.id}`,
     );
     assert.equal(await workspace().isDirty(), false);
     await until(
@@ -65,6 +95,38 @@ test('unfinished memory holds a prompt until recovery, which preserves the origi
     assert.equal(a.inputs[1]!.prompt, 'unrelated task');
   } finally {
     await coordinator.close();
+  }
+});
+
+test('memory recovery without recorded activity uses manual attribution', async () => {
+  const f = await fixture();
+  let resumed: Coordinator | undefined;
+  try {
+    await f.coordinator.send('Prepare workspace');
+    const id = f.coordinator.snapshot.conversation!.id;
+    await f.coordinator.close();
+    assert.equal((await readRecord(f.root, id)).activity, undefined);
+    const note = await f.note();
+    await writeFile(join(f.workspace().root, note), 'Manual notes.');
+    resumed = await f.reopen();
+    assert.equal(resumed.snapshot.recovery?.kind, 'pending');
+    await resumed.recoverMemory('accept');
+    assert.equal(await f.memory.read(main, note), 'Manual notes.');
+    const [recovered] = await f.memory.history(main, note);
+    assert.equal(
+      (
+        await f.memory.git(f.memory.root, [
+          'log',
+          '-1',
+          '--format=%B',
+          recovered!.revision,
+        ])
+      ).trimEnd(),
+      'chore(memory): recover manual changes\n\nconversation: manual\nturn: manual',
+    );
+  } finally {
+    await resumed?.close();
+    await f.coordinator.close();
   }
 });
 
@@ -751,25 +813,25 @@ for (const action of ['interrupt', 'close'] as const) {
         { adapter: a, executable: 'a' },
       ]);
       try {
-        assert.equal(
-          (await readRecord(root, id)).activity?.kind,
-          'memory-edit',
-        );
+        const origin = (await readRecord(root, id)).activity;
+        assert.ok(origin);
+        assert.equal(origin.kind, 'memory-edit');
         await recovered.initialize(project, { continue: true });
         assert.equal(recovered.snapshot.conversation!.id, id);
         assert.equal(recovered.snapshot.phase, 'recovery');
         assert.equal(recovered.snapshot.error, undefined);
         await recovered.recoverMemory('accept');
         const [latest] = await memory.history(main, await note());
-        assert.match(latest!.subject, /recover manual changes/);
-        assert.match(
-          await memory.git(memory.root, [
-            'log',
-            '-1',
-            '--format=%b',
-            latest!.revision,
-          ]),
-          new RegExp(`conversation: ${id}`),
+        assert.equal(
+          (
+            await memory.git(memory.root, [
+              'log',
+              '-1',
+              '--format=%B',
+              latest!.revision,
+            ])
+          ).trimEnd(),
+          `chore(memory): recover manual changes\n\nconversation: ${id}\nturn: ${origin.id}`,
         );
       } finally {
         await recovered.close();
