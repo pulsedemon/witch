@@ -28,7 +28,7 @@ Use `/compact` while idle to compact the current native conversation. Automatic 
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 
-Explicit Claude reviews launched from Codex use the [familiar reporting path](docs/rules.md#native-adapters-and-execution), with native identity, activity and a saved report.
+Codex and Claude can delegate work to each other through the [familiar reporting path](docs/rules.md#native-adapters-and-execution), with native identity, activity and a saved report.
 
 For a moved project directory, use the directory-recovery commands in `witch --help` from its replacement directory. Preview first; applying recovery requires every Witch using that state directory to be closed and retains the original files in a backup.
 
@@ -93,4 +93,4 @@ python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
 
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
-Tested native versions: Codex 0.162.1 and Claude Code 2.1.296. Dependency versions are owned by [package.json](package.json) and its lockfile. Codex settings updates, Claude idle events and Claude's usage report use experimental native interfaces; rerun protocol and live integration checks when upgrading either CLI.
+Tested native versions: Codex 0.162.1 and Claude Code 2.1.299. Dependency versions are owned by [package.json](package.json) and its lockfile. Codex settings updates, Claude idle events and Claude's usage report use experimental native interfaces; rerun protocol and live integration checks when upgrading either CLI.

@@ -13,6 +13,8 @@ import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
 import { ClaudeUsage } from './claude-usage.js';
+import { ClaudeCommands } from './claude-commands.js';
+import type { ClaudeTaskControl } from './claude-commands.js';
 import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
 import { proposedDiff, reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
@@ -22,7 +24,6 @@ import { bashRecord, runShell } from './user-shell.js';
 import type {
   AgentAdapter,
   AgentSession,
-  BackgroundCommand,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -230,7 +231,7 @@ class ClaudeSession implements AgentSession {
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
-  private readonly backgroundCommands = new Map<string, BackgroundCommand>();
+  private readonly commands: ClaudeCommands;
   /** the background workflows still running. */
   private readonly workflows = new Set<string>();
   /** the task ids the last live set listed. a foreground familiar is never listed, so only a task listed before can end by leaving it. */
@@ -388,6 +389,13 @@ class ClaudeSession implements AgentSession {
         },
       },
     });
+    this.commands = new ClaudeCommands(
+      this.query as Query & ClaudeTaskControl,
+      options.familiarBinding,
+      () => this.info.id,
+      (id) => this.subagents.has(id),
+      options.onEvent,
+    );
     this.usageReader = new ClaudeUsage(
       options,
       start,
@@ -633,8 +641,17 @@ class ClaudeSession implements AgentSession {
   }
 
   respond(id: string, response: UserResponse): void {
+    if (this.commands.respond(id, response)) return;
     this.requests.get(id)?.resolve(response);
   }
+
+  readonly familiar = {
+    runtime: 'codex' as const,
+    report: (
+      action: Parameters<ClaudeCommands['report']>[0],
+      deadline: number,
+    ) => this.commands.report(action, deadline),
+  };
 
   async interrupt(): Promise<void> {
     this.command?.controller.abort();
@@ -692,14 +709,22 @@ class ClaudeSession implements AgentSession {
     this.closed = true;
     const usageClosed = this.usageReader.close();
     void usageClosed.catch(() => {});
-    this.input.close();
-    this.query.close();
+    let cleanupError: unknown;
+    try {
+      await this.commands.close();
+    } catch (error) {
+      cleanupError = error;
+    } finally {
+      this.input.close();
+      this.query.close();
+    }
     await this.reading;
     await this.child?.closed;
     await command?.finished;
     await usageClosed;
     this.options.signal?.removeEventListener('abort', this.cancelConnection);
     await this.options.onProcess(undefined);
+    if (cleanupError) throw cleanupError;
   }
 
   takeUnreadContext(): string[] {
@@ -775,6 +800,7 @@ class ClaudeSession implements AgentSession {
       await this.end(errorMessage(failure));
     } finally {
       this.closed = true;
+      this.commands.stop();
       await this.usageReader.close().catch(() => {});
       for (const request of this.requests.values())
         request.resolve({ decision: 'cancel' });
@@ -783,6 +809,7 @@ class ClaudeSession implements AgentSession {
   }
 
   private receive(message: SDKMessage): void {
+    this.commands.receive(message);
     const type: string = message.type;
     if (type === 'command_lifecycle') {
       const lifecycle = commandLifecycle.safeParse(message);
@@ -879,31 +906,13 @@ class ClaudeSession implements AgentSession {
           const subagent = this.subagents.get(id);
           if (subagent?.status === 'running')
             this.subagent({ ...subagent, status: 'stopped' });
-          const command = this.backgroundCommands.get(id);
-          if (command?.status === 'running')
-            this.backgroundCommand({ ...command, status: 'stopped' });
         }
         this.listed = listed;
-        // the live set lists a shell once it runs in the background, however it got there, and never a foreground one
-        for (const task of message.tasks)
-          if (
-            task.task_type === 'local_bash' &&
-            !this.backgroundCommands.has(task.task_id)
-          )
-            this.backgroundCommand({
-              id: task.task_id,
-              description: task.description,
-              status: 'running',
-            });
       } else if (message.subtype === 'task_notification') {
         this.workflows.delete(message.task_id);
         const subagent = this.subagents.get(message.task_id);
         if (subagent && !this.late(message))
           this.subagent({ ...subagent, status: message.status });
-        // a shell joins the live set before its notification, so the notification finds it listed here
-        const command = this.backgroundCommands.get(message.task_id);
-        if (command)
-          this.backgroundCommand({ ...command, status: message.status });
       }
     } else if (
       message.type === 'stream_event' &&
@@ -1058,11 +1067,6 @@ class ClaudeSession implements AgentSession {
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
     this.options.onEvent({ type: 'subagent', subagent });
-  }
-
-  private backgroundCommand(command: BackgroundCommand): void {
-    this.backgroundCommands.set(command.id, command);
-    this.options.onEvent({ type: 'command', command });
   }
 
   /** run ids sort in the order the runs opened, so a frame naming an earlier run is late. */

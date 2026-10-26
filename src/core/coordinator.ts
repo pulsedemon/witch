@@ -32,6 +32,7 @@ import {
   skillCall,
   ranCommand,
   nativePrompt,
+  questionReply,
 } from './prompts.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
@@ -175,9 +176,11 @@ export class Coordinator {
       })),
     };
     this.coordination?.setFamiliarHandler(async (action, deadline) => {
-      if (!this.session?.reportFamiliar)
-        throw new Error('The active runtime cannot report Claude familiars.');
-      return this.session.reportFamiliar(action, deadline);
+      if (!this.session?.familiar)
+        throw new Error(
+          'The active runtime cannot report delegated familiars.',
+        );
+      return this.session.familiar.report(action, deadline);
     });
     this.publish({});
     watchMergeNotices(
@@ -620,12 +623,7 @@ export class Coordinator {
     else this.session?.respond(id, response);
     // the request view closes on answering, so the transcript keeps what was asked and chosen
     if (questions && response.decision === 'accept') {
-      const text = questions
-        .map(
-          ({ id, title, secret }) =>
-            `**${title}**\n→ ${secret ? '(hidden)' : (response.answers?.[id] ?? []).join(', ')}`,
-        )
-        .join('\n\n');
+      const text = questionReply(questions, response);
       if (replyAsPrompt) await this.send(text);
       else
         this.display({
@@ -901,9 +899,13 @@ export class Coordinator {
           coordination,
           pendingContext,
           command,
-          familiarCommand: session.reportFamiliar
-            ? this.coordination?.familiarCommand()
-            : undefined,
+          familiarCommand:
+            session.familiar && this.coordination
+              ? {
+                  command: this.coordination.familiarCommand(),
+                  runtime: session.familiar.runtime,
+                }
+              : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),
         });
       let input = await context();

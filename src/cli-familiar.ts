@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { ClaudeReview } from './agents/claude-review.js';
+import { ClaudeTask } from './agents/claude-task.js';
 import { familiarMarker } from './agents/familiar-report.js';
 import type { FamiliarProgress } from './agents/familiar-report.js';
 import { errorMessage } from './agents/stderr.js';
@@ -38,7 +38,7 @@ export function claudeArguments(args: readonly string[]): string[] {
 }
 
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
-class FamiliarReports {
+export class FamiliarReports {
   private sequence = 0;
   private pending?: FamiliarProgress;
   private sending?: Promise<void>;
@@ -103,6 +103,40 @@ class FamiliarReports {
   }
 }
 
+export async function registerFamiliar(
+  binding: ControlBinding,
+  run: string,
+  name: string,
+  stopped: () => boolean,
+): Promise<void> {
+  const marker = familiarMarker({
+    version: 1,
+    conversation: binding.conversation,
+    activation: binding.activation,
+    run,
+  });
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    if (stopped()) throw new Error('Familiar stopped before launch.');
+    if (Date.now() >= deadline)
+      throw new Error('Familiar registration timed out.');
+    process.stdout.write(marker);
+    const outcome = await callControl(
+      binding,
+      { kind: 'familiar-register', run, name },
+      deadline,
+    );
+    if (outcome.kind === 'error') throw new Error(outcome.message);
+    if (outcome.kind === 'familiar-registered') break;
+    if (outcome.kind !== 'familiar-pending')
+      throw new Error(
+        `Unexpected familiar registration reply: ${outcome.kind}`,
+      );
+    await delay(100);
+  }
+  if (stopped()) throw new Error('Familiar stopped before launch.');
+}
+
 export async function runClaudeFamiliar(
   binding: ControlBinding,
   name: string,
@@ -137,39 +171,12 @@ export async function runClaudeFamiliar(
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', stop);
   try {
-    const marker = familiarMarker({
-      version: 1,
-      conversation: binding.conversation,
-      activation: binding.activation,
-      run,
-    });
-    const deadline = Date.now() + 10_000;
-    for (;;) {
-      if (stopped)
-        throw new Error(`Claude review stopped before launch (${stopped}).`);
-      if (Date.now() >= deadline)
-        throw new Error('Claude familiar registration timed out.');
-      process.stdout.write(marker);
-      const outcome = await callControl(
-        binding,
-        { kind: 'familiar-register', run, name },
-        deadline,
-      );
-      if (outcome.kind === 'error') throw new Error(outcome.message);
-      if (outcome.kind === 'familiar-registered') break;
-      if (outcome.kind !== 'familiar-pending')
-        throw new Error(
-          `Unexpected familiar registration reply: ${outcome.kind}`,
-        );
-      await delay(100);
-    }
-    if (stopped)
-      throw new Error(`Claude review stopped before launch (${stopped}).`);
+    await registerFamiliar(binding, run, name, () => !!stopped);
     const reports = new FamiliarReports(binding, run, (error) => {
-      review.failed(error.message);
+      task.failed(error.message);
       terminate('SIGTERM');
     });
-    const review = new ClaudeReview(process.cwd(), (progress) =>
+    const task = new ClaudeTask(process.cwd(), (progress) =>
       reports.push(progress),
     );
     child = spawn('claude', argv, {
@@ -181,9 +188,9 @@ export async function runClaudeFamiliar(
     const line = (text: string) => {
       if (!text.trim()) return;
       try {
-        review.message(JSON.parse(text));
+        task.message(JSON.parse(text));
       } catch (error) {
-        review.failed(`Invalid Claude review JSON: ${errorMessage(error)}`);
+        task.failed(`Invalid Claude task JSON: ${errorMessage(error)}`);
       }
     };
     child.stdout!.setEncoding('utf8');
@@ -200,7 +207,7 @@ export async function runClaudeFamiliar(
       }
     });
     child.once('error', (error) =>
-      review.failed(`Claude could not start: ${error.message}`),
+      task.failed(`Claude could not start: ${error.message}`),
     );
     child.once('exit', () => {
       clearTimeout(escalation);
@@ -219,7 +226,7 @@ export async function runClaudeFamiliar(
       child!.once('close', (code, signal) => resolve({ code, signal }));
     });
     clearTimeout(drain);
-    let terminal = review.closed(
+    let terminal = task.closed(
       code,
       stopped ?? (reports.error ? null : signal),
     );
@@ -242,11 +249,11 @@ export async function runClaudeFamiliar(
     try {
       await reports.finish(terminal);
     } catch (error) {
-      review.failed(errorMessage(error));
-      terminal = review.closed(code, stopped ?? null);
+      task.failed(errorMessage(error));
+      terminal = task.closed(code, stopped ?? null);
       await save();
     }
-    process.stdout.write(`${terminal.report ?? ''}\n\nSaved review: ${path}\n`);
+    process.stdout.write(`${terminal.report ?? ''}\n\nSaved report: ${path}\n`);
     return terminal.status === 'completed'
       ? 0
       : terminal.status === 'stopped'
@@ -255,7 +262,7 @@ export async function runClaudeFamiliar(
   } catch (error) {
     const message = errorMessage(error);
     await file.writeFile(message);
-    process.stderr.write(`witch: ${message}\nSaved review: ${path}\n`);
+    process.stderr.write(`witch: ${message}\nSaved report: ${path}\n`);
     return stopped ? 130 : 1;
   } finally {
     clearTimeout(escalation);

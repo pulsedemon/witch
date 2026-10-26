@@ -214,7 +214,7 @@ export class CodexCommands {
         return { kind: 'familiar-pending' };
       }
       const subagent: Subagent = {
-        id: `claude-review/${action.run}`,
+        id: `claude-familiar/${action.run}`,
         run: action.run,
         name: action.name,
         kind: '',
@@ -236,6 +236,8 @@ export class CodexCommands {
     }
     const familiar = entry.familiar;
     if (!familiar) throw new Error('The familiar run has not registered.');
+    if (action.kind !== 'familiar-update')
+      throw new Error('This familiar does not accept native requests.');
     if (action.sequence <= familiar.sequence)
       return { kind: 'familiar-updated' };
     if (entry.done || familiar.subagent.status !== 'running')

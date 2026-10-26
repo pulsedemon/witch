@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { isAbsolute } from 'node:path';
 import type { ControlBinding } from '../persistence/control.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 
@@ -90,51 +92,56 @@ export interface BackgroundCommand {
   status: TaskStatus;
 }
 
-export interface Question {
-  id: string;
-  title: string;
-  options: string[];
-  multiple?: boolean;
-  secret?: boolean;
-}
-
-export interface UserRequest {
-  id: string;
-  kind: 'approval' | 'question' | 'elicitation';
-  title: string;
-  detail: string;
-  diff?: FileDiff[];
-  questions?: Question[];
-  /** the native question already returned; its answer continues through normal prompt delivery. */
-  replyAsPrompt?: boolean;
-  /** the adapter resolves this request explicitly; settling a Witch turn keeps it. */
-  survivesTurn?: boolean;
-  schema?: Record<string, unknown>;
-  url?: string;
-}
-
-export interface UserResponse {
-  decision: 'accept' | 'decline' | 'cancel';
-  answers?: Record<string, string[]>;
-  content?: Record<string, unknown>;
-}
-
 /** a run of lines from a unified diff, each starting with ' ', '+' or '-', numbered on each side from its start. */
-export interface Hunk {
-  oldStart: number;
-  newStart: number;
-  lines: string[];
-}
+const hunkSchema = z.object({
+  oldStart: z.number(),
+  newStart: z.number(),
+  lines: z.array(z.string()),
+});
+export type Hunk = z.infer<typeof hunkSchema>;
 
 /** a file a tool changed. */
-export interface FileDiff {
+const fileDiffSchema = z.object({
   /** absolute. */
-  path: string;
-  kind: 'add' | 'delete' | 'update';
+  path: z.string().refine(isAbsolute, 'File paths must be absolute.'),
+  kind: z.enum(['add', 'delete', 'update']),
   /** where an update moved the file. */
-  movePath?: string;
-  hunks: Hunk[];
-}
+  movePath: z.string().optional(),
+  hunks: z.array(hunkSchema),
+});
+export type FileDiff = z.infer<typeof fileDiffSchema>;
+
+const questionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  options: z.array(z.string()),
+  multiple: z.boolean().optional(),
+  secret: z.boolean().optional(),
+});
+export type Question = z.infer<typeof questionSchema>;
+
+export const userRequestSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['approval', 'question', 'elicitation']),
+  title: z.string(),
+  detail: z.string(),
+  diff: z.array(fileDiffSchema).optional(),
+  questions: z.array(questionSchema).optional(),
+  /** the native question already returned; its answer continues through normal prompt delivery. */
+  replyAsPrompt: z.boolean().optional(),
+  /** the adapter resolves this request explicitly; settling a Witch turn keeps it. */
+  survivesTurn: z.boolean().optional(),
+  schema: z.record(z.string(), z.unknown()).optional(),
+  url: z.string().optional(),
+});
+export type UserRequest = z.infer<typeof userRequestSchema>;
+
+export const userResponseSchema = z.object({
+  decision: z.enum(['accept', 'decline', 'cancel']),
+  answers: z.record(z.string(), z.array(z.string())).optional(),
+  content: z.record(z.string(), z.unknown()).optional(),
+});
+export type UserResponse = z.infer<typeof userResponseSchema>;
 
 export type AgentEvent =
   | { type: 'text'; id: string; text: string; replace?: boolean }
@@ -178,10 +185,10 @@ export interface TurnResult {
 }
 
 export interface AgentSession {
-  reportFamiliar?(
-    action: FamiliarAction,
-    deadline: number,
-  ): Promise<FamiliarOutcome>;
+  familiar?: {
+    runtime: 'claude' | 'codex';
+    report(action: FamiliarAction, deadline: number): Promise<FamiliarOutcome>;
+  };
   readonly info: SessionInfo;
   readonly usage: Usage;
   readonly closed: boolean;

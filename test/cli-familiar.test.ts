@@ -32,7 +32,7 @@ async function fixture(
   const root = await scratch('witch-review-');
   await mkdir(join(root, 'bin'));
   await copyFile(
-    fileURLToPath(new URL('./fixtures/claude-review.mjs', import.meta.url)),
+    fileURLToPath(new URL('./fixtures/claude-task.mjs', import.meta.url)),
     join(root, 'bin/claude'),
   );
   await chmod(join(root, 'bin/claude'), 0o700);
@@ -83,8 +83,8 @@ async function fixture(
       env: {
         ...process.env,
         PATH: `${join(root, 'bin')}:${process.env.PATH}`,
-        WITCH_REVIEW_FIXTURE: mode,
-        WITCH_REVIEW_MARK: 'kept',
+        WITCH_FAMILIAR_FIXTURE: mode,
+        WITCH_FAMILIAR_MARK: 'kept',
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     },
@@ -183,7 +183,7 @@ test('the wrapper retries a lost marker, preserves native inputs and saves a ful
     assert.equal(markers[0], markers[1]);
     assert.equal(
       f.output().stdout,
-      `${markers.join('\n')}\n${expected}\n\nSaved review: ${join(f.root, 'report.txt')}\n`,
+      `${markers.join('\n')}\n${expected}\n\nSaved report: ${join(f.root, 'report.txt')}\n`,
     );
     assert.equal(f.output().stderr, 'native stderr\n');
     assert.equal(await identifyProcess(launch.pid), undefined);

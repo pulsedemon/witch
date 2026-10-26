@@ -5,14 +5,14 @@ import process from 'node:process';
 import { clearInterval, setInterval } from 'node:timers';
 import { spawn } from 'node:child_process';
 
-const mode = process.env.WITCH_REVIEW_FIXTURE;
+const mode = process.env.WITCH_FAMILIAR_FIXTURE;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const session_id = 'native-review';
 const launch = {
   pid: process.pid,
   argv: process.argv.slice(2),
   prompt: readFileSync(0, 'utf8'),
-  mark: process.env.WITCH_REVIEW_MARK,
+  mark: process.env.WITCH_FAMILIAR_MARK,
   tmp: process.env.TMPDIR,
 };
 writeFileSync('launched.json', JSON.stringify(launch));
