@@ -8,7 +8,18 @@ import type {
   FamiliarMarker,
   FamiliarOutcome,
 } from './familiar-report.js';
-import type { AgentEvent, Subagent, TaskStatus } from './types.js';
+import type {
+  AgentEvent,
+  Subagent,
+  TaskStatus,
+  UserResponse,
+} from './types.js';
+
+interface Request {
+  id: string;
+  response?: UserResponse;
+  resolved: boolean;
+}
 
 export interface ClaudeTaskControl {
   getTaskOutput(taskId: string): Promise<unknown>;
@@ -24,7 +35,11 @@ interface Command {
   listed: boolean;
   status: TaskStatus;
   marker?: FamiliarMarker;
-  familiar?: { sequence: number; subagent: Subagent };
+  familiar?: {
+    sequence: number;
+    subagent: Subagent;
+    requests: Map<string, Request>;
+  };
 }
 
 const taskOutput = z.object({ output: z.string() });
@@ -149,6 +164,7 @@ export class ClaudeCommands {
     if (entry.status !== 'running') return;
     entry.status = status;
     const familiar = entry.familiar;
+    if (familiar) this.resolveRequests(familiar);
     if (familiar?.subagent.status === 'running') {
       familiar.subagent = {
         ...familiar.subagent,
@@ -219,21 +235,72 @@ export class ClaudeCommands {
           ? { parent: entry.parent }
           : {}),
       };
-      entry.familiar = { sequence: -1, subagent };
+      entry.familiar = { sequence: -1, subagent, requests: new Map() };
       this.emit({ type: 'subagent', subagent });
       this.publish(entry);
       return { kind: 'familiar-registered' };
     }
     const familiar = entry.familiar;
     if (!familiar) throw new Error('The familiar run has not registered.');
+    if (action.kind !== 'familiar-update') {
+      if (entry.status !== 'running' || familiar.subagent.status !== 'running')
+        throw new Error('The familiar run has already ended.');
+      const id =
+        action.kind === 'familiar-request' ? action.request.id : action.id;
+      let request = familiar.requests.get(id);
+      if (action.kind === 'familiar-request-resolved') {
+        if (request) this.resolveRequest(request);
+        return { kind: 'familiar-updated' };
+      }
+      if (!request && action.kind === 'familiar-request') {
+        request = { id: `familiar/${action.run}/${id}`, resolved: false };
+        familiar.requests.set(id, request);
+        this.emit({
+          type: 'request',
+          request: {
+            ...action.request,
+            id: request.id,
+            replyAsPrompt: false,
+            survivesTurn: true,
+          },
+        });
+      }
+      if (!request || request.resolved)
+        throw new Error('The familiar request is not pending.');
+      return request.response
+        ? { kind: 'familiar-response', response: request.response }
+        : { kind: 'familiar-request-pending' };
+    }
     if (action.sequence <= familiar.sequence)
       return { kind: 'familiar-updated' };
     if (entry.status !== 'running' || familiar.subagent.status !== 'running')
       throw new Error('The familiar run has already ended.');
     familiar.sequence = action.sequence;
     familiar.subagent = { ...familiar.subagent, ...action.progress };
+    if (familiar.subagent.status !== 'running') this.resolveRequests(familiar);
     this.emit({ type: 'subagent', subagent: familiar.subagent });
     return { kind: 'familiar-updated' };
+  }
+
+  respond(id: string, response: UserResponse): boolean {
+    for (const entry of this.entries.values())
+      for (const request of entry.familiar?.requests.values() ?? [])
+        if (request.id === id && !request.resolved) {
+          request.response ??= response;
+          return true;
+        }
+    return false;
+  }
+
+  private resolveRequest(request: Request): void {
+    if (request.resolved) return;
+    request.resolved = true;
+    this.emit({ type: 'request-resolved', id: request.id });
+  }
+
+  private resolveRequests(familiar: NonNullable<Command['familiar']>): void {
+    for (const request of familiar.requests.values())
+      this.resolveRequest(request);
   }
 
   private admit(deadline: number): void {

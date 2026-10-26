@@ -641,6 +641,7 @@ class ClaudeSession implements AgentSession {
   }
 
   respond(id: string, response: UserResponse): void {
+    if (this.commands.respond(id, response)) return;
     this.requests.get(id)?.resolve(response);
   }
 
@@ -708,13 +709,13 @@ class ClaudeSession implements AgentSession {
     this.closed = true;
     const usageClosed = this.usageReader.close();
     void usageClosed.catch(() => {});
-    this.input.close();
     let cleanupError: unknown;
     try {
       await this.commands.close();
     } catch (error) {
       cleanupError = error;
     } finally {
+      this.input.close();
       this.query.close();
     }
     await this.reading;

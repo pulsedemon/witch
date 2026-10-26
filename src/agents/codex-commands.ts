@@ -236,6 +236,8 @@ export class CodexCommands {
     }
     const familiar = entry.familiar;
     if (!familiar) throw new Error('The familiar run has not registered.');
+    if (action.kind !== 'familiar-update')
+      throw new Error('This familiar does not accept native requests.');
     if (action.sequence <= familiar.sequence)
       return { kind: 'familiar-updated' };
     if (entry.done || familiar.subagent.status !== 'running')

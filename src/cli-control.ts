@@ -212,6 +212,8 @@ function describe(outcome: ControlOutcome): string {
     case 'familiar-registered':
     case 'familiar-pending':
     case 'familiar-updated':
+    case 'familiar-request-pending':
+    case 'familiar-response':
       return outcome.kind;
     case 'claimed':
       return `${outcome.claim.suggestion ? 'Suggested' : 'Claimed'}: ${oneLine(outcome.claim.summary)}\nClaim id: ${outcome.claim.id}${outcome.warning ? `\nWarning: ${outcome.warning}` : ''}`;

@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { taskStatuses } from './types.js';
+import {
+  taskStatuses,
+  userRequestSchema,
+  userResponseSchema,
+} from './types.js';
 
 export const familiarProgressSchema = z.object({
   status: z.enum(taskStatuses),
@@ -22,13 +26,45 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
     sequence: z.number().int().nonnegative(),
     progress: familiarProgressSchema,
   }),
+  z.object({
+    kind: z.literal('familiar-request'),
+    run: z.string().uuid(),
+    request: userRequestSchema,
+  }),
+  z.object({
+    kind: z.literal('familiar-request-poll'),
+    run: z.string().uuid(),
+    id: z.string(),
+  }),
+  z.object({
+    kind: z.literal('familiar-request-resolved'),
+    run: z.string().uuid(),
+    id: z.string(),
+  }),
 ]);
 export type FamiliarAction = z.infer<typeof familiarActionSchema>;
 
-export const familiarOutcomeSchema = z.object({
-  kind: z.enum(['familiar-registered', 'familiar-pending', 'familiar-updated']),
-});
+export const familiarOutcomeSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.enum([
+      'familiar-registered',
+      'familiar-pending',
+      'familiar-updated',
+      'familiar-request-pending',
+    ]),
+  }),
+  z.object({
+    kind: z.literal('familiar-response'),
+    response: userResponseSchema,
+  }),
+]);
 export type FamiliarOutcome = z.infer<typeof familiarOutcomeSchema>;
+
+export function isFamiliarAction(action: {
+  kind: string;
+}): action is FamiliarAction {
+  return action.kind.startsWith('familiar-');
+}
 
 export const familiarMarkerSchema = z.object({
   version: z.literal(1),

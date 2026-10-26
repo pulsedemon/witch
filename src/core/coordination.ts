@@ -174,10 +174,7 @@ export class SessionCoordination {
         async (request) => {
           coordination.admit(request);
           const { action } = request;
-          if (
-            action.kind !== 'familiar-register' &&
-            action.kind !== 'familiar-update'
-          )
+          if (!isFamiliarAction(action))
             throw new Error('Use the task control mailbox for this action.');
           if (!coordination.familiarHandler)
             throw new Error(
@@ -842,10 +839,7 @@ export class SessionCoordination {
     request: ControlRequest,
     human = false,
   ): Promise<ControlOutcome> {
-    if (
-      request.action.kind === 'familiar-register' ||
-      request.action.kind === 'familiar-update'
-    )
+    if (isFamiliarAction(request.action))
       return Promise.resolve({
         kind: 'error',
         message: 'Use the familiar reporting mailbox for this action.',
@@ -876,10 +870,7 @@ export class SessionCoordination {
     let outcome: ControlOutcome | undefined;
     try {
       const action = request.action;
-      if (
-        action.kind === 'familiar-register' ||
-        action.kind === 'familiar-update'
-      )
+      if (isFamiliarAction(action))
         throw new Error('Use the familiar reporting mailbox for this action.');
       if (action.kind === 'peers') {
         const snapshot = await this.requestSnapshot(active, state);
@@ -1325,3 +1316,4 @@ export class SessionCoordination {
     for (const listener of this.listeners) listener();
   }
 }
+import { isFamiliarAction } from '../agents/familiar-report.js';

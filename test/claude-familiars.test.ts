@@ -176,6 +176,32 @@ test('a Claude background command registers after the parent turn and closes onl
     );
     await emit({ type: 'system', subtype: 'background_tasks_changed', tasks });
     assert.equal(session.replied, false);
+    const request = {
+      id: 'native-approval',
+      kind: 'approval' as const,
+      title: 'Write file',
+      detail: 'native approval',
+    };
+    assert.equal(
+      (
+        await session.familiar!.report(
+          { kind: 'familiar-request', run, request },
+          Date.now() + 5000,
+        )
+      ).kind,
+      'familiar-request-pending',
+    );
+    const pending = events.find((event) => event.type === 'request');
+    assert.ok(pending?.type === 'request');
+    assert.equal(pending.request.survivesTurn, true);
+    session.respond(pending.request.id, { decision: 'decline' });
+    assert.deepEqual(
+      await session.familiar!.report(
+        { kind: 'familiar-request-poll', run, id: request.id },
+        Date.now() + 5000,
+      ),
+      { kind: 'familiar-response', response: { decision: 'decline' } },
+    );
     assert.deepEqual(
       events.flatMap((e) =>
         e.type === 'subagent'
@@ -211,6 +237,107 @@ test('a Claude background command registers after the parent turn and closes onl
   } finally {
     await session.close();
   }
+});
+
+test('native request IDs stay distinct between familiar runs and answers survive retries', async () => {
+  const f = commands();
+  f.start();
+  await f.register();
+  const other = randomUUID();
+  f.start('other');
+  f.outputs.set(
+    'other',
+    familiarMarker({
+      version: 1,
+      conversation: f.binding.conversation,
+      activation: f.binding.activation,
+      run: other,
+    }),
+  );
+  await f.owner.report(
+    { kind: 'familiar-register', run: other, name: 'other' },
+    Date.now() + 5000,
+  );
+  const request = {
+    id: '7',
+    kind: 'question' as const,
+    title: 'Choose',
+    detail: 'question',
+    questions: [
+      {
+        id: 'answer',
+        title: 'Choose',
+        options: ['left', 'right'],
+        multiple: false,
+        secret: true,
+      },
+    ],
+  };
+  for (const run of [f.run, other]) {
+    assert.equal(
+      (
+        await f.owner.report(
+          { kind: 'familiar-request', run, request },
+          Date.now() + 5000,
+        )
+      ).kind,
+      'familiar-request-pending',
+    );
+    await f.owner.report(
+      { kind: 'familiar-request', run, request },
+      Date.now() + 5000,
+    );
+  }
+  const requests = f.events.flatMap((e) =>
+    e.type === 'request' ? [e.request] : [],
+  );
+  assert.equal(requests.length, 2);
+  assert.notEqual(requests[0]!.id, requests[1]!.id);
+  assert.deepEqual(requests[0]!.questions, request.questions);
+  assert.equal(f.owner.respond('7', { decision: 'cancel' }), false);
+  f.owner.respond(requests[1]!.id, {
+    decision: 'accept',
+    answers: { answer: ['right'] },
+  });
+  f.owner.respond(requests[0]!.id, { decision: 'decline' });
+  f.owner.respond(requests[0]!.id, { decision: 'accept' });
+  for (let count = 0; count < 2; count++) {
+    assert.deepEqual(
+      await f.owner.report(
+        { kind: 'familiar-request-poll', run: f.run, id: '7' },
+        Date.now() + 5000,
+      ),
+      { kind: 'familiar-response', response: { decision: 'decline' } },
+    );
+    assert.deepEqual(
+      await f.owner.report(
+        { kind: 'familiar-request-poll', run: other, id: '7' },
+        Date.now() + 5000,
+      ),
+      {
+        kind: 'familiar-response',
+        response: { decision: 'accept', answers: { answer: ['right'] } },
+      },
+    );
+  }
+  await f.owner.report(
+    { kind: 'familiar-request-resolved', run: f.run, id: '7' },
+    Date.now() + 5000,
+  );
+  await f.owner.report(
+    { kind: 'familiar-request-resolved', run: f.run, id: '7' },
+    Date.now() + 5000,
+  );
+  assert.deepEqual(
+    f.events.flatMap((e) => (e.type === 'request-resolved' ? [e.id] : [])),
+    [requests[0]!.id],
+  );
+  await f.owner.close();
+  assert.deepEqual(
+    f.events.flatMap((e) => (e.type === 'request-resolved' ? [e.id] : [])),
+    [requests[0]!.id, requests[1]!.id],
+  );
+  assert.equal(f.owner.respond(requests[1]!.id, { decision: 'cancel' }), false);
 });
 
 test('registration waits for backgrounding and a complete matching marker', async () => {
