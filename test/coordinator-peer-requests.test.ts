@@ -587,16 +587,25 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   assert.equal(b.b.compactions.length, 1);
 });
 
-test('asking from an answer turn is refused', async (t) => {
-  const { a, b, claim } = await owners(t.onTestFinished);
+test('an answer turn reads and answers requests but cannot ask or change claims', async (t) => {
+  const { f, a, b, claim } = await owners(t.onTestFinished);
   const other = await claimed(a, 'a-work');
   const gate = new TurnGate();
   b.a.gate = gate;
-  await ask(a, claim, 'Hold on?');
+  const request = await ask(a, claim, 'Hold on?');
   await refreshed(b);
   await gate.entered;
   assert.equal(b.coordinator.snapshot.answering, true);
   const binding = await b.binding();
+  const peers = await callControl(binding, { kind: 'peers' });
+  assert.equal(peers.kind, 'peers', JSON.stringify(peers));
+  const read = await callControl(binding, {
+    kind: 'peer-request',
+    request: request.id,
+  });
+  assert.equal(read.kind, 'peer-request', JSON.stringify(read));
+  await answer(b, request, 'Mid-turn');
+  assert.equal((await stored(f, request)).answer?.message, 'Mid-turn');
   for (const action of [
     { kind: 'ask', claim: other.id, message: 'Back to you?' },
     { kind: 'claim', input: { reference: 'task:other', summary: 'Other' } },
