@@ -708,6 +708,16 @@ test('answers follow native session receipts', async (t) => {
   assert.equal(restarted.coordination.peerRequests(conversation).length, 2);
   await restarted.coordinator.send('restarted');
   assert.deepEqual(listed(restarted.b.inputs.at(-1)!.context), []);
+  const native = restarted.b.sessions.at(-1)!;
+  native.options.onEvent({
+    type: 'info',
+    info: { ...native.session.info, id: 'replaced' },
+  });
+  await restarted.coordinator.send('replaced');
+  assert.deepEqual(listed(restarted.b.inputs.at(-1)!.context), [
+    first.id,
+    second.id,
+  ]);
 });
 
 test('peer notices stay single across restart', async (t) => {
