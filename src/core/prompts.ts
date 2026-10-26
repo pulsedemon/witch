@@ -44,6 +44,7 @@ export async function nativePrompt({
   coordination,
   pendingContext,
   command,
+  familiarCommand,
   merges = [],
 }: {
   prompt: string;
@@ -56,6 +57,7 @@ export async function nativePrompt({
   coordination?: string;
   pendingContext?: readonly string[];
   command?: string;
+  familiarCommand?: string;
   merges?: readonly MergeEvent[];
 }): Promise<{ prompt: string; context: string; merges: string[] }> {
   const root = workspace.root;
@@ -89,6 +91,11 @@ export async function nativePrompt({
         ]
       : []),
     ...(coordination ? [coordination] : []),
+    ...(familiarCommand
+      ? [
+          `For an explicitly authorized Claude review, launch it as a familiar with this prefix: ${familiarCommand}\nAppend --familiar-claude <task-name> --report-file <new-file-under-task-scratch> -- <native-Claude-arguments>. Use a native exec_command and keep its stdout connected so Witch can register it before Claude starts. Witch supplies --print --verbose --output-format stream-json; omit those from the native arguments. Supply the requested model and authorized native tool/permission settings, including --permission-prompts none for this noninteractive path. Native approval still applies. Supply the review prompt on stdin or as a native argument. The final report is saved to the specified new file; reporting does not survive a Witch restart.`,
+        ]
+      : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),
     ...(pendingContext
       ? [

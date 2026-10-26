@@ -145,6 +145,107 @@ test('the pentacle follows independent activity across sidebar visibility change
 const sidebarRows = (text: string) =>
   text.split('\n').map((line) => line.slice(82).trimEnd());
 
+for (const height of [19, 18, 15])
+  test(`mixed familiar identity rows fit whole entries at height ${height}`, async () => {
+    const { app } = fake({
+      subagents: [
+        {
+          id: 'astra',
+          name: 'astra review',
+          kind: '',
+          status: 'running',
+          startedAt: Date.now(),
+          rows: { start: 'a' },
+          tools: 3,
+          activity: 'Read plan',
+        },
+        {
+          id: 'claude',
+          name: 'opus review',
+          kind: '',
+          runtime: 'claude',
+          model: 'claude-opus-5-5',
+          status: 'running',
+          startedAt: Date.now(),
+          rows: { start: 'b' },
+          tools: 2,
+          activity: 'Read source',
+        },
+      ],
+    });
+    const ui = show(
+      createElement(App, { coordinator: app, onExit: () => {} }),
+      115,
+      height,
+    );
+    try {
+      await until('mixed familiars', () => ui.text().includes('FAMILIARS'));
+      const rows = sidebarRows(ui.text());
+      if (height === 19)
+        assert.deepEqual(
+          [rows[0], rows[1], rows[4], rows[5], rows[7]],
+          [
+            'FAMILIARS',
+            '● ASTRA REVIEW',
+            '● OPUS REVIEW',
+            '  claude · claude-opus-5-5',
+            '  Read source',
+          ],
+        );
+      else if (height === 18)
+        assert.deepEqual(
+          [rows[0], rows[1], rows[2], rows[3], rows[5]],
+          [
+            'FAMILIARS',
+            '+1 MORE',
+            '● OPUS REVIEW',
+            '  claude · claude-opus-5-5',
+            '  Read source',
+          ],
+        );
+      else assert.deepEqual(rows.slice(0, 4), ['FAMILIARS', '+2 MORE', '', '']);
+      assert.equal(
+        rows.slice(-11).filter((row) => /[⠁-⣿]/.test(row)).length,
+        11,
+      );
+    } finally {
+      ui.unmount();
+    }
+  });
+
+test('a long task name does not consume the observed model row and late model identity replaces it', async () => {
+  const subagent = {
+    id: 'reported',
+    name: 'a review task with a name longer than its available row',
+    kind: '',
+    runtime: 'claude',
+    status: 'running' as const,
+    startedAt: Date.now(),
+    rows: { start: 'a' },
+  };
+  const { app, coordinator } = fake({ subagents: [subagent] });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    115,
+    20,
+  );
+  try {
+    await until('runtime', () => sidebarRows(ui.text()).includes('  claude'));
+    coordinator.publish({
+      subagents: [{ ...subagent, model: 'claude-opus-5-5' }],
+    });
+    await until('model', () =>
+      sidebarRows(ui.text()).includes('  claude · claude-opus-5-5'),
+    );
+    assert.equal(
+      sidebarRows(ui.text()).filter((row) => row.includes('●')).length,
+      1,
+    );
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('the sidebar lists only running familiars, depth first under the familiar that started them, each with its time, tool count and latest tool call, one whose parent is not listed as a root, and no heading once none are running', async () => {
   const now = Date.now();
   const subagents: Snapshot['subagents'] = [

@@ -2,6 +2,7 @@ import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from './agents/stderr.js';
+import { claudeArguments } from './cli-familiar.js';
 import { coordinationActionSchema } from './core/coordination-state.js';
 import { callControl, controlBindingSchema } from './persistence/control.js';
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
@@ -10,6 +11,7 @@ import { oneLine } from './ui/links.js';
 import { peerStatus } from './ui/peers.js';
 
 export function parseCommand(args = process.argv.slice(2)) {
+  const separator = args.indexOf('--');
   const parsed = parseArgs({
     args,
     options: {
@@ -31,11 +33,53 @@ export function parseCommand(args = process.argv.slice(2)) {
       recommend: { type: 'string' },
       selection: { type: 'string' },
       json: { type: 'boolean' },
+      'familiar-claude': { type: 'string' },
+      'report-file': { type: 'string' },
     },
     allowPositionals: true,
     strict: true,
   });
   const { values, positionals } = parsed;
+  const reporting =
+    values['familiar-claude'] !== undefined ||
+    values['report-file'] !== undefined;
+  if (reporting) {
+    const allowed = new Set([
+      'control-dir',
+      'control-conversation',
+      'control-activation',
+      'familiar-claude',
+      'report-file',
+    ]);
+    if (
+      Object.keys(values).some((key) => !allowed.has(key)) ||
+      separator < 0 ||
+      positionals.length !== args.length - separator - 1
+    )
+      throw new Error(
+        'Claude familiar mode requires -- before native arguments and cannot include other Witch options or prompts.',
+      );
+    if (!values['familiar-claude']?.trim() || !values['report-file'])
+      throw new Error(
+        'Claude familiar mode requires a task name and --report-file.',
+      );
+    const binding = controlBindingSchema.parse({
+      directory: values['control-dir'] && resolve(values['control-dir']),
+      conversation: values['control-conversation'],
+      activation: values['control-activation'],
+    });
+    claudeArguments(positionals);
+    return {
+      ...parsed,
+      control: undefined,
+      familiar: {
+        binding,
+        name: values['familiar-claude'].trim(),
+        reportFile: resolve(values['report-file']),
+        args: positionals,
+      },
+    };
+  }
   if (values.apply && values['recover-directory'] === undefined)
     throw new Error('--apply requires --recover-directory.');
   if (
@@ -64,7 +108,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     'json',
   ] as const;
   if (!controls.some((name) => values[name] !== undefined))
-    return { ...parsed, control: undefined };
+    return { ...parsed, control: undefined, familiar: undefined };
   const actions = [
     !!values.peers,
     values.claim !== undefined,
@@ -132,7 +176,11 @@ export function parseCommand(args = process.argv.slice(2)) {
               }
             : { kind: 'release', claim: values.release },
   );
-  return { ...parsed, control: { binding, action, json: !!values.json } };
+  return {
+    ...parsed,
+    control: { binding, action, json: !!values.json },
+    familiar: undefined,
+  };
 }
 
 /** source launches need absolute loader and config paths when a tool changes directories. */
@@ -161,6 +209,10 @@ export function controlPrefix(binding: ControlBinding, entry: string): string {
 
 function describe(outcome: ControlOutcome): string {
   switch (outcome.kind) {
+    case 'familiar-registered':
+    case 'familiar-pending':
+    case 'familiar-updated':
+      return outcome.kind;
     case 'claimed':
       return `${outcome.claim.suggestion ? 'Suggested' : 'Claimed'}: ${oneLine(outcome.claim.summary)}\nClaim id: ${outcome.claim.id}${outcome.warning ? `\nWarning: ${outcome.warning}` : ''}`;
     case 'selection':

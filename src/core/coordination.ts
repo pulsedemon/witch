@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import type { AgentSession } from '../agents/types.js';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import {
@@ -96,6 +98,8 @@ export class SessionCoordination {
   private readonly observedMerges = new Set<string>();
   private publishingMerges?: Promise<void>;
   private host!: ControlHost;
+  private familiarHost!: ControlHost;
+  private familiarHandler?: AgentSession['reportFamiliar'];
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;
   private pending?: SessionPresence;
@@ -164,6 +168,29 @@ export class SessionCoordination {
       (request) => coordination.handle(request),
       (error) => coordination.fail('control', error),
     );
+    try {
+      coordination.familiarHost = await ControlHost.open(
+        join(directory, 'familiars'),
+        async (request) => {
+          coordination.admit(request);
+          const { action } = request;
+          if (
+            action.kind !== 'familiar-register' &&
+            action.kind !== 'familiar-update'
+          )
+            throw new Error('Use the task control mailbox for this action.');
+          if (!coordination.familiarHandler)
+            throw new Error(
+              'The active runtime cannot report Claude familiars.',
+            );
+          return coordination.familiarHandler(action, request.deadline);
+        },
+        (error) => coordination.fail('control', error),
+      );
+    } catch (error) {
+      await coordination.host.close();
+      throw error;
+    }
     coordination.timer = setInterval(() => {
       void coordination.maintain();
       void coordination.refresh();
@@ -179,6 +206,18 @@ export class SessionCoordination {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+
+  setFamiliarHandler(handler: AgentSession['reportFamiliar']): void {
+    this.familiarHandler = handler;
+  }
+
+  familiarBinding(): ControlBinding {
+    return { ...this.admit().binding, directory: this.familiarHost.directory };
+  }
+
+  familiarCommand(): string {
+    return this.prefix(this.familiarBinding());
+  }
 
   async activate(
     conversation: Conversation,
@@ -252,6 +291,7 @@ export class SessionCoordination {
     if (this.active) this.active.accepting = false;
     await this.operations;
     await this.host.drain();
+    await this.familiarHost.drain();
   }
 
   async deactivate(): Promise<void> {
@@ -560,7 +600,7 @@ export class SessionCoordination {
           await this.releaseConversation(this.state.conversation.id);
       }
     } finally {
-      await this.host.close();
+      await Promise.all([this.host.close(), this.familiarHost.close()]);
       await Promise.all([
         this.refreshing?.promise,
         this.refreshingMerges?.promise,
@@ -800,6 +840,14 @@ export class SessionCoordination {
     request: ControlRequest,
     human = false,
   ): Promise<ControlOutcome> {
+    if (
+      request.action.kind === 'familiar-register' ||
+      request.action.kind === 'familiar-update'
+    )
+      return Promise.resolve({
+        kind: 'error',
+        message: 'Use the familiar reporting mailbox for this action.',
+      });
     this.failures.delete('control');
     return this.serialize(() => this.dispatch(request, human));
   }
@@ -826,6 +874,11 @@ export class SessionCoordination {
     let outcome: ControlOutcome | undefined;
     try {
       const action = request.action;
+      if (
+        action.kind === 'familiar-register' ||
+        action.kind === 'familiar-update'
+      )
+        throw new Error('Use the familiar reporting mailbox for this action.');
       if (action.kind === 'peers') {
         const snapshot = await this.requestSnapshot(active, state);
         if (snapshot.error) throw new Error(snapshot.error);
