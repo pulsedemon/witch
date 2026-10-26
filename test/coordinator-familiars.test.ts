@@ -49,6 +49,7 @@ test('a reported familiar replaces its brew and retitles observed identity witho
       ['server'],
     );
     const start = coordinator.snapshot.subagents[0]!.rows.start;
+    const startedAt = coordinator.snapshot.subagents[0]!.startedAt;
     emit({
       type: 'subagent',
       subagent: {
@@ -56,9 +57,11 @@ test('a reported familiar replaces its brew and retitles observed identity witho
         status: 'running',
         model: 'claude-opus-5-5',
         tools: 2,
+        activity: 'Read source',
       },
     });
     assert.equal(coordinator.snapshot.subagents[0]!.rows.start, start);
+    assert.equal(coordinator.snapshot.subagents[0]!.startedAt, startedAt);
     emit({
       type: 'subagent',
       subagent: {
@@ -66,9 +69,11 @@ test('a reported familiar replaces its brew and retitles observed identity witho
         status: 'completed',
         model: 'claude-opus-5-5',
         tools: 2,
+        activity: 'Read source',
         report: 'Reviewed once.',
       },
     });
+    const end = coordinator.snapshot.subagents[0]!.rows.end;
     emit({
       type: 'subagent',
       subagent: {
@@ -76,9 +81,18 @@ test('a reported familiar replaces its brew and retitles observed identity witho
         status: 'completed',
         model: 'claude-opus-4-8',
         tools: 2,
+        activity: 'Read source',
         report: 'Reviewed once.',
       },
     });
+    assert.equal(coordinator.snapshot.subagents.length, 1);
+    const familiar = coordinator.snapshot.subagents[0]!;
+    assert.deepEqual(familiar.rows, { start, end });
+    assert.equal(familiar.startedAt, startedAt);
+    assert.equal(familiar.status, 'completed');
+    assert.equal(familiar.activity, 'Read source');
+    assert.equal(familiar.tools, 2);
+    assert.equal(familiar.report, 'Reviewed once.');
     const rows = coordinator.snapshot.items.filter((item) =>
       item.title?.startsWith('Familiar'),
     );

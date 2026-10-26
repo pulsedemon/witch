@@ -11,6 +11,7 @@ import { hyperlink, oneLine } from './links.js';
 import { peerStatus, peerTitle } from './peers.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
+import { wrapLines } from './wrap.js';
 
 /** the text's width; the pentacle centers in it, sized by `rows`, its shorter side. */
 const columns = 32;
@@ -77,7 +78,19 @@ export function Sidebar({
   const [now, setNow] = useState(Date.now);
   const familiars = lineage(
     subagents.filter(({ status }) => status === 'running'),
-  );
+  ).map(({ subagent, depth }) => {
+    const indent = '  '.repeat(Math.min(depth + 1, 2));
+    const identity = oneLine(familiarIdentity(subagent));
+    return {
+      subagent,
+      depth,
+      identity: identity
+        ? wrapLines(identity, columns - indent.length, true).map(
+            (line) => indent + line,
+          )
+        : [],
+    };
+  });
   const running = familiars.length > 0;
   useEffect(() => {
     if (!running) return;
@@ -115,7 +128,7 @@ export function Sidebar({
   const room = above - brewRows - 1;
   const { shown, hidden } = fit(
     familiars,
-    ({ subagent }) => (familiarIdentity(subagent) ? 4 : 3),
+    ({ identity }) => 3 + identity.length,
     room,
   );
   return (
@@ -172,7 +185,7 @@ export function Sidebar({
           <>
             <Text color={accent}>FAMILIARS</Text>
             {hidden > 0 && <Text dimColor>+{hidden} MORE</Text>}
-            {shown.map(({ subagent, depth }) => (
+            {shown.map(({ subagent, depth, identity }) => (
               <Box key={subagent.id} flexDirection="column">
                 <Text wrap="truncate-end">
                   {'  '.repeat(depth)}
@@ -182,12 +195,11 @@ export function Sidebar({
                     <Text dimColor> {oneLine(subagent.kind)}</Text>
                   )}
                 </Text>
-                {familiarIdentity(subagent) && (
-                  <Text wrap="truncate-end" dimColor>
-                    {'  '.repeat(depth + 1)}
-                    {oneLine(familiarIdentity(subagent))}
+                {identity.map((line, index) => (
+                  <Text key={index} dimColor>
+                    {line}
                   </Text>
-                )}
+                ))}
                 <Text wrap="truncate-end" dimColor>
                   {'  '.repeat(depth + 1)}
                   {piped([

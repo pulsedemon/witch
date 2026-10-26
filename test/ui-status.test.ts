@@ -145,7 +145,7 @@ test('the pentacle follows independent activity across sidebar visibility change
 const sidebarRows = (text: string) =>
   text.split('\n').map((line) => line.slice(82).trimEnd());
 
-for (const height of [19, 18, 15])
+for (const height of [20, 19, 15])
   test(`mixed familiar identity rows fit whole entries at height ${height}`, async () => {
     const { app } = fake({
       subagents: [
@@ -153,6 +153,8 @@ for (const height of [19, 18, 15])
           id: 'astra',
           name: 'astra review',
           kind: '',
+          runtime: 'codex',
+          model: 'gpt-6-astra',
           status: 'running',
           startedAt: Date.now(),
           rows: { start: 'a' },
@@ -181,18 +183,19 @@ for (const height of [19, 18, 15])
     try {
       await until('mixed familiars', () => ui.text().includes('FAMILIARS'));
       const rows = sidebarRows(ui.text());
-      if (height === 19)
+      if (height === 20)
         assert.deepEqual(
-          [rows[0], rows[1], rows[4], rows[5], rows[7]],
+          [rows[0], rows[1], rows[2], rows[5], rows[6], rows[8]],
           [
             'FAMILIARS',
             '● ASTRA REVIEW',
+            '  codex · gpt-6-astra',
             '● OPUS REVIEW',
             '  claude · claude-opus-5-5',
             '  Read source',
           ],
         );
-      else if (height === 18)
+      else if (height === 19)
         assert.deepEqual(
           [rows[0], rows[1], rows[2], rows[3], rows[5]],
           [
@@ -204,6 +207,87 @@ for (const height of [19, 18, 15])
           ],
         );
       else assert.deepEqual(rows.slice(0, 4), ['FAMILIARS', '+2 MORE', '', '']);
+      assert.equal(
+        rows.slice(-11).filter((row) => /[⠁-⣿]/.test(row)).length,
+        11,
+      );
+    } finally {
+      ui.unmount();
+    }
+  });
+
+for (const height of [21, 20, 16])
+  test(`nested model wrapping preserves complete entries at height ${height}`, async () => {
+    const subagents: Snapshot['subagents'] = [
+      {
+        id: 'codex',
+        name: 'inspect source',
+        kind: '',
+        runtime: 'codex',
+        model: 'gpt-6-astra',
+        status: 'running',
+        startedAt: Date.now(),
+        rows: { start: 'a' },
+        tools: 2,
+        activity: 'Read source',
+      },
+      {
+        id: 'claude',
+        parent: 'codex',
+        name: 'inspect tests',
+        kind: '',
+        runtime: 'claude',
+        model: 'claude-haiku-4-5-20251001',
+        status: 'running',
+        startedAt: Date.now(),
+        rows: { start: 'b' },
+        tools: 3,
+        activity: 'Read tests',
+      },
+    ];
+    const { app, coordinator } = fake({ subagents });
+    const ui = show(
+      createElement(App, { coordinator: app, onExit: () => {} }),
+      115,
+      height,
+    );
+    try {
+      await until('nested identity', () => ui.text().includes('FAMILIARS'));
+      const rows = sidebarRows(ui.text());
+      if (height === 16) {
+        assert.deepEqual(rows.slice(0, 2), ['FAMILIARS', '+2 MORE']);
+        assert.equal(
+          rows.some((row) => row.includes('●')),
+          false,
+        );
+      } else {
+        const index = rows.indexOf('  ● INSPECT TESTS');
+        assert.ok(index > 0);
+        assert.deepEqual(rows.slice(index + 1, index + 3), [
+          '    claude ·',
+          '    claude-haiku-4-5-20251001',
+        ]);
+        assert.match(rows[index + 3]!, /^ {4}\d+S \| 3 TOOLS$/);
+        assert.equal(rows[index + 4], '    Read tests');
+        assert.equal(rows.includes('● INSPECT SOURCE'), height === 21);
+        if (height === 20) {
+          assert.equal(rows[1], '+1 MORE');
+          coordinator.publish({
+            subagents: subagents.map((subagent) =>
+              subagent.id === 'claude'
+                ? { ...subagent, model: 'claude-opus-5-5' }
+                : subagent,
+            ),
+          });
+          await until('shorter identity', () =>
+            ui.text().includes('claude-opus-5-5'),
+          );
+          const updated = sidebarRows(ui.text());
+          assert.equal(updated.includes('+1 MORE'), false);
+          assert.ok(updated.includes('● INSPECT SOURCE'));
+          assert.equal(updated.filter((row) => row.includes('●')).length, 2);
+        }
+      }
       assert.equal(
         rows.slice(-11).filter((row) => /[⠁-⣿]/.test(row)).length,
         11,
