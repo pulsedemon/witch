@@ -21,9 +21,8 @@ if (familiar) {
       mark: process.env.WITCH_JOBS,
     }),
   );
-  process.on('SIGTERM', () =>
-    process.exit(familiar === 'nonzero-close' ? 2 : 0),
-  );
+  if (familiar === 'nonzero-close') process.exitCode = 2;
+  process.on('SIGTERM', () => process.exit());
 }
 // modes that a prompt can't reach come from the command line
 const mode = familiar ? '' : (process.argv[2] ?? '');
