@@ -86,6 +86,22 @@ const skill = (name, fields) => ({
 });
 let brewTurn = 0;
 let terminalReads = 0;
+let questionTurn = 0;
+const finishQuestion = () => {
+  notify('item/completed', {
+    threadId: 'native-thread',
+    turnId: `turn-${questionTurn}`,
+    item: {
+      type: 'agentMessage',
+      id: `answer-${questionTurn}`,
+      text: 'Implemented preview.',
+    },
+  });
+  notify('turn/completed', {
+    threadId: 'native-thread',
+    turn: { id: `turn-${questionTurn}`, status: 'completed', error: null },
+  });
+};
 const reportedTerminals = new Set();
 const waitFor = async (name) => {
   while (!existsSync(file(name))) {
@@ -382,6 +398,32 @@ for await (const line of lines) {
     const prompt = request.params.input[0].text;
     lastPrompt = prompt;
     writeFileSync(file('prompt.json'), JSON.stringify(request));
+    if (familiar?.startsWith('question-')) {
+      reply({ turn: { id: `turn-${++questionTurn}` } });
+      if (questionTurn > 1) {
+        writeFileSync(file('question-answer.json'), JSON.stringify(request));
+        finishQuestion();
+      } else {
+        notify('item/completed', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          item: {
+            type: 'agentMessage',
+            id: 'question',
+            text: 'Which target?',
+            phase: 'final_answer',
+            delivery: 'async',
+            questions: [
+              { title: 'Which target?', options: ['preview', 'production'] },
+            ],
+          },
+        });
+        if (familiar !== 'question-during') finish('completed');
+        if (familiar === 'question-exit')
+          void waitFor('exit-question').then(() => process.exit(3));
+      }
+      continue;
+    }
     if (mode === 'brews') {
       const turn = { id: `turn-${++brewTurn}`, status: 'inProgress' };
       reply({ turn });
@@ -952,6 +994,12 @@ for await (const line of lines) {
   }
   // Codex refuses a turn that has ended, which a prompt of `refused` stands in for
   if (request.method === 'turn/steer') {
+    if (familiar === 'question-during') {
+      writeFileSync(file('question-answer.json'), JSON.stringify(request));
+      reply({ turnId: request.params.expectedTurnId });
+      finishQuestion();
+      continue;
+    }
     writeFileSync(file('steer.json'), JSON.stringify(request));
     if (request.params.input[0].text !== 'refused')
       reply({ turnId: request.params.expectedTurnId });

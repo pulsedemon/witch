@@ -11,6 +11,7 @@ import type {
 import { errorMessage } from './agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
 import { FamiliarReports, registerFamiliar } from './cli-familiar.js';
+import { questionReply } from './core/prompts.js';
 import { callControl } from './persistence/control.js';
 import type { ControlBinding } from './persistence/control.js';
 
@@ -58,9 +59,10 @@ export async function runCodexFamiliar(
     { code: number | null; signal: NodeJS.Signals | null } | undefined;
   let progress: FamiliarProgress = { status: 'running', tools: 0 };
   const tools = new Set<string>();
+  const prompts: string[] = [];
   const requests = new Map<
     string,
-    { resolved: boolean; work: Promise<void> }
+    { input: UserRequest; resolved: boolean; work: Promise<void> }
   >();
   const close = () => {
     if (session) {
@@ -99,7 +101,7 @@ export async function runCodexFamiliar(
   };
   const request = (input: UserRequest) => {
     if (requests.has(input.id)) return;
-    const pending = { resolved: false, work: Promise.resolve() };
+    const pending = { input, resolved: false, work: Promise.resolve() };
     requests.set(input.id, pending);
     pending.work = (async () => {
       let action: FamiliarAction = {
@@ -107,11 +109,22 @@ export async function runCodexFamiliar(
         run,
         request: input,
       };
-      while (!pending.resolved && !ending) {
+      while (!pending.resolved && !ending && !stopped && !failure) {
         const outcome = await requestCall(action);
         if (pending.resolved || ending) return;
         if (outcome.kind === 'familiar-response') {
-          session!.respond(input.id, outcome.response);
+          if (input.replyAsPrompt) {
+            if (outcome.response.decision === 'accept' && input.questions) {
+              const prompt = questionReply(input.questions, outcome.response);
+              if (!(await session!.steer(prompt))) prompts.push(prompt);
+            } else if (outcome.response.decision === 'cancel') stop();
+            await requestCall({
+              kind: 'familiar-request-resolved',
+              run,
+              id: input.id,
+            });
+            pending.resolved = true;
+          } else session!.respond(input.id, outcome.response);
           return;
         }
         if (outcome.kind !== 'familiar-request-pending')
@@ -120,7 +133,7 @@ export async function runCodexFamiliar(
         await delay(100);
       }
     })().catch((error: unknown) => {
-      if (!pending.resolved && !ending) fail(error);
+      if (!pending.resolved && !ending && !stopped) fail(error);
     });
   };
   const receive = (event: AgentEvent) => {
@@ -190,6 +203,13 @@ export async function runCodexFamiliar(
       child.stderr.pipe(process.stderr, { end: false });
       child.once('exit', (code, signal) => {
         childExit = { code, signal };
+        if (
+          !closing &&
+          [...requests.values()].some(
+            (pending) => pending.input.replyAsPrompt && !pending.resolved,
+          )
+        )
+          fail(new Error('Codex exited while awaiting a question response.'));
       });
       return child;
     });
@@ -203,10 +223,22 @@ export async function runCodexFamiliar(
     });
     if (stopped || failure)
       throw new Error(failure ?? 'Codex familiar stopped before its turn.');
-    const result = await session.send(prompt);
-    report = [result.text, result.error].filter(Boolean).join('\n\n');
-    status = result.status === 'interrupted' ? 'stopped' : result.status;
-    await save();
+    for (;;) {
+      const result = await session.send(prompt);
+      report = [report, result.text, result.error].filter(Boolean).join('\n\n');
+      status = result.status === 'interrupted' ? 'stopped' : result.status;
+      await save();
+      if (result.status !== 'completed') break;
+      while (!prompts.length && !stopped && !failure) {
+        const pending = [...requests.values()].filter(
+          (request) => request.input.replyAsPrompt && !request.resolved,
+        );
+        if (!pending.length) break;
+        await Promise.race(pending.map((request) => request.work));
+      }
+      if (stopped || failure || !prompts.length) break;
+      prompt = prompts.splice(0).join('\n');
+    }
   } catch (error) {
     failure ??= errorMessage(error);
   } finally {

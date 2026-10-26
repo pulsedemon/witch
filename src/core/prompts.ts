@@ -1,6 +1,12 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AgentSession, Skill, SkillCall } from '../agents/types.js';
+import type {
+  AgentSession,
+  Question,
+  Skill,
+  SkillCall,
+  UserResponse,
+} from '../agents/types.js';
 import { indexByteLimit, indexNote } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
@@ -31,6 +37,18 @@ export function alone(prompt: string): boolean {
 
 export function shellCommand(prompt: string): string | undefined {
   return prompt.startsWith('!') ? prompt.slice(1) : undefined;
+}
+
+export function questionReply(
+  questions: readonly Question[],
+  response: UserResponse,
+): string {
+  return questions
+    .map(
+      ({ id, title, secret }) =>
+        `**${title}**\n→ ${secret ? '(hidden)' : (response.answers?.[id] ?? []).join(', ')}`,
+    )
+    .join('\n\n');
 }
 
 export async function nativePrompt({

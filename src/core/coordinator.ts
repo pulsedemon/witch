@@ -32,6 +32,7 @@ import {
   skillCall,
   ranCommand,
   nativePrompt,
+  questionReply,
 } from './prompts.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
@@ -622,12 +623,7 @@ export class Coordinator {
     else this.session?.respond(id, response);
     // the request view closes on answering, so the transcript keeps what was asked and chosen
     if (questions && response.decision === 'accept') {
-      const text = questions
-        .map(
-          ({ id, title, secret }) =>
-            `**${title}**\n→ ${secret ? '(hidden)' : (response.answers?.[id] ?? []).join(', ')}`,
-        )
-        .join('\n\n');
+      const text = questionReply(questions, response);
       if (replyAsPrompt) await this.send(text);
       else
         this.display({

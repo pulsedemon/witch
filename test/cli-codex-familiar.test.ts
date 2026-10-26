@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 import { codexArguments } from '../src/cli-codex-familiar.js';
 import { parseCommand } from '../src/cli-control.js';
+import type { UserResponse } from '../src/agents/types.js';
 import { ControlHost } from '../src/persistence/control.js';
 import type {
   ControlRequest,
@@ -21,7 +22,8 @@ async function fixture(
   options: {
     mode?: string;
     prompt?: string;
-    decision?: 'accept' | 'decline' | 'cancel';
+    response?: UserResponse;
+    waitForResponse?: boolean;
     reject?: boolean;
     existing?: boolean;
   } = {},
@@ -67,6 +69,9 @@ syncBuiltinESMExports();
   const requests: ControlRequest[] = [];
   const errors: unknown[] = [];
   let rejectUpdates = false;
+  let response = options.waitForResponse
+    ? undefined
+    : (options.response ?? { decision: 'accept' as const });
   const host = await ControlHost.open(
     binding.directory,
     async (request): Promise<ControlOutcome> => {
@@ -79,10 +84,9 @@ syncBuiltinESMExports();
         case 'familiar-request':
           return { kind: 'familiar-request-pending' };
         case 'familiar-request-poll':
-          return {
-            kind: 'familiar-response',
-            response: { decision: options.decision ?? 'accept' },
-          };
+          return response
+            ? { kind: 'familiar-response', response }
+            : { kind: 'familiar-request-pending' };
         case 'familiar-update':
           return rejectUpdates
             ? { kind: 'error', message: 'Native connection closed' }
@@ -148,6 +152,9 @@ syncBuiltinESMExports();
     closed,
     requests,
     updates,
+    answer: (value: UserResponse) => {
+      response = value;
+    },
     output: () => ({ stdout, stderr }),
     rejectUpdates: () => {
       rejectUpdates = true;
@@ -223,7 +230,7 @@ test('a Codex implementation task retains native configuration, approval and its
 });
 
 test('declining the native approval prevents the requested write', async () => {
-  const f = await fixture({ decision: 'decline' });
+  const f = await fixture({ response: { decision: 'decline' } });
   try {
     assert.equal(await within(f.closed, 8000, 'declined task'), 0);
     await assert.rejects(readFile(join(f.root, 'approved.txt')), {
@@ -234,6 +241,89 @@ test('declining the native approval prevents the requested write', async () => {
     await f.close();
   }
 });
+
+for (const when of ['after', 'during'] as const)
+  test(`an async question answered ${when} the native turn reaches Codex before the familiar completes`, async () => {
+    const f = await fixture({
+      mode: `question-${when}`,
+      waitForResponse: true,
+    });
+    try {
+      await until('question forwarded', () =>
+        f.requests.some(
+          (request) => request.action.kind === 'familiar-request',
+        ),
+      );
+      if (when === 'after')
+        await until(
+          'first turn report saved',
+          async () => (await readFile(f.report, 'utf8')) === 'Which target?',
+        );
+      assert.equal(f.child.exitCode, null);
+      assert.equal(
+        f.updates().some((progress) => progress.status !== 'running'),
+        false,
+      );
+      f.answer({ decision: 'accept', answers: { '0': ['preview'] } });
+      assert.equal(await within(f.closed, 8000, 'answered task'), 0);
+      const delivered = JSON.parse(
+        await readFile(join(f.root, 'question-answer.json'), 'utf8'),
+      ) as { method: string; params: { input: { text: string }[] } };
+      assert.equal(
+        delivered.method,
+        when === 'after' ? 'turn/start' : 'turn/steer',
+      );
+      assert.equal(
+        delivered.params.input[0]!.text,
+        '**Which target?**\n→ preview',
+      );
+      const final = f.updates().at(-1)!;
+      assert.equal(final.status, 'completed');
+      assert.match(final.report!, /Which target\?[\s]+Implemented preview\./);
+      assert.equal(await readFile(f.report, 'utf8'), final.report);
+      assert.equal(
+        f.requests.filter(
+          (request) => request.action.kind === 'familiar-request-resolved',
+        ).length,
+        1,
+      );
+    } finally {
+      await f.close();
+    }
+  });
+
+for (const cause of ['cancel', 'signal', 'native-exit'] as const)
+  test(`an unanswered async question does not prevent ${cause} cleanup`, async () => {
+    const f = await fixture({
+      mode: cause === 'native-exit' ? 'question-exit' : 'question-after',
+      waitForResponse: true,
+    });
+    try {
+      await f.ready();
+      await until(
+        'question turn ended',
+        async () => (await readFile(f.report, 'utf8')) === 'Which target?',
+      );
+      const launch = await f.launch();
+      if (cause === 'cancel') f.answer({ decision: 'cancel' });
+      else if (cause === 'signal') f.child.kill('SIGTERM');
+      else await writeFile(join(f.root, 'exit-question'), 'exit');
+      assert.equal(
+        await within(f.closed, 5000, 'pending question cleanup'),
+        cause === 'native-exit' ? 1 : 130,
+      );
+      assert.equal(await identifyProcess(launch.pid), undefined);
+      assert.equal(
+        f.updates().at(-1)!.status,
+        cause === 'native-exit' ? 'failed' : 'stopped',
+      );
+      await assert.rejects(readFile(join(f.root, 'question-answer.json')), {
+        code: 'ENOENT',
+      });
+    } finally {
+      await f.close();
+    }
+  });
 
 test('rejected registration and an existing report both prevent Codex from launching', async () => {
   for (const options of [{ reject: true }, { existing: true }]) {
