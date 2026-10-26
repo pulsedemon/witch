@@ -746,6 +746,30 @@ test('a failed admission clears and retries', async (t) => {
   assert.ok((await stored(f, request)).attemptedAt);
 });
 
+test('a failed peer request read reports and clears', async (t) => {
+  const { a, b, claim } = await owners(t.onTestFinished);
+  const owner = b.coordinator.snapshot.conversation!.id;
+  const read = CoordinationStore.prototype.peerRequests;
+  let failing = true;
+  vi.spyOn(CoordinationStore.prototype, 'peerRequests').mockImplementation(
+    function (this: CoordinationStore, project, conversation) {
+      if (!failing || conversation !== owner)
+        return read.call(this, project, conversation);
+      failing = false;
+      return Promise.reject(new Error('Peer requests unreadable'));
+    },
+  );
+  await ask(a, claim, 'Readable?');
+  await refreshed(b);
+  await until('read failure', () =>
+    (b.coordination.snapshot.error ?? '').includes('Peer requests unreadable'),
+  );
+  assert.deepEqual(answerTurns(b), []);
+  await refreshed(b);
+  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  assert.equal(b.coordination.snapshot.error, undefined);
+});
+
 test("an answer turn keeps a user turn's completion notice on time", async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
   const schedule = await NotificationSchedule.open(
