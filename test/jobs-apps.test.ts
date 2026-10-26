@@ -33,6 +33,9 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
   const frameworkPython = orphanRow(100711);
   const jdk = orphanRow(100712);
   const codeHelper = { ...orphanRow(100714), pgid: 100713 };
+  const job = orphanRow(100715);
+  const browser = { ...orphanRow(100716), ppid: job.pid, pgid: job.pid };
+  const renderer = { ...orphanRow(100717), ppid: browser.pid, pgid: job.pid };
   const later = [
     app,
     helper,
@@ -44,6 +47,9 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     frameworkPython,
     jdk,
     codeHelper,
+    job,
+    browser,
+    renderer,
   ];
   const paths = new Map([
     [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
@@ -65,6 +71,12 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     [
       codeHelper.pid,
       '/Applications/Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)',
+    ],
+    [job.pid, '/usr/local/bin/node'],
+    [browser.pid, '/Applications/Chromium.app/Contents/MacOS/Chromium'],
+    [
+      renderer.pid,
+      '/Applications/Chromium.app/Contents/Frameworks/Chromium Helper (Renderer).app/Contents/MacOS/Chromium Helper (Renderer)',
     ],
   ]);
   const tables = [[], later];
@@ -89,7 +101,7 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     await jobs.list();
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100704, 100706, 100709, 100711, 100712],
+      [100704, 100706, 100709, 100711, 100712, 100715],
     );
   } finally {
     jobs.close();
@@ -183,8 +195,8 @@ test.skipIf(process.platform !== 'darwin')(
     } finally {
       for (const name of ['app', 'plain'])
         try {
-          // an empty file would make this -0, which signals the runner's own group
           const pid = Number(await readFile(join(cwd, name), 'utf8'));
+          // an empty file reads as 0, and kill(-0) signals the runner's own group
           if (pid) process.kill(-pid);
         } catch {
           // never started, or already gone
