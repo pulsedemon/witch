@@ -106,21 +106,33 @@ async function carrying(entry: string, pids: number[]): Promise<number[]> {
   );
 }
 
+/** each listed process's argv[0], which LaunchServices and Chromium set to the executable's full path. */
+async function executables(pids: number[]): Promise<Map<number, string>> {
+  return new Map(
+    (await ps('pid=,comm=', pids)).flatMap((line) => {
+      const [, pid, path] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
+      return pid ? [[Number(pid), path!] as const] : [];
+    }),
+  );
+}
+
 /**
  * the process groups of the agents' commands, which both agents start as session leaders, of the groups handed to
  * `track`, and of any group a process inside one moves to. a listed group keeps its generation while a process from
  * the last read remains in it, so a command orphaned to launchd still shows.
  *
- * tmux processes and their observed descendants are excluded, including after reparenting. their entire groups are
- * withheld, but ordinary peers keep their ownership and return with a new generation once the exclusion ends.
+ * tmux processes, the apps described below and their observed descendants are excluded, including after reparenting.
+ * their entire groups are withheld, but ordinary peers keep their ownership and return with a new generation once the
+ * exclusion ends.
  * exclusion stops at this Witch so running it inside tmux leaves its own agent commands available.
  *
  * with a `directory`, Claude Code runs `script` as its `CLAUDE_ENV_FILE` ahead of each Bash command, in the shell that
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
  * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
  * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
- * those below it, are then tracked. an orphan no read saw is missed unless its group was handed over or reported, or a
- * process in it carries the mark.
+ * those below it, are then tracked. a marked launchd child that runs an app's main executable while leading its own
+ * group, as LaunchServices starts apps, or a helper from an app's Frameworks directory is excluded instead. an orphan
+ * no read saw is missed unless its group was handed over or reported, or a process in it carries the mark.
  */
 export class JobWatch {
   /** the report script's path, `<directory>/env`. */
@@ -155,6 +167,8 @@ export class JobWatch {
       directory?: string;
       /** the listed processes whose environment holds the mark, from `ps` without it. */
       marked?: (pids: number[]) => Promise<number[]>;
+      /** each listed process's argv[0], from `ps -o comm=` without it. */
+      executables?: (pids: number[]) => Promise<Map<number, string>>;
       resume?: JobCheckpoint;
     } = {},
   ) {
@@ -333,12 +347,11 @@ export class JobWatch {
         excluded.has(row.identity)
           ? []
           : [row, ...(children.get(row.pid) ?? []).flatMap(below)];
-      const candidates = rows
-        .filter(
-          ({ ppid, pgid, identity }) =>
-            ppid === 1 && !seen.has(identity) && !groups.has(pgid),
-        )
-        .flatMap(below);
+      const roots = rows.filter(
+        ({ ppid, pgid, identity }) =>
+          ppid === 1 && !seen.has(identity) && !groups.has(pgid),
+      );
+      const candidates = roots.flatMap(below);
       if (candidates.length) {
         const marked = new Set(
           await (
@@ -346,6 +359,30 @@ export class JobWatch {
             ((pids) => carrying(`${mark}=${directory}`, pids))
           )(candidates.map(({ pid }) => pid)),
         );
+        // LaunchServices starts an app in a group of its own, and `open --env` hands it the mark, as VS Code's `code`
+        // does. the app, its terminals and its frameworks' helpers, such as its crash handler, are the user's. a
+        // command's own run of a bundle's main executable stays a job unless it leads its own group
+        const markedRoots = roots.filter(({ pid }) => marked.has(pid));
+        const paths = markedRoots.length
+          ? await (this.options.executables ?? executables)(
+              markedRoots.map(({ pid }) => pid),
+            )
+          : new Map<number, string>();
+        for (const root of markedRoots) {
+          // the outermost bundle only, outside any framework, since Xcode's toolchain, framework builds of python3 and
+          // IDE-bundled JDKs run from inside a bundle without being its app
+          const bundle =
+            /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
+              paths.get(root.pid) ?? '',
+            );
+          if (!bundle || (root.pid !== root.pgid && bundle[1] === 'MacOS'))
+            continue;
+          // excluded like a tmux tree, so a process that joins the app's group later can't bring the app back
+          for (const row of below(root)) {
+            excluded.add(row.identity);
+            excludedGroups.add(row.pgid);
+          }
+        }
         // an unmarked root can sit above a command's session in a group that isn't the command's
         pending.push(...candidates.filter(({ pid }) => marked.has(pid)));
         walk();
