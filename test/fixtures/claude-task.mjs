@@ -26,6 +26,7 @@ for (const id of ['read-a', 'read-a', 'read-b'])
     session_id,
     parent_tool_use_id: null,
     message: {
+      model: 'claude-response',
       content: [
         {
           type: 'tool_use',

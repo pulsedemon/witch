@@ -23,6 +23,7 @@ const modelChange = z.object({
 const assistant = z.object({
   session_id: z.string(),
   message: z.object({
+    model: z.string().min(1),
     content: z.array(z.object({ type: z.string() }).passthrough()),
   }),
 });
@@ -87,8 +88,12 @@ export class ClaudeTask {
         if (!this.identity)
           throw new Error('Claude activity arrived before initialization.');
         const {
-          message: { content },
+          message: { model, content },
         } = assistant.parse(value);
+        const changed =
+          model !== '<synthetic>' && model !== this.identity.model;
+        if (changed) this.identity = { ...this.identity, model };
+        const previousTools = this.tools.size;
         for (const block of content) {
           if (block.type === 'tool_use') {
             const use = tool.parse(block);
@@ -98,6 +103,8 @@ export class ClaudeTask {
             this.emit(this.progress());
           }
         }
+        if (changed && this.tools.size === previousTools)
+          this.emit(this.progress());
         const text = content
           .filter((block) => block.type === 'text')
           .map((block) => z.string().parse(block.text))

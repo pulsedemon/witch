@@ -890,6 +890,7 @@ class ClaudeSession implements AgentSession {
             parent: message.parent_task_id,
             name: message.description,
             kind: message.subagent_type ?? '',
+            runtime: 'claude',
             status: 'running',
             run: message.run_id,
           });
@@ -956,6 +957,9 @@ class ClaudeSession implements AgentSession {
     } else if (message.type === 'assistant' && message.agent_id) {
       const subagent = this.subagents.get(message.agent_id);
       if (!subagent) return;
+      const observed = message.message.model;
+      const model =
+        observed && observed !== '<synthetic>' ? observed : subagent.model;
       let { activity, tools = 0, report } = subagent;
       for (const block of message.message.content)
         if (block.type === 'tool_use') {
@@ -969,8 +973,12 @@ class ClaudeSession implements AgentSession {
               : block.text;
           this.reportMessages.set(subagent.id, message.message.id);
         }
-      if (tools !== (subagent.tools ?? 0) || report !== subagent.report)
-        this.subagent({ ...subagent, activity, tools, report });
+      if (
+        model !== subagent.model ||
+        tools !== (subagent.tools ?? 0) ||
+        report !== subagent.report
+      )
+        this.subagent({ ...subagent, model, activity, tools, report });
     } else if (
       message.type === 'user' &&
       message.parent_tool_use_id === null &&
