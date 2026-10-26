@@ -25,6 +25,7 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 import {
   coordinationFixture,
+  git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { scratch } from './fixtures/scratch.js';
@@ -66,7 +67,7 @@ async function answer(client: Client, request: PeerRequest, message: string) {
 
 /** A runs the asker and B the owner, with discovery ticks under the test's control. */
 async function owners(register: RegisterCleanup, task = 'b-work') {
-  pauseDiscovery(vi.spyOn);
+  const refreshes = pauseDiscovery(vi.spyOn);
   const f = await coordinationFixture(orderedCleanup(register));
   const a = await f.start('A');
   const b = await f.start('B');
@@ -75,7 +76,7 @@ async function owners(register: RegisterCleanup, task = 'b-work') {
   b.coordinator.subscribe(() => {
     if (b.coordinator.snapshot.answering) seen.answering = true;
   });
-  return { f, a, b, claim, seen };
+  return { f, a, b, claim, seen, refreshes };
 }
 
 /** the refresh a discovery tick runs, awaited; it renotifies while requests are answerable. */
@@ -425,6 +426,43 @@ test('a closing Witch stamps nothing', async (t) => {
     'undeliverable',
   );
   assert.deepEqual(b.a.inputs, []);
+});
+
+test('an origin change during admission stamps nothing', async (t) => {
+  const { f, a, b, claim, refreshes } = await owners(t.onTestFinished);
+  const attempt = CoordinationStore.prototype.attemptPeerRequests;
+  const admission = Promise.withResolvers<void>();
+  let admitting = false;
+  vi.spyOn(
+    CoordinationStore.prototype,
+    'attemptPeerRequests',
+  ).mockImplementation(async function (this: CoordinationStore, ...args) {
+    admitting = true;
+    await admission.promise;
+    return attempt.apply(this, args);
+  });
+  const request = await ask(a, claim, 'Same project?');
+  await refreshed(b);
+  await until('admission', () => admitting);
+  await git(
+    '-C',
+    join(f.root, 'B'),
+    'remote',
+    'set-url',
+    'origin',
+    join(f.root, 'other'),
+  );
+  const owner = b.coordinator.snapshot.conversation!.id;
+  await until('project change', async () => {
+    for (const refresh of refreshes) refresh();
+    return (await f.registry.presences()).some(
+      ({ id, project }) => id === owner && project !== claim.owner.project,
+    );
+  });
+  admission.resolve();
+  await until('owner settled', () => settled(b));
+  assert.equal((await stored(f, request)).attemptedAt, undefined);
+  assert.deepEqual(answerTurns(b), []);
 });
 
 test('a prompt sent during an answer turn runs as its own turn after it', async (t) => {
