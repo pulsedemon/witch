@@ -826,6 +826,56 @@ test('a failed peer request read reports and clears', async (t) => {
   assert.equal(b.coordination.snapshot.error, undefined);
 });
 
+test('a failed merge read leaves peer requests flowing', async (t) => {
+  const { a, b, claim } = await owners(t.onTestFinished);
+  const owner = b.coordinator.snapshot.conversation!.id;
+  const read = CoordinationStore.prototype.mergeEvents;
+  vi.spyOn(CoordinationStore.prototype, 'mergeEvents').mockImplementation(
+    function (this: CoordinationStore, project, conversation) {
+      return conversation === owner
+        ? Promise.reject(new Error('Merge events unreadable'))
+        : read.call(this, project, conversation);
+    },
+  );
+  const request = await ask(a, claim, 'Despite merges?');
+  await refreshed(b);
+  assert.match(b.coordination.snapshot.error ?? '', /Merge events unreadable/);
+  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  assert.ok(notice(b, `peer-request/${request.id}`));
+});
+
+test('a failed peer request read leaves merge events flowing', async (t) => {
+  const { a, b } = await owners(t.onTestFinished);
+  const owner = b.coordinator.snapshot.conversation!.id;
+  const read = CoordinationStore.prototype.peerRequests;
+  vi.spyOn(CoordinationStore.prototype, 'peerRequests').mockImplementation(
+    function (this: CoordinationStore, project, conversation) {
+      return conversation === owner
+        ? Promise.reject(new Error('Peer requests unreadable'))
+        : read.call(this, project, conversation);
+    },
+  );
+  const { project } = await a.coordinator.memory.scopePaths(
+    a.coordinator.snapshot.conversation!.cwd,
+  );
+  a.coordination.updateRepository({
+    branch: merged.branch,
+    ahead: 0,
+    behind: 0,
+    staged: 0,
+    modified: 0,
+    conflicts: 0,
+    untracked: 0,
+    pullRequest: merged,
+    pullRequestProject: project,
+  });
+  await until('merge reaches the owner', async () => {
+    await refreshed(b);
+    return b.coordination.mergeEvents(owner).length === 1;
+  });
+  assert.match(b.coordination.snapshot.error ?? '', /Peer requests unreadable/);
+});
+
 test("an answer turn keeps a user turn's completion notice on time", async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
   const schedule = await NotificationSchedule.open(
