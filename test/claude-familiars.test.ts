@@ -361,6 +361,34 @@ test('registration waits for backgrounding and a complete matching marker', asyn
   await f.owner.close();
 });
 
+test('completed foreground tasks release their state while active tasks can still become familiars', async () => {
+  const f = commands();
+  f.start('active', '2', false);
+  for (let index = 0; index < 1000; index++) {
+    const id = `finished-${index}`;
+    f.start(id, '2', false);
+    f.emit({
+      subtype: 'task_updated',
+      task_id: id,
+      run_id: '2',
+      patch: { status: 'completed' },
+    });
+  }
+  assert.equal(f.owner['entries'].size, 1);
+  f.emit({
+    subtype: 'task_updated',
+    task_id: 'active',
+    run_id: '2',
+    patch: { is_backgrounded: true },
+  });
+  f.outputs.set('active', f.marker);
+  assert.equal((await f.register()).kind, 'familiar-registered');
+  assert.equal(f.familiars().at(-1)!.status, 'running');
+  await f.owner.close();
+  assert.equal(f.familiars().at(-1)!.status, 'stopped');
+  assert.equal(f.owner['entries'].size, 0);
+});
+
 test('two native commands cannot claim the same reported run', async () => {
   const f = commands();
   f.start();

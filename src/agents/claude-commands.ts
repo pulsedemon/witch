@@ -173,6 +173,7 @@ export class ClaudeCommands {
       this.emit({ type: 'subagent', subagent: familiar.subagent });
     }
     this.publish(entry);
+    if (!entry.background) this.entries.delete(entry.id);
   }
 
   async report(
@@ -324,5 +325,6 @@ export class ClaudeCommands {
   stop(): void {
     this.stopped = true;
     for (const entry of this.entries.values()) this.end(entry, 'stopped');
+    this.entries.clear();
   }
 }
