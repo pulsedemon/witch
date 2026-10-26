@@ -9,6 +9,7 @@ import { test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { Coordinator } from '../src/core/coordinator.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import {
@@ -255,69 +256,130 @@ test('coordination context stays before the exact user request and raw steered s
 });
 
 for (const name of ['claude', 'codex'] as const) {
-  test(`${name} receives the native spell contract with fresh coordination context`, async (t) => {
-    const cleanup = orderedCleanup(t.onTestFinished);
-    const { root, start } = await coordinationFixture(cleanup);
-    const script = fileURLToPath(
-      new URL(`fixtures/${name}.mjs`, import.meta.url),
-    );
-    const adapter =
-      name === 'claude'
-        ? new ClaudeAdapter((options) =>
-            spawn(process.execPath, [script], {
-              cwd: join(root, 'A'),
-              stdio: 'pipe',
-              signal: options.signal,
-            }),
-          )
-        : new CodexAdapter((_, cwd, signal) =>
-            spawn(process.execPath, [script], {
-              cwd,
-              stdio: 'pipe',
-              signal,
-            }),
-          );
-    const a = await start('A', {}, [{ adapter, executable: name }]);
-    const b = await start('B');
-    await b.claim('task:peer', 'Native peer task');
-    const prompt = '/review left\n  right with spaces';
-    await writeFile(join(root, 'A', 'release'), 'yes');
-    const sending = a.coordinator.send(prompt);
-    if (name === 'codex') {
-      await until(
-        'fixture approval',
-        () => a.coordinator.snapshot.requests.length > 0,
+  for (const coordinated of [true, false])
+    test(`${name} preserves spells across instruction delivery with coordination ${coordinated}`, async (t) => {
+      const cleanup = orderedCleanup(t.onTestFinished);
+      const { root, start, store, memory } = await coordinationFixture(cleanup);
+      const script = fileURLToPath(
+        new URL(`fixtures/${name}.mjs`, import.meta.url),
       );
-      await a.coordinator.respond(a.coordinator.snapshot.requests[0]!.id, {
-        decision: 'accept',
-      });
-    }
-    await sending;
-    const json = JSON.parse(
-      await readFile(
-        join(root, 'A', name === 'claude' ? 'content.json' : 'prompt.json'),
-        'utf8',
-      ),
-    );
-    const input = name === 'claude' ? json : json.params.input;
-    assert.equal(input[0].type, 'text');
-    const context =
-      name === 'claude'
-        ? input[0].text
-        : JSON.parse(await readFile(join(root, 'A', 'context.json'), 'utf8'))
-            .items[0].content[0].text;
-    assert.ok(context.includes('Native peer task'));
-    assert.ok(context.includes((await a.binding()).activation));
-    if (name === 'claude')
-      assert.ok(input[0].text.endsWith(`User request:\n${prompt}`));
-    else assert.equal(input[0].text, prompt);
-    assert.deepEqual(
-      input.slice(1),
-      name === 'claude'
-        ? [{ type: 'text', text: prompt }]
-        : [{ type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }],
-    );
-  });
+      const adapter =
+        name === 'claude'
+          ? new ClaudeAdapter((options) =>
+              spawn(process.execPath, [script], {
+                cwd: join(root, 'A'),
+                stdio: 'pipe',
+                signal: options.signal,
+              }),
+            )
+          : new CodexAdapter((_, cwd, signal) =>
+              spawn(process.execPath, [script], {
+                cwd,
+                stdio: 'pipe',
+                signal,
+              }),
+            );
+      const agents = [{ adapter, executable: name }];
+      const a = coordinated ? await start('A', {}, agents) : undefined;
+      const coordinator =
+        a?.coordinator ?? new Coordinator(store, memory, agents);
+      if (!a) {
+        cleanup(() => coordinator.close());
+        await coordinator.initialize(join(root, 'A'));
+      }
+      const b = coordinated ? await start('B') : undefined;
+      await writeFile(join(root, 'A', 'release'), 'yes');
+      let previousTurn: string | undefined;
+      for (const [index, summary] of [
+        'Peer task 17',
+        'Peer task 29',
+      ].entries()) {
+        await b?.claim('task:peer', summary);
+        const prompt = `/review request ${index}\n  exact input`;
+        const sending = coordinator.send(prompt);
+        if (name === 'codex') {
+          await until(
+            'fixture approval',
+            () => coordinator.snapshot.requests.length > 0,
+          );
+          await coordinator.respond(coordinator.snapshot.requests[0]!.id, {
+            decision: 'accept',
+          });
+        }
+        await sending;
+        const json = JSON.parse(
+          await readFile(
+            join(root, 'A', name === 'claude' ? 'content.json' : 'prompt.json'),
+            'utf8',
+          ),
+        );
+        const input = name === 'claude' ? json : json.params.input;
+        assert.equal(input[0].type, 'text');
+        if (index === 0 || a) {
+          const context: string =
+            name === 'claude'
+              ? input[0].text
+              : JSON.parse(
+                  await readFile(join(root, 'A', 'context.json'), 'utf8'),
+                ).items[0].content[0].text;
+          for (const fixed of [
+            'You are running inside Witch',
+            'Witch rule conflict:',
+            'Shared memory directories:',
+            'Save only new lasting preferences',
+            'Record a temporary execution hold',
+            'Put scratch files under',
+            ...(a
+              ? [
+                  'Control command:',
+                  'Use --peers',
+                  'When asked to choose',
+                  'After position 1',
+                  'Keep the suggestion reserved',
+                  'Before starting a new task',
+                  'Delegate work to',
+                ]
+              : []),
+          ])
+            assert.equal(context.includes(fixed), index === 0, fixed);
+          if (a) {
+            assert.ok(context.includes(summary));
+            const turn = /^Selection turn: (.+)$/m.exec(context)?.[1];
+            assert.ok(turn);
+            assert.notEqual(turn, previousTurn);
+            previousTurn = turn;
+            if (index === 0)
+              assert.ok(context.includes((await a.binding()).activation));
+          }
+          if (name === 'claude')
+            assert.ok(input[0].text.endsWith(`User request:\n${prompt}`));
+        } else {
+          assert.equal(input[0].text, prompt);
+          if (name === 'codex')
+            await assert.rejects(access(join(root, 'A', 'context.json')), {
+              code: 'ENOENT',
+            });
+        }
+        if (name === 'codex') assert.equal(input[0].text, prompt);
+        assert.deepEqual(
+          input.slice(1),
+          name === 'claude'
+            ? [{ type: 'text', text: prompt }]
+            : [
+                {
+                  type: 'skill',
+                  name: 'review',
+                  path: '/skills/review/SKILL.md',
+                },
+              ],
+        );
+        if (name === 'codex' && !a && index === 0)
+          await rename(
+            join(root, 'A', 'context.json'),
+            join(root, 'A', 'context-first.json'),
+          );
+      }
+    });
 }
 
 test('switch revokes old authority before native close and releases the departed claim', async (t) => {
@@ -437,11 +499,14 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
       assert.equal((await peer.claim('task:independent')).kind, 'claimed');
       assert.deepEqual((await a.query()).ownClaim, claim);
     }
-    await a.coordinator.send('Check current prefix');
+    if (replacement !== 'origin')
+      await a.coordinator.send('Check current prefix');
     const active = replacement === 'handoff' ? a.b : a.a;
     assert.ok(active.inputs.at(-1)!.context!.includes(current.activation));
     if (replacement === 'rollback')
       assert.equal(active.inputs.at(-1)!.session, native.info.id);
+    await a.coordinator.send('Reuse current prefix');
+    assert.doesNotMatch(active.inputs.at(-1)!.context!, /Control command:/);
   });
 }
 
@@ -488,6 +553,10 @@ test('an interrupted handoff summary restores registration before source resume'
     await a.coordinator.send('Resume source');
     assert.equal(a.a.inputs.at(-1)!.session, source);
     assert.ok(a.a.inputs.at(-1)!.context!.includes(current.activation));
+    assert.match(a.a.inputs.at(-1)!.context!, /^Control command:/m);
+    assert.ok(!a.a.inputs.at(-1)!.context!.includes(bound.activation));
+    await a.coordinator.send('Continue source');
+    assert.doesNotMatch(a.a.inputs.at(-1)!.context!, /Control command:/);
   } finally {
     gate.open();
     await switching.catch(() => {});

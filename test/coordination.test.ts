@@ -856,7 +856,11 @@ test('unknown discovery refuses both a successful query and new ownership', asyn
   assert.equal(attempt.value.kind, 'error');
   assert.equal(attempt.discoveries, 1);
   assert.deepEqual(await registry.claims(), []);
-  assert.match(await a.coordination.context(), /Coordination is unavailable/);
+  const context = await a.coordination.context();
+  assert.match(context.context, /Coordination is unavailable/);
+  assert.match(context.context, /No selection turn is current/);
+  assert.doesNotMatch(context.context, /When asked to choose/);
+  assert.match(context.instructions, /When asked to choose/);
 });
 
 test('an origin change leaves a discoverable reservation in the original project until explicit release', async (t) => {

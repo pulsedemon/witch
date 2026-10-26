@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { test } from 'vitest';
+import { fixture, readRecord } from './fixtures/coordinator.js';
+
+for (const outcome of ['interrupted', 'failed'] as const) {
+  test(`a ${outcome} first turn retries fixed instructions before recording delivery`, async () => {
+    const f = await fixture();
+    try {
+      if (outcome === 'interrupted') f.a.interruptNext = true;
+      else f.a.failNext = true;
+      await f.coordinator.send('Attempt task');
+      assert.match(f.a.inputs.at(-1)!.context!, /You are running inside Witch/);
+      const id = f.coordinator.snapshot.conversation!.id;
+      assert.equal(
+        (await readRecord(f.root, id)).sessions.a!
+          .deliveredInstructionsRevision,
+        undefined,
+      );
+      await f.coordinator.send('Retry task');
+      assert.match(f.a.inputs.at(-1)!.context!, /You are running inside Witch/);
+      assert.ok(
+        (await readRecord(f.root, id)).sessions.a!
+          .deliveredInstructionsRevision,
+      );
+      await f.coordinator.send('Continue');
+      assert.equal(f.a.inputs.at(-1)!.context, undefined);
+    } finally {
+      await f.coordinator.close();
+    }
+  });
+}
+
+test('an older session record receives instructions without resending unchanged memory', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('Initial task');
+    const id = f.coordinator.snapshot.conversation!.id;
+    const native = f.a.inputs.at(-1)!.session;
+    await f.coordinator.close();
+    const record = await readRecord(f.root, id);
+    delete record.sessions.a!.deliveredInstructionsRevision;
+    await writeFile(
+      join(f.root, 'state', 'conversations', id, 'state.json'),
+      JSON.stringify(record),
+    );
+    const reopened = await f.reopen();
+    try {
+      await reopened.send('Continue after upgrade');
+      const input = f.a.inputs.at(-1)!;
+      assert.equal(input.session, native);
+      assert.match(input.context!, /You are running inside Witch/);
+      assert.doesNotMatch(input.context!, /Accepted shared memory/);
+      await reopened.send('Again');
+      assert.equal(f.a.inputs.at(-1)!.context, undefined);
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    await f.coordinator.close();
+  }
+});
