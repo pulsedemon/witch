@@ -9,7 +9,11 @@ import type {
   UserRequest,
   UserResponse,
 } from '../src/agents/types.js';
-import { callControl, ControlHost } from '../src/persistence/control.js';
+import {
+  callControl,
+  ControlHost,
+  controlRequestSchema,
+} from '../src/persistence/control.js';
 import { checkDeadline } from '../src/persistence/coordination.js';
 import {
   coordinationFixture,
@@ -18,6 +22,33 @@ import {
 import { orderedCleanup } from './fixtures/cleanup.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
+
+test('familiar request parsing enforces the absolute diff path contract', () => {
+  const input = {
+    version: 1,
+    id: randomUUID(),
+    conversation: 'owner',
+    activation: randomUUID(),
+    deadline: Date.now() + 5000,
+    action: {
+      kind: 'familiar-request',
+      run: randomUUID(),
+      request: {
+        id: 'approval',
+        kind: 'approval',
+        title: 'Change a file',
+        detail: '',
+        diff: [{ path: 'relative.txt', kind: 'update', hunks: [] }],
+      },
+    },
+  };
+  assert.throws(
+    () => controlRequestSchema.parse(input),
+    /paths must be absolute/,
+  );
+  input.action.request.diff[0]!.path = '/work/absolute.txt';
+  assert.deepEqual(controlRequestSchema.parse(input), input);
+});
 
 test('familiar reports bypass a blocked task mailbox and preserve active-session admission', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);

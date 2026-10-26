@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isAbsolute } from 'node:path';
 import type { ControlBinding } from '../persistence/control.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 
@@ -102,7 +103,7 @@ export type Hunk = z.infer<typeof hunkSchema>;
 /** a file a tool changed. */
 const fileDiffSchema = z.object({
   /** absolute. */
-  path: z.string(),
+  path: z.string().refine(isAbsolute, 'File paths must be absolute.'),
   kind: z.enum(['add', 'delete', 'update']),
   /** where an update moved the file. */
   movePath: z.string().optional(),
