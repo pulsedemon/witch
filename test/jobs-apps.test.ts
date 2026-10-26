@@ -32,6 +32,7 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
   const xcodePython = orphanRow(100709);
   const frameworkPython = orphanRow(100711);
   const jdk = orphanRow(100712);
+  const codeHelper = { ...orphanRow(100714), pgid: 100713 };
   const later = [
     app,
     helper,
@@ -42,6 +43,7 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     xcodePython,
     frameworkPython,
     jdk,
+    codeHelper,
   ];
   const paths = new Map([
     [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
@@ -60,6 +62,10 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
       '/opt/homebrew/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python',
     ],
     [jdk.pid, '/Applications/IDEA.app/Contents/jbr/Contents/Home/bin/java'],
+    [
+      codeHelper.pid,
+      '/Applications/Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)',
+    ],
   ]);
   const tables = [[], later];
   const jobs = new JobWatch({
