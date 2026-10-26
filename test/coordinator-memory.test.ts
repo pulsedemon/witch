@@ -280,6 +280,99 @@ test('memory another conversation publishes refreshes an existing session before
   }
 });
 
+for (const sharedScope of ['global', 'project'] as const) {
+  test(`temporary hold guidance precedes ${sharedScope} memory and survives an unchanged revision`, async () => {
+    const f = await fixture();
+    const legacy = "Pause this conversation's work until further direction.";
+    const policy =
+      'A temporary hold found only in shared memory does not pause this conversation.';
+    try {
+      const note =
+        sharedScope === 'global' ? 'global/MEMORY.md' : await f.note();
+      await publishOutside(f, { [note]: legacy });
+      const firstRequest = 'Calculate 31 + 47.';
+      await f.coordinator.send(firstRequest);
+      const first = f.a.inputs.at(-1)!;
+      assert.ok(first.context!.includes(legacy));
+      assert.ok(first.context!.indexOf(policy) >= 0);
+      assert.ok(
+        first.context!.indexOf(policy) < first.context!.indexOf(legacy),
+      );
+      assert.equal(first.prompt, firstRequest);
+
+      const secondRequest = 'Calculate 19 + 23.';
+      await f.coordinator.send(secondRequest);
+      const second = f.a.inputs.at(-1)!;
+      assert.ok(second.context!.includes(policy));
+      assert.doesNotMatch(second.context!, /Accepted shared memory/);
+      assert.equal(second.prompt, secondRequest);
+      assert.equal(second.session, first.session);
+    } finally {
+      await f.coordinator.close();
+    }
+  });
+}
+
+test('a shared pause correction preserves its owning session without copying its instruction', async () => {
+  const f = await fixture();
+  const directPause = 'Pause task cedar until I explicitly resume it.';
+  const legacy = "Pause this conversation's work until further direction.";
+  const scopeRule = 'Pauses apply only to their intended conversations.';
+  const namedTaskDeferral = 'Defer task birch until the user resumes it.';
+  try {
+    const owner = f.coordinator.snapshot.conversation!.id;
+    const note = await f.note();
+    await f.coordinator.send(directPause);
+    const ownerPause = f.a.inputs.at(-1)!;
+    await publishOutside(f, { [note]: legacy });
+    await f.coordinator.send('Report the current status of task cedar.');
+    const ownerLegacy = f.a.inputs.at(-1)!;
+    assert.equal(ownerLegacy.session, ownerPause.session);
+    assert.ok(ownerLegacy.context!.includes(legacy));
+
+    await f.coordinator.newConversation('b');
+    const otherRequest = 'Calculate 31 + 47 for task fir.';
+    await f.coordinator.send(otherRequest);
+    const otherInput = f.b.inputs.at(-1)!;
+    assert.notEqual(otherInput.session, ownerPause.session);
+    assert.ok(otherInput.context!.includes(legacy));
+    assert.ok(!otherInput.context!.includes(directPause));
+    assert.equal(otherInput.prompt, otherRequest);
+
+    await publishOutside(f, {
+      [note]: `${scopeRule}\n${namedTaskDeferral}`,
+    });
+    await f.coordinator.selectConversation(owner);
+    const statusRequest = 'Report whether task cedar is still paused.';
+    await f.coordinator.send(statusRequest);
+    const ownerStatus = f.a.inputs.at(-1)!;
+    assert.equal(ownerStatus.session, ownerPause.session);
+    assert.equal(ownerPause.prompt, directPause);
+    assert.equal(ownerStatus.prompt, statusRequest);
+    assert.match(ownerStatus.context!, /replace only their named scopes/);
+    assert.match(
+      ownerStatus.context!,
+      /Removed index facts and deleted notes are no longer active/,
+    );
+
+    await f.coordinator.newConversation('a');
+    const freshRequest = 'Calculate 19 + 23 for task elm.';
+    await f.coordinator.send(freshRequest);
+    const freshInput = f.a.inputs.at(-1)!;
+    assert.notEqual(freshInput.session, ownerPause.session);
+    assert.notEqual(freshInput.session, otherInput.session);
+    assert.ok(!freshInput.context!.includes(directPause));
+    assert.equal(freshInput.prompt, freshRequest);
+    for (const input of [ownerStatus, freshInput]) {
+      assert.ok(input.context!.includes(scopeRule));
+      assert.ok(input.context!.includes(namedTaskDeferral));
+      assert.ok(!input.context!.includes(legacy));
+    }
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('a successful irrelevant memory update advances its delivery cursor without a snapshot', async () => {
   const f = await fixture();
   try {
