@@ -28,6 +28,8 @@ import {
   taskActivity,
 } from './coordination-state.js';
 import type {
+  ClaimOwner,
+  CoordinationAction,
   CoordinationSnapshot,
   SessionPresence,
   SelectionScope,
@@ -39,9 +41,10 @@ import { mergeEventId } from './merge-events.js';
 import type { MergeEvent } from './merge-events.js';
 import {
   answerable as answerableRequests,
+  isPeerAction,
   peerRequestStatus,
 } from './peer-requests.js';
-import type { PeerRequest } from './peer-requests.js';
+import type { PeerAction, PeerRequest } from './peer-requests.js';
 import type { Conversation, ProcessIdentity } from './state.js';
 
 interface Activation {
@@ -78,6 +81,12 @@ const emptySnapshot: CoordinationSnapshot = {
   reservations: [],
   unregistered: [],
 };
+
+const refusedWhileAnswering = new Set<CoordinationAction['kind']>([
+  'ask',
+  'claim',
+  'release',
+]);
 
 /** one conversation owns mutations until quiesced; presence disappears only while its conversation lock is held. */
 export class SessionCoordination {
@@ -950,12 +959,7 @@ export class SessionCoordination {
       const action = request.action;
       if (isFamiliarAction(action))
         throw new Error('Use the familiar reporting mailbox for this action.');
-      if (
-        this.state?.answering &&
-        (action.kind === 'ask' ||
-          action.kind === 'claim' ||
-          action.kind === 'release')
-      )
+      if (this.state?.answering && refusedWhileAnswering.has(action.kind))
         throw new Error(
           'Answer the current peer requests without asking other sessions or changing claims.',
         );
@@ -993,72 +997,8 @@ export class SessionCoordination {
         conversation: active.conversation.id,
         project: active.project,
       };
-      if (action.kind === 'ask') {
-        const asked = await this.change(
-          state,
-          (check) =>
-            this.registry.askPeer(
-              owner,
-              action.claim,
-              action.message,
-              request.deadline,
-              check,
-            ),
-          async (ledger) => {
-            this.admit(request);
-            const peer = this.projectDiscovery(
-              active,
-              active.project,
-              await this.observe(state),
-              ledger,
-            ).peers.find((peer) => peer.claim?.id === action.claim);
-            if (!peer)
-              throw new Error(
-                `The owner of ${action.claim} is not a live session in this project.`,
-              );
-            if (!peer.presence.peerRequests)
-              throw new Error(
-                "The owner's Witch does not support peer requests yet; ask your user to restart that Witch onto a current build.",
-              );
-          },
-        );
-        return {
-          kind: 'peer-request',
-          request: asked,
-          status: peerRequestStatus(
-            asked,
-            (await this.readLedger(state)).ledger.claims,
-          ),
-        };
-      }
-      if (action.kind === 'answer')
-        return {
-          kind: 'peer-request',
-          request: await this.registry.answerPeer(
-            owner.conversation,
-            action.request,
-            action.message,
-            request.deadline,
-          ),
-          status: 'answered',
-        };
-      if (action.kind === 'peer-request') {
-        const found = (
-          await this.registry.peerRequests(owner.project, owner.conversation)
-        ).find(({ id }) => id === action.request);
-        if (!found)
-          throw new Error(
-            `Peer request ${action.request} was not sent to or by this conversation.`,
-          );
-        return {
-          kind: 'peer-request',
-          request: found,
-          status: peerRequestStatus(
-            found,
-            (await this.readLedger(state)).ledger.claims,
-          ),
-        };
-      }
+      if (isPeerAction(action))
+        return await this.peerRequest(action, request, active, owner, state);
       const scope =
         action.kind === 'claim'
           ? undefined
@@ -1211,6 +1151,79 @@ export class SessionCoordination {
         () => {},
       );
     }
+  }
+
+  private async peerRequest(
+    action: PeerAction,
+    request: ControlRequest,
+    active: Activation,
+    owner: ClaimOwner,
+    state: RequestState,
+  ): Promise<ControlOutcome> {
+    if (action.kind === 'ask') {
+      const asked = await this.change(
+        state,
+        (check) =>
+          this.registry.askPeer(
+            owner,
+            action.claim,
+            action.message,
+            request.deadline,
+            check,
+          ),
+        async (ledger) => {
+          this.admit(request);
+          const peer = this.projectDiscovery(
+            active,
+            active.project,
+            await this.observe(state),
+            ledger,
+          ).peers.find((peer) => peer.claim?.id === action.claim);
+          if (!peer)
+            throw new Error(
+              `The owner of ${action.claim} is not a live session in this project.`,
+            );
+          if (!peer.presence.peerRequests)
+            throw new Error(
+              "The owner's Witch does not support peer requests yet; ask your user to restart that Witch onto a current build.",
+            );
+        },
+      );
+      return {
+        kind: 'peer-request',
+        request: asked,
+        status: peerRequestStatus(
+          asked,
+          (await this.readLedger(state)).ledger.claims,
+        ),
+      };
+    }
+    if (action.kind === 'answer')
+      return {
+        kind: 'peer-request',
+        request: await this.registry.answerPeer(
+          owner.conversation,
+          action.request,
+          action.message,
+          request.deadline,
+        ),
+        status: 'answered',
+      };
+    const found = (
+      await this.registry.peerRequests(owner.project, owner.conversation)
+    ).find(({ id }) => id === action.request);
+    if (!found)
+      throw new Error(
+        `Peer request ${action.request} was not sent to or by this conversation.`,
+      );
+    return {
+      kind: 'peer-request',
+      request: found,
+      status: peerRequestStatus(
+        found,
+        (await this.readLedger(state)).ledger.claims,
+      ),
+    };
   }
 
   private async refreshProject(active: Activation): Promise<void> {

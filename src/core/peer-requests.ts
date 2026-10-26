@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { noticeText } from '../memory/memory.js';
 import type { SessionCoordination } from './coordination.js';
-import type { TaskClaim } from './coordination-state.js';
+import type { CoordinationAction, TaskClaim } from './coordination-state.js';
 import type { Snapshot } from './snapshot.js';
 import type { DisplayUpdate } from './state.js';
 
@@ -31,6 +31,18 @@ export const peerRequestStatusSchema = z.enum([
 
 export type PeerRequest = z.infer<typeof peerRequestSchema>;
 export type PeerRequestStatus = z.infer<typeof peerRequestStatusSchema>;
+export type PeerAction = Extract<
+  CoordinationAction,
+  { kind: 'ask' | 'answer' | 'peer-request' }
+>;
+
+export function isPeerAction(action: CoordinationAction): action is PeerAction {
+  return (
+    action.kind === 'ask' ||
+    action.kind === 'answer' ||
+    action.kind === 'peer-request'
+  );
+}
 
 /** an unanswered, unattempted request is undeliverable once its owner no longer holds the claim it was bound to. */
 export function peerRequestStatus(
