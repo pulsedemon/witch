@@ -62,7 +62,7 @@ async function reportedFixture() {
   const familiarEvents = () =>
     events.flatMap((event) =>
       event.type === 'subagent' &&
-      event.subagent.id.startsWith('claude-review/')
+      event.subagent.id.startsWith('claude-familiar/')
         ? [event.subagent]
         : [],
     );
@@ -507,7 +507,7 @@ test('registration transfers an existing brew and leaves an unrelated background
           id: 'native-thread/review-command',
           description: 'review',
           status: 'running',
-          familiar: `claude-review/${f.run}`,
+          familiar: `claude-familiar/${f.run}`,
         },
       ],
     );

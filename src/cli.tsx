@@ -15,6 +15,7 @@ import {
   writeControl,
 } from './cli-control.js';
 import { runClaudeFamiliar } from './cli-familiar.js';
+import { runCodexFamiliar } from './cli-codex-familiar.js';
 import { Coordinator } from './core/coordinator.js';
 import { SessionCoordination } from './core/coordination.js';
 import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
@@ -66,9 +67,11 @@ Agent control (use the prefix supplied in the current Witch context):
   --cancel-selection <id>  leave this turn's queue
   --json              print the control result as JSON
 
-Claude reviews (use the familiar prefix supplied in the current Witch context):
+Delegated tasks (use the familiar prefix supplied in the current Witch context):
   --familiar-claude <name> --report-file <file> -- <native Claude arguments>
-                      report a native Claude review as a familiar
+                      report a native Claude task as a familiar
+  --familiar-codex <name> --report-file <file> -- <native app-server options>
+                      report a Codex task as a familiar; read its prompt from stdin
 
 Every word that starts with - is read as an option, so quote a prompt that
 contains one, and put -- before a prompt that starts with -.
@@ -119,7 +122,9 @@ try {
 }
 if (familiar) {
   try {
-    process.exitCode = await runClaudeFamiliar(
+    const run =
+      familiar.runtime === 'codex' ? runCodexFamiliar : runClaudeFamiliar;
+    process.exitCode = await run(
       familiar.binding,
       familiar.name,
       familiar.reportFile,

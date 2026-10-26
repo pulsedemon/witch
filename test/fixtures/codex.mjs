@@ -11,8 +11,22 @@ import {
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+const familiar = process.env.WITCH_CODEX_FAMILIAR_FIXTURE;
+if (familiar) {
+  writeFileSync(
+    'launched.json',
+    JSON.stringify({
+      pid: process.pid,
+      argv: process.argv.slice(2),
+      mark: process.env.WITCH_JOBS,
+    }),
+  );
+  process.on('SIGTERM', () =>
+    process.exit(familiar === 'nonzero-close' ? 2 : 0),
+  );
+}
 // modes that a prompt can't reach come from the command line
-const mode = process.argv[2] ?? '';
+const mode = familiar ? '' : (process.argv[2] ?? '');
 let model = 'model-a';
 let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
@@ -376,6 +390,27 @@ for await (const line of lines) {
       continue;
     }
     reply({ turn: { id: 'turn-1' } });
+    if (familiar && prompt !== 'hold') {
+      notify('model/rerouted', {
+        threadId: 'native-thread',
+        toModel: 'observed-codex',
+      });
+      for (const id of ['first', 'first', 'second'])
+        notify('item/started', {
+          threadId: 'native-thread',
+          turnId: 'turn-1',
+          item: {
+            id,
+            type: 'commandExecution',
+            processId: null,
+            command: 'cat source.ts',
+            cwd: process.cwd(),
+            source: 'unifiedExecStartup',
+            status: 'inProgress',
+            commandActions: [],
+          },
+        });
+    }
     if (
       [
         'hold',
@@ -889,12 +924,15 @@ for await (const line of lines) {
   if (request.id === 77 && request.result) {
     if (request.result.decision === 'accept')
       writeFileSync(file('approved.txt'), 'approved');
+    const text = familiar
+      ? 'Completed implementation.\n'.repeat(5000)
+      : 'Finished.';
     notify('item/agentMessage/delta', {
       itemId: 'message-1',
-      delta: 'Finished.',
+      delta: text,
     });
     notify('item/completed', {
-      item: { type: 'agentMessage', id: 'message-1', text: 'Finished.' },
+      item: { type: 'agentMessage', id: 'message-1', text },
     });
     finish('completed');
   }
@@ -924,6 +962,11 @@ for await (const line of lines) {
       });
   }
   if (request.method === 'turn/interrupt') {
+    if (familiar) {
+      reply({});
+      finish('interrupted');
+      continue;
+    }
     if (mode === 'brews') {
       writeFileSync(file('interrupt.json'), JSON.stringify(request));
       void (async () => {

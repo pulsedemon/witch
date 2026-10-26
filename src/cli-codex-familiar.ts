@@ -1,0 +1,247 @@
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { open } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { CodexAdapter } from './agents/codex.js';
+import type {
+  FamiliarAction,
+  FamiliarProgress,
+} from './agents/familiar-report.js';
+import { errorMessage } from './agents/stderr.js';
+import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
+import { FamiliarReports, registerFamiliar } from './cli-familiar.js';
+import { callControl } from './persistence/control.js';
+import type { ControlBinding } from './persistence/control.js';
+
+/** the wrapper owns transport and input; native configuration remains Codex's. */
+export function codexArguments(args: readonly string[]): string[] {
+  const values = new Set([
+    '-c',
+    '--config',
+    '--enable',
+    '--disable',
+    '--code-mode-host',
+  ]);
+  const flags = new Set(['--strict-config', '--analytics-default-enabled']);
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (flags.has(arg)) continue;
+    if (!values.has(arg.split('=')[0]!))
+      throw new Error(
+        `Codex familiar mode cannot include ${arg}; use native app-server configuration options.`,
+      );
+    if (!arg.includes('=') && !args[++index])
+      throw new Error(`Codex option ${arg} requires a value.`);
+  }
+  return ['app-server', '--stdio', ...args];
+}
+
+export async function runCodexFamiliar(
+  binding: ControlBinding,
+  name: string,
+  reportFile: string,
+  args: readonly string[],
+): Promise<number> {
+  const argv = codexArguments(args);
+  const path = resolve(reportFile);
+  const file = await open(path, 'wx', 0o600);
+  const run = randomUUID();
+  const abort = new AbortController();
+  let session: AgentSession | undefined;
+  let closing: Promise<void> | undefined;
+  let stopped = false;
+  let ending = false;
+  let failure: string | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let childExit:
+    { code: number | null; signal: NodeJS.Signals | null } | undefined;
+  let progress: FamiliarProgress = { status: 'running', tools: 0 };
+  const tools = new Set<string>();
+  const requests = new Map<
+    string,
+    { resolved: boolean; work: Promise<void> }
+  >();
+  const close = () => {
+    if (session) {
+      closing ??= session.close();
+      void closing.catch((error: unknown) => {
+        failure ??= errorMessage(error);
+      });
+    } else abort.abort();
+  };
+  const fail = (error: unknown) => {
+    failure ??= errorMessage(error);
+    close();
+  };
+  const stop = () => {
+    stopped = true;
+    process.stdin.destroy();
+    close();
+  };
+  const reports = new FamiliarReports(binding, run, fail);
+  const requestCall = async (action: FamiliarAction) => {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const outcome = await callControl(
+        binding,
+        action,
+        Math.min(deadline, Date.now() + 1500),
+      ).catch(async (error: unknown) => {
+        if (Date.now() >= deadline) throw error;
+        await delay(100);
+        return undefined;
+      });
+      if (!outcome) continue;
+      if (outcome.kind === 'error') throw new Error(outcome.message);
+      return outcome;
+    }
+  };
+  const request = (input: UserRequest) => {
+    if (requests.has(input.id)) return;
+    const pending = { resolved: false, work: Promise.resolve() };
+    requests.set(input.id, pending);
+    pending.work = (async () => {
+      let action: FamiliarAction = {
+        kind: 'familiar-request',
+        run,
+        request: input,
+      };
+      while (!pending.resolved && !ending) {
+        const outcome = await requestCall(action);
+        if (pending.resolved || ending) return;
+        if (outcome.kind === 'familiar-response') {
+          session!.respond(input.id, outcome.response);
+          return;
+        }
+        if (outcome.kind !== 'familiar-request-pending')
+          throw new Error(`Unexpected familiar request reply: ${outcome.kind}`);
+        action = { kind: 'familiar-request-poll', run, id: input.id };
+        await delay(100);
+      }
+    })().catch((error: unknown) => {
+      if (!pending.resolved && !ending) fail(error);
+    });
+  };
+  const receive = (event: AgentEvent) => {
+    if (ending) return;
+    if (event.type === 'info')
+      progress = { ...progress, model: event.info.model };
+    else if (event.type === 'tool' && !event.done && !event.append) {
+      tools.add(event.id);
+      progress = { ...progress, tools: tools.size, activity: event.title };
+    } else if (event.type === 'request') {
+      request(event.request);
+      return;
+    } else if (event.type === 'request-resolved') {
+      const pending = requests.get(event.id);
+      if (pending && !pending.resolved) {
+        pending.resolved = true;
+        pending.work = pending.work
+          .then(async () => {
+            await requestCall({
+              kind: 'familiar-request-resolved',
+              run,
+              id: event.id,
+            });
+          })
+          .catch((error: unknown) => {
+            if (!ending) fail(error);
+          });
+      }
+      return;
+    } else return;
+    reports.push(progress);
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  let report = '';
+  let status: FamiliarProgress['status'] = 'failed';
+  let registered = false;
+  const save = async () => {
+    const bytes = Buffer.from(report);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const written = await file.write(
+        bytes,
+        offset,
+        bytes.length - offset,
+        offset,
+      );
+      offset += written.bytesWritten;
+    }
+    await file.truncate(bytes.length);
+    await file.sync();
+  };
+  try {
+    let prompt = '';
+    process.stdin.setEncoding('utf8');
+    for await (const chunk of process.stdin) prompt += chunk as string;
+    await registerFamiliar(binding, run, name, () => stopped);
+    registered = true;
+    heartbeat = setInterval(() => reports.push(progress), 2000);
+    const adapter = new CodexAdapter((executable, cwd, signal) => {
+      const child = spawn(executable, argv, {
+        cwd,
+        signal,
+        stdio: 'pipe',
+        detached: false,
+      });
+      child.stderr.pipe(process.stderr, { end: false });
+      child.once('exit', (code, signal) => {
+        childExit = { code, signal };
+      });
+      return child;
+    });
+    session = await adapter.connect({
+      executable: 'codex',
+      cwd: process.cwd(),
+      memoryDirectories: [],
+      signal: abort.signal,
+      onEvent: receive,
+      onProcess: async () => {},
+    });
+    if (stopped || failure)
+      throw new Error(failure ?? 'Codex familiar stopped before its turn.');
+    const result = await session.send(prompt);
+    report = [result.text, result.error].filter(Boolean).join('\n\n');
+    status = result.status === 'interrupted' ? 'stopped' : result.status;
+    await save();
+  } catch (error) {
+    failure ??= errorMessage(error);
+  } finally {
+    close();
+    await closing?.catch((error: unknown) => {
+      failure ??= errorMessage(error);
+    });
+    ending = true;
+    clearInterval(heartbeat);
+    for (const pending of requests.values()) pending.resolved = true;
+    await Promise.all([...requests.values()].map((pending) => pending.work));
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  }
+  try {
+    if (stopped) status = 'stopped';
+    else if (failure) status = 'failed';
+    else if (status === 'completed' && childExit?.code !== 0) {
+      status = 'failed';
+      failure = `Codex exited (${childExit?.signal ?? childExit?.code ?? 'unknown'}).`;
+    }
+    if (failure) report = [report, failure].filter(Boolean).join('\n\n');
+    await save();
+    if (registered) {
+      try {
+        await reports.finish({ ...progress, status, report });
+      } catch (error) {
+        status = stopped ? 'stopped' : 'failed';
+        report = [report, errorMessage(error)].filter(Boolean).join('\n\n');
+        await save();
+      }
+    }
+    process.stdout.write(`${report}\n\nSaved report: ${path}\n`);
+    return status === 'completed' ? 0 : status === 'stopped' ? 130 : 1;
+  } finally {
+    await file.close();
+  }
+}

@@ -1,3 +1,4 @@
+import { isFamiliarAction } from '../agents/familiar-report.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { AgentSession } from '../agents/types.js';
@@ -1316,4 +1317,3 @@ export class SessionCoordination {
     for (const listener of this.listeners) listener();
   }
 }
-import { isFamiliarAction } from '../agents/familiar-report.js';

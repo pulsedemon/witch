@@ -214,7 +214,7 @@ export class CodexCommands {
         return { kind: 'familiar-pending' };
       }
       const subagent: Subagent = {
-        id: `claude-review/${action.run}`,
+        id: `claude-familiar/${action.run}`,
         run: action.run,
         name: action.name,
         kind: '',

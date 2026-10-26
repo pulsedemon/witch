@@ -904,8 +904,11 @@ export class Coordinator {
           pendingContext,
           command,
           familiarCommand:
-            session.familiar?.runtime === 'claude'
-              ? this.coordination?.familiarCommand()
+            session.familiar && this.coordination
+              ? {
+                  command: this.coordination.familiarCommand(),
+                  runtime: session.familiar.runtime,
+                }
               : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),
         });

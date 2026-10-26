@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from './agents/stderr.js';
 import { claudeArguments } from './cli-familiar.js';
+import { codexArguments } from './cli-codex-familiar.js';
 import { coordinationActionSchema } from './core/coordination-state.js';
 import { callControl, controlBindingSchema } from './persistence/control.js';
 import type { ControlBinding, ControlOutcome } from './persistence/control.js';
@@ -34,6 +35,7 @@ export function parseCommand(args = process.argv.slice(2)) {
       selection: { type: 'string' },
       json: { type: 'boolean' },
       'familiar-claude': { type: 'string' },
+      'familiar-codex': { type: 'string' },
       'report-file': { type: 'string' },
     },
     allowPositionals: true,
@@ -42,13 +44,17 @@ export function parseCommand(args = process.argv.slice(2)) {
   const { values, positionals } = parsed;
   const reporting =
     values['familiar-claude'] !== undefined ||
+    values['familiar-codex'] !== undefined ||
     values['report-file'] !== undefined;
   if (reporting) {
+    const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
+    const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
+    const label = runtime === 'codex' ? 'Codex' : 'Claude';
     const allowed = new Set([
       'control-dir',
       'control-conversation',
       'control-activation',
-      'familiar-claude',
+      option,
       'report-file',
     ]);
     if (
@@ -57,24 +63,25 @@ export function parseCommand(args = process.argv.slice(2)) {
       positionals.length !== args.length - separator - 1
     )
       throw new Error(
-        'Claude familiar mode requires -- before native arguments and cannot include other Witch options or prompts.',
+        `${label} familiar mode requires -- before native arguments and cannot include other Witch options or prompts.`,
       );
-    if (!values['familiar-claude']?.trim() || !values['report-file'])
+    if (!values[option]?.trim() || !values['report-file'])
       throw new Error(
-        'Claude familiar mode requires a task name and --report-file.',
+        `${label} familiar mode requires a task name and --report-file.`,
       );
     const binding = controlBindingSchema.parse({
       directory: values['control-dir'] && resolve(values['control-dir']),
       conversation: values['control-conversation'],
       activation: values['control-activation'],
     });
-    claudeArguments(positionals);
+    (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
     return {
       ...parsed,
       control: undefined,
       familiar: {
+        runtime,
         binding,
-        name: values['familiar-claude'].trim(),
+        name: values[option].trim(),
         reportFile: resolve(values['report-file']),
         args: positionals,
       },

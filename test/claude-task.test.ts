@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { ClaudeReview } from '../src/agents/claude-review.js';
+import { ClaudeTask } from '../src/agents/claude-task.js';
 import type { FamiliarProgress } from '../src/agents/familiar-report.js';
 
 const init = {
@@ -35,7 +35,7 @@ const read = {
 
 test('observed init and unique top-level tool uses supply identity and activity until process exit', () => {
   const events: FamiliarProgress[] = [];
-  const review = new ClaudeReview('/work', (progress) => events.push(progress));
+  const review = new ClaudeTask('/work', (progress) => events.push(progress));
   review.message(init);
   review.message(read);
   review.message(read);
@@ -69,7 +69,7 @@ test('observed init and unique top-level tool uses supply identity and activity 
 });
 
 test('native permission denials remain in the final report even when the review itself succeeds', () => {
-  const review = new ClaudeReview('/work', () => {});
+  const review = new ClaudeTask('/work', () => {});
   review.message(init);
   review.message({
     ...success,
@@ -89,7 +89,7 @@ test('native permission denials remain in the final report even when the review 
 
 test('native session model switches and reversions change displayed identity while local fallback leaves it alone', () => {
   const events: FamiliarProgress[] = [];
-  const review = new ClaudeReview('/work', (progress) => events.push(progress));
+  const review = new ClaudeTask('/work', (progress) => events.push(progress));
   review.message(init);
   const change = {
     type: 'system',
@@ -133,7 +133,7 @@ for (const [name, frames, code, signal, status, report] of [
     null,
     'SIGTERM',
     'stopped',
-    'Reviewed.\n\nClaude review stopped (SIGTERM).',
+    'Reviewed.\n\nClaude task stopped (SIGTERM).',
   ],
   [
     'error flag on success',
@@ -141,7 +141,7 @@ for (const [name, frames, code, signal, status, report] of [
     0,
     null,
     'failed',
-    'Reviewed.\n\nClaude review failed.',
+    'Reviewed.\n\nClaude task failed.',
   ],
   [
     'native error result',
@@ -158,7 +158,7 @@ for (const [name, frames, code, signal, status, report] of [
     0,
     null,
     'failed',
-    'Permission policy blocked required work.\n\nClaude review failed.',
+    'Permission policy blocked required work.\n\nClaude task failed.',
   ],
   [
     'missing init',
@@ -170,7 +170,7 @@ for (const [name, frames, code, signal, status, report] of [
   ],
 ] as const)
   test(`${name} cannot become successful completion`, () => {
-    const review = new ClaudeReview('/work', () => {});
+    const review = new ClaudeTask('/work', () => {});
     for (const frame of frames) review.message(frame);
     assert.deepEqual(review.closed(code, signal), {
       status,
@@ -182,11 +182,11 @@ for (const [name, frames, code, signal, status, report] of [
   });
 
 test('malformed required protocol fails even if a later result claims success', () => {
-  const review = new ClaudeReview('/work', () => {});
+  const review = new ClaudeTask('/work', () => {});
   review.message({ ...init, model: null });
   review.message(init);
   review.message(success);
   const result = review.closed(0, null);
   assert.equal(result.status, 'failed');
-  assert.match(result.report!, /^Reviewed\.\n\nInvalid Claude review stream:/);
+  assert.match(result.report!, /^Reviewed\.\n\nInvalid Claude task stream:/);
 });

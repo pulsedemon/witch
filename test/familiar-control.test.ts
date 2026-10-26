@@ -146,6 +146,18 @@ test('only a supporting session receives familiar instructions and the exact use
   assert.match(input.context!, /--familiar-claude <task-name> --report-file/);
   assert.match(input.context!, /--permission-prompts none/);
   assert.match(input.context!, /keep its stdout connected/);
+  assert.match(
+    input.context!,
+    /Delegate work to Claude when it suits the task/,
+  );
+  client.a.sessions[0]!.session.familiar.runtime = 'codex';
+  await client.coordinator.send(prompt);
+  const codex = client.a.inputs.at(-1)!;
+  assert.equal(codex.prompt, prompt);
+  assert.match(codex.context!, /Delegate work to Codex when it suits the task/);
+  assert.match(codex.context!, /--familiar-codex <task-name> --report-file/);
+  assert.match(codex.context!, /run_in_background: true/);
+  assert.doesNotMatch(codex.context!, /--familiar-claude/);
 });
 
 test('pending native requests leave the mailbox available and retain complete request and response payloads', async () => {

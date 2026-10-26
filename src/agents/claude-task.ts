@@ -42,8 +42,8 @@ const result = z.object({
   ),
 });
 
-/** a native result supplies the report; only the child's exit can finish the review. */
-export class ClaudeReview {
+/** a native result supplies the report; only the child's exit can finish the task. */
+export class ClaudeTask {
   private identity?: z.infer<typeof init>;
   private readonly tools = new Set<string>();
   private activity?: string;
@@ -119,7 +119,7 @@ export class ClaudeReview {
           this.report = [this.report, ...denials].filter(Boolean).join('\n\n');
       }
     } catch (error) {
-      this.failed(`Invalid Claude review stream: ${errorMessage(error)}`);
+      this.failed(`Invalid Claude task stream: ${errorMessage(error)}`);
     }
   }
 
@@ -131,7 +131,7 @@ export class ClaudeReview {
     const reason =
       this.failure ??
       (signal
-        ? `Claude review stopped (${signal}).`
+        ? `Claude task stopped (${signal}).`
         : code !== 0
           ? `Claude exited with code ${code}.`
           : !this.identity
@@ -139,7 +139,7 @@ export class ClaudeReview {
             : !this.receivedResult
               ? 'Claude exited without a final result.'
               : !this.success
-                ? 'Claude review failed.'
+                ? 'Claude task failed.'
                 : undefined);
     return {
       ...this.progress(),

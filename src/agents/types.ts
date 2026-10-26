@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 
@@ -281,4 +282,3 @@ export interface AgentAdapter {
   /** cancellation rejects with an `Error` named `AbortError`. */
   connect(options: SessionOptions): Promise<AgentSession>;
 }
-import { z } from 'zod';
