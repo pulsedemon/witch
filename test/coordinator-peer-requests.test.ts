@@ -277,31 +277,39 @@ test('recovery, pending questions and failed turns hold answer turns until resol
   assert.deepEqual(prompts(b).slice(-3), ['fails', 'next', 'answer']);
 });
 
-test('released claim is never admitted', async (t) => {
+test('released claim is never admitted, and a prompt sent meanwhile still runs', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const request = await ask(a, claim, 'Still yours?');
   const attempt = CoordinationStore.prototype.attemptPeerRequests;
+  const admission = Promise.withResolvers<void>();
+  let admitting = false;
   const results: ReturnType<typeof attempt>[] = [];
   vi.spyOn(
     CoordinationStore.prototype,
     'attemptPeerRequests',
   ).mockImplementation(async function (this: CoordinationStore, ...args) {
+    admitting = true;
     await f.registry.release(
       claim.owner,
       claim.id,
       Date.now() + 5000,
       async () => {},
     );
+    await admission.promise;
     const result = attempt.apply(this, args);
     results.push(result);
     return result;
   });
   await refreshed(b);
-  await until('admission', () => results.length === 1);
+  await until('admission', () => admitting);
+  const sent = b.coordinator.send('sent during admission');
+  admission.resolve();
+  await sent;
+  await until('user turn', () => prompts(b).length === 1 && settled(b));
   assert.deepEqual((await results[0]!).attempted, []);
-  await until('owner settled', () => settled(b));
   assert.equal((await stored(f, request)).attemptedAt, undefined);
-  assert.deepEqual(b.a.inputs, []);
+  assert.deepEqual(prompts(b), ['sent during admission']);
+  assert.deepEqual(b.coordinator.snapshot.queue, []);
 });
 
 test('interrupted answer turn is not retried, and Escape holds answer turns', async (t) => {
