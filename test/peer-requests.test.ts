@@ -80,8 +80,15 @@ test('a repeated ask matches the asker, the claim and the text', async () => {
   const first = await ask(a, claimB.id);
   const toC = await ask(a, claimC.id);
   const fromC = await ask(c, claimB.id);
+  const other = await store!.askPeer(
+    a,
+    claimB.id,
+    'Other?',
+    deadline(),
+    verify,
+  );
   assert.equal((await ask(a, claimB.id)).id, first.id);
-  assert.equal(new Set([first.id, toC.id, fromC.id]).size, 3);
+  assert.equal(new Set([first.id, toC.id, fromC.id, other.id]).size, 4);
   assert.deepEqual(
     [toC, fromC].map(({ from, to }) => ({ from, to })),
     [
