@@ -508,7 +508,10 @@ test('a git or OS that fails reading a checkout or its origin fails the project 
   const dangling = join(root, 'dangling');
   await mkdir(dangling);
   await writeFile(join(dangling, '.git'), 'gitdir: /does/not/exist\n');
-  await assert.rejects(memory.scopePaths(dangling), /not a git repository:/);
+  await assert.rejects(
+    memory.scopePaths(dangling),
+    /not a git repository:|gitfile does not point to a valid repository:/,
+  );
   const locked = join(root, 'locked');
   await mkdir(join(locked, 'upstream'), { recursive: true });
   const reader = await repository(root, 'reader', join(locked, 'upstream'));
