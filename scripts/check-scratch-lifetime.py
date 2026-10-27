@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import termios
 import time
+import uuid
 
 
 RECLAMATION_TIMEOUT = 80
@@ -40,6 +41,12 @@ def identity(pid):
         return None
     result.check_returncode()
     return {'pid': pid, 'started': result.stdout.strip()}
+
+
+def parent(pid):
+    result = subprocess.run(['/bin/ps', '-p', str(pid), '-o', 'ppid='],
+                            capture_output=True, text=True, timeout=5)
+    return int(result.stdout) if result.returncode == 0 else None
 
 
 def wait_for(label, check, seconds=20):
@@ -229,11 +236,25 @@ child.unref();
             assert worker_identity
             workers.append(worker_identity)
             report['worker_identity'] = worker_identity
+        if name == 'legacy-owner':
+            boot = subprocess.run(['/usr/sbin/sysctl', '-n', 'kern.bootsessionuuid'],
+                                  check=True, capture_output=True, text=True, timeout=5).stdout.strip()
+            exited = subprocess.Popen(['/bin/sleep', '1'])
+            owner = identity(exited.pid)
+            exited.wait()
+            (root / 'state').mkdir(mode=0o700)
+            (root / 'state/scratch').mkdir(mode=0o700)
+            legacy = root / 'state/scratch' / str(uuid.uuid4())
+            legacy.mkdir(mode=0o700)
+            (legacy / '.witch-scratch.json').write_text(json.dumps({'version': 1, 'boot': boot, 'owner': owner}))
         # native start identities have second precision; keep the controller's ancestry unambiguous.
         second = int(time.time())
         wait_for('distinct controller start', lambda: int(time.time()) > second)
         with closing(Cli(root, command, env, 'terminal')) as cli:
             presence = cli.ready()
+            if name == 'legacy-owner':
+                cli.wait('legacy reclamation', lambda: not legacy.exists(), seconds=RECLAMATION_TIMEOUT)
+                report['legacy_reclaimed'] = True
             report['cli_identity'] = presence['process']
             assert presence['process'] == identity(cli.pid)
             assert presence['process']['started'] != report['controller_identity']['started']
@@ -254,8 +275,16 @@ child.unref();
             elif kind == 'older-tmux':
                 (root / 'scratch-location').write_text(str(directory))
             elif kind != 'none':
-                words = ['/bin/zsh', str(shell), str(root), 'new'] if kind == 'shell' else [node, str(worker), str(root), kind]
-                cli.shell([node, str(launcher), *words])
+                cli.shell([node, str(launcher), node, str(worker), str(root), kind])
+            if name == 'unrelated-orphan':
+                # the controller starts it, not the CLI, so only its start after the owner ties it to the scratch.
+                subprocess.run([node, str(launcher), '/bin/zsh', str(shell), str(root), 'new'],
+                               env=env, check=True, timeout=5)
+                info = wait_for('orphan ready', lambda: read_json(root / 'worker.ready.json'))
+                orphan = identity(info['pid'])
+                assert orphan
+                workers.append(orphan)
+                wait_for('orphan reparented', lambda: parent(orphan['pid']) == 1)
             if kind != 'none':
                 info = cli.wait('worker ready', lambda: read_json(root / 'worker.ready.json'))
                 if kind in ('tmux', 'node', 'descendant'):
@@ -328,6 +357,9 @@ child.unref();
                     else:
                         cleaner.wait('same-boot reclamation', lambda: not directory.exists(), seconds=RECLAMATION_TIMEOUT)
                         report['same_boot_reclaimed'] = True
+                        if name == 'unrelated-orphan':
+                            assert identity(orphan['pid']) == orphan, 'unrelated orphan did not survive reclamation'
+                            report['orphan_survived'] = True
                     cleaner.quit()
     finally:
         (root / 'release-worker').write_text('release')
@@ -357,8 +389,9 @@ child.unref();
 def main():
     cases = [('fresh-quit', 0, 'none'), ('tmux-quit', 0, 'tmux'),
              ('tmux-one-restart', 1, 'tmux'), ('tmux-two-restarts', 2, 'tmux'),
-             ('opaque-shell', 0, 'shell'), ('later-descendant', 0, 'descendant'),
-             ('periodic', 0, 'node'), ('uncertain-old-pane', 1, 'older-tmux')]
+             ('unrelated-orphan', 0, 'none'), ('later-descendant', 0, 'descendant'),
+             ('periodic', 0, 'node'), ('uncertain-old-pane', 1, 'older-tmux'),
+             ('legacy-owner', 0, 'none')]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('cli', type=Path, help='source cli.tsx or built cli.js')
     parser.add_argument('--case', dest='selected', action='append',

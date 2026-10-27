@@ -13,7 +13,7 @@ export interface ScratchCandidate {
   directory: string;
   owner?: ProcessIdentity;
   previousBoot: boolean;
-  requiresBoot?: boolean;
+  requiresBoot: boolean;
   lockFd: number;
 }
 
@@ -27,7 +27,6 @@ export interface ScratchObservation {
 interface Process extends ProcessIdentity {
   ppid: number;
   uid: number;
-  time: number;
   name: string;
 }
 
@@ -48,14 +47,13 @@ function processes(lines: readonly string[]): Map<number, Process> {
     if (!match) throw new Error('Incomplete process observation.');
     const [, pid, ppid, uid, state, started, name] = match;
     if (state!.startsWith('Z')) continue;
-    const time = Date.parse(`${started!} UTC`);
-    if (!Number.isFinite(time)) throw new Error('Unknown process start time.');
+    if (!Number.isFinite(Date.parse(`${started!} UTC`)))
+      throw new Error('Unknown process start time.');
     rows.set(Number(pid), {
       pid: Number(pid),
       ppid: Number(ppid),
       uid: Number(uid),
       started: started!,
-      time,
       name: name!,
     });
   }
@@ -104,26 +102,6 @@ function files(output: string): {
 
 function beneath(path: string, directory: string): boolean {
   return path === directory || path.startsWith(`${directory}/`);
-}
-
-/** launchd parenting and hidden environments cannot rule out a surviving reader. */
-function independent(
-  row: Process,
-  owner: ProcessIdentity,
-  rows: ReadonlyMap<number, Process>,
-): boolean {
-  const began = Date.parse(`${owner.started} UTC`);
-  if (!Number.isFinite(began)) return false;
-  const seen = new Set<number>();
-  let current: Process | undefined = row;
-  while (current && current.pid > 1 && !seen.has(current.pid)) {
-    if (sameProcess(current, owner)) return false;
-    if (current.name === 'tmux') return false;
-    if (current.time < began) return true;
-    seen.add(current.pid);
-    current = rows.get(current.ppid);
-  }
-  return false;
 }
 
 /** an older pane can accept scratch through tmux and survive its server without a visible mark. */
@@ -192,24 +170,20 @@ export function classifyScratch(
         results.set(directory, 'used');
         continue;
       }
-      if (!previousBoot && (!owner || requiresBoot !== false)) continue;
+      if (!previousBoot && (!owner || requiresBoot)) continue;
+      // a reader that neither holds a file here nor names the root where ps can read looks unrelated, and loses it.
       const relevant = [...after.values()].filter(
         (row) =>
           row.pid > 1 &&
-          ((row.uid === process.getuid!() &&
-            sameProcess(before.get(row.pid), row)) ||
-            (!previousBoot && !independent(row, owner!, after))),
+          row.uid === process.getuid!() &&
+          sameProcess(before.get(row.pid), row),
       );
-      const uncertain = relevant.some((row) => {
-        const earlier = before.get(row.pid);
-        return (
-          !sameProcess(earlier, row) ||
-          earlier?.ppid !== row.ppid ||
+      const uncertain = relevant.some(
+        (row) =>
+          before.get(row.pid)!.ppid !== row.ppid ||
           !opened.pids.has(row.pid) ||
-          !commands.has(row.pid) ||
-          (!previousBoot && !independent(row, owner!, after))
-        );
-      });
+          !commands.has(row.pid),
+      );
       const incomplete = opened.references.some(
         ({ pid, fd, type, name }) =>
           relevant.some((row) => row.pid === pid) &&
@@ -220,14 +194,7 @@ export function classifyScratch(
               ['REG', 'DIR'].includes(type)) &&
               (!name.startsWith('/') || name.includes('\\')))),
       );
-      const disappeared = [...before.values()].some(
-        (row) =>
-          !previousBoot &&
-          !independent(row, owner!, before) &&
-          !sameProcess(after.get(row.pid), row),
-      );
-      if (!uncertain && !incomplete && !disappeared)
-        results.set(directory, 'unused');
+      if (!uncertain && !incomplete) results.set(directory, 'unused');
     }
   } catch {
     // an incomplete native observation supplies no deletion permission.
