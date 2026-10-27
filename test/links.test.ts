@@ -307,6 +307,18 @@ test('quoted and Markdown file links preserve spaces without linking command nam
   }
 });
 
+test("a path dropped into a message links whole to its unescaped file, through escaped spaces and a screenshot name's U+202F", () => {
+  const dropped =
+    '/var/folders/T/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
+  assert.deepEqual(linkSpans(markdown(`${dropped} what is this?`, '/work')), [
+    {
+      target:
+        'vscode://file/var/folders/T/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
+      text: dropped,
+    },
+  ]);
+});
+
 test('bare source references take precedence over fuzzy domains while explicit web URLs stay web links', () => {
   for (const file of ['server.py:42', 'foo.sh', 'README.md', 'src/main.py:4']) {
     const rendered = linkify(file, '/work/project');
