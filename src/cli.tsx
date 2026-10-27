@@ -33,6 +33,7 @@ import {
 } from './persistence/directory-recovery.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
+import { clickTarget } from './ui/links.js';
 import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
 import type { Cell, Pointer } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
@@ -281,10 +282,17 @@ if (familiar) {
       if (pointer === 'press') pressed = screen.linkAt(cell.column, cell.row);
     });
     stdin.on('click', () => {
-      if (pressed)
-        execFile('/usr/bin/open', [pressed], (error) => {
-          if (error) coordinator.report(error);
-        });
+      if (!pressed) return;
+      clickTarget(pressed, () => coordinator.memoryDirectories())
+        .then((target) => {
+          if ('notice' in target)
+            coordinator.notice(target.notice, undefined, false);
+          else
+            execFile('/usr/bin/open', [target.open], (error) => {
+              if (error) coordinator.report(error);
+            });
+        })
+        .catch((error: unknown) => coordinator.report(error));
     });
     const application = render(
       <App

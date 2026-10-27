@@ -132,6 +132,12 @@ test('recovered conversations reconnect with their saved IDs in the destination'
       );
       assert.equal(agent.inputs.length, 0);
     }
+    assert.deepEqual(
+      await f.coordinator.memoryDirectories(),
+      [f.scope.global, f.scope.project].map((scope) =>
+        join(f.root, 'state', 'conversations', 'old-a', 'memory', scope),
+      ),
+    );
   } finally {
     await f.coordinator.close();
   }

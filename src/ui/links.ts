@@ -1,5 +1,7 @@
 import { tokenize } from '@alcalzone/ansi-tokenize';
 import LinkifyIt from 'linkify-it';
+import { basename, dirname, join } from 'node:path';
+import { exists } from '../memory/memory.js';
 import { resolveFile, unescapePath } from '../paths.js';
 import { colors } from './theme.js';
 
@@ -13,6 +15,8 @@ const files =
 // a name with no directory links only with one of these extensions, so `e.g.` and `foo.bar` stay text
 const sourceFile =
   /\.(?:[cm]?[jt]sx?|py|sh|md|rs|go|rb|pl|cc|c|h|java|cs|swift|txt|json|toml|ya?ml|csv|xml|ini|env|lock|html|css|sql|log)(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?$/i;
+// links drawn for a name with no directory, which a click looks up in shared memory when the cwd lacks it
+const bareNames = new Set<string>();
 
 export function linkTarget(target: string, cwd: string): string {
   if (/^https?:\/\//i.test(target)) return target;
@@ -30,6 +34,28 @@ export function linkTarget(target: string, cwd: string): string {
   return `vscode://file${path.split('/').map(encodeURIComponent).join('/')}${suffix}`;
 }
 
+/** what a click on a drawn link opens, or the notice it shows when the file isn't there. */
+export async function clickTarget(
+  url: string,
+  memory: () => Promise<string[]>,
+): Promise<{ open: string } | { notice: string }> {
+  const file = /^vscode:\/\/file(\/[^:]*)((?::\d+){0,2})$/.exec(url);
+  if (!file) return { open: url };
+  const path = decodeURIComponent(file[1]!);
+  if (await exists(path)) return { open: url };
+  if (!bareNames.has(url)) return { notice: `No file at ${path}` };
+  const name = basename(path);
+  const notes: string[] = [];
+  for (const directory of await memory())
+    if (await exists(join(directory, name))) notes.push(join(directory, name));
+  if (notes.length === 1) return { open: linkTarget(notes[0]! + file[2], '/') };
+  return {
+    notice: notes.length
+      ? `${name} is in both memory scopes:\n${notes.join('\n')}`
+      : `No ${name} in ${dirname(path)} or shared memory`,
+  };
+}
+
 export function hyperlink(text: string, target: string, cwd: string): string {
   if (
     /^[a-z][a-z\d+.-]*:/i.test(target) &&
@@ -44,6 +70,7 @@ export function hyperlink(text: string, target: string, cwd: string): string {
     return text;
   }
   if (/\p{Cc}/u.test(url)) return text;
+  if (!target.includes('/')) bareNames.add(url);
   // keep underlining inside each line's link so clipped rows still open.
   // ansi-escapes adds tmux passthrough that Ink drops, so emit OSC 8 directly.
   return text
