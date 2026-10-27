@@ -121,7 +121,7 @@ function bareLinks(text: string, cwd: string): string {
 
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
- * prefer boundaries that keep links and quoted paths whole.
+ * prefer boundaries that keep links, quoted paths and dropped paths whole; an escaped character or U+202F is inside a dropped path.
  */
 function pieces(text: string): string[] {
   const result: string[] = [];
@@ -129,11 +129,17 @@ function pieces(text: string): string[] {
     let end = Math.min(start + 2000, text.length);
     const after = (separator: RegExp) => {
       let cut = end;
-      while (cut > start && !separator.test(text[cut - 1]!)) cut--;
+      while (
+        cut > start &&
+        (!separator.test(text[cut - 1]!) || text[cut - 2] === '\\')
+      )
+        cut--;
       return cut;
     };
     if (end < text.length)
-      end = [/\n/, /[\s<>]/, /"/].map(after).find((cut) => cut > start) ?? end;
+      end =
+        [/\n/, /(?!\u202f)[\s<>]/, /"/].map(after).find((cut) => cut > start) ??
+        end;
     result.push(text.slice(start, end));
     start = end;
   }
