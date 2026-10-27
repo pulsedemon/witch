@@ -49,6 +49,10 @@ interface Block {
   complete: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
+  /** an image it names had no rows yet. */
+  missing: boolean;
+  /** the image version it was built for. */
+  loads?: number;
 }
 
 function textRows(
@@ -81,6 +85,7 @@ function block(
   viewport: Viewport,
   complete: Row[],
   suffix: Row[],
+  missing: boolean,
 ): Block {
   const count = complete.length;
   const length = count + suffix.length;
@@ -92,6 +97,7 @@ function block(
     complete,
     row,
     lines: textRows(length, (index) => row(index)?.text),
+    missing,
   };
 }
 
@@ -178,17 +184,18 @@ function ending(
   width: number,
   first: number,
   graphics: Graphics | undefined,
-): Row[] {
+): { rows: Row[]; missing: boolean } {
   const rendered = section(content.tail, width, false, first);
   const diff = content.diff?.(width) ?? [];
   const images = graphics
-    ? content.images
-        .map((source) => graphics.rows(source, content.item.cwd, width))
-        .filter((rows) => rows.length)
+    ? content.images.map((source) =>
+        graphics.rows(source, content.item.cwd, width),
+      )
     : [];
   const next = rendered.next;
-  // row offsets preserve diff and image rows across resizes and when copying.
-  return rendered.rows.concat(
+  // row offsets preserve diff and image rows across resizes and when copying, and an image without rows yet
+  // keeps its line, so the images after it keep theirs when it loads.
+  const ended = rendered.rows.concat(
     diff.concat(images).flatMap((rows, index) =>
       rows.map((text, offset) => ({
         text,
@@ -200,6 +207,7 @@ function ending(
       anchor: { line: next + diff.length + images.length, offset: 0 },
     },
   );
+  return { rows: ended, missing: images.some((rows) => !rows.length) };
 }
 
 function wrap(
@@ -210,11 +218,13 @@ function wrap(
   const { width } = viewport;
   const head = section(content.title, width, true, 0);
   const complete = section(content.complete, width, false, head.next);
+  const end = ending(content, width, complete.next, graphics);
   return block(
     content,
     viewport,
     head.rows.concat(complete.rows),
-    ending(content, width, complete.next, graphics),
+    end.rows,
+    end.missing,
   );
 }
 
@@ -266,12 +276,8 @@ function extend(
   const complete = section(content.complete, width, false, first);
   // a large chunk can exceed the argument limit if spread into push().
   for (const row of complete.rows) previous.complete.push(row);
-  return block(
-    prepared,
-    viewport,
-    previous.complete,
-    ending(prepared, width, complete.next, graphics),
-  );
+  const end = ending(prepared, width, complete.next, graphics);
+  return block(prepared, viewport, previous.complete, end.rows, end.missing);
 }
 
 /** a later diff must not reverse the user's explicit open or closed choice. */
@@ -297,11 +303,13 @@ export class TranscriptLayout {
   /** without `graphics`, images stay out of the transcript. */
   constructor(private readonly graphics?: Graphics) {}
 
+  /** `loads` is the image version to draw for; App passes it so that the React Compiler's memo of this call follows it. */
   render(
     items: readonly DisplayItem[],
     width: number,
     expanded: ReadonlyMap<string, boolean>,
     full?: ReadonlySet<string>,
+    loads = this.graphics?.version,
   ) {
     // reopening a variant at an older width must restore its terminal image placement.
     if (this.viewport.width !== width) this.viewport = { width };
@@ -321,7 +329,8 @@ export class TranscriptLayout {
       const previous = variants.get(expansion);
       const current =
         previous?.content.item === item
-          ? previous.viewport === viewport
+          ? previous.viewport === viewport &&
+            (!previous.missing || previous.loads === loads)
             ? previous
             : wrap(previous.content, viewport, this.graphics)
           : ((previous && extend(previous, item, viewport, this.graphics)) ??
@@ -330,6 +339,7 @@ export class TranscriptLayout {
               viewport,
               this.graphics,
             ));
+      if (current !== previous) current.loads = loads;
       variants.set(expansion, current);
       cache.set(item.id, variants);
       starts.set(item.id, length);

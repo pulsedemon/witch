@@ -163,6 +163,10 @@ export function App({
     coordinator.coordination?.subscribe ?? unwatched,
     () => coordinator.coordination?.snapshot,
   );
+  const imageLoads = useSyncExternalStore(
+    graphics?.subscribe ?? unwatched,
+    () => graphics?.version,
+  );
   const size = useWindowSize();
   const columns = Math.max(30, size.columns);
   // the sidebar shows only beside a main column of 80 cells
@@ -210,8 +214,9 @@ export function App({
   const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout(graphics));
   const transcript = useMemo(
-    () => layout.render(state.items, bodyWidth, expanded, fullDiffs),
-    [layout, state.items, bodyWidth, expanded, fullDiffs],
+    () =>
+      layout.render(state.items, bodyWidth, expanded, fullDiffs, imageLoads),
+    [layout, state.items, bodyWidth, expanded, fullDiffs, imageLoads],
   );
   // a drag's ends are anchored to their text, so they follow it when output above grows
   const [range, rangeRef, setRange] = useLiveState<
