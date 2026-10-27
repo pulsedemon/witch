@@ -250,6 +250,30 @@ for await (const line of lines) {
       ],
     });
   }
+  // the session reads limits once connected, so these arrive after connect as real Codex's do
+  if (
+    request.method === 'account/rateLimits/read' &&
+    [mode, familiar].includes('mcp-failed')
+  )
+    for (const [name, status, error, failureReason] of [
+      ['unreal', 'starting'],
+      ['docs', 'starting'],
+      ['docs', 'ready'],
+      ['slow', 'cancelled'],
+      [
+        'unreal',
+        'failed',
+        'MCP client for `unreal` failed to start: handshake failed',
+      ],
+      ['auth', 'failed', null, 'reauthenticationRequired'],
+    ])
+      notify('mcpServer/startupStatus/updated', {
+        threadId: 'native-thread',
+        name,
+        status,
+        error: error ?? null,
+        failureReason: failureReason ?? null,
+      });
   if (request.method === 'account/rateLimits/read' && mode === 'no-limits')
     send({
       id: request.id,

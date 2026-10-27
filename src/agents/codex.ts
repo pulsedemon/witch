@@ -197,6 +197,11 @@ const imageContent = z.object({
   mimeType: z.string(),
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
+const mcpStartup = z.object({
+  name: stringValue,
+  status: stringValue,
+  error: nullishString,
+});
 const turnId = z.object({ turn: z.object({ id: z.string() }) });
 /** item types besides agentMessage that get no tool row or familiar activity. */
 const untooled = ['userMessage', 'reasoning', 'contextCompaction'];
@@ -1140,6 +1145,16 @@ class CodexSession implements AgentSession {
           this.options.onEvent({ type: 'info', info: this.info });
         }
         break;
+      case 'mcpServer/startupStatus/updated': {
+        const { name, status, error } = mcpStartup.parse(data);
+        if (status === 'failed')
+          this.options.onEvent({
+            type: 'notice',
+            text: `Codex could not start MCP server ${name}${error ? `: ${error}` : '.'}`,
+            transient: true,
+          });
+        break;
+      }
       case 'serverRequest/resolved': {
         const id = String(data.requestId);
         this.requests.delete(id);

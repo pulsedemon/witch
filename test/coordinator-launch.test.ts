@@ -743,3 +743,31 @@ test('/new copies this conversation for its own agent, starts another agent on i
     await coordinator.close();
   }
 });
+
+test('a transient native notice shows without making an unused conversation resumable', async () => {
+  const { coordinator, a, root } = await fixture();
+  const id = coordinator.snapshot.conversation!.id;
+  try {
+    a.sessions[0]!.options.onEvent({
+      type: 'notice',
+      text: 'MCP diagnostic',
+      transient: true,
+    });
+    assert.ok(
+      coordinator.snapshot.items.some(
+        ({ kind, text }) => kind === 'notice' && text === 'MCP diagnostic',
+      ),
+    );
+  } finally {
+    await coordinator.close();
+  }
+  // after close, so a saved append would have flushed
+  const history = await readFile(
+    join(root, 'state', 'conversations', id, 'history.jsonl'),
+    'utf8',
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  assert.equal(history, '');
+});

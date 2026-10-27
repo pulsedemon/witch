@@ -170,7 +170,8 @@ export type AgentEvent =
   | { type: 'skills'; skills: Skill[] }
   | { type: 'subagent'; subagent: Subagent }
   | { type: 'command'; command: BackgroundCommand }
-  | { type: 'notice'; text: string };
+  /** a transient notice is a diagnostic of this connection, shown but not saved. */
+  | { type: 'notice'; text: string; transient?: boolean };
 
 export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';
