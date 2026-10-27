@@ -92,6 +92,8 @@ export const displayUpdateSchema = z.object({
   title: z.string().optional(),
   // the file path a tool's title shows, so its row links the path whole
   path: z.string().optional(),
+  // a tool's title with the native name beside Witch's, which its expanded row shows
+  expandedTitle: z.string().optional(),
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
   images: z.array(z.string()).optional(),

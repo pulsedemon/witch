@@ -682,7 +682,7 @@ test('a failed Claude result keeps accumulated text in message order', async () 
   }
 });
 
-test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, with a path field's path named for its link, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
+test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, with a path field's path named for its link, a spell or familiar call titled by Witch's name with the native one kept for its expanded row, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -693,10 +693,11 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')
-        .map(({ id, title, path, text, done, images }) => [
+        .map(({ id, title, path, expandedTitle, text, done, images }) => [
           id,
           title,
           path,
+          expandedTitle,
           text,
           done,
           images,
@@ -706,15 +707,35 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
           'tool-1',
           'Bash  List notes  $ ls …',
           undefined,
+          undefined,
           '{\n  "command": "ls\\nwc -l a.md",\n  "description": "List notes"\n}',
           false,
           undefined,
         ],
-        ['tool-1', '', undefined, 'a.md', true, undefined],
+        ['tool-1', '', undefined, undefined, 'a.md', true, undefined],
+        [
+          'tool-s',
+          'Spell  handoff',
+          undefined,
+          'Spell (Skill)  handoff',
+          '{\n  "skill": "handoff"\n}',
+          false,
+          undefined,
+        ],
+        [
+          'tool-s',
+          '',
+          undefined,
+          undefined,
+          'Launching skill: handoff',
+          true,
+          undefined,
+        ],
         [
           'tool-2',
-          'Agent  Find notes',
+          'Familiar  Find notes',
           undefined,
+          'Familiar (Agent)  Find notes',
           '{\n  "description": "Find notes",\n  "prompt": "look"\n}',
           false,
           undefined,
@@ -722,6 +743,7 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
         [
           'tool-2',
           '',
+          undefined,
           undefined,
           'Found a.md.\nRead one file.',
           true,
@@ -732,11 +754,20 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
           // a path under the session's directory shows relative to it, after ./ so a bare name links
           'Read  ./shot.png',
           './shot.png',
+          undefined,
           JSON.stringify({ file_path: join(cwd, 'shot.png') }, null, 2),
           false,
           undefined,
         ],
-        ['tool-3', '', undefined, '', true, ['data:image/png;base64,iVBORw==']],
+        [
+          'tool-3',
+          '',
+          undefined,
+          undefined,
+          '',
+          true,
+          ['data:image/png;base64,iVBORw=='],
+        ],
       ],
     );
     const texts = events.filter((event) => event.type === 'text');
@@ -994,7 +1025,7 @@ test('native familiar model-only frames preserve task state', async () => {
   }
 });
 
-test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
+test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative and a spell under Witch's name, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -1039,24 +1070,30 @@ test("a Claude familiar's tool calls give its latest activity, with a path under
           tools: 2,
           report: 'Reading the tests.',
         },
+        {
+          ...observed,
+          activity: 'Spell  tdd',
+          tools: 3,
+          report: 'Reading the tests.',
+        },
         // a later message's text replaces the report
         {
           ...observed,
-          activity: 'Bash  Run tests  $ pnpm test',
-          tools: 2,
+          activity: 'Spell  tdd',
+          tools: 3,
           report: 'All tests pass.',
         },
         // the report's second block arrives as its own frame of the same message
         {
           ...observed,
-          activity: 'Bash  Run tests  $ pnpm test',
-          tools: 2,
+          activity: 'Spell  tdd',
+          tools: 3,
           report: 'All tests pass.\nSee a.test.ts.',
         },
         {
           ...observed,
-          activity: 'Bash  Run tests  $ pnpm test',
-          tools: 2,
+          activity: 'Spell  tdd',
+          tools: 3,
           report: 'All tests pass.\nSee a.test.ts.',
           status: 'completed',
         },

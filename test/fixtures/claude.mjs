@@ -605,6 +605,15 @@ for await (const line of lines) {
       assistant('', [
         {
           type: 'tool_use',
+          id: 'tool-s',
+          name: 'Skill',
+          input: { skill: 'handoff' },
+        },
+      ]);
+      toolResult('tool-s', 'Launching skill: handoff');
+      assistant('', [
+        {
+          type: 'tool_use',
           id: 'tool-2',
           name: 'Agent',
           input: { description: 'Find notes', prompt: 'look' },
@@ -831,6 +840,12 @@ for await (const line of lines) {
             description: 'Run tests',
           }),
         ],
+        'agent-tool',
+        'reader',
+      );
+      assistant(
+        '',
+        [tool('r-3', 'Skill', { skill: 'tdd' })],
         'agent-tool',
         'reader',
       );

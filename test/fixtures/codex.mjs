@@ -593,6 +593,16 @@ for await (const line of lines) {
         status: 'completed',
       });
       item('item/started', 'worker-thread', {
+        type: 'collabAgentToolCall',
+        id: 'w-c',
+        tool: 'spawnAgent',
+        senderThreadId: 'worker-thread',
+        receiverThreadIds: [],
+        prompt: 'Check the docs',
+        agentsStates: {},
+        status: 'inProgress',
+      });
+      item('item/started', 'worker-thread', {
         type: 'imageView',
         id: 'w-2',
         path: join(process.cwd(), 'a.png'),
@@ -847,6 +857,33 @@ for await (const line of lines) {
           status: 'completed',
         },
         { type: 'imageView', id: 'view-1', path: '/shots/a.png' },
+        {
+          type: 'collabAgentToolCall',
+          id: 'collab-1',
+          tool: 'spawnAgent',
+          senderThreadId: 'thread-1',
+          receiverThreadIds: ['worker-thread'],
+          prompt: 'Review the diff\nthen report',
+          agentsStates: {},
+          status: 'completed',
+        },
+        {
+          type: 'collabAgentToolCall',
+          id: 'collab-2',
+          tool: 'closeAgent',
+          senderThreadId: 'thread-1',
+          receiverThreadIds: ['worker-thread'],
+          prompt: null,
+          agentsStates: {},
+          status: 'completed',
+        },
+        {
+          type: 'subAgentActivity',
+          id: 'activity-1',
+          agentThreadId: 'worker-thread',
+          agentPath: '/root/worker',
+          kind: 'started',
+        },
       ])
         notify('item/completed', { item });
       finish('completed');

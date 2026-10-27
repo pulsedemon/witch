@@ -19,7 +19,7 @@ import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
 import { proposedDiff, reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
-import { toolTitle } from './tool-title.js';
+import { claudeTitle } from './tool-title.js';
 import { bashRecord, runShell } from './user-shell.js';
 import type {
   AgentAdapter,
@@ -949,7 +949,7 @@ class ClaudeSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id: block.id,
-            ...toolTitle(block.name, block.input, this.options.cwd),
+            ...claudeTitle(block.name, block.input, this.options.cwd),
             text: JSON.stringify(block.input, null, 2),
             done: false,
           });
@@ -963,7 +963,11 @@ class ClaudeSession implements AgentSession {
       let { activity, tools = 0, report } = subagent;
       for (const block of message.message.content)
         if (block.type === 'tool_use') {
-          activity = toolTitle(block.name, block.input, this.options.cwd).title;
+          activity = claudeTitle(
+            block.name,
+            block.input,
+            this.options.cwd,
+          ).title;
           tools++;
         } else if (block.type === 'text') {
           report =

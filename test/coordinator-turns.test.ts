@@ -13,12 +13,15 @@ import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
 
-test('a tool row keeps the path its title shows through its result and a reopen', async () => {
+test('a tool row keeps the path its title shows and its expanded title through its result and a reopen', async () => {
   const { coordinator, a, reopen } = await fixture();
   let reopened: Coordinator | undefined;
   const title = 'Read  ./shot one.png';
-  const path = (items: readonly DisplayItem[]) =>
-    items.find((item) => item.title === title)?.path;
+  const row = (items: readonly DisplayItem[]) => {
+    const item = items.find((item) => item.title === title);
+    return [item?.path, item?.expandedTitle];
+  };
+  const kept = ['./shot one.png', 'Read (native)  ./shot one.png'];
   try {
     await coordinator.send('first');
     const { onEvent } = a.sessions.at(-1)!.options;
@@ -27,14 +30,15 @@ test('a tool row keeps the path its title shows through its result and a reopen'
       id: 'read',
       title,
       path: './shot one.png',
+      expandedTitle: 'Read (native)  ./shot one.png',
       text: '',
       done: false,
     });
     onEvent({ type: 'tool', id: 'read', title: '', text: '', done: true });
-    assert.equal(path(coordinator.snapshot.items), './shot one.png');
+    assert.deepEqual(row(coordinator.snapshot.items), kept);
     await coordinator.close();
     reopened = await reopen();
-    assert.equal(path(reopened.snapshot.items), './shot one.png');
+    assert.deepEqual(row(reopened.snapshot.items), kept);
   } finally {
     await coordinator.close();
     await reopened?.close();
