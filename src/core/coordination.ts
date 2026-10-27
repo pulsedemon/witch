@@ -529,7 +529,7 @@ export class SessionCoordination {
     }
   }
 
-  async context(): Promise<string> {
+  async context(): Promise<{ instructions: string; context: string }> {
     const active = this.admit();
     try {
       await this.serialize(async () => {
@@ -541,7 +541,7 @@ export class SessionCoordination {
     }
     const snapshot = await this.inspect();
     this.admit();
-    return [
+    const context = [
       'Session coordination:',
       JSON.stringify(snapshot),
       ...(snapshot.error
@@ -549,18 +549,19 @@ export class SessionCoordination {
             'Coordination is unavailable. Do not start new claimed work until a fresh query succeeds.',
           ]
         : []),
+      this.turn
+        ? `Selection turn: ${this.turn.turn}`
+        : 'No selection turn is current.',
+    ].join('\n');
+    const instructions = [
       `Control command: ${this.prefix(active.binding)}`,
       'Use --peers --json to inspect sessions; --claim <full GitHub issue/pr URL or task:name> --summary <work> --alias <related reference> to claim; --release <claim-id> to release. --alias is optional and repeatable.',
-      ...(this.turn
-        ? [
-            `Selection turn: ${this.turn.turn}`,
-            `When asked to choose the next task, run --select-next ${this.turn.turn} --json before triage. It waits automatically for your place. Do not claim a generic triage task, end the request because another session is choosing, or ask the user to repeat it.`,
-            'After position 1 is granted, refresh issues, code and reservations. Reserve your recommendation with --recommend <reference> --selection <ticket-id> --summary <work> [--alias <reference>] before presenting it. A specific-task conflict keeps your place: choose another unreserved task. Other sessions may choose as soon as your recommendation is recorded.',
-            'Keep the suggestion reserved while awaiting the user. When the user requests planning, investigation or implementation, use --claim on that reference to promote it. A different named task replaces your suggestion only if its claim succeeds. Another --select-next releases the old suggestion and joins the tail. Cancel with --cancel-selection <ticket-id> when redirected or when no suitable work remains. Do not infer permission from a failed or timed-out command; query peers to reconcile its result.',
-          ]
-        : []),
+      'When asked to choose the next task, run --select-next <selection-turn-id> --json before triage, using the current Selection turn value. If no selection turn is current, do not reuse an earlier value. It waits automatically for your place. Do not claim a generic triage task, end the request because another session is choosing, or ask the user to repeat it.',
+      'After position 1 is granted, refresh issues, code and reservations. Reserve your recommendation with --recommend <reference> --selection <ticket-id> --summary <work> [--alias <reference>] before presenting it. A specific-task conflict keeps your place: choose another unreserved task. Other sessions may choose as soon as your recommendation is recorded.',
+      'Keep the suggestion reserved while awaiting the user. When the user requests planning, investigation or implementation, use --claim on that reference to promote it. A different named task replaces your suggestion only if its claim succeeds. Another --select-next releases the old suggestion and joins the tail. Cancel with --cancel-selection <ticket-id> when redirected or when no suitable work remains. Do not infer permission from a failed or timed-out command; query peers to reconcile its result.',
       'Before starting a new task, query the other sessions and claim its reference. For unnumbered work, compare existing task summaries and reuse a matching reference. A conflict means stop that task and report its owner; do not rename the task to get around the conflict. Keep the summary current, pass this ownership context to delegated workers, and release only after the task and its delegated work have ended. Refresh before changing scope, including after a steered request.',
     ].join('\n');
+    return { instructions, context };
   }
 
   async releaseTask(): Promise<void> {

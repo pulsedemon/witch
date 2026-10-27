@@ -181,6 +181,8 @@ test('only a supporting session receives familiar instructions and the exact use
     input.context!,
     /Delegate work to Claude when it suits the task/,
   );
+  await client.coordinator.send(prompt);
+  assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
   client.a.sessions[0]!.session.familiar.runtime = 'codex';
   await client.coordinator.send(prompt);
   const codex = client.a.inputs.at(-1)!;
@@ -189,6 +191,27 @@ test('only a supporting session receives familiar instructions and the exact use
   assert.match(codex.context!, /--familiar-codex <task-name> --report-file/);
   assert.match(codex.context!, /run_in_background: true/);
   assert.doesNotMatch(codex.context!, /--familiar-claude/);
+  await client.coordinator.send(prompt);
+  assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-codex/);
+  const before = client.coordination.familiarCommand();
+  const native = client.a.sessions[0]!.session;
+  const { familiar } = native;
+  await native.close();
+  const connect = client.a.connect.bind(client.a);
+  client.a.connect = async (options) => {
+    const session = await connect(options);
+    session.familiar = familiar;
+    return session;
+  };
+  await client.coordinator.send(prompt);
+  assert.equal(client.a.inputs.at(-1)!.session, codex.session);
+  assert.notEqual(client.coordination.familiarCommand(), before);
+  assert.ok(
+    client.a.inputs
+      .at(-1)!
+      .context!.includes(client.coordination.familiarCommand()),
+  );
+  assert.ok(!client.a.inputs.at(-1)!.context!.includes(before));
 });
 
 test('pending native requests leave the mailbox available and retain complete request and response payloads', async () => {

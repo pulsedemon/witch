@@ -9,6 +9,7 @@ const session = z.object({
   hasHistory: z.boolean(),
   effort: z.string().optional(),
   deliveredRevision: z.string().optional(),
+  deliveredInstructionsRevision: z.string().optional(),
   deliveredProject: z.string().optional(),
   deliveredMerges: z.array(z.string()).optional(),
 });
@@ -147,9 +148,13 @@ export function recordSession(
     id: info.id,
     model: info.model,
     hasHistory: info.hasHistory,
-    // a new native session has seen no memory snapshot yet
+    // a replacement session has seen neither the memory snapshot nor the fixed instructions
     deliveredRevision:
       previous?.id === info.id ? previous.deliveredRevision : undefined,
+    deliveredInstructionsRevision:
+      previous?.id === info.id
+        ? previous.deliveredInstructionsRevision
+        : undefined,
   };
   if (previous?.id !== info.id)
     delete conversation.sessions[agent]!.deliveredMerges;

@@ -159,6 +159,7 @@ test('discarding interrupted-turn memory resumes queued prompts', async () => {
     assert.match(prompt, /Global preference 17/);
     assert.match(prompt, /Project preference 29/);
     assert.doesNotMatch(prompt, /Use port 4567/);
+    assert.doesNotMatch(prompt, /You are running inside Witch/);
   } finally {
     await coordinator.close();
   }
@@ -212,10 +213,7 @@ test('pending discard after a failed turn corrects memory on persisted resume', 
       assert.doesNotMatch(prompt, /Rejected/);
       assert.equal(f.a.inputs.at(-1)!.session, native);
       await reopened.send('Unchanged memory');
-      assert.doesNotMatch(
-        f.a.inputs.at(-1)!.context!,
-        /Accepted shared memory/,
-      );
+      assert.equal(f.a.inputs.at(-1)!.context, undefined);
     } finally {
       await reopened.close();
     }
@@ -274,14 +272,14 @@ test('memory another conversation publishes refreshes an existing session before
     assert.doesNotMatch(a.inputs.at(-1)!.context!, /Use port 4567/);
     assert.equal(a.inputs[0]?.session, a.inputs.at(-1)?.session);
     await coordinator.send('Again');
-    assert.doesNotMatch(a.inputs.at(-1)!.context!, /Accepted shared memory/);
+    assert.equal(a.inputs.at(-1)!.context, undefined);
   } finally {
     await coordinator.close();
   }
 });
 
 for (const sharedScope of ['global', 'project'] as const) {
-  test(`temporary hold guidance precedes ${sharedScope} memory and survives an unchanged revision`, async () => {
+  test(`temporary hold guidance precedes ${sharedScope} memory and is omitted on an unchanged turn`, async () => {
     const f = await fixture();
     const legacy = "Pause this conversation's work until further direction.";
     const policy =
@@ -303,8 +301,7 @@ for (const sharedScope of ['global', 'project'] as const) {
       const secondRequest = 'Calculate 19 + 23.';
       await f.coordinator.send(secondRequest);
       const second = f.a.inputs.at(-1)!;
-      assert.ok(second.context!.includes(policy));
-      assert.doesNotMatch(second.context!, /Accepted shared memory/);
+      assert.equal(second.context, undefined);
       assert.equal(second.prompt, secondRequest);
       assert.equal(second.session, first.session);
     } finally {
@@ -386,7 +383,7 @@ test('a successful irrelevant memory update advances its delivery cursor without
     const accepted = await f.memory.resolve(main);
     assert.notEqual(accepted, previous);
     await f.coordinator.send('Continue');
-    assert.doesNotMatch(f.a.inputs.at(-1)!.context!, /Accepted shared memory/);
+    assert.equal(f.a.inputs.at(-1)!.context, undefined);
     assert.equal(
       (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
       accepted,
@@ -395,10 +392,7 @@ test('a successful irrelevant memory update advances its delivery cursor without
     const reopened = await f.reopen();
     try {
       await reopened.send('Continue after reopening');
-      assert.doesNotMatch(
-        f.a.inputs.at(-1)!.context!,
-        /Accepted shared memory/,
-      );
+      assert.equal(f.a.inputs.at(-1)!.context, undefined);
       assert.equal(
         (await readRecord(f.root, id)).sessions.a!.deliveredRevision,
         accepted,
@@ -500,10 +494,7 @@ test('compaction rehydrates both scopes and invalidates references after partial
       assert.match(prompt, /missing notes no longer apply/);
       assert.equal(f.a.inputs.at(-1)!.session, native);
       await reopened.send('Unchanged memory');
-      assert.doesNotMatch(
-        f.a.inputs.at(-1)!.context!,
-        /Accepted shared memory/,
-      );
+      assert.equal(f.a.inputs.at(-1)!.context, undefined);
     } finally {
       await reopened.close();
     }
@@ -595,7 +586,7 @@ test('a reopened conversation skips the snapshot it was sent, unless its marker 
   await coordinator.send('Start');
   const id = coordinator.snapshot.conversation!.id;
   await coordinator.close();
-  assert.doesNotMatch(await resend('Same'), /Accepted shared memory/);
+  assert.equal(await resend('Same'), undefined);
   const file = join(root, 'state', 'conversations', id, 'state.json');
   const saved = await readRecord(root, id);
   delete saved.sessions.a!.deliveredProject;
@@ -1467,6 +1458,7 @@ test('a native session that replaces the stored one gets the memory snapshot aga
   try {
     await coordinator.send('remember-port');
     await coordinator.send('Again');
+    const previousSession = a.inputs.at(-1)!.session;
     // the native agent starts a fresh session instead of resuming
     a.beforeConnect = async (options) => {
       options.resume = undefined;
@@ -1474,6 +1466,8 @@ test('a native session that replaces the stored one gets the memory snapshot aga
     await a.sessions.at(-1)!.session.close();
     await coordinator.send('Next');
     assert.match(a.inputs.at(-1)!.context!, /Use port 4567/);
+    assert.match(a.inputs.at(-1)!.context!, /You are running inside Witch/);
+    assert.notEqual(a.inputs.at(-1)!.session, previousSession);
   } finally {
     await coordinator.close();
   }

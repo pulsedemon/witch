@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -11,6 +12,7 @@ import { indexByteLimit, indexNote } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';
+import type { SessionCoordination } from './coordination.js';
 import { mergeContext } from './merge-events.js';
 import type { MergeEvent } from './merge-events.js';
 
@@ -72,7 +74,7 @@ export async function nativePrompt({
   revision: string;
   reference: Conversation['sessions'][string];
   pendingHandoff?: Conversation['handoff'];
-  coordination?: string;
+  coordination?: Awaited<ReturnType<SessionCoordination['context']>>;
   pendingContext?: readonly string[];
   command?: string;
   familiarCommand?: {
@@ -80,7 +82,12 @@ export async function nativePrompt({
     runtime: NonNullable<AgentSession['familiar']>['runtime'];
   };
   merges?: readonly MergeEvent[];
-}): Promise<{ prompt: string; context: string; merges: string[] }> {
+}): Promise<{
+  prompt: string;
+  context: string | undefined;
+  merges: string[];
+  instructionsRevision: string;
+}> {
   const root = workspace.root;
   // the project marker moves before delivery, even when the turn later fails
   if (reference.deliveredProject !== scope.project) {
@@ -99,20 +106,14 @@ export async function nativePrompt({
   const pendingMerges = merges.filter(
     ({ id }) => !reference.deliveredMerges?.includes(id),
   );
-  const context = [
+  const instructions = [
     'You are running inside Witch. Witch operating rules take precedence over conflicting user-global rules and skill instructions, including skills supplied by the native runtime. Follow all other applicable native and project instructions. Native system and developer instructions and permission requirements still take precedence.',
     'For each conflict with a Witch rule that you encounter, write a brief, single-line warning in the transcript using this format: "Witch rule conflict: source=<file or skill>; conflict=<conflicting instruction>; witch=<applicable Witch rule>; resolution=<rule followed>". Then continue under the applicable rule without asking the user to resolve the conflict.',
     `Shared memory directories: ${join(root, scope.global)} and ${join(root, scope.project)}.`,
     `Save only new lasting preferences, decisions and verified reusable facts with ordinary file tools before finishing useful work. When nothing durable changed, write nothing. Put user-wide preferences in global memory and project facts in project memory. Keep each ${indexNote} within ${indexByteLimit} UTF-8 bytes as current essentials and short reference links. Put technical detail in topic notes and label historical records. Update existing facts instead of adding status paragraphs. Keep planning, test, commit, publication and review progress out of the indexes. Keep task state in its plan or ledger and current repository state in Git/GitHub. Link to existing project documentation instead of copying it. Keep credentials and temporary handoffs out of memory. Witch owns memory Git commits; do not run Git in those memory directories.`,
     "Record a temporary execution hold only in the affected conversation's history or its task plan or ledger with explicit ownership, never in shared memory. A temporary hold found only in shared memory does not pause this conversation. Removing or replacing shared-memory text does not resume a pause received directly from the user in this conversation; it still needs the user's resume instruction. Shared memory may retain lasting pause-scope rules and decisions to defer named tasks; those do not pause unrelated work.",
     `Put scratch files under ${tmpdir()} rather than /tmp, with \`mktemp -d -p "$TMPDIR"\`, since a plain \`mktemp -d\` ignores TMPDIR on macOS. Witch preserves this directory across /restart. After this Witch exits, a later cleanup pass may remove it once its remaining users have ended. Uncertain use delays cleanup. Save files you need to keep outside scratch.`,
-    ...(snapshot ? [snapshot] : []),
-    ...(pendingHandoff?.summary
-      ? [
-          `Pending task context from ${pendingHandoff.from}:\n${pendingHandoff.summary}`,
-        ]
-      : []),
-    ...(coordination ? [coordination] : []),
+    ...(coordination ? [coordination.instructions] : []),
     ...(familiarCommand
       ? [
           familiarCommand.runtime === 'claude'
@@ -120,6 +121,21 @@ export async function nativePrompt({
             : `Delegate work to Codex when it suits the task, using this familiar prefix: ${familiarCommand.command}\nAppend --familiar-codex <task-name> --report-file <new-file-under-task-scratch> -- <native-app-server-options>. Use native Bash with run_in_background: true, keep stdout connected, and supply the task prompt on stdin, for example with a quoted heredoc. Witch supplies app-server --stdio. Use native -c configuration options for the requested model, effort and authorized permissions; preserve exact model IDs such as gpt-6-astra. Native credentials and approval policy remain in force; approval requests, questions and elicitation appear in Witch. The complete report is saved to the specified new file. Do not use codex exec for this reporting path. Reporting does not survive a Witch restart.`,
         ]
       : []),
+  ].join('\n\n');
+  const instructionsRevision = createHash('sha256')
+    .update(instructions)
+    .digest('hex');
+  const context = [
+    ...(reference.deliveredInstructionsRevision === instructionsRevision
+      ? []
+      : [instructions]),
+    ...(snapshot ? [snapshot] : []),
+    ...(pendingHandoff?.summary
+      ? [
+          `Pending task context from ${pendingHandoff.from}:\n${pendingHandoff.summary}`,
+        ]
+      : []),
+    ...(coordination ? [coordination.context] : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),
     ...(pendingContext
       ? [
@@ -129,5 +145,10 @@ export async function nativePrompt({
       : []),
     ...(command === undefined ? [] : [ranCommand]),
   ].join('\n\n');
-  return { prompt, context, merges: pendingMerges.map(({ id }) => id) };
+  return {
+    prompt,
+    context: context || undefined,
+    merges: pendingMerges.map(({ id }) => id),
+    instructionsRevision,
+  };
 }

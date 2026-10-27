@@ -196,7 +196,7 @@ test('pending command context stays with its conversation', async () => {
     await coordinator.send('original');
     assert.equal(a.inputs.at(-1)!.context!.split(savedCommand).length - 1, 1);
     await coordinator.send('again');
-    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context, undefined);
   } finally {
     await coordinator.close();
   }
@@ -227,7 +227,7 @@ for (const identical of [false, true]) {
         );
       }
       await coordinator.send('again');
-      assert.equal(a.inputs.at(-1)!.context!.includes('<bash-input>'), false);
+      assert.equal(a.inputs.at(-1)!.context, undefined);
     } finally {
       await coordinator.close();
     }
@@ -250,7 +250,7 @@ test('a failed close preserves outgoing command context', async () => {
     await coordinator.send('original');
     assert.equal(a.inputs.at(-1)!.context!.split(savedCommand).length - 1, 1);
     await coordinator.send('again');
-    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context, undefined);
   } finally {
     a.failClose = false;
     await coordinator.close();
@@ -298,7 +298,7 @@ describe('pending command context waits until a prompt is dispatched', () => {
           if (failure === 'connect')
             assert.deepEqual(received.skill, { name: 'review', args: 'now' });
           await coordinator.send('again');
-          assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
+          assert.equal(a.inputs.at(-1)!.context, undefined);
         } finally {
           await coordinator.close();
         }

@@ -48,12 +48,10 @@ test('manual compaction preserves the conversation and makes persisted resume re
       await reopened.send('continue');
       assert.match(f.a.inputs.at(-1)!.context!, /Use port 7777/);
       assert.match(f.a.inputs.at(-1)!.context!, /Accepted shared memory/);
+      assert.match(f.a.inputs.at(-1)!.context!, /You are running inside Witch/);
       assert.equal(f.a.inputs.at(-1)!.session, native.session.info.id);
       await reopened.send('again');
-      assert.doesNotMatch(
-        f.a.inputs.at(-1)!.context!,
-        /Accepted shared memory/,
-      );
+      assert.equal(f.a.inputs.at(-1)!.context, undefined);
     } finally {
       await reopened.close();
     }
@@ -83,6 +81,7 @@ test('automatic native replacement cannot be undone by successful ordinary-turn 
     await f.coordinator.send('after replacement');
     assert.match(f.a.inputs.at(-1)!.context!, /Use port 4567/);
     assert.match(f.a.inputs.at(-1)!.context!, /Accepted shared memory/);
+    assert.match(f.a.inputs.at(-1)!.context!, /You are running inside Witch/);
   } finally {
     await f.coordinator.close();
   }
@@ -133,6 +132,11 @@ for (const outcome of [
       assert.equal(f.a.inputs.length, 3);
       if (outcome === 'replaced then cancelled')
         assert.match(f.a.inputs.at(-1)!.context!, /Use port 4567/);
+      assert.equal(
+        f.a.inputs.at(-1)!.context?.includes('You are running inside Witch') ??
+          false,
+        outcome === 'replaced then cancelled',
+      );
     } finally {
       gate.open();
       await f.coordinator.close();
@@ -490,8 +494,13 @@ for (const interrupted of [false, true]) {
       await f.coordinator.send('!printf distinct-command');
       assert.deepEqual(f.a.shells, ['printf distinct-command']);
       assert.equal(f.a.inputs.length, interrupted ? 2 : 3);
-      if (!interrupted)
+      if (!interrupted) {
         assert.match(f.a.inputs.at(-1)!.context!, /Use port 4567/);
+        assert.match(
+          f.a.inputs.at(-1)!.context!,
+          /You are running inside Witch/,
+        );
+      }
       assert.equal(f.coordinator.snapshot.phase, 'idle');
     } finally {
       await f.coordinator.close();

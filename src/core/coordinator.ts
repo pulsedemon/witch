@@ -956,6 +956,7 @@ export class Coordinator {
         if (generation === this.contextGeneration) {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
+          reference.deliveredInstructionsRevision = input.instructionsRevision;
           if (input.merges.length)
             reference.deliveredMerges = [
               ...new Set([
@@ -1207,6 +1208,7 @@ export class Coordinator {
       const reference = conversation.sessions[agent];
       if (reference) {
         delete reference.deliveredRevision;
+        delete reference.deliveredInstructionsRevision;
         delete reference.deliveredMerges;
       }
       this.persist(this.save());
