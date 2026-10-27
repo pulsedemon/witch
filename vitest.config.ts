@@ -5,6 +5,8 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 const ui = fileURLToPath(new URL('./src/ui/', import.meta.url));
 const configFile = fileURLToPath(new URL('./babel.config.js', import.meta.url));
+// keep above the slowest case, so a hang fails naming its test instead of running to ci's job limit
+const timeout = 60_000;
 
 export default defineConfig({
   plugins: [
@@ -37,8 +39,8 @@ export default defineConfig({
     retry: 0,
     allowOnly: false,
     passWithNoTests: false,
-    testTimeout: 0,
-    hookTimeout: 0,
+    testTimeout: timeout,
+    hookTimeout: timeout,
     setupFiles: ['./test/fixtures/vitest-setup.ts'],
   },
 });

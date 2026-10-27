@@ -73,10 +73,10 @@ Watch a selected file, or pause its worker for a source debugger:
 
 ```sh
 pnpm exec vitest --watch test/rpc.test.ts --clearScreen=false
-pnpm exec vitest run test/rpc.test.ts --inspect-brk=127.0.0.1:9229 --no-file-parallelism
+pnpm exec vitest run test/rpc.test.ts --inspect-brk=127.0.0.1:9229 --no-file-parallelism --testTimeout=0 --hookTimeout=0
 ```
 
-Fixture edits rerun the selected watch set, including fixtures loaded only by spawned children. Press `q` to quit watch mode. Attach a Node Inspector client to the printed address to set TypeScript source breakpoints and inspect locals, then resume execution.
+Fixture edits rerun the selected watch set, including fixtures loaded only by spawned children. Press `q` to quit watch mode. Attach a Node Inspector client to the printed address to set TypeScript source breakpoints and inspect locals, then resume execution. The timeout flags turn off the configured test and hook timeouts, which keep counting while a breakpoint pauses the worker.
 
 Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
