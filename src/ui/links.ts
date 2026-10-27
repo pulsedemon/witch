@@ -1,14 +1,15 @@
 import { tokenize } from '@alcalzone/ansi-tokenize';
 import LinkifyIt from 'linkify-it';
-import { resolveFile } from '../paths.js';
+import { resolveFile, unescapePath } from '../paths.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
 // the tokenizer passes a lone escape or control byte through as text, where it can rejoin the bytes around a dropped sequence into a new one
 const controls = /(?![\n\t\r])\p{Cc}/u;
-// filename boundaries prevent suffix links and keep long runs of name characters linear
+// filename boundaries prevent suffix links and keep long runs of name characters linear.
+// an unquoted path reads as a terminal drops it: a backslash escapes the next character, and a macOS screenshot name's U+202F doesn't end it
 const files =
-  /(?<![\p{L}\p{M}\p{N}_+%,/])(?:["'`]((?:\.{0,2}\/|~\/|[\p{L}\p{M}\p{N}_@.+%,-]+\/)[^\n"'`]+)["'`]|(?:\.{1,2}\/|~\/|\/[\p{L}\p{M}\p{N}_.@+%,-]+\/)[^\s<>"'`[\]():]+(?::\d+(?::\d+)?)?)|(?<![\p{L}\p{M}\p{N}_/@.+%,-])(?:[\p{L}\p{M}\p{N}_@.+%,-]+\/)*\.?[\p{L}\p{M}\p{N}_@+%,-]+(?:\.[\p{L}\p{M}\p{N}_@+%,-]+)*\.[a-zA-Z][a-zA-Z\d]{0,12}(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?(?![\p{L}\p{M}\p{N}_/@+%-]|[.,]+[\p{L}\p{M}\p{N}_/@+%-])/gu;
+  /(?<![\p{L}\p{M}\p{N}_+%,/])(?:["'`]((?:\.{0,2}\/|~\/|[\p{L}\p{M}\p{N}_@.+%,-]+\/)[^\n"'`]+)["'`]|(?:\.{1,2}\/|~\/|\/[\p{L}\p{M}\p{N}_.@+%,-]+\/)(?:\\.|[^\s<>"'`[\]():\\]|\u202f)+(?::\d+(?::\d+)?)?)|(?<![\p{L}\p{M}\p{N}_/@.+%,-])(?:[\p{L}\p{M}\p{N}_@.+%,-]+\/)*\.?[\p{L}\p{M}\p{N}_@+%,-]+(?:\.[\p{L}\p{M}\p{N}_@+%,-]+)*\.[a-zA-Z][a-zA-Z\d]{0,12}(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?(?![\p{L}\p{M}\p{N}_/@+%-]|[.,]+[\p{L}\p{M}\p{N}_/@+%-])/gu;
 // a name with no directory links only with one of these extensions, so `e.g.` and `foo.bar` stay text
 const sourceFile =
   /\.(?:[cm]?[jt]sx?|py|sh|md|rs|go|rb|pl|cc|c|h|java|cs|swift|txt|json|toml|ya?ml|csv|xml|ini|env|lock|html|css|sql|log)(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?$/i;
@@ -59,7 +60,7 @@ function fileLinks(text: string, cwd: string): string {
     if (quoted) return match[0] + hyperlink(quoted, quoted, cwd) + match.at(-1);
     const path = match.replace(/[.,;!?]+$/, '');
     if (!path.includes('/') && !sourceFile.test(path)) return match;
-    return hyperlink(path, path, cwd) + match.slice(path.length);
+    return hyperlink(path, unescapePath(path), cwd) + match.slice(path.length);
   });
 }
 
@@ -120,7 +121,7 @@ function bareLinks(text: string, cwd: string): string {
 
 /**
  * cap linkify-it inputs to avoid rescanning long suffixes after each match.
- * prefer boundaries that keep links and quoted paths whole.
+ * prefer boundaries that keep links, quoted paths and dropped paths whole; an escaped character or U+202F is inside a dropped path.
  */
 function pieces(text: string): string[] {
   const result: string[] = [];
@@ -128,11 +129,17 @@ function pieces(text: string): string[] {
     let end = Math.min(start + 2000, text.length);
     const after = (separator: RegExp) => {
       let cut = end;
-      while (cut > start && !separator.test(text[cut - 1]!)) cut--;
+      while (
+        cut > start &&
+        (!separator.test(text[cut - 1]!) || text[cut - 2] === '\\')
+      )
+        cut--;
       return cut;
     };
     if (end < text.length)
-      end = [/\n/, /[\s<>]/, /"/].map(after).find((cut) => cut > start) ?? end;
+      end =
+        [/\n/, /(?!\u202f)[\s<>]/, /"/].map(after).find((cut) => cut > start) ??
+        end;
     result.push(text.slice(start, end));
     start = end;
   }

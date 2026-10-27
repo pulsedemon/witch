@@ -4,6 +4,7 @@ import { describe, test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ranCommand } from '../src/core/prompts.js';
 import { Coordinator } from '../src/core/coordinator.js';
+import type { DisplayItem } from '../src/core/state.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import type { FixtureAgent } from './fixtures/agent.js';
 import { TurnGate } from './fixtures/agent.js';
@@ -11,6 +12,34 @@ import { fixture, readRecord, turns } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
+
+test('a tool row keeps the path its title shows through its result and a reopen', async () => {
+  const { coordinator, a, reopen } = await fixture();
+  let reopened: Coordinator | undefined;
+  const title = 'Read  ./shot one.png';
+  const path = (items: readonly DisplayItem[]) =>
+    items.find((item) => item.title === title)?.path;
+  try {
+    await coordinator.send('first');
+    const { onEvent } = a.sessions.at(-1)!.options;
+    onEvent({
+      type: 'tool',
+      id: 'read',
+      title,
+      path: './shot one.png',
+      text: '',
+      done: false,
+    });
+    onEvent({ type: 'tool', id: 'read', title: '', text: '', done: true });
+    assert.equal(path(coordinator.snapshot.items), './shot one.png');
+    await coordinator.close();
+    reopened = await reopen();
+    assert.equal(path(reopened.snapshot.items), './shot one.png');
+  } finally {
+    await coordinator.close();
+    await reopened?.close();
+  }
+});
 
 test('an unfinished tool keeps its original row through idle and later turns', async () => {
   const { coordinator, a, reopen } = await fixture();

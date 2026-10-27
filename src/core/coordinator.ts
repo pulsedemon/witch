@@ -1248,6 +1248,7 @@ export class Coordinator {
               id,
               kind: 'tool',
               title: event.title,
+              ...(event.path ? { path: event.path } : {}),
               text: event.text,
               replace: !event.append,
               done: event.done,

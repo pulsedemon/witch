@@ -90,6 +90,8 @@ export const displayUpdateSchema = z.object({
   text: z.string(),
   cwd: z.string(),
   title: z.string().optional(),
+  // the file path a tool's title shows, so its row links the path whole
+  path: z.string().optional(),
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
   images: z.array(z.string()).optional(),

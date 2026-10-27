@@ -307,6 +307,18 @@ test('quoted and Markdown file links preserve spaces without linking command nam
   }
 });
 
+test("a path dropped into a message links whole to its unescaped file, through escaped spaces and a screenshot name's U+202F", () => {
+  const dropped =
+    '/var/folders/T/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
+  assert.deepEqual(linkSpans(markdown(`${dropped} what is this?`, '/work')), [
+    {
+      target:
+        'vscode://file/var/folders/T/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
+      text: dropped,
+    },
+  ]);
+});
+
 test('bare source references take precedence over fuzzy domains while explicit web URLs stay web links', () => {
   for (const file of ['server.py:42', 'foo.sh', 'README.md', 'src/main.py:4']) {
     const rendered = linkify(file, '/work/project');
@@ -380,8 +392,11 @@ test('long runs of filename characters, and links on many lines or one, link in 
   }
 });
 
-test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, so a link across the cut stays whole', () => {
+test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, but not inside a dropped path, so a link across the cut stays whole', () => {
   const file = `src/notes ${'n'.repeat(20)}.md`;
+  const dropped = '/tmp/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
+  const screenshot =
+    'vscode://file/tmp/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png';
   for (const [text, target] of [
     [
       `${'x'.repeat(1990)} https://example.com/abcdef end`,
@@ -400,6 +415,9 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
       `${'x'.repeat(1990)}"https://example.com/abcdef"]`,
       'https://example.com/abcdef',
     ],
+    // an escaped space, then the U+202F, is the last whitespace before the cut
+    [`${'x'.repeat(1980)} ${dropped} end`, screenshot],
+    [`${'x'.repeat(1958)} ${dropped} end`, screenshot],
   ] as const) {
     const output = linkify(text, '/work');
     assert.ok(output.includes(`\u001b]8;;${target}\u0007`), target);

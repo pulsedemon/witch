@@ -151,6 +151,8 @@ export type AgentEvent =
       type: 'tool';
       id: string;
       title: string;
+      /** the file path `title` shows, so its row links the path whole. */
+      path?: string;
       text: string;
       done: boolean;
       cwd?: string;

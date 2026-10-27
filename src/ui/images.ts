@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveFile } from '../paths.js';
+import { resolveFile, unescapePath } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image
 const diacritics = [
@@ -22,10 +22,7 @@ const pathToken = /"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^ \t\r\n\\"'])+)/g;
 /** image paths a message names, unescaped, as typed or dropped into the composer. */
 export function imagePaths(text: string): string[] {
   return [...text.matchAll(pathToken)]
-    .map(
-      ([, double, single, bare]) =>
-        double ?? single ?? bare!.replace(/\\(.)/g, '$1'),
-    )
+    .map(([, double, single, bare]) => double ?? single ?? unescapePath(bare!))
     .filter((path) => imageFile.test(path));
 }
 
