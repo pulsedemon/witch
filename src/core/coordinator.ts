@@ -1,7 +1,6 @@
 import { updateFamiliar } from './familiars.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
 import type {
@@ -669,6 +668,12 @@ export class Coordinator {
     return { revision, scope, ...(linked ? { root: workspace.root } : {}) };
   }
 
+  /** the conversation's shared-memory directories, as its agent is told them. */
+  async memoryDirectories(): Promise<string[]> {
+    const scope = await this.memory.scopePaths(this.current().cwd);
+    return this.workspace!.directories(scope);
+  }
+
   async editMemory(path?: string): Promise<void> {
     await this.operate('editing', async () => {
       const note =
@@ -1095,9 +1100,7 @@ export class Coordinator {
           ? (modelEffort(selection, this.snapshot.models, stored?.effort) ??
             undefined)
           : stored?.effort,
-        memoryDirectories: [scope.global, scope.project].map((path) =>
-          join(workspace.root, path),
-        ),
+        memoryDirectories: workspace.directories(scope),
         signal: this.connecting.signal,
         onEvent: (event) => {
           if (!files.closed) this.receive(conversation, agent, event, tools);
@@ -1341,7 +1344,7 @@ export class Coordinator {
    * `cwd` resolves the paths the notice names, so a memory note links into the worktree. an unsaved notice, such as
    * a startup or connection diagnostic, can't make an unused conversation resumable.
    */
-  private notice(text: string, cwd = this.current().cwd, save = true): void {
+  notice(text: string, cwd = this.current().cwd, save = true): void {
     this.display({ id: randomUUID(), kind: 'notice', text, cwd }, save);
   }
 

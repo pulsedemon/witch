@@ -144,6 +144,11 @@ export class Workspace {
     return paths;
   }
 
+  /** the scope directories an agent is given, global first. */
+  directories(scope: MemoryScope): string[] {
+    return [scope.global, scope.project].map((path) => join(this.root, path));
+  }
+
   async revision(): Promise<string> {
     return this.memory.resolve('HEAD', this.root);
   }
