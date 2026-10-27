@@ -210,6 +210,33 @@ test('a block whose image failed is reused across renders, not rewrapped each ti
   );
 });
 
+test('a shown image and the closing blank keep their anchors while an image before them loads', async () => {
+  const directory = await scratch('witch-layout-');
+  await writeFile(join(directory, 'a.png'), png(160, 80));
+  await writeFile(join(directory, 'b.png'), png(320, 80));
+  const graphics = new Graphics(() => {});
+  graphics.rows('b.png', directory, 100);
+  await loaded(graphics);
+  const layout = new TranscriptLayout(graphics);
+  const item: DisplayItem = {
+    id: 'message',
+    kind: 'user',
+    text: 'a.png b.png',
+    cwd: directory,
+  };
+  const before = layout.render([item], 100, new Map());
+  const row = before.lines
+    .slice()
+    .findIndex((line) => line.includes(placeholder));
+  const image = before.anchorAt(row)!;
+  const blank = before.anchorAt(before.lines.length - 1)!;
+  await loaded(graphics);
+  const after = layout.render([item], 100, new Map());
+  assert.ok(after.lines.length > before.lines.length);
+  assert.equal(after.lines.at(after.rowOf(image)), before.lines.at(row));
+  assert.equal(after.rowOf(blank), after.lines.length - 1);
+});
+
 test('an image anchor follows wrapped diff output', async () => {
   const directory = await scratch('witch-layout-');
   await writeFile(join(directory, 'a.png'), png(800, 200));

@@ -187,14 +187,14 @@ function ending(
 ): { rows: Row[]; missing: boolean } {
   const rendered = section(content.tail, width, false, first);
   const diff = content.diff?.(width) ?? [];
-  const shown = graphics
+  const images = graphics
     ? content.images.map((source) =>
         graphics.rows(source, content.item.cwd, width),
       )
     : [];
-  const images = shown.filter((rows) => rows.length);
   const next = rendered.next;
-  // row offsets preserve diff and image rows across resizes and when copying.
+  // row offsets preserve diff and image rows across resizes and when copying, and an image without rows yet
+  // keeps its line, so the images after it keep theirs when it loads.
   const ended = rendered.rows.concat(
     diff.concat(images).flatMap((rows, index) =>
       rows.map((text, offset) => ({
@@ -207,7 +207,7 @@ function ending(
       anchor: { line: next + diff.length + images.length, offset: 0 },
     },
   );
-  return { rows: ended, missing: images.length < shown.length };
+  return { rows: ended, missing: images.some((rows) => !rows.length) };
 }
 
 function wrap(
