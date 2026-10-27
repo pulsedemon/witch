@@ -136,6 +136,31 @@ test("a tool's title links the path its field gave whole, spaces and U+202F incl
   );
 });
 
+test("a tool's linked path reaches the terminal without the escape sequences in it", () => {
+  const path = '/shots/a\u001b]0;title\u0007\u001b[2Jb.png';
+  const lines = new TranscriptLayout()
+    .render(
+      [
+        {
+          id: 'read',
+          kind: 'tool',
+          title: `Read  ${path}`,
+          path,
+          text: '',
+          cwd: '/work',
+          done: true,
+        },
+      ],
+      100,
+      new Map(),
+    )
+    .lines.slice()
+    .join('\n');
+  assert.ok(!lines.includes('\u001b]0;'), JSON.stringify(lines));
+  assert.ok(!lines.includes('\u001b[2J'), JSON.stringify(lines));
+  assert.equal(stripAnsi(lines).trimEnd(), '+ ✓ Read  /shots/a[2Jb.png');
+});
+
 test('completed output is cached when another message streams', () => {
   const items: DisplayItem[] = [
     {

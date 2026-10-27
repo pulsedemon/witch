@@ -6,7 +6,7 @@ import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from './theme.js';
 import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
-import { hyperlink, linkify, linkifyAppend } from './links.js';
+import { hyperlink, linkify, linkifyAppend, plain } from './links.js';
 import type { LinkedAppend } from './links.js';
 import { normalizeText, wrapLines } from './wrap.js';
 
@@ -130,7 +130,7 @@ function linkedTitle(title: string, path: string | undefined, cwd: string) {
   if (!path || start < 0) return linkify(title, cwd);
   return (
     linkify(title.slice(0, start), cwd) +
-    hyperlink(path, path, cwd) +
+    hyperlink(plain(path), path, cwd) +
     linkify(title.slice(start + path.length), cwd)
   );
 }
