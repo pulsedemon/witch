@@ -383,6 +383,39 @@ test('uncertain legacy scratch establishes a boot boundary without deleting data
     assert.equal(await readFile(join(directory, 'marker'), 'utf8'), directory);
 });
 
+test('a version 1 root naming an exited owner is judged and reclaimed in its boot', async () => {
+  const parent = await scratch('witch-scratch-');
+  const child = spawn('/usr/bin/true');
+  await once(child, 'exit');
+  const owned = join(parent, randomUUID());
+  await mkdir(owned);
+  await writeFile(
+    join(owned, '.witch-scratch.json'),
+    JSON.stringify({
+      version: 1,
+      boot: bootA,
+      owner: { pid: child.pid, started: 'Sat Oct 24 06:00:00 2026' },
+    }),
+  );
+  const inspected: ScratchCandidate[] = [];
+  const cleaner = await ScratchSpace.open(parent, {
+    ...firstBoot,
+    inspect: async (candidates) => {
+      inspected.push(...candidates);
+      return unused(candidates);
+    },
+  });
+  await cleaner.close();
+  assert.deepEqual(
+    inspected.map(({ directory, requiresBoot }) => ({
+      directory,
+      requiresBoot,
+    })),
+    [{ directory: owned, requiresBoot: false }],
+  );
+  assert.equal(existsSync(owned), false);
+});
+
 test('scratch resume rejects a different owner or an invalid location', async () => {
   const parent = await scratch('witch-scratch-');
   const original = await ScratchSpace.open(parent, firstBoot);

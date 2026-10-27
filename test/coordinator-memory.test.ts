@@ -54,8 +54,14 @@ test('a fresh conversation receives committed memory without a handoff', async (
       b.inputs.at(-1)!.context!,
       /preserves this directory across \/restart/,
     );
-    assert.match(b.inputs.at(-1)!.context!, /remaining users have ended/);
-    assert.match(b.inputs.at(-1)!.context!, /Uncertain use delays cleanup/);
+    assert.match(
+      b.inputs.at(-1)!.context!,
+      /unless one of your processes works in it/,
+    );
+    assert.match(
+      b.inputs.at(-1)!.context!,
+      /hides the environment of system binaries/,
+    );
     assert.equal(a.inputs.length, 1);
   } finally {
     gate.open();

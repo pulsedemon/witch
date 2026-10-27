@@ -57,6 +57,11 @@ async function readRecord(directory: string) {
   return readJson(join(directory, metadata), recordSchema);
 }
 
+/** a version 1 record predates the tmux check, so one that names its owner goes on usage evidence alone. */
+function waitsForBoot(record: z.infer<typeof recordSchema>): boolean {
+  return record.version === 2 ? record.requiresBoot : !record.owner;
+}
+
 async function removeScratch(directory: string): Promise<void> {
   try {
     await rm(directory, { recursive: true, force: true });
@@ -97,9 +102,7 @@ async function sweep(
         const record = await readRecord(directory);
         if (
           record?.boot === boot &&
-          (record.version === 1 ||
-            record.requiresBoot ||
-            sameProcess(record.owner, owner))
+          (waitsForBoot(record) || sameProcess(record.owner, owner))
         )
           continue;
         observed.set(directory, record);
@@ -136,13 +139,12 @@ async function sweep(
           continue;
         }
         const previousBoot = record.boot !== boot;
-        const requiresBoot = record.version === 1 || record.requiresBoot;
         held.push({
           candidate: {
             directory,
             owner: record.owner,
             previousBoot,
-            requiresBoot,
+            requiresBoot: waitsForBoot(record),
             lockFd: lock.fd,
           },
           record,
@@ -195,7 +197,7 @@ async function sweep(
   }
 }
 
-/** active roots survive restart; closed roots are reclaimed only after their users can be ruled out. */
+/** active roots survive restart; closed roots are reclaimed once no process shows use of them. */
 export class ScratchSpace {
   private readonly timer: ReturnType<typeof setInterval>;
   private polling?: Promise<void>;
