@@ -32,6 +32,21 @@ for (const outcome of ['interrupted', 'failed'] as const) {
   });
 }
 
+test("the fixed instructions use Witch's names for native skills, subagents and background commands, saying skill only where they map them", async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+    const mapping =
+      'Witch calls native skills spells, subagents familiars and background commands brews';
+    assert.ok(context.includes(mapping), context);
+    assert.ok(context.includes('source=<file or spell>'), context);
+    assert.doesNotMatch(context.replace(mapping, ''), /skill|subagent/i);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('an older session record receives instructions without resending unchanged memory', async () => {
   const f = await fixture();
   try {
