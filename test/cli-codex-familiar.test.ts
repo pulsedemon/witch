@@ -317,6 +317,11 @@ for (const cause of ['cancel', 'signal', 'native-exit'] as const)
         f.updates().at(-1)!.status,
         cause === 'native-exit' ? 'failed' : 'stopped',
       );
+      if (cause === 'native-exit')
+        assert.match(
+          await readFile(f.report, 'utf8'),
+          /awaiting a question response: question exit text/,
+        );
       await assert.rejects(readFile(join(f.root, 'question-answer.json')), {
         code: 'ENOENT',
       });
@@ -372,7 +377,40 @@ test('a nonzero native exit after a result prevents successful terminal reportin
     assert.equal(f.updates().at(-1)!.status, 'failed');
     const report = await readFile(f.report, 'utf8');
     assert.match(report, /^Completed implementation\./);
-    assert.match(report, /Codex exited \(2\)/);
+    assert.match(report, /Codex exited \(2\): close exit text/);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a Codex familiar posts a failed MCP server as a notice and keeps app-server logs off its stderr', async () => {
+  const f = await fixture({ mode: 'mcp-failed' });
+  try {
+    assert.equal(
+      await within(f.closed, 8000, 'Codex completion'),
+      0,
+      f.output().stderr,
+    );
+    assert.deepEqual(f.updates().at(-1)!.notices, [
+      'Codex could not start MCP server unreal: MCP client for `unreal` failed to start: handshake failed',
+      'Codex could not start MCP server auth.',
+    ]);
+    assert.doesNotMatch(f.output().stderr, /rmcp::transport::worker/);
+  } finally {
+    await f.close();
+  }
+});
+
+test('an app-server that exits during startup leaves its stderr tail in the report', async () => {
+  const f = await fixture({ mode: 'exit-on-init' });
+  try {
+    assert.equal(await within(f.closed, 5000, 'startup exit'), 1);
+    const final = f.updates().at(-1)!;
+    assert.equal(final.status, 'failed');
+    assert.match(final.report!, /init exit text/);
+    assert.match(await readFile(f.report, 'utf8'), /init exit text/);
+    assert.match(f.output().stdout, /init exit text/);
+    assert.doesNotMatch(f.output().stderr, /init exit text/);
   } finally {
     await f.close();
   }

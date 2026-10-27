@@ -233,24 +233,10 @@ export class Coordinator {
       () => undefined,
       errorMessage,
     );
-    /** startup diagnostics must not make an unused conversation resumable. */
-    const showStartupNotice = (text: string) =>
-      this.publish({
-        items: [
-          ...this.snapshot.items,
-          {
-            id: randomUUID(),
-            kind: 'notice',
-            text,
-            cwd: this.current().cwd,
-            at: new Date().toISOString(),
-          },
-        ],
-      });
     try {
       const missing = await missingConversationDirectories(this.store);
       if (missing.length)
-        showStartupNotice(
+        this.notice(
           [
             'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
             ...missing.map(
@@ -258,10 +244,14 @@ export class Coordinator {
                 `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(this.store.root)} --recover-directory ${quote(cwd)}`,
             ),
           ].join('\n'),
+          undefined,
+          false,
         );
     } catch (error) {
-      showStartupNotice(
+      this.notice(
         `Could not inspect missing conversation directories: ${errorMessage(error)}`,
+        undefined,
+        false,
       );
     }
     // a failed scope read fails both, so its message shows once
@@ -1228,7 +1218,7 @@ export class Coordinator {
         requests: this.snapshot.requests.filter(({ id }) => id !== event.id),
       });
     } else if (event.type === 'notice') {
-      this.notice(event.text);
+      this.notice(event.text, undefined, !event.transient);
     } else if (event.type === 'skills') {
       if (this.live(agent)) this.publish({ skills: event.skills });
     } else if (event.type === 'usage') {
@@ -1280,6 +1270,8 @@ export class Coordinator {
     const subagents = [...this.snapshot.subagents];
     subagents[index < 0 ? subagents.length : index] = update.entry;
     this.publish({ subagents });
+    // ahead of the rows, so a notice reported with the end lands above the end row
+    for (const text of update.notices) this.notice(text, conversation.cwd);
     for (const row of update.rows)
       this.taskRow(conversation, row.id, row.title, row.text);
   }
@@ -1338,15 +1330,18 @@ export class Coordinator {
     });
   }
 
-  private display(update: DisplayUpdate): void {
+  private display(update: DisplayUpdate, save = true): void {
     const stamped = { ...update, at: new Date().toISOString() };
     this.publish({ items: applyDisplayUpdate(this.snapshot.items, stamped) });
-    this.persist(this.files!.append(stamped));
+    if (save) this.persist(this.files!.append(stamped));
   }
 
-  /** `cwd` resolves the paths the notice names, so a memory note links into the worktree. */
-  private notice(text: string, cwd = this.current().cwd): void {
-    this.display({ id: randomUUID(), kind: 'notice', text, cwd });
+  /**
+   * `cwd` resolves the paths the notice names, so a memory note links into the worktree. an unsaved notice, such as
+   * a startup or connection diagnostic, can't make an unused conversation resumable.
+   */
+  private notice(text: string, cwd = this.current().cwd, save = true): void {
+    this.display({ id: randomUUID(), kind: 'notice', text, cwd }, save);
   }
 
   private save(): Promise<void> {

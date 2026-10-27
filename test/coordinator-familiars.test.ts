@@ -116,3 +116,51 @@ test('a reported familiar replaces its brew and retitles observed identity witho
     await coordinator.close();
   }
 });
+
+test('each familiar notice posts once, before its end row', async () => {
+  const { coordinator, a } = await fixture();
+  const emit = a.sessions[0]!.options.onEvent;
+  const worker = {
+    id: 'impl',
+    name: 'implementation',
+    kind: '',
+    runtime: 'codex',
+    run: 'one',
+  };
+  try {
+    emit({ type: 'subagent', subagent: { ...worker, status: 'running' } });
+    for (let heartbeat = 0; heartbeat < 2; heartbeat++)
+      emit({
+        type: 'subagent',
+        subagent: { ...worker, status: 'running', notices: ['first'] },
+      });
+    // two new notices in one report, as a coalesced report carries them
+    emit({
+      type: 'subagent',
+      subagent: {
+        ...worker,
+        status: 'completed',
+        notices: ['first', 'second', 'third'],
+        report: 'Done.',
+      },
+    });
+    assert.deepEqual(
+      coordinator.snapshot.items.flatMap((item) =>
+        item.title?.startsWith('Familiar')
+          ? [item.title]
+          : item.kind === 'notice' && item.text.startsWith('Familiar ')
+            ? [item.text]
+            : [],
+      ),
+      [
+        'Familiar started  implementation  codex',
+        'Familiar implementation: first',
+        'Familiar implementation: second',
+        'Familiar implementation: third',
+        'Familiar completed  implementation  codex',
+      ],
+    );
+  } finally {
+    await coordinator.close();
+  }
+});

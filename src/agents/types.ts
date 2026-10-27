@@ -81,6 +81,8 @@ export interface Subagent {
   tools?: number;
   /** its latest message, which is its report once it ends. */
   report?: string;
+  /** the transient notices its native session posted, oldest first. */
+  notices?: string[];
 }
 
 /** a command the native agent left running in the background; a running event starts it, a later one with another status ends it, and a repeated start changes nothing. */
@@ -170,7 +172,8 @@ export type AgentEvent =
   | { type: 'skills'; skills: Skill[] }
   | { type: 'subagent'; subagent: Subagent }
   | { type: 'command'; command: BackgroundCommand }
-  | { type: 'notice'; text: string };
+  /** a transient notice is a diagnostic of this connection, shown but not saved. */
+  | { type: 'notice'; text: string; transient?: boolean };
 
 export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';

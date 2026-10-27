@@ -925,6 +925,31 @@ test('a Codex that exits during initialize fails the connect without a notice', 
   assert.deepEqual(events, []);
 });
 
+test('a Codex MCP server that fails to start posts one notice naming it', async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event), {
+    mode: 'mcp-failed',
+  });
+  const notices = () => events.filter((event) => event.type === 'notice');
+  try {
+    await until('the MCP notices', () => notices().length >= 2);
+    assert.deepEqual(notices(), [
+      {
+        type: 'notice',
+        text: 'Codex could not start MCP server unreal: MCP client for `unreal` failed to start: handshake failed',
+        transient: true,
+      },
+      {
+        type: 'notice',
+        text: 'Codex could not start MCP server auth.',
+        transient: true,
+      },
+    ]);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('a grandchild holding the native pipes cannot keep a dead turn open, and the exit posts no notice', async () => {
   const notices: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {

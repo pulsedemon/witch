@@ -6,7 +6,10 @@ export function familiarIdentity(subagent: Subagent): string {
   return [subagent.runtime, subagent.model].filter(Boolean).join(' · ');
 }
 
-/** late native identity updates retitle the existing rows without losing the report. */
+/**
+ * late native identity updates retitle the existing rows without losing the report. every report repeats the
+ * familiar's notices, so only those past the previous count are new.
+ */
 export function updateFamiliar(
   previous: TimedSubagent | undefined,
   subagent: Subagent,
@@ -14,6 +17,7 @@ export function updateFamiliar(
   | {
       entry: TimedSubagent;
       rows: { id: string; title: string[]; text?: string }[];
+      notices: string[];
     }
   | undefined {
   if (!previous && subagent.status !== 'running') return;
@@ -67,5 +71,8 @@ export function updateFamiliar(
           ]
         : []),
     ],
+    notices: (subagent.notices ?? [])
+      .slice(previous?.notices?.length ?? 0)
+      .map((text) => `Familiar ${subagent.name}: ${text}`),
   };
 }
