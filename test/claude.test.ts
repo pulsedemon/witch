@@ -682,7 +682,7 @@ test('a failed Claude result keeps accumulated text in message order', async () 
   }
 });
 
-test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
+test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, with a path field's path named for its link, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -693,9 +693,10 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')
-        .map(({ id, title, text, done, images }) => [
+        .map(({ id, title, path, text, done, images }) => [
           id,
           title,
+          path,
           text,
           done,
           images,
@@ -704,28 +705,38 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
         [
           'tool-1',
           'Bash  List notes  $ ls …',
+          undefined,
           '{\n  "command": "ls\\nwc -l a.md",\n  "description": "List notes"\n}',
           false,
           undefined,
         ],
-        ['tool-1', '', 'a.md', true, undefined],
+        ['tool-1', '', undefined, 'a.md', true, undefined],
         [
           'tool-2',
           'Agent  Find notes',
+          undefined,
           '{\n  "description": "Find notes",\n  "prompt": "look"\n}',
           false,
           undefined,
         ],
-        ['tool-2', '', 'Found a.md.\nRead one file.', true, undefined],
+        [
+          'tool-2',
+          '',
+          undefined,
+          'Found a.md.\nRead one file.',
+          true,
+          undefined,
+        ],
         [
           'tool-3',
           // a path under the session's directory shows relative to it, after ./ so a bare name links
           'Read  ./shot.png',
+          './shot.png',
           JSON.stringify({ file_path: join(cwd, 'shot.png') }, null, 2),
           false,
           undefined,
         ],
-        ['tool-3', '', '', true, ['data:image/png;base64,iVBORw==']],
+        ['tool-3', '', undefined, '', true, ['data:image/png;base64,iVBORw==']],
       ],
     );
     const texts = events.filter((event) => event.type === 'text');

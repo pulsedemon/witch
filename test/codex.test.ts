@@ -807,7 +807,7 @@ test("a command streams its output into one tool that completes once in the comm
   }
 });
 
-test("Codex items are titled by what they act on, with a path under the session's directory shown relative, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
+test("Codex items are titled by what they act on, with a path under the session's directory shown relative and a path field's path named for its link, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -815,17 +815,18 @@ test("Codex items are titled by what they act on, with a path under the session'
   try {
     assert.equal((await session.send('tool-items')).status, 'completed');
     assert.deepEqual(
-      tools.map(({ id, title, images }) => [id, title, images]),
+      tools.map(({ id, title, path, images }) => [id, title, path, images]),
       [
-        ['patch-1', 'fileChange  ./a.md  b.md', undefined],
+        ['patch-1', 'fileChange  ./a.md  b.md', undefined, undefined],
         [
           'mcp-1',
           'browser.screenshot  https://example.com',
+          undefined,
           ['data:image/png;base64,iVBORw=='],
         ],
-        ['mcp-2', 'files.read  ./c.txt', undefined],
-        ['dynamic-1', 'read  ./d.txt', undefined],
-        ['view-1', 'imageView  /shots/a.png', ['/shots/a.png']],
+        ['mcp-2', 'files.read  ./c.txt', './c.txt', undefined],
+        ['dynamic-1', 'read  ./d.txt', './d.txt', undefined],
+        ['view-1', 'imageView  /shots/a.png', '/shots/a.png', ['/shots/a.png']],
       ],
     );
     assert.match(tools[1]!.text, /Captured\./);

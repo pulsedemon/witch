@@ -6,7 +6,7 @@ import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from './theme.js';
 import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
-import { linkify, linkifyAppend } from './links.js';
+import { hyperlink, linkify, linkifyAppend } from './links.js';
 import type { LinkedAppend } from './links.js';
 import { normalizeText, wrapLines } from './wrap.js';
 
@@ -124,6 +124,17 @@ function section(
   return { rows, next: sourceLine };
 }
 
+/** a tool's title, with the path it shows linked whole from the field it came from. */
+function linkedTitle(title: string, path: string | undefined, cwd: string) {
+  const start = path ? title.indexOf(path) : -1;
+  if (!path || start < 0) return linkify(title, cwd);
+  return (
+    linkify(title.slice(0, start), cwd) +
+    hyperlink(path, path, cwd) +
+    linkify(title.slice(start + path.length), cwd)
+  );
+}
+
 function prepare(
   item: DisplayItem,
   expansion: Expansion,
@@ -139,7 +150,7 @@ function prepare(
         ? colors.whiteBright.bold(item.title ?? 'Assistant')
         : tool
           ? colors.dim(
-              `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkify(item.title ?? 'Tool', item.cwd)}`,
+              `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkedTitle(item.title ?? 'Tool', item.path, item.cwd)}`,
             )
           : colors.dim('Notice');
   const linked =

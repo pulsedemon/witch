@@ -9,6 +9,7 @@ import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import { shortPath, toolTitle } from './tool-title.js';
+import type { ToolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -211,15 +212,17 @@ function itemTitle(
   type: string,
   item: Record<string, unknown>,
   cwd: string,
-): string {
-  if (typeof item.command === 'string') return item.command;
+): ToolTitle {
+  if (typeof item.command === 'string') return { title: item.command };
   if (type === 'fileChange')
-    return [
-      type,
-      ...changedFiles
-        .parse(item.changes)
-        .map(({ path }) => shortPath(path, cwd)),
-    ].join('  ');
+    return {
+      title: [
+        type,
+        ...changedFiles
+          .parse(item.changes)
+          .map(({ path }) => shortPath(path, cwd)),
+      ].join('  '),
+    };
   const call = type === 'mcpToolCall' ? mcpCall.safeParse(item) : undefined;
   if (call?.success)
     return toolTitle(
@@ -834,7 +837,7 @@ class CodexSession implements AgentSession {
       } else if (message.method === 'item/started' && !untooled.includes(type))
         this.subagent({
           ...subagent,
-          activity: itemTitle(type, item, this.options.cwd),
+          activity: itemTitle(type, item, this.options.cwd).title,
           tools: (subagent.tools ?? 0) + 1,
         });
       return;
@@ -1043,7 +1046,9 @@ class CodexSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id,
-            title: command ?? itemTitle(type, item, this.options.cwd),
+            ...(command === undefined
+              ? itemTitle(type, item, this.options.cwd)
+              : { title: command }),
             // a change's diff comes before it applies and stays after it fails or is declined
             text: diff
               ? item.status === 'failed' || item.status === 'declined'

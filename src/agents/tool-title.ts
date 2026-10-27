@@ -10,6 +10,13 @@ const subjects = [
   'path',
   'prompt',
 ];
+const paths = new Set(['file_path', 'notebook_path', 'path']);
+
+export interface ToolTitle {
+  title: string;
+  /** the file path `title` shows, so its row links the path whole. */
+  path?: string;
+}
 
 function firstLine(text: string): string {
   const [first = '', ...rest] = text.trim().split('\n');
@@ -22,14 +29,22 @@ export function shortPath(path: string, cwd: string): string {
 }
 
 /** a tool's name, what it acts on, then any shell command, so a collapsed row says what the call does. */
-export function toolTitle(name: string, input: unknown, cwd: string): string {
-  if (!input || typeof input !== 'object') return name;
+export function toolTitle(
+  name: string,
+  input: unknown,
+  cwd: string,
+): ToolTitle {
+  if (!input || typeof input !== 'object') return { title: name };
   const fields = input as Record<string, unknown>;
   const text = (value: unknown) =>
     typeof value === 'string' && value.trim() ? firstLine(value) : undefined;
-  const subject = subjects.map((key) => text(fields[key])).find(Boolean);
+  const key = subjects.find((key) => text(fields[key]));
+  const subject = key && shortPath(text(fields[key])!, cwd);
   const command = text(fields.command);
-  return [name, subject && shortPath(subject, cwd), command && `$ ${command}`]
-    .filter(Boolean)
-    .join('  ');
+  return {
+    title: [name, subject, command && `$ ${command}`]
+      .filter(Boolean)
+      .join('  '),
+    ...(key && paths.has(key) ? { path: subject } : {}),
+  };
 }

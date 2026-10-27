@@ -102,6 +102,40 @@ test('expanding a tool shows its complete output without losing links', () => {
   );
 });
 
+test("a tool's title links the path its field gave whole, spaces and U+202F included", () => {
+  const path = '/shots/Screenshot 2026-10-26 at 3.35.40\u202fPM.png';
+  const lines = new TranscriptLayout()
+    .render(
+      [
+        {
+          id: 'read',
+          kind: 'tool',
+          title: `Read  ${path}`,
+          path,
+          text: '',
+          cwd: '/work',
+          done: true,
+        },
+      ],
+      100,
+      new Map(),
+    )
+    .lines.slice()
+    .join('\n');
+  assert.deepEqual(
+    [
+      // eslint-disable-next-line no-control-regex
+      ...lines.matchAll(/\u001b\]8;;([^\u0007]+)\u0007(.*?)\u001b\]8;;\u0007/g),
+    ].map(([, target, text]) => [target, stripAnsi(text!)]),
+    [
+      [
+        'vscode://file/shots/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
+        path,
+      ],
+    ],
+  );
+});
+
 test('completed output is cached when another message streams', () => {
   const items: DisplayItem[] = [
     {
