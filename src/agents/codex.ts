@@ -207,6 +207,19 @@ const turnId = z.object({ turn: z.object({ id: z.string() }) });
 /** item types besides agentMessage that get no tool row or familiar activity. */
 const untooled = ['userMessage', 'reasoning', 'contextCompaction'];
 
+/** Witch's names for Codex's collab tools; a tool added later keeps its native name. */
+const collabNames = new Map([
+  ['spawnAgent', 'Familiar'],
+  ['sendInput', 'Send input to familiar'],
+  ['resumeAgent', 'Resume familiar'],
+  ['wait', 'Wait for familiar'],
+  ['closeAgent', 'Close familiar'],
+  ['sendMessage', 'Message familiar'],
+  ['followupTask', 'Follow-up task for familiar'],
+  ['interruptAgent', 'Interrupt familiar'],
+  ['listAgents', 'List familiars'],
+]);
+
 /** an item's name and what it acts on; a command shows as itself. */
 function itemTitle(
   type: string,
@@ -230,8 +243,14 @@ function itemTitle(
       call.data.arguments,
       cwd,
     );
+  if (type === 'subAgentActivity') return toolTitle('Familiar', item, cwd);
   if (typeof item.tool === 'string')
-    return toolTitle(item.tool, item.arguments ?? item, cwd);
+    return toolTitle(
+      (type === 'collabAgentToolCall' && collabNames.get(item.tool)) ||
+        item.tool,
+      item.arguments ?? item,
+      cwd,
+    );
   return toolTitle(type, item, cwd);
 }
 

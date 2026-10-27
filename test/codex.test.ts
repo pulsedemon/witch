@@ -807,7 +807,7 @@ test("a command streams its output into one tool that completes once in the comm
   }
 });
 
-test("Codex items are titled by what they act on, with a path under the session's directory shown relative and a path field's path named for its link, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
+test("Codex items are titled by what they act on, with a path under the session's directory shown relative and a path field's path named for its link, a familiar's collab call or activity under Witch's name, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -827,6 +827,9 @@ test("Codex items are titled by what they act on, with a path under the session'
         ['mcp-2', 'files.read  ./c.txt', './c.txt', undefined],
         ['dynamic-1', 'read  ./d.txt', './d.txt', undefined],
         ['view-1', 'imageView  /shots/a.png', '/shots/a.png', ['/shots/a.png']],
+        ['collab-1', 'Familiar  Review the diff …', undefined, undefined],
+        ['collab-2', 'Close familiar', undefined, undefined],
+        ['activity-1', 'Familiar', undefined, undefined],
       ],
     );
     assert.match(tools[1]!.text, /Captured\./);
@@ -1031,7 +1034,7 @@ test('a model choice that changes no native setting returns and shows the choice
   }
 });
 
-test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
+test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative and a familiar it spawns under Witch's name, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -1054,17 +1057,18 @@ test("a spawned thread's tool items, not its prompt or thinking, give its famili
       [
         worker,
         { ...worker, activity: 'pnpm test', tools: 1 },
-        { ...worker, activity: 'imageView  ./a.png', tools: 2 },
+        { ...worker, activity: 'Familiar  Check the docs', tools: 2 },
+        { ...worker, activity: 'imageView  ./a.png', tools: 3 },
         {
           ...worker,
           activity: 'imageView  ./a.png',
-          tools: 2,
+          tools: 3,
           report: 'Done.',
         },
         {
           ...worker,
           activity: 'imageView  ./a.png',
-          tools: 2,
+          tools: 3,
           report: 'Done.',
           status: 'completed',
         },

@@ -152,7 +152,7 @@ function prepare(
         ? colors.whiteBright.bold(item.title ?? 'Assistant')
         : tool
           ? colors.dim(
-              `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkedTitle(item.title ?? 'Tool', item.path, item.cwd)}`,
+              `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkedTitle((expanded && item.expandedTitle) || (item.title ?? 'Tool'), item.path, item.cwd)}`,
             )
           : colors.dim('Notice');
   const linked =

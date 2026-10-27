@@ -956,6 +956,36 @@ test("a shell tool row shows expanded until toggled, and an agent's tool row col
   assert.ok(toggled.includes('agent-x'));
 });
 
+test("a tool row under Witch's name shows the native name only while expanded", () => {
+  const items: DisplayItem[] = [
+    {
+      id: 't',
+      kind: 'tool',
+      title: 'Spell  handoff',
+      expandedTitle: 'Spell (Skill)  handoff',
+      text: 'Launching skill: handoff',
+      cwd: '/work',
+      done: true,
+    },
+  ];
+  const layout = new TranscriptLayout();
+  const lines = (expanded: boolean) =>
+    stripAnsi(
+      layout
+        .render(items, 60, new Map([['t', expanded]]))
+        .lines.slice()
+        .join('\n'),
+    ).split('\n');
+  assert.ok(
+    lines(false).includes('+ ✓ Spell  handoff'),
+    lines(false).join('\n'),
+  );
+  assert.ok(
+    lines(true).includes('− ✓ Spell (Skill)  handoff'),
+    lines(true).join('\n'),
+  );
+});
+
 test('a tool that changed a file under its directory shows its diff until toggled, one elsewhere collapsed until toggled, and a diff that arrives under unchanged output still shows', () => {
   const diff = (path: string): FileDiff[] => [
     {

@@ -153,6 +153,8 @@ export type AgentEvent =
       title: string;
       /** the file path `title` shows, so its row links the path whole. */
       path?: string;
+      /** `title` with the native name beside Witch's, which an expanded row shows. */
+      expandedTitle?: string;
       text: string;
       done: boolean;
       cwd?: string;

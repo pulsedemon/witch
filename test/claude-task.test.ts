@@ -88,6 +88,41 @@ test('native permission denials remain in the final report even when the review 
   );
 });
 
+test("a delegated Claude's spell call and familiar denial show Witch's names", () => {
+  const events: FamiliarProgress[] = [];
+  const task = new ClaudeTask('/work', (progress) => events.push(progress));
+  task.message(init);
+  task.message({
+    ...read,
+    message: {
+      model: 'native-model',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'skill-1',
+          name: 'Skill',
+          input: { skill: 'review' },
+        },
+      ],
+    },
+  });
+  assert.equal(events.at(-1)!.activity, 'Spell  review');
+  task.message({
+    ...success,
+    permission_denials: [
+      {
+        tool_name: 'Agent',
+        tool_use_id: 'denied-1',
+        tool_input: { description: 'Fix lint', prompt: 'fix it' },
+      },
+    ],
+  });
+  assert.equal(
+    task.closed(0, null).report,
+    'Reviewed.\n\nPermission denied: Familiar  Fix lint',
+  );
+});
+
 test('delegated Claude observes assistant model changes', () => {
   const events: FamiliarProgress[] = [];
   const task = new ClaudeTask('/work', (progress) => events.push(progress));

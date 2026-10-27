@@ -16,7 +16,15 @@ export interface ToolTitle {
   title: string;
   /** the file path `title` shows, so its row links the path whole. */
   path?: string;
+  /** `title` with the native name beside Witch's, which an expanded row shows. */
+  expandedTitle?: string;
 }
+
+/** Witch's names for the Claude tools that run a spell or start a familiar. */
+const claudeNames = new Map([
+  ['Skill', 'Spell'],
+  ['Agent', 'Familiar'],
+]);
 
 function firstLine(text: string): string {
   const [first = '', ...rest] = text.trim().split('\n');
@@ -46,5 +54,19 @@ export function toolTitle(
       .filter(Boolean)
       .join('  '),
     ...(key && paths.has(key) ? { path: subject } : {}),
+  };
+}
+
+/** a Claude tool's title under Witch's name for it, where it has one. */
+export function claudeTitle(
+  name: string,
+  input: unknown,
+  cwd: string,
+): ToolTitle {
+  const witch = claudeNames.get(name);
+  if (!witch) return toolTitle(name, input, cwd);
+  return {
+    ...toolTitle(witch, input, cwd),
+    expandedTitle: toolTitle(`${witch} (${name})`, input, cwd).title,
   };
 }

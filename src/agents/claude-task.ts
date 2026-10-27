@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FamiliarProgress } from './familiar-report.js';
 import { errorMessage } from './stderr.js';
-import { toolTitle } from './tool-title.js';
+import { claudeTitle } from './tool-title.js';
 
 const frame = z.object({
   type: z.string(),
@@ -99,7 +99,7 @@ export class ClaudeTask {
             const use = tool.parse(block);
             if (this.tools.has(use.id)) continue;
             this.tools.add(use.id);
-            this.activity = toolTitle(use.name, use.input, this.cwd).title;
+            this.activity = claudeTitle(use.name, use.input, this.cwd).title;
             this.emit(this.progress());
           }
         }
@@ -120,7 +120,7 @@ export class ClaudeTask {
           finished.result ?? finished.errors?.join('\n') ?? this.report;
         const denials = finished.permission_denials.map(
           (denial) =>
-            `Permission denied: ${toolTitle(denial.tool_name, denial.tool_input, this.cwd).title}`,
+            `Permission denied: ${claudeTitle(denial.tool_name, denial.tool_input, this.cwd).title}`,
         );
         if (denials.length)
           this.report = [this.report, ...denials].filter(Boolean).join('\n\n');
