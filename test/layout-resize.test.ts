@@ -11,6 +11,7 @@ import type { DisplayItem } from '../src/core/state.js';
 import { applyDisplayUpdate } from '../src/core/state.js';
 import { Graphics, placeholder } from '../src/ui/images.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
+import { loaded } from './fixtures/graphics.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
@@ -171,7 +172,7 @@ test('unchanged resizes reuse text and diff preparation', async () => {
   }
 });
 
-test('a cached image variant restores its placement after intervening widths', (t) => {
+test('a cached image variant restores its placement after intervening widths', async (t) => {
   const placements: string[] = [];
   const graphics = new Graphics((data) => {
     if (data.includes('a=p,')) placements.push(data);
@@ -198,6 +199,8 @@ test('a cached image variant restores its placement after intervening widths', (
       },
     ],
   };
+  layout.render([item], 80, new Map([['tool', true]]), new Set(['tool']));
+  await loaded(graphics);
   for (const [width, mode] of [
     [80, 'full'],
     [80, 'preview'],
@@ -293,7 +296,8 @@ test('cached expansion variants use the current width and item', () => {
   }
 });
 
-test('a resize retries a missing image without reparsing its text', async (t) => {
+test('a resize after the retry delay retries a missing image without reparsing its text', async (t) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
   const directory = await scratch('witch-resize-image-');
   const graphics = new Graphics(() => {});
   t.onTestFinished(() => graphics.release());
@@ -317,7 +321,11 @@ test('a resize retries a missing image without reparsing its text', async (t) =>
   assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
   assert.ok(parsed > 0);
   const warm = parsed;
+  await loaded(graphics);
   await writeFile(join(directory, 'shot.png'), png(800, 200));
+  vi.setSystemTime(Date.now() + 2_000);
+  layout.render([item], 40, new Map());
+  await loaded(graphics);
   const after = layout.render([item], 40, new Map());
   assert.equal(parsed, warm);
   assert.equal(

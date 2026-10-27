@@ -1,18 +1,23 @@
 import assert from 'node:assert/strict';
 import childProcess, { execFileSync, spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { truncate, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
+import type { TestContext } from 'vitest';
 import { test, vi } from 'vitest';
 import { Graphics, imagePaths } from '../src/ui/images.js';
+import { loaded } from './fixtures/graphics.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 
 const placeholder = '\u{10EEEE}';
 // the first Kitty row/column diacritics: rows 0, 1 and 2, and column 0
 const [row0, row1, row2] = ['̅', '̍', '̎'];
+const gif =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 /** the base64 payload of every transmission the writes carry, joined across chunks. */
 const payload = (writes: string[]) =>
@@ -24,6 +29,25 @@ const payload = (writes: string[]) =>
     .map((write) => write.slice(write.indexOf(';') + 1, -2))
     .join('');
 
+/** records each sips call with its input, read before the load removes it; on Linux, which has no sips, `linux` stands in. */
+function sips(t: TestContext, linux: (output: string) => Error | null) {
+  const calls: { file: string; args: readonly string[]; input: Buffer }[] = [];
+  const execute = childProcess.execFile;
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    const [file, args, , callback] = call;
+    calls.push({ file, args: args ?? [], input: readFileSync(args![3]!) });
+    if (process.platform !== 'linux') return execute(...call);
+    callback?.(linux(args![5]!), '', '');
+    return new childProcess.ChildProcess();
+  });
+  syncBuiltinESMExports();
+  return calls;
+}
+
 test('a dropped path keeps its escaped spaces and unescaped U+202F, a quoted path keeps its spaces, and other files are not images', () => {
   assert.deepEqual(
     imagePaths(
@@ -33,15 +57,36 @@ test('a dropped path keeps its escaped spaces and unescaped U+202F, a quoted pat
   );
 });
 
-test('an image is sent once as its PNG data, shown by rows whose color names it and whose first cell names its row, and placed again without resending when the width changes', async () => {
+test('an image loads in the background, then is sent once as its PNG data, shown by rows whose color names it and whose first cell names its row, and placed again without resending when the width changes', async (t) => {
   const directory = await scratch('witch-images-');
   const image = png(160, 80);
   const path = join(directory, 'shot.png');
   await writeFile(path, image);
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
+  const encoded: string[] = [];
+  const other = new Graphics((data) => encoded.push(data));
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  const stats = vi.spyOn(fs, 'statSync');
+  const reads = vi.spyOn(fs, 'readFileSync');
+  syncBuiltinESMExports();
 
-  const rows = graphics.rows(`~/${relative(homedir(), path)}`, directory, 100);
+  const source = `~/${relative(homedir(), path)}`;
+  assert.deepEqual(graphics.rows(source, directory, 100), []);
+  assert.equal(writes.length, 0);
+  assert.deepEqual(
+    other.rows(`data:image/png;base64,${image.toString('base64')}`, '/', 100),
+    [],
+  );
+  assert.equal(encoded.length, 0);
+  assert.equal(stats.mock.calls.length, 0);
+  assert.equal(reads.mock.calls.length, 0);
+
+  await loaded(graphics);
+  const rows = graphics.rows(source, directory, 100);
   // 160 pixels at 8 a column is 20 columns, and half as tall in cells as the image's 2:1 shape
   assert.deepEqual(
     rows,
@@ -63,39 +108,24 @@ test('an image is sent once as its PNG data, shown by rows whose color names it 
   assert.deepEqual(writes, ['\u001b_Ga=p,U=1,i=1,p=1,c=10,r=3,q=2\u001b\\']);
 });
 
-test('a GIF is sent converted to PNG, an unreadable path shows and sends nothing, and release frees each image sent', (t) => {
+test('a GIF is sent converted to PNG, an unreadable path shows and sends nothing, and release frees each image sent', async (t) => {
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
-  const gif =
-    'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-  let converted: string | undefined;
-  const execute = childProcess.execFileSync;
-  t.onTestFinished(() => {
-    vi.restoreAllMocks();
-    syncBuiltinESMExports();
+  const calls = sips(t, (output) => {
+    writeFileSync(output, png(1, 1));
+    return null;
   });
-  vi.spyOn(childProcess, 'execFileSync').mockImplementation(
-    (...call: Parameters<typeof execute>) => {
-      const [file, args] = call;
-      assert.equal(file, '/usr/bin/sips');
-      assert.ok(Array.isArray(args));
-      assert.equal(args.length, 6);
-      assert.deepEqual(args.slice(0, 3), ['-s', 'format', 'png']);
-      assert.equal(args[4], '--out');
-      const input = String(args[3]);
-      const output = String(args[5]);
-      converted = dirname(input);
-      assert.equal(dirname(output), converted);
-      assert.deepEqual(
-        readFileSync(input),
-        Buffer.from(gif.split(',')[1]!, 'base64'),
-      );
-      if (process.platform !== 'linux') return execute(...call);
-      writeFileSync(output, png(1, 1));
-      return Buffer.alloc(0);
-    },
-  );
-  syncBuiltinESMExports();
+  assert.deepEqual(graphics.rows(gif, '/', 80), []);
+  await loaded(graphics);
+  assert.equal(calls.length, 1);
+  const { file, args, input } = calls[0]!;
+  assert.equal(file, '/usr/bin/sips');
+  assert.equal(args.length, 6);
+  assert.deepEqual(args.slice(0, 3), ['-s', 'format', 'png']);
+  assert.equal(args[4], '--out');
+  const converted = dirname(args[3]!);
+  assert.equal(dirname(args[5]!), converted);
+  assert.deepEqual(input, Buffer.from(gif.split(',')[1]!, 'base64'));
   assert.equal(graphics.rows(gif, '/', 80).length, 1);
   const sent = Buffer.from(payload(writes), 'base64');
   assert.deepEqual(
@@ -106,47 +136,35 @@ test('a GIF is sent converted to PNG, an unreadable path shows and sends nothing
     ],
     ['PNG', 1, 1],
   );
-  assert.ok(converted);
   assert.equal(existsSync(converted), false);
 
   writes.length = 0;
   assert.deepEqual(graphics.rows('/missing/shot.png', '/', 80), []);
-  assert.deepEqual(writes, []);
+  await loaded(graphics);
+  assert.deepEqual(graphics.rows('/missing/shot.png', '/', 80), []);
+  assert.equal(writes.length, 0);
 
   graphics.release();
   assert.deepEqual(writes, ['\u001b_Ga=d,d=I,i=1,q=2\u001b\\']);
 });
 
-test('a failed image conversion sends nothing and removes its temporary files', (t) => {
-  let converted: string | undefined;
-  const execute = childProcess.execFileSync;
-  t.onTestFinished(() => {
-    vi.restoreAllMocks();
-    syncBuiltinESMExports();
-  });
-  vi.spyOn(childProcess, 'execFileSync').mockImplementation(
-    (...call: Parameters<typeof execute>) => {
-      const [file, args] = call;
-      assert.equal(file, '/usr/bin/sips');
-      assert.ok(Array.isArray(args));
-      converted = dirname(String(args[3]));
-      if (process.platform !== 'linux') return execute(...call);
-      throw new Error('fixture conversion failure');
-    },
-  );
-  syncBuiltinESMExports();
+test('a failed image conversion sends nothing and removes its temporary files', async (t) => {
+  const calls = sips(t, () => new Error('fixture conversion failure'));
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
+  const source = 'data:image/gif;base64,bm90IGFuIGltYWdl';
+  assert.deepEqual(graphics.rows(source, '/', 80), []);
+  await loaded(graphics);
+  assert.deepEqual(graphics.rows(source, '/', 80), []);
+  assert.equal(writes.length, 0);
   assert.deepEqual(
-    graphics.rows('data:image/gif;base64,bm90IGFuIGltYWdl', '/', 80),
-    [],
+    calls.map(({ file }) => file),
+    ['/usr/bin/sips'],
   );
-  assert.deepEqual(writes, []);
-  assert.ok(converted);
-  assert.equal(existsSync(converted), false);
+  assert.equal(existsSync(dirname(calls[0]!.args[3]!)), false);
 });
 
-test('a FIFO or a file over 64 MiB named like an image shows and reads nothing, so it cannot stall a render', async () => {
+test('a FIFO or a file over 64 MiB named like an image shows and reads nothing', async () => {
   const directory = await scratch('witch-images-');
   const source = join(directory, 'source.png');
   await writeFile(source, png(16, 16));
@@ -160,18 +178,84 @@ test('a FIFO or a file over 64 MiB named like an image shows and reads nothing, 
   const writes: string[] = [];
   const graphics = new Graphics((data) => writes.push(data));
   try {
+    graphics.rows(fifo, '/', 80);
+    graphics.rows(large, '/', 80);
+    await loaded(graphics, 2);
     assert.deepEqual(graphics.rows(fifo, '/', 80), []);
     assert.deepEqual(graphics.rows(large, '/', 80), []);
-    assert.deepEqual(writes, []);
+    assert.equal(writes.length, 0);
   } finally {
     writer.kill();
   }
 });
 
-test('a path that failed to load is tried again, so an image written after a message names it still shows', async () => {
+test('a failed path is retried only after 2 seconds, so an image written after its first failed load still shows', async (t) => {
   const directory = await scratch('witch-images-');
   const graphics = new Graphics(() => {});
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const stat = vi.spyOn(fs.promises, 'stat');
+  syncBuiltinESMExports();
+  const stats = () =>
+    stat.mock.calls.filter(([path]) => String(path).endsWith('shot.png'))
+      .length;
+
   assert.deepEqual(graphics.rows('shot.png', directory, 80), []);
+  await loaded(graphics);
+  assert.equal(stats(), 1);
+  assert.equal(graphics.version, 0);
   await writeFile(join(directory, 'shot.png'), png(160, 80));
+  assert.deepEqual(graphics.rows('shot.png', directory, 80), []);
+  await setImmediate();
+  assert.equal(stats(), 1);
+  vi.setSystemTime(Date.now() + 1_999);
+  assert.deepEqual(graphics.rows('shot.png', directory, 80), []);
+  await setImmediate();
+  assert.equal(stats(), 1);
+  vi.setSystemTime(Date.now() + 1);
+  assert.deepEqual(graphics.rows('shot.png', directory, 80), []);
+  await loaded(graphics);
+  assert.equal(stats(), 2);
+  assert.equal(graphics.version, 1);
   assert.equal(graphics.rows('shot.png', directory, 80).length, 5);
+});
+
+test('release aborts a running conversion, drops queued loads, and writes nothing after', async (t) => {
+  const directory = await scratch('witch-images-');
+  const queued = join(directory, 'shot.png');
+  await writeFile(queued, png(16, 16));
+  const writes: string[] = [];
+  const graphics = new Graphics((data) => writes.push(data));
+  const conversions: Parameters<typeof childProcess.execFile>[] = [];
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    // a load that wrongly converts fails at once, so the count catches it rather than loaded()'s timeout
+    if (conversions.push(call) > 1)
+      call[3]?.(new Error('converted after release'), '', '');
+    return new childProcess.ChildProcess();
+  });
+  const stat = vi.spyOn(fs.promises, 'stat');
+  syncBuiltinESMExports();
+
+  graphics.rows(gif, '/', 80);
+  graphics.rows(queued, '/', 80);
+  await vi.waitFor(() => assert.ok(conversions[0]));
+  graphics.release();
+  const [, args, options, finish] = conversions[0]!;
+  assert.equal(options?.signal?.aborted, true);
+  // a conversion that finishes anyway
+  writeFileSync(args![5]!, png(1, 1));
+  finish!(null, '', '');
+  await loaded(graphics, 2);
+  assert.equal(writes.length, 0);
+  assert.equal(conversions.length, 1);
+  // the queued file is never read
+  assert.equal(stat.mock.calls.length, 0);
+  assert.equal(existsSync(dirname(args![3]!)), false);
 });
