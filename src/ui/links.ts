@@ -39,7 +39,7 @@ export async function clickTarget(
   url: string,
   memory: () => Promise<string[]>,
 ): Promise<{ open: string } | { notice: string }> {
-  const file = /^vscode:\/\/file(\/[^:]*)((?::\d+){0,2})$/.exec(url);
+  const file = /^vscode:\/\/file(\/.*?)((?::\d+){0,2})$/.exec(url);
   if (!file) return { open: url };
   const path = decodeURIComponent(file[1]!);
   if (await exists(path)) return { open: url };

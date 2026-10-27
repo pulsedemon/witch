@@ -392,6 +392,10 @@ test('a click on a missing file shows a notice, listing both notes when a bare n
   assert.deepEqual(await click('see `docs/both.md`'), {
     notice: `No file at ${join(cwd, 'docs', 'both.md')}`,
   });
+  assert.deepEqual(
+    await click(`see [the report](vscode://file${cwd}/gone:report.md:3)`),
+    { notice: `No file at ${join(cwd, 'gone:report.md')}` },
+  );
   assert.deepEqual(await click('see https://example.com/gone.md'), {
     open: 'https://example.com/gone.md',
   });
