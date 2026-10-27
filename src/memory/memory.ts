@@ -252,7 +252,8 @@ export class Memory {
   ): Promise<{ identity: string; top: string }> {
     // only a missing origin, repository or work tree falls back, so a git that fails can't move the key.
     // git exits 128 for the last two and for fatal errors such as a bad config, so its untranslated message tells them apart.
-    // a `.git` file whose gitdir is gone prints `not a git repository: <gitdir>`, without the parenthesis, and fails
+    // a `.git` file whose gitdir is gone prints `not a git repository: <gitdir>`, without the parenthesis,
+    // or from Git 2.56 `gitfile does not point to a valid repository: <file>`, and fails
     const read = async (
       args: string[],
       absent = /not a git repository \(|must be run in a work tree/,
