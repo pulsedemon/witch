@@ -74,6 +74,7 @@ function commands() {
           tools: 3,
           model: 'observed',
           report: status === 'completed' ? 'Full report' : undefined,
+          notices: ['MCP down'],
         },
       },
       Date.now() + 5000,
@@ -464,6 +465,7 @@ test('stale native runs and repeated progress cannot revive a completed familiar
     ['running', 'running', 'completed'],
   );
   assert.equal(f.familiars().at(-1)!.report, 'Full report');
+  assert.deepEqual(f.familiars().at(-1)!.notices, ['MCP down']);
   await assert.rejects(f.update(2), /already ended/);
   f.start('review', '3');
   f.outputs.set('review', '');

@@ -11,6 +11,8 @@ export const familiarProgressSchema = z.object({
   activity: z.string().optional(),
   tools: z.number().int().nonnegative().optional(),
   report: z.string().optional(),
+  /** the transient notices its native session posted, oldest first. */
+  notices: z.array(z.string()).optional(),
 });
 export type FamiliarProgress = z.infer<typeof familiarProgressSchema>;
 

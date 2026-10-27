@@ -1270,6 +1270,8 @@ export class Coordinator {
     const subagents = [...this.snapshot.subagents];
     subagents[index < 0 ? subagents.length : index] = update.entry;
     this.publish({ subagents });
+    // ahead of the rows, so a notice reported with the end lands above the end row
+    for (const text of update.notices) this.notice(text, conversation.cwd);
     for (const row of update.rows)
       this.taskRow(conversation, row.id, row.title, row.text);
   }

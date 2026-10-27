@@ -8,7 +8,7 @@ import type {
   FamiliarAction,
   FamiliarProgress,
 } from './agents/familiar-report.js';
-import { errorMessage } from './agents/stderr.js';
+import { errorMessage, watchChild, withTail } from './agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
 import { FamiliarReports, registerFamiliar } from './cli-familiar.js';
 import { questionReply } from './core/prompts.js';
@@ -56,7 +56,8 @@ export async function runCodexFamiliar(
   let failure: string | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let childExit:
-    { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    | { code: number | null; signal: NodeJS.Signals | null; tail: string }
+    | undefined;
   let progress: FamiliarProgress = { status: 'running', tools: 0 };
   const tools = new Set<string>();
   const prompts: string[] = [];
@@ -143,7 +144,12 @@ export async function runCodexFamiliar(
     else if (event.type === 'tool' && !event.done && !event.append) {
       tools.add(event.id);
       progress = { ...progress, tools: tools.size, activity: event.title };
-    } else if (event.type === 'request') {
+    } else if (event.type === 'notice' && event.transient)
+      progress = {
+        ...progress,
+        notices: [...(progress.notices ?? []), event.text],
+      };
+    else if (event.type === 'request') {
       request(event.request);
       return;
     } else if (event.type === 'request-resolved') {
@@ -200,16 +206,24 @@ export async function runCodexFamiliar(
         stdio: 'pipe',
         detached: false,
       });
-      child.stderr.pipe(process.stderr, { end: false });
-      child.once('exit', (code, signal) => {
-        childExit = { code, signal };
+      // the app-server's log lines stay out of the calling agent's output; failures carry their tail
+      const output = watchChild(child);
+      child.once('close', (code, signal) => {
+        childExit = { code, signal, tail: output.tail() };
         if (
           !closing &&
           [...requests.values()].some(
             (pending) => pending.input.replyAsPrompt && !pending.resolved,
           )
         )
-          fail(new Error('Codex exited while awaiting a question response.'));
+          fail(
+            new Error(
+              withTail(
+                'Codex exited while awaiting a question response',
+                childExit.tail,
+              ),
+            ),
+          );
       });
       return child;
     });
@@ -258,7 +272,10 @@ export async function runCodexFamiliar(
     else if (failure) status = 'failed';
     else if (status === 'completed' && childExit?.code !== 0) {
       status = 'failed';
-      failure = `Codex exited (${childExit?.signal ?? childExit?.code ?? 'unknown'}).`;
+      failure = withTail(
+        `Codex exited (${childExit?.signal ?? childExit?.code ?? 'unknown'})`,
+        childExit?.tail ?? '',
+      );
     }
     if (failure) report = [report, failure].filter(Boolean).join('\n\n');
     await save();

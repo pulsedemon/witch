@@ -21,7 +21,10 @@ if (familiar) {
       mark: process.env.WITCH_JOBS,
     }),
   );
-  if (familiar === 'nonzero-close') process.exitCode = 2;
+  if (familiar === 'nonzero-close') {
+    process.exitCode = 2;
+    process.stderr.write('close exit text\n');
+  }
   process.on('SIGTERM', () => process.exit());
 }
 // modes that a prompt can't reach come from the command line
@@ -182,7 +185,7 @@ for await (const line of lines) {
       setTimeout(() => process.exit(1), 5000);
       continue;
     }
-    if (mode === 'exit-on-init')
+    if (mode === 'exit-on-init' || familiar === 'exit-on-init')
       process.stderr.write('init exit text\n', () => process.exit(1));
     else reply({ userAgent: 'fixture' });
   }
@@ -254,7 +257,8 @@ for await (const line of lines) {
   if (
     request.method === 'account/rateLimits/read' &&
     [mode, familiar].includes('mcp-failed')
-  )
+  ) {
+    process.stderr.write('rmcp::transport::worker: worker quit with fatal\n');
     for (const [name, status, error, failureReason] of [
       ['unreal', 'starting'],
       ['docs', 'starting'],
@@ -274,6 +278,7 @@ for await (const line of lines) {
         error: error ?? null,
         failureReason: failureReason ?? null,
       });
+  }
   if (request.method === 'account/rateLimits/read' && mode === 'no-limits')
     send({
       id: request.id,
@@ -453,7 +458,9 @@ for await (const line of lines) {
         });
         if (familiar !== 'question-during') finish('completed');
         if (familiar === 'question-exit')
-          void waitFor('exit-question').then(() => process.exit(3));
+          void waitFor('exit-question').then(() =>
+            process.stderr.write('question exit text\n', () => process.exit(3)),
+          );
       }
       continue;
     }

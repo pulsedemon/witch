@@ -81,6 +81,8 @@ export interface Subagent {
   tools?: number;
   /** its latest message, which is its report once it ends. */
   report?: string;
+  /** the transient notices its native session posted, oldest first. */
+  notices?: string[];
 }
 
 /** a command the native agent left running in the background; a running event starts it, a later one with another status ends it, and a repeated start changes nothing. */
