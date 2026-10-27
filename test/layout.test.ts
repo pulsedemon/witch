@@ -136,6 +136,31 @@ test("a tool's title links the path its field gave whole, spaces and U+202F incl
   );
 });
 
+test("a tool's path links after its name, not where the name holds the same text", () => {
+  const lines = new TranscriptLayout()
+    .render(
+      [
+        {
+          id: 'read',
+          kind: 'tool',
+          title: 'files.read  read',
+          path: 'read',
+          text: '',
+          cwd: '/work',
+          done: true,
+        },
+      ],
+      100,
+      new Map(),
+    )
+    .lines.slice()
+    .join('\n');
+  assert.ok(
+    lines.includes('files.read  \u001b]8;;vscode://file/work/read\u0007'),
+    JSON.stringify(lines),
+  );
+});
+
 test("a tool's linked path reaches the terminal without the escape sequences in it", () => {
   const path = '/shots/a\u001b]0;title\u0007\u001b[2Jb.png';
   const lines = new TranscriptLayout()

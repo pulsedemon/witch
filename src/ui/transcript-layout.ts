@@ -126,8 +126,10 @@ function section(
 
 /** a tool's title, with the path it shows linked whole from the field it came from. */
 function linkedTitle(title: string, path: string | undefined, cwd: string) {
-  const start = path ? title.indexOf(path) : -1;
-  if (!path || start < 0) return linkify(title, cwd);
+  // `toolTitle` puts the path two spaces after the name, which can contain the same text
+  const separator = path ? title.indexOf(`  ${path}`) : -1;
+  if (!path || separator < 0) return linkify(title, cwd);
+  const start = separator + 2;
   return (
     linkify(title.slice(0, start), cwd) +
     hyperlink(plain(path), path, cwd) +
