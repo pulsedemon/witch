@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import { JobWatch } from '../src/core/jobs.js';
 import type { Row } from '../src/core/jobs.js';
@@ -155,6 +156,44 @@ for (const joins of ['later', 'in the read that opens the app']) {
     }
   });
 }
+
+test('an excluded app keeps an inactive watch reading', async () => {
+  const app = orphanRow(100901);
+  const terminal = { ...orphanRow(100902), ppid: app.pid };
+  let rows: Row[] = [];
+  let reads = 0;
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-'),
+    interval: 20,
+    settle: 0,
+    processes: async () => {
+      reads++;
+      return rows;
+    },
+    describe: async (pids) =>
+      pids.map((pid) => ({
+        pid,
+        pgid: pid,
+        cpu: 0,
+        startedAt: 0,
+        command: '',
+      })),
+    marked: async (pids) => pids,
+    executables: async () =>
+      new Map([[app.pid, '/Applications/Code.app/Contents/MacOS/Code']]),
+  });
+  try {
+    await jobs.list();
+    rows = [app, terminal];
+    assert.deepEqual(await jobs.list(), []);
+    jobs.setActive(false);
+    const count = reads;
+    await delay(150);
+    assert.ok(reads >= count + 3);
+  } finally {
+    jobs.close();
+  }
+});
 
 test.skipIf(process.platform !== 'darwin')(
   'a marked launchd child leading its own group from an app bundle is not a job, and one outside a bundle is',

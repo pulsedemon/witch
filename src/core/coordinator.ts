@@ -153,7 +153,10 @@ export class Coordinator {
     private readonly store: StateStore,
     readonly memory: Memory,
     private readonly agents: readonly AgentRegistration[],
-    private readonly jobs?: Pick<JobWatch, 'track' | 'environment' | 'script'>,
+    private readonly jobs?: Pick<
+      JobWatch,
+      'track' | 'environment' | 'script' | 'setActive'
+    >,
     private readonly editFile = editInVSCode,
     readonly coordination?: SessionCoordination,
   ) {
@@ -1485,10 +1488,10 @@ export class Coordinator {
 
   private publish(update: Partial<Snapshot>): void {
     this.snapshot = { ...this.snapshot, ...update };
-    this.pentacle.set(
-      localActivity,
-      agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running,
-    );
+    const active =
+      agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running;
+    this.pentacle.set(localActivity, active);
+    this.jobs?.setActive(active);
     this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();
   }

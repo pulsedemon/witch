@@ -59,8 +59,13 @@ export async function fixture(
   const b = new FixtureAgent('b');
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
   const tracked: number[] = [];
+  /** the activity the coordinator reports to the job watch, once per change. */
+  const active: boolean[] = [];
   const jobs = {
     track: (group: number) => tracked.push(group),
+    setActive: (value: boolean) => {
+      if (active.at(-1) !== value) active.push(value);
+    },
     environment: {},
   };
   const coordinator = new Coordinator(store, memory, agents, jobs, editFile);
@@ -109,6 +114,7 @@ export async function fixture(
     outsider,
     reopen,
     tracked,
+    active,
     jobs,
   };
 }
