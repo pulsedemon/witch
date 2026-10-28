@@ -1,5 +1,6 @@
 import { isFamiliarAction } from '../agents/familiar-report.js';
 import { randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentSession } from '../agents/types.js';
 import { errorMessage } from '../agents/stderr.js';
@@ -47,6 +48,30 @@ interface Activation {
   accepting: boolean;
   publishing: boolean;
   release(): Promise<void>;
+  /** the repository's Git config, shared by its linked worktrees, unset outside a repository. a global `insteadOf` rewrite of the origin and a local origin's own config are not stamped. */
+  config?: string;
+  /** the config's stamp when the tick last queued a project read. */
+  configured?: string;
+  /** that read is queued or running. */
+  rescoping?: boolean;
+  /** the coordination signature when the tick last refreshed. */
+  observed?: string;
+  /** when the tick last refreshed, from `performance.now()`. */
+  rereadAt?: number;
+}
+
+/** lock holders and process exits change no file, so the tick rereads them this often. */
+const rereadInterval = 60_000;
+
+/** what changes when Git rewrites a config file. */
+function configStamp(file: string | undefined): string {
+  if (!file) return 'none';
+  try {
+    const { mtimeNs, ino, size } = statSync(file, { bigint: true });
+    return `${mtimeNs}:${ino}:${size}`;
+  } catch {
+    return 'missing';
+  }
 }
 
 interface Discovery {
@@ -118,6 +143,10 @@ export class SessionCoordination {
     project: string;
     promise: Promise<void>;
   };
+  /** project reads run one at a time, so their results land in start order. */
+  private projecting: Promise<void> = Promise.resolve();
+  /** counts publications of a view with a ledger. */
+  private published = 0;
   private revision = 0;
   private mutationRevision = 0;
   private ledgerObservation = 0;
@@ -189,13 +218,7 @@ export class SessionCoordination {
       await coordination.host.close();
       throw error;
     }
-    coordination.timer = setInterval(() => {
-      void coordination.maintain();
-      void coordination.refresh();
-      void coordination.refreshMerges();
-      void coordination.retryPresence();
-      void coordination.publishMerges();
-    }, 2000);
+    coordination.timer = setInterval(() => coordination.tick(), 2000);
     coordination.timer.unref();
     return coordination;
   }
@@ -231,6 +254,9 @@ export class SessionCoordination {
     )
       return this.active.binding;
     if (this.active) await this.deactivate();
+    const config = await this.memory
+      .configPath(conversation.cwd)
+      .catch(() => undefined);
     const activation = randomUUID();
     const release = await this.registry.holdActivation(activation);
     const active: Activation = {
@@ -245,6 +271,7 @@ export class SessionCoordination {
       accepting: false,
       publishing: true,
       release,
+      config,
     };
     this.active = active;
     this.view = undefined;
@@ -605,6 +632,7 @@ export class SessionCoordination {
       await Promise.all([
         this.refreshing?.promise,
         this.refreshingMerges?.promise,
+        this.projecting,
       ]);
     }
   }
@@ -826,6 +854,7 @@ export class SessionCoordination {
       this.ledger = ledger;
     if (this.view.discovery.revision > this.discoveryFailure)
       this.failures.delete('discovery');
+    this.published++;
     this.publish(
       this.projectDiscovery(
         active,
@@ -1062,19 +1091,94 @@ export class SessionCoordination {
     }
   }
 
-  private async refreshProject(active: Activation): Promise<void> {
+  private refreshProject(active: Activation): Promise<void> {
+    const read = this.projecting.then(() => this.readProject(active));
+    this.projecting = read.catch(() => {});
+    return read;
+  }
+
+  /** never awaits the refreshes it starts, since `verify` reads the project while holding the ledger lock they take. */
+  private async readProject(active: Activation): Promise<void> {
     try {
       const { project } = await this.memory.scopePaths(active.conversation.cwd);
       if (this.active !== active || !active.publishing || this.closed) return;
+      const changed = active.project !== project;
       active.project = project;
       if (this.turn && this.turn.owner.project !== project) this.revokeTurn();
       this.failures.delete('project');
       if (this.state) this.update(this.state);
+      if (changed) {
+        void this.refresh();
+        void this.refreshMerges();
+      }
     } catch (error) {
       if (this.active === active && active.publishing && !this.closed)
         this.fail('project', error);
       throw error;
     }
+  }
+
+  /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
+  private tick(): void {
+    void this.maintain();
+    void this.retryPresence();
+    void this.publishMerges();
+    const active = this.active;
+    if (!active?.publishing || this.closed) return;
+    this.rescope(active);
+    this.reread(active);
+  }
+
+  private rescope(active: Activation): void {
+    // a hung Git would otherwise queue a read for every tick while a project failure stands
+    if (active.rescoping) return;
+    const stamp = configStamp(active.config);
+    if (stamp === active.configured && !this.failures.has('project')) return;
+    active.configured = stamp;
+    active.rescoping = true;
+    void this.refreshProject(active)
+      .catch(() => {})
+      .finally(() => {
+        active.rescoping = false;
+      });
+  }
+
+  /** a refresh started while another runs would join it and miss what changed since it read, so the next tick decides. */
+  private reread(active: Activation): void {
+    if (this.refreshing || this.refreshingMerges) return;
+    const signature = this.registry.signature();
+    const now = performance.now();
+    const minute =
+      active.rereadAt === undefined || now - active.rereadAt >= rereadInterval;
+    if (
+      signature !== undefined &&
+      signature === active.observed &&
+      !minute &&
+      !['discovery', 'ledger', 'merge-events'].some((key) =>
+        this.failures.has(key),
+      )
+    )
+      return;
+    active.observed = signature;
+    active.rereadAt = now;
+    const published = this.published;
+    void this.refresh().then(() => {
+      // a refresh that published nothing leaves what it read unshown, so the next tick tries again
+      if (this.published === published && active.observed === signature)
+        active.observed = undefined;
+    });
+    void this.refreshMerges();
+    // a repository created or moved after activation has no config to stamp yet
+    if (
+      minute &&
+      (active.configured === 'none' || active.configured === 'missing')
+    )
+      void this.memory.configPath(active.conversation.cwd).then(
+        (config) => {
+          if (this.active === active) active.config = config;
+        },
+        () => {},
+      );
   }
 
   private async inspect(): Promise<CoordinationSnapshot> {
@@ -1145,12 +1249,7 @@ export class SessionCoordination {
     const promise = this.registry
       .mergeEvents(project, active.conversation.id)
       .then(
-        async (events) => {
-          try {
-            await this.refreshProject(active);
-          } catch {
-            return;
-          }
+        (events) => {
           if (!current()) return;
           const merges = {
             conversation: active.conversation.id,
@@ -1193,9 +1292,16 @@ export class SessionCoordination {
       if (opened.has(record.id) && presence?.cwd === record.cwd)
         candidates.set(record.id, presence);
     }
+    // this process holds its publishing activation's lock, so only the others need the lock query
+    const held = this.active?.publishing
+      ? this.active.binding.activation
+      : undefined;
     const activations = await this.registry.activeActivations(
-      [...candidates.values()].map((presence) => presence.activation),
+      [...candidates.values()].flatMap(({ activation }) =>
+        activation === held ? [] : [activation],
+      ),
     );
+    if (held) activations.add(held);
     const processes = await identifyProcesses(
       [...candidates.values()].flatMap((presence) =>
         activations.has(presence.activation) ? [presence.process.pid] : [],

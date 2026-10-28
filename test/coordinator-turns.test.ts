@@ -463,6 +463,18 @@ test('a blank prompt starts no turn', async () => {
   }
 });
 
+test('a turn keeps the job watch active until it ends', async () => {
+  const { coordinator, active } = await fixture();
+  try {
+    // the launch is active and idle is not
+    assert.deepEqual(active, [true, false]);
+    await coordinator.send('first');
+    assert.deepEqual(active, [true, false, true, false]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a session that closes during the snapshot receives nothing', async () => {
   const { coordinator, a, hook } = await fixture();
   try {

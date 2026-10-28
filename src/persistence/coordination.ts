@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, statSync } from 'node:fs';
 import { mkdir, readdir, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -148,6 +148,17 @@ export class CoordinationStore {
     const directory = join(store.root, 'coordination');
     await mkdir(join(directory, 'sessions'), { recursive: true, mode: 0o700 });
     return new CoordinationStore(directory, store);
+  }
+
+  /** changes with every presence, claim, merge and activation write, each a rename, creation or removal in these directories. */
+  signature(): string | undefined {
+    try {
+      return [this.directory, join(this.directory, 'sessions')]
+        .map((directory) => statSync(directory, { bigint: true }).mtimeNs)
+        .join(':');
+    } catch {
+      return undefined;
+    }
   }
 
   async presences(): Promise<SessionPresence[]> {

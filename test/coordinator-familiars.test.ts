@@ -164,3 +164,30 @@ test('each familiar notice posts once, before its end row', async () => {
     await coordinator.close();
   }
 });
+
+test('a running familiar keeps the job watch active until it ends', async () => {
+  const { coordinator, a, active } = await fixture();
+  const emit = a.sessions[0]!.options.onEvent;
+  const worker = {
+    id: 'impl',
+    name: 'implementation',
+    kind: '',
+    runtime: 'codex',
+    run: 'one',
+  };
+  try {
+    emit({ type: 'subagent', subagent: { ...worker, status: 'running' } });
+    emit({
+      type: 'subagent',
+      subagent: { ...worker, status: 'running', notices: ['first'] },
+    });
+    assert.deepEqual(active, [true, false, true]);
+    emit({
+      type: 'subagent',
+      subagent: { ...worker, status: 'completed', report: 'Done.' },
+    });
+    assert.deepEqual(active, [true, false, true, false]);
+  } finally {
+    await coordinator.close();
+  }
+});

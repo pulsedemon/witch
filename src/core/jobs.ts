@@ -152,11 +152,18 @@ export class JobWatch {
   private seen?: Set<string>;
   private readonly timer: ReturnType<typeof setInterval>;
   private polling?: Promise<Row[]>;
+  private active = true;
+  private activityChanges = 0;
+  /** when activity last changed or a read last found something it tracks, from `performance.now()`. */
+  private busyAt = 0;
+  private paused = false;
 
   constructor(
     private readonly options: {
       /** how often the process table is read, in milliseconds. */
       interval?: number;
+      /** how long the watch keeps reading after activity or its last job ends, in milliseconds. */
+      settle?: number;
       /** how long a job has to exit on SIGTERM before SIGKILL, in milliseconds. */
       grace?: number;
       /** reads the process table, from `ps` without it. */
@@ -185,11 +192,10 @@ export class JobWatch {
         `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport ${mark}=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
       );
     }
-    // a failed read leaves the groups as they were, and the next tick reads again
-    this.timer = setInterval(
-      () => void this.poll().catch(() => {}),
-      options.interval ?? 2000,
-    );
+    // a failed read leaves the groups as they were, and the next tick reads again unless the watch is paused
+    this.timer = setInterval(() => {
+      if (!this.paused) void this.poll().catch(() => {});
+    }, options.interval ?? 2000);
     this.timer.unref();
   }
 
@@ -211,6 +217,16 @@ export class JobWatch {
   /** tracks a group Witch started itself from the next read, even once its leader has exited. */
   track(group: number): void {
     this.handed.add(group);
+    this.paused = false;
+  }
+
+  /** whether a turn, familiar or brew is running, any of which can start a job. */
+  setActive(active: boolean): void {
+    if (active === this.active) return;
+    this.active = active;
+    this.activityChanges++;
+    this.busyAt = performance.now();
+    if (active) this.paused = false;
   }
 
   /** the tracked jobs as of a fresh read, oldest first. */
@@ -283,6 +299,8 @@ export class JobWatch {
   }
 
   private async read(): Promise<Row[]> {
+    const changes = this.activityChanges;
+    const began = performance.now();
     // a group handed over while this read's ps runs can be missing from its rows, so it waits for the next read
     const handed = [...this.handed];
     // a report collected after ps could name a group ps never saw, which this read would drop. one in the copy alone
@@ -406,6 +424,16 @@ export class JobWatch {
     this.excluded = excluded;
     for (const group of handed)
       if (!rows.some(({ pgid }) => pgid === group)) this.handed.delete(group);
+    const tracking =
+      this.groups.size > 0 || this.members.size > 0 || this.handed.size > 0;
+    if (tracking) this.busyAt = performance.now();
+    // read only while something could start a job, and for `settle` after, so an app opened as a turn ends is seen and excluded
+    this.paused =
+      !this.active &&
+      !tracking &&
+      !excluded.size &&
+      changes === this.activityChanges &&
+      began - this.busyAt >= (this.options.settle ?? 5000);
     return tracked;
   }
 
