@@ -56,6 +56,16 @@ test('process identities preserve native start strings across a batch', async (t
     identifyProcesses([live.pid!, exited.pid!, process.pid, live.pid!]),
   );
   assert.deepEqual(batch, { value: expected, ps: 1, perl: 0 });
+  // the batch included this process, so later reads answer it without a probe
+  assert.deepEqual(await countProbes(() => identifyProcesses([process.pid])), {
+    value: new Map([[process.pid, expected.get(process.pid)!]]),
+    ps: 0,
+    perl: 0,
+  });
+  assert.deepEqual(
+    await countProbes(() => identifyProcesses([live.pid!, process.pid])),
+    { value: expected, ps: 1, perl: 0 },
+  );
   assert.deepEqual(await identifyProcess(live.pid!), expected.get(live.pid!));
   assert.equal(await identifyProcess(exited.pid!), undefined);
   assert.deepEqual(await countProbes(() => identifyProcesses([exited.pid!])), {

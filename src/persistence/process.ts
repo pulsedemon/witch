@@ -64,19 +64,28 @@ export async function ps(
   }
 }
 
+/** Witch's own identity from the first read that included it, since a running process keeps its pid and start. */
+let own: ProcessIdentity | undefined;
+
 export async function identifyProcesses(
   pids: readonly number[],
   options: { timeout?: number } = {},
 ): Promise<Map<number, ProcessIdentity>> {
-  if (!pids.length) return new Map();
-  const lines = await ps('pid=,lstart=', [...new Set(pids)], options);
-  return new Map(
-    lines.map((line) => {
-      const [, id, started] = /^\s*(\d+)\s+(.+?)\s*$/.exec(line)!;
-      const pid = Number(id);
-      return [pid, { pid, started: started! }];
-    }),
+  const known = own && pids.includes(process.pid) ? own : undefined;
+  const probed = [...new Set(pids)].filter(
+    (pid) => !known || pid !== known.pid,
   );
+  const identities = new Map<number, ProcessIdentity>(
+    known ? [[known.pid, known]] : [],
+  );
+  if (!probed.length) return identities;
+  for (const line of await ps('pid=,lstart=', probed, options)) {
+    const [, id, started] = /^\s*(\d+)\s+(.+?)\s*$/.exec(line)!;
+    const pid = Number(id);
+    identities.set(pid, { pid, started: started! });
+  }
+  own ??= identities.get(process.pid);
+  return identities;
 }
 
 export async function identifyProcess(

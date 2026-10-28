@@ -1193,9 +1193,16 @@ export class SessionCoordination {
       if (opened.has(record.id) && presence?.cwd === record.cwd)
         candidates.set(record.id, presence);
     }
+    // this process holds its publishing activation's lock, so only the others need the lock query
+    const held = this.active?.publishing
+      ? this.active.binding.activation
+      : undefined;
     const activations = await this.registry.activeActivations(
-      [...candidates.values()].map((presence) => presence.activation),
+      [...candidates.values()].flatMap(({ activation }) =>
+        activation === held ? [] : [activation],
+      ),
     );
+    if (held) activations.add(held);
     const processes = await identifyProcesses(
       [...candidates.values()].flatMap((presence) =>
         activations.has(presence.activation) ? [presence.process.pid] : [],

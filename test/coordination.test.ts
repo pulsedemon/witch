@@ -85,6 +85,18 @@ test('discovery batches conversation ownership and keeps only open peers', async
   assert.deepEqual(a.coordination.snapshot.unregistered, []);
 });
 
+test('idle discovery without peers probes only conversation ownership', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const { start } = await coordinationFixture(cleanup);
+  cleanup(() => {
+    vi.useRealTimers();
+  });
+  const a = await start('A');
+  const { ps, perl } = await countProbes(() => a.coordination.context());
+  assert.deepEqual({ ps, perl }, { ps: 0, perl: 1 });
+});
+
 test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { root, start, registry } = await coordinationFixture(cleanup);
