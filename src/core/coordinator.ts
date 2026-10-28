@@ -694,7 +694,6 @@ export class Coordinator {
     return { revision, scope, ...(linked ? { root: workspace.root } : {}) };
   }
 
-  /** the conversation's shared-memory directories, as its agent is told them. */
   async memoryDirectories(): Promise<string[]> {
     const scope = await this.memory.scopePaths(this.current().cwd);
     return this.workspace!.directories(scope);
@@ -924,7 +923,7 @@ export class Coordinator {
           familiarCommand:
             session.familiar && this.coordination
               ? {
-                  command: this.coordination.familiarCommand(),
+                  command: this.coordination.commandPrefixes().familiar,
                   runtime: session.familiar.runtime,
                 }
               : undefined,
@@ -1149,6 +1148,7 @@ export class Coordinator {
         },
         mark: this.jobs,
         familiarBinding: this.coordination?.familiarBinding(),
+        commandPrefixes: this.coordination?.commandPrefixes(),
       });
       this.session = session;
       this.sessionProject = scope.project;

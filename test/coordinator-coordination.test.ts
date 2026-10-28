@@ -9,6 +9,7 @@ import { test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
+import { boundCommandTitle } from '../src/agents/tool-title.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
@@ -23,6 +24,67 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+
+test('bound tool titles use the delivered prefixes, refresh on reconnect and survive results and reopening', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
+  const client = await f.start();
+  const native = client.a.sessions[0]!;
+  native.session.familiar = {
+    runtime: 'claude',
+    report: async () => ({ kind: 'familiar-registered' }),
+  };
+  await client.coordinator.send('Read the current bindings');
+  const context = client.a.inputs.at(-1)!.context!;
+  const control = /^Control command: (.+)$/m.exec(context)?.[1];
+  const familiar = /using this familiar prefix: ([^\n]+)/.exec(context)?.[1];
+  assert.ok(control);
+  assert.ok(familiar);
+  const { commandPrefixes } = native.options;
+  assert.deepEqual(commandPrefixes, { control, familiar });
+  const command = `${control} --claim task:render-title --summary inspect`;
+  const title = boundCommandTitle(command, commandPrefixes);
+  assert.equal(title?.title, 'claim task:render-title');
+  assert.ok(title);
+  native.options.onEvent({
+    type: 'tool',
+    id: 'bound',
+    ...title,
+    text: 'input',
+    done: false,
+  });
+  native.options.onEvent({
+    type: 'tool',
+    id: 'bound',
+    title: '',
+    text: 'claimed',
+    done: true,
+  });
+  await native.session.close();
+  await client.coordinator.send('Use the refreshed binding');
+  const current = client.a.sessions.at(-1)!.options.commandPrefixes;
+  assert.ok(current);
+  assert.notEqual(current.control, control);
+  assert.equal(boundCommandTitle(command, current), undefined);
+  const nextContext = client.a.inputs.at(-1)!.context!;
+  assert.equal(
+    /^Control command: (.+)$/m.exec(nextContext)?.[1],
+    current.control,
+  );
+  assert.equal(
+    boundCommandTitle(`${current.control} --peers --json`, current)?.title,
+    'peers',
+  );
+  await client.coordinator.close();
+  const reopened = await f.start('A', { continue: true });
+  const row = reopened.coordinator.snapshot.items.find(
+    (item) => item.title === 'claim task:render-title',
+  );
+  assert.equal(row?.expandedTitle, command);
+  assert.equal(row?.singleLine, true);
+  assert.equal(row?.text, 'claimed');
+  assert.equal(row?.done, true);
+});
 
 for (const name of ['claude', 'codex'] as const) {
   test(

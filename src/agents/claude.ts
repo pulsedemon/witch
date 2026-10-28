@@ -971,7 +971,12 @@ class ClaudeSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id: block.id,
-            ...claudeTitle(block.name, block.input, this.options.cwd),
+            ...claudeTitle(
+              block.name,
+              block.input,
+              this.options.cwd,
+              this.options.commandPrefixes,
+            ),
             text: JSON.stringify(block.input, null, 2),
             done: false,
           });

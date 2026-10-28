@@ -1,4 +1,5 @@
 import stripAnsi from 'strip-ansi';
+import wrapAnsi from 'wrap-ansi';
 import type { DisplayItem } from '../core/state.js';
 import { appendedDisplayText } from '../core/state.js';
 import { prepareDiff } from './diff.js';
@@ -32,6 +33,7 @@ interface Row {
 interface Content {
   item: DisplayItem;
   title: string[];
+  singleLine: boolean;
   complete: string[];
   tail: string[];
   diff?: ReturnType<typeof prepareDiff>;
@@ -177,6 +179,7 @@ function prepare(
   return {
     item,
     title: title.split('\n'),
+    singleLine: tool && !expanded && !!item.singleLine,
     complete,
     tail: hasBody ? (linked?.tail ?? body).split('\n') : [],
     diff,
@@ -230,6 +233,19 @@ function wrap(
 ): Block {
   const { width } = viewport;
   const head = section(content.title, width, true, 0);
+  if (content.singleLine && head.rows.length > 1) {
+    const first =
+      width > 1
+        ? wrapAnsi(content.title.join(' '), width - 1, {
+            hard: true,
+            trim: true,
+            wordWrap: false,
+          }).split('\n')[0]!
+        : '';
+    head.rows = [
+      { text: `${first}${colors.dim('…')}`, anchor: { line: 0, offset: 0 } },
+    ];
+  }
   const complete = section(content.complete, width, false, head.next);
   const end = ending(content, width, complete.next, graphics);
   return block(
@@ -253,6 +269,8 @@ function extend(
     !tail ||
     item.kind !== before.kind ||
     item.title !== before.title ||
+    item.expandedTitle !== before.expandedTitle ||
+    item.singleLine !== before.singleLine ||
     item.done !== before.done ||
     item.cwd !== before.cwd ||
     item.diff !== before.diff ||

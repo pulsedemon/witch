@@ -12,6 +12,7 @@ import type { RpcMessage } from '../../src/agents/json-rpc.js';
 import { until } from './within.js';
 import { scratch } from './scratch.js';
 import type { ControlBinding } from '../../src/persistence/control.js';
+import type { CommandPrefixes } from '../../src/agents/tool-title.js';
 
 const codex = fileURLToPath(new URL('codex.mjs', import.meta.url));
 
@@ -24,6 +25,7 @@ export async function fixture(
     signal,
     mark,
     familiarBinding,
+    commandPrefixes,
   }: {
     effort?: string;
     resume?: string;
@@ -31,6 +33,7 @@ export async function fixture(
     signal?: AbortSignal;
     mark?: CommandMark;
     familiarBinding?: ControlBinding;
+    commandPrefixes?: CommandPrefixes;
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
@@ -52,6 +55,7 @@ export async function fixture(
     onProcess: async () => {},
     mark,
     familiarBinding,
+    commandPrefixes,
   });
   return { session, cwd };
 }
@@ -112,10 +116,14 @@ export const turnFrame = (
   method: status === 'inProgress' ? 'turn/started' : 'turn/completed',
   params: { threadId, turn: { id, status, error: null } },
 });
-export async function controlledFixture(mode = 'brews') {
+export async function controlledFixture(
+  mode = 'brews',
+  commandPrefixes?: CommandPrefixes,
+) {
   const events: AgentEvent[] = [];
   const context = await fixture((event) => events.push(event), {
     mode,
+    commandPrefixes,
   });
   const { session, cwd } = context;
   let sequence = 0;

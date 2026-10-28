@@ -2,10 +2,76 @@ import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import { Lexer } from 'marked';
 import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import type { FileDiff } from '../src/agents/types.js';
 import type { DisplayItem, DisplayUpdate } from '../src/core/state.js';
 import { applyDisplayUpdate, foldDisplayUpdates } from '../src/core/state.js';
+
+test('single-line tool titles fit the viewport while expansion retains the full command across resizes', () => {
+  const title = `claim task:${'界review '.repeat(30)}`;
+  const command = `'node' 'witch' --claim '${title.slice(6)}' --summary 'original command end'`;
+  const item: DisplayItem = {
+    id: 'control',
+    kind: 'tool',
+    title,
+    expandedTitle: command,
+    singleLine: true,
+    text: 'CONTROL-OUTPUT',
+    cwd: '/work',
+    done: true,
+  };
+  const layout = new TranscriptLayout();
+  for (const width of [83, 42, 120, 83]) {
+    const collapsed = layout.render([item], width, new Map());
+    const rows = collapsed.lines.slice().map(stripAnsi).filter(Boolean);
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0]!.startsWith('+ ✓ claim task:界review '));
+    assert.ok(rows[0]!.endsWith('…'));
+    assert.ok(stringWidth(rows[0]!) <= width);
+    const anchor = collapsed.anchorAt(0)!;
+    assert.equal(collapsed.rowOf(anchor), 0);
+    const expanded = layout.render([item], width, new Map([['control', true]]));
+    const text = stripAnsi(expanded.lines.slice().join('\n'));
+    assert.ok(text.includes("'node' 'witch' --claim"));
+    assert.match(text, /'original\s+command\s+end'/);
+    assert.ok(text.includes('CONTROL-OUTPUT'));
+    assert.ok(!text.includes('…'));
+    assert.equal(item.expandedTitle, command);
+  }
+  const ordinary = { ...item, singleLine: undefined };
+  assert.ok(layout.render([ordinary], 83, new Map()).lines.length > 2);
+});
+
+test('an expanded title change invalidates an appended tool output cache', () => {
+  let items = applyDisplayUpdate([], {
+    id: 't',
+    kind: 'tool',
+    title: 'peers',
+    expandedTitle: 'first original command',
+    singleLine: true,
+    text: 'first output\n',
+    cwd: '/work',
+    done: false,
+  });
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['t', true]]);
+  layout.render(items, 83, expanded);
+  items = applyDisplayUpdate(items, {
+    id: 't',
+    kind: 'tool',
+    title: '',
+    expandedTitle: 'second original command',
+    text: 'second output',
+    cwd: '/work',
+    done: false,
+  });
+  const rows = layout.render(items, 83, expanded).lines.slice().map(stripAnsi);
+  assert.ok(rows.includes('− … second original command'));
+  assert.ok(!rows.some((row) => row.includes('first original command')));
+  assert.ok(rows.includes('first output'));
+  assert.ok(rows.includes('second output'));
+});
 
 test('full diff choices survive cached renders and resizes', () => {
   const item: DisplayItem = {
