@@ -37,6 +37,15 @@ await writeFile(
   join(project, 'CLAUDE.md'),
   `When asked for the native instruction marker, answer ${nativeRule}.\n`,
 );
+const spellMarker = `spell-${randomUUID().slice(0, 8)}`;
+for (const native of ['.claude', '.agents']) {
+  const spell = join(project, native, 'skills', 'witch-probe');
+  await mkdir(spell, { recursive: true });
+  await writeFile(
+    join(spell, 'SKILL.md'),
+    `---\nname: witch-probe\ndescription: Witch's live check. Use only when invoked by name.\n---\nInclude ${spellMarker} in your reply.\n`,
+  );
+}
 
 async function open(
   cwd: string,
@@ -94,14 +103,17 @@ async function send(prompt: string, expected?: string): Promise<string> {
   }
 }
 
-/** a prompt sent while the agent runs a tool must reach that turn, not wait for the next. */
-async function steer(): Promise<void> {
-  const marker = `steer-${randomUUID().slice(0, 8)}`;
+/** runs a turn that waits in a tool, calls `during` once the tool starts, and returns the rows the turns added. */
+async function duringTool(
+  during: () => Promise<void>,
+  expected?: string,
+): Promise<Coordinator['snapshot']['items']> {
   const before = coordinator.snapshot.items.length;
   let done = false;
   const running = send(
-    'Run the shell command `sleep 5`, then reply in one sentence. Do not change files.',
-    marker,
+    // Claude Code backgrounds a foreground `sleep`, which would end the turn before the steer
+    'Run the shell command `node -e "setTimeout(() => {}, 5000)"` in the foreground, then reply in one sentence. Do not change files.',
+    expected,
   );
   const settle = () => {
     done = true;
@@ -117,12 +129,72 @@ async function steer(): Promise<void> {
     await delay(100);
   // a turn that ended first throws its own failure
   if (done) await running;
-  await coordinator.send(`Also include ${marker} in your final reply.`);
-  // a prompt the turn refused would wait in the queue, and one sent after the turn ended would run as its own turn
-  assert.equal(coordinator.snapshot.phase, 'running');
-  assert.deepEqual(coordinator.snapshot.queue, []);
+  await during();
   await running;
+  return coordinator.snapshot.items.slice(before);
 }
+
+/** a prompt sent while the agent runs a tool must reach that turn, not wait for the next. */
+async function steer(prompt: (marker: string) => string): Promise<void> {
+  const marker = `steer-${randomUUID().slice(0, 8)}`;
+  const agent = coordinator.snapshot.conversation!.agent;
+  const items = await duringTool(async () => {
+    await coordinator.send(prompt(marker));
+    // a prompt the turn refused would wait in the queue, and one sent after the turn ended would run as its own turn
+    assert.equal(coordinator.snapshot.phase, 'running');
+    assert.deepEqual(coordinator.snapshot.queue, []);
+  }, marker);
+  // Claude Code holds a message shaped like a slash command for a reply of its own, which the turn would still wait for
+  const reply = items
+    .slice(items.findIndex(({ kind }) => kind === 'tool'))
+    .find(({ kind }) => kind === 'assistant');
+  const joined = !!reply?.text.includes(marker);
+  console.log(
+    `${agent}: ${JSON.stringify(prompt(''))} ${joined ? 'joined the running turn' : 'was answered in a later reply'}`,
+  );
+  if (agent === 'claude') assert.ok(joined, reply?.text);
+}
+
+/** a spell sent mid-turn runs natively: Claude runs it within the turn, and Codex as the next turn, without holding the prompt sent after it. */
+async function steerSpell(): Promise<void> {
+  const marker = `after-${randomUUID().slice(0, 8)}`;
+  const agent = coordinator.snapshot.conversation!.agent;
+  const waiting = agent === 'codex' ? ['/witch-probe'] : [];
+  const items = await duringTool(async () => {
+    await coordinator.send('/witch-probe');
+    assert.deepEqual(coordinator.snapshot.queue, waiting);
+    await coordinator.send(`Also include ${marker} in your final reply.`);
+    assert.deepEqual(coordinator.snapshot.queue, waiting);
+    console.log(
+      `${agent}: queue after a steered spell and a prompt: ${JSON.stringify(coordinator.snapshot.queue)}`,
+    );
+  }, marker);
+  const text = items
+    .filter(({ kind }) => kind === 'assistant')
+    .map((item) => item.text)
+    .join('\n');
+  assert.ok(text.includes(spellMarker), text);
+}
+
+/** a built-in sent mid-turn runs natively, and its output shows. */
+async function steerBuiltin(): Promise<void> {
+  const items = await duringTool(async () => {
+    await coordinator.send('/context');
+    assert.deepEqual(coordinator.snapshot.queue, []);
+  });
+  assert.ok(
+    items.some(
+      ({ kind, text }) =>
+        kind === 'assistant' && text.includes('Context Usage'),
+    ),
+    items.map((item) => item.text).join('\n'),
+  );
+}
+
+const steered = (marker: string) =>
+  `Also include ${marker} in your final reply.`;
+const pathFirst = (marker: string) =>
+  `/var/folders/witch-live/Screenshot 2026-10-26 at 2.52.19 PM.png also include ${marker} in your final reply.`;
 
 let coordinator = await open(project);
 console.log(`Live artifacts: ${root}`);
@@ -136,7 +208,9 @@ try {
     'What is the native instruction marker? Reply with only the marker. Do not change files.',
     nativeRule,
   );
-  await steer();
+  await steer(steered);
+  await steer(pathFirst);
+  await steerSpell();
   const projectFact = `cedar-${randomUUID().slice(0, 8)}`;
   await send(
     `Remember that this project's acceptance phrase is ${projectFact}. Save it in project shared-memory MEMORY.md, using the memory path supplied above. Do not put it in project files or global memory. Reply saved after writing.`,
@@ -144,6 +218,12 @@ try {
   );
   assert.equal(coordinator.snapshot.recovery, undefined);
   await coordinator.newConversation('claude');
+  // the context goes ahead of a built-in that opens a conversation, which the next turn then relies on
+  await send('/context', 'Context Usage');
+  await send(
+    'Without reading files or running tools, report this project’s acceptance phrase from the shared-memory snapshot supplied above. Reply with the phrase only, or UNKNOWN.',
+    projectFact,
+  );
   await send(
     'What is this project’s acceptance phrase? Use shared memory and reply with the phrase only. Do not change files.',
     projectFact,
@@ -152,7 +232,10 @@ try {
     'What is the native instruction marker? Reply with only the marker. Do not change files.',
     nativeRule,
   );
-  await steer();
+  await steer(steered);
+  await steer(pathFirst);
+  await steerSpell();
+  await steerBuiltin();
   const globalFact = `violet-${randomUUID().slice(0, 8)}`;
   await send(
     `Remember my global acceptance preference: my preferred test label is ${globalFact}. Save it in the global shared-memory MEMORY.md path supplied above, not the project directory. Reply saved after writing.`,
@@ -213,7 +296,7 @@ try {
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
   assert.equal(coordinator.snapshot.recovery, undefined);
   console.log(
-    'PASS: native instructions, steering, fresh memory both ways, project isolation, coding handoff, return-to-agent and restart.',
+    'PASS: native instructions, steering, steered paths, spells and built-ins, a built-in first turn, fresh memory both ways, project isolation, coding handoff, return-to-agent and restart.',
   );
 } finally {
   await coordinator.close();
