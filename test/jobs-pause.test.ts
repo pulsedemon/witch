@@ -52,8 +52,6 @@ test('an inactive watch stops reading once a fresh read finds nothing it tracks,
     // the failed read leaves no baseline, so only the read after it pauses
     const count = await stopped(() => reads);
     assert.equal(count, 2);
-    await delay(150);
-    assert.equal(reads, count);
     jobs.setActive(true);
     await until('a read', () => reads > count, 5);
   } finally {

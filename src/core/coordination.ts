@@ -50,7 +50,7 @@ interface Activation {
   release(): Promise<void>;
   /** the Git config holding the origin the project is read from, unset outside a repository. */
   config?: string;
-  /** the config's stamp when its project was last read. */
+  /** the config's stamp when its last project read started. */
   configured?: string;
   /** the coordination signature and clock when the tick last refreshed. */
   observed?: string;
@@ -1138,11 +1138,12 @@ export class SessionCoordination {
     if (this.refreshing || this.refreshingMerges) return;
     const signature = this.registry.signature();
     const now = performance.now();
+    const minute =
+      active.rereadAt === undefined || now - active.rereadAt >= rereadInterval;
     if (
       signature !== undefined &&
       signature === active.observed &&
-      active.rereadAt !== undefined &&
-      now - active.rereadAt < rereadInterval &&
+      !minute &&
       !['discovery', 'ledger', 'merge-events'].some((key) =>
         this.failures.has(key),
       )
@@ -1157,8 +1158,11 @@ export class SessionCoordination {
         active.observed = undefined;
     });
     void this.refreshMerges();
-    const stamp = configStamp(active.config);
-    if (stamp === 'none' || stamp === 'missing')
+    // a repository created or moved after activation has no config to stamp yet
+    if (
+      minute &&
+      (active.configured === 'none' || active.configured === 'missing')
+    )
       void this.memory.configPath(active.conversation.cwd).then(
         (config) => {
           if (this.active === active) active.config = config;

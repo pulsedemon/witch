@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
@@ -135,7 +136,7 @@ test('a peer whose process ends without removing its presence leaves at the next
   assert.deepEqual(peers(f.a.coordination), []);
 });
 
-test('a failed discovery retries on the next tick', async (t) => {
+test('a discovery that failed outside the tick retries on the next tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   const open = f.store.openConversations.bind(f.store);
   let failing = true;
@@ -152,8 +153,8 @@ test('a failed discovery retries on the next tick', async (t) => {
   t.onTestFinished(() => {
     vi.restoreAllMocks();
   });
-  await f.registry.publish(otherPresence(f.own));
-  await tick(f.a.coordination);
+  // a context query refreshes outside the tick, so only the failure brings the next tick's refresh
+  await f.a.coordination.context();
   assert.match(f.a.coordination.snapshot.error ?? '', /discovery failed/);
   await tick(f.a.coordination);
   assert.equal(f.a.coordination.snapshot.error, undefined);
@@ -252,6 +253,88 @@ test('an origin change moves the presence to the new project within a tick', asy
     'presence in the new project',
     async () =>
       (await f.registry.presences()).find(({ id }) => id === f.own.id)
+        ?.project === project,
+  );
+});
+
+test('project reads land in the order they started', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const cwd = join(f.root, 'A');
+  const scope = f.memory.scopePaths.bind(f.memory);
+  const old = await scope(cwd);
+  const first = Promise.withResolvers<void>();
+  let calls = 0;
+  vi.spyOn(f.memory, 'scopePaths').mockImplementation(
+    async (...args: Parameters<typeof scope>) => {
+      // the older read answers with what it saw before the origin changed
+      if (++calls === 1) {
+        await first.promise;
+        return old;
+      }
+      return scope(...args);
+    },
+  );
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  await git('-C', cwd, 'remote', 'set-url', 'origin', join(f.root, 'other'));
+  vi.advanceTimersByTime(2000);
+  const context = f.a.coordination.context();
+  // long enough for an unordered newer read to land before the older one
+  await delay(200);
+  first.resolve();
+  await context;
+  await settle(f.a.coordination);
+  assert.equal(f.a.coordination['active']!.project, (await scope(cwd)).project);
+});
+
+test('a project change refreshes the peers within its tick', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const c = await f.start('C');
+  const id = c.coordinator.snapshot.conversation!.id;
+  await until('peer idle presence', async () =>
+    (await f.registry.presences()).some(
+      (presence) => presence.id === id && presence.phase === 'idle',
+    ),
+  );
+  await tick(f.a.coordination);
+  await delay(150);
+  await tick(f.a.coordination);
+  assert.deepEqual(peers(f.a.coordination), []);
+  await git(
+    '-C',
+    join(f.root, 'A'),
+    'remote',
+    'set-url',
+    'origin',
+    join(f.root, 'other'),
+  );
+  await tick(f.a.coordination);
+  assert.deepEqual(peers(f.a.coordination), [id]);
+});
+
+test('a repository created after activation is followed at the minute reread', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
+  const f = await coordinationFixture(cleanup);
+  cleanup(() => {
+    vi.useRealTimers();
+  });
+  const cwd = join(f.root, 'D');
+  await mkdir(cwd);
+  const d = await f.start('D');
+  const id = d.coordinator.snapshot.conversation!.id;
+  await tick(d.coordination);
+  await git('-C', cwd, 'init', '--quiet');
+  await git('-C', cwd, 'remote', 'add', 'origin', join(f.root, 'origin'));
+  const { project } = await f.memory.scopePaths(cwd);
+  await tick(d.coordination, 60_000);
+  await until('config found', () => !!d.coordination['active']?.config);
+  await tick(d.coordination);
+  await until(
+    'presence in the origin project',
+    async () =>
+      (await f.registry.presences()).find((presence) => presence.id === id)
         ?.project === project,
   );
 });
