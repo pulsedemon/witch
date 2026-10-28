@@ -48,7 +48,7 @@ interface Activation {
   accepting: boolean;
   publishing: boolean;
   release(): Promise<void>;
-  /** the checkout's own Git config, unset outside a repository. an origin from global config or a local origin is not stamped. */
+  /** the repository's Git config, shared by its linked worktrees, unset outside a repository. a global `insteadOf` rewrite of the origin and a local origin's own config are not stamped. */
   config?: string;
   /** the config's stamp when the tick last queued a project read. */
   configured?: string;

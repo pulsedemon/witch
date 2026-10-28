@@ -59,6 +59,24 @@ test('an inactive watch stops reading once a fresh read finds nothing it tracks,
   }
 });
 
+test('an active watch keeps reading with nothing tracked', async () => {
+  let reads = 0;
+  const jobs = new JobWatch({
+    interval: 20,
+    settle: 0,
+    processes: async () => {
+      reads++;
+      return [];
+    },
+  });
+  try {
+    await delay(200);
+    assert.ok(reads >= 5, `${reads} reads`);
+  } finally {
+    jobs.close();
+  }
+});
+
 test('an inactive watch keeps reading for settle after activity or its last job ends', async () => {
   const reads: number[] = [];
   let rows: Row[] = [];

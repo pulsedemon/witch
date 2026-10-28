@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { SessionCoordination } from '../src/core/coordination.js';
 import type { SessionPresence } from '../src/core/coordination-state.js';
+import type { PullRequest } from '../src/core/repository.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import type { Ledger } from '../src/persistence/coordination.js';
 import { identifyProcess } from '../src/persistence/process.js';
@@ -112,6 +113,15 @@ const otherPresence = (own: SessionPresence): SessionPresence => ({
   activation: randomUUID(),
 });
 
+const merged: PullRequest = {
+  number: 17,
+  url: 'https://github.com/example/project/pull/17',
+  state: 'MERGED',
+  branch: 'feat/merge',
+  base: 'main',
+  commit: 'head-1',
+};
+
 test("an idle Witch's ticks probe nothing until its coordination files change or a minute passes", async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   const quiet = await countProbes(async () => {
@@ -130,6 +140,26 @@ test("an idle Witch's ticks probe nothing until its coordination files change or
     { ps: minute.ps, perl: minute.perl, git: minute.git },
     { ps: 0, perl: 1, git: 0 },
   );
+});
+
+test("another Witch's claim shows within a tick", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  await f.registry.claim(
+    { conversation: randomUUID(), project: f.own.project },
+    { reference: 'task:peer', summary: 'Peer work' },
+    f.a.coordination['process'],
+    Date.now() + 5000,
+    async () => {},
+  );
+  await tick(f.a.coordination);
+  assert.equal(f.a.coordination.snapshot.reservations.length, 1);
+});
+
+test('a merge another Witch records shows within a tick', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  await f.registry.recordMerge(f.own.project, merged, randomUUID(), [f.own.id]);
+  await tick(f.a.coordination);
+  assert.equal(f.a.coordination.mergeEvents(f.own.id).length, 1);
 });
 
 test('a peer whose process ends without removing its presence leaves at the next minute reread', async (t) => {
@@ -312,7 +342,9 @@ test('a standing project failure retries one project read at a time', async (t) 
   );
   await tick(f.a.coordination);
   assert.match(f.a.coordination.snapshot.error ?? '', /git failed/);
-  vi.advanceTimersByTime(8000);
+  vi.advanceTimersByTime(2000);
+  await until('a hung read', () => reads === 2);
+  vi.advanceTimersByTime(6000);
   held.resolve();
   await settle(f.a.coordination);
   assert.equal(reads, 2);

@@ -245,7 +245,7 @@ export class Memory {
     };
   }
 
-  /** the Git config holding the origin `scopePaths` reads for a directory, or undefined outside a repository. */
+  /** the Git config of the repository holding a directory, or undefined when Git exits 128, such as outside a repository. */
   async configPath(directory: string): Promise<string | undefined> {
     const result = await this.run(
       directory,

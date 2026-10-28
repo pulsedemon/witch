@@ -192,7 +192,7 @@ export class JobWatch {
         `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport ${mark}=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
       );
     }
-    // a failed read leaves the groups as they were, and the next tick reads again
+    // a failed read leaves the groups as they were, and the next tick reads again unless the watch is paused
     this.timer = setInterval(() => {
       if (!this.paused) void this.poll().catch(() => {});
     }, options.interval ?? 2000);

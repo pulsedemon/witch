@@ -309,6 +309,37 @@ watching(
   },
 );
 
+watching('a closed watch reads nothing more', async (t) => {
+  const work = await workTree();
+  await quiet();
+  // a pending read would block the next change's read, so each close is checked alone
+  for (const pending of [true, false]) {
+    const { run, status } = counting();
+    const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
+    t.onTestFinished(() => watch.close());
+    await widened(status);
+    if (pending) {
+      await writeFile(join(work, 'pending.txt'), 'p\n');
+      await until('a scheduled read', () => watch['scheduled'] !== undefined);
+    }
+    watch.close();
+    await writeFile(join(work, `after-${pending}.txt`), 'a\n');
+    await delay(300);
+    assert.equal(status.started, 2);
+  }
+});
+
+watching('a watch whose watcher fails polls', async (t) => {
+  const work = await workTree();
+  await quiet();
+  const { run, status } = counting();
+  const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
+  t.onTestFinished(() => watch.close());
+  await widened(status);
+  watch['watchers']![0]!.emit('error', new Error('watch failed'));
+  await until('reads with no change', () => status.finished >= 5);
+});
+
 watching(
   'a watch that cannot widen polls, since its top-level watch misses changes below it',
   async (t) => {

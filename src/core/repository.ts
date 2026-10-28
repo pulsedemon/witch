@@ -143,14 +143,15 @@ export type Run = (
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
 
-/** how often a watch retries a failed read, since a fix such as `git init` in a parent or a global config edit sends no event. */
+/** how often a watch retries a read Git failed with exit 128, since a fix such as `git init` in a parent or a global config edit sends no event. */
 const retry = 60_000;
 
 /**
  * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
  * seconds and whenever the branch changes. on macOS a change in the work tree or its Git dirs starts a read, at most
- * one per `interval`. elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
- * loses a file once it is replaced by rename. Each read shows until the next; a failed one leaves its field out.
+ * one per `interval`, and a read Git failed with exit 128 is retried each minute. elsewhere, or once a watch fails,
+ * status is read every `interval`, since Linux's recursive watch loses a file once it is replaced by rename. Each read
+ * shows until the next; a failed one leaves its field out.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
