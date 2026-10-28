@@ -6,6 +6,7 @@ import {
   appendFileSync,
   existsSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -35,6 +36,11 @@ const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const notify = (method, params) => send({ method, params });
 const file = (name) => join(process.cwd(), name);
+// whole, through a rename, since a test polling for a record would read one half written
+const record = (name, value) => {
+  writeFileSync(file(`${name}.next`), JSON.stringify(value));
+  renameSync(file(`${name}.next`), file(name));
+};
 const session = () => ({
   thread: { id: 'native-thread' },
   model,
@@ -113,7 +119,7 @@ const waitFor = async (name) => {
   }
 };
 const deferReply = (kind, index, request) => {
-  writeFileSync(file(`${kind}-${index}.json`), JSON.stringify(request));
+  record(`${kind}-${index}.json`, request);
   void (async () => {
     await waitFor(`${kind}-reply-${index}.json`);
     send({
@@ -146,13 +152,13 @@ for await (const line of lines) {
   const request = JSON.parse(line);
   if (mode === 'catalog') appendFileSync(file('wire.jsonl'), `${line}\n`);
   if (mode === 'file-approvals' && request.method === undefined) {
-    writeFileSync(file(`response-${request.id}.json`), JSON.stringify(request));
+    record(`response-${request.id}.json`, request);
     continue;
   }
 
   const reply = (result) => send({ id: request.id, result });
   if (request.method === 'thread/inject_items') {
-    writeFileSync(file('context.json'), JSON.stringify(request.params));
+    record('context.json', request.params);
     if (mode === 'context-error')
       send({
         id: request.id,
@@ -168,7 +174,7 @@ for await (const line of lines) {
     continue;
   }
   if (request.method === 'turn/start' && mode === 'context-start-error') {
-    writeFileSync(file('prompt.json'), JSON.stringify(request));
+    record('prompt.json', request);
     send({
       id: request.id,
       error: { code: -32603, message: 'Turn response lost' },
@@ -176,7 +182,7 @@ for await (const line of lines) {
     continue;
   }
   if (request.method === 'thread/compact/start') {
-    writeFileSync(file('compact.json'), JSON.stringify(request.params));
+    record('compact.json', request.params);
     reply({});
   }
   if (request.method === 'initialize') {
@@ -226,7 +232,7 @@ for await (const line of lines) {
     });
   }
   if (request.method === 'skills/list') {
-    writeFileSync(file('skills.json'), JSON.stringify(request));
+    record('skills.json', request);
     reply({
       data: [
         {
@@ -307,13 +313,13 @@ for await (const line of lines) {
     (request.method === 'thread/resume' &&
       request.params.threadId === 'native-thread')
   ) {
-    writeFileSync(file('connect.json'), JSON.stringify(request));
+    record('connect.json', request);
     model = request.params.model ?? model;
     reply(session());
   }
   if (request.method === 'thread/settings/update') {
     if (mode === 'identity') {
-      writeFileSync(file('settings.json'), JSON.stringify(request));
+      record('settings.json', request);
       reply({});
       continue;
     }
@@ -378,7 +384,7 @@ for await (const line of lines) {
   }
   if (request.method === 'thread/shellCommand') {
     const { command } = request.params;
-    writeFileSync(file('shell.json'), JSON.stringify(request));
+    record('shell.json', request);
     if (command === 'refuse') {
       send({
         id: request.id,
@@ -422,7 +428,7 @@ for await (const line of lines) {
   }
   if (request.method === 'turn/interrupt' && shellHeld) {
     shellHeld = false;
-    writeFileSync(file('interrupt.json'), JSON.stringify(request));
+    record('interrupt.json', request);
     reply({});
     shellItem('item/completed', 'hold', {
       status: 'failed',
@@ -435,11 +441,11 @@ for await (const line of lines) {
   if (request.method === 'turn/start') {
     const prompt = request.params.input[0].text;
     lastPrompt = prompt;
-    writeFileSync(file('prompt.json'), JSON.stringify(request));
+    record('prompt.json', request);
     if (familiar?.startsWith('question-')) {
       reply({ turn: { id: `turn-${++questionTurn}` } });
       if (questionTurn > 1) {
-        writeFileSync(file('question-answer.json'), JSON.stringify(request));
+        record('question-answer.json', request);
         finishQuestion();
       } else {
         notify('item/completed', {
@@ -468,7 +474,7 @@ for await (const line of lines) {
       const turn = { id: `turn-${++brewTurn}`, status: 'inProgress' };
       reply({ turn });
       notify('turn/started', { threadId: 'native-thread', turn });
-      writeFileSync(file(`turn-${brewTurn}.json`), JSON.stringify(request));
+      record(`turn-${brewTurn}.json`, request);
       continue;
     }
     reply({ turn: { id: 'turn-1' } });
@@ -1056,28 +1062,22 @@ for await (const line of lines) {
     finish('completed');
   }
   if ([88, 89, 91, 94].includes(request.id) && request.result) {
-    writeFileSync(
-      file(`response-${request.id}.json`),
-      JSON.stringify(request.result),
-    );
+    record(`response-${request.id}.json`, request.result);
     finish('completed');
   }
   if ([90, 92].includes(request.id) && request.error) {
-    writeFileSync(
-      file(`error-${request.id}.json`),
-      JSON.stringify(request.error),
-    );
+    record(`error-${request.id}.json`, request.error);
     finish('completed');
   }
   // Codex refuses a turn that has ended, which a prompt of `refused` stands in for
   if (request.method === 'turn/steer') {
     if (familiar === 'question-during') {
-      writeFileSync(file('question-answer.json'), JSON.stringify(request));
+      record('question-answer.json', request);
       reply({ turnId: request.params.expectedTurnId });
       finishQuestion();
       continue;
     }
-    writeFileSync(file('steer.json'), JSON.stringify(request));
+    record('steer.json', request);
     if (request.params.input[0].text !== 'refused')
       reply({ turnId: request.params.expectedTurnId });
     else
@@ -1093,7 +1093,7 @@ for await (const line of lines) {
       continue;
     }
     if (mode === 'brews') {
-      writeFileSync(file('interrupt.json'), JSON.stringify(request));
+      record('interrupt.json', request);
       void (async () => {
         while (
           !existsSync(file('allow-interrupt')) &&
