@@ -73,9 +73,9 @@ watching(
   async (t) => {
     const work = await workTree();
     await quiet();
-    const starts: number[] = [];
+    const finishes: number[] = [];
     const { run, status } = counting(() => {
-      starts.push(performance.now());
+      finishes.push(performance.now());
       return undefined;
     });
     const watch = new RepositoryWatch(work, run, undefined, { interval: 400 });
@@ -89,7 +89,7 @@ watching(
     await until('every burst file', () => watch.snapshot?.untracked === 30);
     // a read is counted as it finishes, a few milliseconds after it starts
     // reads start at least 400 ms apart, so no more than two finish in any 450 ms
-    const early = starts.filter((at) => at > first && at < first + 450);
+    const early = finishes.filter((at) => at > first && at < first + 450);
     assert.ok(early.length <= 2, `${early.length} reads in 450 ms`);
   },
 );
@@ -202,6 +202,46 @@ watching('a plain directory that becomes a repository gains Git', async (t) => {
 });
 
 watching(
+  'a directory whose parent becomes a repository gains Git at the minute retry',
+  async (t) => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'performance'],
+    });
+    t.onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const parent = await scratch('witch-repository-parent-');
+    const directory = join(parent, 'sub');
+    await mkdir(directory);
+    await quiet();
+    let failures = 0;
+    const watch = new RepositoryWatch(
+      directory,
+      async (command, args, options) => {
+        if (command === 'gh') throw new Error('no pull requests found');
+        try {
+          return await execute(command, args, options);
+        } catch (error) {
+          failures++;
+          throw error;
+        }
+      },
+      undefined,
+      { interval: 50 },
+    );
+    t.onTestFinished(() => watch.close());
+    await until('failed first read', () => failures === 1);
+    // the watch sees nothing above its directory
+    await git(parent, 'init', '--quiet', '-b', 'main');
+    vi.advanceTimersByTime(59_000);
+    await delay(100);
+    assert.equal(watch.snapshot, undefined);
+    vi.advanceTimersByTime(1000);
+    await until('Git after the retry', () => watch.snapshot?.branch === 'main');
+  },
+);
+
+watching(
   'a watch opened in a subdirectory reads changes elsewhere in the work tree',
   async (t) => {
     const work = await workTree();
@@ -225,7 +265,7 @@ watching(
 );
 
 watching(
-  'a failed read is retried without a change, but a plain directory is not',
+  'a failed read is retried without a change, but a plain directory waits for the minute retry',
   async (t) => {
     const directory = await scratch('witch-repository-retry-');
     await mkdir(join(directory, '.git'));
@@ -274,19 +314,25 @@ watching(
   async (t) => {
     const directory = await scratch('witch-repository-widen-');
     await quiet();
-    let statuses = 0;
-    const watch = new RepositoryWatch(
-      directory,
-      async (command, args) => {
-        if (command === 'gh') throw new Error('no pull requests found');
-        if (args.includes('rev-parse')) throw new Error('rev-parse failed');
-        statuses++;
-        return { stdout: '# branch.head main\n' };
-      },
-      undefined,
-      { interval: 50 },
-    );
-    t.onTestFinished(() => watch.close());
-    await until('reads with no change', () => statuses >= 4);
+    // Git fails to answer, or answers a root that cannot be watched
+    for (const root of [undefined, join(directory, 'gone')]) {
+      let statuses = 0;
+      const watch = new RepositoryWatch(
+        directory,
+        async (command, args) => {
+          if (command === 'gh') throw new Error('no pull requests found');
+          if (args.includes('rev-parse')) {
+            if (!root) throw new Error('rev-parse failed');
+            return { stdout: `${root}\n` };
+          }
+          statuses++;
+          return { stdout: '# branch.head main\n' };
+        },
+        undefined,
+        { interval: 50 },
+      );
+      t.onTestFinished(() => watch.close());
+      await until('reads with no change', () => statuses >= 4);
+    }
   },
 );

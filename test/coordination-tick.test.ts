@@ -36,6 +36,23 @@ async function tick(coordination: SessionCoordination, milliseconds = 2000) {
   await settle(coordination);
 }
 
+/** waits for `id`'s idle presence, then ticks past it and the presence write that follows. */
+async function quiesce(
+  fixture: Awaited<ReturnType<typeof coordinationFixture>>,
+  id: string,
+  coordination: SessionCoordination,
+) {
+  await until('idle presence', async () =>
+    (await fixture.registry.presences()).some(
+      (presence) => presence.id === id && presence.phase === 'idle',
+    ),
+  );
+  await tick(coordination);
+  // the presence write after a project read is debounced by 100 ms
+  await delay(150);
+  await tick(coordination);
+}
+
 /** one Witch whose first ticks and presence writes are spent. */
 async function idle(register: RegisterCleanup) {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
@@ -45,15 +62,7 @@ async function idle(register: RegisterCleanup) {
   });
   const a = await fixture.start('A');
   const id = a.coordinator.snapshot.conversation!.id;
-  await until('own idle presence', async () =>
-    (await fixture.registry.presences()).some(
-      (presence) => presence.id === id && presence.phase === 'idle',
-    ),
-  );
-  await tick(a.coordination);
-  // the presence write after a project read is debounced by 100 ms
-  await delay(150);
-  await tick(a.coordination);
+  await quiesce(fixture, id, a.coordination);
   const own = (await fixture.registry.presences()).find(
     (presence) => presence.id === id,
   )!;
@@ -242,6 +251,73 @@ test('a refresh that publishes nothing is retried on the next unchanged tick', a
   assert.deepEqual(peers(coordination), [peer.id]);
 });
 
+test('a tick while a refresh runs leaves what that refresh missed to the next tick', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await idle(cleanup);
+  const first = await livePeer(cleanup, f);
+  const presences = CoordinationStore.prototype.presences;
+  const held = Promise.withResolvers<void>(),
+    reading = Promise.withResolvers<void>();
+  let holding = true;
+  vi.spyOn(CoordinationStore.prototype, 'presences').mockImplementation(
+    async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof presences>
+    ) {
+      const result = await presences.apply(this, args);
+      if (holding) {
+        holding = false;
+        reading.resolve();
+        await held.promise;
+      }
+      return result;
+    },
+  );
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  vi.advanceTimersByTime(2000);
+  await reading.promise;
+  const second = await livePeer(cleanup, f);
+  vi.advanceTimersByTime(2000);
+  held.resolve();
+  await settle(f.a.coordination);
+  assert.deepEqual(peers(f.a.coordination), [first.id]);
+  await tick(f.a.coordination);
+  assert.deepEqual(
+    peers(f.a.coordination).toSorted(),
+    [first.id, second.id].toSorted(),
+  );
+});
+
+test('a standing project failure retries one project read at a time', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const held = Promise.withResolvers<void>();
+  let reads = 0;
+  vi.spyOn(f.memory, 'scopePaths').mockImplementation(async () => {
+    // the first read fails at once, and the later ones hang as a stuck Git would
+    if (++reads > 1) await held.promise;
+    throw new Error('git failed');
+  });
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  await git(
+    '-C',
+    join(f.root, 'A'),
+    'remote',
+    'set-url',
+    'origin',
+    join(f.root, 'other'),
+  );
+  await tick(f.a.coordination);
+  assert.match(f.a.coordination.snapshot.error ?? '', /git failed/);
+  vi.advanceTimersByTime(8000);
+  held.resolve();
+  await settle(f.a.coordination);
+  assert.equal(reads, 2);
+});
+
 test('an origin change moves the presence to the new project within a tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   const cwd = join(f.root, 'A');
@@ -292,14 +368,7 @@ test('a project change refreshes the peers within its tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   const c = await f.start('C');
   const id = c.coordinator.snapshot.conversation!.id;
-  await until('peer idle presence', async () =>
-    (await f.registry.presences()).some(
-      (presence) => presence.id === id && presence.phase === 'idle',
-    ),
-  );
-  await tick(f.a.coordination);
-  await delay(150);
-  await tick(f.a.coordination);
+  await quiesce(f, id, f.a.coordination);
   assert.deepEqual(peers(f.a.coordination), []);
   await git(
     '-C',
@@ -324,7 +393,8 @@ test('a repository created after activation is followed at the minute reread', a
   await mkdir(cwd);
   const d = await f.start('D');
   const id = d.coordinator.snapshot.conversation!.id;
-  await tick(d.coordination);
+  // a presence write landing inside the minute's ticks would start a refresh that skips the minute
+  await quiesce(f, id, d.coordination);
   await git('-C', cwd, 'init', '--quiet');
   await git('-C', cwd, 'remote', 'add', 'origin', join(f.root, 'origin'));
   const { project } = await f.memory.scopePaths(cwd);

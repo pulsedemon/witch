@@ -48,12 +48,15 @@ interface Activation {
   accepting: boolean;
   publishing: boolean;
   release(): Promise<void>;
-  /** the Git config holding the origin the project is read from, unset outside a repository. */
+  /** the checkout's own Git config, unset outside a repository. an origin from global config or a local origin is not stamped. */
   config?: string;
-  /** the config's stamp when its last project read started. */
+  /** the config's stamp when the tick last queued a project read. */
   configured?: string;
-  /** the coordination signature and clock when the tick last refreshed. */
+  /** that read is queued or running. */
+  rescoping?: boolean;
+  /** the coordination signature when the tick last refreshed. */
   observed?: string;
+  /** when the tick last refreshed, from `performance.now()`. */
   rereadAt?: number;
 }
 
@@ -1127,10 +1130,17 @@ export class SessionCoordination {
   }
 
   private rescope(active: Activation): void {
+    // a hung Git would otherwise queue a read for every tick while a project failure stands
+    if (active.rescoping) return;
     const stamp = configStamp(active.config);
     if (stamp === active.configured && !this.failures.has('project')) return;
     active.configured = stamp;
-    void this.refreshProject(active).catch(() => {});
+    active.rescoping = true;
+    void this.refreshProject(active)
+      .catch(() => {})
+      .finally(() => {
+        active.rescoping = false;
+      });
   }
 
   /** a refresh started while another runs would join it and miss what changed since it read, so the next tick decides. */

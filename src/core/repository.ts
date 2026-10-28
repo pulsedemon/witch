@@ -143,6 +143,9 @@ export type Run = (
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
 
+/** how often a watch retries a failed read, since a fix such as `git init` in a parent or a global config edit sends no event. */
+const retry = 60_000;
+
 /**
  * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
  * seconds and whenever the branch changes. on macOS a change in the work tree or its Git dirs starts a read, at most
@@ -215,7 +218,10 @@ export class RepositoryWatch {
   }
 
   private tick(): void {
-    if (!this.watchers) {
+    if (
+      !this.watchers ||
+      (!this.snapshot && performance.now() - this.startedAt >= retry)
+    ) {
       void this.refresh();
       return;
     }
@@ -320,7 +326,7 @@ export class RepositoryWatch {
     this.publish(repository);
     if (this.watchers) {
       if (repository && !this.located) void this.locate();
-      // Git exits 128 outside a repository, which only a change can end; a timeout or a failed spawn may pass
+      // exit 128 is any Git fatal error, such as outside a repository, and waits for tick's minute retry; a timeout or a failed spawn may pass sooner
       if (
         this.stale ||
         (failure !== undefined && (failure as { code?: unknown }).code !== 128)
