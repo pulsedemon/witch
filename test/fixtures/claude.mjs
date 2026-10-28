@@ -236,7 +236,7 @@ for await (const line of lines) {
         continue;
       }
       response = {
-        // a built-in, a user command its name shadows, and a skill
+        // a built-in, a user command its name shadows, a built-in Witch sends as text, and a skill
         commands: [
           {
             name: 'compact',
@@ -245,6 +245,12 @@ for await (const line of lines) {
             builtin: true,
           },
           { name: 'compact', description: 'Shadowed', argumentHint: '' },
+          {
+            name: 'effort',
+            description: 'Set the effort level',
+            argumentHint: '[low|high]',
+            builtin: true,
+          },
           {
             name: 'review',
             description: 'Review changes',

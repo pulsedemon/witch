@@ -295,6 +295,36 @@ test('each steered prompt needs its own main-session consumption evidence', asyn
   }
 });
 
+test('a steered prompt that starts with / goes client_composed, and a steered command goes as typed', async () => {
+  const f = await background();
+  try {
+    await f.steer('  /var/folders/xx/a.png\nwhat is this');
+    await f.steer('/clear');
+    assert.equal(
+      await f.session.steer('/review now', {
+        skill: { name: 'review', args: 'now' },
+      }),
+      true,
+    );
+    await f.steer('plain');
+    assert.deepEqual(
+      (await f.inputs()).map((input) => [
+        input.message.content,
+        input.client_composed,
+      ]),
+      [
+        ['initial', undefined],
+        ['  /var/folders/xx/a.png\nwhat is this', true],
+        ['/clear', true],
+        ['/review now', undefined],
+        ['plain', undefined],
+      ],
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
 for (const singular of [false, true]) {
   test(`a correlated result accounts for input without a started event (${singular ? 'single UUID' : 'UUID list'})`, async () => {
     const f = await background();

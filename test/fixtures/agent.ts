@@ -52,6 +52,8 @@ export class FixtureAgent implements AgentAdapter {
   }[] = [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
+  /** the calls of the spells and native commands sessions took as steers. */
+  readonly skillSteers: SkillCall[] = [];
   /** the `!` commands sessions ran. */
   readonly shells: string[] = [];
   readonly compactions: string[] = [];
@@ -61,6 +63,8 @@ export class FixtureAgent implements AgentAdapter {
   unreadOnInterrupt = false;
   /** the turn in flight refuses steered prompts, as Codex refuses one for a turn that has just ended. */
   refuseSteer = false;
+  /** the turn in flight refuses a steered spell or native command, as Codex does. */
+  refuseSkillSteer = false;
   /** the turn in flight has replied and a familiar holds it open, as Claude's does. */
   replied = false;
   /** what each session's `skills()` returns. */
@@ -219,9 +223,16 @@ export class FixtureAgent implements AgentAdapter {
         }
         return { status: 'completed', text: '' };
       },
-      steer: async (prompt, { command } = {}) => {
-        if (!turn || closed || this.refuseSteer) return false;
+      steer: async (prompt, { command, skill } = {}) => {
+        if (
+          !turn ||
+          closed ||
+          this.refuseSteer ||
+          (skill && this.refuseSkillSteer)
+        )
+          return false;
         this.steers.push(prompt);
+        if (skill) this.skillSteers.push(skill);
         // a command's reply never comes back unread, as Claude's doesn't
         if (command === undefined) steered.push(prompt);
         else {

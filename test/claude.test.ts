@@ -47,11 +47,16 @@ test('refresh consumes a fresh native catalog without replacing the default syst
   }
 });
 
-test('skills leave out built-ins and the rows they shadow, before and after a native change', async () => {
+test('skills list a built-in once with its own row in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
   try {
     assert.deepEqual(await session.skills(), [
+      {
+        name: 'compact',
+        description: 'Compact the conversation',
+        builtin: true,
+      },
       {
         name: 'review',
         description: 'Review changes',
@@ -373,6 +378,34 @@ test('a prompt steered into a turn reaches Claude Code, and none is taken with n
   }
 });
 
+test('without message lifecycle a command steer is refused until the turn has replied', async () => {
+  const { seen, onEvent } = working();
+  const { session, cwd } = await fixture(onEvent);
+  const steered = join(cwd, 'steered.jsonl');
+  const skill = { name: 'review', args: 'now' };
+  try {
+    const first = session.send('steerable');
+    await within(seen, 2000, 'first output');
+    assert.equal(await session.steer('/review now', { skill }), false);
+    assert.equal(await session.steer('plain'), true);
+    assert.equal(await session.steer('wrap up'), true);
+    assert.equal((await within(first, 2000, 'turn')).status, 'completed');
+    assert.deepEqual(await jsonLines(steered), ['plain', 'wrap up']);
+    const second = session.send('reporting familiar');
+    await until('the reply', () => session.replied);
+    assert.equal(await session.steer('/review now', { skill }), true);
+    await until(
+      'the steered command',
+      async () => (await jsonLines(steered)).at(-1) === '/review now',
+    );
+    for (const file of ['allow-report', 'allow-idle'])
+      await writeFile(join(cwd, file), 'yes');
+    assert.equal((await within(second, 2000, 'turn')).status, 'completed');
+  } finally {
+    await session.close();
+  }
+});
+
 test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
   const texts: string[] = [];
   const skills: string[] = [];
@@ -528,6 +561,24 @@ test('a dispatch failure reports its transport cause', async () => {
       status: 'failed',
       text: '',
       error: 'Cannot write to terminated process',
+      inputUnsent: true,
+    });
+  } finally {
+    await session.close();
+  }
+});
+
+test('prompts steered behind input a dead CLI never wrote come back unread', async () => {
+  const { session, child } = await fixture();
+  try {
+    assert.equal(child.kill('SIGTERM'), true);
+    const turn = session.send('hello');
+    assert.equal(await session.steer('follow'), true);
+    assert.deepEqual(await within(turn, 3000, 'dispatch'), {
+      status: 'failed',
+      text: '',
+      error: 'Cannot write to terminated process',
+      unread: ['follow'],
       inputUnsent: true,
     });
   } finally {

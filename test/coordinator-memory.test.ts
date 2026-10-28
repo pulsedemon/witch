@@ -236,6 +236,7 @@ for (const decision of ['accept', 'discard'] as const) {
     try {
       a.gate = gate;
       a.failNext = true;
+      a.refuseSteer = true;
       const sending = coordinator.send('remember-port');
       await within(gate.entered, 3000, 'the gated turn');
       await coordinator.send('/review');
