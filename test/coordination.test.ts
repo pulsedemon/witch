@@ -174,10 +174,19 @@ for (const assignmentFails of [false, true]) {
   test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     let pending: Promise<void> | undefined;
-    const { start, registry } = await coordinationFixture(cleanup, async () => {
-      pending = owner.coordination.endTurn().catch(() => {});
-      if (assignmentFails) throw new Error('Injected assignment failure');
-    });
+    const { start, registry } = await coordinationFixture(
+      cleanup,
+      async (references) => {
+        pending = owner.coordination.endTurn().catch(() => {});
+        return assignmentFails
+          ? { assigned: [], failure: 'Injected assignment failure' }
+          : {
+              assigned: references.filter((reference) =>
+                reference.startsWith('github:'),
+              ),
+            };
+      },
+    );
     const owner = await start(),
       contender = await start('B');
     const turn = await selectionTurn(cleanup, owner);
@@ -222,6 +231,7 @@ test('pre-claim cleanup failure still refuses new ownership', async (t) => {
   let assignments = 0;
   const { start, registry } = await coordinationFixture(cleanup, async () => {
     assignments++;
+    return { assigned: [] };
   });
   const owner = await start();
   const turn = await selectionTurn(cleanup, owner);

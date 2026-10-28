@@ -32,6 +32,7 @@ export const taskClaimSchema = z.object({
   id: z.string().uuid(),
   owner: claimOwnerSchema,
   references: z.array(z.string()).min(1),
+  assigned: z.array(z.string()).optional(),
   summary: z.string(),
   createdAt: z.number(),
   process: processIdentity.optional(),

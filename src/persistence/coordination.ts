@@ -315,6 +315,22 @@ export class CoordinationStore {
     });
   }
 
+  async recordAssignment(
+    id: string,
+    references: string[],
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<TaskClaim | undefined> {
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) => claim.id === id);
+      if (claim)
+        claim.assigned = [
+          ...new Set([...(claim.assigned ?? []), ...references]),
+        ];
+      return claim;
+    });
+  }
+
   async release(
     owner: ClaimOwner,
     id: string,

@@ -84,7 +84,9 @@ export function legacyLock(store: StateStore, id: string): Promise<FileHandle> {
 
 export async function coordinationFixture(
   register: RegisterCleanup,
-  assign: Parameters<typeof SessionCoordination.open>[4] = async () => {},
+  assign: Parameters<typeof SessionCoordination.open>[4] = async () => ({
+    assigned: [],
+  }),
 ) {
   const root = await scratch('witch-coordination-');
   await git('init', '--bare', join(root, 'origin'));

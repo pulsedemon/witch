@@ -55,9 +55,14 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
   pauseDiscovery(vi.spyOn);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const f = await coordinationFixture(cleanup, async () => {
+  const f = await coordinationFixture(cleanup, async (references) => {
     entered.resolve();
     await release.promise;
+    return {
+      assigned: references.filter((reference) =>
+        reference.startsWith('github:'),
+      ),
+    };
   });
   const client = await f.start();
   client.a.sessions[0]!.session.familiar = {
