@@ -591,6 +591,25 @@ test('a prompt steered into a turn goes to Codex for that turn, and one Codex re
   }
 });
 
+test('a steered spell is refused and Codex gets no turn/steer', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    const turn = session.send('hold');
+    await appears(join(cwd, 'prompt.json'));
+    assert.equal(
+      await session.steer('/review', { skill: { name: 'review', args: '' } }),
+      false,
+    );
+    await assert.rejects(access(join(cwd, 'steer.json')));
+    assert.equal(await session.steer('plain'), true);
+    await writeFile(join(cwd, 'release'), 'yes');
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.equal((await turn).status, 'interrupted');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('interrupt waits for the native turn to complete', async () => {
   const { session, cwd } = await fixture();
   try {

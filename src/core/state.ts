@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { SessionInfo } from '../agents/types.js';
+import type { AgentEvent, SessionInfo } from '../agents/types.js';
 
 const session = z.object({
   id: z.string(),
@@ -192,6 +192,39 @@ function merge(
     );
   }
   return item;
+}
+
+/** the row an agent's text or tool event updates. */
+export function agentDisplay(
+  event: Extract<AgentEvent, { type: 'text' | 'tool' }>,
+  id: string,
+  agent: string,
+  cwd: string,
+): DisplayUpdate {
+  return event.type === 'text'
+    ? {
+        id,
+        kind: 'assistant',
+        title: agent,
+        text: event.text,
+        replace: event.replace,
+        cwd,
+      }
+    : {
+        id,
+        kind: 'tool',
+        title: event.title,
+        ...(event.path ? { path: event.path } : {}),
+        ...(event.expandedTitle ? { expandedTitle: event.expandedTitle } : {}),
+        text: event.text,
+        replace: !event.append,
+        done: event.done,
+        cwd: event.cwd ?? cwd,
+        ...(event.images ? { images: event.images } : {}),
+        ...(event.diff ? { diff: event.diff } : {}),
+        // an append leaves it out, and keeps the one its row has
+        ...(event.shell ? { shell: true } : {}),
+      };
 }
 
 export function applyDisplayUpdate(

@@ -9,14 +9,16 @@ export interface Model {
   efforts: string[];
 }
 
-/** a native skill the composer offers after `/`, run by sending `/name args`. */
+/** a native skill or command run by sending `/name args`; the composer offers it after `/` unless it is `builtin`. */
 export interface Skill {
   name: string;
   description: string;
   argumentHint?: string;
+  /** Claude Code's own command, which `/name args` runs natively but the composer doesn't offer. */
+  builtin?: true;
 }
 
-/** a `/name args` prompt the coordinator matched to a listed skill. */
+/** a `/name args` prompt the coordinator matched to a listed skill or native command. */
 export interface SkillCall {
   name: string;
   args: string;
@@ -199,10 +201,7 @@ export interface AgentSession {
   readonly info: SessionInfo;
   readonly usage: Usage;
   readonly closed: boolean;
-  /**
-   * the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then runs a
-   * steered spell, sent as `/name args`, as a turn of its own, and takes a command or a model change.
-   */
+  /** the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then takes a command or a model change. */
   readonly replied: boolean;
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
@@ -228,9 +227,14 @@ export interface AgentSession {
    * false while a shell command runs. it never refuses while `replied`, and
    * `command` is passed only then: the command runs first, as `shell` runs
    * one, and holds the turn open, and once it completes the prompt goes as
-   * its reply.
+   * its reply. with `skill`, the prompt is that command, run natively: Claude
+   * runs it once the current native turn ends, within this turn, and Codex,
+   * which expands a skill only at a turn's start, refuses it.
    */
-  steer(prompt: string, options?: { command?: string }): Promise<boolean>;
+  steer(
+    prompt: string,
+    options?: { command?: string; skill?: SkillCall },
+  ): Promise<boolean>;
   /**
    * an omitted effort keeps the one in force; `null` resets it where the native agent can. refused during a turn
    * unless it has `replied`.

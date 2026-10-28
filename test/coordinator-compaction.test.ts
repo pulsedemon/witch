@@ -353,12 +353,13 @@ for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
       }
       await sending;
       if (outcome === 'completed') {
+        assert.deepEqual(f.a.steers, ['later']);
         assert.deepEqual(
           f.a.inputs.slice(1).map((i) => i.prompt),
-          ['original', 'later'],
+          ['original'],
         );
         assert.deepEqual(f.coordinator.snapshot.queue, []);
-        assert.equal(f.a.compactions.length, 2);
+        assert.equal(f.a.compactions.length, 1);
       } else {
         assert.equal(f.a.inputs.length, 1);
         assert.deepEqual(f.coordinator.snapshot.queue, ['original', 'later']);

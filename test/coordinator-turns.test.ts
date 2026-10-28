@@ -548,28 +548,35 @@ test('a failure after the agent has the prompt still counts as delivered', async
   }
 });
 
-test('a prompt sent during a turn joins it and shows at once, and a spell and the prompts behind it wait, the spell for a turn alone and the rest for one turn, a line each', async () => {
+test('a spell, a native command and prompts sent during a turn join it in order and show at once, the spell and command with their calls', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
-    a.skills = [{ name: 'review', description: 'Review changes' }];
+    a.skills = [
+      { name: 'review', description: 'Review changes' },
+      { name: 'context', description: 'Context', builtin: true },
+    ];
   });
   const gate = new TurnGate();
+  const prompts = ['/review now', '/context', 'One', 'Two'];
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
-    for (const prompt of ['Also this', '/review now', 'One', 'Two'])
-      await coordinator.send(prompt);
-    assert.deepEqual(a.steers, ['Also this']);
-    assert.equal(coordinator.snapshot.items.at(-1)!.text, 'Also this');
-    assert.deepEqual(coordinator.snapshot.queue, ['/review now', 'One', 'Two']);
-    gate.open();
-    await within(sending, 2000, 'the queued turns');
-    assert.deepEqual(turns(a), [
-      ['Start', undefined],
-      ['/review now', { name: 'review', args: 'now' }],
-      ['One\nTwo', undefined],
+    for (const prompt of prompts) await coordinator.send(prompt);
+    assert.deepEqual(a.steers, prompts);
+    assert.deepEqual(a.skillSteers, [
+      { name: 'review', args: 'now' },
+      { name: 'context', args: '' },
     ]);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter(({ kind }) => kind === 'user')
+        .map(({ text }) => text),
+      ['Start', ...prompts],
+    );
     assert.deepEqual(coordinator.snapshot.queue, []);
+    gate.open();
+    await within(sending, 2000, 'the turn');
+    assert.deepEqual(turns(a), [['Start', undefined]]);
   } finally {
     gate.open();
     await coordinator.close();
@@ -585,6 +592,7 @@ test('a queued prompt taken back never runs', async () => {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
+    a.refuseSteer = true;
     await coordinator.send('/review now');
     assert.deepEqual(coordinator.unqueue(), ['/review now']);
     assert.deepEqual(coordinator.snapshot.queue, []);
@@ -598,22 +606,25 @@ test('a queued prompt taken back never runs', async () => {
 });
 
 test('steered prompts an interrupt leaves unread go as the next turn, ahead of what was queued', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'review', description: 'Review changes' }];
+  });
   const gate = new TurnGate();
   try {
     a.gate = gate;
     a.unreadOnInterrupt = true;
+    a.refuseSkillSteer = true;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
     await coordinator.send('Also this');
-    await coordinator.send('/clear');
+    await coordinator.send('/review');
     await coordinator.interrupt();
     gate.open();
     await within(sending, 2000, 'the next turns');
     assert.equal((await gate.result).status, 'interrupted');
     assert.deepEqual(
       a.inputs.map(({ prompt }) => prompt),
-      ['Start', 'Also this', '/clear'],
+      ['Start', 'Also this', '/review'],
     );
   } finally {
     gate.open();
@@ -639,7 +650,6 @@ for (const [name, prompt, prepare] of [
       a.failInterrupt = false;
     },
   ],
-  ['an unlisted slash command', '  /clear', async () => {}],
 ] as const)
   test(`${name} waits in the queue, unseen until it goes as the next turn`, async () => {
     const { coordinator, a } = await fixture();
@@ -667,7 +677,7 @@ for (const [name, prompt, prepare] of [
     }
   });
 
-test('prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
+test('with steers refused, prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
@@ -694,7 +704,9 @@ test('prompts queued ahead of a spell go as one turn, then the spell alone, then
 });
 
 test('a report after a queued turn stays on screen, and the prompts after it wait', async () => {
-  const { coordinator, a, hook } = await fixture();
+  const { coordinator, a, hook } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'review', description: 'Review changes' }];
+  });
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -707,12 +719,12 @@ test('a report after a queued turn stays on screen, and the prompts after it wai
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
     await coordinator.send('remember-port');
-    await coordinator.send('/clear');
+    await coordinator.send('/review');
     gate.open();
     await within(sending, 2000, 'the queued turns');
     assert.equal(coordinator.snapshot.phase, 'idle');
     assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
-    assert.deepEqual(coordinator.snapshot.queue, ['/clear']);
+    assert.deepEqual(coordinator.snapshot.queue, ['/review']);
     assert.deepEqual(turns(a), [
       ['Start', undefined],
       ['remember-port', undefined],
@@ -730,6 +742,15 @@ test('prompts sent together steer or queue in the order sent', async () => {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
+    const { session } = a.sessions.at(-1)!;
+    const steer = session.steer.bind(session);
+    let first = true;
+    // only the first is refused, so the second queues by its place behind it
+    session.steer = async (...args) => {
+      if (!first) return steer(...args);
+      first = false;
+      return false;
+    };
     await Promise.all([
       coordinator.send('/review now'),
       coordinator.send('One'),
@@ -737,11 +758,10 @@ test('prompts sent together steer or queue in the order sent', async () => {
     assert.deepEqual(a.steers, []);
     assert.deepEqual(coordinator.snapshot.queue, ['/review now', 'One']);
     gate.open();
-    await within(sending, 2000, 'the queued turns');
+    await within(sending, 2000, 'the queued turn');
     assert.deepEqual(turns(a), [
       ['Start', undefined],
-      ['/review now', undefined],
-      ['One', undefined],
+      ['/review now\nOne', undefined],
     ]);
   } finally {
     gate.open();
@@ -820,6 +840,7 @@ test('a failed turn leaves what was queued behind it for the composer instead of
   try {
     a.gate = gate;
     a.failNext = true;
+    a.refuseSteer = true;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
     await coordinator.send('/review');
@@ -1107,7 +1128,7 @@ test('after the reply, while a familiar holds the turn, a ! prompt runs at once 
   }
 });
 
-test('after the reply, a listed spell steers trimmed, and an unlisted slash command still waits', async () => {
+test('after the reply, a listed spell steers trimmed with its call, and an unlisted slash command steers as a prompt', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
@@ -1118,17 +1139,13 @@ test('after the reply, a listed spell steers trimmed, and an unlisted slash comm
     await within(gate.entered, 2000, 'the gated turn');
     a.replied = true;
     await coordinator.send(' /review now');
-    assert.deepEqual(a.steers, ['/review now']);
-    assert.deepEqual(coordinator.snapshot.queue, []);
     await coordinator.send('/clear');
-    assert.deepEqual(coordinator.snapshot.queue, ['/clear']);
-    assert.deepEqual(a.steers, ['/review now']);
+    assert.deepEqual(a.steers, ['/review now', '/clear']);
+    assert.deepEqual(a.skillSteers, [{ name: 'review', args: 'now' }]);
+    assert.deepEqual(coordinator.snapshot.queue, []);
     gate.open();
-    await within(sending, 2000, 'the queued turn');
-    assert.deepEqual(turns(a), [
-      ['Start', undefined],
-      ['/clear', undefined],
-    ]);
+    await within(sending, 2000, 'the turn');
+    assert.deepEqual(turns(a), [['Start', undefined]]);
   } finally {
     gate.open();
     await coordinator.close();
@@ -1272,6 +1289,7 @@ for (const rejected of [false, true])
           ? assert.rejects(change, { message: 'Model rejected' })
           : change;
         await within(entered.promise, 2000, 'the model change');
+        a.refuseSteer = true;
         await coordinator.send('/queued');
         gate.open();
         await within(gate.result, 2000, 'the native turn');
