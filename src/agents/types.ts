@@ -9,7 +9,7 @@ export interface Model {
   efforts: string[];
 }
 
-/** a native skill the composer offers after `/`, run by sending `/name args`. */
+/** a native skill or command run by sending `/name args`; the composer offers it after `/` unless it is `builtin`. */
 export interface Skill {
   name: string;
   description: string;

@@ -677,7 +677,7 @@ for (const [name, prompt, prepare] of [
     }
   });
 
-test('prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
+test('with steers refused, prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
