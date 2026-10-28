@@ -608,9 +608,13 @@ class CodexSession implements AgentSession {
   }
 
   /** Codex keeps a steered prompt in the thread even when the turn is then interrupted. */
-  async steer(prompt: string): Promise<boolean> {
-    // a prompt steered into a shell command's turn would never be answered
-    if (this.turn?.command !== undefined || this.turn?.compaction) return false;
+  async steer(
+    prompt: string,
+    { skill }: { skill?: SkillCall } = {},
+  ): Promise<boolean> {
+    // a prompt steered into a shell command's turn would never be answered, and Codex expands a skill only at a turn's start
+    if (this.turn?.command !== undefined || this.turn?.compaction || skill)
+      return false;
     const id = await this.turn?.started.promise;
     if (!id) return false;
     try {

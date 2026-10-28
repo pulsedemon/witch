@@ -194,18 +194,30 @@ interface Turn {
   compaction?: { uuid: string; replaced: boolean; error?: string };
 }
 
-/** everything but Claude Code's own commands, including unmarked rows a built-in shadows, since `/name` runs the built-in. */
+// these change the native history or the settings Witch shows, so they go to Claude as text until Witch owns them
+const textCommands = new Set(['clear', 'effort', 'fast']);
+
+/** one entry per name, a built-in's own row for a name it shadows, since `/name` runs the built-in. */
 function skillsOf(commands: SlashCommand[]): Skill[] {
-  const builtin = new Set(
-    commands.filter((command) => command.builtin).map(({ name }) => name),
+  const builtins = new Map(
+    commands
+      .filter((command) => command.builtin)
+      .map((command) => [command.name, command]),
   );
-  return commands
-    .filter(({ name }) => !builtin.has(name))
-    .map(({ name, description, argumentHint }) => ({
+  const listed = new Map<string, Skill>();
+  for (const command of commands) {
+    const builtin = builtins.has(command.name);
+    const { name, description, argumentHint } =
+      builtins.get(command.name) ?? command;
+    if (listed.has(name) || (builtin && textCommands.has(name))) continue;
+    listed.set(name, {
       name,
       description,
       ...(argumentHint ? { argumentHint } : {}),
-    }));
+      ...(builtin ? { builtin: true as const } : {}),
+    });
+  }
+  return [...listed.values()];
 }
 
 class ClaudeSession implements AgentSession {
@@ -558,7 +570,7 @@ class ClaudeSession implements AgentSession {
    */
   async steer(
     prompt: string,
-    { command }: { command?: string } = {},
+    { command, skill }: { command?: string; skill?: SkillCall } = {},
   ): Promise<boolean> {
     const turn = this.turn;
     if (
@@ -576,8 +588,14 @@ class ClaudeSession implements AgentSession {
       !(this.messageLifecycle && command === undefined)
     )
       return false;
+    // Claude Code runs a command only once the native turn ends, which without acknowledgements could be after this one
+    if (skill && !this.messageLifecycle && !this.replied) return false;
     if (command === undefined)
-      turn.steered.set(this.push(prompt), { prompt, pending: true });
+      turn.steered.set(
+        // Claude Code holds a message shaped like a slash command until the turn ends; marked, it joins as text
+        this.push(prompt, !skill && prompt.trim().startsWith('/')),
+        { prompt, pending: true },
+      );
     else {
       turn.held = true;
       void this.reply(turn, command, prompt);
@@ -751,8 +769,11 @@ class ClaudeSession implements AgentSession {
       : prompt;
   }
 
-  /** returns the uuid the message went with. */
-  private push(content: SDKUserMessage['message']['content']): string {
+  /** returns the uuid the message went with; a composed message goes as written, with no slash dispatch or `@path` expansion. */
+  private push(
+    content: SDKUserMessage['message']['content'],
+    composed = false,
+  ): string {
     const uuid = randomUUID();
     this.input.push({
       type: 'user',
@@ -760,6 +781,7 @@ class ClaudeSession implements AgentSession {
       session_id: this.info.id,
       message: { role: 'user', content },
       parent_tool_use_id: null,
+      ...(composed ? { client_composed: true as const } : {}),
     });
     return uuid;
   }
@@ -1173,10 +1195,17 @@ class ClaudeSession implements AgentSession {
       const inputUnsent =
         turn.initialInput !== undefined &&
         turn.commandRecords.get(turn.initialInput)?.writeAttempted === false;
+      // input goes in order, so what was steered behind unwritten input is unwritten too
+      const unread = inputUnsent
+        ? [...turn.steered.values()].flatMap(({ prompt, pending }) =>
+            pending && prompt !== undefined ? [prompt] : [],
+          )
+        : [];
       this.finish(turn, {
         status: 'failed',
         text: '',
         error: text,
+        ...(unread.length ? { unread } : {}),
         ...(unreadContext.length ? { unreadContext } : {}),
         ...(inputUnsent ? { inputUnsent } : {}),
       });
