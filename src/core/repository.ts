@@ -1,4 +1,7 @@
 import { execFile } from 'node:child_process';
+import { realpathSync, watch } from 'node:fs';
+import type { FSWatcher } from 'node:fs';
+import { sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 
@@ -137,15 +140,20 @@ export type Run = (
   options: { cwd: string; timeout: number },
 ) => Promise<{ stdout: string }>;
 
+/** how soon a change is read, so one save's several writes take one read. */
+const settle = 100;
+
 /**
- * the Git status of `cwd` for the status line, read every 5 seconds, with its branch's pull request read in the
- * background every 90 seconds and whenever the branch changes. Each read shows until the next; a failed one leaves
- * its field out.
+ * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
+ * seconds and whenever the branch changes. On macOS a change in the work tree or its Git dirs starts a read, at most
+ * one per `interval`. Elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
+ * loses a file once it is replaced by rename. Each read shows until the next; a failed one leaves its field out.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
   private readonly listeners = new Set<() => void>();
   private readonly timer: ReturnType<typeof setInterval>;
+  private readonly interval: number;
   private pullRequest?: {
     branch: string;
     at: number;
@@ -154,13 +162,29 @@ export class RepositoryWatch {
   };
   private fetching = false;
   private refreshing = false;
+  /** unset while polling. */
+  private watchers?: FSWatcher[];
+  private located = false;
+  private scheduled?: ReturnType<typeof setTimeout>;
+  /** a change arrived during the read in progress. */
+  private stale = false;
+  private startedAt = -Infinity;
 
   constructor(
     private readonly cwd: string,
     private readonly run: Run = execute,
     private readonly project?: () => Promise<string>,
+    options: { interval?: number } = {},
   ) {
-    this.timer = setInterval(() => void this.refresh(), 5000);
+    this.interval = options.interval ?? 5000;
+    if (process.platform === 'darwin')
+      try {
+        // the top level only until Git answers, so a plain directory such as the home folder costs no events
+        this.watchers = [this.open(realpathSync(cwd), false)];
+      } catch {
+        // a missing directory polls, as before
+      }
+    this.timer = setInterval(() => this.tick(), this.interval);
     this.timer.unref();
     void this.refresh();
   }
@@ -172,21 +196,115 @@ export class RepositoryWatch {
 
   close(): void {
     clearInterval(this.timer);
+    clearTimeout(this.scheduled);
+    this.unwatch();
+  }
+
+  private open(directory: string, recursive: boolean): FSWatcher {
+    const watcher = watch(directory, { recursive, persistent: false }, () =>
+      this.changed(),
+    );
+    watcher.on('error', () => this.unwatch());
+    return watcher;
+  }
+
+  /** leaves the timer polling. */
+  private unwatch(): void {
+    for (const watcher of this.watchers ?? []) watcher.close();
+    this.watchers = undefined;
+  }
+
+  private tick(): void {
+    if (!this.watchers) {
+      void this.refresh();
+      return;
+    }
+    const branch = this.snapshot?.branch;
+    if (branch && this.due(branch)) void this.fetchPullRequest(branch);
+  }
+
+  private due(branch: string): boolean {
+    const known = this.pullRequest;
+    return (
+      branch !== 'HEAD' &&
+      !this.fetching &&
+      (known?.branch !== branch || Date.now() - known.at >= 90_000)
+    );
+  }
+
+  /** reads soon after a change, but no sooner than `interval` after the previous read started. */
+  private changed(): void {
+    if (this.refreshing) {
+      this.stale = true;
+      return;
+    }
+    if (this.scheduled) return;
+    this.scheduled = setTimeout(
+      () => {
+        this.scheduled = undefined;
+        void this.refresh();
+      },
+      Math.max(settle, this.startedAt + this.interval - performance.now()),
+    );
+    this.scheduled.unref();
+  }
+
+  /** widens the watch to the work tree and the Git dirs outside it, all of which `git status` reads. */
+  private async locate(): Promise<void> {
+    this.located = true;
+    let paths: string[];
+    try {
+      const { stdout } = await this.run(
+        'git',
+        [
+          'rev-parse',
+          '--path-format=absolute',
+          '--show-toplevel',
+          '--git-dir',
+          '--git-common-dir',
+        ],
+        { cwd: this.cwd, timeout: 10_000 },
+      );
+      paths = stdout.split('\n').filter(Boolean);
+    } catch {
+      return;
+    }
+    const previous = this.watchers;
+    if (!previous) return;
+    const roots: string[] = [];
+    for (const path of paths.toSorted((a, b) => a.length - b.length))
+      if (!roots.some((root) => path === root || path.startsWith(root + sep)))
+        roots.push(path);
+    const opened: FSWatcher[] = [];
+    try {
+      for (const root of roots) opened.push(this.open(root, true));
+    } catch {
+      for (const watcher of opened) watcher.close();
+      return;
+    }
+    // the new watches open before the old one closes, and a read covers anything between them
+    this.watchers = opened;
+    for (const watcher of previous) watcher.close();
+    this.changed();
   }
 
   private async refresh(): Promise<void> {
     // a status read can outlast the interval, and a slower, older read would publish over a newer one
     if (this.refreshing) return;
     this.refreshing = true;
+    this.stale = false;
+    this.startedAt = performance.now();
     let repository: Repository | undefined;
+    let failure: unknown;
     try {
       const { stdout } = await this.run('git', [...statusArgs], {
         cwd: this.cwd,
         timeout: 10_000,
       });
       repository = parseStatus(stdout);
-    } catch {
+    } catch (error) {
       // not a repository, or Git is busy; the status line leaves Git out
+      failure = error;
     } finally {
       this.refreshing = false;
     }
@@ -197,12 +315,16 @@ export class RepositoryWatch {
         repository.pullRequestProject = known.project;
     }
     this.publish(repository);
-    if (
-      repository &&
-      repository.branch !== 'HEAD' &&
-      !this.fetching &&
-      (known?.branch !== repository.branch || Date.now() - known.at >= 90_000)
-    )
+    if (this.watchers) {
+      if (repository && !this.located) void this.locate();
+      // Git exits 128 outside a repository, which only a change can end; a timeout or a failed spawn may pass
+      if (
+        this.stale ||
+        (failure !== undefined && (failure as { code?: unknown }).code !== 128)
+      )
+        this.changed();
+    }
+    if (repository && this.due(repository.branch))
       void this.fetchPullRequest(repository.branch);
   }
 
