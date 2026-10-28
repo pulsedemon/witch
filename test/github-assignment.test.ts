@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { assignGitHubTask } from '../src/core/github-assignment.js';
 import { callControl } from '../src/persistence/control.js';
+import { CoordinationStore } from '../src/persistence/coordination.js';
 import { coordinationFixture } from './fixtures/coordination.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
@@ -74,6 +75,9 @@ const input = {
   summary: 'GitHub task',
 };
 const issue = 'repos/acme/widget/issues/42/assignees';
+const pull = 'repos/acme/widget/issues/77/assignees';
+const issueReference = 'github:acme/widget#42';
+const pullReference = 'github:acme/widget#77';
 
 test('a successful claim assigns its distinct GitHub references, and a conflicting claim never reaches GitHub', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
@@ -92,7 +96,7 @@ test('a successful claim assigns its distinct GitHub references, and a conflicti
     calls.map((call) => call.args),
     [
       ['api', '--hostname', 'github.com', 'user', '--jq', '.login'],
-      ...[issue, 'repos/acme/widget/issues/77/assignees'].map((endpoint) => [
+      ...[issue, pull].map((endpoint) => [
         'api',
         '--hostname',
         'github.com',
@@ -139,16 +143,25 @@ for (const scenario of [
     name: 'authentication failure',
     policy: { failed: 'user' },
     message: /permission denied/,
+    confirmed: undefined,
+    retry: ['user', issue, pull],
+    assigned: [issueReference, pullReference],
   },
   {
     name: 'assignment failure',
     policy: { failed: issue },
     message: /permission denied/,
+    confirmed: [pullReference],
+    retry: ['user', issue],
+    assigned: [pullReference, issueReference],
   },
   {
     name: 'an ignored assignee',
     policy: { ignored: issue },
     message: /did not confirm assignment to task-user/,
+    confirmed: [pullReference],
+    retry: ['user', issue],
+    assigned: [pullReference, issueReference],
   },
 ]) {
   test(`${scenario.name} returns a warning with ownership intact, and repeating the claim retries`, async (t) => {
@@ -160,15 +173,15 @@ for (const scenario of [
     const claimed = await callControl(binding, { kind: 'claim', input });
     if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
     assert.match(claimed.warning ?? '', scenario.message);
+    assert.deepEqual(claimed.claim.assigned, scenario.confirmed);
     assert.deepEqual(await f.registry.claims(), [claimed.claim]);
     const snapshot = await a.query();
     assert.equal(snapshot.ownClaim?.id, claimed.claim.id);
     assert.equal(snapshot.error, undefined);
+    const calls = await f.calls();
     assert.deepEqual(
-      (await f.calls()).map((call) => call.args[3]),
-      scenario.policy.failed === 'user'
-        ? ['user']
-        : ['user', issue, 'repos/acme/widget/issues/77/assignees'],
+      calls.map((call) => call.args[3]),
+      scenario.policy.failed === 'user' ? ['user'] : ['user', issue, pull],
     );
     await f.configure({});
     const retried = await callControl(binding, { kind: 'claim', input });
@@ -176,11 +189,80 @@ for (const scenario of [
     assert.equal(retried.claim.id, claimed.claim.id);
     assert.equal(retried.warning, undefined);
     assert.deepEqual(
-      (await f.calls()).slice(-3).map((call) => call.args[3]),
-      ['user', issue, 'repos/acme/widget/issues/77/assignees'],
+      (await f.calls()).slice(calls.length).map((call) => call.args[3]),
+      scenario.retry,
     );
+    assert.deepEqual(retried.claim.assigned, scenario.assigned);
+    assert.deepEqual(await f.registry.claims(), [retried.claim]);
   });
 }
+
+test('a refreshed claim calls GitHub only for references it has not confirmed', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
+  const binding = await (await f.start()).binding();
+  const claimed = await callControl(binding, { kind: 'claim', input });
+  if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
+  assert.deepEqual(claimed.claim.assigned, [issueReference, pullReference]);
+  const calls = await f.calls();
+  assert.equal(calls.length, 3);
+  const refreshed = await callControl(binding, {
+    kind: 'claim',
+    input: { ...input, summary: 'Refreshed summary' },
+  });
+  if (refreshed.kind !== 'claimed') assert.fail(JSON.stringify(refreshed));
+  assert.equal(refreshed.claim.id, claimed.claim.id);
+  assert.equal(refreshed.claim.summary, 'Refreshed summary');
+  assert.equal(refreshed.warning, undefined);
+  assert.deepEqual(await f.calls(), calls);
+  assert.deepEqual(await f.registry.claims(), [refreshed.claim]);
+  const extended = await callControl(binding, {
+    kind: 'claim',
+    input: {
+      reference: input.reference,
+      aliases: ['https://github.com/acme/widget/issues/88'],
+      summary: 'Extended',
+    },
+  });
+  if (extended.kind !== 'claimed') assert.fail(JSON.stringify(extended));
+  assert.equal(extended.warning, undefined);
+  assert.deepEqual(
+    (await f.calls()).slice(calls.length).map((call) => call.args[3]),
+    ['user', 'repos/acme/widget/issues/88/assignees'],
+  );
+  assert.deepEqual(extended.claim.assigned, [
+    issueReference,
+    pullReference,
+    'github:acme/widget#88',
+  ]);
+  assert.deepEqual(await f.registry.claims(), [extended.claim]);
+});
+
+test('a confirmed assignment the ledger cannot record keeps the claim without a warning, and the next claim assigns again', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await fixture(cleanup);
+  const binding = await (await f.start()).binding();
+  vi.spyOn(
+    CoordinationStore.prototype,
+    'recordAssignment',
+  ).mockRejectedValueOnce(new Error('Injected record failure'));
+  const claimed = await callControl(binding, { kind: 'claim', input });
+  if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
+  assert.equal(claimed.warning, undefined);
+  assert.equal(claimed.claim.assigned, undefined);
+  assert.deepEqual(await f.registry.claims(), [claimed.claim]);
+  const calls = await f.calls();
+  assert.equal(calls.length, 3);
+  const retried = await callControl(binding, { kind: 'claim', input });
+  if (retried.kind !== 'claimed') assert.fail(JSON.stringify(retried));
+  assert.equal(retried.warning, undefined);
+  assert.deepEqual(
+    (await f.calls()).slice(calls.length).map((call) => call.args[3]),
+    ['user', issue, pull],
+  );
+  assert.deepEqual(retried.claim.assigned, [issueReference, pullReference]);
+  assert.deepEqual(await f.registry.claims(), [retried.claim]);
+});
 
 for (const [name, endpoint, expected] of [
   ['login', 'user', ['user']],
@@ -266,20 +348,22 @@ test('a pending GitHub assignment leaves the shared ledger available and drains 
 test('an expired assignment starts no command and a stalled GitHub command is reaped at its deadline', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await fixture(cleanup);
-  await assert.rejects(
-    assignGitHubTask(['github:acme/widget#42'], f.root, Date.now() - 1),
-    /deadline expired/,
+  assert.deepEqual(
+    await assignGitHubTask([issueReference], f.root, Date.now() - 1),
+    { assigned: [], failure: 'GitHub assignment deadline expired.' },
   );
   assert.deepEqual(await f.calls(), []);
   await f.configure({ hold: issue });
   cleanup(f.release);
-  await assert.rejects(
-    within(
-      assignGitHubTask(['github:acme/widget#42'], f.root, Date.now() + 2000),
-      5000,
-      'assignment deadline',
-    ),
-    /Timed out after \d+ ms: Command failed/,
+  const stalled = await within(
+    assignGitHubTask([issueReference], f.root, Date.now() + 2000),
+    5000,
+    'assignment deadline',
+  );
+  assert.deepEqual(stalled.assigned, []);
+  assert.match(
+    stalled.failure ?? '',
+    /^repos\/acme\/widget\/issues\/42\/assignees: Timed out after \d+ ms: Command failed/,
   );
   const calls = await f.calls();
   assert.deepEqual(
