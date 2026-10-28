@@ -268,3 +268,25 @@ watching(
     assert.equal(attempts, 1);
   },
 );
+
+watching(
+  'a watch that cannot widen polls, since its top-level watch misses changes below it',
+  async (t) => {
+    const directory = await scratch('witch-repository-widen-');
+    await quiet();
+    let statuses = 0;
+    const watch = new RepositoryWatch(
+      directory,
+      async (command, args) => {
+        if (command === 'gh') throw new Error('no pull requests found');
+        if (args.includes('rev-parse')) throw new Error('rev-parse failed');
+        statuses++;
+        return { stdout: '# branch.head main\n' };
+      },
+      undefined,
+      { interval: 50 },
+    );
+    t.onTestFinished(() => watch.close());
+    await until('reads with no change', () => statuses >= 4);
+  },
+);

@@ -141,12 +141,12 @@ export type Run = (
 ) => Promise<{ stdout: string }>;
 
 /** how soon a change is read, so one save's several writes take one read. */
-const settle = 100;
+const debounce = 100;
 
 /**
  * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
- * seconds and whenever the branch changes. On macOS a change in the work tree or its Git dirs starts a read, at most
- * one per `interval`. Elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
+ * seconds and whenever the branch changes. on macOS a change in the work tree or its Git dirs starts a read, at most
+ * one per `interval`. elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
  * loses a file once it is replaced by rename. Each read shows until the next; a failed one leaves its field out.
  */
 export class RepositoryWatch {
@@ -179,10 +179,10 @@ export class RepositoryWatch {
     this.interval = options.interval ?? 5000;
     if (process.platform === 'darwin')
       try {
-        // the top level only until Git answers, so a plain directory such as the home folder costs no events
+        // the top level only until Git answers, so a plain directory such as home gets no events from below it
         this.watchers = [this.open(realpathSync(cwd), false)];
       } catch {
-        // a missing directory polls, as before
+        // a missing directory polls
       }
     this.timer = setInterval(() => this.tick(), this.interval);
     this.timer.unref();
@@ -244,7 +244,7 @@ export class RepositoryWatch {
         this.scheduled = undefined;
         void this.refresh();
       },
-      Math.max(settle, this.startedAt + this.interval - performance.now()),
+      Math.max(debounce, this.startedAt + this.interval - performance.now()),
     );
     this.scheduled.unref();
   }
@@ -267,6 +267,8 @@ export class RepositoryWatch {
       );
       paths = stdout.split('\n').filter(Boolean);
     } catch {
+      // the top-level watch would miss changes below it, so poll instead
+      this.unwatch();
       return;
     }
     const previous = this.watchers;
@@ -280,6 +282,7 @@ export class RepositoryWatch {
       for (const root of roots) opened.push(this.open(root, true));
     } catch {
       for (const watcher of opened) watcher.close();
+      this.unwatch();
       return;
     }
     // the new watches open before the old one closes, and a read covers anything between them
