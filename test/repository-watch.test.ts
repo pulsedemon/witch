@@ -152,7 +152,7 @@ watching(
           return {
             stdout: `${directory}\n${directory}/.git\n${directory}/.git\n`,
           };
-        statuses++;
+        if (args.includes('status')) statuses++;
         return { stdout: '# branch.head main\n' };
       },
       undefined,
@@ -280,7 +280,7 @@ watching(
           return {
             stdout: `${directory}\n${directory}/.git\n${directory}/.git\n`,
           };
-        if (++statuses === 1)
+        if (args.includes('status') && ++statuses === 1)
           throw Object.assign(new Error('git timed out'), {
             killed: true,
             code: null,
@@ -356,7 +356,7 @@ watching(
             if (!root) throw new Error('rev-parse failed');
             return { stdout: `${root}\n` };
           }
-          statuses++;
+          if (args.includes('status')) statuses++;
           return { stdout: '# branch.head main\n' };
         },
         undefined,

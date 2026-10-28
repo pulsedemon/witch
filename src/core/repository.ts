@@ -48,6 +48,47 @@ export const statusArgs = [
   '--branch',
 ] as const;
 
+/**
+ * blanks the filter drivers the repository's own config defines, since status runs a clean filter on a file whose stat
+ * data changed; the user's own filters stay. an empty `process` stops `clean` too, and `required` would fail the read.
+ * set through the environment, since `-c` splits a name at its `=`. a name Node decoded lossily can't be set, so it throws.
+ */
+async function filterless(
+  run: Run,
+  cwd: string,
+): Promise<NodeJS.ProcessEnv | undefined> {
+  const { stdout } = await run(
+    'git',
+    ['config', '-z', '--name-only', '--show-scope', '--list'],
+    { cwd, timeout: 10_000 },
+  );
+  const entries = stdout.split('\0');
+  const drivers = new Set<string>();
+  for (let index = 0; index + 1 < entries.length; index += 2) {
+    const name = /^filter\.(.*)\.(?:clean|process)$/s.exec(
+      entries[index + 1]!,
+    )?.[1];
+    if (name === undefined || !['local', 'worktree'].includes(entries[index]!))
+      continue;
+    if (name.includes('\uFFFD'))
+      throw new Error("a filter driver's name isn't valid UTF-8");
+    drivers.add(name);
+  }
+  if (!drivers.size) return undefined;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  let count = Number(process.env.GIT_CONFIG_COUNT) || 0;
+  const set = (key: string, value: string) => {
+    env[`GIT_CONFIG_KEY_${count}`] = key;
+    env[`GIT_CONFIG_VALUE_${count++}`] = value;
+  };
+  for (const name of drivers) {
+    set(`filter.${name}.process`, '');
+    set(`filter.${name}.required`, 'false');
+  }
+  env.GIT_CONFIG_COUNT = String(count);
+  return env;
+}
+
 /** reads `git status --porcelain=v2 --branch`. */
 export function parseStatus(text: string): Repository {
   const repository: Repository = {
@@ -142,7 +183,7 @@ export function parsePullRequest(json: string): PullRequest {
 export type Run = (
   command: string,
   args: string[],
-  options: { cwd: string; timeout: number },
+  options: { cwd: string; timeout: number; env?: NodeJS.ProcessEnv },
 ) => Promise<{ stdout: string }>;
 
 /** how soon a change is read, so one save's several writes take one read. */
@@ -312,13 +353,16 @@ export class RepositoryWatch {
     let repository: Repository | undefined;
     let failure: unknown;
     try {
-      const { stdout } = await this.run('git', [...statusArgs], {
-        cwd: this.cwd,
-        timeout: 10_000,
-      });
+      const env = await filterless(this.run, this.cwd);
+      const { stdout } = await this.run(
+        'git',
+        // a submodule's own config could run a filter; merge cleanup's own read still counts dirty submodules
+        [...statusArgs, '--ignore-submodules=dirty'],
+        { cwd: this.cwd, timeout: 10_000, ...(env && { env }) },
+      );
       repository = parseStatus(stdout);
     } catch (error) {
-      // not a repository, or Git is busy; the status line leaves Git out
+      // not a repository, Git is busy, or a filter driver Git can't be told to skip; the status line leaves Git out
       failure = error;
     } finally {
       this.refreshing = false;
