@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -52,6 +52,26 @@ test("Git's status counts staged, modified and untracked entries, and the branch
     conflicts: 0,
     untracked: 1,
   });
+});
+
+test("the watch's status read never runs the repository's fsmonitor command", async () => {
+  const root = await scratch('witch-repository-');
+  const work = join(root, 'work');
+  const marker = join(root, 'ran');
+  const monitor = join(root, 'monitor.sh');
+  await execute('git', ['init', '--quiet', '-b', 'main', work]);
+  await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+  await execute('git', ['config', 'core.fsmonitor', monitor], { cwd: work });
+  const watch = new RepositoryWatch(work, async (command, args, options) => {
+    if (command === 'gh') throw new Error('no pull requests found');
+    return execute(command, args, options);
+  });
+  try {
+    await until('status read', () => watch.snapshot?.branch === 'main');
+    await assert.rejects(access(marker), { code: 'ENOENT' });
+  } finally {
+    watch.close();
+  }
 });
 
 test('a detached head reads as HEAD, and branch.ab and unmerged entries count', () => {
@@ -275,7 +295,14 @@ test('a detached head reads no pull request', async () => {
     for (const call of calls)
       assert.deepEqual(call, [
         'git',
-        ['--no-optional-locks', 'status', '--porcelain=v2', '--branch'],
+        [
+          '-c',
+          'core.fsmonitor=false',
+          '--no-optional-locks',
+          'status',
+          '--porcelain=v2',
+          '--branch',
+        ],
         { cwd: '/work', timeout: 10_000 },
       ]);
   } finally {
