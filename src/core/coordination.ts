@@ -1001,21 +1001,38 @@ export class SessionCoordination {
             ),
           verify,
         );
-        try {
-          await this.assign(
-            claim.references,
-            active.conversation.cwd,
-            // leave time to refresh peers and write the control reply.
-            request.deadline - 1000,
-          );
-          return { kind: 'claimed', claim };
-        } catch (error) {
-          return {
-            kind: 'claimed',
-            claim,
-            warning: `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${errorMessage(error)}`,
-          };
-        }
+        const { assigned, failure } = await this.assign(
+          claim.references.filter(
+            (reference) => !claim.assigned?.includes(reference),
+          ),
+          active.conversation.cwd,
+          // leave a second to record the assignment and another to refresh peers and write the control reply.
+          request.deadline - 2000,
+        );
+        let recorded = claim;
+        if (assigned.length)
+          try {
+            recorded =
+              (await this.change(state, (check) =>
+                this.registry.recordAssignment(
+                  claim.id,
+                  assigned,
+                  request.deadline - 1000,
+                  check,
+                ),
+              )) ?? claim;
+          } catch {
+            // an unrecorded assignment repeats on the next --claim.
+          }
+        return {
+          kind: 'claimed',
+          claim: recorded,
+          ...(failure
+            ? {
+                warning: `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${failure}`,
+              }
+            : {}),
+        };
       }
       if (action.kind === 'recommend')
         return {

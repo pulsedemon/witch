@@ -52,7 +52,7 @@ Persist native IDs and display history. Each instance has one conversation open,
 
 ## Session coordination
 
-GitHub assignment after an active claim belongs to [assignGitHubTask](../src/core/github-assignment.ts); [SessionCoordination](../src/core/coordination.ts) retains the local claim and returns a warning when assignment fails.
+GitHub assignment after an active claim belongs to [assignGitHubTask](../src/core/github-assignment.ts); [SessionCoordination](../src/core/coordination.ts) retains the local claim and returns a warning when assignment fails. The claim records each reference GitHub confirmed, and a later `--claim` assigns only its other references.
 
 Witches sharing a state directory discover this repository's other open sessions, including its other checkouts. `/peers` shows their tasks and details without switching or messaging them. The sidebar reserves space for local brews and familiars before allocating peer rows; [Sidebar](../src/ui/sidebar.tsx) owns that budget.
 
