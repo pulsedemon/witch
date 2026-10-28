@@ -35,8 +35,13 @@ export interface Repository {
   pullRequestProject?: string;
 }
 
-/** avoid optional locks that contend with the user's Git commands. */
+/**
+ * avoid optional locks that contend with the user's Git commands. fsmonitor stays off: a repository's
+ * configured command would run, and the builtin daemon's cookie files would wake the watch on every read.
+ */
 export const statusArgs = [
+  '-c',
+  'core.fsmonitor=false',
   '--no-optional-locks',
   'status',
   '--porcelain=v2',
@@ -150,7 +155,7 @@ const retry = 60_000;
  * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
  * seconds and whenever the branch changes. on macOS a change in the work tree or its Git dirs starts a read, at most
  * one per `interval`, and a read Git failed with exit 128 is retried each minute. elsewhere, or once a watch fails,
- * status is read every `interval`, since Linux's recursive watch loses a file once it is replaced by rename. Each read
+ * status is read every `interval`, since Linux's recursive watch loses a file once it is replaced by rename. each read
  * shows until the next; a failed one leaves its field out.
  */
 export class RepositoryWatch {
