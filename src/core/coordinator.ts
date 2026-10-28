@@ -705,19 +705,20 @@ export class Coordinator {
     });
   }
 
-  /** returns whether merge cleanup acted, refreshing `install` after Witch's own cleanup. */
+  /** returns whether merge cleanup acted, or `'changed'` when the checkout changed, refreshing `install` after Witch's own. */
   async cleanUpMerge(
     pullRequest: PullRequest,
     install?: string,
-  ): Promise<boolean> {
-    let acted = false;
+  ): Promise<boolean | 'changed'> {
+    let acted: boolean | 'changed' = false;
     await this.operate('cleaning', async () => {
       const { id, cwd } = this.current();
       // the phase covers only this Witch, and another one's agent would carry on on the base
       const outcome = await cleanUpMerge(cwd, pullRequest, () =>
         peerTurnIn(this.store, id, cwd),
       );
-      if (!outcome) return;
+      if (outcome === 'changed') acted = outcome;
+      if (typeof outcome !== 'object') return;
       acted = true;
       // first, so a failed rebuild doesn't lose it
       this.notice(outcome.text);

@@ -46,7 +46,7 @@ function fixture(register: RegisterCleanup) {
     },
   };
   const calls: [PullRequest, string | undefined][] = [];
-  let pending: PromiseWithResolvers<boolean> | undefined;
+  let pending: PromiseWithResolvers<boolean | 'changed'> | undefined;
   const coordinator = {
     snapshot: { phase: 'idle', queue: [] } as unknown as Snapshot,
     subscribe: (listener: () => void) => {
@@ -57,7 +57,7 @@ function fixture(register: RegisterCleanup) {
     cleanUpMerge: (merged: PullRequest, install?: string) => {
       calls.push([merged, install]);
       publishCoordinator({ phase: 'cleaning' });
-      pending = Promise.withResolvers<boolean>();
+      pending = Promise.withResolvers<boolean | 'changed'>();
       return pending.promise;
     },
   };
@@ -74,7 +74,7 @@ function fixture(register: RegisterCleanup) {
     publishCoordinator(update);
     await tick();
   };
-  const settle = async (value: boolean | Error) => {
+  const settle = async (value: boolean | 'changed' | Error) => {
     publishCoordinator({ phase: 'idle' });
     if (value instanceof Error) pending!.reject(value);
     else pending!.resolve(value);
@@ -189,6 +189,22 @@ test('a repository update replaces the pending retry', async (t) => {
   vi.advanceTimersByTime(1000);
   await tick();
   assert.equal(calls.length, 3);
+  await settle(true);
+});
+
+test('a cleanup that finds a change the status line missed waits for its next update, not the timer', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { calls, publishRepository, publish, settle } = fixture(
+    t.onTestFinished,
+  );
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await settle('changed');
+  await publish();
+  vi.advanceTimersByTime(10_000);
+  await tick();
+  assert.equal(calls.length, 1);
+  await publishRepository();
+  assert.equal(calls.length, 2);
   await settle(true);
 });
 

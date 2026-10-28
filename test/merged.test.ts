@@ -276,6 +276,7 @@ test('a plan that also creates another branch stays whichever git command create
   );
   await merge(other, 'feat/x');
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
+  assert.ok(typeof result === 'object');
   assert.deepEqual((await readdir(plans(checkout))).sort(), [
     'branch.md',
     'bundled.md',
@@ -372,6 +373,7 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
     const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
       () => chmod(join(checkout, locked), restored),
     );
+    assert.ok(typeof result === 'object');
     assert.ok(
       result?.text.startsWith(
         '#7 merged: switched to main and pulled, deleted branch feat/x, but plan x.md stayed: EACCES',
@@ -397,6 +399,7 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
     const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
       () => chmod(plans(checkout), 0o700),
     );
+    assert.ok(typeof result === 'object');
     assert.ok(
       result?.text.startsWith(
         `#7 merged: switched to main and pulled, deleted branch feat/x, but ${stayed} stayed: EACCES`,
@@ -423,6 +426,7 @@ test("a dangling plan link stays quietly, a plan that can't be read or go with i
     const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
       () => chmod(ledgers, 0o700),
     );
+    assert.ok(typeof result === 'object');
     assert.match(
       result?.text ?? '',
       /^#7 merged: switched to main and pulled, deleted branch feat\/x, and plan c\.md, but plans (a\.md and b\.md|b\.md and a\.md) stayed: EACCES/,
@@ -470,8 +474,10 @@ test('a plan whose ignore check fails stays, and is named', async () => {
   await mkdir(join(checkout, 'docs/superpowers'), { recursive: true });
   await symlink(outside, plans(checkout));
   await merge(other, 'feat/x');
+  const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
+  assert.ok(typeof result === 'object');
   assert.match(
-    (await cleanUpMerge(checkout, pullRequest(tip), idle))?.text ?? '',
+    result.text,
     /^#7 merged: switched to main and pulled, deleted branch feat\/x, but plan x\.md stayed: Command failed: git check-ignore .*beyond a symbolic link\.$/s,
   );
   assert.deepEqual(await readdir(outside), ['x.md']);
@@ -526,14 +532,14 @@ test('a checkout that changed since the watch looked is left alone', async () =>
   await merge(other, 'feat/x');
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
   await writeFile(join(checkout, 'x.txt'), 'changed\n');
-  assert.equal(await cleanUpMerge(checkout, pullRequest(tip), idle), undefined);
+  assert.equal(await cleanUpMerge(checkout, pullRequest(tip), idle), 'changed');
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
   assert.equal(await readFile(join(checkout, 'x.txt'), 'utf8'), 'changed\n');
   assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
   assert.ok(await exists(join(plans(checkout), 'x.md')));
   await git(checkout, 'checkout', '--', 'x.txt');
   await git(checkout, 'switch', 'main');
-  assert.equal(await cleanUpMerge(checkout, pullRequest(tip), idle), undefined);
+  assert.equal(await cleanUpMerge(checkout, pullRequest(tip), idle), 'changed');
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
   assert.deepEqual(await branches(checkout), ['feat/x', 'main']);
   assert.ok(await exists(join(plans(checkout), 'x.md')));
@@ -559,7 +565,7 @@ test('a checkout with a staged or conflicted change is left alone, and one with 
     }
     assert.equal(
       await cleanUpMerge(checkout, pullRequest(tip), idle),
-      undefined,
+      'changed',
       change,
     );
     assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
@@ -569,10 +575,9 @@ test('a checkout with a staged or conflicted change is left alone, and one with 
   const { checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
   await writeFile(join(checkout, 'notes.txt'), 'notes\n');
-  assert.equal(
-    (await cleanUpMerge(checkout, pullRequest(tip), idle))?.cleaned,
-    true,
-  );
+  const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
+  assert.ok(typeof result === 'object');
+  assert.equal(result.cleaned, true);
   assert.deepEqual(await branches(checkout), ['main']);
   assert.equal(await readFile(join(checkout, 'notes.txt'), 'utf8'), 'notes\n');
 });
@@ -636,7 +641,7 @@ test('of two cleanups in one checkout at once, one cleans up and the other does 
     cleanUpMerge(checkout, pullRequest(tip), idle),
   ]);
   assert.deepEqual(
-    results.filter((result) => result),
+    results.filter((result) => typeof result === 'object'),
     [
       {
         text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
@@ -832,8 +837,10 @@ test("a merged branch's config section that can't be removed is named, and the r
   await merge(other, 'feat/x');
   // as another git command holding the config's lock leaves it
   await writeFile(join(checkout, '.git/config.lock'), '');
+  const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
+  assert.ok(typeof result === 'object');
   assert.match(
-    (await cleanUpMerge(checkout, pullRequest(tip), idle))?.text ?? '',
+    result.text,
     /^#7 merged: switched to main and pulled, deleted branch feat\/x, and plan x\.md, but config section branch\.feat\/x stayed: .*could not lock config file/s,
   );
   assert.equal(
@@ -920,6 +927,7 @@ test('a merged branch that cannot be deleted stays named with its error while ot
   await merge(other, 'feat/x');
   await write(join(checkout, '.git/refs/heads/feat/blocked.lock'), '');
   const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
+  assert.ok(typeof result === 'object');
   assert.deepEqual(await branches(checkout), ['feat/blocked', 'main']);
   assert.equal(result?.cleaned, true);
   assert.match(
@@ -972,10 +980,9 @@ test("the cleanup fetches through the user's own ssh command, from git's config 
     else if (own) process.env.GIT_SSH = ssh;
     else process.env.PATH = `${dirname(ssh)}:${path}`;
     try {
-      assert.equal(
-        (await cleanUpMerge(checkout, pullRequest(tip), idle))?.cleaned,
-        true,
-      );
+      const result = await cleanUpMerge(checkout, pullRequest(tip), idle);
+      assert.ok(typeof result === 'object');
+      assert.equal(result.cleaned, true);
     } finally {
       process.env.PATH = path;
       delete process.env.GIT_SSH;

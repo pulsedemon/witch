@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -69,6 +69,196 @@ test("the watch's status read never runs the repository's fsmonitor command", as
   try {
     await until('status read', () => watch.snapshot?.branch === 'main');
     await assert.rejects(access(marker), { code: 'ENOENT' });
+  } finally {
+    watch.close();
+  }
+});
+
+test("the watch's status read runs no filter driver from the repository's config, and keeps the user's own config", async () => {
+  const root = await scratch('witch-repository-');
+  const work = join(root, 'work');
+  const marker = join(root, 'ran');
+  const kept = join(root, 'kept');
+  const filter = join(root, 'filter.sh');
+  const global = join(root, 'global');
+  const git = (...args: string[]) =>
+    execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: work,
+    });
+  await execute('git', ['init', '--quiet', '-b', 'main', work]);
+  for (const name of ['a', 'b', 'c', 'e'])
+    await writeFile(join(work, name), `${name}\n`);
+  await git('add', 'a', 'b', 'c', 'e');
+  await git('commit', '--quiet', '-m', 'first');
+  await writeFile(join(work, 'd'), 'd\n');
+  await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
+    mode: 0o755,
+  });
+  // a `;` outside quotes starts a config comment
+  await writeFile(global, `[filter "g"]\n\tclean = "touch '${kept}'; cat"\n`);
+  // `-c` would split `x=y`, a `(.+)` match drops the empty name, and `.` without the `s` flag stops at U+2028
+  await git('config', 'filter.x=y.clean', filter);
+  await git('config', 'filter.x=y.required', 'true');
+  await git('config', 'filter..clean', filter);
+  await git('config', 'filter.p\u2028q.process', filter);
+  await mkdir(join(work, '.git', 'info'), { recursive: true });
+  await writeFile(
+    join(work, '.git', 'info', 'attributes'),
+    'a filter=x=y\nb filter=\nc filter=p\u2028q\ne filter=g\n',
+  );
+  const later = new Date(Date.now() + 60_000);
+  for (const name of ['a', 'b', 'c', 'e'])
+    await utimes(join(work, name), later, later);
+  const inherited: Record<string, string> = {
+    GIT_CONFIG_GLOBAL: global,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'status.showUntrackedFiles',
+    GIT_CONFIG_VALUE_0: 'no',
+  };
+  const earlier = Object.fromEntries(
+    Object.keys(inherited).map((key) => [key, process.env[key]]),
+  );
+  Object.assign(process.env, inherited);
+  const watch = new RepositoryWatch(work, async (command, args, options) => {
+    if (command === 'gh') throw new Error('no pull requests found');
+    return execute(command, args, options);
+  });
+  try {
+    await until('status read', () => watch.snapshot?.branch === 'main');
+    await assert.rejects(access(marker), { code: 'ENOENT' });
+    await access(kept);
+    assert.equal(watch.snapshot?.untracked, 0);
+  } finally {
+    watch.close();
+    for (const [key, value] of Object.entries(earlier))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  }
+});
+
+test("a submodule's own filter driver never runs, and changes inside its work tree don't count", async () => {
+  const root = await scratch('witch-repository-');
+  const sub = join(root, 'sub');
+  const top = join(root, 'top');
+  const marker = join(root, 'ran');
+  const filter = join(root, 'filter.sh');
+  const git = (cwd: string, ...args: string[]) =>
+    execute(
+      'git',
+      [
+        '-c',
+        'user.name=t',
+        '-c',
+        'user.email=t@t',
+        '-c',
+        'protocol.file.allow=always',
+        ...args,
+      ],
+      { cwd },
+    );
+  await execute('git', ['init', '--quiet', '-b', 'main', sub]);
+  await writeFile(join(sub, 's'), 's\n');
+  await writeFile(join(sub, 't'), 't\n');
+  await git(sub, 'add', 's', 't');
+  await git(sub, 'commit', '--quiet', '-m', 'first');
+  await execute('git', ['init', '--quiet', '-b', 'main', top]);
+  await git(top, 'submodule', '--quiet', 'add', sub, 'sub');
+  await git(top, 'commit', '--quiet', '-m', 'sub');
+  await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
+    mode: 0o755,
+  });
+  const modules = join(top, '.git', 'modules', 'sub');
+  await execute('git', ['config', 'filter.z.clean', filter], {
+    cwd: join(top, 'sub'),
+  });
+  await mkdir(join(modules, 'info'), { recursive: true });
+  await writeFile(join(modules, 'info', 'attributes'), 's filter=z\n');
+  const later = new Date(Date.now() + 60_000);
+  await utimes(join(top, 'sub', 's'), later, later);
+  await writeFile(join(top, 'sub', 't'), 'changed\n');
+  const watch = new RepositoryWatch(
+    top,
+    async (command, args, options) => {
+      if (command === 'gh') throw new Error('no pull requests found');
+      return execute(command, args, options);
+    },
+    undefined,
+    { interval: 50 },
+  );
+  try {
+    await until('status read', () => watch.snapshot?.branch === 'main');
+    await assert.rejects(access(marker), { code: 'ENOENT' });
+    assert.equal(watch.snapshot?.modified, 0);
+    // a submodule at another commit still counts, and watchMerges relies on it
+    await git(
+      join(top, 'sub'),
+      'commit',
+      '--quiet',
+      '--allow-empty',
+      '-m',
+      'moved',
+    );
+    await until('moved submodule', () => watch.snapshot?.modified === 1);
+  } finally {
+    watch.close();
+  }
+});
+
+test("a filter driver whose name isn't valid UTF-8 leaves Git out without running status", async () => {
+  const root = await scratch('witch-repository-');
+  const work = join(root, 'work');
+  const marker = join(root, 'ran');
+  const filter = join(root, 'filter.sh');
+  await execute('git', ['init', '--quiet', '-b', 'main', work]);
+  await writeFile(join(work, 'a'), 'a\n');
+  await execute('git', ['add', 'a'], { cwd: work });
+  await execute(
+    'git',
+    [
+      '-c',
+      'user.name=t',
+      '-c',
+      'user.email=t@t',
+      'commit',
+      '--quiet',
+      '-m',
+      'a',
+    ],
+    { cwd: work },
+  );
+  await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\ncat\n`, {
+    mode: 0o755,
+  });
+  // the default UTF-8 encoding would write `\xff` as C3 BF, which is valid UTF-8
+  await appendFile(
+    join(work, '.git', 'config'),
+    Buffer.from(`[filter "b\xffd"]\n\tclean = ${filter}\n`, 'latin1'),
+  );
+  await mkdir(join(work, '.git', 'info'), { recursive: true });
+  await writeFile(
+    join(work, '.git', 'info', 'attributes'),
+    Buffer.from('a filter=b\xffd\n', 'latin1'),
+  );
+  const later = new Date(Date.now() + 60_000);
+  await utimes(join(work, 'a'), later, later);
+  let listings = 0;
+  let statuses = 0;
+  const watch = new RepositoryWatch(
+    work,
+    async (command, args, options) => {
+      if (command === 'gh') throw new Error('no pull requests found');
+      if (args.includes('config')) listings++;
+      if (args.includes('status')) statuses++;
+      return execute(command, args, options);
+    },
+    undefined,
+    { interval: 50 },
+  );
+  try {
+    // reads don't overlap, so a second listing means the first read has finished
+    await until('second listing', () => listings >= 2);
+    assert.equal(statuses, 0);
+    assert.equal(watch.snapshot, undefined);
   } finally {
     watch.close();
   }
@@ -245,7 +435,8 @@ test('a read still running skips the next ticks, and a pull request read for a b
   let branch = 'main';
   const git: PromiseWithResolvers<{ stdout: string }>[] = [];
   const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
-  const watch = new RepositoryWatch('/work', (command) => {
+  const watch = new RepositoryWatch('/work', (command, args) => {
+    if (args[0] === 'config') return Promise.resolve({ stdout: '' });
     const read = Promise.withResolvers<{ stdout: string }>();
     (command === 'gh' ? gh : git).push(read);
     return read.promise;
@@ -291,20 +482,31 @@ test('a detached head reads no pull request', async () => {
     vi.advanceTimersByTime(5000);
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'HEAD');
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 4);
     for (const call of calls)
-      assert.deepEqual(call, [
-        'git',
-        [
-          '-c',
-          'core.fsmonitor=false',
-          '--no-optional-locks',
-          'status',
-          '--porcelain=v2',
-          '--branch',
-        ],
-        { cwd: '/work', timeout: 10_000 },
-      ]);
+      assert.deepEqual(
+        call,
+        call[1].includes('status')
+          ? [
+              'git',
+              [
+                '-c',
+                'core.fsmonitor=false',
+                '--no-optional-locks',
+                'status',
+                '--porcelain=v2',
+                '--branch',
+                '--ignore-submodules=dirty',
+              ],
+              { cwd: '/work', timeout: 10_000 },
+            ]
+          : [
+              'git',
+              ['config', '-z', '--name-only', '--show-scope', '--list'],
+              { cwd: '/work', timeout: 10_000 },
+            ],
+      );
+    assert.equal(calls.filter(([, args]) => args.includes('status')).length, 2);
   } finally {
     watch.close();
   }

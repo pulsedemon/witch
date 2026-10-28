@@ -115,14 +115,15 @@ async function lockCheckout(cwd: string): Promise<FileHandle | undefined> {
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base, deletes the branch and its
  * gitignored plans with their gitignored ledgers, brings the base up to date, and deletes the other merged branches
- * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, or nothing
- * when the checkout left the branch or changed, or another Witch is updating it or `blocked` says one is working in it.
+ * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, `'changed'`
+ * when the checkout left the branch or changed, or nothing when another Witch is updating it or `blocked` says one is
+ * working in it.
  */
 export async function cleanUpMerge(
   cwd: string,
   pullRequest: PullRequest,
   blocked: () => Promise<boolean>,
-): Promise<{ text: string; cleaned: boolean } | undefined> {
+): Promise<{ text: string; cleaned: boolean } | 'changed' | undefined> {
   if (await blocked()) return undefined;
   const lock = await lockCheckout(cwd).catch((error: unknown) => {
     throw new Error(
@@ -142,7 +143,7 @@ async function clean(
   cwd: string,
   pullRequest: PullRequest,
   blocked: () => Promise<boolean>,
-): Promise<{ text: string; cleaned: boolean } | undefined> {
+): Promise<{ text: string; cleaned: boolean } | 'changed' | undefined> {
   const { number, branch, commit, base } = pullRequest;
   const stopped = (error: unknown): never => {
     throw new Error(
@@ -154,7 +155,7 @@ async function clean(
   // after the fetch, which can take a while: the watch's status is seconds old, and a commit made meanwhile would
   // go with the branch
   const status = await read(cwd).catch(stopped);
-  if (status.branch !== branch || changed(status)) return undefined;
+  if (status.branch !== branch || changed(status)) return 'changed';
   if ((await git(cwd, 'rev-parse', 'HEAD').catch(stopped)) !== commit)
     return {
       text: `#${number} merged, but ${branch}'s last commit isn't the one it merged, so it stays.`,
@@ -475,7 +476,8 @@ export async function refreshInstall(
 
 /**
  * cleans up a merged branch while its checkout is clean and the conversation is idle without errors or queued prompts.
- * deferred cleanups retry after five seconds or a repository change. a cleanup that acts or fails isn't retried.
+ * a cleanup that found the checkout changed waits for a repository change, other deferred cleanups retry after five
+ * seconds or a repository change, and a cleanup that acts or fails isn't retried.
  */
 export function watchMerges(
   repository: Pick<RepositoryWatch, 'snapshot' | 'subscribe'>,
@@ -508,6 +510,8 @@ export function watchMerges(
     attempted = pullRequest.commit;
     void coordinator.cleanUpMerge(pullRequest, install).then(
       (acted) => {
+        // the status line's next change retries it; a timer would fetch every 5 s while the two reads disagree
+        if (acted === 'changed') return;
         if (acted) settled.add(pullRequest.commit);
         else if (!stopped) {
           retryTimer = setTimeout(retry, 5000);
