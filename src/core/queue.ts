@@ -40,7 +40,7 @@ export function joining(queue: readonly string[]): string[] {
   const command = queue.findIndex(
     (prompt) => shellCommand(prompt) !== undefined,
   );
-  return command < 0 ? [...queue] : queue.slice(0, command);
+  return queue.slice(0, command < 0 ? queue.length : command);
 }
 
 /**

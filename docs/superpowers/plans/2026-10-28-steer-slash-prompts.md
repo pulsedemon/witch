@@ -4,7 +4,7 @@
 
 **Goal:** A prompt that starts with `/` but names no listed command steers like any other prompt. A spell or native command sent mid-turn reaches its runtime as soon as the runtime can run it, without holding the prompts sent after it. Ordinary prompts queued behind a queued prompt steer into the turn it starts.
 
-**Architecture:** A prompt is a command when `skillCall` matches it against the session's listed commands. Those are spells plus Claude's built-ins, which the Claude adapter now lists flagged `builtin`, minus `clear`, `effort` and `fast`. The coordinator forwards a matched command to `AgentSession.steer` as a `SkillCall`. Claude pushes it raw and runs it after the current native turn, inside Witch's turn. Codex refuses it, so it runs as the next turn. Claude marks any other steered prompt that starts with `/` as `client_composed`, so it joins the running turn as text. `drain` re-splits its batch after connecting. Once a queued turn's input is sent, it steers the prompts queued behind that turn, up to the first `!` command, and waits for that before the turn settles.
+**Architecture:** A prompt is a command when `skillCall` matches it against the session's listed commands. Those are spells plus Claude's built-ins, which the Claude adapter now lists flagged `builtin`, minus `clear`, `effort` and `fast`. The coordinator forwards a matched command to `AgentSession.steer` as a `SkillCall`. Claude pushes it raw and runs it after the current native turn, inside Witch's turn. Codex refuses it, so it runs as the next turn. Claude marks any other steered prompt that starts with `/` as `client_composed`, so it joins the running turn as text. Until a session lists its skills, `drain` treats any `/` prompt as a command. Once a queued turn's input is sent, `performTurn` steers the prompts queued behind that turn, up to the first `!` command, and waits for those steers before it requeues the turn's unread prompts. The queue's rules live in `src/core/queue.ts`.
 
 **Tech Stack:** TypeScript (ESM, `NodeNext`), Claude Agent SDK 0.3.296 with Claude Code 2.1.299, Codex app-server 0.162.1, Vitest.
 
@@ -29,8 +29,8 @@ Static evidence comes from the installed CLIs' source, extracted to scratch and 
 - **A Codex spell sent mid-turn waits in Witch's queue for the next turn,** the earliest Codex can run it. It no longer holds the prompts sent after it.
 - **Ordinary prompts keep their order.** A prompt sent while an ordinary prompt or a `!` command is queued still waits behind it. Only queued spells and native commands that the turn refused stop holding later prompts. A `!` command steers only in the replied window, as today.
 - **Without Claude's message lifecycle, a command steer is refused unless the turn has replied, as today.** A held command would otherwise run after Witch's turn ends.
-- **`drain` re-splits its batch after connecting,** so a spell queued while its session was down still goes alone (`test/coordinator-turns.test.ts:752`). The batch still leaves the visible queue before `operate`, as today. The screen is unchanged, the batch can't be taken back mid-connect, and a batch is never empty.
-- **The steers behind a queued turn finish inside `operate`.** `drain` awaits them right after `performTurn`, while the phase is still `running`. Awaiting them at the top of each iteration instead would leave Witch idle with prompts queued, and the UI pulls a queue back into the composer when it sees idle (`src/ui/app.tsx:798-801`). Every session refuses a steer once its turn has ended (`src/agents/claude.ts:566`, `src/agents/codex.ts:614-615`), so a late one returns to the queue.
+- **With no session connected, `drain` treats any `/` prompt as a command, as today,** so a spell queued while its session was down still goes alone (`test/coordinator-turns.test.ts:752`), and ordinary prompts still join a line each. The batch still leaves the visible queue before `operate`, as today, so the screen is unchanged and a batch is never empty.
+- **The steers behind a queued turn finish inside `operate`.** `performTurn` awaits them right after `session.send` settles, while the phase is still `running`, and before it requeues the turn's unread prompts, so those keep their order. Awaiting them at the top of each iteration instead would leave Witch idle with prompts queued, and the UI pulls a queue back into the composer when it sees idle (`src/ui/app.tsx:798-801`). Every session refuses a steer once its turn has ended (`src/agents/claude.ts:566`, `src/agents/codex.ts:614-615`), so a late one returns to the queue.
 - **A Claude CLI that dies before the turn's input is written gives back the prompts steered behind it.** Its input queue is FIFO, so they are unwritten too. `end()` returns them as `unread`, and the queue ends up as the batch, those prompts, then the rest.
 - **`steer` returns the session's answer for `!` and spell steers instead of `true`.** `src/core/coordinator.ts:393-396` ignores it. A `!` row still shows before its steer, because the command's output starts at once. Claude can't refuse it while `replied` holds (`src/agents/claude.ts:588-598`).
 - **Coordination with #297.** Pr #297 (draft, not merged at `68ff1aa`) adds `this.snapshot.answering ||` to `steer`'s refusal. If it lands first, keep that refusal in `steer` ahead of the new paths, and keep its test that a prompt sent during an answer turn queues (`test/coordinator-peer-requests.test.ts`) passing.
@@ -92,30 +92,29 @@ Static evidence comes from the installed CLIs' source, extracted to scratch and 
 ### Task 2: Steer slash-shaped prompts and what a queued turn leaves behind
 
 **Files:**
-- Modify: `src/core/prompts.ts:33-38` (`alone`)
+- Create: `src/core/queue.ts` (`nextTurn`, `waitsBehind`, `joining`, `steerInOrder`), with `alone` moved from `src/core/prompts.ts:33-38`
+- Modify: `src/core/state.ts` (`agentDisplay`, the row mapping moved from `receive`, which keeps `coordinator.ts` under the 1,500-line limit)
 - Modify: `src/core/coordinator.ts:340-356` (`send`), `:364-397` (`steer`), `:413-457` (`drain`), `:863-867` and `:936-940` (`performTurn`)
 - Modify: `docs/rules.md:29`
 
 **Interfaces:**
 - Consumes: Task 1's `steer` options. `skillCall` matches built-ins because they are in `snapshot.skills`.
-- Produces: `alone(prompt: string, skills: readonly Skill[]): boolean`. `performTurn` gains a fourth parameter, `sent?: () => void`.
+- Produces: `nextTurn(queue: readonly string[], skills?: readonly Skill[]): string[]`, where `skills` is undefined while no session is connected. `performTurn` gains a fourth parameter, `queued = false`.
 
-- [ ] **Step 1: Make `alone(prompt, skills)` true for a prompt `skillCall` matches or a `!` command.** Its jsdoc says a listed spell or native command, or a `!` command, takes a turn alone, and any other `/` text, such as a path, is a prompt.
+- [ ] **Step 1: Make `alone(prompt, skills?)` true for a prompt `skillCall` matches, or for any `/` prompt while `skills` is undefined, or for a `!` command.** Its jsdoc says a listed spell or native command, or a `!` command, takes a turn alone, and any other `/` text, such as a path, is a prompt.
 - [ ] **Step 2: In `send`, hold a prompt back when the queue holds anything `skillCall` doesn't match.** That is an ordinary prompt or a `!` command, so the new prompt keeps its place behind it. Otherwise steer as now. Make the check inside the `admitting.then` callback, against the queue at admission, so two sends that aren't awaited can't pass each other.
 - [ ] **Step 3: In `steer`, drop the queue check, which `send` now owns.** After the phase, cancel and session checks:
   - A `!` command keeps its replied-only path with the row first, but returns `session.steer(...)`'s result.
   - A `skillCall` match steers `prompt.trimStart()` with `{ skill }`.
   - Anything else steers the prompt as typed.
   - Only the `!` path shows its row before steering. The others show it once accepted.
-- [ ] **Step 4: In `performTurn`, add `sent?: () => void`.** Call it right after `session.send(...)` is invoked and before that promise is awaited (`:936-940`). A comment says why: called after an await, the steers it chains would queue behind an admission the turn's end is waiting for (`test/coordinator-turns.test.ts:841`).
+- [ ] **Step 4: In `performTurn`, add `queued = false`.** For a queued turn that isn't a `!` command, chain `steerQueued()` onto `this.admitting` right after `session.send(...)` is invoked and before that promise is awaited. A comment says why: chained after an await, the steers would queue behind an admission the turn's end is waiting for (`test/coordinator-turns.test.ts:841`). Await the steers once `send` settles, before the turn's unread prompts are requeued.
 - [ ] **Step 5: Change `drain`.**
-  - Before `operate`, take the batch as today, using the current skills, and publish the queue without it. The batch is the first prompt alone if it is `alone`, and otherwise every prompt before the first `alone` one.
-  - Inside `operate`, right after `connectForTurn`, re-split the batch with the connected session's skills. Put what no longer belongs to it back in front of the queue, so a spell queued while skills were unknown goes alone. Reassign `batch` to the shortened one, so the join and the `finally` use it.
-  - For a batch that isn't a `!` command, pass `sent`. It sets `followers = this.admitting.then(() => this.steerQueued())` and `this.admitting = followers.catch(...)`.
-  - Await `followers` in a `finally` around `performTurn`, still inside `operate`, and report any error. `finishActivity` and `save` can throw after `sent`.
+  - Before `operate`, take the batch as today with `nextTurn`, passing the skills only while a session is connected, and publish the queue without it.
+  - Pass `queued = true` to `performTurn`.
   - Add no other await to the loop. The `finally` still puts an undelivered batch back at the front.
-- [ ] **Step 6: Add `private async steerQueued(): Promise<void>`.**
-  - It takes the queue up to its first `!` command out of the queue and steers each prompt in order with `steer`.
+- [ ] **Step 6: Add `private steerQueued(): Promise<void>`, chained on `this.admitting`, which reports its own errors.**
+  - It takes the queue up to its first `!` command (`joining`) out of the queue and steers each prompt in order with `steer` (`steerInOrder`).
   - Every refused prompt goes back in front of the queue, in order.
   - Once an ordinary prompt is refused, it and the rest go back unsteered.
   - Its jsdoc says ordinary prompts queued behind a queued prompt join the turn it starts, and a `!` command and what follows it wait.
@@ -213,6 +212,6 @@ Static evidence comes from the installed CLIs' source, extracted to scratch and 
 ### Task 5: Publish
 
 - [ ] **Step 1: Run `simplify-changes` over the branch's diff.** Commit any fix it makes, then rerun `pnpm check`.
-- [ ] **Step 2: Merge `origin/main` and rerun `pnpm check`.** If #297 has landed, apply the coordination decision. Its `runTurn` replaces `performTurn`'s `delivered` parameter with `TurnOptions` and owns connect and compaction, so `sent` becomes a `TurnOptions` field and the re-split moves into `runTurn`, for turns of kind `turn` only.
+- [ ] **Step 2: Merge `origin/main` and rerun `pnpm check`.** If #297 has landed, apply the coordination decision. Its `runTurn` replaces `performTurn`'s `delivered` parameter with `TurnOptions` and owns connect and compaction, so `queued` becomes a `TurnOptions` field, for turns of kind `turn` only.
 - [ ] **Step 3: Push and open the pr with `pr-writing`.** The body cites the Evidence section's CLI findings, Task 3's logged output and the built-in decision. It labels as static evidence the `still_queued` claim and the claim that `client_composed` costs only mention expansion.
 - [ ] **Step 4: Delete this plan in a follow-up commit once the pr merges.**
