@@ -893,9 +893,10 @@ test('a prompt whose steer is refused after a failed turn has ended stays for th
 });
 
 test('a failed handoff continuation leaves what was queued during the switch for the composer', async () => {
-  const { coordinator, b } = await fixture();
+  const { coordinator, a, b } = await fixture();
   const gate = new TurnGate();
   try {
+    a.interruptNext = true;
     await coordinator.send('Start');
     b.gate = gate;
     b.failNext = true;

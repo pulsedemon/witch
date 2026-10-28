@@ -244,11 +244,27 @@ test('an interrupt before compaction delivery sends nothing', async () => {
   }
 });
 
+test('compaction preserves the last ordinary-turn outcome', async () => {
+  const f = await fixture();
+  try {
+    f.a.interruptNext = true;
+    await f.coordinator.send('unfinished task');
+    const id = f.coordinator.snapshot.conversation!.id;
+    const previous = (await readRecord(f.root, id)).lastTurn;
+    assert.equal(previous?.status, 'interrupted');
+    await f.coordinator.compact();
+    assert.equal(f.a.compactions.length, 1);
+    assert.equal(f.a.inputs.length, 1);
+    assert.deepEqual((await readRecord(f.root, id)).lastTurn, previous);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('compaction preserves active background records and pending handoff context', async () => {
   const f = await fixture();
   try {
     await f.coordinator.send('seed');
-    f.b.failNext = true;
     await f.coordinator.selectModel({ agent: 'b', id: 'b-model' });
     const handoff = f.coordinator.snapshot.conversation!.handoff;
     assert.ok(handoff?.summary);

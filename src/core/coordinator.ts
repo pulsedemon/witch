@@ -96,7 +96,7 @@ export interface Snapshot {
   usage: Usage;
   /** when this instance opened the conversation, in epoch milliseconds. */
   openedAt?: number;
-  /** a successful normal turn whose memory and final record save finished; never persisted. */
+  /** a live completion signal; reopening never announces a stored result. */
   completedTurn?: string;
   recovery?: Recovery;
   error?: string;
@@ -595,7 +595,6 @@ export class Coordinator {
   }
 
   async interrupt(): Promise<void> {
-    const cleaning = this.cleanupCancellation ? this.task : undefined;
     const refresh =
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
@@ -610,7 +609,7 @@ export class Coordinator {
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
     const results = await Promise.allSettled([
-      cleaning,
+      this.cleanupCancellation ? this.task : undefined,
       this.coordination?.endTurn(),
       (async () => {
         if (refresh && !this.closed) return;
@@ -823,6 +822,8 @@ export class Coordinator {
     const { agent } = selection;
     const conversation = this.current();
     const { agent: from, handoff: previousHandoff } = conversation;
+    const outcome = conversation.lastTurn?.status;
+    const unfinished = outcome === 'interrupted' || outcome === 'failed';
     const previous = conversation.sessions[agent];
     let activated = false;
     try {
@@ -848,12 +849,12 @@ export class Coordinator {
       await this.save();
       activated = true;
       this.publish({ conversation, native: this.session?.info });
-      if (summary)
+      if (summary && unfinished)
         await this.performTurn(
           'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
           'turn',
         );
-      else delete conversation.handoff;
+      else if (!summary) delete conversation.handoff;
       await this.save();
     } catch (error) {
       let failure = error;
@@ -995,9 +996,11 @@ export class Coordinator {
         if (pendingHandoff === conversation.handoff)
           delete conversation.handoff;
       }
+      if (kind === 'turn')
+        conversation.lastTurn = { id: activity.id, status: result.status };
       await this.save();
-      if (kind === 'turn' && result.status === 'completed')
-        this.publish({ completedTurn: activity.id });
+      if (kind === 'turn' && conversation.lastTurn?.status === 'completed')
+        this.publish({ completedTurn: conversation.lastTurn.id });
       return result;
     } finally {
       await this.coordination?.endTurn(activity.id);
@@ -1348,10 +1351,7 @@ export class Coordinator {
     if (save) this.persist(this.files!.append(stamped));
   }
 
-  /**
-   * `cwd` resolves the paths the notice names, so a memory note links into the worktree. an unsaved notice, such as
-   * a startup or connection diagnostic, can't make an unused conversation resumable.
-   */
+  /** transient notices must not make an unused conversation resumable. */
   notice(text: string, cwd = this.current().cwd, save = true): void {
     this.display({ id: randomUUID(), kind: 'notice', text, cwd }, save);
   }

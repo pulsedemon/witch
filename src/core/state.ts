@@ -56,6 +56,12 @@ export function agentWorking(phase: Phase): boolean {
 }
 
 export const conversationRecordSchema = conversationSchema.extend({
+  lastTurn: z
+    .object({
+      id: z.string(),
+      status: z.enum(['completed', 'interrupted', 'failed']),
+    })
+    .optional(),
   process: processIdentity.optional(),
   usageProcess: processIdentity.optional(),
   // the shell of a running `!` command Witch runs for Claude
