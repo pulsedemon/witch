@@ -36,7 +36,8 @@ import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
 import { taskActivity } from './coordination-state.js';
-import { cleanUpMerge, peerTurnIn, refreshInstall } from './merged.js';
+import { runMergeCleanup } from './merged.js';
+import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import type { ModelChoice, ModelSelection } from './models.js';
@@ -149,6 +150,7 @@ export class Coordinator {
   private admitting: Promise<unknown> = Promise.resolve();
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
+  private cleanupCancellation?: AbortController;
 
   constructor(
     private readonly store: StateStore,
@@ -593,6 +595,7 @@ export class Coordinator {
   }
 
   async interrupt(): Promise<void> {
+    const cleaning = this.cleanupCancellation ? this.task : undefined;
     const refresh =
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
@@ -605,7 +608,9 @@ export class Coordinator {
     this.connecting?.abort();
     this.catalog.cancel();
     this.editorCancellation?.abort();
+    this.cleanupCancellation?.abort();
     const results = await Promise.allSettled([
+      cleaning,
       this.coordination?.endTurn(),
       (async () => {
         if (refresh && !this.closed) return;
@@ -724,30 +729,27 @@ export class Coordinator {
     });
   }
 
-  /** returns whether merge cleanup acted, or `'changed'` when the checkout changed, refreshing `install` after Witch's own. */
   async cleanUpMerge(
     pullRequest: PullRequest,
     install?: string,
-  ): Promise<boolean | 'changed'> {
-    let acted: boolean | 'changed' = false;
+    progress: MergeCleanup = {},
+  ): Promise<CleanupResult> {
+    let acted: CleanupResult = false;
     await this.operate('cleaning', async () => {
-      const { id, cwd } = this.current();
-      // the phase covers only this Witch, and another one's agent would carry on on the base
-      const outcome = await cleanUpMerge(cwd, pullRequest, () =>
-        peerTurnIn(this.store, id, cwd),
-      );
-      if (outcome === 'changed') acted = outcome;
-      if (typeof outcome !== 'object') return;
-      acted = true;
-      // first, so a failed rebuild doesn't lose it
-      this.notice(outcome.text);
-      if (
-        outcome.cleaned &&
-        install &&
-        (await this.memory.scopePaths(cwd)).project ===
-          (await this.memory.scopePaths(install)).project
-      )
-        this.notice(await refreshInstall(install, pullRequest.base));
+      const abort = (this.cleanupCancellation = new AbortController());
+      if (this.cancelled) abort.abort();
+      try {
+        acted = await runMergeCleanup(pullRequest, progress, {
+          store: this.store,
+          memory: this.memory,
+          conversation: this.current(),
+          install,
+          signal: abort.signal,
+          notice: (text) => this.notice(text),
+        });
+      } finally {
+        this.cleanupCancellation = undefined;
+      }
     });
     return acted;
   }

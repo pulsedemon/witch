@@ -183,7 +183,12 @@ export function parsePullRequest(json: string): PullRequest {
 export type Run = (
   command: string,
   args: string[],
-  options: { cwd: string; timeout: number; env?: NodeJS.ProcessEnv },
+  options: {
+    cwd: string;
+    timeout: number;
+    env?: NodeJS.ProcessEnv;
+    signal?: AbortSignal;
+  },
 ) => Promise<{ stdout: string }>;
 
 /** how soon a change is read, so one save's several writes take one read. */
