@@ -62,6 +62,7 @@ test('/restart restarts without exiting or sending a prompt', async () => {
 for (const [phase, outcome, exits, interrupts] of [
   ['idle', 'exits', 1, 0],
   ['running', 'interrupts', 0, 1],
+  ['cleaning', 'exits', 1, 0],
 ] as const)
   test(`Ctrl+C while ${phase} ${outcome}`, async () => {
     const { app, calls } = fake({ phase });
@@ -107,6 +108,28 @@ test('Ctrl+C while closing quits instead of interrupting again', async () => {
     await delay(60);
     assert.equal(exits, 1);
     assert.ok(!calls.some(([call]) => call === 'interrupt'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('Escape interrupts merge cleanup without exiting', async () => {
+  const { app, calls } = fake({ phase: 'cleaning' });
+  let exits = 0;
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {
+        exits++;
+      },
+    }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('\u001b');
+    await until('the cleanup interrupt', () => calls.length > 0);
+    assert.deepEqual(calls, [['interrupt']]);
+    assert.equal(exits, 0);
   } finally {
     ui.unmount();
   }

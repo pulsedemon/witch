@@ -921,7 +921,7 @@ export function App({
     if (key.escape) {
       if (view.kind !== 'chat') setView({ kind: 'chat' });
       else if (toolFocusRef.current) setToolFocus(false);
-      else if (busy) run(coordinator.interrupt());
+      else if (busy || state.phase === 'cleaning') run(coordinator.interrupt());
       return;
     }
     if (key.ctrl && input === 'p') {

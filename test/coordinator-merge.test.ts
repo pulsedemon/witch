@@ -9,13 +9,15 @@ import { test } from 'vitest';
 import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
+import type { MergeCleanup } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
 import { openLocked } from '../src/persistence/lock.js';
-import { identifyProcess } from '../src/persistence/process.js';
+import { identifyProcess, ps } from '../src/persistence/process.js';
 import type { ConversationStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import { activity, fixture, record, turns } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const gitIn = async (cwd: string, ...args: string[]) =>
   (
@@ -209,7 +211,8 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
       } satisfies Repository,
       subscribe: () => () => {},
     };
-    const first = Promise.withResolvers<boolean | 'changed'>();
+    const first =
+      Promise.withResolvers<Awaited<ReturnType<Coordinator['cleanUpMerge']>>>();
     const completed = Promise.withResolvers<void>();
     const statuses: string[] = [];
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
@@ -559,3 +562,335 @@ exec '${realGit}' "$@"
     await coordinator.close();
   }
 });
+
+async function interruptedCleanup(stage: string, register: RegisterCleanup) {
+  const { coordinator, root, project } = await fixture();
+  const origin = join(root, 'origin.git');
+  await gitIn(root, 'init', '--bare', origin);
+  await gitIn(root, 'clone', origin, project);
+  await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
+  await gitIn(project, 'push', '-u', 'origin', 'main');
+  const base = await gitIn(project, 'rev-parse', 'HEAD');
+  await gitIn(project, 'switch', '-c', 'feat/x');
+  await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
+  const tip = await gitIn(project, 'rev-parse', 'HEAD');
+  await gitIn(project, 'push', 'origin', 'feat/x:main');
+  await gitIn(project, 'config', 'branch.feat/x.remote', 'origin');
+  await gitIn(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+  await gitIn(project, 'branch', 'feat/y', 'main');
+  await gitIn(project, 'config', 'branch.feat/y.remote', 'origin');
+  await gitIn(project, 'config', 'branch.feat/y.merge', 'refs/heads/feat/y');
+  const later = join(root, 'later');
+  let expectedHead = tip;
+  if (stage === 'advanced') {
+    await gitIn(root, 'clone', origin, later);
+    await gitIn(later, 'commit', '--allow-empty', '-m', 'later remote commit');
+    expectedHead = await gitIn(later, 'rev-parse', 'HEAD');
+  }
+  const previousPath = process.env.PATH;
+  const realGit = (
+    await promisify(execFile)('/usr/bin/which', ['git'])
+  ).stdout.trim();
+  const bin = join(root, 'bin');
+  const ready = join(root, 'ready.json');
+  const log = join(root, 'commands.jsonl');
+  await mkdir(bin);
+  for (const tool of ['git', 'pnpm'])
+    await writeFile(
+      join(bin, tool),
+      `#!${process.execPath}
+const { spawn, spawnSync } = require('node:child_process');
+const { appendFileSync, existsSync, readFileSync, writeFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+const tool = ${JSON.stringify(tool)};
+const stage = ${JSON.stringify(stage)};
+appendFileSync(${JSON.stringify(log)}, JSON.stringify([tool, ...args]) + '\\n');
+const gate = () => {
+  process.on('SIGTERM', () => {});
+  const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)", ${JSON.stringify(ready)}], {stdio:'ignore'});
+  writeFileSync(${JSON.stringify(ready)}, JSON.stringify([process.pid, child.pid]));
+  setInterval(() => {}, 1000);
+};
+const first = !existsSync(${JSON.stringify(ready)});
+if (stage === 'advanced' && tool === 'git' && args.includes('fetch')) {
+  const file = ${JSON.stringify(join(root, 'fetch-count'))};
+  const n = existsSync(file) ? Number(readFileSync(file, 'utf8')) + 1 : 1;
+  writeFileSync(file, String(n));
+  if (n === 3 && spawnSync(${JSON.stringify(realGit)}, ['-C', ${JSON.stringify(later)}, 'push', 'origin', 'main'], {stdio:'inherit'}).status !== 0)
+    process.exit(1);
+}
+if (first && stage === 'fetch' && tool === 'git' && args.includes('fetch')) gate();
+else {
+  const status = tool === 'git' ? spawnSync(${JSON.stringify(realGit)}, args, {stdio:'inherit'}).status ?? 1 : 0;
+  const hold = tool === 'pnpm' ? args[0] === (stage === 'advanced' ? 'install' : stage) :
+    (stage === 'switch' && args[0] === 'switch') ||
+    (stage === 'delete' && args[0] === 'update-ref') ||
+    (stage === 'config' && args[0] === 'config' && args[1] === '--remove-section') ||
+    (stage === 'pull' && args[0] === 'merge') ||
+    (stage === 'prune' && args[0] === 'branch' && args[1] === '-d');
+  if (status === 0 && first && hold) gate();
+  else process.exit(status);
+}
+`,
+      { mode: 0o755 },
+    );
+  process.env.PATH = `${bin}:${previousPath}`;
+  let pids: number[] = [];
+  register(async () => {
+    for (const line of await ps(
+      'pid=,command=',
+      pids.length ? pids : [process.pid],
+    )) {
+      if (!line.includes(bin) && !line.includes(ready)) continue;
+      try {
+        process.kill(Number(line.trim().split(/\s+/)[0]), 'SIGKILL');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      }
+    }
+    await coordinator.close();
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  });
+  const entered = async () => {
+    await until(
+      `the ${stage} command`,
+      async () => {
+        pids = await readFile(ready, 'utf8')
+          .then((text) => JSON.parse(text) as number[])
+          .catch(() => []);
+        return pids.length > 0;
+      },
+      500,
+    );
+  };
+  return {
+    coordinator,
+    project,
+    tip,
+    base,
+    expectedHead,
+    entered,
+    stopped: async () =>
+      assert.deepEqual(
+        (await ps('pid=,stat=', pids)).filter(
+          (line) => !line.trim().split(/\s+/)[1]?.startsWith('Z'),
+        ),
+        [],
+      ),
+    commands: async () =>
+      (await readFile(log, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as string[]),
+  };
+}
+
+for (const stage of [
+  'fetch',
+  'switch',
+  'delete',
+  'config',
+  'pull',
+  'prune',
+  'install',
+  'build',
+  'advanced',
+])
+  test(`an interrupted ${stage === 'advanced' ? 'install after its own checkout update' : stage} resumes cleanup without repeating completed deletion or checkout steps`, async (t) => {
+    const {
+      coordinator,
+      project,
+      tip,
+      expectedHead,
+      entered,
+      stopped,
+      commands,
+    } = await interruptedCleanup(stage, t.onTestFinished);
+    const repository: { snapshot: Repository; subscribe: () => () => void } = {
+      snapshot: {
+        branch: 'feat/x',
+        ahead: 0,
+        behind: 0,
+        staged: 0,
+        modified: 0,
+        conflicts: 0,
+        untracked: 0,
+        pullRequest: mergedPullRequest(tip),
+      },
+      subscribe: () => () => {},
+    };
+    const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
+    const cleanup = coordinator.cleanUpMerge.bind(coordinator);
+    coordinator.cleanUpMerge = async (...args) => {
+      const result = await cleanup(...args);
+      if (result === 'interrupted') await stopped();
+      results.push(result);
+      return result;
+    };
+    const stop = watchMerges(repository, coordinator, project);
+    try {
+      await entered();
+      repository.snapshot.branch = await gitIn(
+        project,
+        'branch',
+        '--show-current',
+      );
+      if (repository.snapshot.branch === 'main')
+        delete repository.snapshot.pullRequest;
+      await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+      await until(
+        'resumed cleanup completion',
+        () => results.includes(true),
+        500,
+      );
+      assert.deepEqual(results, ['interrupted', true]);
+      assert.equal(coordinator.snapshot.error, undefined);
+      assert.equal(await gitIn(project, 'branch', '--show-current'), 'main');
+      assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), expectedHead);
+      assert.equal(
+        await gitIn(project, 'branch', '--format=%(refname:short)'),
+        'main',
+      );
+      const calls = await commands();
+      for (const command of ['switch', 'update-ref'])
+        assert.equal(
+          calls.filter(([tool, name]) => tool === 'git' && name === command)
+            .length,
+          1,
+          command,
+        );
+      assert.equal(
+        calls.filter(
+          ([tool, name, option]) =>
+            tool === 'git' &&
+            name === 'config' &&
+            option === '--remove-section',
+        ).length,
+        1,
+      );
+      assert.equal(
+        calls.filter(
+          ([tool, name, option]) =>
+            tool === 'git' && name === 'branch' && option === '-d',
+        ).length,
+        1,
+      );
+      assert.deepEqual(
+        calls.filter(([tool]) => tool === 'pnpm'),
+        stage === 'install' || stage === 'advanced'
+          ? [
+              ['pnpm', 'install', '--frozen-lockfile'],
+              ['pnpm', 'install', '--frozen-lockfile'],
+              ['pnpm', 'build'],
+            ]
+          : stage === 'build'
+            ? [
+                ['pnpm', 'install', '--frozen-lockfile'],
+                ['pnpm', 'build'],
+                ['pnpm', 'build'],
+              ]
+            : [
+                ['pnpm', 'install', '--frozen-lockfile'],
+                ['pnpm', 'build'],
+              ],
+      );
+    } finally {
+      stop();
+    }
+  });
+
+for (const changed of ['edit', 'branch', 'commit', 'recreated branch'])
+  test(`a ${changed} after cancellation prevents unsafe cleanup continuation`, async (t) => {
+    const { coordinator, project, tip, entered, stopped, commands } =
+      await interruptedCleanup('install', t.onTestFinished);
+    const progress: MergeCleanup = {};
+    const request = mergedPullRequest(tip);
+    const first = coordinator.cleanUpMerge(request, project, progress);
+    await entered();
+    await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+    assert.equal(await first, 'interrupted');
+    await stopped();
+    if (changed === 'edit') {
+      await writeFile(join(project, 'added.txt'), 'keep this');
+      await gitIn(project, 'add', 'added.txt');
+    } else if (changed === 'branch')
+      await gitIn(project, 'switch', '-c', 'feat/new');
+    else if (changed === 'commit')
+      await gitIn(project, 'commit', '--allow-empty', '-m', 'new work');
+    else await gitIn(project, 'branch', 'feat/x');
+    const before = await gitIn(project, 'status', '--porcelain=v2', '--branch');
+    assert.equal(
+      await coordinator.cleanUpMerge(request, project, progress),
+      'changed',
+    );
+    assert.equal(
+      await gitIn(project, 'status', '--porcelain=v2', '--branch'),
+      before,
+    );
+    if (changed === 'recreated branch')
+      assert.equal(await gitIn(project, 'rev-parse', 'feat/x'), tip);
+    assert.equal(
+      (await commands()).filter(([tool]) => tool === 'pnpm').length,
+      1,
+    );
+  });
+
+for (const restart of [false, true])
+  test(`${restart ? 'restart' : 'close'} stops an in-flight cleanup install and its children within five seconds`, async (t) => {
+    const { coordinator, project, tip, entered, stopped, commands } =
+      await interruptedCleanup('install', t.onTestFinished);
+    const cleanup = coordinator.cleanUpMerge(mergedPullRequest(tip), project);
+    await entered();
+    await within(
+      coordinator.close({ restart }),
+      5000,
+      'closing during cleanup',
+    );
+    assert.equal(await cleanup, 'interrupted');
+    await stopped();
+    assert.deepEqual(
+      (await commands()).filter(([tool]) => tool === 'pnpm'),
+      [['pnpm', 'install', '--frozen-lockfile']],
+    );
+  });
+
+for (const stage of ['delete', 'prune'])
+  test(`cancellation checkpoints a completed ${stage} before queued work can recreate the same ref`, async (t) => {
+    const { coordinator, project, tip, base, entered, stopped, commands } =
+      await interruptedCleanup(stage, t.onTestFinished);
+    const progress: MergeCleanup = {};
+    const request = mergedPullRequest(tip);
+    const first = coordinator.cleanUpMerge(request, project, progress);
+    await entered();
+    await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
+    assert.equal(await first, 'interrupted');
+    await stopped();
+    const name = stage === 'delete' ? 'feat/x' : 'feat/y';
+    const head = stage === 'delete' ? tip : base;
+    await gitIn(project, 'branch', name, head);
+    await gitIn(project, 'config', `branch.${name}.remote`, 'origin');
+    await gitIn(
+      project,
+      'config',
+      `branch.${name}.merge`,
+      `refs/heads/${name}`,
+    );
+    assert.equal(
+      await coordinator.cleanUpMerge(request, project, progress),
+      stage === 'delete' ? 'changed' : true,
+    );
+    assert.equal(await gitIn(project, 'rev-parse', name), head);
+    assert.equal(
+      await gitIn(project, 'config', `branch.${name}.merge`),
+      `refs/heads/${name}`,
+    );
+    const command = stage === 'delete' ? 'update-ref' : 'branch';
+    assert.equal(
+      (await commands()).filter(
+        ([tool, name, option]) =>
+          tool === 'git' && name === command && option === '-d',
+      ).length,
+      1,
+    );
+  });

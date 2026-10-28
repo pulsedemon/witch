@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
-import type { Snapshot } from '../src/core/coordinator.js';
+import type { Coordinator, Snapshot } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
+import type { MergeCleanup } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
@@ -46,7 +47,9 @@ function fixture(register: RegisterCleanup) {
     },
   };
   const calls: [PullRequest, string | undefined][] = [];
-  let pending: PromiseWithResolvers<boolean | 'changed'> | undefined;
+  type Result = Awaited<ReturnType<Coordinator['cleanUpMerge']>>;
+  let pending: PromiseWithResolvers<Result> | undefined;
+  const progress: MergeCleanup[] = [];
   const coordinator = {
     snapshot: { phase: 'idle', queue: [] } as unknown as Snapshot,
     subscribe: (listener: () => void) => {
@@ -54,10 +57,15 @@ function fixture(register: RegisterCleanup) {
       return () => listeners.coordinator.delete(listener);
     },
     // as operate does, the cleanup holds the phase until it settles
-    cleanUpMerge: (merged: PullRequest, install?: string) => {
+    cleanUpMerge: (
+      merged: PullRequest,
+      install?: string,
+      remaining: MergeCleanup = {},
+    ) => {
       calls.push([merged, install]);
+      progress.push(remaining);
       publishCoordinator({ phase: 'cleaning' });
-      pending = Promise.withResolvers<boolean | 'changed'>();
+      pending = Promise.withResolvers<Result>();
       return pending.promise;
     },
   };
@@ -74,7 +82,7 @@ function fixture(register: RegisterCleanup) {
     publishCoordinator(update);
     await tick();
   };
-  const settle = async (value: boolean | 'changed' | Error) => {
+  const settle = async (value: Result | Error) => {
     publishCoordinator({ phase: 'idle' });
     if (value instanceof Error) pending!.reject(value);
     else pending!.resolve(value);
@@ -82,7 +90,7 @@ function fixture(register: RegisterCleanup) {
   };
   const stop = watchMerges(repository, coordinator, '/install');
   register(stop);
-  return { calls, publishRepository, publish, settle, stop };
+  return { calls, progress, publishRepository, publish, settle, stop };
 }
 
 test('the watch cleans up after each merged commit once, only on its branch, clean and idle', async (t) => {
@@ -208,7 +216,7 @@ test('a cleanup that finds a change the status line missed waits for its next up
   await settle(true);
 });
 
-for (const pending of ['retry', 'cleanup'] as const)
+for (const pending of ['retry', 'cleanup', 'interrupted'] as const)
   test(`stopping the watch with a pending ${pending} prevents later cleanup`, async (t) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const { calls, publishRepository, publish, settle, stop } = fixture(
@@ -218,9 +226,49 @@ for (const pending of ['retry', 'cleanup'] as const)
     if (pending === 'retry') await settle(false);
     stop();
     if (pending === 'cleanup') await settle(false);
+    if (pending === 'interrupted') await settle('interrupted');
     vi.advanceTimersByTime(10_000);
     await tick();
     await publishRepository();
     await publish();
     assert.equal(calls.length, 1);
   });
+
+test('an interrupted cleanup keeps its progress after the repository leaves the merged branch', async (t) => {
+  const { calls, progress, publishRepository, publish, settle } = fixture(
+    t.onTestFinished,
+  );
+  await publishRepository(status(pr('MERGED', 'c1')));
+  progress[0]!.moved = true;
+  await publishRepository(status(undefined, { branch: 'main' }));
+  await settle('interrupted');
+  await publish();
+  assert.deepEqual(calls, [
+    [pr('MERGED', 'c1'), '/install'],
+    [pr('MERGED', 'c1'), '/install'],
+  ]);
+  assert.equal(progress[1], progress[0]);
+  assert.equal(progress[1]!.moved, true);
+  await settle(true);
+});
+
+test('changing conversations drops an interrupted cleanup before it resumes', async (t) => {
+  const { calls, publishRepository, publish, settle } = fixture(
+    t.onTestFinished,
+  );
+  await publishRepository(status(pr('MERGED', 'c1')));
+  await publishRepository(status(undefined, { branch: 'main' }));
+  await publish({
+    conversation: {
+      id: 'next',
+      title: 'Next',
+      cwd: '/next',
+      agent: 'a',
+      sessions: {},
+      createdAt: '',
+    },
+  });
+  await settle('interrupted');
+  await publish();
+  assert.equal(calls.length, 1);
+});
