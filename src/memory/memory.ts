@@ -245,6 +245,18 @@ export class Memory {
     };
   }
 
+  /** the Git config holding the origin `scopePaths` reads for a directory, or undefined outside a repository. */
+  async configPath(directory: string): Promise<string | undefined> {
+    const result = await this.run(
+      directory,
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { codes: [0, 128] },
+    );
+    return result.code === 0
+      ? join(result.stdout.toString('utf8').trim(), 'config')
+      : undefined;
+  }
+
   /** the repository git reaches through a checkout's origin, and the checkout's top level. a local origin with an origin of its own is followed, so a clone of a clone shares its project. */
   private async reach(
     cwd: string,

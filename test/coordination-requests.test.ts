@@ -1027,7 +1027,8 @@ for (const readFails of [false, true])
       });
       failing = readFails;
       if (readFails) {
-        refreshes[0]!();
+        // nothing changed since the last tick, so the gated tick would start no refresh
+        void a.coordination['refresh']();
         await within(
           a.coordination['refreshing']!.promise,
           5000,

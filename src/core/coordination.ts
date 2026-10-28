@@ -1,5 +1,6 @@
 import { isFamiliarAction } from '../agents/familiar-report.js';
 import { randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentSession } from '../agents/types.js';
 import { errorMessage } from '../agents/stderr.js';
@@ -47,6 +48,27 @@ interface Activation {
   accepting: boolean;
   publishing: boolean;
   release(): Promise<void>;
+  /** the Git config holding the origin the project is read from, unset outside a repository. */
+  config?: string;
+  /** the config's stamp when its project was last read. */
+  configured?: string;
+  /** the coordination signature and clock when the tick last refreshed. */
+  observed?: string;
+  rereadAt?: number;
+}
+
+/** lock holders and process exits change no file, so the tick rereads them this often. */
+const rereadInterval = 60_000;
+
+/** what changes when Git rewrites a config file. */
+function configStamp(file: string | undefined): string {
+  if (!file) return 'none';
+  try {
+    const { mtimeNs, ino, size } = statSync(file, { bigint: true });
+    return `${mtimeNs}:${ino}:${size}`;
+  } catch {
+    return 'missing';
+  }
 }
 
 interface Discovery {
@@ -118,6 +140,10 @@ export class SessionCoordination {
     project: string;
     promise: Promise<void>;
   };
+  /** project reads run one at a time, so their results land in start order. */
+  private projecting: Promise<void> = Promise.resolve();
+  /** counts publications of a view with a ledger. */
+  private published = 0;
   private revision = 0;
   private mutationRevision = 0;
   private ledgerObservation = 0;
@@ -189,13 +215,7 @@ export class SessionCoordination {
       await coordination.host.close();
       throw error;
     }
-    coordination.timer = setInterval(() => {
-      void coordination.maintain();
-      void coordination.refresh();
-      void coordination.refreshMerges();
-      void coordination.retryPresence();
-      void coordination.publishMerges();
-    }, 2000);
+    coordination.timer = setInterval(() => coordination.tick(), 2000);
     coordination.timer.unref();
     return coordination;
   }
@@ -231,6 +251,9 @@ export class SessionCoordination {
     )
       return this.active.binding;
     if (this.active) await this.deactivate();
+    const config = await this.memory
+      .configPath(conversation.cwd)
+      .catch(() => undefined);
     const activation = randomUUID();
     const release = await this.registry.holdActivation(activation);
     const active: Activation = {
@@ -245,6 +268,7 @@ export class SessionCoordination {
       accepting: false,
       publishing: true,
       release,
+      config,
     };
     this.active = active;
     this.view = undefined;
@@ -605,6 +629,7 @@ export class SessionCoordination {
       await Promise.all([
         this.refreshing?.promise,
         this.refreshingMerges?.promise,
+        this.projecting,
       ]);
     }
   }
@@ -826,6 +851,7 @@ export class SessionCoordination {
       this.ledger = ledger;
     if (this.view.discovery.revision > this.discoveryFailure)
       this.failures.delete('discovery');
+    this.published++;
     this.publish(
       this.projectDiscovery(
         active,
@@ -1062,19 +1088,83 @@ export class SessionCoordination {
     }
   }
 
-  private async refreshProject(active: Activation): Promise<void> {
+  private refreshProject(active: Activation): Promise<void> {
+    const read = this.projecting.then(() => this.readProject(active));
+    this.projecting = read.catch(() => {});
+    return read;
+  }
+
+  /** never awaits the refreshes it starts, since `verify` reads the project while holding the ledger lock they take. */
+  private async readProject(active: Activation): Promise<void> {
     try {
       const { project } = await this.memory.scopePaths(active.conversation.cwd);
       if (this.active !== active || !active.publishing || this.closed) return;
+      const changed = active.project !== project;
       active.project = project;
       if (this.turn && this.turn.owner.project !== project) this.revokeTurn();
       this.failures.delete('project');
       if (this.state) this.update(this.state);
+      if (changed) {
+        void this.refresh();
+        void this.refreshMerges();
+      }
     } catch (error) {
       if (this.active === active && active.publishing && !this.closed)
         this.fail('project', error);
       throw error;
     }
+  }
+
+  /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
+  private tick(): void {
+    void this.maintain();
+    void this.retryPresence();
+    void this.publishMerges();
+    const active = this.active;
+    if (!active?.publishing || this.closed) return;
+    this.rescope(active);
+    this.reread(active);
+  }
+
+  private rescope(active: Activation): void {
+    const stamp = configStamp(active.config);
+    if (stamp === active.configured && !this.failures.has('project')) return;
+    active.configured = stamp;
+    void this.refreshProject(active).catch(() => {});
+  }
+
+  /** a refresh started while another runs would join it and miss what changed since it read, so the next tick decides. */
+  private reread(active: Activation): void {
+    if (this.refreshing || this.refreshingMerges) return;
+    const signature = this.registry.signature();
+    const now = performance.now();
+    if (
+      signature !== undefined &&
+      signature === active.observed &&
+      active.rereadAt !== undefined &&
+      now - active.rereadAt < rereadInterval &&
+      !['discovery', 'ledger', 'merge-events'].some((key) =>
+        this.failures.has(key),
+      )
+    )
+      return;
+    active.observed = signature;
+    active.rereadAt = now;
+    const published = this.published;
+    void this.refresh().then(() => {
+      // a refresh that published nothing leaves what it read unshown, so the next tick tries again
+      if (this.published === published && active.observed === signature)
+        active.observed = undefined;
+    });
+    void this.refreshMerges();
+    const stamp = configStamp(active.config);
+    if (stamp === 'none' || stamp === 'missing')
+      void this.memory.configPath(active.conversation.cwd).then(
+        (config) => {
+          if (this.active === active) active.config = config;
+        },
+        () => {},
+      );
   }
 
   private async inspect(): Promise<CoordinationSnapshot> {
@@ -1145,12 +1235,7 @@ export class SessionCoordination {
     const promise = this.registry
       .mergeEvents(project, active.conversation.id)
       .then(
-        async (events) => {
-          try {
-            await this.refreshProject(active);
-          } catch {
-            return;
-          }
+        (events) => {
           if (!current()) return;
           const merges = {
             conversation: active.conversation.id,

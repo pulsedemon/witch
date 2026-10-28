@@ -1,0 +1,257 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { test, vi } from 'vitest';
+import type { SessionCoordination } from '../src/core/coordination.js';
+import type { SessionPresence } from '../src/core/coordination-state.js';
+import { CoordinationStore } from '../src/persistence/coordination.js';
+import type { Ledger } from '../src/persistence/coordination.js';
+import { identifyProcess } from '../src/persistence/process.js';
+import type { RegisterCleanup } from './fixtures/cleanup.js';
+import { orderedCleanup } from './fixtures/cleanup.js';
+import { coordinationFixture, git } from './fixtures/coordination.js';
+import { record } from './fixtures/coordinator.js';
+import { countProbes } from './fixtures/probes.js';
+import { until } from './fixtures/within.js';
+
+/** waits for every refresh a tick started, including those a project change starts after it. */
+async function settle(coordination: SessionCoordination) {
+  for (;;) {
+    await coordination['projecting'];
+    const running = [
+      coordination['refreshing']?.promise,
+      coordination['refreshingMerges']?.promise,
+    ].filter((promise) => promise !== undefined);
+    if (!running.length) return;
+    await Promise.all(running);
+  }
+}
+
+async function tick(coordination: SessionCoordination, milliseconds = 2000) {
+  vi.advanceTimersByTime(milliseconds);
+  await settle(coordination);
+}
+
+/** one Witch whose first ticks and presence writes are spent. */
+async function idle(register: RegisterCleanup) {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
+  const fixture = await coordinationFixture(register);
+  register(() => {
+    vi.useRealTimers();
+  });
+  const a = await fixture.start('A');
+  const id = a.coordinator.snapshot.conversation!.id;
+  await until('own idle presence', async () =>
+    (await fixture.registry.presences()).some(
+      (presence) => presence.id === id && presence.phase === 'idle',
+    ),
+  );
+  await tick(a.coordination);
+  // the presence write after a project read is debounced by 100 ms
+  await delay(150);
+  await tick(a.coordination);
+  const own = (await fixture.registry.presences()).find(
+    (presence) => presence.id === id,
+  )!;
+  return { ...fixture, a, own };
+}
+
+/** a peer in project A's project whose process is a child that can be ended. */
+async function livePeer(
+  register: RegisterCleanup,
+  f: Awaited<ReturnType<typeof idle>>,
+): Promise<{ id: string; end: () => Promise<void> }> {
+  const child = spawn('/bin/sleep', ['60']);
+  const ended = once(child, 'close');
+  register(async () => {
+    child.kill();
+    await ended;
+  });
+  await once(child, 'spawn');
+  const id = 'peer-' + randomUUID();
+  const held = await f.store.create(record(id, join(f.root, 'B')));
+  register(() => held.close());
+  const activation = randomUUID();
+  register(await f.registry.holdActivation(activation));
+  await f.registry.publish({
+    ...f.own,
+    id,
+    title: id,
+    cwd: join(f.root, 'B'),
+    activation,
+    process: (await identifyProcess(child.pid!))!,
+  });
+  return {
+    id,
+    end: async () => {
+      child.kill();
+      await ended;
+    },
+  };
+}
+
+const peers = (coordination: SessionCoordination) =>
+  coordination.snapshot.peers.map(({ presence }) => presence.id);
+
+const otherPresence = (own: SessionPresence): SessionPresence => ({
+  ...own,
+  id: randomUUID(),
+  activation: randomUUID(),
+});
+
+test("an idle Witch's ticks probe nothing until its coordination files change or a minute passes", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const quiet = await countProbes(async () => {
+    await tick(f.a.coordination);
+    await tick(f.a.coordination);
+  });
+  assert.deepEqual(
+    { ps: quiet.ps, perl: quiet.perl, git: quiet.git },
+    { ps: 0, perl: 0, git: 0 },
+  );
+  await f.registry.publish(otherPresence(f.own));
+  const changed = await countProbes(() => tick(f.a.coordination));
+  assert.ok(changed.perl >= 1, `${changed.perl} lock probes`);
+  const minute = await countProbes(() => tick(f.a.coordination, 60_000));
+  assert.deepEqual(
+    { ps: minute.ps, perl: minute.perl, git: minute.git },
+    { ps: 0, perl: 1, git: 0 },
+  );
+});
+
+test('a peer whose process ends without removing its presence leaves at the next minute reread', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await idle(cleanup);
+  const peer = await livePeer(cleanup, f);
+  await tick(f.a.coordination);
+  assert.deepEqual(peers(f.a.coordination), [peer.id]);
+  await peer.end();
+  await tick(f.a.coordination);
+  assert.deepEqual(peers(f.a.coordination), [peer.id]);
+  await tick(f.a.coordination, 60_000);
+  assert.deepEqual(peers(f.a.coordination), []);
+});
+
+test('a failed discovery retries on the next tick', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const open = f.store.openConversations.bind(f.store);
+  let failing = true;
+  vi.spyOn(f.store, 'openConversations').mockImplementation(
+    async (...args: Parameters<typeof open>) => {
+      // reconcile asks about listed conversations; discovery asks about all of them
+      if (args[0] === undefined && failing) {
+        failing = false;
+        throw new Error('discovery failed');
+      }
+      return open(...args);
+    },
+  );
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  await f.registry.publish(otherPresence(f.own));
+  await tick(f.a.coordination);
+  assert.match(f.a.coordination.snapshot.error ?? '', /discovery failed/);
+  await tick(f.a.coordination);
+  assert.equal(f.a.coordination.snapshot.error, undefined);
+});
+
+test('a failed merge read retries on the next tick', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const read = CoordinationStore.prototype.mergeEvents;
+  let failing = true;
+  vi.spyOn(CoordinationStore.prototype, 'mergeEvents').mockImplementation(
+    async function (this: CoordinationStore, ...args: Parameters<typeof read>) {
+      if (failing) {
+        failing = false;
+        throw new Error('merge read failed');
+      }
+      return read.apply(this, args);
+    },
+  );
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  await f.registry.publish(otherPresence(f.own));
+  await tick(f.a.coordination);
+  assert.match(f.a.coordination.snapshot.error ?? '', /merge read failed/);
+  await tick(f.a.coordination);
+  assert.equal(f.a.coordination.snapshot.error, undefined);
+});
+
+test('a refresh that publishes nothing is retried on the next unchanged tick', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await idle(cleanup);
+  const coordination = f.a.coordination;
+  const store: CoordinationStore = coordination['registry'];
+  const owner = { conversation: f.own.id, project: f.own.project };
+  const input = { reference: 'task:held', summary: 'Held work' };
+  const claim = (verify?: (ledger: Ledger) => Promise<void>) =>
+    coordination['change'](
+      undefined,
+      (check: (ledger: Ledger) => Promise<void>) =>
+        store.claim(
+          owner,
+          input,
+          coordination['process'],
+          Date.now() + 5000,
+          check,
+        ),
+      verify,
+    );
+  await claim();
+  await tick(coordination);
+  const ledger = await f.ledger();
+  const peer = await livePeer(cleanup, f);
+  const state = CoordinationStore.prototype.state;
+  const held = Promise.withResolvers<void>(),
+    reading = Promise.withResolvers<void>();
+  let holding = true;
+  vi.spyOn(CoordinationStore.prototype, 'state').mockImplementation(
+    async function (
+      this: CoordinationStore,
+      ...args: Parameters<typeof state>
+    ) {
+      const result = await state.apply(this, args);
+      if (holding) {
+        holding = false;
+        reading.resolve();
+        await held.promise;
+      }
+      return result;
+    },
+  );
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  vi.advanceTimersByTime(2000);
+  await reading.promise;
+  // the repeated claim bumps the mutation revision after the held read, and lands after the refresh ends
+  await claim(async () => {
+    held.resolve();
+    await coordination['refreshing']?.promise;
+    assert.deepEqual(peers(coordination), []);
+  });
+  assert.equal(await f.ledger(), ledger);
+  await settle(coordination);
+  await tick(coordination);
+  assert.deepEqual(peers(coordination), [peer.id]);
+});
+
+test('an origin change moves the presence to the new project within a tick', async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const cwd = join(f.root, 'A');
+  await git('-C', cwd, 'remote', 'set-url', 'origin', join(f.root, 'other'));
+  const { project } = await f.memory.scopePaths(cwd);
+  assert.notEqual(project, f.own.project);
+  await tick(f.a.coordination);
+  await until(
+    'presence in the new project',
+    async () =>
+      (await f.registry.presences()).find(({ id }) => id === f.own.id)
+        ?.project === project,
+  );
+});

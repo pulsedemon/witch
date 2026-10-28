@@ -6,6 +6,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
@@ -296,6 +297,30 @@ test('clones of one origin share project memory under its name across directorie
     ),
     `projects/\nproject-${hash}`,
   );
+});
+
+test('configPath names the config Git reads the origin from', async () => {
+  const { memory, root } = await fixture();
+  const work = await repository(root, 'work', 'https://github.com/acme/w.git');
+  await git(
+    work,
+    '-c',
+    'user.name=t',
+    '-c',
+    'user.email=t@t',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'first',
+  );
+  const linked = join(root, 'linked');
+  await git(work, 'worktree', 'add', '--quiet', linked);
+  const plain = join(root, 'plain');
+  await mkdir(plain);
+  const config = await realpath(join(work, '.git', 'config'));
+  assert.equal(await memory.configPath(work), config);
+  assert.equal(await memory.configPath(linked), config);
+  assert.equal(await memory.configPath(plain), undefined);
 });
 
 test('a local origin names the repository git reaches through it: from the top level, through links, by file URL, by its .git forms, and before it exists', async () => {
