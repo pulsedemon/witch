@@ -1230,6 +1230,7 @@ test('discard after an activated handoff corrects both native sessions', async (
       [await f.note()]: 'Project preference 29.',
       'global/reference.md': 'Reference detail 53.',
     });
+    f.a.interruptNext = true;
     await f.coordinator.send('Initial task');
     const source = f.a.sessions.at(-1)!;
     const sourceId = source.session.info.id;
@@ -1264,6 +1265,7 @@ test('discard after an activated handoff corrects both native sessions', async (
     assert.equal(f.b.inputs.at(-1)!.session, destinationId);
     const destinationPrompt = f.b.inputs.at(-1)!.context!;
     await f.coordinator.selectModel({ agent: 'a', id: 'a-model' });
+    await f.coordinator.send('Continue on the original runtime');
     assert.equal(f.a.inputs.at(-1)!.session, sourceId);
     for (const prompt of [destinationPrompt, f.a.inputs.at(-1)!.context!]) {
       assertMemoryBaseline(prompt);
