@@ -877,15 +877,20 @@ test('catalog refresh preserves the active session, process, transcript, usage a
       coordinator.snapshot.models.map((model) => model.agent),
       ['a', 'a'],
     );
-    assert.match(coordinator.snapshot.error!, /b: Discovery failed/);
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.equal(
+      coordinator.snapshot.items.at(-1)?.text,
+      'b: Discovery failed',
+    );
     assert.equal(coordinator.snapshot.native!.id, before.native!.id);
     a.failModels = true;
     assert.equal(await coordinator.refreshModels(), true);
     assert.deepEqual(coordinator.snapshot.models, []);
     assert.equal(
-      coordinator.snapshot.error,
+      coordinator.snapshot.items.at(-1)?.text,
       'a: model/list failed\nb: Discovery failed',
     );
+    assert.equal(coordinator.snapshot.error, undefined);
   } finally {
     await coordinator.close();
   }
@@ -1011,7 +1016,11 @@ test('a skills failure while connecting is reported and keeps the session', asyn
   try {
     a.failSkills = true;
     await coordinator.newConversation();
-    assert.match(coordinator.snapshot.error ?? '', /Skills unavailable/);
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.deepEqual(
+      coordinator.snapshot.items.map(({ kind, text }) => [kind, text]),
+      [['notice', 'Skills unavailable']],
+    );
     assert.deepEqual(coordinator.snapshot.skills, []);
     await coordinator.send('Start');
     assert.equal(a.sessions.length, 2);
@@ -1041,13 +1050,18 @@ test('a listed /skill reaches the agent as a skill call, and an unlisted one sta
 });
 
 test("a model list that fails at connect is reported, and the session's skills and usage still reach the snapshot", async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a, store, project } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
     a.connectUsage = { context: 5 };
     a.failModels = true;
   });
   try {
-    assert.equal(coordinator.snapshot.error, 'a: model/list failed');
+    assert.equal(coordinator.snapshot.error, undefined);
+    assert.deepEqual(
+      coordinator.snapshot.items.map(({ kind, text }) => [kind, text]),
+      [['notice', 'a: model/list failed']],
+    );
+    assert.deepEqual(await store.conversations(project), []);
     assert.deepEqual(
       coordinator.snapshot.skills.map((skill) => skill.name),
       ['review'],

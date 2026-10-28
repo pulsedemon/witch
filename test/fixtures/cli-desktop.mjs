@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { setImmediate } from 'node:timers';
 import { subscribe } from 'node:diagnostics_channel';
 import { performance } from 'node:perf_hooks';
+import { pathToFileURL, URL } from 'node:url';
 
 Object.defineProperty(process.stdin, 'isTTY', { value: true });
 process.stdin.setRawMode = () => process.stdin;
@@ -20,6 +21,16 @@ process.on('message', (message) => {
   process.send({ configured: failure });
 });
 process.channel.unref();
+
+const { Coordinator } = await import(
+  new URL('./core/coordinator.js', pathToFileURL(process.argv[1]))
+);
+const memoryDirectories = Coordinator.prototype.memoryDirectories;
+Coordinator.prototype.memoryDirectories = function () {
+  if (failure === 'memoryDirectories')
+    return Promise.reject(new Error('fixture memory lookup failed'));
+  return memoryDirectories.call(this);
+};
 
 const execute = childProcess.execFile;
 childProcess.execFile = (file, ...args) => {
