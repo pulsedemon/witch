@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { promisify } from 'node:util';
@@ -74,6 +74,20 @@ test('a path in a merge conflict is listed once', async () => {
   await git('commit', '-qam', 'mine');
   await assert.rejects(git('merge', '-q', 'other'));
   assert.deepEqual(await listFiles(root), ['tracked.txt']);
+});
+
+test("the listing never runs the repository's fsmonitor command", async () => {
+  const root = await scratch('witch-files-');
+  const work = join(root, 'work');
+  const marker = join(root, 'ran');
+  const monitor = join(root, 'monitor.sh');
+  await execute('git', ['init', '-q', work]);
+  await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+  await execute('git', ['-C', work, 'config', 'core.fsmonitor', monitor]);
+  await files(work, { '.gitignore': '' });
+  // the walk fallback skips dot entries, so this listing came from Git
+  assert.deepEqual(await listFiles(work), ['.gitignore']);
+  await assert.rejects(access(marker), { code: 'ENOENT' });
 });
 
 test('outside a work tree a walk lists files breadth first and skips dot entries and unreadable directories', async () => {
