@@ -358,11 +358,20 @@ export class RepositoryWatch {
         'git',
         // a submodule's own config could run a filter; merge cleanup's own read still counts dirty submodules
         [...statusArgs, '--ignore-submodules=dirty'],
-        { cwd: this.cwd, timeout: 10_000, ...(env && { env }) },
+        {
+          cwd: this.cwd,
+          timeout: 10_000,
+          env: {
+            ...(env ?? process.env),
+            GIT_NO_LAZY_FETCH: '1',
+            // older Git ignores GIT_NO_LAZY_FETCH, so transports stay disabled too
+            GIT_ALLOW_PROTOCOL: '',
+          },
+        },
       );
       repository = parseStatus(stdout);
     } catch (error) {
-      // not a repository, Git is busy, or a filter driver Git can't be told to skip; the status line leaves Git out
+      // unavailable status leaves Git out, including when a partial clone lacks an object
       failure = error;
     } finally {
       this.refreshing = false;

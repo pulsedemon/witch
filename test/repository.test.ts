@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import {
   RepositoryWatch,
   parsePullRequest,
@@ -73,6 +74,96 @@ test("the watch's status read never runs the repository's fsmonitor command", as
     watch.close();
   }
 });
+
+test.each([true, false])(
+  'a partial clone leaves unavailable status out without SSH and keeps rename counts (no-fetch support: %s)',
+  async (noFetchSupport) => {
+    const root = await scratch('witch-repository-');
+    const source = join(root, 'source');
+    const work = join(root, 'work');
+    const marker = join(root, 'ran');
+    const ssh = join(root, 'ssh.sh');
+    const contents = 'unchanged\n'.repeat(20);
+    const git = (cwd: string, ...args: string[]) =>
+      execute('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd,
+      });
+    await git(root, 'init', '--quiet', '-b', 'main', source);
+    await writeFile(join(source, 'a'), contents);
+    await git(source, 'add', 'a');
+    await git(source, 'commit', '--quiet', '-m', 'source');
+    await git(source, 'config', 'uploadpack.allowFilter', 'true');
+    await git(
+      root,
+      'clone',
+      '--quiet',
+      '--filter=blob:none',
+      '--no-checkout',
+      pathToFileURL(source).href,
+      work,
+    );
+    await git(work, 'read-tree', 'HEAD');
+    await git(work, 'rm', '--cached', 'a');
+    await writeFile(join(work, 'b'), `${contents}changed\n`);
+    await git(work, 'add', 'b');
+    const { stdout: objects } = await git(
+      work,
+      'rev-list',
+      '--objects',
+      '--all',
+      '--missing=print',
+    );
+    assert.match(objects, /^\?[0-9a-f]+$/m);
+    await writeFile(ssh, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, {
+      mode: 0o755,
+    });
+    await git(
+      work,
+      'config',
+      'remote.origin.url',
+      'ssh://example.invalid/source',
+    );
+    await git(work, 'config', 'core.sshCommand', ssh);
+    await git(work, 'config', 'protocol.ssh.allow', 'always');
+    let reads = 0;
+    const watch = new RepositoryWatch(
+      work,
+      async (command, args, options) => {
+        if (command === 'gh') throw new Error('no pull requests found');
+        try {
+          return await execute(command, args, {
+            ...options,
+            env: {
+              ...process.env,
+              ...options.env,
+              // unpatched Git 2.43 ignores the no-fetch setting
+              ...(!noFetchSupport && { GIT_NO_LAZY_FETCH: '0' }),
+            },
+          });
+        } finally {
+          if (args.includes('status')) reads++;
+        }
+      },
+      undefined,
+      { interval: 50 },
+    );
+    try {
+      await until('missing-blob status read', () => reads > 0);
+      await assert.rejects(access(marker), { code: 'ENOENT' });
+      const unavailable = watch.snapshot;
+      assert.equal(unavailable, undefined);
+      await git(work, 'hash-object', '-w', join(source, 'a'));
+      const later = new Date(Date.now() + 60_000);
+      await utimes(join(work, 'b'), later, later);
+      await until('rename status', () => watch.snapshot?.staged === 1);
+      assert.equal(watch.snapshot?.branch, 'main');
+      assert.equal(watch.snapshot?.modified, 0);
+      await assert.rejects(access(marker), { code: 'ENOENT' });
+    } finally {
+      watch.close();
+    }
+  },
+);
 
 test("the watch's status read runs no filter driver from the repository's config, and keeps the user's own config", async () => {
   const root = await scratch('witch-repository-');
@@ -483,29 +574,29 @@ test('a detached head reads no pull request', async () => {
     await delay(20);
     assert.equal(watch.snapshot?.branch, 'HEAD');
     assert.equal(calls.length, 4);
-    for (const call of calls)
+    for (const [command, args, { cwd, timeout, env }] of calls) {
+      assert.equal(command, 'git');
+      assert.equal(cwd, '/work');
+      assert.equal(timeout, 10_000);
       assert.deepEqual(
-        call,
-        call[1].includes('status')
+        args,
+        args.includes('status')
           ? [
-              'git',
-              [
-                '-c',
-                'core.fsmonitor=false',
-                '--no-optional-locks',
-                'status',
-                '--porcelain=v2',
-                '--branch',
-                '--ignore-submodules=dirty',
-              ],
-              { cwd: '/work', timeout: 10_000 },
+              '-c',
+              'core.fsmonitor=false',
+              '--no-optional-locks',
+              'status',
+              '--porcelain=v2',
+              '--branch',
+              '--ignore-submodules=dirty',
             ]
-          : [
-              'git',
-              ['config', '-z', '--name-only', '--show-scope', '--list'],
-              { cwd: '/work', timeout: 10_000 },
-            ],
+          : ['config', '-z', '--name-only', '--show-scope', '--list'],
       );
+      if (args.includes('status')) {
+        assert.equal(env?.GIT_NO_LAZY_FETCH, '1');
+        assert.equal(env?.GIT_ALLOW_PROTOCOL, '');
+      }
+    }
     assert.equal(calls.filter(([, args]) => args.includes('status')).length, 2);
   } finally {
     watch.close();
