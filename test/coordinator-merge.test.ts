@@ -209,7 +209,7 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
       } satisfies Repository,
       subscribe: () => () => {},
     };
-    const first = Promise.withResolvers<boolean>();
+    const first = Promise.withResolvers<boolean | 'changed'>();
     const completed = Promise.withResolvers<void>();
     const statuses: string[] = [];
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
@@ -327,7 +327,7 @@ test('a merge cleanup leaves a checkout that changed alone, and says nothing', a
     await writeFile(join(project, 'a.txt'), 'b\n');
     assert.equal(
       await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
-      false,
+      'changed',
     );
     assert.deepEqual(notices(coordinator), []);
   } finally {
