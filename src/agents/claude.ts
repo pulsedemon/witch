@@ -255,6 +255,11 @@ class ClaudeSession implements AgentSession {
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private messageLifecycle = false;
+  private readonly reportedMcp = new Set<string>();
+  private mcpTimer?: ReturnType<typeof setTimeout>;
+  private mcpReading = false;
+  private mcpRequested = false;
+  private mcpPending = false;
 
   constructor(
     private readonly options: SessionOptions,
@@ -426,6 +431,60 @@ class ClaudeSession implements AgentSession {
     this.connected = true;
     await this.registered;
     this.readUsage();
+    this.refreshMcpStatus();
+  }
+
+  private refreshMcpStatus(): void {
+    if (this.closed) return;
+    clearTimeout(this.mcpTimer);
+    this.mcpTimer = undefined;
+    this.mcpRequested = true;
+    if (!this.mcpReading) void this.readMcpStatus();
+  }
+
+  private async readMcpStatus(): Promise<void> {
+    this.mcpReading = true;
+    try {
+      do {
+        this.mcpRequested = false;
+        try {
+          const servers = await this.query.mcpServerStatus();
+          if (this.closed) return;
+          // cached discovery also reports pending, but its tools do not need a startup poll.
+          this.mcpPending = servers.some(
+            ({ status, tools }) => status === 'pending' && tools === undefined,
+          );
+          for (const { name, status, error } of servers) {
+            if (status !== 'failed' && status !== 'needs-auth') continue;
+            const key = JSON.stringify([name, status]);
+            if (this.reportedMcp.has(key)) continue;
+            this.reportedMcp.add(key);
+            this.options.onEvent({
+              type: 'notice',
+              text:
+                status === 'needs-auth'
+                  ? `Claude MCP server ${name} needs sign-in.`
+                  : `Claude could not connect to MCP server ${name}${error ? `: ${error}` : '.'}`,
+              transient: true,
+            });
+          }
+        } catch {
+          // a failed diagnostic read must not interrupt the conversation.
+        }
+      } while (this.mcpRequested && !this.closed);
+    } finally {
+      this.mcpReading = false;
+      if (this.mcpPending && !this.closed) {
+        this.mcpTimer = setTimeout(() => this.refreshMcpStatus(), 1000);
+        this.mcpTimer.unref();
+      }
+    }
+  }
+
+  private stopMcpPolling(): void {
+    clearTimeout(this.mcpTimer);
+    this.mcpTimer = undefined;
+    this.mcpRequested = false;
   }
 
   async models(refresh = false): Promise<Model[]> {
@@ -707,6 +766,7 @@ class ClaudeSession implements AgentSession {
         (uuid) => turn.commandRecords.get(uuid)?.records ?? [],
       );
       this.closed = true;
+      this.stopMcpPolling();
       void this.usageReader.close().catch(() => {});
       this.finish(turn, {
         status: 'interrupted',
@@ -725,6 +785,7 @@ class ClaudeSession implements AgentSession {
     const command = this.command;
     command?.controller.abort();
     this.closed = true;
+    this.stopMcpPolling();
     const usageClosed = this.usageReader.close();
     void usageClosed.catch(() => {});
     let cleanupError: unknown;
@@ -822,6 +883,7 @@ class ClaudeSession implements AgentSession {
       await this.end(errorMessage(failure));
     } finally {
       this.closed = true;
+      this.stopMcpPolling();
       this.commands.stop();
       await this.usageReader.close().catch(() => {});
       for (const request of this.requests.values())
@@ -871,6 +933,7 @@ class ClaudeSession implements AgentSession {
               : (message.effort ?? undefined),
         };
         this.options.onEvent({ type: 'info', info: this.info });
+        this.refreshMcpStatus();
       } else if (message.subtype === 'compact_boundary') {
         if (message.session_id !== this.info.id) return;
         if (
@@ -1180,6 +1243,7 @@ class ClaudeSession implements AgentSession {
     const closed = this.closed;
     // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
+    this.stopMcpPolling();
     void this.usageReader.close().catch(() => {});
     const turn = this.turn;
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI

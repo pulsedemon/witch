@@ -14,6 +14,10 @@ import { randomUUID } from 'node:crypto';
 
 // modes that a prompt can't reach come from the command line
 const mode = process.argv[2] ?? '';
+const mcpServers = () =>
+  mode === 'mcp'
+    ? JSON.parse(readFileSync(join(process.cwd(), 'mcp-status.json'), 'utf8'))
+    : [];
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const session_id = randomUUID();
@@ -45,7 +49,7 @@ const state = (state) =>
   });
 const task = (subtype, fields) =>
   send({ type: 'system', subtype, ...fields, uuid: randomUUID(), session_id });
-if (mode === 'compaction' || mode === 'background') {
+if (mode === 'compaction' || mode === 'background' || mode === 'mcp') {
   const read = (index) =>
     once(`events-${index}.json`, () => {
       for (const frame of JSON.parse(
@@ -203,7 +207,7 @@ const finish = () => {
 };
 for await (const line of lines) {
   const message = JSON.parse(line);
-  if (mode === 'background' || mode === 'catalog')
+  if (mode === 'background' || mode === 'catalog' || mode === 'mcp')
     appendFileSync(join(process.cwd(), 'wire.jsonl'), `${line}\n`);
   if (mode === 'pending-model' && message.type === 'user')
     message.message.content = message.message.content
@@ -294,6 +298,22 @@ for await (const line of lines) {
     }
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
+    if (request.subtype === 'mcp_status') {
+      if (mode === 'mcp' && existsSync(join(process.cwd(), 'hold-mcp')))
+        continue;
+      if (mode === 'mcp' && existsSync(join(process.cwd(), 'reject-mcp'))) {
+        send({
+          type: 'control_response',
+          response: {
+            subtype: 'error',
+            request_id: message.request_id,
+            error: 'MCP status unavailable',
+          },
+        });
+        continue;
+      }
+      response = { mcpServers: mcpServers() };
+    }
     if (request.subtype === 'get_task_output') {
       const outputs = JSON.parse(
         readFileSync(join(process.cwd(), 'task-outputs.json'), 'utf8'),
@@ -488,7 +508,7 @@ for await (const line of lines) {
       cwd: process.cwd(),
       session_id,
       tools: [],
-      mcp_servers: [],
+      mcp_servers: mcpServers().map(({ name, status }) => ({ name, status })),
       slash_commands: [],
       apiKeySource: 'none',
       output_style: 'default',
