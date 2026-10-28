@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { constants, promises as files } from 'node:fs';
+import { constants, promises as files, watch } from 'node:fs';
+import type { FSWatcher } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -39,6 +40,10 @@ for my $handle (@directories) {
 }
 `;
 const idSchema = z.string().uuid();
+/** how often a waiting client touches its request, since macOS can drop a directory watch's events, as when another watch in the host's process opens or closes. */
+const renotify = 100;
+/** how soon a failed read retries, and how often an inbox without a watch is read. */
+const interval = 250;
 // macOS O_NOFOLLOW_ANY, which Node doesn't export
 const noFollowAny = 0x20000000;
 export const controlBindingSchema = z.object({
@@ -171,6 +176,7 @@ export async function callControl(
     });
   });
   try {
+    let touched = performance.now();
     while (Date.now() < request.deadline) {
       const text = await read(reply);
       if (text?.endsWith('\n')) {
@@ -180,6 +186,11 @@ export async function callControl(
         await files.rm(inbox, { force: true });
         await files.rm(reply, { force: true });
         return result;
+      }
+      if (performance.now() - touched >= renotify) {
+        touched = performance.now();
+        // the host removes a request only once it has expired, so no reply can follow ENOENT
+        await files.lutimes(inbox, new Date(), new Date());
       }
       await delay(25);
     }
@@ -192,9 +203,16 @@ export async function callControl(
   }
 }
 
+/** reads its inbox on a change, at an answered request's deadline, `interval` after a failed read, and every `interval` while unwatched. */
 export class ControlHost {
-  private timer: ReturnType<typeof setInterval>;
+  /** unset while polling. */
+  private watcher?: FSWatcher;
+  private timer?: ReturnType<typeof setTimeout>;
   private reading?: Promise<void>;
+  /** a change arrived during the read in progress. */
+  private stale = false;
+  /** a failed read waits for its retry, so a burst of events doesn't repeat the failure. */
+  private backoff = false;
   private closed = false;
 
   private constructor(
@@ -204,8 +222,20 @@ export class ControlHost {
     ) => Promise<ControlOutcome>,
     private readonly failed: (error: unknown) => void,
   ) {
-    this.timer = setInterval(() => this.poll(), 250);
-    this.timer.unref();
+    try {
+      this.watcher = watch(
+        join(directory, 'inbox'),
+        { persistent: false },
+        () => this.poll(),
+      );
+      // Node has already closed an errored watcher
+      this.watcher.on('error', () => {
+        this.watcher = undefined;
+        this.poll();
+      });
+    } catch {
+      // without a watch the inbox is read every `interval`
+    }
     this.poll();
   }
 
@@ -223,22 +253,52 @@ export class ControlHost {
   }
 
   async drain(): Promise<void> {
-    await this.reading;
+    while (this.reading) await this.reading;
   }
 
   async close(): Promise<void> {
     this.closed = true;
-    clearInterval(this.timer);
+    this.watcher?.close();
+    clearTimeout(this.timer);
     await this.drain();
   }
 
   private poll(): void {
-    if (this.closed || this.reading) return;
-    this.reading = this.read()
-      .catch(this.failed)
-      .finally(() => {
+    if (this.closed || this.backoff) return;
+    if (this.reading) {
+      this.stale = true;
+      return;
+    }
+    clearTimeout(this.timer);
+    this.stale = false;
+    this.reading = this.read().then(
+      (wake) => {
         this.reading = undefined;
-      });
+        if (this.stale) this.poll();
+        else this.schedule(wake);
+      },
+      (error: unknown) => {
+        this.reading = undefined;
+        this.failed(error);
+        this.backoff = true;
+        this.schedule(Date.now() + interval);
+      },
+    );
+  }
+
+  /** a read still running at `close()` can arm one more timer, whose `poll()` returns at once. */
+  private schedule(at: number | undefined): void {
+    if (!this.watcher) at = Math.min(at ?? Infinity, Date.now() + interval);
+    if (at === undefined) return;
+    this.timer = setTimeout(
+      () => {
+        this.backoff = false;
+        this.poll();
+      },
+      // Node warns on a negative delay and fires one past 2 ** 31 - 1 after 1 ms
+      Math.min(Math.max(0, at - Date.now()), 2 ** 31 - 1),
+    );
+    this.timer.unref();
   }
 
   /** directory handles keep deletion inside the mailbox if a parent path is replaced. */
@@ -276,9 +336,11 @@ export class ControlHost {
     ]);
   }
 
-  private async read(): Promise<void> {
+  /** resolves to the earliest deadline among the requests it leaves answered. */
+  private async read(): Promise<number | undefined> {
+    let wake: number | undefined;
     for (const name of await files.readdir(join(this.directory, 'inbox'))) {
-      if (this.closed) return;
+      if (this.closed) return wake;
       if (!name.endsWith('.json')) continue;
       const parsed = idSchema.safeParse(name.slice(0, -5));
       if (!parsed.success) continue;
@@ -314,6 +376,7 @@ export class ControlHost {
         await this.expire(id);
         continue;
       }
+      if (request) wake = Math.min(wake ?? Infinity, request.deadline);
       if (answered) continue;
       // a fresh descriptor cannot follow a redirected parent or overwrite an existing file.
       const file = await openControlFile(
@@ -329,5 +392,6 @@ export class ControlHost {
         await file.close();
       }
     }
+    return wake;
   }
 }
