@@ -163,7 +163,9 @@ export class Coordinator {
     private readonly editFile = editInVSCode,
     readonly coordination?: SessionCoordination,
   ) {
-    this.catalog = new ModelCatalog(agents, (error) => this.report(error));
+    this.catalog = new ModelCatalog(agents, (error) =>
+      this.notice(errorMessage(error), undefined, false),
+    );
     this.snapshot = {
       phase: 'starting',
       items: [],
@@ -694,7 +696,6 @@ export class Coordinator {
     return { revision, scope, ...(linked ? { root: workspace.root } : {}) };
   }
 
-  /** the conversation's shared-memory directories, as its agent is told them. */
   async memoryDirectories(): Promise<string[]> {
     const scope = await this.memory.scopePaths(this.current().cwd);
     return this.workspace!.directories(scope);
@@ -766,7 +767,6 @@ export class Coordinator {
     });
   }
 
-  /** an error phase keeps its message until restart. */
   report(error: unknown): void {
     if (this.snapshot.phase === 'error') return;
     this.publish({ error: errorMessage(error) });
@@ -1162,7 +1162,7 @@ export class Coordinator {
       try {
         skills = await session.skills();
       } catch (error) {
-        this.report(error);
+        this.notice(errorMessage(error), undefined, false);
       }
       this.publish({
         native: session.info,

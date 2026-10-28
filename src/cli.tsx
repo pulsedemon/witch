@@ -289,10 +289,13 @@ if (familiar) {
             coordinator.notice(target.notice, undefined, false);
           else
             execFile('/usr/bin/open', [target.open], (error) => {
-              if (error) coordinator.report(error);
+              if (error)
+                coordinator.notice(errorMessage(error), undefined, false);
             });
         })
-        .catch((error: unknown) => coordinator.report(error));
+        .catch((error: unknown) =>
+          coordinator.notice(errorMessage(error), undefined, false),
+        );
     });
     const application = render(
       <App
@@ -306,7 +309,8 @@ if (familiar) {
         graphics={graphics}
         copy={(text) => {
           const child = execFile('/usr/bin/pbcopy', (error) => {
-            if (error) coordinator.report(error);
+            if (error)
+              coordinator.notice(errorMessage(error), undefined, false);
           });
           // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
           child.stdin?.on('error', () => {}).end(text);

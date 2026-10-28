@@ -6,6 +6,48 @@ import { until, within } from './fixtures/within.js';
 
 const review = { name: 'review', description: 'Review changes' };
 
+for (const [source, expectedError] of [
+  ['model list', 'a: model/list failed'],
+  ['spell discovery', 'Skills unavailable'],
+  ['inactive discovery', 'b: Discovery failed'],
+] as const)
+  test(`a ${source} failure during reconnect leaves queued prompts runnable`, async () => {
+    const { coordinator, a } = await fixture(undefined, (_a, b) => {
+      b.failDiscovery = source === 'inactive discovery';
+    });
+    const gate = new TurnGate();
+    try {
+      await a.sessions.at(-1)!.session.close();
+      a.failModels = source === 'model list';
+      a.failSkills = source === 'spell discovery';
+      a.refuseSteer = true;
+      a.gate = gate;
+      const before = coordinator.snapshot.items.length;
+      const sending = coordinator.send('first after reconnect');
+      await within(gate.entered, 3000, 'the reconnected turn');
+      await coordinator.send('distinct queued followup');
+      gate.open();
+      await within(sending, 3000, 'the queued followup');
+      assert.deepEqual(
+        a.inputs.map(({ prompt }) => prompt),
+        ['first after reconnect', 'distinct queued followup'],
+      );
+      assert.deepEqual(coordinator.snapshot.queue, []);
+      assert.equal(coordinator.snapshot.error, undefined);
+      assert.equal(coordinator.snapshot.phase, 'idle');
+      assert.deepEqual(
+        coordinator.snapshot.items
+          .slice(before)
+          .filter(({ kind }) => kind === 'notice')
+          .map(({ text }) => text),
+        [expectedError],
+      );
+    } finally {
+      gate.open();
+      await coordinator.close();
+    }
+  });
+
 for (const [name, prompt] of [
   [
     'a screenshot path',
