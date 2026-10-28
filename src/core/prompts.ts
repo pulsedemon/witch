@@ -30,13 +30,6 @@ export function skillCall(
   return { name: match[1]!, args: match[2]!.trim() };
 }
 
-/** a slash command or `!` command takes a turn alone: a spell runs only from a turn's prompt, listed or not before its session connects, Claude Code would run any other slash command as its own, and a `!` command's reply is a turn of its own. */
-export function alone(prompt: string): boolean {
-  return (
-    prompt.trimStart().startsWith('/') || shellCommand(prompt) !== undefined
-  );
-}
-
 export function shellCommand(prompt: string): string | undefined {
   return prompt.startsWith('!') ? prompt.slice(1) : undefined;
 }

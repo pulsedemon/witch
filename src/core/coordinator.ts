@@ -26,13 +26,13 @@ import { recoverConversations } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { listFiles } from './files.js';
 import {
-  alone,
   shellCommand,
   skillCall,
   ranCommand,
   nativePrompt,
   questionReply,
 } from './prompts.js';
+import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
 import { taskActivity } from './coordination-state.js';
@@ -43,6 +43,7 @@ import type { ModelChoice, ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
+  agentDisplay,
   agentWorking,
   applyDisplayUpdate,
   createConversation,
@@ -347,7 +348,11 @@ export class Coordinator {
     const during = this.snapshot.phase !== 'idle';
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting.then(async () => {
-      if (await this.steer(prompt)) return true;
+      if (
+        !waitsBehind(this.snapshot.queue, this.snapshot.skills) &&
+        (await this.steer(prompt))
+      )
+        return true;
       this.publish({ queue: [...this.snapshot.queue, prompt] });
       return false;
     });
@@ -363,12 +368,7 @@ export class Coordinator {
 
   private async steer(prompt: string): Promise<boolean> {
     const session = this.session;
-    if (
-      this.snapshot.phase !== 'running' ||
-      this.cancelled ||
-      this.snapshot.queue.length ||
-      !session
-    )
+    if (this.snapshot.phase !== 'running' || this.cancelled || !session)
       return false;
     const row = () =>
       this.display({
@@ -377,22 +377,21 @@ export class Coordinator {
         text: prompt,
         cwd: this.current().cwd,
       });
-    if (!alone(prompt)) {
-      if (!(await session.steer(prompt))) return false;
-      row();
-      return true;
-    }
     const command = shellCommand(prompt);
+    if (command !== undefined) {
+      if (!this.replied) return false;
+      // shown first, since a command's output streams as soon as it starts
+      row();
+      return session.steer(`${prompt}\n\n${ranCommand}`, { command });
+    }
+    const skill = skillCall(prompt, this.snapshot.skills);
     if (
-      !this.replied ||
-      (command === undefined && !skillCall(prompt, this.snapshot.skills))
+      !(await (skill
+        ? session.steer(prompt.trimStart(), { skill })
+        : session.steer(prompt)))
     )
       return false;
-    // shown first, since a command's output streams as soon as it starts
     row();
-    await (command === undefined
-      ? session.steer(prompt.trimStart())
-      : session.steer(`${prompt}\n\n${ranCommand}`, { command }));
     return true;
   }
 
@@ -416,10 +415,9 @@ export class Coordinator {
     try {
       while (this.snapshot.phase === 'idle' && this.snapshot.queue.length) {
         const queue = this.snapshot.queue;
-        const command = queue.findIndex(alone);
-        const batch = queue.slice(
-          0,
-          command === 0 ? 1 : command < 0 ? queue.length : command,
+        const batch = nextTurn(
+          queue,
+          this.session ? this.snapshot.skills : undefined,
         );
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
@@ -438,9 +436,14 @@ export class Coordinator {
                 if (!(await this.performCompaction())) return;
                 this.publish({ phase: 'running' });
               }
-              await this.performTurn(batch.join('\n'), 'turn', () => {
-                delivered = true;
-              });
+              await this.performTurn(
+                batch.join('\n'),
+                'turn',
+                () => {
+                  delivered = true;
+                },
+                true,
+              );
             } catch (error) {
               this.report(error);
             }
@@ -454,6 +457,22 @@ export class Coordinator {
     } finally {
       this.draining = false;
     }
+  }
+
+  /** the prompts queued behind a queued turn's prompt join that turn; a `!` command and what follows it wait. */
+  private steerQueued(): Promise<void> {
+    const steering = this.admitting.then(async () => {
+      const followers = joining(this.snapshot.queue);
+      this.publish({ queue: this.snapshot.queue.slice(followers.length) });
+      await steerInOrder(
+        followers,
+        this.snapshot.skills,
+        (prompt) => this.steer(prompt),
+        (back) => this.publish({ queue: [...back, ...this.snapshot.queue] }),
+      );
+    });
+    this.admitting = steering.catch(() => {});
+    return steering.catch((error: unknown) => this.report(error));
   }
 
   /** without an agent, continues on this conversation's agent, model and effort. */
@@ -864,6 +883,7 @@ export class Coordinator {
     prompt: string,
     kind: 'turn' | 'handoff',
     delivered?: () => void,
+    queued = false,
   ): Promise<TurnResult> {
     const conversation = this.current();
     if (kind === 'turn') this.publish({ completedTurn: undefined });
@@ -921,6 +941,7 @@ export class Coordinator {
       this.persist(this.save());
       if (command !== undefined) delivered?.();
       let result: TurnResult;
+      let steering: Promise<void> | undefined;
       let generation = this.contextGeneration;
       try {
         const ran =
@@ -933,16 +954,21 @@ export class Coordinator {
           else {
             this.pendingContext.delete(conversation.id);
             generation = this.contextGeneration;
-            result = await session.send(
+            const sending = session.send(
               input.prompt,
               skillCall(prompt, this.snapshot.skills),
               input.context,
             );
+            // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
+            if (queued && command === undefined) steering = this.steerQueued();
+            result = await sending;
           }
         }
       } catch (error) {
         result = { status: 'failed', text: '', error: errorMessage(error) };
       }
+      // first, so the prompts the turn left unread go ahead of those a refused steer gives back
+      await steering;
       if (command === undefined && !result.inputUnsent) delivered?.();
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
@@ -1240,34 +1266,7 @@ export class Coordinator {
         if (event.done) tools.delete(event.id);
         else tools.set(event.id, id);
       }
-      this.display(
-        event.type === 'text'
-          ? {
-              id,
-              kind: 'assistant',
-              title: agent,
-              text: event.text,
-              replace: event.replace,
-              cwd: conversation.cwd,
-            }
-          : {
-              id,
-              kind: 'tool',
-              title: event.title,
-              ...(event.path ? { path: event.path } : {}),
-              ...(event.expandedTitle
-                ? { expandedTitle: event.expandedTitle }
-                : {}),
-              text: event.text,
-              replace: !event.append,
-              done: event.done,
-              cwd: event.cwd ?? conversation.cwd,
-              ...(event.images ? { images: event.images } : {}),
-              ...(event.diff ? { diff: event.diff } : {}),
-              // an append leaves it out, and keeps the one its row has
-              ...(event.shell ? { shell: true } : {}),
-            },
-      );
+      this.display(agentDisplay(event, id, agent, conversation.cwd));
     }
   }
 
