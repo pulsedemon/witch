@@ -24,10 +24,10 @@ import {
   taskActivity,
 } from './coordination-state.js';
 import type {
-  ClaimOwner,
   CoordinationSnapshot,
   SessionPresence,
   SelectionScope,
+  TransferTarget,
 } from './coordination-state.js';
 import type { Snapshot } from './coordinator.js';
 import { discover, projectDiscovery } from './discovery.js';
@@ -35,6 +35,7 @@ import {
   awaitTransfer,
   movedNotices,
   transferRefusal,
+  TransferUnavailable,
 } from './task-transfer.js';
 import type { Discovery } from './discovery.js';
 import { assignGitHubTask } from './github-assignment.js';
@@ -592,7 +593,7 @@ export class SessionCoordination {
       'When asked to choose the next task, run --select-next <selection-turn-id> --json before triage, using the current Selection turn value. If no selection turn is current, do not reuse an earlier value. It waits automatically for your place. Do not claim a generic triage task, end the request because another session is choosing, or ask the user to repeat it.',
       'After position 1 is granted, refresh issues, code and reservations. Reserve your recommendation with --recommend <reference> --selection <ticket-id> --summary <work> [--alias <reference>] before presenting it. A specific-task conflict keeps your place: choose another unreserved task. Other sessions may choose as soon as your recommendation is recorded.',
       'Keep the suggestion reserved while awaiting the user. When the user requests planning, investigation or implementation, use --claim on that reference to promote it. A different named task replaces your suggestion only if its claim succeeds. Another --select-next releases the old suggestion and joins the tail. Cancel with --cancel-selection <ticket-id> when redirected or when no suitable work remains. Do not infer permission from a failed or timed-out command; query peers to reconcile its result.',
-      'Before starting a new task, query the other sessions and claim its reference. For unnumbered work, compare existing task summaries and reuse a matching reference. A conflict means stop that task and report its owner and the /task take command the conflict names; do not rename the task to get around the conflict. Keep the summary current, pass this ownership context to delegated workers, and release only after the task and its delegated work have ended. Refresh before changing scope, including after a steered request.',
+      'Before starting a new task, query the other sessions and claim its reference. For unnumbered work, compare existing task summaries and reuse a matching reference. A claim can move automatically when its idle owner reports an exhausted usage limit that has not reset and has no unresolved memory recovery, running familiars or brews. A returned conflict means stop that task and report its owner and the /task take command the conflict names; do not rename the task to get around the conflict. Keep the summary current, pass this ownership context to delegated workers, and release only after the task and its delegated work have ended. Refresh before changing scope, including after a steered request.',
     ].join('\n');
     return { instructions, context };
   }
@@ -944,7 +945,7 @@ export class SessionCoordination {
       }
       if (action.kind === 'take' && !human)
         throw new Error(
-          'Only the user can move a task between conversations. Ask them to run /task take <reference> here.',
+          'Only the user can request an unconditional transfer. Use --claim to request a transfer when the owner is out of usage.',
         );
       if (action.kind === 'release') {
         const claim = (await this.readLedger(state)).ledger.claims.find(
@@ -1026,28 +1027,71 @@ export class SessionCoordination {
         )
           this.canRelease(false);
       };
-      if (action.kind === 'take')
-        return await this.take(
-          active,
-          owner,
-          action.input.reference,
-          request.deadline,
-          state,
-          verify,
-        );
-      if (action.kind === 'claim') {
-        const claim = await this.change(
-          state,
-          (check) =>
-            this.registry.claim(
-              owner,
-              action.input,
-              this.process,
-              request.deadline,
-              check,
-            ),
-          verify,
-        );
+      if (action.kind === 'claim' || action.kind === 'take') {
+        const transfer = async (target: TransferTarget) => {
+          const { activation } = active.binding;
+          const { claim, view } = await awaitTransfer({
+            conversation: owner.conversation,
+            activation,
+            reference: action.input.reference,
+            field: target.field,
+            deadline: request.deadline,
+            request: (expires) =>
+              this.change(
+                state,
+                (check) =>
+                  this.registry.requestTransfer(
+                    owner,
+                    target,
+                    { activation, process: this.process, expires },
+                    request.deadline,
+                    check,
+                  ),
+                verify,
+              ),
+            title: async (id) => (await this.record(id))?.title,
+            admit: () => this.admit(),
+            read: (deadline) => this.readLedger({ deadline }),
+            withdraw: (id) => {
+              state.ledger = undefined;
+              return this.change(state, (check) =>
+                this.registry.withdrawTransfer(
+                  activation,
+                  id,
+                  Date.now() + 1000,
+                  check,
+                  target.field,
+                ),
+              );
+            },
+          });
+          state.ledger = view;
+          return { kind: 'claimed' as const, claim };
+        };
+        if (action.kind === 'take')
+          return await transfer({ field: 'transfer', ...action.input });
+        let claim;
+        try {
+          claim = await this.change(
+            state,
+            (check) =>
+              this.registry.claim(
+                owner,
+                action.input,
+                this.process,
+                request.deadline,
+                check,
+              ),
+            verify,
+          );
+        } catch (error) {
+          if (!(error instanceof ClaimConflict) || error.claim.suggestion)
+            throw error;
+          return await transfer({
+            field: 'automaticTransfer',
+            claim: error.claim,
+          });
+        }
         const { assigned, failure } = await this.assign(
           claim.references.filter(
             (reference) => !claim.assigned?.includes(reference),
@@ -1131,15 +1175,21 @@ export class SessionCoordination {
         snapshot: await this.requestSnapshot(active, state),
       });
     } catch (error) {
-      if (!(error instanceof ClaimConflict)) throw error;
-      const owner = await this.record(error.claim.owner.conversation);
+      const conflict =
+        request.action.kind === 'claim' &&
+        error instanceof TransferUnavailable &&
+        error.claim
+          ? new ClaimConflict(error.claim)
+          : error;
+      if (!(conflict instanceof ClaimConflict)) throw error;
+      const owner = await this.record(conflict.claim.owner.conversation);
       return {
         kind: 'conflict',
-        claim: error.claim,
+        claim: conflict.claim,
         message:
           request.action.kind === 'claim'
-            ? `${error.message} The user can move it here with /task take ${request.action.input.reference} once its owner is idle.`
-            : error.message,
+            ? `${conflict.message} The user can move it here with /task take ${request.action.input.reference} once its owner is idle.`
+            : conflict.message,
         ...(owner ? { owner: conversationSummarySchema.parse(owner) } : {}),
       };
     } finally {
@@ -1162,66 +1212,16 @@ export class SessionCoordination {
     );
   }
 
-  /** requests the claim and waits for the owner's Witch to move it here. */
-  private async take(
-    active: Activation,
-    owner: ClaimOwner,
-    reference: string,
-    deadline: number,
-    state: RequestState,
-    verify: (ledger: Ledger) => Promise<void>,
-  ): Promise<ControlOutcome> {
-    // leaves time to withdraw and for dispatch's final refresh
-    const end = deadline - 2000;
-    const { activation } = active.binding;
-    const requested = await this.change(
-      state,
-      (check) =>
-        this.registry.requestTransfer(
-          owner,
-          reference,
-          { activation, process: this.process, expires: end },
-          deadline,
-          check,
-        ),
-      verify,
-    );
-    const { claim, view } = await awaitTransfer({
-      id: requested.id,
-      conversation: owner.conversation,
-      activation,
-      reference,
-      title:
-        (await this.record(requested.owner.conversation))?.title ??
-        requested.owner.conversation,
-      end,
-      admit: () => this.admit(),
-      read: (deadline) => this.readLedger({ deadline }),
-      withdraw: () => {
-        state.ledger = undefined;
-        return this.change(state, (check) =>
-          this.registry.withdrawTransfer(
-            activation,
-            requested.id,
-            Date.now() + 1000,
-            check,
-          ),
-        );
-      },
-    });
-    state.ledger = view;
-    return { kind: 'claimed', claim };
-  }
-
   /** the owner's Witch answers a transfer request without a model turn. */
   private answer(active: Activation, ledger: Ledger): void {
     const claim = ledger.claims.find(
       (claim) =>
         claim.owner.conversation === active.conversation.id &&
-        claim.transfer &&
-        !claim.transfer.refusal,
+        (claim.transfer || claim.automaticTransfer),
     );
     if (!claim || this.handing) return;
+    const field = claim.transfer ? 'transfer' : 'automaticTransfer';
+    if (claim[field]?.refusal) return;
     const owner = { ...claim.owner, conversation: active.conversation.id };
     this.handing = this.serialize(async () => {
       const moved = await this.change(
@@ -1232,7 +1232,8 @@ export class SessionCoordination {
             claim.id,
             Date.now() + 1000,
             verify,
-            () => transferRefusal(this.state),
+            () => transferRefusal(this.state, field === 'automaticTransfer'),
+            field,
           ),
         async () => {
           if (this.admit() !== active) throw new Error('Coordination moved.');
