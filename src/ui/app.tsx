@@ -41,7 +41,7 @@ import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { castTitle, useCasting } from './cast.js';
-import { Sidebar, sidebarWidth } from './sidebar.js';
+import { fitsUsage, Sidebar, sidebarWidth } from './sidebar.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
@@ -184,6 +184,13 @@ export function App({
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
   const height = Math.max(12, size.rows);
+  const live = state.native?.agent ?? state.conversation?.agent;
+  const readings = state.agents
+    .filter(({ installed }) => installed)
+    .map(({ id }) => ({ id, limits: state.limits[id] }));
+  // usage shows once any runtime has reported, so a fresh start isn't a column of `?`
+  const accounts = readings.some(({ limits }) => limits) ? readings : [];
+  const usageInSidebar = sidebar && fitsUsage(height, accounts);
   // the compiler needs the native fallback's string type to memoize its consumers.
   const cwd = state.conversation?.cwd ?? String(process.cwd());
   const [view, viewRef, setView] = useLiveState<View>({ kind: 'chat' });
@@ -1333,6 +1340,13 @@ export function App({
           </Box>
         )}
         <StatusLine
+          width={width}
+          {...(usageInSidebar
+            ? {}
+            : {
+                limits: live ? state.limits[live] : undefined,
+                others: accounts.filter(({ id }) => id !== live),
+              })}
           model={
             state.models.find(
               ({ id, agent }) =>
@@ -1354,6 +1368,7 @@ export function App({
           brews={state.backgroundCommands}
           subagents={state.subagents}
           peers={coordination?.peers}
+          accounts={usageInSidebar ? accounts : []}
         />
       )}
     </Box>
