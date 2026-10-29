@@ -8,6 +8,7 @@ import type {
   FamiliarAction,
   FamiliarProgress,
 } from './agents/familiar-report.js';
+import { mergeCasts } from './agents/familiar-report.js';
 import { errorMessage, watchChild, withTail } from './agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
 import { FamiliarReports, registerFamiliar } from './cli-familiar.js';
@@ -150,15 +151,12 @@ export async function runCodexFamiliar(
         notices: [...(progress.notices ?? []), event.text],
       };
     else if (event.type === 'spell' || event.type === 'subagent') {
-      const casts =
-        event.type === 'spell' ? [event.cast] : (event.subagent.spells ?? []);
-      const known = new Set(progress.spells?.map(({ id }) => id));
-      const added = casts.filter(({ id }) => !known.has(id));
-      if (!added.length) return;
-      progress = {
-        ...progress,
-        spells: [...(progress.spells ?? []), ...added],
-      };
+      const spells = mergeCasts(
+        progress.spells,
+        event.type === 'spell' ? [event.cast] : (event.subagent.spells ?? []),
+      );
+      if (!spells) return;
+      progress = { ...progress, spells };
     } else if (event.type === 'request') {
       request(event.request);
       return;

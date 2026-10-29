@@ -6,6 +6,7 @@ import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+import { mergeCasts } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import {
@@ -911,12 +912,9 @@ class CodexSession implements AgentSession {
     for (const { path, name } of castSkills(message.item, this.castIndex)) {
       const cast = { id: `${threadId ?? this.info.id}/${turn}/${path}`, name };
       const subagent = threadId && this.subagents.get(threadId);
+      const spells = subagent && mergeCasts(subagent.spells, [cast]);
       if (!subagent) this.options.onEvent({ type: 'spell', cast });
-      else if (!subagent.spells?.some(({ id }) => id === cast.id))
-        this.subagent({
-          ...subagent,
-          spells: [...(subagent.spells ?? []), cast],
-        });
+      else if (spells) this.subagent({ ...subagent, spells });
     }
   }
 

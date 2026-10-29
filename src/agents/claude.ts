@@ -29,6 +29,7 @@ import {
 } from './shutdown.js';
 import { claudeTitle } from './tool-title.js';
 import { acknowledged, skillCasts } from './claude-spells.js';
+import { mergeCasts } from './familiar-report.js';
 import { bashRecord, runShell } from './user-shell.js';
 import type {
   AgentAdapter,
@@ -1181,18 +1182,15 @@ class ClaudeSession implements AgentSession {
               : block.text;
           this.reportMessages.set(subagent.id, message.message.id);
         }
-      const known = new Set(subagent.spells?.map(({ id }) => id));
-      const casts = skillCasts(message.message.content).filter(
-        ({ id }) => !known.has(id),
+      const spells = mergeCasts(
+        subagent.spells,
+        skillCasts(message.message.content),
       );
-      const spells = casts.length
-        ? { spells: [...(subagent.spells ?? []), ...casts] }
-        : {};
       if (
         model !== subagent.model ||
         tools !== (subagent.tools ?? 0) ||
         report !== subagent.report ||
-        casts.length
+        spells
       )
         this.subagent({
           ...subagent,
@@ -1200,7 +1198,7 @@ class ClaudeSession implements AgentSession {
           activity,
           tools,
           report,
-          ...spells,
+          ...(spells ? { spells } : {}),
         });
     } else if (
       message.type === 'user' &&

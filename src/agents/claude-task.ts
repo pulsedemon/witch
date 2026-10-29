@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mergeCasts } from './familiar-report.js';
 import type { FamiliarProgress } from './familiar-report.js';
 import { errorMessage } from './stderr.js';
 import { claudeTitle } from './tool-title.js';
@@ -52,7 +53,7 @@ const result = z.object({
 export class ClaudeTask {
   private identity?: z.infer<typeof init>;
   private readonly tools = new Set<string>();
-  private readonly spells: Cast[] = [];
+  private spells?: Cast[];
   private activity?: string;
   private report = '';
   private success = false;
@@ -171,16 +172,15 @@ export class ClaudeTask {
       model: this.identity?.model,
       tools: this.tools.size,
       activity: this.activity,
-      ...(this.spells.length ? { spells: [...this.spells] } : {}),
+      ...(this.spells ? { spells: this.spells } : {}),
     };
   }
 
   /** returns whether the frame cast a spell not seen before. */
   private addCasts(value: unknown): boolean {
     const content = castContent.safeParse(value).data?.message.content ?? [];
-    const known = new Set(this.spells.map(({ id }) => id));
-    const casts = skillCasts(content).filter(({ id }) => !known.has(id));
-    this.spells.push(...casts);
-    return casts.length > 0;
+    const spells = mergeCasts(this.spells, skillCasts(content));
+    if (spells) this.spells = spells;
+    return !!spells;
   }
 }
