@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import type { TestContext } from 'vitest';
 import { test, vi } from 'vitest';
 import { callControl } from '../src/persistence/control.js';
-import { TurnGate } from './fixtures/agent.js';
+import { CoordinationStore } from '../src/persistence/coordination.js';
+import type { TransferField } from '../src/core/coordination-state.js';
+import { transferRefusal } from '../src/core/task-transfer.js';
+import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import {
   coordinationFixture,
   pauseDiscovery,
@@ -17,19 +20,19 @@ async function transfer(t: TestContext) {
   const a = await f.start(),
     b = await f.start('B');
   assert.equal((await a.claim('task:shared', 'Shared work')).kind, 'claimed');
-  const requested = () =>
+  const requested = (field: TransferField = 'transfer') =>
     until('transfer request', async () =>
-      (await f.registry.claims()).some((claim) => claim.transfer),
+      (await f.registry.claims()).some((claim) => claim[field]),
     );
   return {
     ...f,
     a,
     b,
     requested,
-    /** runs A's periodic tick once B's request is recorded, the only reader an owner whose model cannot act has. */
-    answer: async () => {
-      await requested();
-      ticks[0]!();
+    /** an exhausted owner's periodic tick must answer without a model turn. */
+    answer: async (field: TransferField = 'transfer', owner = 0) => {
+      await requested(field);
+      ticks[owner]!();
     },
   };
 }
@@ -52,7 +55,7 @@ test('an idle owner hands over its task without a model turn, and its next conte
   assert.match(
     (await a.coordination.context()).context,
     new RegExp(
-      `The user moved ${before!.references[0]} to conversation ${taker}\\. Do not continue that task\\.`,
+      `Task ${before!.references[0]} moved to conversation ${taker}\\. Do not continue that task\\.`,
     ),
   );
   const release = await callControl(await a.binding(), {
@@ -63,7 +66,11 @@ test('an idle owner hands over its task without a model turn, and its next conte
     release.kind === 'error' && release.message,
     'Only the owning conversation can release this task.',
   );
-  assert.equal((await a.claim('task:shared', 'Shared work')).kind, 'conflict');
+  const [conflict] = await Promise.all([
+    a.claim('task:shared', 'Shared work'),
+    answer('automaticTransfer', 1),
+  ]);
+  assert.equal(conflict.kind, 'conflict');
 });
 
 test('a running turn, a running brew and memory recovery each refuse with their next action', async (t) => {
@@ -148,17 +155,371 @@ test('an agent control request cannot take a task', async (t) => {
   });
   assert.deepEqual(
     result.kind === 'error' && result.message,
-    'Only the user can move a task between conversations. Ask them to run /task take <reference> here.',
+    'Only the user can request an unconditional transfer. Use --claim to request a transfer when the owner is out of usage.',
   );
   assert.deepEqual(await registry.claims(), before);
 });
 
 test('a conflict reply names /task take with the reference the agent used', async (t) => {
-  const { b } = await transfer(t);
-  const conflict = await b.claim('task:Shared', 'Other work');
+  const { b, answer } = await transfer(t);
+  const [conflict] = await Promise.all([
+    b.claim('task:Shared', 'Other work'),
+    answer('automaticTransfer'),
+  ]);
   assert.equal(conflict.kind, 'conflict');
   assert.match(
     conflict.kind === 'conflict' ? conflict.message : '',
     /The user can move it here with \/task take task:Shared once its owner is idle\.$/,
   );
+});
+
+async function automatic(t: TestContext, ids = ['claude', 'codex']) {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const ticks = pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  const nativeOwner = new FixtureAgent(ids[0]!);
+  const nativeRequester = new FixtureAgent(ids[1]!);
+  const owner = await f.start('A', {}, [
+    { adapter: nativeOwner, executable: nativeOwner.id },
+  ]);
+  const requester = await f.start('B', {}, [
+    { adapter: nativeRequester, executable: nativeRequester.id },
+  ]);
+  const granted = await callControl(await owner.binding(), {
+    kind: 'claim',
+    input: {
+      reference: 'task:shared',
+      aliases: ['task:alias', 'https://github.com/acme/queue/issues/7'],
+      summary: 'Original work',
+    },
+  });
+  if (granted.kind !== 'claimed') assert.fail(JSON.stringify(granted));
+  const original = (await f.registry.recordAssignment(
+    granted.claim.id,
+    ['github:acme/queue#7'],
+    Date.now() + 5000,
+    async () => {},
+  ))!;
+  const emit = nativeOwner.sessions.at(-1)!.options.onEvent;
+  emit({
+    type: 'usage',
+    usage: {
+      limits: [
+        { window: '5H', percent: 100, resetsAt: Date.now() / 1000 + 3600 },
+      ],
+    },
+  });
+  const requested = () =>
+    until('automatic request', async () =>
+      (await f.registry.claims()).some((claim) => claim.automaticTransfer),
+    );
+  const answer = async () => {
+    await requested();
+    ticks[0]!();
+  };
+  const attempt = async () => {
+    const [result] = await Promise.all([
+      requester.claim('task:shared', 'Different requester summary'),
+      answer(),
+    ]);
+    return result;
+  };
+  return {
+    ...f,
+    owner,
+    requester,
+    nativeOwner,
+    original,
+    emit,
+    requested,
+    answer,
+    attempt,
+  };
+}
+
+for (const ids of [
+  ['claude', 'codex'],
+  ['codex', 'claude'],
+])
+  test(`an exhausted ${ids[0]} owner transfers to ${ids[1]} on claim without a model turn`, async (t) => {
+    const f = await automatic(t, ids);
+    f.nativeOwner.failNext = true;
+    await f.owner.coordinator.send('turn that fails');
+    assert.equal(f.owner.coordinator.snapshot.phase, 'idle');
+    const turns = f.nativeOwner.inputs.length;
+    const result = await f.attempt();
+    if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+    assert.deepEqual(result.claim, {
+      ...f.original,
+      owner: {
+        ...f.original.owner,
+        conversation: f.requester.coordinator.snapshot.conversation!.id,
+      },
+      movedFrom: f.original.owner,
+    });
+    assert.deepEqual(await f.registry.claims(), [result.claim]);
+    assert.deepEqual(f.requester.coordination.snapshot.ownClaim, result.claim);
+    assert.equal(f.nativeOwner.inputs.length, turns);
+    const context = (await f.owner.coordination.context()).context;
+    assert.ok(
+      context.includes(
+        `Task ${f.original.references.join(', ')} moved to conversation ${result.claim.owner.conversation}. Do not continue that task.`,
+      ),
+    );
+  });
+
+test('automatic transfer requires an exhausted window whose reported reset is still ahead', async (t) => {
+  const f = await automatic(t);
+  const now = 2_000_000_000_000;
+  for (const [limits, allowed] of [
+    [undefined, false],
+    [[], false],
+    [[{ window: '5H', percent: 100 }], false],
+    [[{ window: '5H', percent: 99, resetsAt: 2_000_000_001 }], false],
+    [[{ window: '5H', percent: 100, resetsAt: 1_999_999_999 }], false],
+    [[{ window: '5H', percent: 100, resetsAt: 2_000_000_000 }], false],
+    [[{ window: '5H', percent: 100, resetsAt: 2_000_000_001 }], true],
+    [[{ window: '5H', percent: 101, resetsAt: 2_000_000_001 }], true],
+    [
+      [
+        { window: '5H', percent: 0, resetsAt: 2_000_000_001 },
+        { window: '7D', percent: 100, resetsAt: 2_000_086_400 },
+      ],
+      true,
+    ],
+  ] as const) {
+    const state = {
+      ...f.owner.coordinator.snapshot,
+      error: 'Usage limit reached',
+      usage: { limits: limits ? [...limits] : undefined },
+    };
+    assert.equal(
+      transferRefusal(state, true, now) === undefined,
+      allowed,
+      JSON.stringify(limits),
+    );
+    assert.equal(transferRefusal(state, false, now), undefined);
+  }
+  const state = {
+    ...f.owner.coordinator.snapshot,
+    phase: 'error' as const,
+    error: 'Restart Witch',
+  };
+  assert.match(transferRefusal(state, true)!, /stopped with an error/);
+  f.emit({ type: 'usage', usage: {} });
+  f.owner.coordinator.report('Usage limit reached');
+  assert.equal((await f.attempt()).kind, 'conflict');
+  assert.deepEqual(await f.registry.claims(), [f.original]);
+});
+
+test('automatic transfer keeps running turns, familiars, brews and recovery with their owner', async (t) => {
+  const f = await automatic(t);
+  const refuses = async () => {
+    assert.equal((await f.attempt()).kind, 'conflict');
+    assert.deepEqual(await f.registry.claims(), [f.original]);
+  };
+  const gate = new TurnGate();
+  f.nativeOwner.gate = gate;
+  const sending = f.owner.coordinator.send('Held work');
+  await within(gate.entered, 5000, 'held owner');
+  try {
+    await refuses();
+  } finally {
+    gate.open();
+    await sending;
+  }
+  f.emit({
+    type: 'subagent',
+    subagent: {
+      id: 'familiar',
+      name: 'Worker',
+      kind: 'review',
+      status: 'running',
+    },
+  });
+  await refuses();
+  f.emit({
+    type: 'subagent',
+    subagent: {
+      id: 'familiar',
+      name: 'Worker',
+      kind: 'review',
+      status: 'completed',
+    },
+  });
+  f.emit({
+    type: 'command',
+    command: { id: 'brew', description: 'Work', status: 'running' },
+  });
+  await refuses();
+  f.emit({
+    type: 'command',
+    command: { id: 'brew', description: 'Work', status: 'completed' },
+  });
+  f.nativeOwner.interruptNext = true;
+  await f.owner.coordinator.send('remember-port');
+  assert.equal(f.owner.coordinator.snapshot.phase, 'recovery');
+  await refuses();
+});
+
+for (const change of ['report', 'reset'] as const)
+  test(`automatic handover checks the ${change} after verification under the lock`, async (t) => {
+    const f = await automatic(t);
+    const resetsAt = Date.now() / 1000 + 1;
+    f.emit({
+      type: 'usage',
+      usage: { limits: [{ window: '5H', percent: 100, resetsAt }] },
+    });
+    const original = CoordinationStore.prototype.handOver;
+    vi.spyOn(CoordinationStore.prototype, 'handOver').mockImplementation(
+      function (
+        this: CoordinationStore,
+        owner,
+        id,
+        deadline,
+        verify,
+        refusal,
+        field,
+      ) {
+        return original.call(
+          this,
+          owner,
+          id,
+          deadline,
+          async (ledger) => {
+            await verify(ledger);
+            if (change === 'report')
+              f.emit({
+                type: 'usage',
+                usage: { limits: [{ window: '5H', percent: 20, resetsAt }] },
+              });
+            else vi.spyOn(Date, 'now').mockReturnValue(resetsAt * 1000);
+          },
+          refusal,
+          field,
+        );
+      },
+    );
+    assert.equal((await f.attempt()).kind, 'conflict');
+    assert.deepEqual(await f.registry.claims(), [f.original]);
+  });
+
+test('an alias conflict transfers the original claim without reserving the caller metadata', async (t) => {
+  const f = await automatic(t);
+  const [result] = await Promise.all([
+    callControl(await f.requester.binding(), {
+      kind: 'claim',
+      input: {
+        reference: 'task:different',
+        aliases: ['task:alias'],
+        summary: 'Other summary',
+      },
+    }),
+    f.answer(),
+  ]);
+  if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+  assert.equal(result.claim.id, f.original.id);
+  assert.deepEqual(result.claim.references, f.original.references);
+  assert.equal(result.claim.summary, 'Original work');
+  assert.deepEqual(result.claim.assigned, ['github:acme/queue#7']);
+});
+
+test('an automatic request times out without granting ownership or leaving a request', async (t) => {
+  const f = await automatic(t);
+  const result = await callControl(
+    await f.requester.binding(),
+    {
+      kind: 'claim',
+      input: { reference: 'task:shared', summary: 'Other work' },
+    },
+    Date.now() + 3000,
+  );
+  assert.equal(result.kind, 'conflict');
+  assert.deepEqual(await f.registry.claims(), [f.original]);
+  assert.equal(f.requester.coordination.snapshot.error, undefined);
+});
+
+test('an automatic requester that switches conversations withdraws without admission', async (t) => {
+  const f = await automatic(t);
+  const claiming = f.requester.claim();
+  await f.requested();
+  const switching = f.requester.coordinator.newConversation();
+  const result = await claiming;
+  await switching;
+  assert.equal(result.kind, 'error');
+  assert.deepEqual(await f.registry.claims(), [f.original]);
+});
+
+test('a handover during withdrawal returns the actual automatic ownership', async (t) => {
+  const f = await automatic(t);
+  const state = CoordinationStore.prototype.state;
+  let hidden = false;
+  vi.spyOn(CoordinationStore.prototype, 'state').mockImplementation(
+    async function (this: CoordinationStore, ...args) {
+      const ledger = await state.apply(this, args);
+      if (!hidden && ledger.claims.some((claim) => claim.automaticTransfer)) {
+        hidden = true;
+        return {
+          ...ledger,
+          claims: ledger.claims.map((claim) => ({
+            ...claim,
+            automaticTransfer: undefined,
+          })),
+        };
+      }
+      return ledger;
+    },
+  );
+  const original = CoordinationStore.prototype.withdrawTransfer;
+  vi.spyOn(CoordinationStore.prototype, 'withdrawTransfer').mockImplementation(
+    async function (
+      this: CoordinationStore,
+      activation,
+      id,
+      deadline,
+      verify,
+      field,
+    ) {
+      await this.handOver(
+        f.original.owner,
+        id,
+        deadline,
+        verify,
+        () => undefined,
+        field,
+      );
+      return original.call(this, activation, id, deadline, verify, field);
+    },
+  );
+  const result = await callControl(
+    await f.requester.binding(),
+    { kind: 'claim', input: { reference: 'task:shared', summary: 'Other' } },
+    Date.now() + 3000,
+  );
+  if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
+  assert.equal(
+    result.claim.owner.conversation,
+    f.requester.coordinator.snapshot.conversation!.id,
+  );
+  assert.deepEqual(await f.registry.claims(), [result.claim]);
+  assert.equal(result.claim.automaticTransfer, undefined);
+});
+
+test('unconfirmed automatic withdrawal reports an unknown result instead of a conflict', async (t) => {
+  const f = await automatic(t);
+  vi.spyOn(CoordinationStore.prototype, 'withdrawTransfer').mockRejectedValue(
+    new Error('Read unavailable'),
+  );
+  const result = await callControl(
+    await f.requester.binding(),
+    { kind: 'claim', input: { reference: 'task:shared', summary: 'Other' } },
+    Date.now() + 3000,
+  );
+  assert.equal(result.kind, 'error');
+  assert.match(
+    result.kind === 'error' ? result.message : '',
+    /Coordination result unknown/,
+  );
+  const [claim] = await f.registry.claims();
+  assert.deepEqual(claim?.owner, f.original.owner);
 });
