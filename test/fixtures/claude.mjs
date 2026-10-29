@@ -26,6 +26,19 @@ const mcpServers = () =>
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const session_id = randomUUID();
+const stateCommands = [
+  'autocompact',
+  'config',
+  'output-style',
+  'rename',
+  'advisor',
+  'auto-mode-setup',
+].map((name) => ({
+  name,
+  description: 'Native command',
+  argumentHint: '',
+  builtin: true,
+}));
 let initialization = 0;
 let model = 'claude-a';
 let lastPrompt = '';
@@ -251,7 +264,6 @@ for await (const line of lines) {
         continue;
       }
       response = {
-        // a built-in, a user command its name shadows, a built-in Witch sends as text, and a skill
         commands: [
           {
             name: 'compact',
@@ -266,6 +278,9 @@ for await (const line of lines) {
             argumentHint: '[low|high]',
             builtin: true,
           },
+          ...stateCommands,
+          { name: 'config', description: 'Shadowed', argumentHint: '' },
+          { name: 'rename', description: 'Shadowed', argumentHint: '' },
           {
             name: 'review',
             description: 'Review changes',
@@ -461,8 +476,8 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
     if (mode === 'background') {
-      appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
       if (lastPrompt) {
         held.push(message.uuid);
         continue;
@@ -1214,6 +1229,9 @@ for await (const line of lines) {
             builtin: true,
           },
           { name: 'clear', description: 'Shadowed', argumentHint: '' },
+          ...stateCommands,
+          { name: 'config', description: 'Shadowed', argumentHint: '' },
+          { name: 'rename', description: 'Shadowed', argumentHint: '' },
           { name: 'later', description: 'Added later', argumentHint: '' },
         ],
         uuid: randomUUID(),

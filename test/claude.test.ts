@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { AbortError } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
 import {
   launcher,
@@ -50,6 +51,12 @@ test('refresh consumes a fresh native catalog without replacing the default syst
 test('skills list a built-in once with its own row in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
+  const nativeCommands = [
+    'autocompact',
+    'output-style',
+    'advisor',
+    'auto-mode-setup',
+  ].map((name) => ({ name, description: 'Native command', builtin: true }));
   try {
     assert.deepEqual(await session.skills(), [
       {
@@ -57,6 +64,7 @@ test('skills list a built-in once with its own row in place of a row it shadows,
         description: 'Compact the conversation',
         builtin: true,
       },
+      ...nativeCommands,
       {
         name: 'review',
         description: 'Review changes',
@@ -69,8 +77,42 @@ test('skills list a built-in once with its own row in place of a row it shadows,
       [
         {
           type: 'skills',
-          skills: [{ name: 'later', description: 'Added later' }],
+          skills: [
+            ...nativeCommands,
+            { name: 'later', description: 'Added later' },
+          ],
         },
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+test('initial slash prompts go as text unless a native command was selected', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    for (const prompt of ['/config autoCompact=false', '  /rename audit'])
+      assert.equal((await session.send(prompt)).status, 'completed');
+    assert.equal(
+      (await session.send('context', { name: 'autocompact', args: '200k' }))
+        .status,
+      'completed',
+    );
+    assert.deepEqual(
+      ((await jsonLines(join(cwd, 'inputs.jsonl'))) as SDKUserMessage[]).map(
+        (input) => [input.message.content, input.client_composed],
+      ),
+      [
+        ['/config autoCompact=false', true],
+        ['  /rename audit', true],
+        [
+          [
+            { type: 'text', text: 'context' },
+            { type: 'text', text: '/autocompact 200k' },
+          ],
+          undefined,
+        ],
       ],
     );
   } finally {
