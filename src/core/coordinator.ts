@@ -924,7 +924,7 @@ export class Coordinator {
           familiarCommand:
             session.familiar && this.coordination
               ? {
-                  command: this.coordination.familiarCommand(),
+                  command: this.coordination.commandPrefixes().familiar,
                   runtime: session.familiar.runtime,
                 }
               : undefined,
@@ -1149,6 +1149,7 @@ export class Coordinator {
         },
         mark: this.jobs,
         familiarBinding: this.coordination?.familiarBinding(),
+        commandPrefixes: this.coordination?.commandPrefixes(),
       });
       this.session = session;
       this.sessionProject = scope.project;
@@ -1361,9 +1362,7 @@ export class Coordinator {
   }
 
   private persist(operation: Promise<void>): void {
-    void operation.catch((error: unknown) => {
-      this.enterError(error, true);
-    });
+    void operation.catch((error: unknown) => this.enterError(error, true));
   }
 
   /** a rejected flush is a sticky write failure, which only a restart clears. */

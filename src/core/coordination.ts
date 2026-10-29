@@ -238,8 +238,11 @@ export class SessionCoordination {
     return { ...this.admit().binding, directory: this.familiarHost.directory };
   }
 
-  familiarCommand(): string {
-    return this.prefix(this.familiarBinding());
+  commandPrefixes() {
+    return {
+      control: this.prefix(this.admit().binding),
+      familiar: this.prefix(this.familiarBinding()),
+    };
   }
 
   async activate(
@@ -581,7 +584,7 @@ export class SessionCoordination {
         : 'No selection turn is current.',
     ].join('\n');
     const instructions = [
-      `Control command: ${this.prefix(active.binding)}`,
+      `Control command: ${this.commandPrefixes().control}`,
       'Use --peers --json to inspect sessions; --claim <full GitHub issue/pr URL or task:name> --summary <work> --alias <related reference> to claim; --release <claim-id> to release. --alias is optional and repeatable.',
       'When asked to choose the next task, run --select-next <selection-turn-id> --json before triage, using the current Selection turn value. If no selection turn is current, do not reuse an earlier value. It waits automatically for your place. Do not claim a generic triage task, end the request because another session is choosing, or ask the user to repeat it.',
       'After position 1 is granted, refresh issues, code and reservations. Reserve your recommendation with --recommend <reference> --selection <ticket-id> --summary <work> [--alias <reference>] before presenting it. A specific-task conflict keeps your place: choose another unreserved task. Other sessions may choose as soon as your recommendation is recorded.',

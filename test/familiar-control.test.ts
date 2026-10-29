@@ -178,7 +178,9 @@ test('only a supporting session receives familiar instructions and the exact use
   const input = client.a.inputs.at(-1)!;
   assert.equal(input.prompt, prompt);
   assert.ok(!input.context!.includes(prompt));
-  assert.ok(input.context!.includes(client.coordination.familiarCommand()));
+  assert.ok(
+    input.context!.includes(client.coordination.commandPrefixes().familiar),
+  );
   assert.match(input.context!, /--familiar-claude <task-name> --report-file/);
   assert.match(input.context!, /--permission-prompts none/);
   assert.match(input.context!, /keep its stdout connected/);
@@ -198,7 +200,7 @@ test('only a supporting session receives familiar instructions and the exact use
   assert.doesNotMatch(codex.context!, /--familiar-claude/);
   await client.coordinator.send(prompt);
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-codex/);
-  const before = client.coordination.familiarCommand();
+  const before = client.coordination.commandPrefixes().familiar;
   const native = client.a.sessions[0]!.session;
   const { familiar } = native;
   await native.close();
@@ -210,11 +212,11 @@ test('only a supporting session receives familiar instructions and the exact use
   };
   await client.coordinator.send(prompt);
   assert.equal(client.a.inputs.at(-1)!.session, codex.session);
-  assert.notEqual(client.coordination.familiarCommand(), before);
+  assert.notEqual(client.coordination.commandPrefixes().familiar, before);
   assert.ok(
     client.a.inputs
       .at(-1)!
-      .context!.includes(client.coordination.familiarCommand()),
+      .context!.includes(client.coordination.commandPrefixes().familiar),
   );
   assert.ok(!client.a.inputs.at(-1)!.context!.includes(before));
 });

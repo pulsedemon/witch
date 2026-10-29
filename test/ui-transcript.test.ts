@@ -10,6 +10,8 @@ import { png } from './fixtures/png.js';
 import {
   show,
   fake,
+  drag,
+  left,
   ENTER,
   DOWN,
   TAB,
@@ -361,14 +363,6 @@ test('the wheel scrolls a page and a request by rows', async () => {
 });
 
 const CMD_C = '\u001b[99;9u';
-/** an SGR report of the left button at a zero-based cell: down, held moving there, or up. */
-const left = (
-  kind: 'press' | 'drag' | 'release',
-  column: number,
-  row: number,
-) =>
-  `\u001b[<${kind === 'drag' ? 32 : 0};${column + 1};${row + 1}${kind === 'release' ? 'm' : 'M'}`;
-
 /** App at 60 by 20 unless sized, with each text it copies. */
 function mounted(app: Coordinator, columns = 60, rows = 20) {
   const copied: string[] = [];
@@ -382,17 +376,6 @@ function mounted(app: Coordinator, columns = 60, rows = 20) {
     rows,
   );
   return { ui, copied };
-}
-
-/** a left press at `from`, held motion to `to` and the release there, each its own read. */
-function drag(
-  ui: ReturnType<typeof show>,
-  from: [number, number],
-  to: [number, number],
-) {
-  ui.stdin.write(left('press', ...from));
-  ui.stdin.write(left('drag', ...to));
-  ui.stdin.write(left('release', ...to));
 }
 
 test('a drag over the transcript highlights it and Cmd+C copies it with wrapped rows joined, a click or a resize clears it, and a drag from above the transcript, the composer or the sidebar selects nothing', async () => {
