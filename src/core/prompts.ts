@@ -8,7 +8,7 @@ import type {
   SkillCall,
   UserResponse,
 } from '../agents/types.js';
-import { indexByteLimit, indexNote } from '../memory/memory.js';
+import { indexByteLimit, indexNote, printable } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { Conversation } from './state.js';
@@ -19,6 +19,15 @@ import type { MergeEvent } from './merge-events.js';
 // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
 export const ranCommand =
   'The user ran this command themselves, and its output is above. Reply to it without running it again.';
+
+/** a note name cannot introduce a Markdown link into its notice. */
+export function noteName(path: string): string {
+  return printable(path).replace(/[\\[\]]/g, '\\$&');
+}
+
+export function memoryAttribution(conversation: string, turn: string): string {
+  return `conversation: ${conversation}\nturn: ${turn}`;
+}
 
 /** splits `/name args` as Claude Code does: the name ends at the first whitespace. */
 export function skillCall(

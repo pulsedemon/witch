@@ -249,10 +249,12 @@ export interface AgentSession {
    * its reply. with `skill`, the prompt is that command, run natively: Claude
    * runs it once the current native turn ends, within this turn, and Codex,
    * which expands a skill only at a turn's start, refuses it.
+   * `contextOnly` never returns as unread user input; its owner supplies fresh
+   * context after interruption.
    */
   steer(
     prompt: string,
-    options?: { command?: string; skill?: SkillCall },
+    options?: { command?: string; skill?: SkillCall; contextOnly?: true },
   ): Promise<boolean>;
   /**
    * an omitted effort keeps the one in force; `null` resets it where the native agent can. refused during a turn

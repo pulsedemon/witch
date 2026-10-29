@@ -582,6 +582,20 @@ test('a prompt steered into a turn goes to Codex for that turn, and one Codex re
       expectedTurnId: 'turn-1',
       input: [{ type: 'text', text: 'also this', text_elements: [] }],
     });
+    assert.equal(
+      await session.steer('Witch coordination update', { contextOnly: true }),
+      true,
+    );
+    const context = JSON.parse(
+      await readFile(join(cwd, 'steer.json'), 'utf8'),
+    ) as { params: unknown };
+    assert.deepEqual(context.params, {
+      threadId: 'native-thread',
+      expectedTurnId: 'turn-1',
+      input: [
+        { type: 'text', text: 'Witch coordination update', text_elements: [] },
+      ],
+    });
     assert.equal(await session.steer('refused'), false);
     await writeFile(join(cwd, 'release'), 'yes');
     await within(session.interrupt(), 2000, 'interrupt');
