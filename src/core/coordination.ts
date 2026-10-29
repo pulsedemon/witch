@@ -817,7 +817,8 @@ export class SessionCoordination {
     try {
       const result = await work(async (value) => {
         // ledger reads after this revision wait for the transaction to release its lock.
-        this.mutationRevision = ++this.revision;
+        this.mutationRevision = this.ledgerObservation = ++this.revision;
+        this.failures.delete('ledger');
         committed = { revision: this.mutationRevision, ledger: value };
         await verify(value);
       });
