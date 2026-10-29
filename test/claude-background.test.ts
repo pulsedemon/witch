@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '../src/agents/types.js';
@@ -31,9 +32,11 @@ const result = (text: string, uuids?: string[]) => ({
   ...(uuids ? { user_message_uuids: uuids } : {}),
 });
 
-async function background() {
+async function background(sessionState = true) {
   const events: AgentEvent[] = [];
-  const f = await fixture((e) => events.push(e), 'background');
+  const f = await fixture((e) => events.push(e), 'background', {
+    sessionState,
+  });
   const emit = frameWriter(
     f.cwd,
     (name) =>
@@ -45,8 +48,12 @@ async function background() {
     completions++;
     return outcome;
   });
-  await until('initial result', () =>
-    events.some((e) => e.type === 'skills' && e.skills[0]?.name === 'result-1'),
+  await until('initial input', () =>
+    events.some((e) =>
+      sessionState
+        ? e.type === 'skills' && e.skills[0]?.name === 'result-1'
+        : e.type === 'text' && e.text === 'Working.',
+    ),
   );
   const inputs = async () =>
     (await jsonLines(join(f.cwd, 'inputs.jsonl'))) as SDKUserMessage[];
@@ -104,6 +111,251 @@ async function commandReply(f: Awaited<ReturnType<typeof background>>) {
   });
   return { uuid, record };
 }
+
+test('without session state a result finishes the turn and reports missing tracking once', async () => {
+  const f = await background(false);
+  try {
+    await f.emit(result('First answer.'));
+    assert.deepEqual(await within(f.turn, 2000, 'result completion'), {
+      status: 'completed',
+      text: 'First answer.',
+    });
+    const next = f.session.send('next');
+    await until('next input', async () => (await f.inputs()).length === 2);
+    await f.emit(result('Second answer.'));
+    assert.deepEqual(await within(next, 2000, 'next result'), {
+      status: 'completed',
+      text: 'Second answer.',
+    });
+    assert.equal(
+      f.events.filter(
+        (e) =>
+          e.type === 'notice' && /did not report session state/.test(e.text),
+      ).length,
+      1,
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a session state received between turns makes subsequent results wait for idle', async () => {
+  const f = await background(false);
+  try {
+    await f.emit(result('First answer.'));
+    await within(f.turn, 2000, 'first result');
+    await f.emit(state('running'));
+    let settled = false;
+    const next = f.session.send('next').then((value) => {
+      settled = true;
+      return value;
+    });
+    await until('next input', async () => (await f.inputs()).length === 2);
+    await f.emit(result('Second answer.'));
+    assert.equal(settled, false);
+    await f.emit(state('idle'));
+    assert.deepEqual(await within(next, 2000, 'native idle'), {
+      status: 'completed',
+      text: 'Second answer.',
+    });
+  } finally {
+    await f.session.close();
+  }
+});
+
+for (const task_type of ['local_agent', 'local_workflow'])
+  for (const ending of ['notification', 'live set'])
+    test(`without session state a ${task_type} holds the result until its ${ending} ends it`, async () => {
+      const f = await background(false);
+      const task = { task_id: 'holder', task_type, description: 'Holder' };
+      try {
+        await f.emit(
+          { type: 'system', subtype: 'task_started', ...task },
+          {
+            type: 'system',
+            subtype: 'background_tasks_changed',
+            tasks: [task],
+          },
+          result('Held answer.'),
+        );
+        assert.equal(f.completions(), 0);
+        assert.equal(f.session.replied, true);
+        await f.emit(
+          ending === 'notification'
+            ? {
+                type: 'system',
+                subtype: 'task_notification',
+                task_id: 'holder',
+                status: 'completed',
+                output_file: '',
+                summary: 'Complete',
+              }
+            : {
+                type: 'system',
+                subtype: 'background_tasks_changed',
+                tasks: [],
+              },
+        );
+        assert.deepEqual(await within(f.turn, 2000, 'last holder'), {
+          status: 'completed',
+          text: 'Held answer.',
+        });
+        assert.equal(f.completions(), 1);
+      } finally {
+        await f.session.close();
+      }
+    });
+
+test('without session state a stale workflow notification cannot release the current run', async () => {
+  const f = await background(false);
+  try {
+    await f.emit(
+      {
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'workflow',
+        task_type: 'local_workflow',
+        run_id: '2',
+        description: 'Current workflow',
+      },
+      result('Held answer.'),
+    );
+    const notification = {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'workflow',
+      status: 'completed',
+      output_file: '',
+      summary: 'Complete',
+    };
+    await f.emit({ ...notification, run_id: '1' });
+    assert.equal(f.completions(), 0);
+    assert.equal(f.session.replied, true);
+    await f.emit({ ...notification, run_id: '2' });
+    assert.deepEqual(await within(f.turn, 2000, 'current workflow'), {
+      status: 'completed',
+      text: 'Held answer.',
+    });
+    assert.equal(f.completions(), 1);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('without session state an accepted follow-up with no task needs consumption and a fresh result', async () => {
+  const f = await background(false);
+  try {
+    const uuid = await f.steer('follow-up');
+    await f.emit(result('Initial answer.'), lifecycle(uuid, 'queued'));
+    assert.equal(f.completions(), 0);
+    await f.emit(lifecycle(uuid, 'started'));
+    assert.equal(f.completions(), 0);
+    await f.emit(result('Follow-up answer.', [uuid]));
+    assert.deepEqual(await within(f.turn, 2000, 'follow-up result'), {
+      status: 'completed',
+      text: 'Follow-up answer.',
+    });
+    assert.deepEqual(
+      (await f.inputs()).map((input) => input.message.content),
+      ['initial', 'follow-up'],
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a workflow can hold a normal turn beyond the shutdown budget', async () => {
+  const f = await background(false);
+  try {
+    await f.emit(
+      {
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'long-work',
+        task_type: 'local_workflow',
+        description: 'Long work',
+      },
+      result('Held answer.'),
+    );
+    await delay(8100);
+    assert.equal(f.completions(), 0);
+    assert.equal(f.session.closed, false);
+    await f.emit({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'long-work',
+      status: 'completed',
+      output_file: '',
+      summary: 'Complete',
+    });
+    assert.deepEqual(await within(f.turn, 2000, 'workflow completion'), {
+      status: 'completed',
+      text: 'Held answer.',
+    });
+  } finally {
+    await f.session.close();
+  }
+});
+
+for (const commandFirst of [false, true])
+  test(`without session state a held command finishing ${commandFirst ? 'before' : 'after'} the last holder sends its reply once`, async () => {
+    const f = await background(false);
+    try {
+      await f.emit(
+        {
+          type: 'system',
+          subtype: 'task_started',
+          task_id: 'holder',
+          task_type: 'local_agent',
+          description: 'Holder',
+        },
+        result('Initial answer.'),
+      );
+      const command =
+        "printf 'once\\n' >> executions; touch command-started; while [ ! -e command-release ]; do sleep 0.02; done; printf output";
+      assert.equal(await f.session.steer('command reply', { command }), true);
+      await until('shell start', () =>
+        access(join(f.cwd, 'command-started')).then(
+          () => true,
+          () => false,
+        ),
+      );
+      if (commandFirst) {
+        await writeFile(join(f.cwd, 'command-release'), '');
+        await until('reply input', async () => (await f.inputs()).length === 2);
+      }
+      await f.emit({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'holder',
+        status: 'completed',
+        output_file: '',
+        summary: 'Complete',
+      });
+      assert.equal(f.completions(), 0);
+      if (!commandFirst) {
+        assert.equal((await f.inputs()).length, 1);
+        await writeFile(join(f.cwd, 'command-release'), '');
+        await until('reply input', async () => (await f.inputs()).length === 2);
+      }
+      const input = (await f.inputs())[1]!;
+      assert.match(
+        JSON.stringify(input.message.content),
+        /<bash-stdout>output/,
+      );
+      await f.emit(lifecycle(input.uuid!, 'started'));
+      assert.equal(f.completions(), 0);
+      await f.emit(result('Command answer.', [input.uuid!]));
+      assert.deepEqual(await within(f.turn, 2000, 'command reply result'), {
+        status: 'completed',
+        text: 'Command answer.',
+      });
+      assert.equal((await f.inputs()).length, 2);
+      assert.equal(await readFile(join(f.cwd, 'executions'), 'utf8'), 'once\n');
+    } finally {
+      await f.session.close();
+    }
+  });
 
 test('a steered command reply waits for consumption and a fresh result', async () => {
   const f = await background();

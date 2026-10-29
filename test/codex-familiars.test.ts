@@ -6,7 +6,7 @@ import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import { writeJson } from '../src/persistence/json.js';
 import { fixture } from './fixtures/codex-adapter.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 async function reportedFixture() {
   const events: AgentEvent[] = [];
@@ -15,7 +15,7 @@ async function reportedFixture() {
     conversation: 'conversation',
     activation: randomUUID(),
   };
-  const { session, cwd } = await fixture((event) => events.push(event), {
+  const { session, cwd, child } = await fixture((event) => events.push(event), {
     mode: 'brews',
     familiarBinding: binding,
   });
@@ -69,6 +69,7 @@ async function reportedFixture() {
   return {
     session,
     cwd,
+    child,
     events,
     binding,
     run,
@@ -81,6 +82,32 @@ async function reportedFixture() {
     familiarEvents,
   };
 }
+
+test('a missing familiar cleanup acknowledgment cannot hold Codex close open', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await writeFile(join(f.cwd, 'hold-termination'), '');
+    const closing = f.session.close({ deadline: performance.now() + 3200 });
+    await within(closing, 2500, 'bounded familiar cleanup');
+    assert.equal(f.session.closed, true);
+    assert.ok(f.child.exitCode !== null || f.child.signalCode !== null);
+    assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
+    assert.equal(
+      f.events.filter(
+        (event) =>
+          event.type === 'notice' && /did not stop in time/.test(event.text),
+      ).length,
+      1,
+    );
+  } finally {
+    await f.session.close();
+  }
+});
 
 test('a split registration marker and a live native handle are both required before familiar progress can be reported', async () => {
   const f = await reportedFixture();

@@ -3,9 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
+import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,
   AgentSession,
+  AgentStopOptions,
   BackgroundCommand,
   SessionInfo,
   Skill,
@@ -151,7 +153,6 @@ export class Coordinator {
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
-
   constructor(
     private readonly store: StateStore,
     readonly memory: Memory,
@@ -443,9 +444,7 @@ export class Coordinator {
               await this.performTurn(
                 batch.join('\n'),
                 'turn',
-                () => {
-                  delivered = true;
-                },
+                () => (delivered = true),
                 true,
               );
             } catch (error) {
@@ -596,7 +595,8 @@ export class Coordinator {
     };
   }
 
-  async interrupt(): Promise<void> {
+  async interrupt(options: AgentStopOptions = {}): Promise<void> {
+    const stop = { ...options, deadline: stopDeadline(options.deadline) };
     const refresh =
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
@@ -606,8 +606,8 @@ export class Coordinator {
         (request) => !request.replyAsPrompt,
       ),
     });
-    this.connecting?.abort();
-    this.catalog.cancel();
+    this.connecting?.abort(new NativeStop(stop));
+    this.catalog.cancel(new NativeStop(stop));
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
     const results = await Promise.allSettled([
@@ -617,11 +617,12 @@ export class Coordinator {
         if (refresh && !this.closed) return;
         // a session that is still starting has no turn to interrupt, so stopping it closes it
         if (this.snapshot.phase === 'starting' || this.connecting)
-          await this.session?.close();
+          await this.session?.close(stop);
         else {
           const session = this.session;
-          await session?.interrupt();
-          if (this.changingModel || this.selectingModel) await session?.close();
+          await session?.interrupt(stop);
+          if (this.changingModel || this.selectingModel)
+            await session?.close(stop);
         }
       })(),
     ]);
@@ -775,10 +776,11 @@ export class Coordinator {
   async close(options: { restart?: boolean } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    const stop = { ...options, deadline: stopDeadline() };
     this.coordination?.setFamiliarHandler(undefined);
     const quiescing = this.coordination?.quiesce();
     // interrupt() reads the phase before `closing` replaces it
-    const interrupting = this.interrupt();
+    const interrupting = this.interrupt(stop);
     this.publish({ phase: 'closing' });
     let failure: unknown;
     try {
@@ -787,7 +789,7 @@ export class Coordinator {
       } catch (error) {
         failure = error;
         // Codex's close() interrupts again and would rethrow, so the session ends here
-        await this.disconnect().catch(() => {});
+        await this.disconnect(false, false, stop).catch(() => {});
       }
       await this.task?.catch(() => {});
       // settle() returns early once closed, so an accepted recovery is published here
@@ -800,7 +802,7 @@ export class Coordinator {
       failure ??= error;
     } finally {
       try {
-        await this.disconnect();
+        await this.disconnect(false, false, stop);
       } finally {
         try {
           await this.coordination?.close(options);
@@ -862,9 +864,7 @@ export class Coordinator {
         conversation.agent = from;
         if (conversation.handoff !== previousHandoff)
           delete conversation.handoff;
-        await this.disconnect().catch((closeError: unknown) => {
-          failure = closeError;
-        });
+        await this.disconnect().catch((error: unknown) => (failure = error));
         if (previous) conversation.sessions[agent] = previous;
         else delete conversation.sessions[agent];
       }
@@ -1186,6 +1186,7 @@ export class Coordinator {
   private async disconnect(
     keepActivation = false,
     keepQuestions = false,
+    stop?: AgentStopOptions,
   ): Promise<void> {
     if (!keepActivation && this.coordination) await this.coordination.quiesce();
     const conversationId = this.record?.id;
@@ -1200,7 +1201,7 @@ export class Coordinator {
         : [],
     });
     try {
-      await session?.close();
+      await session?.close(stop);
       if (!this.record) return;
       delete this.record.process;
       await this.save();

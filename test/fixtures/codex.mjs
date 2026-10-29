@@ -1,4 +1,4 @@
-import { setTimeout } from 'node:timers';
+import { setInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
@@ -30,6 +30,10 @@ if (familiar) {
 }
 // modes that a prompt can't reach come from the command line
 const mode = familiar ? '' : (process.argv[2] ?? '');
+if (process.argv.includes('--ignore-term')) {
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1000);
+}
 let model = 'model-a';
 let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
@@ -157,6 +161,25 @@ for await (const line of lines) {
   }
 
   const reply = (result) => send({ id: request.id, result });
+  if (request.method === 'turn/start' && existsSync(file('hold-start'))) {
+    record('prompt.json', request);
+    continue;
+  }
+  if (
+    request.method === 'turn/interrupt' &&
+    existsSync(file('hold-interrupt'))
+  ) {
+    record('interrupt.json', request);
+    if (existsSync(file('late-interrupt')))
+      process.once('SIGTERM', () => {
+        reply({});
+        finish('completed');
+        finish('completed');
+        record('late-response.json', { sent: true });
+        process.stdout.end(() => process.exit(0));
+      });
+    continue;
+  }
   if (request.method === 'thread/inject_items') {
     record('context.json', request.params);
     if (mode === 'context-error')
@@ -187,6 +210,7 @@ for await (const line of lines) {
   }
   if (request.method === 'initialize') {
     if (mode === 'hang-on-init') {
+      record('initializing.json', request);
       // bounded, so an ignored abort fails the test instead of hanging it
       setTimeout(() => process.exit(1), 5000);
       continue;
@@ -440,6 +464,10 @@ for await (const line of lines) {
   }
   if (request.method === 'turn/start') {
     const prompt = request.params.input[0].text;
+    appendFileSync(
+      file('prompts.jsonl'),
+      `${JSON.stringify(request.params.input)}\n`,
+    );
     lastPrompt = prompt;
     record('prompt.json', request);
     if (familiar?.startsWith('question-')) {

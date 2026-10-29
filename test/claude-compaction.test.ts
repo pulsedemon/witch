@@ -7,9 +7,11 @@ import type { AgentEvent } from '../src/agents/types.js';
 import { fixture, content, jsonLines } from './fixtures/claude-adapter.js';
 import { until, within } from './fixtures/within.js';
 
-async function scripted() {
+async function scripted(sessionState = true) {
   const events: AgentEvent[] = [];
-  const f = await fixture((e) => events.push(e), 'compaction');
+  const f = await fixture((e) => events.push(e), 'compaction', {
+    sessionState,
+  });
   await f.session.send('seed');
   events.length = 0;
   let sequence = 0;
@@ -72,6 +74,25 @@ const result = (uuid: string) => ({
   user_message_uuids: [uuid],
   local_command: 'compact',
 });
+
+for (const replaced of [false, true])
+  test(`without session state compaction ${replaced ? 'completes after' : 'fails without'} history replacement`, async () => {
+    const f = await scripted(false);
+    try {
+      const pending = await f.compact();
+      if (replaced) await f.emit(boundary);
+      await f.emit(result(pending.uuid));
+      const outcome = await within(pending.result, 2000, 'compaction result');
+      assert.equal(outcome.status, replaced ? 'completed' : 'failed');
+      if (!replaced) assert.match(outcome.error!, /without confirming/);
+      assert.equal(
+        f.events.filter((e) => e.type === 'compacted').length,
+        replaced ? 1 : 0,
+      );
+    } finally {
+      await f.session.close();
+    }
+  });
 
 test('Claude compaction waits for its result and idle while preserving command records', async () => {
   const f = await scripted();

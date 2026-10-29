@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
@@ -19,11 +20,19 @@ import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
 import { proposedDiff, reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
+import {
+  beforeDeadline,
+  NativeStopTimeout,
+  stopDeadline,
+  terminateChild,
+  terminationReserveMs,
+} from './shutdown.js';
 import { claudeTitle } from './tool-title.js';
 import { bashRecord, runShell } from './user-shell.js';
 import type {
   AgentAdapter,
   AgentSession,
+  AgentStopOptions,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -230,6 +239,12 @@ class ClaudeSession implements AgentSession {
   private readonly reading: Promise<void>;
   private registered = Promise.resolve();
   private child?: ChildExit;
+  private process?: ChildProcessWithoutNullStreams;
+  private closeTask?: Promise<void>;
+  private interrupting?: Promise<void>;
+  private terminating?: Promise<boolean>;
+  private stopUntil?: number;
+  private reportedStopTimeout = false;
   private readonly abort = new AbortController();
   private readonly cancelConnection = () => this.abort.abort();
   private readonly requests = new Map<
@@ -255,6 +270,8 @@ class ClaudeSession implements AgentSession {
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private messageLifecycle = false;
+  private sessionLifecycle = false;
+  private reportedMissingLifecycle = false;
   private readonly reportedMcp = new Set<string>();
   private mcpTimer?: ReturnType<typeof setTimeout>;
   private mcpReading = false;
@@ -306,6 +323,7 @@ class ClaudeSession implements AgentSession {
         },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
+          this.process = child;
           const write = child.stdin.write;
           child.stdin.write = (...args) => {
             const message = JSON.parse(args[0] as string) as SDKUserMessage;
@@ -683,8 +701,7 @@ class ClaudeSession implements AgentSession {
   }
 
   /**
-   * with no familiar or workflow left and Claude Code not yet idle, a reply could land after idle, so idle releases
-   * it, or a familiar or workflow that starts first.
+   * with native idle tracking, a reply after the last holder may land after idle, so idle or a new holder releases it.
    */
   private async reply(
     turn: Turn,
@@ -700,7 +717,12 @@ class ClaudeSession implements AgentSession {
     if (ran.status === 'failed')
       this.options.onEvent({ type: 'notice', text: ran.error ?? '' });
     if (ran.status === 'completed') turn.answer = prompt;
-    if (ran.status !== 'completed' || turn.idle || this.holding)
+    if (
+      ran.status !== 'completed' ||
+      turn.idle ||
+      this.holding ||
+      !this.sessionLifecycle
+    )
       this.release(turn);
   }
 
@@ -730,11 +752,30 @@ class ClaudeSession implements AgentSession {
     ) => this.commands.report(action, deadline),
   };
 
-  async interrupt(): Promise<void> {
+  interrupt(options: AgentStopOptions = {}): Promise<void> {
     this.command?.controller.abort();
     const turn = this.turn;
-    if (!turn) return;
+    if (!turn) return Promise.resolve();
+    if (this.interrupting) return this.interrupting;
     turn.interrupted = true;
+    this.stopUntil ??= stopDeadline(options.deadline);
+    const deadline = this.stopUntil;
+    return (this.interrupting = beforeDeadline(
+      this.interruptTurn(turn),
+      deadline - terminationReserveMs,
+    )
+      .catch(async (error: unknown) => {
+        if (!(error instanceof NativeStopTimeout)) throw error;
+        this.reportStopTimeout();
+        await this.close({ ...options, deadline });
+      })
+      .finally(() => {
+        this.interrupting = undefined;
+        if (!this.closed) this.stopUntil = undefined;
+      }));
+  }
+
+  private async interruptTurn(turn: Turn): Promise<void> {
     // a shell-only wait ends when the aborted command releases it
     if (
       turn.idle &&
@@ -767,7 +808,7 @@ class ClaudeSession implements AgentSession {
       );
       this.closed = true;
       this.stopMcpPolling();
-      void this.usageReader.close().catch(() => {});
+      void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
       this.finish(turn, {
         status: 'interrupted',
         text: turn.messages.text,
@@ -781,29 +822,81 @@ class ClaudeSession implements AgentSession {
     await turn.finished.promise;
   }
 
-  async close(): Promise<void> {
+  close(options: AgentStopOptions = {}): Promise<void> {
+    this.stopUntil ??= stopDeadline(options.deadline);
+    return (this.closeTask ??= this.closeSession(this.stopUntil));
+  }
+
+  private async closeSession(deadline: number): Promise<void> {
     const command = this.command;
     command?.controller.abort();
     this.closed = true;
     this.stopMcpPolling();
-    const usageClosed = this.usageReader.close();
+    const usageClosed = this.usageReader.close({ deadline });
     void usageClosed.catch(() => {});
-    let cleanupError: unknown;
+    const stopped = (async () => {
+      let cleanupError: unknown;
+      try {
+        await this.commands.close();
+      } catch (error) {
+        cleanupError = error;
+      } finally {
+        this.input.close();
+        this.query.close();
+      }
+      await this.reading;
+      await this.child?.closed;
+      await command?.finished;
+      await usageClosed;
+      if (cleanupError) throw cleanupError;
+    })();
     try {
-      await this.commands.close();
+      await beforeDeadline(stopped, deadline - terminationReserveMs);
     } catch (error) {
-      cleanupError = error;
-    } finally {
+      if (!(error instanceof NativeStopTimeout)) throw error;
+      this.reportStopTimeout();
+      this.commands.stop();
+      for (const request of this.requests.values())
+        request.resolve({ decision: 'cancel' });
       this.input.close();
       this.query.close();
+      try {
+        await this.terminate(deadline);
+      } finally {
+        await this.end('Claude did not stop in time');
+      }
+      await beforeDeadline(
+        Promise.all([this.reading, usageClosed, command?.finished]),
+        deadline,
+      );
+    } finally {
+      this.options.signal?.removeEventListener('abort', this.cancelConnection);
+      if (
+        !this.process ||
+        this.process.pid === undefined ||
+        this.process.exitCode !== null ||
+        this.process.signalCode !== null
+      )
+        await this.options.onProcess(undefined);
     }
-    await this.reading;
-    await this.child?.closed;
-    await command?.finished;
-    await usageClosed;
-    this.options.signal?.removeEventListener('abort', this.cancelConnection);
-    await this.options.onProcess(undefined);
-    if (cleanupError) throw cleanupError;
+  }
+
+  private terminate(deadline: number): Promise<boolean> {
+    if (!this.process || !this.child) return Promise.resolve(false);
+    return (this.terminating ??= terminateChild(
+      this.process,
+      this.child.closed,
+      deadline,
+    ));
+  }
+
+  private reportStopTimeout(): void {
+    if (this.reportedStopTimeout) return;
+    this.reportedStopTimeout = true;
+    this.options.onEvent({
+      type: 'notice',
+      text: 'Claude did not stop in time.',
+    });
   }
 
   takeUnreadContext(): string[] {
@@ -885,7 +978,9 @@ class ClaudeSession implements AgentSession {
       this.closed = true;
       this.stopMcpPolling();
       this.commands.stop();
-      await this.usageReader.close().catch(() => {});
+      await this.usageReader
+        .close({ deadline: this.stopUntil })
+        .catch(() => {});
       for (const request of this.requests.values())
         request.resolve({ decision: 'cancel' });
       if (this.connected) this.options.onEvent({ type: 'closed' });
@@ -951,12 +1046,15 @@ class ClaudeSession implements AgentSession {
           type: 'skills',
           skills: skillsOf(message.commands),
         });
-      } else if (message.subtype === 'session_state_changed' && this.turn) {
+      } else if (message.subtype === 'session_state_changed') {
+        this.sessionLifecycle = true;
         const turn = this.turn;
-        turn.idle = message.state === 'idle';
-        if (turn.idle && turn.held && turn.answer !== undefined)
-          this.release(turn);
-        else this.finishIdle(turn);
+        if (turn) {
+          turn.idle = message.state === 'idle';
+          if (turn.idle && turn.held && turn.answer !== undefined)
+            this.release(turn);
+          else this.finishIdle(turn);
+        }
       } else if (
         // ambient tasks are housekeeping, such as forked-skill workers
         message.subtype === 'task_started' &&
@@ -965,11 +1063,11 @@ class ClaudeSession implements AgentSession {
         !message.ambient &&
         !this.late(message)
       ) {
+        if (message.run_id) this.runs.set(message.task_id, message.run_id);
         // a workflow holds off idle as a familiar does, though its agents never reach the stream
         if (message.task_type === 'local_workflow')
           this.workflows.add(message.task_id);
         else {
-          if (message.run_id) this.runs.set(message.task_id, message.run_id);
           this.subagent({
             id: message.task_id,
             parent: message.parent_task_id,
@@ -994,11 +1092,13 @@ class ClaudeSession implements AgentSession {
             this.subagent({ ...subagent, status: 'stopped' });
         }
         this.listed = listed;
+        if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       } else if (message.subtype === 'task_notification') {
+        if (this.late(message)) return;
         this.workflows.delete(message.task_id);
         const subagent = this.subagents.get(message.task_id);
-        if (subagent && !this.late(message))
-          this.subagent({ ...subagent, status: message.status });
+        if (subagent) this.subagent({ ...subagent, status: message.status });
+        if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       }
     } else if (
       message.type === 'stream_event' &&
@@ -1131,6 +1231,7 @@ class ClaudeSession implements AgentSession {
               }
             : {}),
         };
+        if (!this.sessionLifecycle) this.finishIdle(this.turn);
         return;
       }
       const success = message.subtype === 'success' && !message.is_error;
@@ -1163,6 +1264,7 @@ class ClaudeSession implements AgentSession {
             }
           : {}),
       };
+      if (!this.sessionLifecycle) this.finishIdle(this.turn);
     }
   }
 
@@ -1249,13 +1351,25 @@ class ClaudeSession implements AgentSession {
     // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
     this.stopMcpPolling();
-    void this.usageReader.close().catch(() => {});
+    this.stopUntil ??= stopDeadline();
+    void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
     const turn = this.turn;
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI
     if (turn) this.command?.controller.abort();
-    // this also covers a receive() throw while the CLI lives; the SDK's SIGTERM bounds the wait
     this.query.close();
-    await this.child?.closed;
+    try {
+      await beforeDeadline(
+        this.child?.closed ?? Promise.resolve(),
+        this.stopUntil - terminationReserveMs,
+      );
+    } catch (failure) {
+      if (failure instanceof NativeStopTimeout) {
+        this.reportStopTimeout();
+        await this.terminate(this.stopUntil).catch((failure: unknown) => {
+          error = `${error}: ${errorMessage(failure)}`;
+        });
+      } else error = `${error}: ${errorMessage(failure)}`;
+    }
     const text = withTail(error, this.child?.tail() ?? '');
     if (turn) {
       const unreadContext = [...turn.commandRecords.values()].flatMap(
@@ -1272,7 +1386,7 @@ class ClaudeSession implements AgentSession {
         : [];
       this.finish(turn, {
         status: 'failed',
-        text: '',
+        text: this.reportedStopTimeout ? turn.messages.text : '',
         error: text,
         ...(unread.length ? { unread } : {}),
         ...(unreadContext.length ? { unreadContext } : {}),
@@ -1286,12 +1400,20 @@ class ClaudeSession implements AgentSession {
 
   private finishIdle(turn: Turn): void {
     if (
-      turn.idle &&
+      this.turn === turn &&
+      (turn.idle || (!this.sessionLifecycle && !this.holding)) &&
       (turn.result || turn.inputError !== undefined) &&
       !turn.held &&
       (!this.messageLifecycle ||
         ![...turn.steered.values()].some(({ pending }) => pending))
     ) {
+      if (!this.sessionLifecycle && !this.reportedMissingLifecycle) {
+        this.reportedMissingLifecycle = true;
+        this.options.onEvent({
+          type: 'notice',
+          text: 'Claude did not report session state; Witch finished the turn after its result and tracked work settled.',
+        });
+      }
       this.finish(
         turn,
         turn.inputError !== undefined

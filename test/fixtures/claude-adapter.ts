@@ -12,7 +12,11 @@ import { until } from './within.js';
 
 const claude = fileURLToPath(new URL('claude.mjs', import.meta.url));
 
-export async function launcher(mode?: string, usageMode = 'background') {
+export async function launcher(
+  mode?: string,
+  usageMode = 'background',
+  { sessionState = true } = {},
+) {
   const cwd = await scratch('witch-claude-');
   const children: ChildProcessWithoutNullStreams[] = [];
   const args: string[][] = [];
@@ -48,11 +52,11 @@ export async function launcher(mode?: string, usageMode = 'background') {
     assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
     args.push(options.args);
     envs.push(options.env);
-    const child = spawn(process.execPath, [claude, ...(mode ? [mode] : [])], {
-      cwd,
-      stdio: 'pipe',
-      signal: options.signal,
-    });
+    const child = spawn(
+      process.execPath,
+      [claude, mode ?? '', ...(!sessionState ? ['--no-session-state'] : [])],
+      { cwd, stdio: 'pipe', signal: options.signal },
+    );
     children.push(child);
     return child;
   });
@@ -71,8 +75,13 @@ export async function launcher(mode?: string, usageMode = 'background') {
 export async function fixture(
   onEvent: (event: AgentEvent) => void = () => {},
   mode?: string,
+  options: { sessionState?: boolean } = {},
 ) {
-  const { cwd, children, connect } = await launcher(mode);
+  const { cwd, children, connect } = await launcher(
+    mode,
+    'background',
+    options,
+  );
   const session = await connect({ onEvent });
   return { session, cwd, child: children[0]! };
 }
