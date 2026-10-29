@@ -990,9 +990,7 @@ export function App({
     }
   });
 
-  const model =
-    state.native?.model ||
-    state.conversation?.sessions[state.conversation.agent]?.model;
+  const model = state.native?.model;
   let body;
   if (request)
     body = (

@@ -22,7 +22,7 @@ import { until } from './fixtures/within.js';
 /** waits for every refresh a tick started, including those a project change starts after it. */
 async function settle(coordination: SessionCoordination) {
   for (;;) {
-    await coordination['projecting'];
+    await coordination['projecting']?.promise;
     const running = [
       coordination['refreshing']?.promise,
       coordination['refreshingMerges']?.promise,

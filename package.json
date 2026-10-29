@@ -20,7 +20,8 @@
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:integration:codex-brews": "node --import tsx scripts/check-codex-brews.ts",
     "lint:eslint": "eslint .",
-    "lint": "pnpm lint:eslint && prettier --check .",
+    "lint:compiler": "babel src/ui --extensions .ts,.tsx --out-file /dev/null --env-name lint",
+    "lint": "pnpm lint:eslint && pnpm lint:compiler && prettier --check .",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && node dist/cli.js --help",
     "format": "prettier --write ."
   },

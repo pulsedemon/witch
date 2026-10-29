@@ -53,7 +53,7 @@ Options:
   -c, --continue       continue this directory's most recent conversation
   --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
   --recover-directory <old>  preview recovery of a missing directory into this one
-  --apply             apply the directory recovery with all Witches closed
+  --apply              apply the directory recovery with all Witches closed
   -h, --help           show this help
 
 Agent control (use the prefix supplied in the current Witch context):

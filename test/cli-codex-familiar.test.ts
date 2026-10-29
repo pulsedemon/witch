@@ -22,6 +22,7 @@ async function fixture(
   options: {
     mode?: string;
     prompt?: string;
+    openStdin?: boolean;
     response?: UserResponse;
     waitForResponse?: boolean;
     reject?: boolean;
@@ -140,7 +141,8 @@ syncBuiltinESMExports();
   const closed = new Promise<number | null>((resolve) =>
     child.once('close', resolve),
   );
-  child.stdin.end(options.prompt ?? 'implement');
+  child.stdin.write(options.prompt ?? 'implement');
+  if (!options.openStdin) child.stdin.end();
   const updates = () =>
     requests.flatMap((r) =>
       r.action.kind === 'familiar-update' ? [r.action.progress] : [],
@@ -183,6 +185,55 @@ syncBuiltinESMExports();
     },
   };
 }
+
+test('a Codex familiar registers and reports progress before stdin ends', async () => {
+  const f = await fixture({ prompt: 'implement ', openStdin: true });
+  try {
+    await until('progress while stdin remains open', () =>
+      f.updates().some((progress) => progress.status === 'running'),
+    );
+    assert.equal(f.requests[0]!.action.kind, 'familiar-register');
+    assert.match(f.output().stdout, /WITCH_FAMILIAR /);
+    assert.deepEqual(f.updates()[0], { status: 'running', tools: 0 });
+    await assert.rejects(f.launch(), { code: 'ENOENT' });
+    f.child.stdin.end('this');
+    assert.equal(await within(f.closed, 8000, 'task after stdin ends'), 0);
+    const delivered = JSON.parse(
+      await readFile(join(f.root, 'prompt.json'), 'utf8'),
+    ) as { params: { input: { text: string }[] } };
+    assert.equal(delivered.params.input[0]!.text, 'implement this');
+    assert.equal(f.updates().at(-1)!.status, 'completed');
+  } finally {
+    await f.close();
+  }
+});
+
+for (const cause of ['signal', 'connection'] as const)
+  test(`a Codex familiar waiting for stdin closes after ${cause} and saves its report`, async () => {
+    const f = await fixture({ openStdin: true });
+    try {
+      await until('progress while stdin remains open', () =>
+        f.updates().some((progress) => progress.status === 'running'),
+      );
+      if (cause === 'signal') f.child.kill('SIGTERM');
+      else f.rejectUpdates();
+      assert.equal(
+        await within(f.closed, 7000, 'pending stdin cleanup'),
+        cause === 'signal' ? 130 : 1,
+      );
+      await assert.rejects(f.launch(), { code: 'ENOENT' });
+      const report = await readFile(f.report, 'utf8');
+      if (cause === 'signal') {
+        assert.equal(f.updates().at(-1)!.status, 'stopped');
+        assert.equal(f.updates().at(-1)!.report, report);
+      } else assert.match(report, /Native connection closed/);
+      assert.ok(
+        f.output().stdout.endsWith(`${report}\n\nSaved report: ${f.report}\n`),
+      );
+    } finally {
+      await f.close();
+    }
+  });
 
 test('a Codex implementation task retains native configuration, approval and its full report', async () => {
   const f = await fixture();
@@ -331,13 +382,18 @@ for (const cause of ['cancel', 'signal', 'native-exit'] as const)
   });
 
 test('rejected registration and an existing report both prevent Codex from launching', async () => {
-  for (const options of [{ reject: true }, { existing: true }]) {
+  for (const options of [
+    { reject: true, openStdin: true },
+    { existing: true },
+  ]) {
     const f = await fixture(options);
     try {
       assert.equal(await within(f.closed, 5000, 'rejected launch'), 1);
       await assert.rejects(f.launch(), { code: 'ENOENT' });
       if ('existing' in options)
         assert.equal(await readFile(f.report, 'utf8'), 'Retain me');
+      else
+        assert.equal(await readFile(f.report, 'utf8'), 'No active connection');
     } finally {
       await f.close();
     }
