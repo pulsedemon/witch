@@ -111,13 +111,12 @@ export function Request({ request, width, height, cwd, respond }: Props) {
       }
       return true;
     }
+    const form = !request.url || !!request.schema;
+    const json = text.trim() || '{}';
     try {
-      const content =
-        request.url && !request.schema
-          ? undefined
-          : z
-              .record(z.string(), z.unknown())
-              .parse(JSON.parse(text.trim() || '{}'));
+      let content: UserResponse['content'];
+      if (form)
+        content = z.record(z.string(), z.unknown()).parse(JSON.parse(json));
       if (request.schema) {
         // MCP allows any $schema, and Ajv2020 throws on a meta-schema it lacks
         const validator = new Ajv2020({
