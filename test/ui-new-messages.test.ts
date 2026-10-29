@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { test } from 'vitest';
-import type { Snapshot } from '../src/core/coordinator.js';
+import type { Snapshot } from '../src/core/snapshot.js';
 import { applyDisplayUpdate } from '../src/core/state.js';
 import type { DisplayUpdate } from '../src/core/state.js';
 import { App } from '../src/ui/app.js';
@@ -113,6 +113,47 @@ for (const phase of ['idle', 'running'] as const) {
     }
   });
 }
+
+test('pending compaction and new messages preserve the reading line and composer together', async () => {
+  const { ui, update, coordinator } = mount({ phase: 'running' });
+  try {
+    await readEarlier(ui);
+    ui.stdin.write('retained draft');
+    await until('draft', () => ui.text().includes('retained draft'));
+    const reading = first(ui);
+    const prompt = rowOf(ui, 'retained draft');
+    coordinator.publish({ pendingCompaction: true });
+    await until('pending compaction', () =>
+      ui.text().includes('Pending: /compact'),
+    );
+    assert.equal(first(ui), reading);
+    assert.equal(rowOf(ui, 'retained draft'), prompt);
+    assert.ok(!ui.text().includes(label));
+    update({ ...long, text: '\narrival during pending compact' });
+    await until('new messages', () => ui.text().includes(label));
+    assert.equal(first(ui), reading);
+    assert.equal(rowOf(ui, 'retained draft'), prompt);
+    assert.ok(ui.text().includes('Pending: /compact'));
+    click(ui);
+    await until(
+      'latest arrival',
+      () =>
+        ui.text().includes('arrival during pending compact') &&
+        !ui.text().includes(label),
+    );
+    assert.equal(rowOf(ui, 'retained draft'), prompt);
+    assert.ok(ui.text().includes('Pending: /compact'));
+    coordinator.publish({ pendingCompaction: false });
+    await until(
+      'compaction cleared',
+      () => !ui.text().includes('Pending: /compact'),
+    );
+    assert.equal(rowOf(ui, 'retained draft'), prompt);
+    assert.ok(ui.text().includes('arrival during pending compact'));
+  } finally {
+    ui.unmount();
+  }
+});
 
 test('updates to existing items notify without adding rows', async () => {
   const tool = {

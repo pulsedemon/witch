@@ -276,7 +276,7 @@ test('closing the combined picker sends no selection and help advertises no agen
   }
 });
 
-test('the composer takes no typing while a switch shows the conversation it leaves, also after a second switch is refused, and takes it once the next one opens', async () => {
+test('the composer stays closed while a second switch waits in the command queue and opens after both finish', async () => {
   const { coordinator, app, calls } = fake({});
   const switching = Promise.withResolvers<void>();
   coordinator.newConversation = async (...args: unknown[]) => {
@@ -285,6 +285,7 @@ test('the composer takes no typing while a switch shows the conversation it leav
       throw new Error('Stop the current operation first');
     coordinator.publish({ phase: 'starting' });
     await switching.promise;
+    coordinator.publish({ phase: 'idle' });
   };
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -299,9 +300,9 @@ test('the composer takes no typing while a switch shows the conversation it leav
     assert.ok(!ui.text().includes('┃ hello'));
     await commands(ui);
     ui.stdin.write(`new${ENTER}`);
-    await until('the refused switch', () =>
-      calls.some(([call]) => call === 'report'),
-    );
+    await delay(60);
+    assert.deepEqual(calls, [['newConversation', 'b']]);
+    assert.equal(coordinator.snapshot.commandsPending, true);
     await delay(60);
     ui.stdin.write('again');
     await delay(60);
@@ -309,6 +310,15 @@ test('the composer takes no typing while a switch shows the conversation it leav
     coordinator.publish({
       conversation: { ...coordinator.snapshot.conversation!, id: 'c2' },
     });
+    switching.resolve();
+    await until(
+      'both switches finish',
+      () => !coordinator.snapshot.commandsPending,
+    );
+    assert.deepEqual(calls, [
+      ['newConversation', 'b'],
+      ['newConversation', undefined],
+    ]);
     await delay(60);
     ui.stdin.write('there');
     await until('typing in the next conversation', () =>
@@ -568,6 +578,12 @@ test('/jobs lists each job on one row with its CPU, age and command, also after 
     assert.deepEqual(calls, [
       ['stop', 4343, 9],
       ['report', 'Error: Job 4343 has not stopped.'],
+      [
+        'notice',
+        'Commands canceled. Retry explicitly: /jobs',
+        undefined,
+        false,
+      ],
     ]);
     await until(
       'the chat view',
@@ -614,13 +630,21 @@ test('/jobs reports a list that fails', async () => {
     await commands(ui);
     ui.stdin.write(`jobs${ENTER}`);
     await until('the report', () => calls.length > 0);
-    assert.deepEqual(calls, [['report', 'Error: ps failed']]);
+    assert.deepEqual(calls, [
+      ['report', 'Error: ps failed'],
+      [
+        'notice',
+        'Commands canceled. Retry explicitly: /jobs',
+        undefined,
+        false,
+      ],
+    ]);
   } finally {
     ui.unmount();
   }
 });
 
-test('/compact dispatches a local operation and refuses arguments without sending a prompt', async () => {
+test('/compact dispatches locally and discards surrounding prose without sending a prompt', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -633,19 +657,14 @@ test('/compact dispatches a local operation and refuses arguments without sendin
     ui.stdin.write('/compact instructions');
     await delay(30);
     ui.stdin.write(ENTER);
-    await until('argument refusal', () => calls.length === 2);
-    assert.deepEqual(calls[1], [
-      'notice',
-      'Use /compact without arguments.',
-      undefined,
-      false,
-    ]);
+    await until('local compaction', () => calls.length === 2);
+    assert.deepEqual(calls[1], ['compact']);
   } finally {
     ui.unmount();
   }
 });
 
-test('/compact refuses multiline arguments without sending a prompt', async () => {
+test('/compact discards multiline prose without sending a prompt', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -655,10 +674,8 @@ test('/compact refuses multiline arguments without sending a prompt', async () =
     ui.stdin.write('second');
     await delay(30);
     ui.stdin.write(ENTER);
-    await until('argument refusal', () => calls.length > 0);
-    assert.deepEqual(calls, [
-      ['notice', 'Use /compact without arguments.', undefined, false],
-    ]);
+    await until('local compaction', () => calls.length > 0);
+    assert.deepEqual(calls, [['compact']]);
   } finally {
     ui.unmount();
   }

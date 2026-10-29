@@ -24,7 +24,7 @@ cd project && witch
 
 Flags and the state default are in `witch --help`. Use `/help` for keyboard controls and `Ctrl+P` for commands.
 
-Use `/compact` while idle to compact the current native conversation. Automatic compaction follows the [coordinator's pre-turn policy](src/core/coordinator.ts).
+[Witch commands and compaction](docs/rules.md#witch-commands-and-compaction) describe command sequences, quoted command names and compaction during work.
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 

@@ -1123,7 +1123,7 @@ test('failed target activation holds its selected lock without starting native w
   await released.close();
 });
 
-test('compaction publishes a running presence and refuses a held native turn', async (t) => {
+test('compaction publishes a running presence and defers behind a held native turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start } = await coordinationFixture(cleanup);
   const a = await start(),
@@ -1148,8 +1148,12 @@ test('compaction publishes a running presence and refuses a held native turn', a
   try {
     await within(a.a.gate.entered, 3000, 'held native turn');
     a.a.replied = true;
-    await assert.rejects(a.coordinator.compact(), /familiars or workflows/);
+    const compacting = a.coordinator.compact();
+    assert.equal(a.coordinator.snapshot.pendingCompaction, true);
     assert.equal(a.a.compactions.length, 1);
+    a.a.gate.open();
+    assert.equal(await within(compacting, 3000, 'deferred compact'), true);
+    assert.equal(a.a.compactions.length, 2);
   } finally {
     a.a.gate.open();
     await sending;

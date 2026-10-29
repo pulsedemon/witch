@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Snapshot } from './coordinator.js';
+import type { Snapshot } from './snapshot.js';
 import { conversationSchema, phaseSchema, processIdentity } from './state.js';
 
 export const claimInputSchema = z.object({
