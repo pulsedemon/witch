@@ -5,6 +5,7 @@ import { appendedDisplayText } from '../core/state.js';
 import { prepareDiff } from './diff.js';
 import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from './theme.js';
+import { castTitle } from './cast.js';
 import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
 import { hyperlink, linkify, linkifyAppend, plain } from './links.js';
@@ -156,7 +157,9 @@ function prepare(
           ? colors.dim(
               `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkedTitle((expanded && item.expandedTitle) || (item.title ?? 'Tool'), item.path, item.cwd)}`,
             )
-          : colors.dim('Notice');
+          : item.cast
+            ? castTitle()
+            : colors.dim('Notice');
   const linked =
     tool && expanded ? linkifyAppend(item.text, item.cwd) : undefined;
   const assistant =
