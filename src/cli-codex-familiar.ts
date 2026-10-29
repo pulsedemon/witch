@@ -66,6 +66,7 @@ export async function runCodexFamiliar(
     { input: UserRequest; resolved: boolean; work: Promise<void> }
   >();
   const close = () => {
+    process.stdin.destroy();
     if (session) {
       closing ??= session.close();
       void closing.catch((error: unknown) => {
@@ -79,7 +80,6 @@ export async function runCodexFamiliar(
   };
   const stop = () => {
     stopped = true;
-    process.stdin.destroy();
     close();
   };
   const reports = new FamiliarReports(binding, run, fail);
@@ -193,12 +193,12 @@ export async function runCodexFamiliar(
     await file.sync();
   };
   try {
-    let prompt = '';
-    process.stdin.setEncoding('utf8');
-    for await (const chunk of process.stdin) prompt += chunk as string;
     await registerFamiliar(binding, run, name, () => stopped);
     registered = true;
     heartbeat = setInterval(() => reports.push(progress), 2000);
+    let prompt = '';
+    process.stdin.setEncoding('utf8');
+    for await (const chunk of process.stdin) prompt += chunk as string;
     const adapter = new CodexAdapter((executable, cwd, signal) => {
       const child = spawn(executable, argv, {
         cwd,
