@@ -47,6 +47,39 @@ test("the fixed instructions use Witch's names for native skills, subagents and 
   }
 });
 
+test('the fixed instructions lay out transcript replies for scanning and leave voice and text posted elsewhere alone', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+    const rule = context
+      .split('\n\n')
+      .find((paragraph) =>
+        paragraph.startsWith('Lay out replies shown in the Witch transcript'),
+      );
+    assert.ok(rule, context);
+    assert.match(rule, /Open with the outcome in one sentence/);
+    assert.match(
+      rule,
+      /one-line bullets under a short bold label, even when there is only one group/,
+    );
+    assert.match(rule, /don't bold the start of each bullet/);
+    assert.match(rule, /Keep each bullet to one line/);
+    assert.match(rule, /Answer a single question or point in prose/);
+    assert.match(
+      rule,
+      /layout only; voice comes from the user's own instructions/,
+    );
+    assert.match(
+      rule,
+      /does not apply to text you write or post outside the transcript/,
+    );
+    assert.match(rule, /or to drafts of that text/);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('an older session record receives instructions without resending unchanged memory', async () => {
   const f = await fixture();
   try {
