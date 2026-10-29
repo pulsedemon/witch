@@ -134,8 +134,10 @@ export class ClaimConflict extends Error {
   }
 }
 
-export function checkDeadline(deadline: number): void {
-  if (Date.now() >= deadline) throw new Error('Coordination request expired.');
+export function checkDeadline(deadline: number): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error('Coordination request expired.');
+  return remaining;
 }
 
 export class CoordinationStore {
@@ -247,6 +249,7 @@ export class CoordinationStore {
 
   async activeActivations(
     activations: readonly string[],
+    options: { timeout?: number } = {},
   ): Promise<Set<string>> {
     const paths = new Map(
       activations.map((activation) => [
@@ -254,7 +257,7 @@ export class CoordinationStore {
         activation,
       ]),
     );
-    const locked = await lockedFiles([...paths.keys()]);
+    const locked = await lockedFiles([...paths.keys()], options);
     return new Set([...locked.keys()].map((path) => paths.get(path)!));
   }
 
@@ -273,7 +276,9 @@ export class CoordinationStore {
     const lock = deadline === undefined ? undefined : await this.lock(deadline);
     try {
       observe?.();
-      return await this.reconcile(await this.read());
+      const ledger = await this.reconcile(await this.read(), deadline);
+      if (deadline !== undefined) checkDeadline(deadline);
+      return ledger;
     } finally {
       await lock?.close();
     }
@@ -464,20 +469,29 @@ export class CoordinationStore {
     };
   }
 
-  private async reconcile(ledger: Ledger): Promise<Ledger> {
-    const [processes, opened, active] = await Promise.all([
+  private async reconcile(ledger: Ledger, deadline?: number): Promise<Ledger> {
+    const options = {
+      timeout: deadline === undefined ? undefined : checkDeadline(deadline),
+    };
+    const probes = [
       identifyProcesses(
         ledger.claims.flatMap((claim) => claim.process?.pid ?? []),
+        options,
       ),
       this.store.openConversations(
         ledger.claims.flatMap((claim) =>
           claim.process ? [] : [claim.owner.conversation],
         ),
+        options,
       ),
       this.activeActivations(
         ledger.selections.map((ticket) => ticket.activation),
+        options,
       ),
-    ]);
+    ] as const;
+    // every probe must close before a failure releases the ledger lock.
+    await Promise.allSettled(probes);
+    const [processes, opened, active] = await Promise.all(probes);
     return {
       claims: ledger.claims.filter((claim) =>
         claim.process
@@ -499,7 +513,8 @@ export class CoordinationStore {
     try {
       const stored = await this.read();
       const before = JSON.stringify(stored);
-      const ledger = await this.reconcile(stored);
+      const ledger = await this.reconcile(stored, deadline);
+      checkDeadline(deadline);
       await verify(ledger);
       checkDeadline(deadline);
       const result = change(ledger);
