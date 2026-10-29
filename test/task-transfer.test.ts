@@ -209,12 +209,12 @@ async function automatic(t: TestContext, ids = ['claude', 'codex']) {
       ],
     },
   });
-  const requested = () =>
+  const requested = (field: TransferField = 'automaticTransfer') =>
     until('automatic request', async () =>
-      (await f.registry.claims()).some((claim) => claim.automaticTransfer),
+      (await f.registry.claims()).some((claim) => claim[field]),
     );
-  const answer = async () => {
-    await requested();
+  const answer = async (field: TransferField = 'automaticTransfer') => {
+    await requested(field);
     ticks[0]!();
   };
   const attempt = async () => {
@@ -423,6 +423,46 @@ test('an alias conflict transfers the original claim without reserving the calle
   assert.equal(result.claim.summary, 'Original work');
   assert.deepEqual(result.claim.assigned, ['github:acme/queue#7']);
 });
+
+for (const alias of ['task:ALIAS', 'https://github.com/acme/queue/pull/7'])
+  test(`a refused alias conflict supplies a usable manual command for ${alias}`, async (t) => {
+    const f = await automatic(t);
+    f.emit({
+      type: 'usage',
+      usage: {
+        limits: [
+          { window: '5H', percent: 25, resetsAt: Date.now() / 1000 + 3600 },
+        ],
+      },
+    });
+    const [result] = await Promise.all([
+      callControl(await f.requester.binding(), {
+        kind: 'claim',
+        input: {
+          reference: 'task:different',
+          aliases: [alias],
+          summary: 'Other work',
+        },
+      }),
+      f.answer(),
+    ]);
+    if (result.kind !== 'conflict') assert.fail(JSON.stringify(result));
+    const reference = /with \/task take (.+) once its owner is idle\.$/.exec(
+      result.message,
+    )?.[1];
+    assert.equal(reference, alias);
+    await Promise.all([
+      f.requester.coordination.takeTask(reference!),
+      f.answer('transfer'),
+    ]);
+    const [owned] = await f.registry.claims();
+    assert.equal(owned!.id, f.original.id);
+    assert.equal(
+      owned!.owner.conversation,
+      f.requester.coordinator.snapshot.conversation!.id,
+    );
+    assert.equal(owned!.summary, 'Original work');
+  });
 
 test('an automatic request times out without granting ownership or leaving a request', async (t) => {
   const f = await automatic(t);
