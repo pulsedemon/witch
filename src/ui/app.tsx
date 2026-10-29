@@ -39,6 +39,7 @@ import { usePointer, useWheel } from './mouse.js';
 import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
+import { castTitle, useCasting } from './cast.js';
 import { Sidebar, sidebarWidth } from './sidebar.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
@@ -223,6 +224,7 @@ export function App({
       layout.render(state.items, bodyWidth, expanded, fullDiffs, imageLoads),
     [layout, state.items, bodyWidth, expanded, fullDiffs, imageLoads],
   );
+  const casting = useCasting(state.items);
   // a drag's ends are anchored to their text, so they follow it when output above grows
   const [range, rangeRef, setRange] = useLiveState<
     { from: RangeEnd; to: RangeEnd } | undefined
@@ -1177,6 +1179,15 @@ export function App({
       scrollTop,
       scrollTop + transcriptHeight,
     );
+    for (const [id, frame] of casting) {
+      const row = transcript.starts.get(id);
+      if (
+        row !== undefined &&
+        row >= scrollTop &&
+        row - scrollTop < visible.length
+      )
+        visible[row - scrollTop] = castTitle(frame);
+    }
     const selectedToolRow = transcript.starts.get(
       tools[toolSelection]?.id ?? '',
     );

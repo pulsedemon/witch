@@ -68,6 +68,24 @@
             ]
           }
         ]
+      },
+      "spell": {
+        "files": ["spell-0.jsonl"],
+        "launches": [
+          {
+            "command": "codex",
+            "args": [
+              "app-server",
+              "--stdio",
+              "-c",
+              "approval_policy=\"on-request\"",
+              "-c",
+              "approvals_reviewer=\"user\"",
+              "-c",
+              "sandbox_mode=\"read-only\""
+            ]
+          }
+        ]
       }
     },
     "schema": {
@@ -159,6 +177,29 @@
               "--permission-prompt-tool=stdio",
               "--include-partial-messages",
               "--session-id=b885aa3c-59be-41a4-9163-29979ea8c73b",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default"
+            ]
+          }
+        ]
+      },
+      "spell": {
+        "files": ["spell-0.jsonl"],
+        "launches": [
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--effort=low",
+              "--model=haiku",
+              "--permission-prompt-tool=stdio",
+              "--include-partial-messages",
+              "--session-id=dc32dd84-db7e-47f5-8d66-ce26f27cc7a2",
               "--setting-sources=project",
               "--strict-mcp-config",
               "--permission-mode=default"

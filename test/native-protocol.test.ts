@@ -34,7 +34,7 @@ const manifest = JSON.parse(
 const requests: RpcMessage[] = [];
 
 for (const runtime of ['codex', 'claude'] as const) {
-  for (const scenario of ['basic', 'control', 'background'] as const) {
+  for (const scenario of ['basic', 'control', 'background', 'spell'] as const) {
     test(`${runtime} replays native ${scenario} through its production adapter`, async () => {
       const cwd = await scratch('witch-native-protocol-');
       const files: string[] = manifest[runtime].scenarios[scenario].files;

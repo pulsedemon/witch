@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
@@ -290,6 +297,49 @@ test('a Codex implementation task retains native configuration, approval and its
         .length,
       1,
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("a Codex familiar lists its spells before its turn and reports its own and its nested familiar's casts once each", async () => {
+  const f = await fixture({ mode: 'spell-reads' });
+  try {
+    assert.equal(
+      await within(f.closed, 8000, 'Codex completion'),
+      0,
+      f.output().stderr,
+    );
+    const methods = (await readFile(join(f.root, 'methods.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string);
+    const listed = methods.indexOf('skills/list');
+    assert.ok(
+      listed >= 0 && listed < methods.indexOf('turn/start'),
+      methods.join(),
+    );
+    const path = await realpath(join(f.root, '.agents/skills/a/SKILL.md'));
+    const final = f.updates().at(-1)!;
+    assert.equal(final.status, 'completed');
+    assert.deepEqual(final.spells, [
+      { id: `native-thread/turn-1/${path}`, name: 'a' },
+      { id: `child-thread/child-turn-1/${path}`, name: 'a' },
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a Codex familiar whose spell listing fails still runs its task', async () => {
+  const f = await fixture({ mode: 'skills-fail' });
+  try {
+    assert.equal(
+      await within(f.closed, 8000, 'Codex completion'),
+      0,
+      f.output().stderr,
+    );
+    assert.equal(f.updates().at(-1)!.status, 'completed');
   } finally {
     await f.close();
   }

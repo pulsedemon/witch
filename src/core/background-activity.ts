@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentEvent } from '../agents/types.js';
 import type { Snapshot } from './coordinator.js';
 import { updateFamiliar } from './familiars.js';
+import { castRow } from './spells.js';
 import type { DisplayUpdate } from './state.js';
 
 type BackgroundState = Pick<Snapshot, 'subagents' | 'backgroundCommands'>;
@@ -23,6 +24,9 @@ export function updateBackgroundActivity(
     return {
       state: { subagents },
       rows: [
+        ...(event.subagent.spells ?? []).map((cast) =>
+          castRow(cast, cwd, event.subagent.name),
+        ),
         ...update.notices.map((text): DisplayUpdate => ({
           id: randomUUID(),
           kind: 'notice',

@@ -6,6 +6,7 @@ import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+import { mergeCasts } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import {
@@ -16,6 +17,7 @@ import {
   terminationReserveMs,
 } from './shutdown.js';
 import { boundCommandTitle, shortPath, toolTitle } from './tool-title.js';
+import { castIndex, castSkills } from './codex-spells.js';
 import type { CommandPrefixes, ToolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
@@ -395,8 +397,9 @@ class CodexSession implements AgentSession {
     { configured?: string; rerouted?: string }
   >();
   private readonly commands: CodexCommands;
-  /** each listed skill's SKILL.md, which a skill input names. */
-  private readonly skillPaths = new Map<string, string>();
+  /** every enabled skill, whose SKILL.md a skill input names. */
+  private spellIndex: { name: string; path: string }[] = [];
+  private castIndex = new Map<string, string>();
   /** each turn's latest diff count, since a turn's diff grows as it edits. */
   private readonly turnLines = new Map<
     string,
@@ -487,11 +490,14 @@ class CodexSession implements AgentSession {
         forceReload: true,
       }),
     );
-    this.skillPaths.clear();
+    const enabled = data
+      .flatMap((entry) => entry.skills)
+      .filter((skill) => skill.enabled);
+    this.spellIndex = enabled;
+    this.castIndex = castIndex(enabled);
     const skills: Skill[] = [];
-    for (const skill of data.flatMap((entry) => entry.skills)) {
-      if (!skill.enabled || this.skillPaths.has(skill.name)) continue;
-      this.skillPaths.set(skill.name, skill.path);
+    for (const skill of enabled) {
+      if (skills.some(({ name }) => name === skill.name)) continue;
       skills.push({
         name: skill.name,
         description:
@@ -553,7 +559,8 @@ class CodexSession implements AgentSession {
     skill?: SkillCall,
     context?: string,
   ): Promise<TurnResult> {
-    const path = skill && this.skillPaths.get(skill.name);
+    const path =
+      skill && this.spellIndex.find(({ name }) => name === skill.name)?.path;
     const turn = this.beginTurn();
     let submitted = false;
     try {
@@ -854,6 +861,7 @@ class CodexSession implements AgentSession {
       };
       const diff = this.fileChangeDiff(notification);
       this.commands.receive(notification);
+      this.cast(notification, child);
       if (child) this.subagentNotification(notification, child);
       else this.notification(notification, diff);
     } catch (error) {
@@ -895,6 +903,19 @@ class CodexSession implements AgentSession {
       else this.proposals.delete(key);
     }
     return diff;
+  }
+
+  /** ahead of the familiar filters, so a cast from a familiar's earlier turn or unknown thread still counts. */
+  private cast(message: Notification, threadId: string | undefined): void {
+    if (!message.item) return;
+    const turn = String(message.params.turnId);
+    for (const { path, name } of castSkills(message.item, this.castIndex)) {
+      const cast = { id: `${threadId ?? this.info.id}/${turn}/${path}`, name };
+      const subagent = threadId && this.subagents.get(threadId);
+      const spells = subagent && mergeCasts(subagent.spells, [cast]);
+      if (!subagent) this.options.onEvent({ type: 'spell', cast });
+      else if (spells) this.subagent({ ...subagent, spells });
+    }
   }
 
   /** Codex sends a spawned thread's notifications to every connection, under that thread's id. */

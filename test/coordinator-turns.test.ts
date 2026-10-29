@@ -565,7 +565,7 @@ test('a spell, a native command and prompts sent during a turn join it in order 
     assert.deepEqual(a.steers, prompts);
     assert.deepEqual(a.skillSteers, [
       { name: 'review', args: 'now' },
-      { name: 'context', args: '' },
+      { name: 'context', args: '', builtin: true },
     ]);
     assert.deepEqual(
       coordinator.snapshot.items

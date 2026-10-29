@@ -25,21 +25,31 @@ assert.ok(values.out && values.model, '--out and --model are required');
 assert.ok(
   values.scenario === 'basic' ||
     values.scenario === 'control' ||
-    values.scenario === 'background',
+    values.scenario === 'background' ||
+    values.scenario === 'spell',
   'Unknown scenario',
 );
 const root = resolve(values.out);
 await mkdir(root);
 const cwd = join(root, 'project');
 await mkdir(cwd);
-await writeFile(
-  join(cwd, 'AGENTS.md'),
-  'This is a synthetic protocol check. Perform only the exact prompt. Do not load skills or delegate.\n',
-);
-await writeFile(
-  join(cwd, 'CLAUDE.md'),
-  'This is a synthetic protocol check. Perform only the exact prompt. Do not load skills or delegate.\n',
-);
+const instructions = `This is a synthetic protocol check. ${
+  values.scenario === 'spell'
+    ? 'Perform only the exact prompt. You may run the probe-spell skill and launch one subagent when asked.'
+    : 'Perform only the exact prompt. Do not load skills or delegate.'
+}\n`;
+await writeFile(join(cwd, 'AGENTS.md'), instructions);
+await writeFile(join(cwd, 'CLAUDE.md'), instructions);
+if (values.scenario === 'spell') {
+  for (const skills of ['.claude/skills', '.agents/skills']) {
+    await mkdir(join(cwd, skills, 'probe-spell'), { recursive: true });
+    await writeFile(
+      join(cwd, skills, 'probe-spell', 'SKILL.md'),
+      '---\nname: probe-spell\ndescription: Answers a protocol probe. Use when asked to run the probe spell.\n---\n\nReply with exactly `PROBE CAST` followed by any arguments you were given, and nothing else.\n',
+    );
+  }
+  execFileSync('git', ['init', '-q'], { cwd });
+}
 process.env.CLAUDE_CODE_TMPDIR = root;
 const captures: ReturnType<typeof observeWire>[] = [];
 const launches: { command: string; args: string[] }[] = [];

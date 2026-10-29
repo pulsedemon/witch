@@ -26,7 +26,7 @@ export interface ToolTitle {
 export type CommandPrefixes = Readonly<{ control: string; familiar: string }>;
 
 /** leaves shell syntax uninterpreted so a script cannot look like one bound call. */
-function shellWords(source: string) {
+export function shellWords(source: string) {
   const words: string[] = [];
   let at = 0;
   while (at < source.length) {

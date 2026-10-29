@@ -121,7 +121,7 @@ codex app-server generate-json-schema --experimental --out "$capture_root/experi
 codex app-server generate-json-schema --out "$capture_root/stable"
 ```
 
-Capture `basic`, `control` and `background` separately for each runtime, using explicit available models and a new output directory each time:
+Capture `basic`, `control`, `background` and `spell` separately for each runtime, using explicit available models and a new output directory each time:
 
 ```sh
 pnpm test:record-native --runtime codex --model "$codex_model" --scenario basic --out "$capture_root/codex-basic"

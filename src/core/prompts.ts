@@ -26,8 +26,13 @@ export function skillCall(
   skills: readonly Skill[],
 ): SkillCall | undefined {
   const match = /^\/(\S+)([\s\S]*)$/.exec(prompt.trim());
-  if (!match || !skills.some(({ name }) => name === match[1])) return;
-  return { name: match[1]!, args: match[2]!.trim() };
+  const skill = match && skills.find(({ name }) => name === match[1]);
+  if (!match || !skill) return;
+  return {
+    name: match[1]!,
+    args: match[2]!.trim(),
+    ...(skill.builtin && { builtin: true as const }),
+  };
 }
 
 export function shellCommand(prompt: string): string | undefined {
