@@ -126,6 +126,9 @@ interface Launch {
   conversation?: string;
 }
 
+/** another operation holds the phase, so nothing ran and nothing failed. */
+class Refusal extends Error {}
+
 export class Coordinator {
   readonly pentacle = new PentacleActivity();
   snapshot: Snapshot;
@@ -572,7 +575,8 @@ export class Coordinator {
 
   /** an omitted effort keeps the one in force, except on a model that lists none. */
   async selectModel(selection: ModelSelection): Promise<void> {
-    if (this.changingModel) throw new Error('Stop the current operation first');
+    if (this.changingModel)
+      throw new Refusal('Stop the current operation first');
     if (selection.agent !== this.current().agent)
       return this.operate('switching', async () => {
         this.registration(selection.agent);
@@ -804,8 +808,11 @@ export class Coordinator {
     });
   }
 
+  /** a refusal posts a transient notice, so queued prompts stay runnable. */
   report(error: unknown): void {
     if (this.snapshot.phase === 'error') return;
+    if (error instanceof Refusal && this.record)
+      return this.notice(error.message, undefined, false);
     this.publish({ error: errorMessage(error) });
   }
 
@@ -1435,16 +1442,17 @@ export class Coordinator {
     operation: () => Promise<void>,
     expected: 'idle' | 'recovery' = 'idle',
   ): Promise<void> {
-    if (this.snapshot.phase !== expected)
-      throw new Error(
-        this.snapshot.phase === 'recovery'
-          ? 'Resolve pending memory before running another task'
-          : this.snapshot.phase === 'error' && this.snapshot.error
-            ? this.snapshot.error
-            : this.replied
-              ? 'Wait for the running familiars or workflows to report, or press Escape to stop them'
-              : 'Stop the current operation first',
+    if (this.snapshot.phase !== expected) {
+      if (this.snapshot.phase === 'recovery')
+        throw new Error('Resolve pending memory before running another task');
+      if (this.snapshot.phase === 'error' && this.snapshot.error)
+        throw new Error(this.snapshot.error);
+      throw new Refusal(
+        this.replied
+          ? 'Wait for the running familiars or workflows to report, or press Escape to stop them'
+          : 'Stop the current operation first',
       );
+    }
     this.cancelled = false;
     if (expected === 'idle') this.turnFailed = false;
     this.publish({ phase, error: undefined });
