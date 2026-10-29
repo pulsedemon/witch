@@ -25,6 +25,10 @@ for (const phase of ['start', 'response', 'completion', 'late response'])
       await appears(join(cwd, 'prompt.json'));
       const started = performance.now();
       const interruption = session.interrupt({ deadline: started + 3200 });
+      if (phase === 'late response') {
+        await appears(join(cwd, 'interrupt.json'));
+        child.stdin.end();
+      }
       await within(interruption, 2500, 'bounded interrupt');
       assert.equal((await turn).status, 'interrupted');
       if (phase === 'late response')

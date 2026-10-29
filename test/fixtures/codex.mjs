@@ -1,4 +1,4 @@
-import { setInterval, setTimeout } from 'node:timers';
+import { clearInterval, setInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
@@ -170,14 +170,18 @@ for await (const line of lines) {
     existsSync(file('hold-interrupt'))
   ) {
     record('interrupt.json', request);
-    if (existsSync(file('late-interrupt')))
+    if (existsSync(file('late-interrupt'))) {
+      // stdin can close before SIGTERM reaches the late-response handler.
+      const waiting = setInterval(() => {}, 1000);
       process.once('SIGTERM', () => {
+        clearInterval(waiting);
         reply({});
         finish('completed');
         finish('completed');
         record('late-response.json', { sent: true });
         process.stdout.end(() => process.exit(0));
       });
+    }
     continue;
   }
   if (request.method === 'thread/inject_items') {
