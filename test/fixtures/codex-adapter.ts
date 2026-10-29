@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { access, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,12 +35,14 @@ export async function fixture(
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
-  const adapter = new CodexAdapter((_, directory, signal) =>
-    spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
-      cwd: directory,
-      stdio: 'pipe',
-      signal,
-    }),
+  let child: ChildProcessWithoutNullStreams;
+  const adapter = new CodexAdapter(
+    (_, directory, signal) =>
+      (child = spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
+        cwd: directory,
+        stdio: 'pipe',
+        signal,
+      })),
   );
   const session = await adapter.connect({
     cwd,
@@ -53,7 +56,7 @@ export async function fixture(
     mark,
     familiarBinding,
   });
-  return { session, cwd };
+  return { session, cwd, child: child! };
 }
 
 /** lets a held fixture event go, so a reverted guard can't hang cleanup. */

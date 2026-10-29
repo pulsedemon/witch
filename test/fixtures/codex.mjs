@@ -157,6 +157,17 @@ for await (const line of lines) {
   }
 
   const reply = (result) => send({ id: request.id, result });
+  if (request.method === 'turn/start' && existsSync(file('hold-start'))) {
+    record('prompt.json', request);
+    continue;
+  }
+  if (
+    request.method === 'turn/interrupt' &&
+    existsSync(file('hold-interrupt'))
+  ) {
+    record('interrupt.json', request);
+    continue;
+  }
   if (request.method === 'thread/inject_items') {
     record('context.json', request.params);
     if (mode === 'context-error')

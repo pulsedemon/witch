@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type {
   AgentAdapter,
   AgentSession,
+  AgentStopOptions,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -73,6 +74,10 @@ export class FixtureAgent implements AgentAdapter {
   readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
   readonly selections: [string, string | null | undefined][] = [];
   readonly responses: [string, UserResponse][] = [];
+  readonly stops: {
+    operation: 'interrupt' | 'close';
+    options?: AgentStopOptions;
+  }[] = [];
   failConnect = false;
   /** the next `models()` rejects, as a failed Codex `model/list` does. */
   failModels = false;
@@ -241,7 +246,8 @@ export class FixtureAgent implements AgentAdapter {
         }
         return true;
       },
-      interrupt: async () => {
+      interrupt: async (options) => {
+        this.stops.push({ operation: 'interrupt', options });
         if (this.failInterrupt) throw new Error('Interrupt failed');
         shell?.resolve({
           status: this.finishShellOnInterrupt ? 'completed' : 'interrupted',
@@ -253,7 +259,8 @@ export class FixtureAgent implements AgentAdapter {
           ...(this.unreadOnInterrupt ? { unread: steered } : {}),
         });
       },
-      close: async () => {
+      close: async (stop) => {
+        this.stops.push({ operation: 'close', options: stop });
         closed = true;
         turn?.resolve({ status: 'failed', text: '', error: 'Session closed' });
         try {

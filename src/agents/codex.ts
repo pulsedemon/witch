@@ -8,11 +8,18 @@ import { CodexCommands } from './codex-commands.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
+import {
+  beforeDeadline,
+  NativeStopTimeout,
+  stopDeadline,
+  terminationReserveMs,
+} from './shutdown.js';
 import { shortPath, toolTitle } from './tool-title.js';
 import type { ToolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
+  AgentStopOptions,
   FileDiff,
   Hunk,
   Model,
@@ -359,6 +366,10 @@ class CodexSession implements AgentSession {
     { threadId: string; turnId: string; diff: FileDiff[] }
   >();
   private closing = false;
+  private closeTask?: Promise<void>;
+  private interrupting?: Promise<void>;
+  private stopUntil?: number;
+  private reportedStopTimeout = false;
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
@@ -512,6 +523,8 @@ class CodexSession implements AgentSession {
   }
 
   private beginTurn(): NonNullable<CodexSession['turn']> {
+    if (this.closed || this.closing)
+      throw new Error('The Codex session is closed');
     if (this.turn) throw new Error('This agent is already running');
     const turn = {
       started: Promise.withResolvers<string>(),
@@ -577,7 +590,6 @@ class CodexSession implements AgentSession {
   }
 
   async compact(): Promise<TurnResult> {
-    if (this.closed) throw new Error('The Codex session is closed');
     const turn = this.beginTurn();
     turn.compaction = { completed: false };
     try {
@@ -613,7 +625,13 @@ class CodexSession implements AgentSession {
     { skill }: { skill?: SkillCall } = {},
   ): Promise<boolean> {
     // a prompt steered into a shell command's turn would never be answered, and Codex expands a skill only at a turn's start
-    if (this.turn?.command !== undefined || this.turn?.compaction || skill)
+    if (
+      this.closed ||
+      this.closing ||
+      this.turn?.command !== undefined ||
+      this.turn?.compaction ||
+      skill
+    )
       return false;
     const id = await this.turn?.started.promise;
     if (!id) return false;
@@ -630,22 +648,50 @@ class CodexSession implements AgentSession {
     }
   }
 
-  async interrupt(): Promise<void> {
+  interrupt(options: AgentStopOptions = {}): Promise<void> {
     const turn = this.turn;
-    if (!turn) return;
+    if (!turn) return Promise.resolve();
+    if (this.interrupting) return this.interrupting;
     turn.interrupted = true;
-    const id = await turn.started.promise;
-    if (id && this.turn === turn)
-      try {
-        await this.rpc.request('turn/interrupt', {
-          threadId: this.info.id,
-          turnId: id,
-        });
-      } catch (error) {
-        // an exit has ended the turn by the time its rejection lands here
-        if (!this.closed) throw error;
-      }
-    await turn.finished.promise;
+    this.stopUntil ??= stopDeadline(options.deadline);
+    return (this.interrupting = this.interruptTurn(turn, {
+      ...options,
+      deadline: this.stopUntil,
+    }).finally(() => {
+      this.interrupting = undefined;
+      if (!this.closing) this.stopUntil = undefined;
+    }));
+  }
+
+  private async interruptTurn(
+    turn: NonNullable<CodexSession['turn']>,
+    options: AgentStopOptions & { deadline: number },
+  ): Promise<void> {
+    const stopped = (async () => {
+      const id = await turn.started.promise;
+      if (id && this.turn === turn)
+        try {
+          await this.rpc.request('turn/interrupt', {
+            threadId: this.info.id,
+            turnId: id,
+          });
+        } catch (error) {
+          // an exit has ended the turn by the time its rejection lands here
+          if (!this.closed) throw error;
+        }
+      await turn.finished.promise;
+    })();
+    try {
+      if (options.restart) await stopped;
+      else
+        await beforeDeadline(stopped, options.deadline - terminationReserveMs);
+    } catch (error) {
+      if (!(error instanceof NativeStopTimeout)) throw error;
+      this.reportStopTimeout();
+      this.closing = true;
+      this.commands.stop();
+      await this.rpc.close(options);
+    }
   }
 
   readonly familiar = {
@@ -704,15 +750,43 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'request-resolved', id });
   }
 
-  async close(): Promise<void> {
+  close(options: AgentStopOptions = {}): Promise<void> {
     this.closing = true;
-    await this.commands.close();
+    this.stopUntil ??= stopDeadline(options.deadline);
+    return (this.closeTask ??= this.closeSession({
+      ...options,
+      deadline: this.stopUntil,
+    }));
+  }
+
+  private async closeSession(
+    options: AgentStopOptions & { deadline: number },
+  ): Promise<void> {
     try {
-      await this.interrupt();
+      const stopped = (async () => {
+        await this.commands.close();
+        await this.interrupt(options);
+      })();
+      if (options.restart) await stopped;
+      else
+        await beforeDeadline(stopped, options.deadline - terminationReserveMs);
+    } catch (error) {
+      if (!(error instanceof NativeStopTimeout)) throw error;
+      this.reportStopTimeout();
     } finally {
-      await this.rpc.close();
+      this.commands.stop();
+      if (await this.rpc.close(options)) this.reportStopTimeout();
       await this.options.onProcess(undefined);
     }
+  }
+
+  private reportStopTimeout(): void {
+    if (this.reportedStopTimeout) return;
+    this.reportedStopTimeout = true;
+    this.options.onEvent({
+      type: 'notice',
+      text: 'Codex did not stop in time.',
+    });
   }
 
   private updateInfo(response: unknown): void {

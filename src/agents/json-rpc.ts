@@ -2,6 +2,8 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import { watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
+import { stopDeadline, terminateChild } from './shutdown.js';
+import type { AgentStopOptions } from './types.js';
 
 const envelope = z.object({
   id: z.union([z.string(), z.number()]).optional(),
@@ -25,6 +27,7 @@ export class JsonRpc {
   >();
   private failure?: Error;
   private readonly child: ChildExit;
+  private closing?: Promise<boolean>;
 
   constructor(private readonly process: ChildProcessWithoutNullStreams) {
     this.child = watchChild(process);
@@ -75,8 +78,18 @@ export class JsonRpc {
     this.write({ id, error: { code: -32601, message } });
   }
 
-  async close(): Promise<void> {
+  close(options: AgentStopOptions = {}): Promise<boolean> {
+    return (this.closing ??= this.stop(options));
+  }
+
+  private async stop(options: AgentStopOptions): Promise<boolean> {
     this.process.stdin.end();
+    if (!options.restart)
+      return terminateChild(
+        this.process,
+        this.child.closed,
+        stopDeadline(options.deadline),
+      );
     // killing in the tick after a failed spawn signals the caller's whole process group
     if (
       this.process.pid !== undefined &&
@@ -85,6 +98,7 @@ export class JsonRpc {
     )
       this.process.kill('SIGTERM');
     await this.child.closed;
+    return false;
   }
 
   private write(message: RpcMessage): void {
