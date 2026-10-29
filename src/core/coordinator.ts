@@ -517,15 +517,11 @@ export class Coordinator {
       const stored = conversation.sessions[conversation.agent]!;
       const session = await this.connect();
       if (this.cancelled || session.closed) return;
-      if (stored.requestedModel)
-        conversation.sessions[conversation.agent] = await this.applyModel(
-          session,
-          {
-            agent: conversation.agent,
-            id: stored.requestedModel,
-            effort: stored.effort,
-          },
-        );
+      if (stored.model) {
+        // restore the resolved model without changing the saved alias
+        await session.selectModel(stored.model, stored.effort);
+        recordSession(conversation, conversation.agent, session.info);
+      }
       await this.save();
       this.publish({ conversation, native: session.info });
     });

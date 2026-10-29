@@ -96,6 +96,31 @@ test('clear reapplies reported default model and effort before the next turn', a
   }
 });
 
+test('clear preserves the resolved model without replacing its saved alias', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.selectModel({
+      agent: 'a',
+      id: 'a-alias',
+      effort: 'high',
+    });
+    const native = f.a.sessions.at(-1)!;
+    const resolved = { ...native.session.info, model: 'a-big' };
+    Object.defineProperty(native.session, 'info', { get: () => resolved });
+    native.options.onEvent({ type: 'info', info: resolved });
+    await f.coordinator.clear();
+    assert.equal(f.coordinator.snapshot.native!.model, 'a-big');
+    const saved = await readRecord(
+      f.root,
+      f.coordinator.snapshot.conversation!.id,
+    );
+    assert.equal(saved.sessions.a!.requestedModel, 'a-alias');
+    assert.equal(f.a.sessions.at(-1)!.options.model, 'a-alias');
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('clear survives reopening and discards both runtime histories and unfinished handoff state', async () => {
   const f = await fixture();
   let c = f.coordinator;
