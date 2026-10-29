@@ -4,7 +4,13 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
-import { fixture, content, jsonLines } from './fixtures/claude-adapter.js';
+import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+  fixture,
+  content,
+  frameWriter,
+  jsonLines,
+} from './fixtures/claude-adapter.js';
 import { until, within } from './fixtures/within.js';
 
 async function scripted(sessionState = true) {
@@ -74,6 +80,184 @@ const result = (uuid: string) => ({
   user_message_uuids: [uuid],
   local_command: 'compact',
 });
+
+async function busy() {
+  const events: AgentEvent[] = [];
+  const f = await fixture((event) => events.push(event), 'background');
+  const emit = frameWriter(
+    f.cwd,
+    (name) =>
+      events.some((e) => e.type === 'skills' && e.skills[0]?.name === name),
+    f.child,
+  );
+  let parentDone = false;
+  const parent = f.session.send('initial').then((outcome) => {
+    parentDone = true;
+    return outcome;
+  });
+  await until('ordinary result', () =>
+    events.some((e) => e.type === 'skills' && e.skills[0]?.name === 'result-1'),
+  );
+  await emit({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'held-helper',
+    task_type: 'local_agent',
+    description: 'Held helper',
+    tool_use_id: 'helper-tool',
+  });
+  const compact = async () => {
+    const promise = f.session.compactDuringTurn!();
+    assert.ok(promise);
+    let settled = false;
+    void promise.then(() => {
+      settled = true;
+    });
+    let input: SDKUserMessage | undefined;
+    await until('raw compact input', async () => {
+      input = (
+        (await jsonLines(join(f.cwd, 'inputs.jsonl'))) as SDKUserMessage[]
+      ).find((message) => message.message.content === '/compact');
+      return !!input;
+    });
+    assert.equal(Object.hasOwn(input!, 'client_composed'), false);
+    return { promise, uuid: input!.uuid!, settled: () => settled };
+  };
+  const release = () =>
+    emit(
+      {
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'held-helper',
+        status: 'completed',
+        output_file: '/fixture/report',
+        summary: 'Helper completed',
+      },
+      idle,
+    );
+  return {
+    ...f,
+    events,
+    emit,
+    compact,
+    release,
+    parent,
+    parentDone: () => parentDone,
+  };
+}
+
+test('busy Claude compaction finishes independently and preserves the ordinary result and familiar', async () => {
+  const f = await busy();
+  try {
+    const pending = await f.compact();
+    assert.equal(f.session.compactDuringTurn!(), undefined);
+    assert.equal(await f.session.steer('wait for compact'), false);
+    await f.emit(idle);
+    assert.equal(pending.settled(), false);
+    assert.equal(f.parentDone(), false);
+    await f.emit(
+      {
+        type: 'command_lifecycle',
+        command_uuid: pending.uuid,
+        state: 'started',
+      },
+      { type: 'system', subtype: 'session_state_changed', state: 'running' },
+      boundary,
+      result(pending.uuid),
+    );
+    assert.deepEqual(await pending.promise, { status: 'completed', text: '' });
+    assert.equal(f.parentDone(), false);
+    assert.equal(f.session.replied, true);
+    assert.equal(f.events.filter((e) => e.type === 'compacted').length, 1);
+    const familiar = f.events.filter((e) => e.type === 'subagent').at(-1);
+    assert.equal(familiar?.subagent.status, 'running');
+    await f.release();
+    assert.deepEqual(await f.parent, {
+      status: 'completed',
+      text: 'Finished.',
+    });
+    const completed = f.events.filter((e) => e.type === 'subagent').at(-1);
+    assert.equal(completed?.subagent.id, 'held-helper');
+    assert.equal(completed?.subagent.status, 'completed');
+  } finally {
+    await f.session.close();
+  }
+});
+
+for (const source of ['automatic', 'child', 'before-start'] as const) {
+  test(`busy compact cannot use a ${source} boundary as its replacement`, async () => {
+    const f = await busy();
+    try {
+      const pending = await f.compact();
+      const started = {
+        type: 'command_lifecycle',
+        command_uuid: pending.uuid,
+        state: 'started',
+      };
+      if (source !== 'before-start') await f.emit(started);
+      await f.emit({
+        ...boundary,
+        ...(source === 'child' ? { session_id: randomUUID() } : {}),
+        ...(source === 'automatic'
+          ? {
+              compact_metadata: {
+                ...boundary.compact_metadata,
+                trigger: 'auto',
+              },
+            }
+          : {}),
+      });
+      if (source === 'before-start') await f.emit(started);
+      await f.emit(result(pending.uuid));
+      const compact = await pending.promise;
+      assert.equal(compact.status, 'failed');
+      assert.match(compact.error!, /without confirming history replacement/);
+      assert.equal(f.parentDone(), false);
+      await f.release();
+      assert.equal((await f.parent).text, 'Finished.');
+    } finally {
+      await f.session.close();
+    }
+  });
+}
+
+test('canceling accepted native compact input settles only its own result', async () => {
+  const f = await busy();
+  try {
+    const pending = await f.compact();
+    await f.emit({
+      type: 'command_lifecycle',
+      command_uuid: pending.uuid,
+      state: 'cancelled',
+    });
+    assert.equal((await pending.promise).status, 'failed');
+    assert.equal(f.parentDone(), false);
+    await f.release();
+    assert.equal((await f.parent).text, 'Finished.');
+  } finally {
+    await f.session.close();
+  }
+});
+
+for (const stop of ['interrupt', 'close'] as const) {
+  test(`${stop} settles a busy compact that never produced a native result`, async () => {
+    const f = await busy();
+    try {
+      const pending = await f.compact();
+      await f.session[stop]();
+      assert.equal(
+        (await within(pending.promise, 2000, 'stopped compaction')).status,
+        stop === 'interrupt' ? 'interrupted' : 'failed',
+      );
+      assert.equal(
+        (await f.parent).status,
+        stop === 'interrupt' ? 'interrupted' : 'failed',
+      );
+    } finally {
+      await f.session.close();
+    }
+  });
+}
 
 for (const replaced of [false, true])
   test(`without session state compaction ${replaced ? 'completes after' : 'fails without'} history replacement`, async () => {

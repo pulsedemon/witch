@@ -1,3 +1,7 @@
+import { settleMemory } from './memory-settlement.js';
+import { Compaction } from './compaction.js';
+import { initialSnapshot } from './snapshot.js';
+import type { Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -7,18 +11,13 @@ import type {
   AgentEvent,
   AgentSession,
   AgentStopOptions,
-  BackgroundCommand,
-  SessionInfo,
-  Skill,
-  Subagent,
   TurnResult,
-  Usage,
-  UserRequest,
+  Skill,
   UserResponse,
 } from '../agents/types.js';
 import { indexNote, main, printable } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
-import type { MemoryConflict, Workspace } from '../memory/workspace.js';
+import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
 import { missingConversationDirectories } from '../persistence/directory-recovery.js';
@@ -43,7 +42,7 @@ import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
-import type { ModelChoice, ModelSelection } from './models.js';
+import type { ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
@@ -59,7 +58,6 @@ import {
 import type {
   Conversation,
   ConversationRecord,
-  DisplayItem,
   DisplayUpdate,
   Phase,
 } from './state.js';
@@ -67,12 +65,6 @@ import type {
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
-/** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
-export interface TimedSubagent extends Subagent {
-  startedAt: number;
-  rows: { start: string; end?: string };
-}
-
 /** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
 function noteName(path: string): string {
   return printable(path).replace(/[\\[\]]/g, '\\$&');
@@ -80,38 +72,6 @@ function noteName(path: string): string {
 
 function memoryAttribution(conversation: string, turn: string): string {
   return `conversation: ${conversation}\nturn: ${turn}`;
-}
-
-export interface Snapshot {
-  phase: Phase;
-  conversation?: Conversation;
-  items: readonly DisplayItem[];
-  /** prompts waiting for a turn, oldest first. */
-  queue: readonly string[];
-  requests: readonly UserRequest[];
-  models: readonly ModelChoice[];
-  skills: readonly Skill[];
-  /** the live session's subagents in start order; a turn drops the finished ones. */
-  subagents: readonly TimedSubagent[];
-  /** the live session's running background commands, which Witch calls brews, in start order. */
-  backgroundCommands: readonly BackgroundCommand[];
-  agents: readonly { id: string; label: string; installed: boolean }[];
-  native?: SessionInfo;
-  usage: Usage;
-  /** when this instance opened the conversation, in epoch milliseconds. */
-  openedAt?: number;
-  /** a live completion signal; reopening never announces a stored result. */
-  completedTurn?: string;
-  recovery?: Recovery;
-  error?: string;
-}
-
-interface Recovery {
-  kind: 'pending' | 'conflict';
-  /** the conflicting paths; empty when the conflict has no single path. */
-  paths: string[];
-  diff: string;
-  root: string;
 }
 
 /** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
@@ -152,7 +112,36 @@ export class Coordinator {
   private selectingModel = false;
   private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
-  private draining = false;
+  private draining?: PromiseWithResolvers<void>;
+  private deliveryHolds = 0;
+  private readonly compaction = new Compaction({
+    state: () => ({
+      conversation: this.record?.id,
+      phase: this.snapshot.phase,
+      closed: this.closed,
+      halted: this.halted(),
+      replied: this.replied,
+      parent: this.task,
+      draining: this.draining?.promise,
+      session: this.session,
+    }),
+    idle: async () => {
+      let success = false;
+      await this.operate('compacting', async () => {
+        success = await this.performCompaction();
+      });
+      return success;
+    },
+    changed: () => {
+      this.publish({});
+      this.drainAfter();
+    },
+    failed: () => {
+      this.turnFailed = true;
+    },
+    notice: (text) => this.notice(text),
+    report: (error) => this.report(error),
+  });
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
   private connecting?: AbortController;
@@ -172,22 +161,7 @@ export class Coordinator {
     this.catalog = new ModelCatalog(agents, (error) =>
       this.notice(errorMessage(error), undefined, false),
     );
-    this.snapshot = {
-      phase: 'starting',
-      items: [],
-      queue: [],
-      requests: [],
-      models: [],
-      skills: [],
-      subagents: [],
-      backgroundCommands: [],
-      usage: {},
-      agents: agents.map(({ adapter, executable }) => ({
-        id: adapter.id,
-        label: adapter.label,
-        installed: !!executable,
-      })),
-    };
+    this.snapshot = initialSnapshot(agents);
     this.coordination?.setFamiliarHandler(async (action, deadline) => {
       if (!this.session?.familiar)
         throw new Error(
@@ -376,9 +350,32 @@ export class Coordinator {
     return queue;
   }
 
+  holdPromptDelivery(): () => void {
+    this.deliveryHolds++;
+    this.publish({});
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.deliveryHolds--;
+      this.publish({});
+      this.drainAfter();
+    };
+  }
+
+  private get deliveryHeld(): boolean {
+    return this.deliveryHolds > 0 || this.compaction.pending;
+  }
+
   private async steer(prompt: string): Promise<boolean> {
     const session = this.session;
-    if (this.snapshot.phase !== 'running' || this.cancelled || !session)
+    if (
+      this.snapshot.phase !== 'running' ||
+      this.cancelled ||
+      !session ||
+      this.deliveryHeld ||
+      this.halted()
+    )
       return false;
     const row = () =>
       this.display({
@@ -410,8 +407,16 @@ export class Coordinator {
   }
 
   private drainAfter(): void {
-    if (this.halted()) return;
-    this.drain().catch((error: unknown) => this.report(error));
+    if (this.closed || this.deliveryHeld || this.halted()) return;
+    if (this.draining && !this.replied) {
+      void this.draining.promise.then(() => {
+        if (!this.cancelled) this.drainAfter();
+      });
+      return;
+    }
+    if (!this.snapshot.queue.length) return;
+    const draining = this.replied ? this.steerQueued() : this.drain();
+    draining.catch((error: unknown) => this.report(error));
   }
 
   /** a report or failed turn stays on screen, and the composer takes back what is queued; after an interrupt it runs. */
@@ -421,9 +426,13 @@ export class Coordinator {
 
   private async drain(): Promise<void> {
     if (this.draining) return;
-    this.draining = true;
+    const draining = (this.draining = Promise.withResolvers<void>());
     try {
-      while (this.snapshot.phase === 'idle' && this.snapshot.queue.length) {
+      while (
+        !this.deliveryHeld &&
+        this.snapshot.phase === 'idle' &&
+        this.snapshot.queue.length
+      ) {
         const queue = this.snapshot.queue;
         const batch = nextTurn(
           queue,
@@ -441,11 +450,13 @@ export class Coordinator {
                 : undefined;
               if (this.cancelled || session.closed || this.session !== session)
                 return;
+              if (this.deliveryHeld) return;
               if (usage !== undefined && usage >= compactAt) {
                 this.publish({ phase: 'compacting' });
                 if (!(await this.performCompaction())) return;
                 this.publish({ phase: 'running' });
               }
+              if (this.deliveryHeld) return;
               await this.performTurn(
                 batch.join('\n'),
                 'turn',
@@ -463,13 +474,15 @@ export class Coordinator {
         if (!delivered || this.halted()) return;
       }
     } finally {
-      this.draining = false;
+      this.draining = undefined;
+      draining.resolve();
     }
   }
 
   /** the prompts queued behind a queued turn's prompt join that turn; a `!` command and what follows it wait. */
   private steerQueued(): Promise<void> {
     const steering = this.admitting.then(async () => {
+      if (this.deliveryHeld || this.halted()) return;
       const followers = joining(this.snapshot.queue);
       this.publish({ queue: this.snapshot.queue.slice(followers.length) });
       await steerInOrder(
@@ -642,6 +655,7 @@ export class Coordinator {
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
+    this.compaction.cancel();
     this.publish({
       requests: this.snapshot.requests.filter(
         (request) => !request.replyAsPrompt,
@@ -985,7 +999,7 @@ export class Coordinator {
         });
       let input = await context();
       // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
-      if (this.cancelled || session.closed)
+      if (this.cancelled || session.closed || (queued && this.deliveryHeld))
         return { status: 'interrupted', text: '' };
       if (kind === 'turn' && conversation.title === untitled)
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
@@ -1026,13 +1040,14 @@ export class Coordinator {
       }
       // first, so the prompts the turn left unread go ahead of those a refused steer gives back
       await steering;
+      await this.compaction.busy;
       if (command === undefined && !result.inputUnsent) delivered?.();
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
       if (result.inputUnsent)
         this.retainContext(conversation.id, pendingContext);
       this.retainContext(conversation.id, result.unreadContext);
-      await this.finishActivity(activity, result);
+      await this.finishActivity(activity, this.compaction.failure ?? result);
       if (result.status === 'completed') {
         if (generation === this.contextGeneration) {
           const reference = conversation.sessions[activity.agent]!;
@@ -1060,13 +1075,15 @@ export class Coordinator {
     }
   }
 
-  async compact(): Promise<void> {
-    await this.operate('compacting', async () => {
-      await this.performCompaction();
-    });
+  compact(): Promise<boolean> {
+    return this.compaction.start();
   }
 
-  private async performCompaction(): Promise<boolean> {
+  private performCompaction(): Promise<boolean> {
+    return this.compaction.automatic(() => this.compactActivity());
+  }
+
+  private async compactActivity(): Promise<boolean> {
     const conversation = this.current();
     const { activity, scope } = await this.beginActivity('turn');
     let result: TurnResult = { status: 'interrupted', text: '' };
@@ -1396,41 +1413,9 @@ export class Coordinator {
   private async settle(report?: string): Promise<void> {
     if (this.closed) return;
     await this.files!.flush();
-    const workspace = this.workspace!;
-    let dirty = false;
-    let conflict: MemoryConflict | undefined;
-    let failure: string | undefined;
-    if (await workspace.exists()) {
-      dirty = await workspace.isDirty();
-      if (!dirty)
-        try {
-          const result = await workspace.publish();
-          if (result !== 'published') conflict = result;
-        } catch (error) {
-          failure = errorMessage(error);
-        }
-      // accept or keep mine would publish the markers a stuck rebase leaves
-      if (await workspace.rebaseStopped())
-        throw new Error(
-          'memory is stuck in a rebase that could not be aborted.',
-        );
-    }
-    if (!dirty) delete this.current().activity;
+    const { recovery, failure } = await settleMemory(this.workspace!);
+    if (recovery?.kind !== 'pending') delete this.current().activity;
     await this.save();
-    const recovery: Recovery | undefined = dirty
-      ? {
-          kind: 'pending',
-          paths: [],
-          diff: await workspace.diff(),
-          root: workspace.root,
-        }
-      : conflict
-        ? {
-            kind: 'conflict',
-            ...conflict,
-            root: workspace.root,
-          }
-        : undefined;
     const error = [report, failure].filter(Boolean).join('\n\n');
     this.publish({
       phase: recovery ? 'recovery' : 'idle',
@@ -1459,6 +1444,7 @@ export class Coordinator {
       );
     }
     this.cancelled = false;
+    this.compaction.beginActivity();
     if (expected === 'idle') this.turnFailed = false;
     this.publish({ phase, error: undefined });
     this.task = (async () => {
@@ -1487,7 +1473,12 @@ export class Coordinator {
   }
 
   private publish(update: Partial<Snapshot>): void {
-    this.snapshot = { ...this.snapshot, ...update };
+    this.snapshot = {
+      ...this.snapshot,
+      ...update,
+      commandsPending: this.deliveryHolds > 0,
+      pendingCompaction: this.compaction.pending,
+    };
     const active =
       agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running;
     this.pentacle.set(localActivity, active);

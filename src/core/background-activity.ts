@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentEvent } from '../agents/types.js';
-import type { Snapshot } from './coordinator.js';
+import type { Snapshot } from './snapshot.js';
 import { updateFamiliar } from './familiars.js';
 import { castRow } from './spells.js';
 import type { DisplayUpdate } from './state.js';
