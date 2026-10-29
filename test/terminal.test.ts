@@ -6,7 +6,7 @@ import { NotificationSchedule } from '../src/persistence/notifications.js';
 import { scratch } from './fixtures/scratch.js';
 import type { UserRequest } from '../src/agents/types.js';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
-import type { Snapshot } from '../src/core/coordinator.js';
+import type { Snapshot } from '../src/core/snapshot.js';
 import { watchTerminal } from '../src/ui/terminal.js';
 import {
   record,
@@ -37,6 +37,8 @@ function fixture(
     conversation: { ...record('first', '/project'), title: 'First task' },
     items: [],
     queue: [],
+    commandsPending: false,
+    pendingCompaction: false,
     requests: [],
     models: [],
     skills: [],

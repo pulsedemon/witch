@@ -4,7 +4,7 @@ import { pullRequestSchema } from './repository.js';
 import type { PullRequest } from './repository.js';
 import type { DisplayUpdate } from './state.js';
 import type { SessionCoordination } from './coordination.js';
-import type { Snapshot } from './coordinator.js';
+import type { Snapshot } from './snapshot.js';
 
 export const mergeEventSchema = z.object({
   id: z.string(),
