@@ -5,6 +5,7 @@ import { describe, test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { AgentEvent, Usage } from '../src/agents/types.js';
 import { until, within } from './fixtures/within.js';
+import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { untimed } from './fixtures/limits.js';
 import {
   fixture,
@@ -1348,6 +1349,27 @@ test('a Codex that cannot read its limits still connects, and leaves limits out'
     );
     assert.deepEqual(session.usage, {});
     assert.equal(session.closed, false);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+test('reading limits again joins the read in flight', async () => {
+  const reads: RpcMessage[] = [];
+  const { session, cwd } = await fixture(() => {}, {
+    onClient: (message) => {
+      if ('method' in message && message.method === 'account/rateLimits/read')
+        reads.push(message);
+    },
+  });
+  try {
+    assert.ok(session.readLimits);
+    await until('the read connect starts', () => !!session.usage.limits);
+    assert.equal(reads.length, 1);
+    await Promise.all([session.readLimits(), session.readLimits()]);
+    assert.equal(reads.length, 2);
+    await session.readLimits();
+    assert.equal(reads.length, 3);
   } finally {
     await close(session, cwd);
   }

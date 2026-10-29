@@ -7,6 +7,7 @@ import type {
   AgentAdapter,
   AgentSession,
   AgentStopOptions,
+  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -103,6 +104,9 @@ export class FixtureAgent implements AgentAdapter {
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
+  /** what `limits()` returns; its reads are kept apart from `discoveries`. */
+  accountLimits: Limit[] = [];
+  readonly limitReads: ModelDiscoveryOptions[] = [];
 
   constructor(readonly id: string) {
     this.label = id;
@@ -117,6 +121,12 @@ export class FixtureAgent implements AgentAdapter {
     options.signal?.throwIfAborted();
     if (this.failDiscovery) throw new Error('Discovery failed');
     return this.catalog;
+  }
+
+  async limits(options: ModelDiscoveryOptions): Promise<Limit[]> {
+    this.limitReads.push(options);
+    options.signal?.throwIfAborted();
+    return this.accountLimits;
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {

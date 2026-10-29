@@ -1,11 +1,9 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import type {
-  Query,
-  SDKUserMessage,
-  SpawnOptions,
-} from '@anthropic-ai/claude-agent-sdk';
+import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { promptless } from './claude-side.js';
+import type { ClaudeLaunch } from './claude-side.js';
 import { InputQueue } from './input-queue.js';
 import { watchChild } from './stderr.js';
 import type { ChildExit } from './stderr.js';
@@ -18,9 +16,6 @@ import {
 } from './shutdown.js';
 import type { AgentStopOptions, Limit, SessionOptions } from './types.js';
 
-export type ClaudeLaunch = (
-  options: SpawnOptions,
-) => ChildProcessWithoutNullStreams;
 export type UsageSource = 'main' | 'usage';
 
 const limitWindow = z
@@ -167,11 +162,7 @@ export class ClaudeUsage {
             cwd: this.options.cwd,
             pathToClaudeCodeExecutable: this.options.executable,
             abortController: helper.abort,
-            settingSources: ['user', 'project', 'local'],
-            persistSession: false,
-            settings: { disableAllHooks: true },
-            strictMcpConfig: true,
-            mcpServers: {},
+            ...promptless,
             spawnClaudeCodeProcess: (options) => {
               const child = this.start(options);
               helper.process = child;

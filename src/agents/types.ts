@@ -221,6 +221,8 @@ export interface AgentSession {
   };
   readonly info: SessionInfo;
   readonly usage: Usage;
+  /** reads the account's limits again, joining a read already in flight; the result arrives as a `usage` event. */
+  readLimits?(): Promise<void>;
   readonly closed: boolean;
   /** the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then takes a command or a model change. */
   readonly replied: boolean;
@@ -315,6 +317,13 @@ export interface AgentAdapter {
   label: string;
   /** discovers the native catalog without a conversation; joins child shutdown before settling. */
   models(options: ModelDiscoveryOptions): Promise<Model[]>;
+  /** reads the account's limits without a conversation, keeping each `previous` window the report leaves out; empty when the runtime reports none. */
+  limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]>;
+  /** each family alias's current concrete model, read past native model pins. */
+  latest?(options: ModelDiscoveryOptions): Promise<Record<string, string>>;
   /** cancellation rejects with an `Error` named `AbortError`. */
   connect(options: SessionOptions): Promise<AgentSession>;
 }

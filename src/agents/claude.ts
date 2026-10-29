@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
 import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   Query,
@@ -14,9 +13,11 @@ import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
 import { accountLimits, ClaudeUsage } from './claude-usage.js';
+import { sideQuery, startupFailure } from './claude-side.js';
+import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
-import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
+import type { UsageSource } from './claude-usage.js';
 import { proposedDiff, reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
@@ -35,6 +36,7 @@ import type {
   AgentAdapter,
   AgentSession,
   AgentStopOptions,
+  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -95,68 +97,57 @@ function modelsOf(models: readonly ModelInfo[]): Model[] {
   }));
 }
 
-/** bounds stderr collection when startup fails while the CLI is still alive. */
-async function startupFailure(
-  error: unknown,
-  child: ChildExit | undefined,
-): Promise<Error> {
-  await Promise.race([child?.closed, delay(1000)]);
-  const failure = new Error(
-    withTail(errorMessage(error), child?.tail() ?? ''),
-    { cause: error },
-  );
-  if (error instanceof AbortError) failure.name = 'AbortError';
-  return failure;
-}
-
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
   readonly label = 'Claude Code';
 
   constructor(private readonly start: ClaudeLaunch = launch) {}
 
-  async models(options: ModelDiscoveryOptions): Promise<Model[]> {
-    const input = new InputQueue<SDKUserMessage>();
-    const abort = new AbortController();
-    const cancel = () => abort.abort();
-    options.signal?.addEventListener('abort', cancel, { once: true });
-    if (options.signal?.aborted) cancel();
-    let child: ChildExit | undefined;
-    let discovery: Query | undefined;
-    let reading: Promise<void> | undefined;
-    try {
-      discovery = query({
-        prompt: input,
-        options: {
-          cwd: options.cwd,
-          pathToClaudeCodeExecutable: options.executable,
-          abortController: abort,
-          settingSources: ['user', 'project', 'local'],
-          persistSession: false,
-          settings: { disableAllHooks: true },
-          strictMcpConfig: true,
-          mcpServers: {},
-          spawnClaudeCodeProcess: (settings) => {
-            const process = this.start(settings);
-            child = watchChild(process);
-            return process;
-          },
-        },
-      });
-      const stream = discovery;
-      reading = (async () => {
-        for await (const message of stream) void message;
-      })().catch(() => {});
-      return modelsOf(await discovery.supportedModels());
-    } catch (error) {
-      throw await startupFailure(error, child);
-    } finally {
-      input.close();
-      discovery?.close();
-      await reading;
-      await child?.closed;
-      options.signal?.removeEventListener('abort', cancel);
-    }
+  models(options: ModelDiscoveryOptions): Promise<Model[]> {
+    return sideQuery(this.start, options, async (query) =>
+      modelsOf(await query.supportedModels()),
+    );
+  }
+
+  limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]> {
+    return sideQuery(this.start, options, async (query) => {
+      const limits = accountLimits(
+        await query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+          skipBehaviors: true,
+        }),
+        previous,
+      );
+      if (!limits)
+        throw new Error('Claude Code sent an unreadable usage report.');
+      return limits;
+    });
+  }
+
+  /** settings files and `ANTHROPIC_DEFAULT_*_MODEL` can pin an alias to an older model, so neither applies. */
+  latest(options: ModelDiscoveryOptions): Promise<Record<string, string>> {
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) =>
+          name !== 'ANTHROPIC_MODEL' &&
+          !/^ANTHROPIC_DEFAULT_\w+_MODEL$/.test(name),
+      ),
+    );
+    return sideQuery(
+      this.start,
+      options,
+      async (query) =>
+        Object.fromEntries(
+          (await query.supportedModels()).flatMap(({ value, resolvedModel }) =>
+            value !== 'default' && !value.startsWith('claude-') && resolvedModel
+              ? [[value, resolvedModel]]
+              : [],
+          ),
+        ),
+      { settingSources: [], env },
+    );
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {

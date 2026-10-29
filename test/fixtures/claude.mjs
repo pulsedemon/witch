@@ -296,6 +296,18 @@ for await (const line of lines) {
         available_output_styles: [],
         account: {},
         models: [
+          ...(mode === 'aliases'
+            ? [
+                ['default', 'claude-opus-5-5'],
+                ['opus', 'claude-opus-5-5'],
+                ['haiku', 'claude-haiku-5-5'],
+              ].map(([value, resolvedModel]) => ({
+                value,
+                resolvedModel,
+                displayName: value,
+                description: 'fixture alias',
+              }))
+            : []),
           {
             value: initialization === 1 ? 'claude-a' : 'claude-b',
             displayName: 'Claude fixture',
@@ -378,12 +390,18 @@ for await (const line of lines) {
           model_usage: {},
         },
         subscription_type: 'max',
-        rate_limits_available: true,
-        rate_limits: {
-          five_hour: { utilization: 23.5, resets_at: '2033-05-18T03:33:20Z' },
-          seven_day: { utilization: 61, resets_at: null },
-          seven_day_opus: { utilization: 99, resets_at: null },
-        },
+        rate_limits_available: mode !== 'no-limits',
+        rate_limits:
+          mode === 'no-limits'
+            ? null
+            : {
+                five_hour: {
+                  utilization: 23.5,
+                  resets_at: '2033-05-18T03:33:20Z',
+                },
+                seven_day: { utilization: 61, resets_at: null },
+                seven_day_opus: { utilization: 99, resets_at: null },
+              },
         behaviors: null,
       };
     if (request.subtype === 'set_model') {
