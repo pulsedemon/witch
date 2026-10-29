@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { createElement } from 'react';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
 import { callControl } from '../src/persistence/control.js';
 import { App } from '../src/ui/app.js';
 import { TurnGate } from './fixtures/agent.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import {
+  coordinationFixture,
+  git,
+  pauseDiscovery,
+} from './fixtures/coordination.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { fake, forgedLink, show } from './fixtures/ui.js';
@@ -452,6 +456,34 @@ test('task selection advances live and suggested ownership stays visible at narr
     await until('narrow peers', () => !ui.text().includes('SESSIONS'));
     assert.ok(ui.text().includes('Suggested task'));
     assert.ok(ui.text().includes('Issue 17'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test("/task take shows the idle owner's claim in this conversation's task view", async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const ticks = pauseDiscovery(vi.spyOn);
+  const { start, registry } = await coordinationFixture(cleanup);
+  const a = await start(),
+    b = await start('B');
+  await a.claim('task:shared', 'Shared work');
+  const ui = show(
+    createElement(App, { coordinator: b.coordinator, onExit() {} }),
+    100,
+    30,
+  );
+  try {
+    enter(ui, '/task take task:shared');
+    await until('transfer request', async () =>
+      (await registry.claims()).some((claim) => claim.transfer),
+    );
+    ticks[0]!();
+    await until('moved claim shown', () => ui.text().includes('Shared work'));
+    assert.equal(
+      (await registry.claims())[0]!.owner.conversation,
+      b.coordinator.snapshot.conversation!.id,
+    );
   } finally {
     ui.unmount();
   }

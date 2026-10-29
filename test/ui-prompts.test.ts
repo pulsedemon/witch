@@ -75,7 +75,7 @@ test('queued prompts show above the activity row with a hint, and ↑ on the fir
 });
 
 for (const [command, message] of [
-  ['/task unexpected', 'Use /task or /task release.'],
+  ['/task unexpected', 'Use /task, /task release or /task take <reference>.'],
   ['/compact instructions', 'Use /compact without arguments.'],
 ] as const)
   test(`${command} leaves queued prompts runnable`, async () => {
