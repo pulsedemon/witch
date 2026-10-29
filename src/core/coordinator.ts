@@ -79,7 +79,6 @@ function memoryAttribution(conversation: string, turn: string): string {
   return `conversation: ${conversation}\nturn: ${turn}`;
 }
 
-class RestartRequired extends Error {}
 export interface Snapshot {
   phase: Phase;
   conversation?: Conversation;
@@ -211,7 +210,7 @@ export class Coordinator {
     try {
       await this.task;
     } catch (error) {
-      throw this.enterError(error, await this.needsRestart(error));
+      throw this.enterError(error);
     } finally {
       this.task = undefined;
       this.drainAfter();
@@ -859,12 +858,11 @@ export class Coordinator {
       else if (!summary) delete conversation.handoff;
       await this.save();
     } catch (error) {
-      let failure = error;
       if (!activated) {
         conversation.agent = from;
         if (conversation.handoff !== previousHandoff)
           delete conversation.handoff;
-        await this.disconnect().catch((error: unknown) => (failure = error));
+        await this.disconnect().catch(() => {});
         if (previous) conversation.sessions[agent] = previous;
         else delete conversation.sessions[agent];
       }
@@ -879,7 +877,7 @@ export class Coordinator {
         if (!this.closed)
           await this.coordination.activate(conversation, project);
       }
-      throw failure;
+      throw error;
     }
   }
 
@@ -1165,9 +1163,10 @@ export class Coordinator {
       } catch (error) {
         this.notice(errorMessage(error), undefined, false);
       }
+      const live = this.live(agent);
       this.publish({
-        native: session.info,
-        usage: session.usage,
+        native: live?.info,
+        usage: live?.usage ?? {},
         models,
         skills,
       });
@@ -1194,6 +1193,8 @@ export class Coordinator {
     this.session = undefined;
     this.stopBackgroundActivity();
     this.publish({
+      native: undefined,
+      usage: {},
       skills: [],
       subagents: [],
       requests: keepQuestions
@@ -1255,6 +1256,8 @@ export class Coordinator {
     } else if (event.type === 'closed') {
       this.stopBackgroundActivity();
       this.publish({
+        native: undefined,
+        usage: {},
         requests: this.snapshot.requests.filter(
           (request) => request.replyAsPrompt,
         ),
@@ -1308,21 +1311,11 @@ export class Coordinator {
   }
 
   private persist(operation: Promise<void>): void {
-    void operation.catch((error: unknown) => this.enterError(error, true));
+    void operation.catch((error: unknown) => this.enterError(error));
   }
 
-  /** a rejected flush is a sticky write failure, which only a restart clears. */
-  private async needsRestart(error: unknown): Promise<boolean> {
-    if (error instanceof RestartRequired) return true;
-    if (!this.files) return false;
-    return this.files.flush().then(
-      () => false,
-      () => true,
-    );
-  }
-
-  private enterError(error: unknown, restart: boolean): Error {
-    const text = `${restart ? 'Restart Witch: ' : ''}${errorMessage(error)}`;
+  private enterError(error: unknown): Error {
+    const text = `Restart Witch: ${errorMessage(error)}`;
     this.publish({ phase: 'error', error: text });
     return new Error(text, { cause: error });
   }
@@ -1359,7 +1352,7 @@ export class Coordinator {
         }
       // accept or keep mine would publish the markers a stuck rebase leaves
       if (await workspace.rebaseStopped())
-        throw new RestartRequired(
+        throw new Error(
           'memory is stuck in a rebase that could not be aborted.',
         );
     }
@@ -1421,7 +1414,7 @@ export class Coordinator {
       try {
         await this.settle();
       } catch (error) {
-        throw this.enterError(error, await this.needsRestart(error));
+        throw this.enterError(error);
       }
       if (failure !== undefined) throw failure;
     })();

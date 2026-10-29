@@ -10,7 +10,7 @@ import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { ENTER } from './fixtures/ui.js';
 
-test('the status line shows the stored model and its label until the session reports one, and the phase row its permission mode', async () => {
+test('the status line waits for a live model and uses its runtime label, and the phase row shows its permission mode', async () => {
   const { app, coordinator } = fake({
     conversation: {
       id: 'c',
@@ -24,14 +24,13 @@ test('the status line shows the stored model and its label until the session rep
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const row = (index: number) => ui.text().split('\n')[index] ?? '';
   try {
-    await until('the stored model', () => /^ STORED-MODEL \|/m.test(ui.text()));
+    await until('the status line', () => /^ \? \|/m.test(ui.text()));
     coordinator.publish({
       models: [
-        { agent: 'b', id: 'stored-model', label: 'Wrong runtime', efforts: [] },
-        { agent: 'a', id: 'stored-model', label: 'Stored label', efforts: [] },
+        { agent: 'b', id: 'live-model', label: 'Wrong runtime', efforts: [] },
+        { agent: 'a', id: 'live-model', label: 'Live label', efforts: [] },
       ],
     });
-    await until('the stored label', () => /^ STORED LABEL \|/m.test(ui.text()));
     coordinator.publish({
       native: {
         id: 's',
@@ -41,10 +40,89 @@ test('the status line shows the stored model and its label until the session rep
         hasHistory: true,
       },
     });
-    await until('the live model', () => /^ LIVE-MODEL \|/m.test(ui.text()));
+    await until('the live label', () => /^ LIVE LABEL \|/m.test(ui.text()));
     assert.match(row(0), /^IDLE \| ON-REQUEST/);
   } finally {
     ui.unmount();
+  }
+});
+
+test('a failed reconnect clears the displayed model and usage while preserving resume settings', async () => {
+  const { coordinator, a, store } = await coordinatorFixture(undefined, (a) => {
+    a.connectUsage = { context: 42 };
+  });
+  const ui = show(createElement(App, { coordinator, store, onExit: () => {} }));
+  try {
+    await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
+    await until(
+      'the connected model and usage',
+      () => /^ A-BIG \| HIGH/m.test(ui.text()) && ui.text().includes('CTX 42%'),
+    );
+    const saved = structuredClone(
+      coordinator.snapshot.conversation!.sessions.a,
+    );
+    await a.sessions[0]!.session.close();
+    a.failConnect = true;
+    await coordinator.send('Reconnect');
+    await until('the reconnect failure', () =>
+      ui.text().includes('Destination unavailable'),
+    );
+    assert.equal(coordinator.snapshot.native, undefined);
+    assert.deepEqual(coordinator.snapshot.usage, {});
+    assert.doesNotMatch(ui.text(), /A-BIG|CTX 42%/);
+    assert.deepEqual(coordinator.snapshot.conversation!.sessions.a, saved);
+    a.failConnect = false;
+    await coordinator.send('Resume');
+    await until('the resumed model', () => /^ A-BIG \| HIGH/m.test(ui.text()));
+    assert.equal(a.sessions.at(-1)!.options.resume, saved!.id);
+    assert.equal(a.sessions.at(-1)!.options.model, 'a-big');
+    assert.equal(a.sessions.at(-1)!.options.effort, 'high');
+  } finally {
+    ui.unmount();
+    a.failConnect = false;
+    await coordinator.close();
+  }
+});
+
+test('a session that closes during reconnect discovery does not restore its displayed status', async () => {
+  const { coordinator, a, store } = await coordinatorFixture(undefined, (a) => {
+    a.connectUsage = { context: 42 };
+  });
+  const ui = show(createElement(App, { coordinator, store, onExit: () => {} }));
+  let closedStatus: Pick<Snapshot, 'native' | 'usage'> | undefined;
+  try {
+    await until(
+      'the connected status',
+      () => /^ A-MODEL \|/m.test(ui.text()) && ui.text().includes('CTX 42%'),
+    );
+    await a.sessions[0]!.session.close();
+    const connect = a.connect.bind(a);
+    a.connect = async (options) => {
+      const session = await connect(options);
+      session.models = async () => {
+        options.onEvent({ type: 'usage', usage: { context: 63 } });
+        await session.close();
+        options.onEvent({ type: 'closed' });
+        closedStatus = {
+          native: coordinator.snapshot.native,
+          usage: coordinator.snapshot.usage,
+        };
+        throw new Error('Process exited during model/list');
+      };
+      return session;
+    };
+    await coordinator.send('Reconnect');
+    await until('the closed session status', () =>
+      ui.text().includes('Process exited during model/list'),
+    );
+    assert.deepEqual(closedStatus, { native: undefined, usage: {} });
+    assert.equal(a.sessions.at(-1)!.session.closed, true);
+    assert.equal(coordinator.snapshot.native, undefined);
+    assert.deepEqual(coordinator.snapshot.usage, {});
+    assert.doesNotMatch(ui.text(), /A-MODEL|CTX (42|63)%/);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
   }
 });
 

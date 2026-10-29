@@ -22,6 +22,7 @@ export interface GitOptions {
   cwd: string;
   env?: Record<string, string>;
   input?: string;
+  signal?: AbortSignal;
 }
 
 export interface GitResult {
@@ -70,14 +71,18 @@ const overrides = [
   'core.quotePath=false',
 ];
 
-export const runGit: GitRunner = (args, { cwd, env, input }) =>
+export const runGit: GitRunner = (args, { cwd, env, input, signal }) =>
   new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
     const child = spawn('git', args, {
       cwd,
       env: env ? { ...process.env, ...env } : process.env,
+      signal,
+      killSignal: 'SIGKILL',
     });
     const stdout: Buffer[] = [];
     let stderr = '';
+    let failure: Error | undefined;
     child.stdout.on('data', (chunk: Buffer) => {
       stdout.push(chunk);
     });
@@ -85,10 +90,13 @@ export const runGit: GitRunner = (args, { cwd, env, input }) =>
       stderr += chunk;
     });
     child.stdin.on('error', () => {});
-    child.on('error', reject);
-    child.on('close', (code) =>
-      resolve({ stdout: Buffer.concat(stdout), stderr, code: code ?? 1 }),
-    );
+    child.on('error', (error) => {
+      failure = error;
+    });
+    child.on('close', (code) => {
+      if (failure) reject(failure);
+      else resolve({ stdout: Buffer.concat(stdout), stderr, code: code ?? 1 });
+    });
     child.stdin.end(input);
   });
 
@@ -161,12 +169,14 @@ export class Memory {
       env?: Record<string, string>;
       input?: string;
       codes?: readonly number[];
+      signal?: AbortSignal;
     } = {},
   ): Promise<GitResult> {
     const result = await this.runner([...overrides, ...args], {
       cwd,
       env: options.env,
       input: options.input,
+      signal: options.signal,
     });
     if (!(options.codes ?? [0]).includes(result.code))
       throw new Error(
@@ -234,8 +244,16 @@ export class Memory {
   }
 
   /** the relative scope paths for a project directory; creates nothing. */
-  async scopePaths(directory: string): Promise<MemoryScope> {
-    const { identity, top } = await this.reach(await realpath(directory));
+  async scopePaths(
+    directory: string,
+    signal?: AbortSignal,
+  ): Promise<MemoryScope> {
+    signal?.throwIfAborted();
+    const { identity, top } = await this.reach(
+      await realpath(directory),
+      signal,
+    );
+    signal?.throwIfAborted();
     const project = projectKey(identity);
     const checkout = projectKey(top);
     return {
@@ -260,20 +278,23 @@ export class Memory {
   /** the repository git reaches through a checkout's origin, and the checkout's top level. a local origin with an origin of its own is followed, so a clone of a clone shares its project. */
   private async reach(
     cwd: string,
+    signal?: AbortSignal,
     seen = new Set<string>(),
   ): Promise<{ identity: string; top: string }> {
-    // only a missing origin, repository or work tree falls back, so a git that fails can't move the key.
-    // git exits 128 for the last two and for fatal errors such as a bad config, so its untranslated message tells them apart.
-    // a `.git` file whose gitdir is gone prints `not a git repository: <gitdir>`, without the parenthesis,
-    // or from Git 2.56 `gitfile does not point to a valid repository: <file>`, and fails
+    // only absent origins and work trees may change the project key; other Git failures must surface.
+    // exit 128 also covers fatal errors, so only untranslated missing-work-tree messages fall back.
+    // a broken `.git` target remains an error.
     const read = async (
       args: string[],
       absent = /not a git repository \(|must be run in a work tree/,
     ) => {
+      signal?.throwIfAborted();
       const result = await this.run(cwd, args, {
         codes: [0, 2, 128],
         env: { LC_ALL: 'C' },
+        signal,
       });
+      signal?.throwIfAborted();
       if (result.code === 128 && !absent.test(result.stderr))
         throw new Error(`${cwd}: ${result.stderr.trim()}`);
       return result.code === 0
@@ -315,7 +336,10 @@ export class Memory {
         break;
       }
     if (!repository || seen.has(repository)) return { identity: local, top };
-    return { identity: (await this.reach(repository, seen)).identity, top };
+    return {
+      identity: (await this.reach(repository, signal, seen)).identity,
+      top,
+    };
   }
 
   async resolve(revision: string, cwd = this.root): Promise<string> {

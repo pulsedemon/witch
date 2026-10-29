@@ -238,10 +238,11 @@ export class StateStore {
 
   async openConversations(
     ids?: readonly string[],
+    options: { timeout?: number } = {},
   ): Promise<Map<string, { coordinated: boolean }>> {
     ids ??= await readdir(conversationsPath(this.root));
     const paths = ids.map((id) => join(this.directory(id), 'lock'));
-    const locked = await lockedFiles(paths);
+    const locked = await lockedFiles(paths, options);
     const open = new Map<string, { coordinated: boolean }>();
     for (const [index, path] of paths.entries()) {
       const mode = locked.get(path);

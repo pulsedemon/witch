@@ -53,7 +53,7 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
-Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint` across the working tree: the existing [ESLint configuration](eslint.config.js), then Prettier's formatting check. Fix reported errors, or run `pnpm format` for formatting, and retry the commit. The [ci workflow](.github/workflows/ci.yml) runs the complete `pnpm check` on Linux.
+Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs the lint checks defined in [package.json](package.json). Fix reported errors, or run `pnpm format` for formatting, and retry the commit. The [ci workflow](.github/workflows/ci.yml) runs the complete `pnpm check` on Linux.
 
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Keep `TMPDIR` outside that copy so fixtures that model non-repositories do not inherit its Git identity. Running the app and native checks requires the [installation prerequisites](#install).
 

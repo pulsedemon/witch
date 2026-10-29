@@ -144,7 +144,7 @@ export class SessionCoordination {
     promise: Promise<void>;
   };
   /** project reads run one at a time, so their results land in start order. */
-  private projecting: Promise<void> = Promise.resolve();
+  private projecting?: { promise: Promise<void>; cancel(): void };
   /** counts publications of a view with a ledger. */
   private published = 0;
   private revision = 0;
@@ -496,7 +496,7 @@ export class SessionCoordination {
           this.registry.cancelSelection(
             scope,
             undefined,
-            Date.now() + 1000,
+            state?.deadline ?? Date.now() + 1000,
             verify,
           ),
         );
@@ -511,7 +511,7 @@ export class SessionCoordination {
             this.registry.releaseConversation(
               claim.owner,
               this.process,
-              Date.now() + 1000,
+              state?.deadline ?? Date.now() + 1000,
               verify,
             ),
           );
@@ -635,7 +635,7 @@ export class SessionCoordination {
       await Promise.all([
         this.refreshing?.promise,
         this.refreshingMerges?.promise,
-        this.projecting,
+        this.projecting?.promise,
       ]);
     }
   }
@@ -806,7 +806,10 @@ export class SessionCoordination {
   private observe(state: RequestState): Promise<Discovery> {
     if (!state.discovery) {
       const revision = ++this.revision;
-      state.discovery = { revision, promise: this.discover(revision) };
+      state.discovery = {
+        revision,
+        promise: this.discover(revision, state.deadline),
+      };
     }
     return state.discovery.promise;
   }
@@ -934,7 +937,7 @@ export class SessionCoordination {
         );
         return { kind: 'released' };
       }
-      await this.refreshProject(active);
+      await this.refreshProject(active, request.deadline);
       await this.retireProject(active, state);
       const owner = {
         conversation: active.conversation.id,
@@ -948,7 +951,7 @@ export class SessionCoordination {
               action.kind === 'select-next' ? action.turn : undefined,
             );
       const verify = async (ledger: Ledger) => {
-        await this.refreshProject(active);
+        await this.refreshProject(active, request.deadline);
         const snapshot = this.projectDiscovery(
           active,
           active.project,
@@ -1111,16 +1114,40 @@ export class SessionCoordination {
     }
   }
 
-  private refreshProject(active: Activation): Promise<void> {
-    const read = this.projecting.then(() => this.readProject(active));
-    this.projecting = read.catch(() => {});
-    return read;
+  private refreshProject(active: Activation, deadline?: number): Promise<void> {
+    const previous = this.projecting;
+    const controller = new AbortController();
+    const cancel = () => {
+      previous?.cancel();
+      controller.abort();
+    };
+    const timer =
+      deadline === undefined
+        ? undefined
+        : setTimeout(cancel, checkDeadline(deadline));
+    const read = (previous?.promise ?? Promise.resolve()).then(() =>
+      this.readProject(active, controller.signal),
+    );
+    const settled = read.finally(() => {
+      clearTimeout(timer);
+      if (this.projecting === pending) this.projecting = undefined;
+    });
+    const pending = { promise: settled.catch(() => {}), cancel };
+    this.projecting = pending;
+    return settled;
   }
 
   /** never awaits the refreshes it starts, since `verify` reads the project while holding the ledger lock they take. */
-  private async readProject(active: Activation): Promise<void> {
+  private async readProject(
+    active: Activation,
+    signal: AbortSignal,
+  ): Promise<void> {
     try {
-      const { project } = await this.memory.scopePaths(active.conversation.cwd);
+      const { project } = await this.memory.scopePaths(
+        active.conversation.cwd,
+        signal,
+      );
+      signal.throwIfAborted();
       if (this.active !== active || !active.publishing || this.closed) return;
       const changed = active.project !== project;
       active.project = project;
@@ -1294,11 +1321,18 @@ export class SessionCoordination {
     return promise;
   }
 
-  private async discover(revision: number): Promise<Discovery> {
-    const [presences, opened] = await Promise.all([
+  private async discover(
+    revision: number,
+    deadline?: number,
+  ): Promise<Discovery> {
+    const timeout =
+      deadline === undefined ? undefined : checkDeadline(deadline);
+    const reads = [
       this.registry.presences(),
-      this.store.openConversations(),
-    ]);
+      this.store.openConversations(undefined, { timeout }),
+    ] as const;
+    await Promise.allSettled(reads);
+    const [presences, opened] = await Promise.all(reads);
     const { records, unreadable } = await this.store.records([
       ...opened.keys(),
     ]);
@@ -1320,12 +1354,18 @@ export class SessionCoordination {
       [...candidates.values()].flatMap(({ activation }) =>
         activation === held ? [] : [activation],
       ),
+      {
+        timeout: deadline === undefined ? undefined : checkDeadline(deadline),
+      },
     );
     if (held) activations.add(held);
     const processes = await identifyProcesses(
       [...candidates.values()].flatMap((presence) =>
         activations.has(presence.activation) ? [presence.process.pid] : [],
       ),
+      {
+        timeout: deadline === undefined ? undefined : checkDeadline(deadline),
+      },
     );
     const live = new Map<string, SessionPresence>();
     const unregistered = new Map<
@@ -1347,7 +1387,12 @@ export class SessionCoordination {
       // a current Witch opening, reconnecting or closing this conversation
       if (holder.coordinated) continue;
       try {
-        const { project } = await this.memory.scopePaths(record.cwd);
+        const { project } = await this.memory.scopePaths(
+          record.cwd,
+          deadline === undefined
+            ? undefined
+            : AbortSignal.timeout(checkDeadline(deadline)),
+        );
         const summaries = unregistered.get(project) ?? [];
         summaries.push(conversationSummarySchema.parse(record));
         unregistered.set(project, summaries);

@@ -521,7 +521,7 @@ test('continue into a held conversation shows the lock error with the launch rep
       coordinator.snapshot.error ?? '',
       /open in another Witch instance/,
     );
-    assert.doesNotMatch(coordinator.snapshot.error ?? '', /^Restart Witch/);
+    assert.match(coordinator.snapshot.error ?? '', /^Restart Witch/);
     assert.match(
       coordinator.snapshot.error ?? '',
       new RegExp(`Title ${dirty.id}`),
