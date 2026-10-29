@@ -11,6 +11,9 @@ import type {
 } from '../../src/agents/types.js';
 import { within, until } from './within.js';
 import { familiarMarker } from '../../src/agents/familiar-report.js';
+import { skillCall } from '../../src/core/prompts.js';
+
+export type NativeScenario = 'basic' | 'control' | 'background' | 'spell';
 
 export function probeApproval(request: UserRequest): UserResponse {
   assert.equal(request.kind, 'approval', request.detail);
@@ -26,7 +29,7 @@ export function probeApproval(request: UserRequest): UserResponse {
 export async function nativeScenario(
   adapter: AgentAdapter,
   options: Omit<SessionOptions, 'onEvent' | 'onProcess'>,
-  scenario: 'basic' | 'control' | 'background',
+  scenario: NativeScenario,
   report: (event: AgentEvent) => void = () => {},
   live = false,
 ) {
@@ -154,6 +157,45 @@ export async function nativeScenario(
       );
       await session.interrupt();
       assert.equal((await interrupted).status, 'interrupted');
+    } else if (scenario === 'spell') {
+      const skills = await session.skills();
+      const cast = (from: number) =>
+        events
+          .slice(from)
+          .some(
+            (event) =>
+              event.type === 'spell' && event.cast.name === 'probe-spell',
+          );
+      let from = events.length;
+      const agent = await session.send(
+        'Run the probe spell with argument hi. Do not use a subagent.',
+      );
+      assert.equal(agent.status, 'completed', agent.error);
+      assert.match(agent.text, /PROBE CAST hi/);
+      assert.ok(cast(from), 'the agent casts the probe spell');
+      from = events.length;
+      const familiar = await session.send(
+        'Launch exactly one subagent. Its task: run the probe spell with argument fam and report what it said. Wait for it, then repeat its report.',
+      );
+      assert.equal(familiar.status, 'completed', familiar.error);
+      assert.ok(
+        events
+          .slice(from)
+          .some(
+            (event) =>
+              event.type === 'subagent' &&
+              event.subagent.spells?.some(({ name }) => name === 'probe-spell'),
+          ),
+        'a familiar casts the probe spell',
+      );
+      from = events.length;
+      const prompt = '/probe-spell hello';
+      const call = skillCall(prompt, skills);
+      assert.ok(call, 'the probe spell is listed');
+      const user = await session.send(prompt, call);
+      assert.equal(user.status, 'completed', user.error);
+      assert.match(user.text, /PROBE CAST hello/);
+      assert.ok(cast(from), 'the user casts the probe spell');
     } else {
       await writeFile(
         join(options.cwd, 'probe.mjs'),
