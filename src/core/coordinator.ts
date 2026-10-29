@@ -15,7 +15,7 @@ import type {
   Skill,
   UserResponse,
 } from '../agents/types.js';
-import { indexNote, main, printable } from '../memory/memory.js';
+import { indexNote, main } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
@@ -33,10 +33,13 @@ import {
   ranCommand,
   nativePrompt,
   questionReply,
+  noteName,
+  memoryAttribution,
 } from './prompts.js';
 import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
+import { watchClaimPolicy } from './coordination-policy.js';
 import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
@@ -65,14 +68,6 @@ import type {
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
-/** a note name for a notice, which renders as Markdown, escaped so the name can't carry a Markdown link of its own. */
-function noteName(path: string): string {
-  return printable(path).replace(/[\\[\]]/g, '\\$&');
-}
-
-function memoryAttribution(conversation: string, turn: string): string {
-  return `conversation: ${conversation}\nturn: ${turn}`;
-}
 
 /** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
 interface MemoryView {
@@ -1031,9 +1026,19 @@ export class Coordinator {
               skillCall(prompt, this.snapshot.skills),
               input.context,
             );
+            const stopPolicy = watchClaimPolicy(
+              this.coordination,
+              kind === 'turn' ? coordination?.snapshot : undefined,
+              (text) =>
+                !this.cancelled &&
+                this.session === session &&
+                generation === this.contextGeneration
+                  ? session.steer(text, { contextOnly: true })
+                  : Promise.resolve(false),
+            );
             // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
             if (queued && command === undefined) steering = this.steerQueued();
-            result = await sending;
+            result = await sending.finally(stopPolicy);
           }
         }
       } catch (error) {
@@ -1055,12 +1060,9 @@ export class Coordinator {
           reference.deliveredRevision = activity.baseRevision;
           reference.deliveredInstructionsRevision = input.instructionsRevision;
           if (input.merges.length)
-            reference.deliveredMerges = [
-              ...new Set([
-                ...(reference.deliveredMerges ?? []),
-                ...input.merges,
-              ]),
-            ];
+            reference.deliveredMerges = Array.from(
+              new Set([...(reference.deliveredMerges ?? []), ...input.merges]),
+            );
         }
         if (pendingHandoff === conversation.handoff)
           delete conversation.handoff;
