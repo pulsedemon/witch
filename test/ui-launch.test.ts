@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Coordinator } from '../src/core/coordinator.js';
-import type { Snapshot } from '../src/core/coordinator.js';
+import type { Snapshot } from '../src/core/snapshot.js';
 import { App } from '../src/ui/app.js';
 import { show, fake } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';

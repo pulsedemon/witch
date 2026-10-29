@@ -7,13 +7,8 @@ import type {
   AgentEvent,
   AgentSession,
   AgentStopOptions,
-  BackgroundCommand,
-  SessionInfo,
   Skill,
-  Subagent,
   TurnResult,
-  Usage,
-  UserRequest,
   UserResponse,
 } from '../agents/types.js';
 import { indexNote, main } from '../memory/memory.js';
@@ -46,7 +41,8 @@ import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
-import type { ModelChoice, ModelSelection } from './models.js';
+import type { Recovery, Snapshot } from './snapshot.js';
+import type { ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
@@ -62,7 +58,6 @@ import {
 import type {
   Conversation,
   ConversationRecord,
-  DisplayItem,
   DisplayUpdate,
   Phase,
 } from './state.js';
@@ -70,44 +65,6 @@ import type {
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
-/** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
-export interface TimedSubagent extends Subagent {
-  startedAt: number;
-  rows: { start: string; end?: string };
-}
-
-export interface Snapshot {
-  phase: Phase;
-  conversation?: Conversation;
-  items: readonly DisplayItem[];
-  /** prompts waiting for a turn, oldest first. */
-  queue: readonly string[];
-  requests: readonly UserRequest[];
-  models: readonly ModelChoice[];
-  skills: readonly Skill[];
-  /** the live session's subagents in start order; a turn drops the finished ones. */
-  subagents: readonly TimedSubagent[];
-  /** the live session's running background commands, which Witch calls brews, in start order. */
-  backgroundCommands: readonly BackgroundCommand[];
-  agents: readonly { id: string; label: string; installed: boolean }[];
-  native?: SessionInfo;
-  usage: Usage;
-  /** when this instance opened the conversation, in epoch milliseconds. */
-  openedAt?: number;
-  /** a live completion signal; reopening never announces a stored result. */
-  completedTurn?: string;
-  recovery?: Recovery;
-  error?: string;
-}
-
-interface Recovery {
-  kind: 'pending' | 'conflict';
-  /** the conflicting paths; empty when the conflict has no single path. */
-  paths: string[];
-  diff: string;
-  root: string;
-}
-
 /** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
 interface MemoryView {
   revision: string;

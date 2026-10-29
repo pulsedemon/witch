@@ -6,7 +6,7 @@ import type {
   TaskClaim,
   TransferField,
 } from './coordination-state.js';
-import type { Snapshot } from './coordinator.js';
+import type { Snapshot } from './snapshot.js';
 
 /** keeps the previous owner from continuing work after its claim moves. */
 export function movedNotices(ledger: Ledger, conversation: string): string[] {
