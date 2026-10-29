@@ -27,6 +27,7 @@ export async function fixture(
     mark,
     familiarBinding,
     commandPrefixes,
+    onClient,
   }: {
     effort?: string;
     resume?: string;
@@ -35,18 +36,26 @@ export async function fixture(
     mark?: CommandMark;
     familiarBinding?: ControlBinding;
     commandPrefixes?: CommandPrefixes;
+    onClient?: (message: RpcMessage) => void;
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
   let child: ChildProcessWithoutNullStreams;
-  const adapter = new CodexAdapter(
-    (_, directory, signal) =>
-      (child = spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
-        cwd: directory,
-        stdio: 'pipe',
-        signal,
-      })),
-  );
+  const adapter = new CodexAdapter((_, directory, signal) => {
+    child = spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
+      cwd: directory,
+      stdio: 'pipe',
+      signal,
+    });
+    if (onClient) {
+      const write = child.stdin.write;
+      child.stdin.write = (...args) => {
+        onClient(JSON.parse(args[0] as string) as RpcMessage);
+        return Reflect.apply(write, child.stdin, args) as boolean;
+      };
+    }
+    return child;
+  });
   const session = await adapter.connect({
     cwd,
     executable: 'codex',

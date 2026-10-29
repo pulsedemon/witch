@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { URL } from 'node:url';
 
 // modes that a prompt can't reach come from the command line
 const mode = process.argv[2] ?? '';
@@ -26,6 +27,9 @@ const mcpServers = () =>
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const session_id = randomUUID();
+const nativeVersion = JSON.parse(
+  readFileSync(new URL('native/manifest.json', import.meta.url), 'utf8'),
+).claude.version;
 const stateCommands = [
   'autocompact',
   'config',
@@ -570,7 +574,7 @@ for await (const line of lines) {
       skills: [],
       plugins: [],
       uuid: randomUUID(),
-      claude_code_version: '2.1.296',
+      claude_code_version: nativeVersion,
       ...(mode === 'background' ? { capabilities: ['msg_lifecycle_v1'] } : {}),
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });

@@ -9,6 +9,7 @@ import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
 import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
+import { errorMessage } from '../agents/stderr.js';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator, Snapshot } from '../core/coordinator.js';
 import { modelKey, modelTarget } from '../core/models.js';
@@ -183,7 +184,7 @@ export function App({
   const height = Math.max(12, size.rows);
   // the compiler needs the native fallback's string type to memoize its consumers.
   const cwd = state.conversation?.cwd ?? String(process.cwd());
-  const [view, setView] = useState<View>({ kind: 'chat' });
+  const [view, viewRef, setView] = useLiveState<View>({ kind: 'chat' });
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
@@ -426,6 +427,18 @@ export function App({
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => coordinator.report(error));
   };
+  /** a refusal is a notice, not a report, so it doesn't stop queued prompts; a take can finish after the user has left chat. */
+  const changeTask = (operation: Promise<void>) => {
+    operation.then(
+      () => {
+        if (viewRef.current.kind !== 'chat') return;
+        setPageScroll(0);
+        setView({ kind: 'coordination', mode: 'task' });
+      },
+      (error: unknown) =>
+        coordinator.notice(errorMessage(error), undefined, false),
+    );
+  };
   /** a switch shows the conversation it leaves until the next one opens, and a prompt sent from it would run in the next one. */
   const leave = (operation: () => Promise<void>) => {
     // one refused for a switch in flight must not reopen the composer
@@ -583,10 +596,15 @@ export function App({
         setView({ kind: 'coordination', mode: 'peers' });
         break;
       case 'task':
-        if (argument === 'release') run(coordinator.releaseTask());
-        else if (/^take\s+\S/.test(argument))
-          run(coordinator.takeTask(argument.slice(4).trim()));
-        else if (argument) {
+        if (argument === 'release') {
+          changeTask(coordinator.releaseTask());
+          break;
+        }
+        if (/^take\s+\S/.test(argument)) {
+          changeTask(coordinator.takeTask(argument.slice(4).trim()));
+          break;
+        }
+        if (argument) {
           coordinator.notice(
             'Use /task, /task release or /task take <reference>.',
             undefined,
