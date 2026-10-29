@@ -1,4 +1,3 @@
-import { updateFamiliar } from './familiars.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -22,6 +21,7 @@ import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
 import { missingConversationDirectories } from '../persistence/directory-recovery.js';
 import { quote } from '../shell.js';
+import { updateBackgroundActivity } from './background-activity.js';
 import { recoverConversations } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { listFiles } from './files.js';
@@ -1216,9 +1216,15 @@ export class Coordinator {
   private stopBackgroundActivity(): void {
     for (const subagent of this.snapshot.subagents)
       if (subagent.status === 'running')
-        this.familiar(this.current(), { ...subagent, status: 'stopped' });
+        this.background({
+          type: 'subagent',
+          subagent: { ...subagent, status: 'stopped' },
+        });
     for (const command of this.snapshot.backgroundCommands)
-      this.brew(this.current(), { ...command, status: 'stopped' });
+      this.background({
+        type: 'command',
+        command: { ...command, status: 'stopped' },
+      });
   }
 
   private receive(
@@ -1262,10 +1268,8 @@ export class Coordinator {
       if (this.live(agent)) this.publish({ skills: event.skills });
     } else if (event.type === 'usage') {
       if (this.live(agent)) this.publish({ usage: event.usage });
-    } else if (event.type === 'subagent') {
-      if (this.live(agent)) this.familiar(conversation, event.subagent);
-    } else if (event.type === 'command') {
-      if (this.live(agent)) this.brew(conversation, event.command);
+    } else if (event.type === 'subagent' || event.type === 'command') {
+      if (this.live(agent)) this.background(event, conversation.cwd);
     } else {
       let id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       if (event.type === 'tool') {
@@ -1277,73 +1281,14 @@ export class Coordinator {
     }
   }
 
-  private familiar(conversation: ConversationRecord, subagent: Subagent): void {
-    const index = this.snapshot.subagents.findIndex(
-      ({ id }) => id === subagent.id,
-    );
-    const update = updateFamiliar(this.snapshot.subagents[index], subagent);
+  private background(
+    event: Extract<AgentEvent, { type: 'subagent' | 'command' }>,
+    cwd = this.current().cwd,
+  ): void {
+    const update = updateBackgroundActivity(this.snapshot, event, cwd);
     if (!update) return;
-    const subagents = [...this.snapshot.subagents];
-    subagents[index < 0 ? subagents.length : index] = update.entry;
-    this.publish({ subagents });
-    // ahead of the rows, so a notice reported with the end lands above the end row
-    for (const text of update.notices) this.notice(text, conversation.cwd);
-    for (const row of update.rows)
-      this.taskRow(conversation, row.id, row.title, row.text);
-  }
-
-  private brew(
-    conversation: ConversationRecord,
-    command: BackgroundCommand,
-  ): void {
-    if (command.familiar) {
-      if (
-        this.snapshot.backgroundCommands.some(({ id }) => id === command.id)
-      ) {
-        this.publish({
-          backgroundCommands: this.snapshot.backgroundCommands.filter(
-            ({ id }) => id !== command.id,
-          ),
-        });
-        this.taskRow(conversation, randomUUID(), [
-          'Brew became familiar',
-          command.description,
-        ]);
-      }
-      return;
-    }
-    const running = command.status === 'running';
-    const listed = this.snapshot.backgroundCommands.some(
-      ({ id }) => id === command.id,
-    );
-    if (running === listed) return;
-    this.publish({
-      backgroundCommands: running
-        ? [...this.snapshot.backgroundCommands, command]
-        : this.snapshot.backgroundCommands.filter(
-            ({ id }) => id !== command.id,
-          ),
-    });
-    this.taskRow(conversation, randomUUID(), [
-      `Brew ${running ? 'started' : command.status}`,
-      command.description,
-    ]);
-  }
-
-  private taskRow(
-    conversation: ConversationRecord,
-    id: string,
-    title: string[],
-    text = '',
-  ): void {
-    this.display({
-      id,
-      kind: 'tool',
-      title: title.filter(Boolean).join('  '),
-      text,
-      done: true,
-      cwd: conversation.cwd,
-    });
+    this.publish(update.state);
+    for (const row of update.rows) this.display(row);
   }
 
   private display(update: DisplayUpdate, save = true): void {

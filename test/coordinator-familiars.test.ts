@@ -191,3 +191,94 @@ test('a running familiar keeps the job watch active until it ends', async () => 
     await coordinator.close();
   }
 });
+
+test('familiar and brew rows retain identity, order and reports after reopening', async () => {
+  const { coordinator, a, project, reopen } = await fixture();
+  let reopened: typeof coordinator | undefined;
+  const emit = a.sessions[0]!.options.onEvent;
+  const worker = {
+    id: 'review',
+    name: 'Reviewer',
+    kind: '',
+    runtime: 'claude',
+    run: 'one',
+    model: 'model-a',
+  };
+  try {
+    await coordinator.send('record background activity');
+    emit({
+      type: 'command',
+      command: { id: 'preview', description: 'Preview', status: 'running' },
+    });
+    emit({ type: 'subagent', subagent: { ...worker, status: 'running' } });
+    for (const model of ['model-a', 'model-b'])
+      emit({
+        type: 'subagent',
+        subagent: {
+          ...worker,
+          model,
+          status: 'completed',
+          tools: 2,
+          report: 'Review saved.',
+          notices: ['Saved note.'],
+        },
+      });
+    const { start, end } = coordinator.snapshot.subagents[0]!.rows;
+    const assertRows = (current: typeof coordinator) => {
+      const rows = current.snapshot.items.filter((item) =>
+        item.kind === 'tool'
+          ? /^(Brew|Familiar) /.test(item.title ?? '')
+          : item.kind === 'notice' && item.text.startsWith('Familiar '),
+      );
+      assert.deepEqual(
+        rows.map(({ kind, title, text, done, cwd }) => [
+          kind,
+          title,
+          text,
+          done,
+          cwd,
+        ]),
+        [
+          ['tool', 'Brew started  Preview', '', true, project],
+          [
+            'tool',
+            'Familiar started  Reviewer  claude · model-b',
+            '',
+            true,
+            project,
+          ],
+          [
+            'notice',
+            undefined,
+            'Familiar Reviewer: Saved note.',
+            undefined,
+            project,
+          ],
+          [
+            'tool',
+            'Familiar completed  Reviewer  claude · model-b  2 tools',
+            'Review saved.',
+            true,
+            project,
+          ],
+          ['tool', 'Brew stopped  Preview', '', true, project],
+        ],
+      );
+      assert.deepEqual(
+        rows
+          .filter(({ title }) => title?.startsWith('Familiar'))
+          .map(({ id }) => id),
+        [start, end],
+      );
+    };
+    await coordinator.close();
+    assertRows(coordinator);
+    reopened = await reopen();
+    assertRows(reopened);
+    assert.deepEqual(reopened.snapshot.subagents, []);
+    assert.deepEqual(reopened.snapshot.backgroundCommands, []);
+  } finally {
+    await coordinator.close();
+    await reopened?.close();
+  }
+});
