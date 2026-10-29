@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
@@ -9,7 +9,7 @@ import { familiarMarker } from '../src/agents/familiar-report.js';
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
 import { until, within } from './fixtures/within.js';
 
-for (const phase of ['dispatch', 'response', 'idle'])
+for (const phase of ['dispatch', 'response', 'idle', 'late response'])
   test(`Claude interruption bounds missing input ${phase} without replaying uncertain input`, async () => {
     const f = await launcher('background');
     const events: AgentEvent[] = [];
@@ -36,9 +36,11 @@ for (const phase of ['dispatch', 'response', 'idle'])
         );
       else
         await writeFile(
-          join(f.cwd, phase === 'response' ? 'hold-interrupt' : 'hold-idle'),
+          join(f.cwd, phase === 'idle' ? 'hold-idle' : 'hold-interrupt'),
           '',
         );
+      if (phase === 'late response')
+        await writeFile(join(f.cwd, 'late-interrupt'), '');
       const first = session.interrupt({ deadline: performance.now() + 3200 });
       const second = session.interrupt();
       await within(
@@ -47,6 +49,11 @@ for (const phase of ['dispatch', 'response', 'idle'])
         'bounded SDK interruption',
       );
       const result = await within(turn, 1000, 'interrupted turn');
+      if (phase === 'late response')
+        assert.equal(
+          await readFile(join(f.cwd, 'late-response.json'), 'utf8'),
+          'true',
+        );
       assert.equal(result.status, 'interrupted');
       assert.match(result.text, /Initial reply/);
       assert.deepEqual(result.unread ?? [], []);

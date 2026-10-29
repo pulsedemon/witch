@@ -96,7 +96,7 @@ export class ModelCatalog {
     }
   }
 
-  cancel(): void {
-    this.discovery?.abort();
+  cancel(reason?: unknown): void {
+    this.discovery?.abort(reason);
   }
 }

@@ -1063,11 +1063,11 @@ class ClaudeSession implements AgentSession {
         !message.ambient &&
         !this.late(message)
       ) {
+        if (message.run_id) this.runs.set(message.task_id, message.run_id);
         // a workflow holds off idle as a familiar does, though its agents never reach the stream
         if (message.task_type === 'local_workflow')
           this.workflows.add(message.task_id);
         else {
-          if (message.run_id) this.runs.set(message.task_id, message.run_id);
           this.subagent({
             id: message.task_id,
             parent: message.parent_task_id,
@@ -1094,10 +1094,10 @@ class ClaudeSession implements AgentSession {
         this.listed = listed;
         if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       } else if (message.subtype === 'task_notification') {
+        if (this.late(message)) return;
         this.workflows.delete(message.task_id);
         const subagent = this.subagents.get(message.task_id);
-        if (subagent && !this.late(message))
-          this.subagent({ ...subagent, status: message.status });
+        if (subagent) this.subagent({ ...subagent, status: message.status });
         if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       }
     } else if (

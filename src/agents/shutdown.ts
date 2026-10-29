@@ -1,9 +1,19 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { AgentStopOptions } from './types.js';
 
 const nativeStopTimeoutMs = 8000;
 const terminateGraceMs = 2000;
 const killWaitMs = 1000;
 export const terminationReserveMs = terminateGraceMs + killWaitMs;
+
+/** carries shutdown policy through startup cancellation before a session exists. */
+export class NativeStop extends Error {
+  override readonly name = 'AbortError';
+
+  constructor(readonly options: AgentStopOptions) {
+    super('Native agent stop requested');
+  }
+}
 
 export class NativeStopTimeout extends Error {
   constructor() {

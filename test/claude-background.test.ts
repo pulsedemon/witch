@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '../src/agents/types.js';
@@ -205,6 +206,42 @@ for (const task_type of ['local_agent', 'local_workflow'])
       }
     });
 
+test('without session state a stale workflow notification cannot release the current run', async () => {
+  const f = await background(false);
+  try {
+    await f.emit(
+      {
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'workflow',
+        task_type: 'local_workflow',
+        run_id: '2',
+        description: 'Current workflow',
+      },
+      result('Held answer.'),
+    );
+    const notification = {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'workflow',
+      status: 'completed',
+      output_file: '',
+      summary: 'Complete',
+    };
+    await f.emit({ ...notification, run_id: '1' });
+    assert.equal(f.completions(), 0);
+    assert.equal(f.session.replied, true);
+    await f.emit({ ...notification, run_id: '2' });
+    assert.deepEqual(await within(f.turn, 2000, 'current workflow'), {
+      status: 'completed',
+      text: 'Held answer.',
+    });
+    assert.equal(f.completions(), 1);
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('without session state an accepted follow-up with no task needs consumption and a fresh result', async () => {
   const f = await background(false);
   try {
@@ -222,6 +259,39 @@ test('without session state an accepted follow-up with no task needs consumption
       (await f.inputs()).map((input) => input.message.content),
       ['initial', 'follow-up'],
     );
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a workflow can hold a normal turn beyond the shutdown budget', async () => {
+  const f = await background(false);
+  try {
+    await f.emit(
+      {
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'long-work',
+        task_type: 'local_workflow',
+        description: 'Long work',
+      },
+      result('Held answer.'),
+    );
+    await delay(8100);
+    assert.equal(f.completions(), 0);
+    assert.equal(f.session.closed, false);
+    await f.emit({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'long-work',
+      status: 'completed',
+      output_file: '',
+      summary: 'Complete',
+    });
+    assert.deepEqual(await within(f.turn, 2000, 'workflow completion'), {
+      status: 'completed',
+      text: 'Held answer.',
+    });
   } finally {
     await f.session.close();
   }

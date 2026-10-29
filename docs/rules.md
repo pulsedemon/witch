@@ -30,6 +30,8 @@ A prompt sent during a turn steers that turn: Claude Code folds it in at its nex
 
 Claude completion follows native idle once the connection has reported session state. Without any session-state event, [ClaudeSession](../src/agents/claude.ts) completes on a result after tracked native familiars, workflows, accepted input and held command replies settle, and posts a notice that idle tracking is missing.
 
+Explicit interruption and closure share a deadline through [Coordinator](../src/core/coordinator.ts) and the adapters. [Shutdown](../src/agents/shutdown.ts) owns the budget and targeted process escalation. Codex restart retains its existing teardown policy. Normal turns and background work have no deadline.
+
 Native compaction scheduling, queue preservation and memory invalidation belong to `Coordinator.compact`, `drain` and `receive` in [coordinator.ts](../src/core/coordinator.ts). [nativePrompt](../src/core/prompts.ts) supplies accepted memory after confirmed history replacement. Native sessions, settings, hooks and Witch's transcript persist across compaction.
 
 Codex commands that outlive their originating native turn become brews through [CodexSession](../src/agents/codex.ts); later turns leave them visible until completion. [Coordinator](../src/core/coordinator.ts) keeps unfinished tool output on its original transcript row throughout that native connection.

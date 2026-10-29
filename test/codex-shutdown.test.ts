@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { unlink, writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
@@ -7,7 +7,7 @@ import type { AgentEvent } from '../src/agents/types.js';
 import { fixture, close, appears, settled } from './fixtures/codex-adapter.js';
 import { within } from './fixtures/within.js';
 
-for (const phase of ['start', 'response', 'completion'])
+for (const phase of ['start', 'response', 'completion', 'late response'])
   test(`Codex interruption closes a session stuck waiting for turn ${phase}`, async () => {
     const events: AgentEvent[] = [];
     const { session, cwd, child } = await fixture((event) =>
@@ -19,12 +19,19 @@ for (const phase of ['start', 'response', 'completion'])
           join(cwd, phase === 'start' ? 'hold-start' : 'hold-interrupt'),
           '',
         );
+      if (phase === 'late response')
+        await writeFile(join(cwd, 'late-interrupt'), '');
       const turn = session.send('hold');
       await appears(join(cwd, 'prompt.json'));
       const started = performance.now();
       const interruption = session.interrupt({ deadline: started + 3200 });
       await within(interruption, 2500, 'bounded interrupt');
       assert.equal((await turn).status, 'interrupted');
+      if (phase === 'late response')
+        assert.deepEqual(
+          JSON.parse(await readFile(join(cwd, 'late-response.json'), 'utf8')),
+          { sent: true },
+        );
       assert.equal(session.closed, true);
       assert.ok(child.exitCode !== null || child.signalCode !== null);
       assert.equal(events.filter((event) => event.type === 'closed').length, 1);

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
-import { stopDeadline } from '../agents/shutdown.js';
+import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,
   AgentSession,
@@ -607,8 +607,8 @@ export class Coordinator {
         (request) => !request.replyAsPrompt,
       ),
     });
-    this.connecting?.abort();
-    this.catalog.cancel();
+    this.connecting?.abort(new NativeStop(stop));
+    this.catalog.cancel(new NativeStop(stop));
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
     const results = await Promise.allSettled([

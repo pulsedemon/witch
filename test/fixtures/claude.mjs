@@ -386,7 +386,29 @@ for await (const line of lines) {
     }
     if (request.subtype === 'interrupt') {
       appendFileSync(join(process.cwd(), 'interrupts.log'), 'interrupt\n');
-      if (existsSync(join(process.cwd(), 'hold-interrupt'))) continue;
+      if (existsSync(join(process.cwd(), 'hold-interrupt'))) {
+        if (existsSync(join(process.cwd(), 'late-interrupt'))) {
+          const waiting = setInterval(() => {}, 1000);
+          process.once('SIGTERM', () => {
+            clearInterval(waiting);
+            send({
+              type: 'control_response',
+              response: {
+                subtype: 'success',
+                request_id: message.request_id,
+                response: { still_queued: [] },
+              },
+            });
+            result();
+            state('idle');
+            result();
+            state('idle');
+            writeFileSync(join(process.cwd(), 'late-response.json'), 'true');
+            process.stdout.end(() => process.exit(0));
+          });
+        }
+        continue;
+      }
       if (mode === 'background') {
         response = {
           still_queued: existsSync(join(process.cwd(), 'receipt.json'))

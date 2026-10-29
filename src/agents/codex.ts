@@ -10,6 +10,7 @@ import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import {
   beforeDeadline,
+  NativeStop,
   NativeStopTimeout,
   stopDeadline,
   terminationReserveMs,
@@ -325,7 +326,10 @@ export class CodexAdapter implements AgentAdapter {
       await initializeRpc(rpc);
       return await readModels(rpc);
     } finally {
-      await rpc.close();
+      const reason: unknown = options.signal?.reason;
+      await rpc.close(
+        reason instanceof NativeStop ? reason.options : undefined,
+      );
     }
   }
 
@@ -338,7 +342,10 @@ export class CodexAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
-      await session.close();
+      const reason: unknown = options.signal?.reason;
+      await session.close(
+        reason instanceof NativeStop ? reason.options : undefined,
+      );
       throw error;
     }
   }
@@ -1402,12 +1409,15 @@ class CodexSession implements AgentSession {
     completedTurnId = this.turn?.id,
   ): void {
     const turn = this.turn;
-    if (turn?.compaction) {
-      if (turn.interrupted) status = 'interrupted';
-      else if (status === 'completed' && !turn.compaction.completed) {
-        status = 'failed';
-        error = 'Codex ended compaction without confirming history replacement';
-      }
+    if (turn?.interrupted && (turn.compaction || this.reportedStopTimeout))
+      status = 'interrupted';
+    else if (
+      turn?.compaction &&
+      status === 'completed' &&
+      !turn.compaction.completed
+    ) {
+      status = 'failed';
+      error = 'Codex ended compaction without confirming history replacement';
     }
     this.turn = undefined;
     // a shell command's turn that never reported its start would hold an interrupt waiting for it
