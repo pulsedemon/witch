@@ -49,6 +49,8 @@ import {
   agentDisplay,
   agentWorking,
   applyDisplayUpdate,
+  clearConversationContext,
+  contextStart,
   createConversation,
   recordSession,
   untitled,
@@ -490,6 +492,45 @@ export class Coordinator {
     });
   }
 
+  async clear(): Promise<void> {
+    await this.operate('starting', async () => {
+      await this.admitting;
+      if (this.snapshot.queue.length)
+        throw new Error('Prompts are still queued for this conversation');
+      const conversation = this.current();
+      const info = this.live(conversation.agent)?.info;
+      await this.disconnect();
+      if (this.cancelled) return;
+      clearConversationContext(conversation, info);
+      this.pendingContext.delete(conversation.id);
+      this.publish({ completedTurn: undefined });
+      await this.save();
+      this.display({
+        id: randomUUID(),
+        kind: 'notice',
+        text: 'Context cleared. The agent cannot see anything above this line.',
+        cwd: conversation.cwd,
+        contextCleared: true,
+      });
+      await this.files!.flush();
+      if (this.cancelled) return;
+      const stored = conversation.sessions[conversation.agent]!;
+      const session = await this.connect();
+      if (this.cancelled || session.closed) return;
+      if (stored.requestedModel)
+        conversation.sessions[conversation.agent] = await this.applyModel(
+          session,
+          {
+            agent: conversation.agent,
+            id: stored.requestedModel,
+            effort: stored.effort,
+          },
+        );
+      await this.save();
+      this.publish({ conversation, native: session.info });
+    });
+  }
+
   async selectConversation(id: string): Promise<void> {
     if (id === this.record?.id) return;
     await this.operate('starting', async () => {
@@ -829,7 +870,11 @@ export class Coordinator {
     let activated = false;
     try {
       let summary = '';
-      if (this.snapshot.items.some((item) => item.kind === 'user')) {
+      if (
+        this.snapshot.items
+          .slice(contextStart(this.snapshot.items))
+          .some((item) => item.kind === 'user')
+      ) {
         const result = await this.performTurn(
           'Produce a concise handoff summary: objective, constraints, verified decisions, changed files, completed checks, and remaining work. Only summarize. Do not run tools or change files.',
           'handoff',

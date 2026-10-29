@@ -25,6 +25,34 @@ import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 
+test('clear preserves the same exclusive claim while the native runtime reconnects', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
+  const owner = await f.start('A');
+  const peer = await f.start('B');
+  const claimed = await owner.claim('task:clear');
+  assert.equal(claimed.kind, 'claimed');
+  const before = (await owner.query()).ownClaim;
+  assert.ok(before);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  owner.a.beforeConnect = async () => {
+    entered.resolve();
+    await release.promise;
+  };
+  const clearing = owner.coordinator.clear();
+  try {
+    await within(entered.promise, 3000, 'the clear reconnect');
+    assert.equal((await peer.claim('task:clear')).kind, 'conflict');
+    assert.deepEqual((await owner.query()).ownClaim, before);
+  } finally {
+    release.resolve();
+    await clearing;
+  }
+  assert.equal((await peer.claim('task:clear')).kind, 'conflict');
+  assert.deepEqual((await owner.query()).ownClaim, before);
+});
+
 test('bound tool titles use the delivered prefixes, refresh on reconnect and survive results and reopening', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);
