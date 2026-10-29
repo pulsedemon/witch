@@ -73,6 +73,7 @@ export async function nativePrompt({
   command,
   familiarCommand,
   merges = [],
+  usage,
 }: {
   prompt: string;
   memory: Memory;
@@ -89,6 +90,8 @@ export async function nativePrompt({
     runtime: NonNullable<AgentSession['familiar']>['runtime'];
   };
   merges?: readonly MergeEvent[];
+  /** the account usage line, sent with every turn outside the fixed instructions. */
+  usage?: string;
 }): Promise<{
   prompt: string;
   context: string | undefined;
@@ -144,6 +147,7 @@ export async function nativePrompt({
         ]
       : []),
     ...(coordination ? [coordination.context] : []),
+    ...(usage ? [usage] : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),
     ...(pendingContext
       ? [

@@ -28,7 +28,7 @@ export async function launcher(
     env: NodeJS.ProcessEnv;
   }[] = [];
   const adapter = new ClaudeAdapter((options) => {
-    assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
+    // side queries include the latest-model read, which leaves every settings file out
     if (options.args.includes('--no-session-persistence')) {
       const directory = join(cwd, `usage-${usageChildren.length}`);
       mkdirSync(directory);
@@ -49,6 +49,7 @@ export async function launcher(
       });
       return child;
     }
+    assert.ok(options.args.some((arg) => arg.includes('user,project,local')));
     assert.equal(options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS, '1');
     args.push(options.args);
     envs.push(options.env);

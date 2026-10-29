@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
-import type { Limit } from '../src/agents/types.js';
+import { test, vi } from 'vitest';
+import { NativeStop } from '../src/agents/shutdown.js';
+import type {
+  AgentSession,
+  Limit,
+  ModelDiscoveryOptions,
+} from '../src/agents/types.js';
 import {
+  AccountUsage,
   current,
   due,
   headroom,
   over,
   USAGE_CURRENT_MS,
+  usageContext,
 } from '../src/core/usage.js';
+import { FixtureAgent } from './fixtures/agent.js';
 
 const now = 2_000_000_000_000;
 const window = (
@@ -79,5 +87,150 @@ test('a reading is due when it has no window or any window is not current', () =
       now,
     ),
     true,
+  );
+});
+
+function readings() {
+  const b = new FixtureAgent('b');
+  const published: Record<string, Limit[]>[] = [];
+  const usage = new AccountUsage([{ adapter: b, executable: 'b' }], (limits) =>
+    published.push(limits),
+  );
+  return { b, usage, published };
+}
+
+function pending() {
+  let settle!: (limits: Limit[]) => void;
+  const promise = new Promise<Limit[]>((resolve) => (settle = resolve));
+  return { promise, settle };
+}
+
+test('a reading is read once while due, and a read in flight is joined', async () => {
+  const { b, usage, published } = readings();
+  const read = pending();
+  b.limitsRead = () => read.promise;
+  const first = usage.refresh('b', '/w');
+  const second = usage.refresh('b', '/w');
+  read.settle([window('7D', 40, { observedAt: Date.now() })]);
+  await Promise.all([first, second]);
+  assert.equal(b.limitReads.length, 1);
+  assert.equal(published.at(-1)!.b![0]!.percent, 40);
+  await usage.refresh('b', '/w');
+  assert.equal(b.limitReads.length, 1);
+});
+
+for (const outcome of ['empty', 'failed'] as const)
+  test(`an ${outcome} read is not repeated until the bound has passed`, async (t) => {
+    const { b, usage, published } = readings();
+    b.limitsRead = () =>
+      outcome === 'empty'
+        ? Promise.resolve([])
+        : Promise.reject(new Error('limits need a login'));
+    await usage.refresh('b', '/w');
+    await usage.refresh('b', '/w');
+    assert.equal(b.limitReads.length, 1);
+    assert.deepEqual(published, outcome === 'empty' ? [{ b: [] }] : []);
+    const later = Date.now() + USAGE_CURRENT_MS + 1;
+    vi.spyOn(Date, 'now').mockReturnValue(later);
+    t.onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
+    await usage.refresh('b', '/w');
+    assert.equal(b.limitReads.length, 2);
+  });
+
+test('a report that arrives during a probe keeps its value when the probe finishes', async () => {
+  const { b, usage, published } = readings();
+  const read = pending();
+  b.limitsRead = () => read.promise;
+  const probing = usage.refresh('b', '/w');
+  const reported = [window('7D', 95, { observedAt: Date.now() })];
+  usage.report('b', reported);
+  read.settle([window('7D', 40, { observedAt: Date.now() - 1 })]);
+  await probing;
+  assert.equal(published.at(-1)!.b, reported);
+});
+
+test('a probe receives the reading it may extend, and an empty report clears headroom', async () => {
+  const { b, usage, published } = readings();
+  const kept = [
+    window('7D', 99, { observedAt: Date.now() - USAGE_CURRENT_MS - 1 }),
+  ];
+  usage.report('b', kept);
+  let previous: readonly Limit[] | undefined;
+  b.limitsRead = async (_options, last) => {
+    previous = last;
+    return [];
+  };
+  await usage.refresh('b', '/w');
+  assert.equal(previous, kept);
+  assert.deepEqual(published.at(-1)!.b, []);
+  assert.equal(headroom(published.at(-1)!.b!, 90, Date.now()), false);
+});
+
+test('the live runtime reads through its session, and a session that cannot starts nothing', async () => {
+  const { b, usage } = readings();
+  let reads = 0;
+  const session = { readLimits: async () => void reads++ } as AgentSession;
+  await usage.refresh('b', '/w', session);
+  assert.equal(reads, 1);
+  assert.equal(b.limitReads.length, 0);
+  const { usage: other, b: silent } = readings();
+  await other.refresh('b', '/w', {} as AgentSession);
+  await other.refresh('b', '/w');
+  assert.equal(silent.limitReads.length, 1);
+});
+
+test('a connect counts as the live runtime attempt and reads the others', async () => {
+  const { b, usage } = readings();
+  usage.connected('b', '/w');
+  await usage.refresh('b', '/w');
+  assert.equal(b.limitReads.length, 0);
+  const { b: other, usage: second } = readings();
+  second.connected('a', '/w');
+  await second.refresh('b', '/w');
+  assert.equal(other.limitReads.length, 1);
+});
+
+test('close stops a probe in flight with the stop options, and later reads start nothing', async () => {
+  const { b, usage, published } = readings();
+  let signal: AbortSignal | undefined;
+  b.limitsRead = (options: ModelDiscoveryOptions) => {
+    signal = options.signal;
+    return new Promise((_, reject) =>
+      options.signal!.addEventListener('abort', () =>
+        reject(options.signal!.reason),
+      ),
+    );
+  };
+  const probing = usage.refresh('b', '/w');
+  const stop = { deadline: Date.now() + 1000 };
+  await usage.close(stop);
+  await probing;
+  assert.ok(signal!.reason instanceof NativeStop);
+  assert.deepEqual((signal!.reason as NativeStop).options, stop);
+  await usage.refresh('b', '/w');
+  assert.equal(b.limitReads.length, 1);
+  assert.deepEqual(published, []);
+});
+
+test('the usage line leaves out runtimes without a window and marks one that is not current', () => {
+  const agents = [
+    { id: 'claude', label: 'Claude Code' },
+    { id: 'codex', label: 'Codex' },
+    { id: 'other', label: 'Other' },
+  ];
+  assert.equal(usageContext({}, agents, now), undefined);
+  assert.equal(
+    usageContext(
+      {
+        claude: [window('5H', 23.5), window('7D', 61)],
+        codex: [window('7D', 49, { observedAt: now - 14 * 60_000 })],
+        other: [],
+      },
+      agents,
+      now,
+    ),
+    'Account usage: Claude Code 5H 24%, 7D 61%; Codex 7D 49%, not current (14 minutes old). A reading older than 10 minutes or past its reset is not current.',
   );
 });

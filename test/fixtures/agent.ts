@@ -104,9 +104,15 @@ export class FixtureAgent implements AgentAdapter {
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
-  /** what `limits()` returns; its reads are kept apart from `discoveries`. */
+  /** what `limits()` returns unless `limitsRead` answers; its reads are kept apart from `discoveries`. */
   accountLimits: Limit[] = [];
+  limitsRead?: (
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ) => Promise<Limit[]>;
   readonly limitReads: ModelDiscoveryOptions[] = [];
+  /** set to give the runtime family aliases, as Claude's adapter has. */
+  latest?: (options: ModelDiscoveryOptions) => Promise<Record<string, string>>;
 
   constructor(readonly id: string) {
     this.label = id;
@@ -123,10 +129,15 @@ export class FixtureAgent implements AgentAdapter {
     return this.catalog;
   }
 
-  async limits(options: ModelDiscoveryOptions): Promise<Limit[]> {
+  async limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]> {
     this.limitReads.push(options);
     options.signal?.throwIfAborted();
-    return this.accountLimits;
+    return this.limitsRead
+      ? this.limitsRead(options, previous)
+      : this.accountLimits;
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {

@@ -1,4 +1,6 @@
-import type { Limit } from '../agents/types.js';
+import type { AgentRegistration } from '../agents/registry.js';
+import { NativeStop } from '../agents/shutdown.js';
+import type { AgentSession, AgentStopOptions, Limit } from '../agents/types.js';
 
 /** a chosen bound: usage within a window only grows, so an older reading can hide a limit already reached. */
 export const USAGE_CURRENT_MS = 10 * 60_000;
@@ -36,4 +38,110 @@ export function over(
 /** no window, or one that isn't current, so another read could change a decision. */
 export function due(limits: readonly Limit[], now: number): boolean {
   return limits.length === 0 || limits.some((limit) => !current(limit, now));
+}
+
+/** one context line for the agent; a runtime with no window is left out, and none at all leaves no line. */
+export function usageContext(
+  limits: Readonly<Record<string, readonly Limit[]>>,
+  agents: readonly { id: string; label: string }[],
+  now: number,
+): string | undefined {
+  const readings = agents.flatMap(({ id, label }) => {
+    const reading = limits[id];
+    if (!reading?.length) return [];
+    const windows = reading
+      .map(({ window, percent }) => `${window} ${Math.round(percent)}%`)
+      .join(', ');
+    if (reading.every((limit) => current(limit, now)))
+      return [`${label} ${windows}`];
+    const age = Math.floor(
+      (now - Math.min(...reading.map(({ observedAt }) => observedAt))) / 60_000,
+    );
+    return [`${label} ${windows}, not current (${age} minutes old)`];
+  });
+  return readings.length
+    ? `Account usage: ${readings.join('; ')}. A reading older than ${USAGE_CURRENT_MS / 60_000} minutes or past its reset is not current.`
+    : undefined;
+}
+
+/** each runtime's latest reading, and the reads Witch starts for it; one read per runtime runs at a time. */
+export class AccountUsage {
+  private limits: Record<string, Limit[]> = {};
+  /** counts each runtime's reports, so a probe that started before a newer one doesn't replace it. */
+  private readonly reports = new Map<string, number>();
+  private readonly attempts = new Map<string, number>();
+  private readonly reads = new Map<string, Promise<void>>();
+  private readonly probes = new Map<AbortController, Promise<void>>();
+  private closed = false;
+
+  constructor(
+    private readonly agents: readonly AgentRegistration[],
+    private readonly publish: (limits: Record<string, Limit[]>) => void,
+  ) {}
+
+  report(agent: string, limits: Limit[]): void {
+    if (this.limits[agent] === limits) return;
+    this.reports.set(agent, (this.reports.get(agent) ?? 0) + 1);
+    this.limits = { ...this.limits, [agent]: limits };
+    this.publish(this.limits);
+  }
+
+  /** a live session reads its own limits as it connects, which counts as that runtime's attempt. */
+  connected(live: string, cwd: string): void {
+    this.attempts.set(live, Date.now());
+    this.others(live, cwd);
+  }
+
+  others(live: string, cwd: string): void {
+    for (const { adapter } of this.agents)
+      if (adapter.id !== live) void this.refresh(adapter.id, cwd);
+  }
+
+  /** `session` is the runtime's live session, which reads through its own connection. */
+  refresh(agent: string, cwd: string, session?: AgentSession): Promise<void> {
+    const running = this.reads.get(agent);
+    if (running) return running;
+    const now = Date.now();
+    if (
+      this.closed ||
+      !due(this.limits[agent] ?? [], now) ||
+      now - (this.attempts.get(agent) ?? -Infinity) <= USAGE_CURRENT_MS
+    )
+      return Promise.resolve();
+    const read = session ? session.readLimits?.() : this.probe(agent, cwd);
+    if (!read) return Promise.resolve();
+    this.attempts.set(agent, now);
+    const settled = read.finally(() => this.reads.delete(agent));
+    this.reads.set(agent, settled);
+    return settled;
+  }
+
+  async close(stop: AgentStopOptions): Promise<void> {
+    this.closed = true;
+    for (const abort of this.probes.keys()) abort.abort(new NativeStop(stop));
+    await Promise.allSettled(this.probes.values());
+  }
+
+  private probe(agent: string, cwd: string): Promise<void> | undefined {
+    const registration = this.agents.find(
+      ({ adapter, executable }) => adapter.id === agent && executable,
+    );
+    if (!registration) return;
+    const abort = new AbortController();
+    const reports = this.reports.get(agent) ?? 0;
+    const probe = registration.adapter
+      .limits(
+        { cwd, executable: registration.executable!, signal: abort.signal },
+        this.limits[agent] ?? [],
+      )
+      .then((limits) => {
+        if (!this.closed && (this.reports.get(agent) ?? 0) === reports)
+          this.report(agent, limits);
+      })
+      // a failed read leaves the reading to age until the next attempt
+      .catch(() => {})
+      .finally(() => this.probes.delete(abort));
+    this.probes.set(abort, probe);
+    return probe;
+  }
 }

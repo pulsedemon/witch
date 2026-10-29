@@ -43,10 +43,11 @@ export function modelTarget(
   return { agent, id };
 }
 
-/** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again. */
+/** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again; each runtime's latest models are read once per process the same way. */
 export class ModelCatalog {
   private discovery?: AbortController;
   private readonly lists = new Map<string, Model[]>();
+  private readonly latestModels = new Map<string, Record<string, string>>();
 
   constructor(
     private readonly registrations: readonly AgentRegistration[],
@@ -62,6 +63,22 @@ export class ModelCatalog {
     this.discovery = discovery;
     const installed = this.registrations.filter(({ executable }) => executable);
     try {
+      const latest = installed.filter(
+        ({ adapter }) =>
+          adapter.latest && (refresh || !this.latestModels.has(adapter.id)),
+      );
+      const latestReads = Promise.allSettled(
+        latest.map(async ({ adapter, executable }) => {
+          this.latestModels.set(
+            adapter.id,
+            await adapter.latest!({
+              cwd,
+              executable: executable!,
+              signal: discovery.signal,
+            }),
+          );
+        }),
+      );
       const results = await Promise.allSettled(
         installed.map(async ({ adapter, executable }) => {
           let models: Model[] | undefined;
@@ -80,20 +97,30 @@ export class ModelCatalog {
           return models.map((model) => ({ ...model, agent: adapter.id }));
         }),
       );
+      const latestResults = await latestReads;
       discovery.signal.throwIfAborted();
       const errors: string[] = [];
+      const failed = (label: string, reason: unknown) =>
+        errors.push(`${label}: ${errorMessage(reason)}`);
       const models = results.flatMap((result, index) => {
         if (result.status === 'fulfilled') return result.value;
-        errors.push(
-          `${installed[index]!.adapter.label}: ${errorMessage(result.reason)}`,
-        );
+        failed(installed[index]!.adapter.label, result.reason);
         return [];
+      });
+      latestResults.forEach((result, index) => {
+        if (result.status === 'rejected')
+          failed(latest[index]!.adapter.label, result.reason);
       });
       if (errors.length) this.report(new Error(errors.join('\n')));
       return models;
     } finally {
       this.discovery = undefined;
     }
+  }
+
+  /** each runtime's family aliases and the concrete model each names, read past native pins. */
+  get latest(): Record<string, Record<string, string>> {
+    return Object.fromEntries(this.latestModels);
   }
 
   cancel(reason?: unknown): void {

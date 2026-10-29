@@ -42,6 +42,7 @@ import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import type { Recovery, Snapshot } from './snapshot.js';
+import { AccountUsage, usageContext } from './usage.js';
 import type { ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
@@ -103,6 +104,7 @@ export class Coordinator {
   private selectingModel = false;
   private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
+  private readonly accountUsage: AccountUsage;
   private draining = false;
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
@@ -123,6 +125,9 @@ export class Coordinator {
     this.catalog = new ModelCatalog(agents, (error) =>
       this.notice(errorMessage(error), undefined, false),
     );
+    this.accountUsage = new AccountUsage(agents, (limits) =>
+      this.publish({ limits }),
+    );
     this.snapshot = {
       phase: 'starting',
       items: [],
@@ -133,6 +138,8 @@ export class Coordinator {
       subagents: [],
       backgroundCommands: [],
       usage: {},
+      limits: {},
+      latest: {},
       agents: agents.map(({ adapter, executable }) => ({
         id: adapter.id,
         label: adapter.label,
@@ -508,7 +515,8 @@ export class Coordinator {
         const { cwd, agent } = this.current();
         try {
           const models = await this.catalog.read(cwd, this.live(agent), true);
-          if (!refresh.cancelled) this.publish({ models });
+          if (!refresh.cancelled)
+            this.publish({ models, latest: this.catalog.latest });
         } catch (error) {
           if (
             !refresh.cancelled ||
@@ -797,6 +805,7 @@ export class Coordinator {
       failure ??= error;
     } finally {
       try {
+        await this.accountUsage.close(stop);
         await this.disconnect(false, false, stop);
       } finally {
         try {
@@ -933,6 +942,11 @@ export class Coordinator {
                 }
               : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),
+          usage: usageContext(
+            this.snapshot.limits,
+            this.snapshot.agents,
+            Date.now(),
+          ),
         });
       let input = await context();
       // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
@@ -1060,6 +1074,7 @@ export class Coordinator {
         `chore(memory): save ${activity.agent} notes\n\n${memoryAttribution(conversation.id, activity.id)}`,
       );
       delete conversation.activity;
+      this.accountUsage.others(activity.agent, conversation.cwd);
     } else {
       this.notice(result.error ?? 'Turn interrupted');
       if (result.status === 'failed') this.turnFailed = true;
@@ -1181,8 +1196,10 @@ export class Coordinator {
         native: live?.info,
         usage: live?.usage ?? {},
         models,
+        latest: this.catalog.latest,
         skills,
       });
+      this.accountUsage.connected(agent, conversation.cwd);
       return session;
     } finally {
       this.connecting = undefined;
@@ -1284,6 +1301,8 @@ export class Coordinator {
     } else if (event.type === 'skills') {
       if (this.live(agent)) this.publish({ skills: event.skills });
     } else if (event.type === 'usage') {
+      if (event.usage.limits)
+        this.accountUsage.report(agent, event.usage.limits);
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent' || event.type === 'command') {
       if (this.live(agent)) this.background(event, conversation.cwd);
