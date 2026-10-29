@@ -17,15 +17,10 @@ import type {
   ControlOutcome,
   ControlRequest,
 } from '../persistence/control.js';
-import {
-  identifyProcess,
-  identifyProcesses,
-  sameProcess,
-} from '../persistence/process.js';
+import { identifyProcess, sameProcess } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import {
   conversationSummarySchema,
-  selectionStates,
   taskActivity,
 } from './coordination-state.js';
 import type {
@@ -34,6 +29,8 @@ import type {
   SelectionScope,
 } from './coordination-state.js';
 import type { Snapshot } from './coordinator.js';
+import { discover, projectDiscovery } from './discovery.js';
+import type { Discovery } from './discovery.js';
 import { assignGitHubTask } from './github-assignment.js';
 import type { PullRequest, Repository } from './repository.js';
 import { mergeEventId } from './merge-events.js';
@@ -72,14 +69,6 @@ function configStamp(file: string | undefined): string {
   } catch {
     return 'missing';
   }
-}
-
-interface Discovery {
-  revision: number;
-  live: Map<string, SessionPresence>;
-  opened: Awaited<ReturnType<StateStore['openConversations']>>;
-  records: Awaited<ReturnType<StateStore['records']>>['records'];
-  unregistered: Map<string, CoordinationSnapshot['unregistered']>;
 }
 
 interface LedgerView {
@@ -862,8 +851,8 @@ export class SessionCoordination {
       this.failures.delete('discovery');
     this.published++;
     this.publish(
-      this.projectDiscovery(
-        active,
+      projectDiscovery(
+        active.conversation.id,
         project,
         this.view.discovery,
         this.ledger.ledger,
@@ -952,8 +941,8 @@ export class SessionCoordination {
             );
       const verify = async (ledger: Ledger) => {
         await this.refreshProject(active, request.deadline);
-        const snapshot = this.projectDiscovery(
-          active,
+        const snapshot = projectDiscovery(
+          active.conversation.id,
           active.project,
           await this.observe(state),
           ledger,
@@ -1321,146 +1310,17 @@ export class SessionCoordination {
     return promise;
   }
 
-  private async discover(
-    revision: number,
-    deadline?: number,
-  ): Promise<Discovery> {
-    const timeout =
-      deadline === undefined ? undefined : checkDeadline(deadline);
-    const reads = [
-      this.registry.presences(),
-      this.store.openConversations(undefined, { timeout }),
-    ] as const;
-    await Promise.allSettled(reads);
-    const [presences, opened] = await Promise.all(reads);
-    const { records, unreadable } = await this.store.records([
-      ...opened.keys(),
-    ]);
-    if (unreadable.length)
-      throw new Error(
-        `Cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
-      );
-    const candidates = new Map<string, SessionPresence>();
-    for (const record of records) {
-      const presence = presences.find((entry) => entry.id === record.id);
-      if (opened.has(record.id) && presence?.cwd === record.cwd)
-        candidates.set(record.id, presence);
-    }
+  private discover(revision: number, deadline?: number): Promise<Discovery> {
     // this process holds its publishing activation's lock, so only the others need the lock query
     const held = this.active?.publishing
       ? this.active.binding.activation
       : undefined;
-    const activations = await this.registry.activeActivations(
-      [...candidates.values()].flatMap(({ activation }) =>
-        activation === held ? [] : [activation],
-      ),
-      {
-        timeout: deadline === undefined ? undefined : checkDeadline(deadline),
-      },
+    return discover(
+      { registry: this.registry, store: this.store, memory: this.memory },
+      revision,
+      held,
+      deadline,
     );
-    if (held) activations.add(held);
-    const processes = await identifyProcesses(
-      [...candidates.values()].flatMap((presence) =>
-        activations.has(presence.activation) ? [presence.process.pid] : [],
-      ),
-      {
-        timeout: deadline === undefined ? undefined : checkDeadline(deadline),
-      },
-    );
-    const live = new Map<string, SessionPresence>();
-    const unregistered = new Map<
-      string,
-      CoordinationSnapshot['unregistered']
-    >();
-    for (const record of records) {
-      const holder = opened.get(record.id);
-      if (!holder) continue;
-      const presence = candidates.get(record.id);
-      if (
-        presence &&
-        activations.has(presence.activation) &&
-        sameProcess(processes.get(presence.process.pid), presence.process)
-      ) {
-        live.set(record.id, presence);
-        continue;
-      }
-      // a current Witch opening, reconnecting or closing this conversation
-      if (holder.coordinated) continue;
-      try {
-        const { project } = await this.memory.scopePaths(
-          record.cwd,
-          deadline === undefined
-            ? undefined
-            : AbortSignal.timeout(checkDeadline(deadline)),
-        );
-        const summaries = unregistered.get(project) ?? [];
-        summaries.push(conversationSummarySchema.parse(record));
-        unregistered.set(project, summaries);
-      } catch (error) {
-        const { code, syscall } = error as NodeJS.ErrnoException;
-        if (code !== 'ENOENT' || syscall !== 'realpath') throw error;
-      }
-    }
-    return { revision, live, opened, records, unregistered };
-  }
-
-  private projectDiscovery(
-    active: Activation,
-    project: string,
-    discovery: Discovery,
-    { claims, selections }: Ledger,
-  ): CoordinationSnapshot {
-    const { live, opened } = discovery;
-    const positions = selectionStates(selections);
-    const ownSelection = positions.find(
-      (state) => state.ticket.owner.conversation === active.conversation.id,
-    );
-    const ownClaim = claims.find(
-      (claim) => claim.owner.conversation === active.conversation.id,
-    );
-    const projectClaims = claims.filter(
-      (claim) =>
-        claim.owner.project === project &&
-        claim.owner.conversation !== active.conversation.id,
-    );
-    const peers = [...live.values()]
-      .filter(
-        (presence) =>
-          presence.project === project &&
-          presence.id !== active.conversation.id,
-      )
-      .sort((a, b) => a.openedAt - b.openedAt || a.id.localeCompare(b.id))
-      .map((presence) => ({
-        presence,
-        selection: positions.find(
-          (state) => state.ticket.owner.conversation === presence.id,
-        ),
-        claim: projectClaims.find(
-          (claim) => claim.owner.conversation === presence.id,
-        ),
-      }));
-    const reservations: CoordinationSnapshot['reservations'] =
-      projectClaims.flatMap((claim) => {
-        const presence = live.get(claim.owner.conversation);
-        if (presence?.project === project) return [];
-        return [
-          {
-            claim,
-            status: presence
-              ? 'owner-outside-project'
-              : opened.has(claim.owner.conversation)
-                ? 'unknown'
-                : 'unattended',
-          },
-        ];
-      });
-    return {
-      peers,
-      ownClaim,
-      ownSelection,
-      reservations,
-      unregistered: discovery.unregistered.get(project) ?? [],
-    };
   }
 
   private fail(source: string, error: unknown): void {
