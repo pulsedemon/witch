@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 
 // modes that a prompt can't reach come from the command line
 const mode = process.argv[2] ?? '';
+const sessionState = !process.argv.includes('--no-session-state');
 const mcpServers = () =>
   mode === 'mcp'
     ? JSON.parse(readFileSync(join(process.cwd(), 'mcp-status.json'), 'utf8'))
@@ -39,7 +40,8 @@ const once = (file, then) => {
   }, 5);
   poll.unref();
 };
-const state = (state) =>
+const state = (state) => {
+  if (!sessionState) return;
   send({
     type: 'system',
     subtype: 'session_state_changed',
@@ -47,6 +49,7 @@ const state = (state) =>
     uuid: randomUUID(),
     session_id,
   });
+};
 const task = (subtype, fields) =>
   send({ type: 'system', subtype, ...fields, uuid: randomUUID(), session_id });
 if (mode === 'compaction' || mode === 'background' || mode === 'mcp') {
@@ -522,6 +525,10 @@ for await (const line of lines) {
     });
     state('running');
     if (mode === 'background') {
+      if (!sessionState) {
+        assistant('Working.');
+        continue;
+      }
       assistant('Initial reply.');
       result({
         user_message_uuid: message.uuid,

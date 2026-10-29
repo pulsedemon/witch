@@ -255,6 +255,8 @@ class ClaudeSession implements AgentSession {
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private messageLifecycle = false;
+  private sessionLifecycle = false;
+  private reportedMissingLifecycle = false;
   private readonly reportedMcp = new Set<string>();
   private mcpTimer?: ReturnType<typeof setTimeout>;
   private mcpReading = false;
@@ -683,8 +685,7 @@ class ClaudeSession implements AgentSession {
   }
 
   /**
-   * with no familiar or workflow left and Claude Code not yet idle, a reply could land after idle, so idle releases
-   * it, or a familiar or workflow that starts first.
+   * with native idle tracking, a reply after the last holder may land after idle, so idle or a new holder releases it.
    */
   private async reply(
     turn: Turn,
@@ -700,7 +701,12 @@ class ClaudeSession implements AgentSession {
     if (ran.status === 'failed')
       this.options.onEvent({ type: 'notice', text: ran.error ?? '' });
     if (ran.status === 'completed') turn.answer = prompt;
-    if (ran.status !== 'completed' || turn.idle || this.holding)
+    if (
+      ran.status !== 'completed' ||
+      turn.idle ||
+      this.holding ||
+      !this.sessionLifecycle
+    )
       this.release(turn);
   }
 
@@ -951,12 +957,15 @@ class ClaudeSession implements AgentSession {
           type: 'skills',
           skills: skillsOf(message.commands),
         });
-      } else if (message.subtype === 'session_state_changed' && this.turn) {
+      } else if (message.subtype === 'session_state_changed') {
+        this.sessionLifecycle = true;
         const turn = this.turn;
-        turn.idle = message.state === 'idle';
-        if (turn.idle && turn.held && turn.answer !== undefined)
-          this.release(turn);
-        else this.finishIdle(turn);
+        if (turn) {
+          turn.idle = message.state === 'idle';
+          if (turn.idle && turn.held && turn.answer !== undefined)
+            this.release(turn);
+          else this.finishIdle(turn);
+        }
       } else if (
         // ambient tasks are housekeeping, such as forked-skill workers
         message.subtype === 'task_started' &&
@@ -994,11 +1003,13 @@ class ClaudeSession implements AgentSession {
             this.subagent({ ...subagent, status: 'stopped' });
         }
         this.listed = listed;
+        if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       } else if (message.subtype === 'task_notification') {
         this.workflows.delete(message.task_id);
         const subagent = this.subagents.get(message.task_id);
         if (subagent && !this.late(message))
           this.subagent({ ...subagent, status: message.status });
+        if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       }
     } else if (
       message.type === 'stream_event' &&
@@ -1126,6 +1137,7 @@ class ClaudeSession implements AgentSession {
               }
             : {}),
         };
+        if (!this.sessionLifecycle) this.finishIdle(this.turn);
         return;
       }
       const success = message.subtype === 'success' && !message.is_error;
@@ -1158,6 +1170,7 @@ class ClaudeSession implements AgentSession {
             }
           : {}),
       };
+      if (!this.sessionLifecycle) this.finishIdle(this.turn);
     }
   }
 
@@ -1281,12 +1294,20 @@ class ClaudeSession implements AgentSession {
 
   private finishIdle(turn: Turn): void {
     if (
-      turn.idle &&
+      this.turn === turn &&
+      (turn.idle || (!this.sessionLifecycle && !this.holding)) &&
       (turn.result || turn.inputError !== undefined) &&
       !turn.held &&
       (!this.messageLifecycle ||
         ![...turn.steered.values()].some(({ pending }) => pending))
     ) {
+      if (!this.sessionLifecycle && !this.reportedMissingLifecycle) {
+        this.reportedMissingLifecycle = true;
+        this.options.onEvent({
+          type: 'notice',
+          text: 'Claude did not report session state; Witch finished the turn after its result and tracked work settled.',
+        });
+      }
       this.finish(
         turn,
         turn.inputError !== undefined
