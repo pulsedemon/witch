@@ -792,6 +792,28 @@ test('a spell a failed connect leaves queued still goes alone once the agent con
   }
 });
 
+test('a refusal reported before a conversation opens sets the error', async () => {
+  const { coordinator: original, root, memory, a } = await fixture();
+  await original.close();
+  const coordinator = new Coordinator(
+    await StateStore.open(join(root, 'state')),
+    memory,
+    [{ adapter: a, executable: 'a' }],
+  );
+  try {
+    const refusal = await coordinator
+      .newConversation()
+      .catch((error: unknown) => error);
+    coordinator.report(refusal);
+    assert.equal(
+      coordinator.snapshot.error,
+      'Stop the current operation first',
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a prompt sent while the launch connects goes once the load ends', async () => {
   const { coordinator: original, root, project, memory, a } = await fixture();
   await original.close();
@@ -1191,7 +1213,7 @@ test("a model change runs during a replied turn without waiting, and is refused 
   }
 });
 
-test('a model change during a replied turn refuses another until it finishes', async () => {
+test('a model change during a replied turn refuses another until it finishes, and the refusal reports as a notice', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   const entered = Promise.withResolvers<void>();
@@ -1218,12 +1240,19 @@ test('a model change during a replied turn refuses another until it finishes', a
     });
     await within(entered.promise, 2000, 'the model change');
     duplicate = coordinator.selectModel({ agent: 'a', id: 'a-model' });
-    await within(
-      assert.rejects(duplicate, {
-        message: 'Stop the current operation first',
-      }),
+    const refusal = await within(
+      duplicate.catch((error: unknown) => error),
       2000,
       'the overlapping model change refusal',
+    );
+    assert.ok(refusal instanceof Error);
+    assert.equal(refusal.message, 'Stop the current operation first');
+    coordinator.report(refusal);
+    assert.equal(coordinator.snapshot.error, undefined);
+    const notice = coordinator.snapshot.items.at(-1);
+    assert.deepEqual(
+      [notice?.kind, notice?.text],
+      ['notice', 'Stop the current operation first'],
     );
     release.resolve();
     await first;
