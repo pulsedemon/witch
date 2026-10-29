@@ -130,8 +130,8 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
  * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
  * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
- * those below it, are then tracked. a marked launchd child that runs an app's main executable while leading its own
- * group, as LaunchServices starts apps, or a helper from an app's Frameworks directory is excluded instead. an orphan
+ * those below it, are then tracked. a marked launchd child running an executable in an app's Contents/MacOS while
+ * leading its own group, or a helper from its Contents/Frameworks, is excluded instead. an orphan
  * no read saw is missed unless its group was handed over or reported, or a process in it carries the mark.
  */
 export class JobWatch {
@@ -379,7 +379,7 @@ export class JobWatch {
         );
         // LaunchServices starts an app in a group of its own, and `open --env` hands it the mark, as VS Code's `code`
         // does. the app, its terminals and its frameworks' helpers, such as its crash handler, are the user's. a
-        // command's own run of a bundle's main executable stays a job unless it leads its own group
+        // command's own run of an executable in Contents/MacOS stays a job unless it leads its own group
         const markedRoots = roots.filter(({ pid }) => marked.has(pid));
         const paths = markedRoots.length
           ? await (this.options.executables ?? executables)(
@@ -387,8 +387,7 @@ export class JobWatch {
             )
           : new Map<number, string>();
         for (const root of markedRoots) {
-          // the outermost bundle only, outside any framework, since Xcode's toolchain, framework builds of python3 and
-          // IDE-bundled JDKs run from inside a bundle without being its app
+          // only the outermost app outside a framework matches, so Xcode's nested tools and framework-installed Python stay jobs
           const bundle =
             /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
               paths.get(root.pid) ?? '',
