@@ -1166,6 +1166,7 @@ test("a Claude familiar's tool calls give its latest activity, with a path under
         {
           ...observed,
           activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
           tools: 3,
           report: 'Reading the tests.',
         },
@@ -1173,6 +1174,7 @@ test("a Claude familiar's tool calls give its latest activity, with a path under
         {
           ...observed,
           activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
           tools: 3,
           report: 'All tests pass.',
         },
@@ -1180,12 +1182,14 @@ test("a Claude familiar's tool calls give its latest activity, with a path under
         {
           ...observed,
           activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
           tools: 3,
           report: 'All tests pass.\nSee a.test.ts.',
         },
         {
           ...observed,
           activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
           tools: 3,
           report: 'All tests pass.\nSee a.test.ts.',
           status: 'completed',
