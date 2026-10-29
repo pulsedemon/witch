@@ -558,6 +558,16 @@ for await (const line of lines) {
       lastPrompt.endsWith('User request:\nreporting familiar')
     )
       lastPrompt = 'reporting familiar';
+    // Claude Code starts a pushed input before init advertises lifecycle acknowledgements
+    if (mode === 'spell-user')
+      for (const state of ['queued', 'started'])
+        send({
+          type: 'command_lifecycle',
+          command_uuid: message.uuid,
+          state,
+          uuid: randomUUID(),
+          session_id,
+        });
     send({
       type: 'system',
       subtype: 'init',
@@ -575,7 +585,9 @@ for await (const line of lines) {
       plugins: [],
       uuid: randomUUID(),
       claude_code_version: nativeVersion,
-      ...(mode === 'background' ? { capabilities: ['msg_lifecycle_v1'] } : {}),
+      ...(['background', 'spell-user'].includes(mode)
+        ? { capabilities: ['msg_lifecycle_v1'] }
+        : {}),
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
     state('running');

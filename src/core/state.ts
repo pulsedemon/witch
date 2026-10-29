@@ -108,6 +108,8 @@ export const displayUpdateSchema = z.object({
   // a command the user ran with `!`
   shell: z.boolean().optional(),
   contextCleared: z.literal(true).optional(),
+  // a spell cast, animated while new
+  cast: z.literal(true).optional(),
   // when Witch received the update; history from before it was recorded has none
   at: z.string().optional(),
 });

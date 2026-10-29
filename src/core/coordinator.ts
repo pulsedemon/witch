@@ -24,6 +24,7 @@ import { identifyProcess } from '../persistence/process.js';
 import { missingConversationDirectories } from '../persistence/directory-recovery.js';
 import { quote } from '../shell.js';
 import { updateBackgroundActivity } from './background-activity.js';
+import { castRow } from './spells.js';
 import { recoverConversations } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { listFiles } from './files.js';
@@ -1042,12 +1043,9 @@ export class Coordinator {
           reference.deliveredRevision = activity.baseRevision;
           reference.deliveredInstructionsRevision = input.instructionsRevision;
           if (input.merges.length)
-            reference.deliveredMerges = [
-              ...new Set([
-                ...(reference.deliveredMerges ?? []),
-                ...input.merges,
-              ]),
-            ];
+            reference.deliveredMerges = Array.from(
+              new Set([...(reference.deliveredMerges ?? []), ...input.merges]),
+            );
         }
         if (pendingHandoff === conversation.handoff)
           delete conversation.handoff;
@@ -1332,6 +1330,8 @@ export class Coordinator {
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent' || event.type === 'command') {
       if (this.live(agent)) this.background(event, conversation.cwd);
+    } else if (event.type === 'spell') {
+      this.display(castRow(event.cast, conversation.cwd));
     } else {
       let id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
       if (event.type === 'tool') {
@@ -1354,6 +1354,8 @@ export class Coordinator {
   }
 
   private display(update: DisplayUpdate, save = true): void {
+    if (update.cast && this.snapshot.items.some(({ id }) => id === update.id))
+      return;
     const stamped = { ...update, at: new Date().toISOString() };
     this.publish({ items: applyDisplayUpdate(this.snapshot.items, stamped) });
     if (save) this.persist(this.files!.append(stamped));

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import {
   appendFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
@@ -63,6 +64,86 @@ const held = async () => {
   writeFileSync(file('replied'), 'yes');
   while (!existsSync(file('release'))) await delay(5);
 };
+// `spell-reads` lists one spell, `a`, which its turns cast by reading its SKILL.md
+const spellReads = [mode, familiar].includes('spell-reads');
+const spellPath = join(process.cwd(), '.agents', 'skills', 'a', 'SKILL.md');
+if (spellReads) {
+  mkdirSync(join(spellPath, '..', 'scripts'), { recursive: true });
+  writeFileSync(spellPath, '---\nname: a\ndescription: A\n---\n');
+  writeFileSync(join(spellPath, '..', 'scripts', 'run.py'), '');
+}
+/** a command reading the spell, on `item/started` and `item/completed`, or only the latter when `completedOnly`. */
+const readSpell = (threadId, turnId, id, completedOnly = false) => {
+  const item = {
+    type: 'commandExecution',
+    id,
+    command: `cat ${spellPath}`,
+    cwd: process.cwd(),
+    source: 'agent',
+    processId: null,
+    commandActions: [
+      { type: 'read', command: 'cat', name: 'SKILL.md', path: spellPath },
+    ],
+  };
+  if (!completedOnly)
+    notify('item/started', {
+      threadId,
+      turnId,
+      item: { ...item, status: 'inProgress' },
+    });
+  notify('item/completed', {
+    threadId,
+    turnId,
+    item: { ...item, status: 'completed', exitCode: 0 },
+  });
+};
+const spellTurn = (prompt, input, turnId) => {
+  if (prompt === 'cast') {
+    const message = { type: 'userMessage', id: 'user-1', content: input };
+    notify('item/started', {
+      threadId: 'native-thread',
+      turnId,
+      item: message,
+    });
+    notify('item/completed', {
+      threadId: 'native-thread',
+      turnId,
+      item: message,
+    });
+    readSpell('native-thread', turnId, 'read-1');
+    readSpell('native-thread', turnId, 'read-2');
+  } else if (prompt === 'again')
+    readSpell('native-thread', turnId, 'read-3', true);
+  else if (prompt === 'familiar') {
+    const started = (id) =>
+      notify('turn/started', {
+        threadId: 'child-thread',
+        turn: { id, status: 'inProgress' },
+      });
+    started('child-turn-1');
+    readSpell('child-thread', 'child-turn-1', 'child-read-1');
+    readSpell('child-thread', 'child-turn-1', 'child-read-2');
+    // the child starts again before its last turn's read arrives
+    started('child-turn-2');
+    readSpell('child-thread', 'child-turn-1', 'child-read-3');
+    // a thread that never started a turn here is no familiar
+    readSpell('stray-thread', 'stray-turn', 'stray-read');
+  } else {
+    // a familiar's own read, and its nested child's, sent twice
+    readSpell('native-thread', turnId, 'read-1');
+    notify('turn/started', {
+      threadId: 'child-thread',
+      turn: { id: 'child-turn-1', status: 'inProgress' },
+    });
+    readSpell('child-thread', 'child-turn-1', 'child-read-1');
+    readSpell('child-thread', 'child-turn-1', 'child-read-2');
+  }
+  notify('turn/completed', {
+    threadId: 'native-thread',
+    turn: { id: turnId, status: 'completed', error: null },
+  });
+};
+let spellTurns = 0;
 let skillAdded = false;
 let lastPrompt = '';
 /** a `!` command of `hold` runs until an interrupt or the test's release. */
@@ -258,6 +339,30 @@ for await (const line of lines) {
       ],
       nextCursor: second ? null : 'page-2',
     });
+  }
+  if (spellReads)
+    appendFileSync(
+      file('methods.jsonl'),
+      `${JSON.stringify(request.method)}\n`,
+    );
+  if (request.method === 'skills/list' && familiar === 'skills-fail') {
+    send({
+      id: request.id,
+      error: { code: -32603, message: 'skills unavailable' },
+    });
+    continue;
+  }
+  if (request.method === 'skills/list' && spellReads) {
+    reply({
+      data: [
+        {
+          cwd: process.cwd(),
+          errors: [],
+          skills: [skill('a', { path: spellPath, description: 'A' })],
+        },
+      ],
+    });
+    continue;
   }
   if (request.method === 'skills/list') {
     record('skills.json', request);
@@ -474,6 +579,12 @@ for await (const line of lines) {
     );
     lastPrompt = prompt;
     record('prompt.json', request);
+    if (spellReads) {
+      const turnId = `turn-${++spellTurns}`;
+      reply({ turn: { id: turnId } });
+      spellTurn(prompt, request.params.input, turnId);
+      continue;
+    }
     if (familiar?.startsWith('question-')) {
       reply({ turn: { id: `turn-${++questionTurn}` } });
       if (questionTurn > 1) {

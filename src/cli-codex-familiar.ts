@@ -8,6 +8,7 @@ import type {
   FamiliarAction,
   FamiliarProgress,
 } from './agents/familiar-report.js';
+import { mergeCasts } from './agents/familiar-report.js';
 import { errorMessage, watchChild, withTail } from './agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
 import { FamiliarReports, registerFamiliar } from './cli-familiar.js';
@@ -149,7 +150,14 @@ export async function runCodexFamiliar(
         ...progress,
         notices: [...(progress.notices ?? []), event.text],
       };
-    else if (event.type === 'request') {
+    else if (event.type === 'spell' || event.type === 'subagent') {
+      const spells = mergeCasts(
+        progress.spells,
+        event.type === 'spell' ? [event.cast] : (event.subagent.spells ?? []),
+      );
+      if (!spells) return;
+      progress = { ...progress, spells };
+    } else if (event.type === 'request') {
       request(event.request);
       return;
     } else if (event.type === 'request-resolved') {
@@ -238,6 +246,8 @@ export async function runCodexFamiliar(
     });
     if (stopped || failure)
       throw new Error(failure ?? 'Codex familiar stopped before its turn.');
+    // only to recognize the spells it casts, so a failed listing costs only that
+    await session.skills().catch(() => {});
     for (;;) {
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');

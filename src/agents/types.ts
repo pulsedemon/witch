@@ -23,6 +23,13 @@ export interface Skill {
 export interface SkillCall {
   name: string;
   args: string;
+  builtin?: true;
+}
+
+/** one spell cast; the id is native and names it across replays and reconnects. */
+export interface Cast {
+  id: string;
+  name: string;
 }
 
 export interface SessionInfo {
@@ -86,6 +93,8 @@ export interface Subagent {
   report?: string;
   /** the transient notices its native session posted, oldest first. */
   notices?: string[];
+  /** the spells it has cast, oldest first. */
+  spells?: Cast[];
 }
 
 /** a command the native agent left running in the background; a running event starts it, a later one with another status ends it, and a repeated start changes nothing. */
@@ -178,6 +187,7 @@ export type AgentEvent =
   | { type: 'usage'; usage: Usage }
   /** the native skill list changed; it replaces the one `skills()` gave. */
   | { type: 'skills'; skills: Skill[] }
+  | { type: 'spell'; cast: Cast }
   | { type: 'subagent'; subagent: Subagent }
   | { type: 'command'; command: BackgroundCommand }
   /** a transient notice is a diagnostic of this connection, shown but not saved. */
