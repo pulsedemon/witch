@@ -1,6 +1,7 @@
 import type { CoordinationSnapshot } from './coordination-state.js';
+import type { SessionCoordination } from './coordination.js';
 
-export function requiresClaim(snapshot: CoordinationSnapshot): boolean {
+function requiresClaim(snapshot: CoordinationSnapshot): boolean {
   return (
     snapshot.error !== undefined ||
     snapshot.peers.length > 0 ||
@@ -9,7 +10,7 @@ export function requiresClaim(snapshot: CoordinationSnapshot): boolean {
   );
 }
 
-export function coordinationStatus(snapshot: CoordinationSnapshot): string {
+function coordinationStatus(snapshot: CoordinationSnapshot): string {
   return requiresClaim(snapshot)
     ? 'Claim coordination is required. This replaces earlier solo-session instructions. Claim any unclaimed task already underway before further task work.'
     : 'Discovery found no other live session, reservation or unregistered owner in this project. New work needs no claim or pre-task peer query. This replaces earlier claim requirements; task selection and existing ownership still apply.';
@@ -70,4 +71,49 @@ export function coordinationInstructions(
         ]
       : []),
   ].join('\n');
+}
+
+export function watchClaimPolicy(
+  coordination: SessionCoordination | undefined,
+  initial: CoordinationSnapshot | undefined,
+  steer: (text: string) => Promise<boolean>,
+): (() => void) | undefined {
+  if (!coordination || !initial) return;
+  const source = coordination;
+  let attempted = requiresClaim(initial);
+  let stopped = false;
+  let running = false;
+  const refresh = async () => {
+    if (stopped || running) return;
+    running = true;
+    try {
+      while (!stopped) {
+        const snapshot = source.snapshot;
+        const required = requiresClaim(snapshot);
+        if (required === attempted) break;
+        attempted = required;
+        const accepted = await steer(
+          [
+            'Witch coordination update:',
+            coordinationStatus(snapshot),
+            coordinationInstructions(
+              snapshot,
+              source.commandPrefixes().control,
+            ),
+          ].join('\n'),
+        );
+        if (!accepted) break;
+      }
+    } catch {
+      // the next ordinary turn supplies current policy when this turn cannot take it
+    } finally {
+      running = false;
+    }
+  };
+  const unsubscribe = source.subscribe(() => void refresh());
+  void refresh();
+  return () => {
+    stopped = true;
+    unsubscribe();
+  };
 }

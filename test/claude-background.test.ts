@@ -57,8 +57,11 @@ async function background(sessionState = true) {
   );
   const inputs = async () =>
     (await jsonLines(join(f.cwd, 'inputs.jsonl'))) as SDKUserMessage[];
-  const steer = async (text: string) => {
-    assert.equal(await f.session.steer(text), true);
+  const steer = async (
+    text: string,
+    options?: Parameters<typeof f.session.steer>[1],
+  ) => {
+    assert.equal(await f.session.steer(text, options), true);
     let uuid = '';
     await until('steered input', async () => {
       uuid =
@@ -652,6 +655,54 @@ for (const disposition of ['refused', 'discarded', 'cancelled']) {
     }
   });
 }
+
+test('context updates retain consumption tracking without returning as unread user input', async () => {
+  const f = await background();
+  try {
+    const text = 'Witch coordination update: claim checks are required';
+    const context = await f.steer(text, { contextOnly: true });
+    await f.emit(state('idle'));
+    assert.equal(f.completions(), 0);
+    await f.emit(
+      state('running'),
+      lifecycle(context, 'started'),
+      result('Policy consumed.', [context]),
+    );
+    const user = await f.steer('Real user follow-up');
+    await f.emit(state('idle'));
+    assert.equal(f.completions(), 0);
+    await writeFile(
+      join(f.cwd, 'receipt.json'),
+      JSON.stringify([context, user]),
+    );
+    await within(f.session.interrupt(), 2000, 'mixed-input interrupt');
+    const outcome = await f.turn;
+    assert.equal(outcome.status, 'interrupted');
+    assert.deepEqual(outcome.unread, ['Real user follow-up']);
+    assert.deepEqual(outcome.unreadContext ?? [], []);
+    assert.equal(f.session.closed, true);
+  } finally {
+    await f.session.close();
+  }
+});
+
+test('a refused context update preserves the completed user result', async () => {
+  const f = await background();
+  try {
+    const context = await f.steer('Witch coordination update', {
+      contextOnly: true,
+    });
+    await f.emit(state('idle'), lifecycle(context, 'refused'));
+    assert.deepEqual(await within(f.turn, 2000, 'context refusal'), {
+      status: 'completed',
+      text: 'Finished.',
+    });
+    assert.equal(f.completions(), 1);
+    assert.equal(f.session.closed, false);
+  } finally {
+    await f.session.close();
+  }
+});
 
 test('an interrupt after the idle gap recovers only native-unread prompts', async () => {
   const f = await background();

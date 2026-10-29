@@ -186,8 +186,11 @@ interface Turn {
   result?: TurnResult;
   interrupted: boolean;
   messages: TurnText;
-  /** retain consumed input for interrupt receipts; omit command replies' text to prevent replay. */
-  steered: Map<string, { prompt?: string; pending: boolean }>;
+  /** retain consumed user input for interrupt receipts; generated context must never reenter the prompt queue. */
+  steered: Map<
+    string,
+    { prompt?: string; pending: boolean; contextOnly?: true }
+  >;
   inputError?: string;
   commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
   initialInput?: string;
@@ -650,7 +653,11 @@ class ClaudeSession implements AgentSession {
    */
   async steer(
     prompt: string,
-    { command, skill }: { command?: string; skill?: SkillCall } = {},
+    {
+      command,
+      skill,
+      contextOnly,
+    }: NonNullable<Parameters<AgentSession['steer']>[1]> = {},
   ): Promise<boolean> {
     const turn = this.turn;
     if (
@@ -674,7 +681,11 @@ class ClaudeSession implements AgentSession {
       turn.steered.set(
         // Claude Code holds a message shaped like a slash command until the turn ends; marked, it joins as text
         this.push(prompt, !skill && prompt.trim().startsWith('/')),
-        { prompt, pending: true },
+        {
+          prompt: contextOnly ? undefined : prompt,
+          pending: true,
+          contextOnly,
+        },
       );
     else {
       turn.held = true;
@@ -1007,7 +1018,12 @@ class ClaudeSession implements AgentSession {
         if (input && state !== 'queued') {
           if (state === 'started' && input.pending) turn.result = undefined;
           input.pending = false;
-          if (state !== 'started' && state !== 'completed' && !turn.interrupted)
+          if (
+            state !== 'started' &&
+            state !== 'completed' &&
+            !turn.interrupted &&
+            !input.contextOnly
+          )
             turn.inputError ??= `Claude ${state} a steered prompt`;
           this.finishIdle(turn);
         }
