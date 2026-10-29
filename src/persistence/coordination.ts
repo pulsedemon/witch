@@ -591,12 +591,14 @@ export class CoordinationStore {
             ? sameProcess(processes.get(claim.process.pid), claim.process)
             : opened.has(claim.owner.conversation),
         )
-        .map(({ transfer, ...claim }) =>
+        .map((claim) => {
+          const { transfer, ...kept } = claim;
           // a requester that left, died or stopped waiting abandons its request
-          transfer && active.has(transfer.activation) && transfer.expires > now
-            ? { ...claim, transfer }
-            : claim,
-        ),
+          return !transfer ||
+            (active.has(transfer.activation) && transfer.expires > now)
+            ? claim
+            : kept;
+        }),
       selections: ledger.selections.filter((ticket) =>
         active.has(ticket.activation),
       ),
