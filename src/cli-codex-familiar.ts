@@ -149,7 +149,17 @@ export async function runCodexFamiliar(
         ...progress,
         notices: [...(progress.notices ?? []), event.text],
       };
-    else if (event.type === 'request') {
+    else if (event.type === 'spell' || event.type === 'subagent') {
+      const casts =
+        event.type === 'spell' ? [event.cast] : (event.subagent.spells ?? []);
+      const known = new Set(progress.spells?.map(({ id }) => id));
+      const added = casts.filter(({ id }) => !known.has(id));
+      if (!added.length) return;
+      progress = {
+        ...progress,
+        spells: [...(progress.spells ?? []), ...added],
+      };
+    } else if (event.type === 'request') {
       request(event.request);
       return;
     } else if (event.type === 'request-resolved') {
@@ -238,6 +248,8 @@ export async function runCodexFamiliar(
     });
     if (stopped || failure)
       throw new Error(failure ?? 'Codex familiar stopped before its turn.');
+    // only to recognize the spells it casts, so a failed listing costs only that
+    await session.skills().catch(() => {});
     for (;;) {
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
