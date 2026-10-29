@@ -203,8 +203,8 @@ interface Turn {
   compaction?: { uuid: string; replaced: boolean; error?: string };
 }
 
-// these change the native history or the settings Witch shows, so they go to Claude as text until Witch owns them
-const textCommands = new Set(['clear', 'effort', 'fast']);
+// these native controls can diverge from Witch's history, settings, titles or compaction policy
+const textCommands = new Set(['clear', 'config', 'effort', 'fast', 'rename']);
 
 /** one entry per name, a built-in's own row for a name it shadows, since `/name` runs the built-in. */
 function skillsOf(commands: SlashCommand[]): Skill[] {
@@ -548,7 +548,10 @@ class ClaudeSession implements AgentSession {
     const records = this.records;
     const input =
       context === undefined ? prompt : `${context}\n\nUser request:\n${prompt}`;
-    const uuid = this.push(this.content(input, skill));
+    const uuid = this.push(
+      this.content(input, skill),
+      !skill && prompt.trim().startsWith('/'),
+    );
     turn.initialInput = uuid;
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
     return turn.finished.promise;
