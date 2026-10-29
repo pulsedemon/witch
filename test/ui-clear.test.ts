@@ -6,7 +6,7 @@ import type { DisplayItem } from '../src/core/state.js';
 import { App } from '../src/ui/app.js';
 import { Screen } from '../src/ui/screen.js';
 import { fixture } from './fixtures/coordinator.js';
-import { show, fake, drag, ENTER, SHIFT_ENTER } from './fixtures/ui.js';
+import { show, fake, drag, left, ENTER, SHIFT_ENTER } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
 const reminder = 'Earlier messages shown here';
@@ -200,6 +200,47 @@ test('an empty clear and a transcript with no clear have no archived-row reminde
     coordinator.publish({ items: [marker('empty-clear'), message('fresh')] });
     await until('fresh history', () => ui.text().includes('fresh'));
     assert.ok(!ui.text().includes(reminder));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('batched drag events keep their row coordinates when scrolling removes the reminder', async () => {
+  const { app } = fake({
+    items: [
+      message('old', 'old alpha'),
+      marker('clear'),
+      ...Array.from({ length: 8 }, (_, i) =>
+        message(`fresh-${i}`, `fresh line ${i}`),
+      ),
+    ],
+  });
+  const copied: string[] = [];
+  const ui = show(
+    createElement(App, {
+      coordinator: app,
+      onExit: () => {},
+      copy: (text) => copied.push(text),
+    }),
+    80,
+    20,
+  );
+  try {
+    await until('latest rows', () => ui.text().includes('fresh line 7'));
+    ui.stdin.write(wheelUp.repeat(40));
+    await until('archived first row', () => ui.text().includes('old alpha'));
+    ui.stdin.write(
+      left('press', 0, 3) +
+        left('drag', 8, 14).repeat(4) +
+        left('drag', 8, 12) +
+        left('release', 8, 12) +
+        '\u001b[99;9u',
+    );
+    await until('batched selection copied', () => copied.length > 0);
+    assert.equal(
+      copied[0],
+      'old alpha\n\nNotice\nContext cleared.\n\nAssistant\nfresh line 0\n\nAssistant\nfresh line 1\n\nAssistant\nfresh line 2\n\nAssistan',
+    );
   } finally {
     ui.unmount();
   }

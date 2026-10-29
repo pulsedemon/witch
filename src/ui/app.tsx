@@ -875,10 +875,16 @@ export function App({
     if (!transcriptBox.current) return;
     const box = measureElement(transcriptBox.current);
     // reports in one read arrive before a render, so each starts where the last one scrolled
-    const { top: first, height } = viewport(topRef.current);
+    const {
+      top: first,
+      height,
+      pinned: currentPinned,
+    } = viewport(topRef.current);
     const shown = Math.min(height, transcript.lines.length - first);
+    // a queued scroll can move the notice before Ink moves the content box
+    const origin = box.y + Number(currentPinned) - Number(pinned);
     // past the top or bottom, the row a drag scrolls in
-    const offset = Math.max(-1, Math.min(shown, row - box.y));
+    const offset = Math.max(-1, Math.min(shown, row - origin));
     const at = Math.max(
       0,
       Math.min(transcript.lines.length - 1, first + offset),
