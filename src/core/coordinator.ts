@@ -153,7 +153,6 @@ export class Coordinator {
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
-
   constructor(
     private readonly store: StateStore,
     readonly memory: Memory,
@@ -925,7 +924,7 @@ export class Coordinator {
           familiarCommand:
             session.familiar && this.coordination
               ? {
-                  command: this.coordination.familiarCommand(),
+                  command: this.coordination.commandPrefixes().familiar,
                   runtime: session.familiar.runtime,
                 }
               : undefined,
@@ -1150,6 +1149,7 @@ export class Coordinator {
         },
         mark: this.jobs,
         familiarBinding: this.coordination?.familiarBinding(),
+        commandPrefixes: this.coordination?.commandPrefixes(),
       });
       this.session = session;
       this.sessionProject = scope.project;

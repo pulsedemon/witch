@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isAbsolute } from 'node:path';
 import type { ControlBinding } from '../persistence/control.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+import type { CommandPrefixes } from './tool-title.js';
 
 export interface Model {
   id: string;
@@ -155,8 +156,9 @@ export type AgentEvent =
       title: string;
       /** the file path `title` shows, so its row links the path whole. */
       path?: string;
-      /** `title` with the native name beside Witch's, which an expanded row shows. */
+      /** the complete label, including the native name or original command, shown on expansion. */
       expandedTitle?: string;
+      singleLine?: true;
       text: string;
       done: boolean;
       cwd?: string;
@@ -268,6 +270,7 @@ export interface CommandMark {
 
 export interface SessionOptions {
   familiarBinding?: ControlBinding;
+  commandPrefixes?: CommandPrefixes;
   cwd: string;
   executable: string;
   resume?: string;

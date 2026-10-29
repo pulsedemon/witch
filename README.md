@@ -94,3 +94,38 @@ python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
 Tested native versions: Codex 0.162.1 and Claude Code 2.1.299. Dependency versions are owned by [package.json](package.json) and its lockfile. Codex settings updates, Claude idle events and Claude's usage report use experimental native interfaces; rerun protocol and live integration checks when upgrading either CLI.
+
+### Final verification before publication
+
+Before a planned push, verify against a freshly fetched main. Keep this work local; the existing hosted workflow and required checks still run normally.
+
+1. Finish and commit the intended edits in the current branch. Require a clean `git status --short`; preserve unrelated work instead of stashing, resetting or deleting it to pass this gate. Fetch main and merge the exact fetched revision, without rebasing:
+
+   ```sh
+   verification_status=$(git status --porcelain) &&
+     test -z "$verification_status" &&
+     git fetch origin main &&
+     verification_base=$(git rev-parse FETCH_HEAD) &&
+     git merge --no-edit "$verification_base" &&
+     git merge-base --is-ancestor "$verification_base" HEAD &&
+     verification_head=$(git rev-parse HEAD) &&
+     git rev-parse "$verification_head" "$verification_base" "${verification_head}^{tree}"
+   ```
+
+   Stop on failure. Resolve merge conflicts before continuing, then repeat the gate. The three printed IDs identify the head, included base and tree to check. Use the disposable-copy rule above when checking an installed checkout.
+
+2. Run the checks required by the change, reusing only qualifying results below. Record those IDs alongside each completed command, exit status and log location in the local, untracked task record. Include dependency installation state, actual Node/pnpm versions, platform and relevant environment or permission settings. Keep records outside the checks' input files; inspect untracked or ignored inputs separately because the tree ID covers only tracked files. Confirm the checked files did not change during the run.
+
+   Reuse a successful result only when that check's complete inputs and environment match. Compare the recorded revision with the candidate, including source, tests, child fixtures, configuration, dependencies and tool versions. Follow the input scope owned by [package.json](package.json), [TypeScript](tsconfig.json), [ESLint](eslint.config.js), [Vitest](vitest.config.ts) and [the build](scripts/build.mjs). Preserve build outputs when the claim depends on them. A different commit with the same tree can reuse results under the same conditions; a docs-only change needs formatting, not another suite run, when the suite's inputs are unchanged. Rerun affected checks when an input changes or a new concern appears; run the full check when the affected scope is uncertain. Failed, interrupted or partial runs cannot establish a successful full check.
+
+3. Immediately before pushing, confirm the recorded head is still current, the checkout is clean and main has not advanced:
+
+   ```sh
+   verification_status=$(git status --porcelain) &&
+     test -z "$verification_status" &&
+     test "$(git rev-parse HEAD)" = "$verification_head" &&
+     git fetch origin main &&
+     test "$(git rev-parse FETCH_HEAD)" = "$verification_base"
+   ```
+
+   A failed fetch stops publication. A changed head or base returns to step 1; compare check inputs before deciding which results need refreshing. Publish the completed change once, without validation-only pushes or hosted reruns. This establishes verification for the recorded base; main can still advance afterward.

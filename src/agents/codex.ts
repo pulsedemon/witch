@@ -15,8 +15,8 @@ import {
   stopDeadline,
   terminationReserveMs,
 } from './shutdown.js';
-import { shortPath, toolTitle } from './tool-title.js';
-import type { ToolTitle } from './tool-title.js';
+import { boundCommandTitle, shortPath, toolTitle } from './tool-title.js';
+import type { CommandPrefixes, ToolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -233,7 +233,12 @@ function itemTitle(
   type: string,
   item: Record<string, unknown>,
   cwd: string,
+  prefixes?: CommandPrefixes,
 ): ToolTitle {
+  if (type === 'commandExecution' && typeof item.command === 'string') {
+    const bound = boundCommandTitle(item.command, prefixes);
+    if (bound) return bound;
+  }
   if (typeof item.command === 'string') return { title: item.command };
   if (type === 'fileChange')
     return {
@@ -1151,7 +1156,12 @@ class CodexSession implements AgentSession {
             type: 'tool',
             id,
             ...(command === undefined
-              ? itemTitle(type, item, this.options.cwd)
+              ? itemTitle(
+                  type,
+                  item,
+                  this.options.cwd,
+                  this.options.commandPrefixes,
+                )
               : { title: command }),
             // a change's diff comes before it applies and stays after it fails or is declined
             text: diff

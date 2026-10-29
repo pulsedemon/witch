@@ -98,8 +98,9 @@ export const displayUpdateSchema = z.object({
   title: z.string().optional(),
   // the file path a tool's title shows, so its row links the path whole
   path: z.string().optional(),
-  // a tool's title with the native name beside Witch's, which its expanded row shows
+  // the complete label, including the native name or original command, shown on expansion
   expandedTitle: z.string().optional(),
+  singleLine: z.literal(true).optional(),
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
   images: z.array(z.string()).optional(),
@@ -222,6 +223,7 @@ export function agentDisplay(
         title: event.title,
         ...(event.path ? { path: event.path } : {}),
         ...(event.expandedTitle ? { expandedTitle: event.expandedTitle } : {}),
+        ...(event.singleLine ? { singleLine: event.singleLine } : {}),
         text: event.text,
         replace: !event.append,
         done: event.done,
