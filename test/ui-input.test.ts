@@ -342,6 +342,8 @@ test('MCP form submissions validate required fields, types and constraints befor
   };
   const valid = { email: 'user@example.com', age: 21, colors: ['blue'] };
   const cases = [
+    ['{', /Enter a JSON object matching the requested fields/],
+    ['[]', /Enter a JSON object matching the requested fields/],
     ['', /required property 'email'/],
     [
       JSON.stringify({ age: 21, colors: ['blue'] }),

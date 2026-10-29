@@ -79,6 +79,7 @@ for (const [entry, route, failures] of [
       try {
         await coordinator.initialize(cwd);
         const original = coordinator.snapshot.conversation!.id;
+        let native: string | undefined;
         let turn: Promise<void>;
         if (entry === 'steered') {
           turn = coordinator.send('reporting familiar');
@@ -86,10 +87,10 @@ for (const [entry, route, failures] of [
             'the first reply',
             () => coordinator.snapshot.skills[0]?.name === 'result-1',
           );
+          native = coordinator.snapshot.native!.id;
           await coordinator.send(`!${command}`);
         } else turn = coordinator.send(`!${command}`);
         await within(turn, 5000, 'the failed dispatch');
-        const native = coordinator.snapshot.native!.id;
         const frames = [
           ...(await jsonLines(join(cwd, 'content.json'))),
           ...(await jsonLines(join(cwd, 'steered.jsonl'))),
