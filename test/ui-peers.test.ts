@@ -13,6 +13,7 @@ import {
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
+import { turns } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { fake, forgedLink, show } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
@@ -300,7 +301,7 @@ test('a real peer updates its summary and keeps its reservation across an origin
   }
 });
 
-test('task release refuses running or background work without changing phase, and then releases only this conversation', async (t) => {
+test('task release refuses running or background work in chat without changing phase or stopping queued prompts, and then releases only this conversation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
@@ -315,17 +316,26 @@ test('task release refuses running or background work without changing phase, an
   );
   const gate = new TurnGate();
   a.a.gate = gate;
+  a.a.refuseSteer = true;
   const sending = a.coordinator.send('Held work');
   try {
     await within(gate.entered, 5000, 'held turn');
+    await a.coordinator.send('queued followup');
+    await until('queued followup', () =>
+      ui.text().includes('❯ queued followup'),
+    );
     enter(ui, '/task release');
     await until('idle refusal', () => ui.text().includes('Wait for idle'));
+    assert.ok(!ui.text().includes('Current task'), ui.text());
+    assert.equal(a.coordinator.snapshot.error, undefined);
     assert.equal(a.coordinator.snapshot.phase, 'running');
     assert.deepEqual((await a.query()).ownClaim, own);
     gate.open();
     await sending;
-    ui.stdin.write('\x1b');
-    await until('chat again', () => !ui.text().includes('Current task'));
+    assert.deepEqual(turns(a.a), [
+      ['Held work', undefined],
+      ['queued followup', undefined],
+    ]);
     a.a.sessions.at(-1)!.options.onEvent({
       type: 'command',
       command: { id: 'brew', description: 'Work', status: 'running' },
@@ -340,8 +350,6 @@ test('task release refuses running or background work without changing phase, an
       type: 'command',
       command: { id: 'brew', description: 'Work', status: 'completed' },
     });
-    ui.stdin.write('\x1b');
-    await until('chat restored', () => !ui.text().includes('Current task'));
     enter(ui, '/task release');
     await until('released own', () => ui.text().includes('No task claimed.'));
     assert.deepEqual(
@@ -352,6 +360,48 @@ test('task release refuses running or background work without changing phase, an
       (await callControl(await b.binding(), { kind: 'peers' })).kind,
       'peers',
     );
+  } finally {
+    gate.open();
+    await sending;
+    ui.unmount();
+  }
+});
+
+test('a refused /task take stays in chat and leaves queued prompts runnable', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
+  const a = await start();
+  const ui = show(
+    createElement(App, { coordinator: a.coordinator, onExit() {} }),
+    100,
+    30,
+  );
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  a.a.refuseSteer = true;
+  const sending = a.coordinator.send('Held work');
+  try {
+    await within(gate.entered, 5000, 'held turn');
+    await a.coordinator.send('queued followup');
+    await until('queued followup', () =>
+      ui.text().includes('❯ queued followup'),
+    );
+    enter(ui, '/task take task:other');
+    await until('idle refusal', () =>
+      ui
+        .text()
+        .includes(
+          'Wait for idle and resolve memory recovery before taking a task.',
+        ),
+    );
+    assert.ok(!ui.text().includes('Current task'), ui.text());
+    assert.equal(a.coordinator.snapshot.error, undefined);
+    gate.open();
+    await sending;
+    assert.deepEqual(turns(a.a), [
+      ['Held work', undefined],
+      ['queued followup', undefined],
+    ]);
   } finally {
     gate.open();
     await sending;
