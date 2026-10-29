@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { FamiliarProgress } from './familiar-report.js';
 import { errorMessage } from './stderr.js';
 import { claudeTitle } from './tool-title.js';
+import { skillCasts } from './claude-spells.js';
+import type { Cast } from './types.js';
 
 const frame = z.object({
   type: z.string(),
@@ -28,6 +30,9 @@ const assistant = z.object({
   }),
 });
 const tool = z.object({ id: z.string(), name: z.string(), input: z.unknown() });
+const castContent = z.object({
+  message: z.object({ content: z.array(z.unknown()) }),
+});
 const result = z.object({
   session_id: z.string(),
   subtype: z.string(),
@@ -47,6 +52,7 @@ const result = z.object({
 export class ClaudeTask {
   private identity?: z.infer<typeof init>;
   private readonly tools = new Set<string>();
+  private readonly spells: Cast[] = [];
   private activity?: string;
   private report = '';
   private success = false;
@@ -61,8 +67,12 @@ export class ClaudeTask {
   message(value: unknown): void {
     try {
       const message = frame.parse(value);
-      if (message.parent_tool_use_id != null || message.agent_id !== undefined)
-        return;
+      const nested =
+        message.parent_tool_use_id != null || message.agent_id !== undefined;
+      // a nested frame's tool calls aren't this task's, but the spells its own familiars cast are
+      if (message.type === 'assistant' && this.addCasts(value) && nested)
+        this.emit(this.progress());
+      if (nested) return;
       if (this.identity && message.session_id !== this.identity.session_id)
         return;
       if (message.type === 'system' && message.subtype === 'init') {
@@ -161,6 +171,16 @@ export class ClaudeTask {
       model: this.identity?.model,
       tools: this.tools.size,
       activity: this.activity,
+      ...(this.spells.length ? { spells: [...this.spells] } : {}),
     };
+  }
+
+  /** returns whether the frame cast a spell not seen before. */
+  private addCasts(value: unknown): boolean {
+    const content = castContent.safeParse(value).data?.message.content ?? [];
+    const known = new Set(this.spells.map(({ id }) => id));
+    const casts = skillCasts(content).filter(({ id }) => !known.has(id));
+    this.spells.push(...casts);
+    return casts.length > 0;
   }
 }

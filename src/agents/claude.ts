@@ -28,6 +28,7 @@ import {
   terminationReserveMs,
 } from './shutdown.js';
 import { claudeTitle } from './tool-title.js';
+import { acknowledged, skillCasts } from './claude-spells.js';
 import { bashRecord, runShell } from './user-shell.js';
 import type {
   AgentAdapter,
@@ -38,6 +39,7 @@ import type {
   SessionInfo,
   SessionOptions,
   Skill,
+  Cast,
   SkillCall,
   Subagent,
   TurnResult,
@@ -258,6 +260,8 @@ class ClaudeSession implements AgentSession {
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
+  /** the spells the user sent, by input uuid, until Claude starts the input. */
+  private readonly pendingCasts = new Map<string, string>();
   private readonly commands: ClaudeCommands;
   /** the background workflows still running. */
   private readonly workflows = new Set<string>();
@@ -554,6 +558,7 @@ class ClaudeSession implements AgentSession {
     );
     turn.initialInput = uuid;
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
+    if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
     return turn.finished.promise;
   }
 
@@ -670,13 +675,12 @@ class ClaudeSession implements AgentSession {
       return false;
     // Claude Code runs a command only once the native turn ends, which without acknowledgements could be after this one
     if (skill && !this.messageLifecycle && !this.replied) return false;
-    if (command === undefined)
-      turn.steered.set(
-        // Claude Code holds a message shaped like a slash command until the turn ends; marked, it joins as text
-        this.push(prompt, !skill && prompt.trim().startsWith('/')),
-        { prompt, pending: true },
-      );
-    else {
+    if (command === undefined) {
+      // Claude Code holds a message shaped like a slash command until the turn ends; marked, it joins as text
+      const uuid = this.push(prompt, !skill && prompt.trim().startsWith('/'));
+      turn.steered.set(uuid, { prompt, pending: true });
+      if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
+    } else {
       turn.held = true;
       void this.reply(turn, command, prompt);
     }
@@ -992,6 +996,7 @@ class ClaudeSession implements AgentSession {
 
   private receive(message: SDKMessage): void {
     this.commands.receive(message);
+    this.started(message);
     const type: string = message.type;
     if (type === 'command_lifecycle') {
       const lifecycle = commandLifecycle.safeParse(message);
@@ -1147,9 +1152,15 @@ class ClaudeSession implements AgentSession {
             done: false,
           });
       }
+      this.cast(skillCasts(message.message.content));
+    } else if (
+      message.type === 'assistant' &&
+      !(message.agent_id && this.subagents.has(message.agent_id))
+    ) {
+      // an ambient worker's or an unattributed nested cast is shown as the main agent's
+      this.cast(skillCasts(message.message.content));
     } else if (message.type === 'assistant' && message.agent_id) {
-      const subagent = this.subagents.get(message.agent_id);
-      if (!subagent) return;
+      const subagent = this.subagents.get(message.agent_id)!;
       const observed = message.message.model;
       const model =
         observed && observed !== '<synthetic>' ? observed : subagent.model;
@@ -1170,12 +1181,27 @@ class ClaudeSession implements AgentSession {
               : block.text;
           this.reportMessages.set(subagent.id, message.message.id);
         }
+      const known = new Set(subagent.spells?.map(({ id }) => id));
+      const casts = skillCasts(message.message.content).filter(
+        ({ id }) => !known.has(id),
+      );
+      const spells = casts.length
+        ? { spells: [...(subagent.spells ?? []), ...casts] }
+        : {};
       if (
         model !== subagent.model ||
         tools !== (subagent.tools ?? 0) ||
-        report !== subagent.report
+        report !== subagent.report ||
+        casts.length
       )
-        this.subagent({ ...subagent, model, activity, tools, report });
+        this.subagent({
+          ...subagent,
+          model,
+          activity,
+          tools,
+          report,
+          ...spells,
+        });
     } else if (
       message.type === 'user' &&
       message.parent_tool_use_id === null &&
@@ -1274,6 +1300,27 @@ class ClaudeSession implements AgentSession {
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
     this.options.onEvent({ type: 'subagent', subagent });
+  }
+
+  private cast(casts: Cast[]): void {
+    for (const cast of casts) this.options.onEvent({ type: 'spell', cast });
+  }
+
+  /** a sent spell counts once Claude starts its input, which can come before init announces lifecycle support. */
+  private started(message: SDKMessage): void {
+    if (!this.pendingCasts.size) return;
+    const lifecycle = commandLifecycle.safeParse(message);
+    const uuids = lifecycle.success
+      ? lifecycle.data.state === 'started'
+        ? [lifecycle.data.command_uuid]
+        : []
+      : (acknowledged.safeParse(message).data?.user_message_uuids ?? []);
+    for (const uuid of uuids) {
+      const name = this.pendingCasts.get(uuid);
+      if (name === undefined) continue;
+      this.pendingCasts.delete(uuid);
+      this.cast([{ id: uuid, name }]);
+    }
   }
 
   /** run ids sort in the order the runs opened, so a frame naming an earlier run is late. */
