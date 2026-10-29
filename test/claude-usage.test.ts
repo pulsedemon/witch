@@ -23,7 +23,7 @@ import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
 import { show } from './fixtures/ui.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const timeout = 10_000;
@@ -217,6 +217,34 @@ async function complete(f: Fixture) {
   await f.main.emit(idle);
   await turn;
 }
+
+test('closing Claude uses the same stop budget for a usage helper that ignores SIGTERM', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const f = await controlled(t.onTestFinished, {}, 'background', 'ignore-term');
+  await initial(f);
+  const helper = await poll(f);
+  vi.useRealTimers();
+  const started = performance.now();
+  await within(
+    f.session.close({ deadline: started + 3200 }),
+    3000,
+    'usage helper shutdown',
+  );
+  assert.ok(performance.now() - started < 3200);
+  assert.equal(helper.child.signalCode, 'SIGKILL');
+  assert.deepEqual(f.identities, [helper.child.pid, undefined]);
+  assert.ok(
+    f.children[0]!.exitCode !== null || f.children[0]!.signalCode !== null,
+  );
+  assert.equal(
+    f.events.filter(
+      (event) =>
+        event.type === 'notice' && /did not stop in time/.test(event.text),
+    ).length,
+    1,
+  );
+  await within(f.session.close(), 1000, 'repeated close');
+});
 
 for (const state of ['foreground', 'familiar', 'idle'] as const) {
   test(

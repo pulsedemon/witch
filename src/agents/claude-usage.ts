@@ -8,7 +8,14 @@ import type {
 import { InputQueue } from './input-queue.js';
 import { watchChild } from './stderr.js';
 import type { ChildExit } from './stderr.js';
-import type { SessionOptions } from './types.js';
+import {
+  beforeDeadline,
+  NativeStopTimeout,
+  stopDeadline,
+  terminateChild,
+  terminationReserveMs,
+} from './shutdown.js';
+import type { AgentStopOptions, SessionOptions } from './types.js';
 
 export type ClaudeLaunch = (
   options: SpawnOptions,
@@ -20,6 +27,7 @@ interface Helper {
   abort: AbortController;
   query?: Query;
   child?: ChildExit;
+  process?: ChildProcessWithoutNullStreams;
   reading?: Promise<void>;
   registered?: Promise<void>;
   ended: boolean;
@@ -53,13 +61,13 @@ export class ClaudeUsage {
     if (!this.busy) void this.read('main');
   }
 
-  close(): Promise<void> {
+  close(options: AgentStopOptions = {}): Promise<void> {
     this.closed = true;
     clearTimeout(this.timer);
     this.timer = undefined;
     this.requested = false;
     return (this.closing ??= this.helper
-      ? this.stop(this.helper)
+      ? this.stop(this.helper, stopDeadline(options.deadline))
       : Promise.resolve());
   }
 
@@ -120,6 +128,7 @@ export class ClaudeUsage {
             mcpServers: {},
             spawnClaudeCodeProcess: (options) => {
               const child = this.start(options);
+              helper.process = child;
               helper.child = watchChild(child);
               if (child.pid !== undefined) {
                 helper.registered = (async () =>
@@ -150,15 +159,22 @@ export class ClaudeUsage {
     return !this.closed && !this.helper?.ended ? this.helper?.query : undefined;
   }
 
-  private stop(helper: Helper): Promise<void> {
+  private stop(helper: Helper, deadline = stopDeadline()): Promise<void> {
     return (helper.closing ??= (async () => {
       helper.ended = true;
       helper.input.close();
       helper.query?.close();
       helper.abort.abort();
       try {
-        await helper.reading;
-        await helper.child?.closed;
+        const stopped = Promise.all([helper.reading, helper.child?.closed]);
+        try {
+          await beforeDeadline(stopped, deadline - terminationReserveMs);
+        } catch (error) {
+          if (!(error instanceof NativeStopTimeout)) throw error;
+          if (helper.process && helper.child)
+            await terminateChild(helper.process, helper.child.closed, deadline);
+          await beforeDeadline(stopped, deadline);
+        }
         if (!helper.registered) return;
         try {
           await helper.registered;

@@ -15,6 +15,10 @@ import { randomUUID } from 'node:crypto';
 // modes that a prompt can't reach come from the command line
 const mode = process.argv[2] ?? '';
 const sessionState = !process.argv.includes('--no-session-state');
+if (mode === 'ignore-term') {
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1000);
+}
 const mcpServers = () =>
   mode === 'mcp'
     ? JSON.parse(readFileSync(join(process.cwd(), 'mcp-status.json'), 'utf8'))
@@ -41,7 +45,11 @@ const once = (file, then) => {
   poll.unref();
 };
 const state = (state) => {
-  if (!sessionState) return;
+  if (
+    !sessionState ||
+    (state === 'idle' && existsSync(join(process.cwd(), 'hold-idle')))
+  )
+    return;
   send({
     type: 'system',
     subtype: 'session_state_changed',
@@ -328,6 +336,11 @@ for await (const line of lines) {
         truncated: false,
       };
     }
+    if (
+      request.subtype === 'stop_task' &&
+      existsSync(join(process.cwd(), 'hold-stop'))
+    )
+      continue;
     if (request.subtype === 'stop_task')
       task('task_notification', {
         task_id: request.task_id,
@@ -373,6 +386,7 @@ for await (const line of lines) {
     }
     if (request.subtype === 'interrupt') {
       appendFileSync(join(process.cwd(), 'interrupts.log'), 'interrupt\n');
+      if (existsSync(join(process.cwd(), 'hold-interrupt'))) continue;
       if (mode === 'background') {
         response = {
           still_queued: existsSync(join(process.cwd(), 'receipt.json'))
