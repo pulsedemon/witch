@@ -759,48 +759,55 @@ test('a compaction requested while a conversation changes never runs in the repl
   }
 });
 
-test('releasing a delivery hold during settlement resumes the batch after its original input is restored', async () => {
-  const f = await fixture(),
-    c = f.coordinator;
-  const read = Promise.withResolvers<number>(),
-    reading = Promise.withResolvers<void>();
-  const settling = Promise.withResolvers<void>(),
-    finish = Promise.withResolvers<void>();
-  const publish = Workspace.prototype.publish;
-  let gated = false;
-  const override = vi
-    .spyOn(Workspace.prototype, 'publish')
-    .mockImplementation(async function (this: Workspace) {
-      if (!gated) {
-        gated = true;
-        settling.resolve();
-        await finish.promise;
+for (const closed of [false, true])
+  test(`releasing a delivery hold during settlement ${closed ? 'keeps a closed session prompt queued' : 'resumes the restored batch'}`, async () => {
+    const f = await fixture(),
+      c = f.coordinator;
+    const read = Promise.withResolvers<number>(),
+      reading = Promise.withResolvers<void>();
+    const settling = Promise.withResolvers<void>(),
+      finish = Promise.withResolvers<void>();
+    const publish = Workspace.prototype.publish;
+    let gated = false;
+    const override = vi
+      .spyOn(Workspace.prototype, 'publish')
+      .mockImplementation(async function (this: Workspace) {
+        if (!gated) {
+          gated = true;
+          settling.resolve();
+          await finish.promise;
+        }
+        return publish.call(this);
+      });
+    try {
+      f.a.sessions[0]!.session.contextUsage = () => {
+        reading.resolve();
+        return read.promise;
+      };
+      const sending = c.send('original awaiting delivery');
+      await reading.promise;
+      const release = c.holdPromptDelivery();
+      read.resolve(0);
+      await within(settling.promise, 3000, 'settling held batch');
+      assert.deepEqual(c.snapshot.queue, []);
+      if (closed) await f.a.sessions[0]!.session.close();
+      release();
+      finish.resolve();
+      await sending;
+      if (closed) {
+        assert.deepEqual(c.snapshot.queue, ['original awaiting delivery']);
+        assert.equal(f.a.inputs.length, 0);
+      } else {
+        await until(
+          'restored original resumed',
+          () => f.a.inputs.length === 1 && c.snapshot.phase === 'idle',
+        );
+        assert.equal(f.a.inputs[0]!.prompt, 'original awaiting delivery');
       }
-      return publish.call(this);
-    });
-  try {
-    f.a.sessions[0]!.session.contextUsage = () => {
-      reading.resolve();
-      return read.promise;
-    };
-    const sending = c.send('original awaiting delivery');
-    await reading.promise;
-    const release = c.holdPromptDelivery();
-    read.resolve(0);
-    await within(settling.promise, 3000, 'settling held batch');
-    assert.deepEqual(c.snapshot.queue, []);
-    release();
-    finish.resolve();
-    await sending;
-    await until(
-      'restored original resumed',
-      () => f.a.inputs.length === 1 && c.snapshot.phase === 'idle',
-    );
-    assert.equal(f.a.inputs[0]!.prompt, 'original awaiting delivery');
-  } finally {
-    finish.resolve();
-    read.resolve(0);
-    override.mockRestore();
-    await c.close();
-  }
-});
+    } finally {
+      finish.resolve();
+      read.resolve(0);
+      override.mockRestore();
+      await c.close();
+    }
+  });

@@ -359,7 +359,7 @@ export class Coordinator {
       released = true;
       this.deliveryHolds--;
       this.publish({});
-      this.drainAfter();
+      this.drainAfter(true);
     };
   }
 
@@ -406,12 +406,13 @@ export class Coordinator {
     return this.snapshot.phase === 'running' && !!this.session?.replied;
   }
 
-  private drainAfter(): void {
+  private drainAfter(releasedHold = false): void {
     if (this.closed || this.deliveryHeld || this.halted()) return;
     if (this.draining && !this.replied) {
-      void this.draining.promise.then(() => {
-        if (!this.cancelled) this.drainAfter();
-      });
+      if (releasedHold)
+        void this.draining.promise.then(() => {
+          if (!this.cancelled && !this.session?.closed) this.drainAfter();
+        });
       return;
     }
     if (!this.snapshot.queue.length) return;
