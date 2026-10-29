@@ -62,6 +62,8 @@ async function poll<View extends { ledger: Ledger }>(
   while (Date.now() < end) {
     await delay(250);
     request.admit();
+    // a read whose deadline already passed would record a ledger failure
+    if (Date.now() >= end) break;
     let view: View;
     try {
       view = await request.read(Math.min(Date.now() + 1000, end));
