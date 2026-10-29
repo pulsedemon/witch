@@ -34,6 +34,7 @@ import { discover, projectDiscovery } from './discovery.js';
 import {
   awaitTransfer,
   movedNotices,
+  takeReference,
   transferRefusal,
   TransferUnavailable,
 } from './task-transfer.js';
@@ -1188,7 +1189,7 @@ export class SessionCoordination {
         claim: conflict.claim,
         message:
           request.action.kind === 'claim'
-            ? `${conflict.message} The user can move it here with /task take ${request.action.input.reference} once its owner is idle.`
+            ? `${conflict.message} The user can move it here with /task take ${takeReference(request.action.input, conflict.claim, active.project)} once its owner is idle.`
             : conflict.message,
         ...(owner ? { owner: conversationSummarySchema.parse(owner) } : {}),
       };

@@ -1,7 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Ledger } from '../persistence/coordination.js';
-import { taskActivity } from './coordination-state.js';
-import type { TaskClaim, TransferField } from './coordination-state.js';
+import { taskActivity, taskReference } from './coordination-state.js';
+import type {
+  ClaimInput,
+  TaskClaim,
+  TransferField,
+} from './coordination-state.js';
 import type { Snapshot } from './coordinator.js';
 
 /** keeps the previous owner from continuing work after its claim moves. */
@@ -13,6 +17,16 @@ export function movedNotices(ledger: Ledger, conversation: string): string[] {
         ]
       : [],
   );
+}
+
+export function takeReference(
+  input: ClaimInput,
+  claim: TaskClaim,
+  project: string,
+): string {
+  return [input.reference, ...(input.aliases ?? [])].find((reference) =>
+    claim.references.includes(taskReference(reference, project)),
+  )!;
 }
 
 /** why the owner keeps a claim another conversation asked for, with the user's next step. */
