@@ -370,7 +370,7 @@ test('handoff preference and activation are durable together before continuation
   }
 });
 
-test('failed destination shutdown still persists pre-activation rollback', async () => {
+test('failed destination shutdown preserves the handoff error and persists pre-activation rollback', async () => {
   const { coordinator, a, b, root } = await fixture();
   try {
     await coordinator.send('Start');
@@ -386,8 +386,9 @@ test('failed destination shutdown still persists pre-activation rollback', async
     b.failClose = true;
     await assert.rejects(
       coordinator.selectModel({ agent: 'b', id: 'b-big', effort: 'high' }),
-      /Close failed/,
+      /Selection refused/,
     );
+    assert.equal(coordinator.snapshot.error, 'Selection refused');
     const saved = await readRecord(root, coordinator.snapshot.conversation!.id);
     assert.equal(saved.agent, 'a');
     assert.equal(saved.sessions.b, undefined);

@@ -802,7 +802,7 @@ test('an idle tool timer write failure needs a restart without another operation
   }
 });
 
-test('a git failure in settle shows its own message without a restart', async () => {
+test('a git failure in settle tells the user to restart before continuing', async () => {
   const { coordinator, a, hook } = await fixture();
   const gate = new TurnGate();
   try {
@@ -817,9 +817,11 @@ test('a git failure in settle shows its own message without a restart', async ()
       return { stdout: Buffer.alloc(0), stderr: 'git path failed', code: 128 };
     };
     gate.open();
-    await assert.rejects(sending);
+    await assert.rejects(sending, /Restart Witch: git path failed/);
     assert.equal(coordinator.snapshot.phase, 'error');
-    assert.equal(coordinator.snapshot.error, 'git path failed');
+    assert.equal(coordinator.snapshot.error, 'Restart Witch: git path failed');
+    await assert.rejects(coordinator.send('Again'), /Restart Witch/);
+    await assert.rejects(coordinator.refreshModels(), /Restart Witch/);
   } finally {
     gate.open();
     await coordinator.close().catch(() => {});
