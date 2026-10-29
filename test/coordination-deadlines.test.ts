@@ -16,7 +16,7 @@ import type {
 import { Memory } from '../src/memory/memory.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { tryOpenLocked } from '../src/persistence/lock.js';
-import { identifyProcess } from '../src/persistence/process.js';
+import { identifyProcess, ps } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
@@ -36,22 +36,23 @@ function pauseProbe(matches: (child: ChildProcess) => boolean, nth = 1) {
   let listening = true;
   let ended = false;
   const observe = (message: unknown) => {
-    const { process: child } = message as { process: ChildProcess };
-    child.once('spawn', () => {
-      if (!listening || probe || !matches(child) || --nth !== 0) return;
-      probe = child;
-      child.once('close', () => {
-        ended = true;
-        closed.resolve();
-      });
-      if (!child.kill('SIGSTOP')) {
-        started.reject(new Error('The probe exited before it could pause.'));
-        return;
-      }
-      started.resolve(child);
+    const { process: child, options } = message as {
+      process: ChildProcess;
+      options: { file: string; args: string[] };
+    };
+    if (!listening || probe || !matches(child) || --nth !== 0) return;
+    probe = child;
+    // stop inside the child so a fast probe cannot exit before the parent handles spawn.
+    options.file = '/bin/sh';
+    options.args = ['/bin/sh', '-c', 'kill -STOP $$'];
+    child.once('spawn', () => started.resolve(child));
+    child.once('error', started.reject);
+    child.once('close', () => {
+      ended = true;
+      closed.resolve();
     });
   };
-  subscribe('child_process', observe);
+  subscribe('tracing:child_process.spawn:start', observe);
   return {
     started: started.promise,
     get ended() {
@@ -59,7 +60,7 @@ function pauseProbe(matches: (child: ChildProcess) => boolean, nth = 1) {
     },
     async close() {
       listening = false;
-      unsubscribe('child_process', observe);
+      unsubscribe('tracing:child_process.spawn:start', observe);
       if (!probe) return;
       if (probe.exitCode === null && probe.signalCode === null)
         probe.kill('SIGKILL');
@@ -93,6 +94,29 @@ async function assertUnlocked(root: string) {
   assert.ok(lock, 'the failed request released the ledger lock');
   await lock.close();
 }
+
+test('a stalled probe survives a delayed parent spawn notification', async () => {
+  const delaySpawn = (message: unknown) => {
+    const { process: child } = message as { process: ChildProcess };
+    child.once('spawn', () => {
+      if (child.spawnfile === '/bin/ps')
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    });
+  };
+  subscribe('child_process', delaySpawn);
+  const paused = pauseProbe((child) => child.spawnfile === '/bin/ps');
+  const rejected = assert.rejects(ps('pid=', [process.pid], { timeout: 300 }));
+  try {
+    const child = await within(paused.started, 2000, 'probe started');
+    await within(rejected, 2000, 'probe timed out');
+    assert.equal(child.signalCode, 'SIGKILL');
+    assert.equal(paused.ended, true);
+  } finally {
+    unsubscribe('child_process', delaySpawn);
+    await paused.close();
+    await rejected;
+  }
+});
 
 for (const probe of ['process', 'conversation', 'activation'] as const)
   test(`a stalled ${probe} reconciliation probe closes before the ledger unlocks`, async (t) => {
