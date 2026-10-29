@@ -29,7 +29,7 @@ import type {
   SelectionScope,
   TransferTarget,
 } from './coordination-state.js';
-import type { Snapshot } from './coordinator.js';
+import type { Snapshot } from './snapshot.js';
 import {
   coordinationContext,
   coordinationInstructions,

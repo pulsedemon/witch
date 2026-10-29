@@ -16,7 +16,7 @@ import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { installedAgents } from '../src/agents/registry.js';
 import type { AgentEvent, SessionOptions } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import type { Snapshot } from '../src/core/coordinator.js';
+import type { Snapshot } from '../src/core/snapshot.js';
 import type { ProcessIdentity } from '../src/core/state.js';
 import { Memory } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';

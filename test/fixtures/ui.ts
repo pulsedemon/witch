@@ -3,7 +3,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { render } from 'ink';
 import type { ReactElement } from 'react';
 import stripAnsi from 'strip-ansi';
-import type { Coordinator, Snapshot } from '../../src/core/coordinator.js';
+import type { Coordinator } from '../../src/core/coordinator.js';
+import type { Snapshot } from '../../src/core/snapshot.js';
 import { PentacleActivity } from '../../src/core/pentacle-activity.js';
 import { MouseInput } from '../../src/ui/mouse.js';
 import { until } from './within.js';
@@ -81,6 +82,7 @@ export function forgedLink(target: string, text: string) {
 export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
+  let holds = 0;
   const record =
     (name: string) =>
     async (...args: unknown[]) => {
@@ -92,6 +94,8 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       phase: 'idle',
       items: [],
       queue: [],
+      commandsPending: false,
+      pendingCompaction: false,
       requests: [],
       models: [],
       skills: [],
@@ -119,7 +123,20 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       for (const listener of listeners) listener();
     },
     send: record('send'),
-    compact: record('compact'),
+    compact: async () => {
+      calls.push(['compact']);
+      return true;
+    },
+    holdPromptDelivery: () => {
+      holds++;
+      coordinator.publish({ commandsPending: true });
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        coordinator.publish({ commandsPending: --holds > 0 });
+      };
+    },
     clear: record('clear'),
     unqueue: () => {
       calls.push(['unqueue']);

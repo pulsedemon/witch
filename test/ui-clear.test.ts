@@ -73,7 +73,7 @@ test('clear runs in the current conversation and its visible boundary survives r
   }
 });
 
-test('clear dispatches locally, refuses arguments and appears in help', async () => {
+test('clear dispatches locally, discards prose and appears in help', async () => {
   const { app, calls } = fake({});
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   try {
@@ -82,13 +82,8 @@ test('clear dispatches locally, refuses arguments and appears in help', async ()
     await until('clear dispatch', () => calls.length === 1);
     assert.deepEqual(calls, [['clear']]);
     await submit(ui, '/clear extra');
-    await until('argument refusal', () => calls.length === 2);
-    assert.deepEqual(calls[1], [
-      'notice',
-      'Use /clear without arguments.',
-      undefined,
-      false,
-    ]);
+    await until('clear dispatch', () => calls.length === 2);
+    assert.deepEqual(calls[1], ['clear']);
     await submit(ui, '/help');
     await until('help with clear', () =>
       ui.text().includes('/clear  Clear agent context'),

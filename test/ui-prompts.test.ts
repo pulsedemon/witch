@@ -76,7 +76,6 @@ test('queued prompts show above the activity row with a hint, and ↑ on the fir
 
 for (const [command, message] of [
   ['/task unexpected', 'Use /task, /task release or /task take <reference>.'],
-  ['/compact instructions', 'Use /compact without arguments.'],
   ['/new', 'Stop the current operation first'],
   ['/clear', 'Stop the current operation first'],
   ['/model b:b-big', 'Stop the current operation first'],
