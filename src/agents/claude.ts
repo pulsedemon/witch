@@ -13,7 +13,7 @@ import type {
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
-import { ClaudeUsage } from './claude-usage.js';
+import { accountLimits, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
 import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
@@ -57,25 +57,12 @@ const launch: ClaudeLaunch = (options) =>
     stdio: 'pipe',
   });
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-const limitWindow = z
-  .object({
-    utilization: z.number().nullable(),
-    resets_at: z.string().nullable(),
-  })
-  .nullish();
 /** the experimental usage report may change shape, so only what parses is shown. */
 const sessionUsage = z.object({
   session: z.object({
     total_lines_added: z.number(),
     total_lines_removed: z.number(),
   }),
-});
-const accountUsage = z.object({
-  rate_limits_available: z.boolean(),
-  // percentages of 0 to 100
-  rate_limits: z
-    .object({ five_hour: limitWindow, seven_day: limitWindow })
-    .nullable(),
 });
 const commandLifecycle = z.object({
   type: z.literal('command_lifecycle'),
@@ -1377,32 +1364,8 @@ class ClaudeSession implements AgentSession {
         removed: session.data.session.total_lines_removed,
       };
     }
-    const account = accountUsage.safeParse(report);
-    if (account.success) {
-      const { rate_limits: limits, rate_limits_available: available } =
-        account.data;
-      update.limits = !available
-        ? []
-        : (
-            [
-              ['5H', limits?.five_hour],
-              ['7D', limits?.seven_day],
-            ] as const
-          ).flatMap(([name, limit]) =>
-            limit?.utilization == null
-              ? (this.usage.limits?.filter((entry) => entry.window === name) ??
-                [])
-              : [
-                  {
-                    window: name,
-                    percent: limit.utilization,
-                    ...(limit.resets_at
-                      ? { resetsAt: Date.parse(limit.resets_at) / 1000 }
-                      : {}),
-                  },
-                ],
-          );
-    }
+    const limits = accountLimits(report, this.usage.limits ?? []);
+    if (limits) update.limits = limits;
     if (Object.keys(update).length) this.report(update);
   }
 

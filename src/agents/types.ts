@@ -62,6 +62,8 @@ export interface Limit {
   percent: number;
   /** in epoch seconds. */
   resetsAt?: number;
+  /** epoch ms when the adapter last received this window's value; a report that omits the window keeps it. */
+  observedAt: number;
 }
 
 export const taskStatuses = [

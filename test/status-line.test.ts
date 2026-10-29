@@ -15,8 +15,18 @@ test('the status line shows reported fields with the context capacity beside its
         context: 45.8,
         contextWindow: 828400,
         limits: [
-          { window: '5H', percent: 23.4, resetsAt: seconds + 2 * 3600 + 600 },
-          { window: '7D', percent: 41, resetsAt: seconds + 3 * 86_400 + 7200 },
+          {
+            window: '5H',
+            percent: 23.4,
+            resetsAt: seconds + 2 * 3600 + 600,
+            observedAt: now,
+          },
+          {
+            window: '7D',
+            percent: 41,
+            resetsAt: seconds + 3 * 86_400 + 7200,
+            observedAt: now,
+          },
         ],
         lines: { added: 12, removed: 3 },
       },
@@ -105,9 +115,14 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows no time, and 
     {
       usage: {
         limits: [
-          { window: '5H', percent: 69.4 },
-          { window: '7D', percent: 69.6, resetsAt: seconds - 60 },
-          { window: '30D', percent: 90 },
+          { window: '5H', percent: 69.4, observedAt: now },
+          {
+            window: '7D',
+            percent: 69.6,
+            resetsAt: seconds - 60,
+            observedAt: now,
+          },
+          { window: '30D', percent: 90, observedAt: now },
         ],
       },
       cwd: '/w',

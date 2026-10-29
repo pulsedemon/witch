@@ -25,6 +25,7 @@ import type {
   AgentStopOptions,
   FileDiff,
   Hunk,
+  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -106,7 +107,9 @@ const rateLimits = z.object({
   primary: rateWindow,
   secondary: rateWindow,
 });
-type RateWindow = NonNullable<z.infer<typeof rateWindow>>;
+type ObservedWindow = NonNullable<z.infer<typeof rateWindow>> & {
+  observedAt: number;
+};
 const questionList = z.array(
   z.object({
     id: z.string(),
@@ -184,6 +187,25 @@ function windowName(minutes: number): string {
   return minutes % 1440 === 0
     ? `${minutes / 1440}D`
     : `${Math.round(minutes / 60)}H`;
+}
+
+/** shortest window first; a window of unknown length has no name to show. */
+function windowLimits(
+  windows: readonly (ObservedWindow | undefined)[],
+): Limit[] {
+  return windows
+    .flatMap((window) =>
+      window?.windowDurationMins == null
+        ? []
+        : [{ ...window, minutes: window.windowDurationMins }],
+    )
+    .sort((a, b) => a.minutes - b.minutes)
+    .map(({ minutes, usedPercent, resetsAt, observedAt }) => ({
+      window: windowName(minutes),
+      percent: usedPercent,
+      ...(resetsAt != null ? { resetsAt } : {}),
+      observedAt,
+    }));
 }
 
 const changedFiles = z.array(z.object({ path: z.string() })).catch([]);
@@ -407,8 +429,10 @@ class CodexSession implements AgentSession {
   >();
   /** the account limit the windows belong to, and its windows by slot, which a sparse update merges into. */
   private limitId?: string;
-  private readonly windows: { primary?: RateWindow; secondary?: RateWindow } =
-    {};
+  private readonly windows: {
+    primary?: ObservedWindow;
+    secondary?: ObservedWindow;
+  } = {};
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -1415,22 +1439,13 @@ class CodexSession implements AgentSession {
       if (this.limitId && update.limitId !== this.limitId) return;
       this.limitId = update.limitId;
     }
-    if (update.primary) this.windows.primary = update.primary;
-    if (update.secondary) this.windows.secondary = update.secondary;
-    // a window of unknown length has no name to show
-    const windows = [this.windows.primary, this.windows.secondary].flatMap(
-      (window) =>
-        window?.windowDurationMins == null
-          ? []
-          : [{ ...window, minutes: window.windowDurationMins }],
-    );
-    windows.sort((a, b) => a.minutes - b.minutes);
+    const observedAt = Date.now();
+    if (update.primary)
+      this.windows.primary = { ...update.primary, observedAt };
+    if (update.secondary)
+      this.windows.secondary = { ...update.secondary, observedAt };
     this.report({
-      limits: windows.map(({ minutes, usedPercent, resetsAt }) => ({
-        window: windowName(minutes),
-        percent: usedPercent,
-        ...(resetsAt != null ? { resetsAt } : {}),
-      })),
+      limits: windowLimits([this.windows.primary, this.windows.secondary]),
     });
   }
 
