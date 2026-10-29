@@ -567,7 +567,7 @@ export function App({
       case 'task':
         if (argument === 'release') run(coordinator.releaseTask());
         else if (argument) {
-          coordinator.report(new Error('Use /task or /task release.'));
+          coordinator.notice('Use /task or /task release.', undefined, false);
           break;
         }
         setPageScroll(0);
@@ -596,7 +596,11 @@ export function App({
         break;
       case 'compact':
         if (argument)
-          coordinator.report(new Error('Use /compact without arguments.'));
+          coordinator.notice(
+            'Use /compact without arguments.',
+            undefined,
+            false,
+          );
         else run(coordinator.compact());
         break;
       case 'memory':

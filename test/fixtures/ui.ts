@@ -137,6 +137,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     },
     selectModel: record('selectModel'),
     report: (error: unknown) => calls.push(['report', String(error)]),
+    notice: record('notice'),
     conversations: async () => [
       { id: 'c2', title: 'Other', agent: 'a', cwd: '/work' },
     ],

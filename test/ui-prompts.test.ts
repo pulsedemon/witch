@@ -74,6 +74,51 @@ test('queued prompts show above the activity row with a hint, and ↑ on the fir
   }
 });
 
+for (const [command, message] of [
+  ['/task unexpected', 'Use /task or /task release.'],
+  ['/compact instructions', 'Use /compact without arguments.'],
+] as const)
+  test(`${command} leaves queued prompts runnable`, async () => {
+    const { coordinator, a } = await fixture();
+    const gate = new TurnGate();
+    a.gate = gate;
+    a.refuseSteer = true;
+    const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+    const sending = coordinator.send('held turn');
+    try {
+      await within(gate.entered, 3000, 'the gated turn');
+      await coordinator.send('queued followup');
+      await until('the queued followup', () =>
+        ui.text().includes('❯ queued followup'),
+      );
+      ui.stdin.write(command);
+      await until('the command in the composer', () =>
+        ui.text().includes(`┃ ${command}`),
+      );
+      ui.stdin.write(ENTER);
+      await until('the argument error', () => ui.text().includes(message));
+      gate.open();
+      await within(sending, 5000, 'the queued turns');
+      assert.deepEqual(turns(a), [
+        ['held turn', undefined],
+        ['queued followup', undefined],
+      ]);
+      assert.deepEqual(coordinator.snapshot.queue, []);
+      assert.equal(coordinator.snapshot.error, undefined);
+      assert.deepEqual(a.steers, []);
+      assert.deepEqual(a.compactions, []);
+      await until('the empty composer', () =>
+        ui.text().includes('┃ Ask the agent'),
+      );
+      assert.ok(ui.text().includes(message), ui.text());
+    } finally {
+      gate.open();
+      await sending;
+      ui.unmount();
+      await coordinator.close();
+    }
+  });
+
 test('accepting failed-turn memory returns queued prompts ahead of the draft', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
