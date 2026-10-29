@@ -120,6 +120,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     },
     send: record('send'),
     compact: record('compact'),
+    clear: record('clear'),
     unqueue: () => {
       calls.push(['unqueue']);
       const { queue } = coordinator.snapshot;

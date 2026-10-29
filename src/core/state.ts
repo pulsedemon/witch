@@ -107,6 +107,7 @@ export const displayUpdateSchema = z.object({
   diff: z.array(fileDiff).optional(),
   // a command the user ran with `!`
   shell: z.boolean().optional(),
+  contextCleared: z.literal(true).optional(),
   // when Witch received the update; history from before it was recorded has none
   at: z.string().optional(),
 });
@@ -116,6 +117,29 @@ export type ConversationRecord = z.infer<typeof conversationRecordSchema>;
 export type ProcessIdentity = z.infer<typeof processIdentity>;
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
+
+export function contextStart(items: readonly DisplayItem[]): number {
+  return items.findLastIndex((item) => item.contextCleared) + 1;
+}
+
+export function clearConversationContext(
+  record: ConversationRecord,
+  info?: SessionInfo,
+): void {
+  const previous = record.sessions[record.agent];
+  const model = info?.model || previous?.model || '';
+  record.sessions = {
+    [record.agent]: {
+      id: '',
+      model,
+      requestedModel: previous?.requestedModel ?? (model || undefined),
+      effort: previous?.effort ?? info?.effort ?? info?.nativeEffort,
+      hasHistory: false,
+    },
+  };
+  delete record.handoff;
+  delete record.lastTurn;
+}
 
 interface TextAppend {
   stream: object;

@@ -49,6 +49,8 @@ import {
   agentDisplay,
   agentWorking,
   applyDisplayUpdate,
+  clearConversationContext,
+  contextStart,
   createConversation,
   recordSession,
   untitled,
@@ -490,6 +492,41 @@ export class Coordinator {
     });
   }
 
+  async clear(): Promise<void> {
+    await this.operate('starting', async () => {
+      await this.admitting;
+      if (this.snapshot.queue.length)
+        throw new Error('Prompts are still queued for this conversation');
+      const conversation = this.current();
+      const info = this.live(conversation.agent)?.info;
+      await this.disconnect();
+      if (this.cancelled) return;
+      clearConversationContext(conversation, info);
+      this.pendingContext.delete(conversation.id);
+      this.publish({ completedTurn: undefined });
+      await this.save();
+      this.display({
+        id: randomUUID(),
+        kind: 'notice',
+        text: 'Context cleared. The agent cannot see anything above this line.',
+        cwd: conversation.cwd,
+        contextCleared: true,
+      });
+      await this.files!.flush();
+      if (this.cancelled) return;
+      const stored = conversation.sessions[conversation.agent]!;
+      const session = await this.connect();
+      if (this.cancelled || session.closed) return;
+      if (stored.model) {
+        // restore the resolved model without changing the saved alias
+        await session.selectModel(stored.model, stored.effort);
+        recordSession(conversation, conversation.agent, session.info);
+      }
+      await this.save();
+      this.publish({ conversation, native: session.info });
+    });
+  }
+
   async selectConversation(id: string): Promise<void> {
     if (id === this.record?.id) return;
     await this.operate('starting', async () => {
@@ -819,6 +856,12 @@ export class Coordinator {
     await this.coordination.releaseTask();
   }
 
+  async takeTask(reference: string): Promise<void> {
+    if (!this.coordination)
+      throw new Error('Session coordination is unavailable.');
+    await this.coordination.takeTask(reference);
+  }
+
   private async handoff(selection: ModelSelection): Promise<void> {
     const { agent } = selection;
     const conversation = this.current();
@@ -829,7 +872,11 @@ export class Coordinator {
     let activated = false;
     try {
       let summary = '';
-      if (this.snapshot.items.some((item) => item.kind === 'user')) {
+      if (
+        this.snapshot.items
+          .slice(contextStart(this.snapshot.items))
+          .some((item) => item.kind === 'user')
+      ) {
         const result = await this.performTurn(
           'Produce a concise handoff summary: objective, constraints, verified decisions, changed files, completed checks, and remaining work. Only summarize. Do not run tools or change files.',
           'handoff',
