@@ -195,6 +195,7 @@ export async function runCodexFamiliar(
   try {
     await registerFamiliar(binding, run, name, () => stopped);
     registered = true;
+    reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);
     let prompt = '';
     process.stdin.setEncoding('utf8');

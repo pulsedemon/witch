@@ -23,6 +23,7 @@ async function fixture(
     mode?: string;
     prompt?: string;
     openStdin?: boolean;
+    pauseIntervals?: boolean;
     response?: UserResponse;
     waitForResponse?: boolean;
     reject?: boolean;
@@ -43,6 +44,16 @@ async function fixture(
   await chmod(join(bin, 'codex'), 0o700);
   const report = join(root, 'report.txt');
   const preload: string[] = [];
+  if (options.pauseIntervals) {
+    const hook = join(root, 'pause-intervals.mjs');
+    await writeFile(
+      hook,
+      `const interval = globalThis.setInterval;
+globalThis.setInterval = (_callback, milliseconds) => interval(() => {}, milliseconds);
+`,
+    );
+    preload.push('--import', hook);
+  }
   if (options.mode === 'write-failure') {
     const hook = join(root, 'fail-write.mjs');
     await writeFile(
@@ -186,8 +197,12 @@ syncBuiltinESMExports();
   };
 }
 
-test('a Codex familiar registers and reports progress before stdin ends', async () => {
-  const f = await fixture({ prompt: 'implement ', openStdin: true });
+test('a Codex familiar reports progress before stdin ends without waiting for a heartbeat', async () => {
+  const f = await fixture({
+    prompt: 'implement ',
+    openStdin: true,
+    pauseIntervals: true,
+  });
   try {
     await until('progress while stdin remains open', () =>
       f.updates().some((progress) => progress.status === 'running'),
