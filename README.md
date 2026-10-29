@@ -93,7 +93,44 @@ python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
 
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
-Tested native versions: Codex 0.162.1 and Claude Code 2.1.299. Dependency versions are owned by [package.json](package.json) and its lockfile. Codex settings updates, Claude idle events and Claude's usage report use experimental native interfaces; rerun protocol and live integration checks when upgrading either CLI.
+The [native protocol manifest](test/fixtures/native/manifest.json) records the tested CLI versions, capture models and launch arguments. Dependency versions are owned by [package.json](package.json) and its lockfile.
+
+Witch uses these experimental or undeclared native interfaces:
+
+| Runtime | Interface                                                                 | Use                                                                |
+| ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Codex   | `thread/settings/update`                                                  | Model and effort changes.                                          |
+| Codex   | `thread/backgroundTerminals/list`, `thread/backgroundTerminals/terminate` | Background command identity and cleanup.                           |
+| Codex   | `runtimeWorkspaceRoots` on `thread/start` and `thread/resume`             | Conversation and memory directory access.                          |
+| Claude  | `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`                                   | Native idle and turn completion.                                   |
+| Claude  | `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`               | Session and account usage.                                         |
+| Claude  | `command_lifecycle`                                                       | Input consumption acknowledgements, outside the SDK message union. |
+| Claude  | `getTaskOutput`                                                           | Background output, implemented but undeclared by the SDK.          |
+
+### Native protocol fixtures
+
+`pnpm exec vitest run test/native-protocol.test.ts test/native-wire.test.ts` runs offline. It replays recorded JSONL through the production adapters and the installed SDK dependency, checks outgoing Codex requests against the generated schema, and retains the separate scripted fixtures for error and race cases. Schema validation checks wire shape; live captures establish the recorded native behavior.
+
+The Claude recording verifies that a result waits for native idle. Its result also acknowledges the original and steered inputs, so scripted fixtures remain responsible for isolating pending-input lifecycle acknowledgements.
+
+After a CLI upgrade, confirm the account usage before capturing new evidence. Create a task directory under Witch scratch with `mktemp -d -p "$TMPDIR"`. Generate both schema variants into new directories there:
+
+```sh
+capture_root=$(mktemp -d -p "$TMPDIR" witch-native-XXXXXX)
+codex app-server generate-json-schema --experimental --out "$capture_root/experimental"
+codex app-server generate-json-schema --out "$capture_root/stable"
+```
+
+Capture `basic`, `control` and `background` separately for each runtime, using explicit available models and a new output directory each time:
+
+```sh
+pnpm test:record-native --runtime codex --model "$codex_model" --scenario basic --out "$capture_root/codex-basic"
+pnpm test:record-native --runtime claude --model "$claude_model" --scenario basic --out "$capture_root/claude-basic"
+```
+
+The recorder creates synthetic projects, requests only their named command approvals, checks file effects and native cleanup replies, and retains raw traffic locally. Codex uses `on-request` approvals with user review and a read-only sandbox. Claude uses project settings, strict MCP configuration and default approvals. These per-process capture settings do not change the user's native configuration. The output's `normalized` directory replaces personal paths and account identity while preserving protocol fields, values and ID relationships.
+
+Inspect every normalized stream before copying it into `test/fixtures/native/<runtime>/`. Update the manifest from the successful `capture.json` records, including the SDK version, model, launch arguments and capture date. Copy only the complete generated `codex_app_server_protocol.schemas.json` to `codex/protocol.schema.json`, byte for byte, and record its SHA-256 in the manifest. Compare the stable and experimental definitions against the adapter's consumed interfaces to refresh the inventory above. Review schema and trace diffs before changing expected results; never fill missing native events by hand. Rerun the focused tests and the normal verification below. Keep raw captures out of Git and remove owned scratch after checking its processes and open files.
 
 ### Final verification before publication
 
