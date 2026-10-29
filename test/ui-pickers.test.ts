@@ -634,8 +634,12 @@ test('/compact dispatches a local operation and refuses arguments without sendin
     await delay(30);
     ui.stdin.write(ENTER);
     await until('argument refusal', () => calls.length === 2);
-    assert.equal(calls[1]![0], 'report');
-    assert.match(String(calls[1]![1]), /\/compact without arguments/);
+    assert.deepEqual(calls[1], [
+      'notice',
+      'Use /compact without arguments.',
+      undefined,
+      false,
+    ]);
   } finally {
     ui.unmount();
   }
@@ -652,9 +656,9 @@ test('/compact refuses multiline arguments without sending a prompt', async () =
     await delay(30);
     ui.stdin.write(ENTER);
     await until('argument refusal', () => calls.length > 0);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0]![0], 'report');
-    assert.match(String(calls[0]![1]), /\/compact without arguments/);
+    assert.deepEqual(calls, [
+      ['notice', 'Use /compact without arguments.', undefined, false],
+    ]);
   } finally {
     ui.unmount();
   }
