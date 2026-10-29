@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import stripAnsi from 'strip-ansi';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
@@ -12,6 +12,7 @@ import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 import { StateStore } from '../src/persistence/store.js';
 import { Screen } from '../src/ui/screen.js';
+import { turnFrame } from './fixtures/codex-adapter.js';
 
 interface DesktopEvent {
   diagnostic?: string;
@@ -22,7 +23,7 @@ interface DesktopEvent {
   configured?: string;
 }
 
-test('the CLI opens the pressed link, copies selected text and reports desktop failures', async () => {
+test('the CLI opens the pressed link, copies selected text and runs queued prompts after desktop failures', async () => {
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const root = await scratch('witch-cli-desktop-');
   const build = join(root, 'dist');
@@ -42,7 +43,7 @@ test('the CLI opens the pressed link, copies selected text and reports desktop f
   await symlink(git, join(bin, 'git'));
   await writeFile(
     join(bin, 'codex'),
-    `#!/bin/sh\nexec '${process.execPath}' '${repository}/test/fixtures/codex.mjs'\n`,
+    `#!/bin/sh\nexec '${process.execPath}' '${repository}/test/fixtures/codex.mjs' brews\n`,
     { mode: 0o755 },
   );
   const store = await StateStore.open(join(root, 'state'));
@@ -61,7 +62,7 @@ test('the CLI opens the pressed link, copies selected text and reports desktop f
     text: Array.from(
       { length: 80 },
       (_, i) =>
-        `[label${String(i + 1).padStart(3, '0')}](https://example.com/${i + 1})`,
+        `[label${String(i + 1).padStart(3, '0')}](https://example.com/${i + 1}) [bad](vscode://file${project}/bad%.md) [memory](missing-note.md)`,
     ).join('\n'),
   });
   await files.close();
@@ -117,13 +118,13 @@ test('the CLI opens the pressed link, copies selected text and reports desktop f
     const started = performance.now();
     return until(
       name,
-      () => {
+      async () => {
         assert.equal(
           child.exitCode,
           null,
           `${name}: exited ${child.exitCode}; ${stderr}`,
         );
-        return Boolean(check());
+        return Boolean(await check());
       },
       attempts,
     ).catch((error: unknown) => {
@@ -147,6 +148,47 @@ test('the CLI opens the pressed link, copies selected text and reports desktop f
   ) =>
     `\u001b[<${kind === 'drag' ? 32 : 0};${column + 1};${row + 1}${kind === 'release' ? 'm' : 'M'}`;
   const write = (data: string) => child.stdin!.write(data);
+  const submit = async (text: string) => {
+    const start = output.length;
+    write(text);
+    await wait('composer text', () =>
+      stripAnsi(output.slice(start)).includes(text),
+    );
+    write('\r');
+  };
+  const request = async (name: string) => {
+    const text = await readFile(join(project, `${name}.json`), 'utf8').catch(
+      (error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+          return undefined;
+        throw error;
+      },
+    );
+    return text === undefined ? undefined : JSON.parse(text);
+  };
+  const configure = async (failure: string) => {
+    const start = messages.length;
+    child.send({ failure });
+    await wait('failure configured', () =>
+      messages.slice(start).some((message) => message.configured === failure),
+    );
+  };
+  const finish = async (turn: number) => {
+    const path = join(project, `events-${turn}.json`);
+    await writeFile(
+      `${path}.next`,
+      JSON.stringify([turnFrame(`turn-${turn}`)]),
+    );
+    await rename(`${path}.next`, path);
+  };
+  const linkCell = (matches: (url: string) => boolean) => {
+    for (let row = 0; row < 30; row++)
+      for (let column = 0; column < 80; column++) {
+        const url = screen.linkAt(column, row);
+        if (url && matches(url)) return { column, row };
+      }
+    return undefined;
+  };
   try {
     await wait(
       'idle transcript',
@@ -188,30 +230,85 @@ test('the CLI opens the pressed link, copies selected text and reports desktop f
       expected,
     );
     assert.equal(messages.filter((m) => m.file === '/usr/bin/open').length, 1);
-    child.send({ failure: '/usr/bin/pbcopy' });
-    await wait('failure configured', () =>
-      messages.some((m) => m.configured === '/usr/bin/pbcopy'),
-    );
-    write('\u001b[99;9u');
-    await wait('copy failure reported', () =>
-      stripAnsi(output).includes('fixture /usr/bin/pbcopy failed'),
-    );
-    assert.equal(
-      messages.filter((m) => m.file === '/usr/bin/pbcopy').length,
-      2,
-    );
-    child.send({ failure: '/usr/bin/open' });
-    await wait('open failure configured', () =>
-      messages.some((m) => m.configured === '/usr/bin/open'),
-    );
-    write(mouse('press', 1, 4) + mouse('release', 1, 4));
-    await wait('open failure reported', () =>
-      stripAnsi(output).includes('fixture /usr/bin/open failed'),
-    );
+    let turn = 0;
+    for (const [kind, failure, errorText] of [
+      ['copy', '/usr/bin/pbcopy', 'fixture /usr/bin/pbcopy failed'],
+      ['open', '/usr/bin/open', 'fixture /usr/bin/open failed'],
+      ['malformed', 'none', 'URI malformed'],
+      ['memory', 'memoryDirectories', 'fixture memory lookup failed'],
+    ] as const) {
+      const held = ++turn;
+      await submit(`hold for ${kind}`);
+      await wait('held native turn', () => request(`turn-${held}`));
+      const queuedAt = output.length;
+      await submit('refused');
+      await wait('refused steer stays queued', async () => {
+        const steer = await request('steer');
+        return (
+          steer?.params.expectedTurnId === `turn-${held}` &&
+          steer.params.input[0].text === 'refused' &&
+          stripAnsi(output.slice(queuedAt)).includes('edit queued messages')
+        );
+      });
+      await configure(failure);
+      const matches = (url: string) =>
+        kind === 'malformed'
+          ? url.includes('bad%.md')
+          : kind === 'memory'
+            ? url.endsWith('/missing-note.md')
+            : url.startsWith('https://example.com/');
+      write('\u001b[5~');
+      await wait('clickable target', () => linkCell(matches));
+      const cell = linkCell(matches)!;
+      const failedAt = output.length;
+      const opened = messages.filter((m) => m.file === '/usr/bin/open').length;
+      if (kind === 'copy')
+        write(
+          mouse('press', cell.column, cell.row) +
+            mouse('drag', cell.column + 7, cell.row) +
+            mouse('release', cell.column + 7, cell.row) +
+            '\u001b[99;9u',
+        );
+      else
+        write(
+          mouse('press', cell.column, cell.row) +
+            mouse('release', cell.column, cell.row),
+        );
+      write('\u001b[6~\u001b[6~');
+      await wait(`${kind} failure reported`, () =>
+        stripAnsi(output.slice(failedAt)).includes(errorText),
+      );
+      if (kind === 'copy')
+        assert.equal(
+          messages.filter((m) => m.file === '/usr/bin/pbcopy').length,
+          2,
+        );
+      if (kind === 'malformed' || kind === 'memory')
+        assert.equal(
+          messages.filter((m) => m.file === '/usr/bin/open').length,
+          opened,
+        );
+      await configure('none');
+      await finish(held);
+      const next = ++turn;
+      await wait(`${kind} failure allows the followup`, () =>
+        request(`turn-${next}`),
+      );
+      assert.equal(
+        (await request(`turn-${next}`)).params.input[0].text,
+        'refused',
+      );
+      const idleAt = output.length;
+      await finish(next);
+      await wait('followup completed', () =>
+        output.slice(idleAt).includes('IDLE'),
+      );
+    }
     write('\u0003');
     const [code, signal] = await within(closed, 5000, 'CLI exit');
     assert.equal(code, 0, `${stderr} ${signal}`);
   } finally {
+    await writeFile(join(project, 'release'), 'yes');
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       try {

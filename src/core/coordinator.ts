@@ -163,7 +163,9 @@ export class Coordinator {
     private readonly editFile = editInVSCode,
     readonly coordination?: SessionCoordination,
   ) {
-    this.catalog = new ModelCatalog(agents, (error) => this.report(error));
+    this.catalog = new ModelCatalog(agents, (error) =>
+      this.notice(errorMessage(error), undefined, false),
+    );
     this.snapshot = {
       phase: 'starting',
       items: [],
@@ -765,7 +767,6 @@ export class Coordinator {
     });
   }
 
-  /** an error phase keeps its message until restart. */
   report(error: unknown): void {
     if (this.snapshot.phase === 'error') return;
     this.publish({ error: errorMessage(error) });
@@ -1162,7 +1163,7 @@ export class Coordinator {
       try {
         skills = await session.skills();
       } catch (error) {
-        this.report(error);
+        this.notice(errorMessage(error), undefined, false);
       }
       this.publish({
         native: session.info,
@@ -1361,9 +1362,7 @@ export class Coordinator {
   }
 
   private persist(operation: Promise<void>): void {
-    void operation.catch((error: unknown) => {
-      this.enterError(error, true);
-    });
+    void operation.catch((error: unknown) => this.enterError(error, true));
   }
 
   /** a rejected flush is a sticky write failure, which only a restart clears. */
