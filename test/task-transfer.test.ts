@@ -125,6 +125,43 @@ test('an owner that never reads the ledger times out and leaves no request', asy
   assert.equal(b.coordination.snapshot.error, undefined);
 });
 
+test('a successful withdrawal clears a failed ledger poll', async (t) => {
+  const { b, registry } = await transfer(t);
+  const before = await registry.claims();
+  const local = b.coordination['registry'];
+  const request = local.requestTransfer.bind(local);
+  const state = local.state.bind(local);
+  let pending = false;
+  let failed = false;
+  const requesting = vi
+    .spyOn(local, 'requestTransfer')
+    .mockImplementation(async (...args) => {
+      const claim = await request(...args);
+      pending = true;
+      return claim;
+    });
+  const reading = vi
+    .spyOn(local, 'state')
+    .mockImplementation(async (...args) => {
+      if (!pending) return state(...args);
+      args[1]?.();
+      failed = true;
+      throw new Error('Failed ledger poll');
+    });
+  try {
+    await assert.rejects(
+      b.coordination.takeTask('task:shared', 3000),
+      /did not answer/,
+    );
+    assert.equal(failed, true);
+    assert.deepEqual(await registry.claims(), before);
+    assert.equal(b.coordination.snapshot.error, undefined);
+  } finally {
+    requesting.mockRestore();
+    reading.mockRestore();
+  }
+});
+
 test('a requester that switches conversations stops waiting and withdraws its request', async (t) => {
   const { b, requested, registry } = await transfer(t);
   const before = await registry.claims();
