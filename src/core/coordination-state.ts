@@ -41,12 +41,27 @@ export const taskClaimSchema = z.object({
       selection: z.string().uuid(),
     })
     .optional(),
+  /** a user's request in another conversation to move this claim there, answered by the owner's Witch. */
+  transfer: z
+    .object({
+      to: claimOwnerSchema,
+      activation: z.string().uuid(),
+      process: processIdentity,
+      expires: z.number(),
+      refusal: z.string().optional(),
+    })
+    .optional(),
+  movedFrom: claimOwnerSchema.optional(),
 });
 
 export const coordinationActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('peers') }),
   z.object({ kind: z.literal('claim'), input: claimInputSchema }),
   z.object({ kind: z.literal('release'), claim: z.string().uuid() }),
+  z.object({
+    kind: z.literal('take'),
+    input: claimInputSchema.pick({ reference: true }),
+  }),
   z.object({ kind: z.literal('select-next'), turn: z.string().uuid() }),
   z.object({
     kind: z.literal('selection-status'),
@@ -108,6 +123,7 @@ export const coordinationSnapshotSchema = z.object({
 export type ClaimInput = z.infer<typeof claimInputSchema>;
 export type ClaimOwner = z.infer<typeof claimOwnerSchema>;
 export type TaskClaim = z.infer<typeof taskClaimSchema>;
+export type Transfer = NonNullable<TaskClaim['transfer']>;
 export type SelectionScope = z.infer<typeof selectionScopeSchema>;
 export type SelectionTicket = z.infer<typeof selectionTicketSchema>;
 export type SelectionState = z.infer<typeof selectionStateSchema>;

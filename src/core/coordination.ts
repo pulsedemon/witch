@@ -24,12 +24,18 @@ import {
   taskActivity,
 } from './coordination-state.js';
 import type {
+  ClaimOwner,
   CoordinationSnapshot,
   SessionPresence,
   SelectionScope,
 } from './coordination-state.js';
 import type { Snapshot } from './coordinator.js';
 import { discover, projectDiscovery } from './discovery.js';
+import {
+  awaitTransfer,
+  movedNotices,
+  transferRefusal,
+} from './task-transfer.js';
 import type { Discovery } from './discovery.js';
 import { assignGitHubTask } from './github-assignment.js';
 import type { PullRequest, Repository } from './repository.js';
@@ -151,6 +157,7 @@ export class SessionCoordination {
   private cancellations = new Map<string, SelectionScope>();
   private claimReleases = new Set<string>();
   private maintaining?: Promise<void>;
+  private handing?: Promise<void>;
   private ending = false;
   private closed = false;
 
@@ -550,10 +557,16 @@ export class SessionCoordination {
 
   async context(): Promise<{ instructions: string; context: string }> {
     const active = this.admit();
+    let moved: string[] = [];
     try {
       await this.serialize(async () => {
         await this.refreshProject(active);
-        await this.retireProject(active);
+        const state: RequestState = {};
+        await this.retireProject(active, state);
+        moved = movedNotices(
+          (await this.readLedger(state)).ledger,
+          active.conversation.id,
+        );
       });
     } catch {
       // the recorded error withholds new work while the agent can still explain or finish its existing task
@@ -563,6 +576,7 @@ export class SessionCoordination {
     const context = [
       'Session coordination:',
       JSON.stringify(snapshot),
+      ...moved,
       ...(snapshot.error
         ? [
             'Coordination is unavailable. Do not start new claimed work until a fresh query succeeds.',
@@ -578,7 +592,7 @@ export class SessionCoordination {
       'When asked to choose the next task, run --select-next <selection-turn-id> --json before triage, using the current Selection turn value. If no selection turn is current, do not reuse an earlier value. It waits automatically for your place. Do not claim a generic triage task, end the request because another session is choosing, or ask the user to repeat it.',
       'After position 1 is granted, refresh issues, code and reservations. Reserve your recommendation with --recommend <reference> --selection <ticket-id> --summary <work> [--alias <reference>] before presenting it. A specific-task conflict keeps your place: choose another unreserved task. Other sessions may choose as soon as your recommendation is recorded.',
       'Keep the suggestion reserved while awaiting the user. When the user requests planning, investigation or implementation, use --claim on that reference to promote it. A different named task replaces your suggestion only if its claim succeeds. Another --select-next releases the old suggestion and joins the tail. Cancel with --cancel-selection <ticket-id> when redirected or when no suitable work remains. Do not infer permission from a failed or timed-out command; query peers to reconcile its result.',
-      'Before starting a new task, query the other sessions and claim its reference. For unnumbered work, compare existing task summaries and reuse a matching reference. A conflict means stop that task and report its owner; do not rename the task to get around the conflict. Keep the summary current, pass this ownership context to delegated workers, and release only after the task and its delegated work have ended. Refresh before changing scope, including after a steered request.',
+      'Before starting a new task, query the other sessions and claim its reference. For unnumbered work, compare existing task summaries and reuse a matching reference. A conflict means stop that task and report its owner and the /task take command the conflict names; do not rename the task to get around the conflict. Keep the summary current, pass this ownership context to delegated workers, and release only after the task and its delegated work have ended. Refresh before changing scope, including after a steered request.',
     ].join('\n');
     return { instructions, context };
   }
@@ -606,6 +620,28 @@ export class SessionCoordination {
         state,
       );
     });
+  }
+
+  async takeTask(reference: string, timeout = 10_000): Promise<void> {
+    const active = this.admit();
+    if (this.state?.phase !== 'idle' || this.state.recovery)
+      throw new Error(
+        'Wait for idle and resolve memory recovery before taking a task.',
+      );
+    this.failures.delete('control');
+    await this.serialize(() =>
+      this.dispatch(
+        {
+          id: randomUUID(),
+          version: 1,
+          conversation: active.conversation.id,
+          activation: active.binding.activation,
+          deadline: Date.now() + timeout,
+          action: { kind: 'take', input: { reference } },
+        },
+        true,
+      ),
+    );
   }
 
   async close(options: { restart?: boolean } = {}): Promise<void> {
@@ -757,7 +793,10 @@ export class SessionCoordination {
           revision = ++this.revision;
         },
       );
-      if (accept()) this.failures.delete('ledger');
+      if (accept()) {
+        this.failures.delete('ledger');
+        if (active) this.answer(active, ledger);
+      }
       const value = { revision, ledger };
       if (state) state.ledger = value;
       return value;
@@ -903,6 +942,10 @@ export class SessionCoordination {
         if (snapshot.error) throw new Error(snapshot.error);
         return (outcome = { kind: 'peers', snapshot });
       }
+      if (action.kind === 'take' && !human)
+        throw new Error(
+          'Only the user can move a task between conversations. Ask them to run /task take <reference> here.',
+        );
       if (action.kind === 'release') {
         const claim = (await this.readLedger(state)).ledger.claims.find(
           (entry) => entry.id === action.claim,
@@ -933,7 +976,7 @@ export class SessionCoordination {
         project: active.project,
       };
       const scope =
-        action.kind === 'claim'
+        action.kind === 'claim' || action.kind === 'take'
           ? undefined
           : this.selectionScope(
               active,
@@ -983,6 +1026,15 @@ export class SessionCoordination {
         )
           this.canRelease(false);
       };
+      if (action.kind === 'take')
+        return await this.take(
+          active,
+          owner,
+          action.input.reference,
+          request.deadline,
+          state,
+          verify,
+        );
       if (action.kind === 'claim') {
         const claim = await this.change(
           state,
@@ -1080,13 +1132,14 @@ export class SessionCoordination {
       });
     } catch (error) {
       if (!(error instanceof ClaimConflict)) throw error;
-      const owner = (
-        await this.store.records([error.claim.owner.conversation])
-      ).records.find((entry) => entry.id === error.claim.owner.conversation);
+      const owner = await this.record(error.claim.owner.conversation);
       return {
         kind: 'conflict',
         claim: error.claim,
-        message: error.message,
+        message:
+          request.action.kind === 'claim'
+            ? `${error.message} The user can move it here with /task take ${request.action.input.reference} once its owner is idle.`
+            : error.message,
         ...(owner ? { owner: conversationSummarySchema.parse(owner) } : {}),
       };
     } finally {
@@ -1101,6 +1154,99 @@ export class SessionCoordination {
         () => {},
       );
     }
+  }
+
+  private async record(conversation: string) {
+    return (await this.store.records([conversation])).records.find(
+      (entry) => entry.id === conversation,
+    );
+  }
+
+  /** requests the claim and waits for the owner's Witch to move it here. */
+  private async take(
+    active: Activation,
+    owner: ClaimOwner,
+    reference: string,
+    deadline: number,
+    state: RequestState,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<ControlOutcome> {
+    // leaves time to withdraw and for dispatch's final refresh
+    const end = deadline - 2000;
+    const { activation } = active.binding;
+    const requested = await this.change(
+      state,
+      (check) =>
+        this.registry.requestTransfer(
+          owner,
+          reference,
+          { activation, process: this.process, expires: end },
+          deadline,
+          check,
+        ),
+      verify,
+    );
+    const { claim, view } = await awaitTransfer({
+      id: requested.id,
+      conversation: owner.conversation,
+      activation,
+      reference,
+      title:
+        (await this.record(requested.owner.conversation))?.title ??
+        requested.owner.conversation,
+      end,
+      admit: () => this.admit(),
+      read: (deadline) => this.readLedger({ deadline }),
+      withdraw: () => {
+        state.ledger = undefined;
+        return this.change(state, (check) =>
+          this.registry.withdrawTransfer(
+            activation,
+            requested.id,
+            Date.now() + 1000,
+            check,
+          ),
+        );
+      },
+    });
+    state.ledger = view;
+    return { kind: 'claimed', claim };
+  }
+
+  /** the owner's Witch answers a transfer request without a model turn. */
+  private answer(active: Activation, ledger: Ledger): void {
+    const claim = ledger.claims.find(
+      (claim) =>
+        claim.owner.conversation === active.conversation.id &&
+        claim.transfer &&
+        !claim.transfer.refusal,
+    );
+    if (!claim || this.handing) return;
+    const owner = { ...claim.owner, conversation: active.conversation.id };
+    this.handing = this.serialize(async () => {
+      const moved = await this.change(
+        undefined,
+        (verify) =>
+          this.registry.handOver(
+            owner,
+            claim.id,
+            Date.now() + 1000,
+            verify,
+            () => transferRefusal(this.state),
+          ),
+        async () => {
+          if (this.admit() !== active) throw new Error('Coordination moved.');
+        },
+      );
+      if (moved && !moved.transfer) void this.refresh();
+    })
+      .catch(() => {
+        // the request stays pending, so the next tick rereads and answers again
+        active.observed = undefined;
+      })
+      .finally(() => {
+        this.handing = undefined;
+      });
   }
 
   private refreshProject(active: Activation, deadline?: number): Promise<void> {

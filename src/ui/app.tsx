@@ -49,7 +49,10 @@ const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'new', label: 'New conversation' },
   { id: 'sessions', label: 'Saved conversations' },
   { id: 'peers', label: 'Other sessions in this repository' },
-  { id: 'task', label: 'Current task, or /task release' },
+  {
+    id: 'task',
+    label: 'Current task, /task release or /task take <reference>',
+  },
   { id: 'model', label: 'Choose model and reasoning' },
   { id: 'compact', label: 'Compact the conversation' },
   { id: 'memory', label: 'Browse shared memory' },
@@ -566,8 +569,14 @@ export function App({
         break;
       case 'task':
         if (argument === 'release') run(coordinator.releaseTask());
+        else if (/^take\s+\S/.test(argument))
+          run(coordinator.takeTask(argument.slice(4).trim()));
         else if (argument) {
-          coordinator.notice('Use /task or /task release.', undefined, false);
+          coordinator.notice(
+            'Use /task, /task release or /task take <reference>.',
+            undefined,
+            false,
+          );
           break;
         }
         setPageScroll(0);

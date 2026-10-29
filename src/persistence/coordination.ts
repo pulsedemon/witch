@@ -21,6 +21,7 @@ import type {
   SelectionState,
   SelectionTicket,
   TaskClaim,
+  Transfer,
 } from '../core/coordination-state.js';
 import type { ProcessIdentity } from '../core/state.js';
 import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
@@ -351,6 +352,93 @@ export class CoordinationStore {
     });
   }
 
+  async requestTransfer(
+    to: ClaimOwner,
+    reference: string,
+    request: Pick<Transfer, 'activation' | 'process' | 'expires'>,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<TaskClaim> {
+    const normalized = taskReference(reference, to.project);
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) =>
+        claim.references.includes(normalized),
+      );
+      if (!claim) throw new Error(`No other conversation holds ${reference}.`);
+      if (claim.owner.conversation === to.conversation)
+        throw new Error('This conversation already holds this task.');
+      if (
+        ledger.claims.some(
+          (entry) =>
+            entry.owner.conversation === to.conversation && !entry.suggestion,
+        )
+      )
+        throw new Error('Release the current task before taking another.');
+      if (claim.transfer && claim.transfer.to.conversation !== to.conversation)
+        throw new Error('Another conversation is already taking this task.');
+      claim.transfer = { to, ...request };
+      return claim;
+    });
+  }
+
+  /** the owner moves its claim or records why not; `refusal` reads the owner's live state under the lock. */
+  async handOver(
+    owner: ClaimOwner,
+    id: string,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+    refusal: () => string | undefined,
+  ): Promise<TaskClaim | undefined> {
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) => claim.id === id);
+      const transfer = claim?.transfer;
+      if (
+        !claim ||
+        !transfer ||
+        transfer.refusal ||
+        !sameOwner(claim.owner, owner)
+      )
+        return undefined;
+      const { to } = transfer;
+      const reason = ledger.claims.some(
+        (entry) =>
+          entry.owner.conversation === to.conversation && !entry.suggestion,
+      )
+        ? 'The requesting conversation holds another task. Release it there, then run /task take again.'
+        : refusal();
+      if (reason) {
+        transfer.refusal = reason;
+        return claim;
+      }
+      ledger.claims = ledger.claims.filter(
+        (entry) => entry.owner.conversation !== to.conversation,
+      );
+      ledger.selections = ledger.selections.filter(
+        (ticket) => ticket.owner.conversation !== to.conversation,
+      );
+      claim.owner = to;
+      claim.process = transfer.process;
+      claim.movedFrom = owner;
+      delete claim.transfer;
+      delete claim.suggestion;
+      return claim;
+    });
+  }
+
+  /** returns the claim as left, so a requester sees a hand-over that landed first. */
+  async withdrawTransfer(
+    activation: string,
+    id: string,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<TaskClaim | undefined> {
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) => claim.id === id);
+      if (claim?.transfer?.activation === activation) delete claim.transfer;
+      return claim;
+    });
+  }
+
   async beginSelection(
     scope: SelectionScope,
     deadline: number,
@@ -485,19 +573,30 @@ export class CoordinationStore {
         options,
       ),
       this.activeActivations(
-        ledger.selections.map((ticket) => ticket.activation),
+        [
+          ...ledger.selections.map((ticket) => ticket.activation),
+          ...ledger.claims.flatMap((claim) => claim.transfer?.activation ?? []),
+        ],
         options,
       ),
     ] as const;
     // every probe must close before a failure releases the ledger lock.
     await Promise.allSettled(probes);
     const [processes, opened, active] = await Promise.all(probes);
+    const now = Date.now();
     return {
-      claims: ledger.claims.filter((claim) =>
-        claim.process
-          ? sameProcess(processes.get(claim.process.pid), claim.process)
-          : opened.has(claim.owner.conversation),
-      ),
+      claims: ledger.claims
+        .filter((claim) =>
+          claim.process
+            ? sameProcess(processes.get(claim.process.pid), claim.process)
+            : opened.has(claim.owner.conversation),
+        )
+        .map(({ transfer, ...claim }) =>
+          // a requester that left, died or stopped waiting abandons its request
+          transfer && active.has(transfer.activation) && transfer.expires > now
+            ? { ...claim, transfer }
+            : claim,
+        ),
       selections: ledger.selections.filter((ticket) =>
         active.has(ticket.activation),
       ),
