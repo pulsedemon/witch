@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { access, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setImmediate as nextTick } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from '../src/agents/claude.js';
@@ -24,6 +25,220 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
+
+test('a peer joining and leaving updates ongoing work without adding user input', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
+  const a = await start();
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Inspect current exports');
+  try {
+    await within(gate.entered, 5000, 'solo turn');
+    const b = await start('B');
+    await a.query();
+    await until('required policy', () => a.a.contextSteers.length === 1);
+    assert.match(a.a.contextSteers[0]!, /--claim/);
+    assert.match(
+      a.a.contextSteers[0]!,
+      /Claim any unclaimed task already underway/,
+    );
+    await b.claim('task:peer', 'Peer summary 291');
+    await a.query();
+    assert.equal(a.a.contextSteers.length, 1);
+    assert.doesNotMatch(a.a.contextSteers[0]!, /Peer summary 291/);
+    assert.equal((await a.claim('task:exports')).kind, 'claimed');
+    await b.coordinator.close();
+    await a.query();
+    await until('solo policy', () => a.a.contextSteers.length === 2);
+    assert.match(a.a.contextSteers[1]!, /New work needs no claim/);
+    assert.match(a.a.contextSteers[1]!, /--release/);
+    assert.deepEqual(a.a.steers, []);
+    assert.deepEqual(a.coordinator.snapshot.queue, []);
+    assert.equal(a.a.inputs.length, 1);
+    assert.deepEqual(
+      a.coordinator.snapshot.items
+        .filter(({ kind }) => kind === 'user')
+        .map(({ text }) => text),
+      ['Inspect current exports'],
+    );
+  } finally {
+    gate.open();
+    await sending;
+  }
+});
+
+test('a peer arriving during prompt construction reaches the newly started turn', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start, memory } = await coordinationFixture(cleanup);
+  const a = await start();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const snapshot = memory.snapshot.bind(memory);
+  vi.spyOn(memory, 'snapshot').mockImplementationOnce(async (...args) => {
+    entered.resolve();
+    await release.promise;
+    return snapshot(...args);
+  });
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Original request');
+  try {
+    await within(entered.promise, 5000, 'prompt construction');
+    await start('B');
+    await a.query();
+    release.resolve();
+    await within(gate.entered, 5000, 'native send');
+    await until('late policy', () => a.a.contextSteers.length === 1);
+    assert.match(a.a.inputs[0]!.context!, /New work needs no claim/);
+    assert.match(a.a.contextSteers[0]!, /Claim coordination is required/);
+    assert.equal(a.a.inputs[0]!.prompt, 'Original request');
+  } finally {
+    release.resolve();
+    gate.open();
+    await sending;
+  }
+});
+
+test('a refused policy steer waits for fresh context on the next user turn', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
+  const a = await start();
+  a.a.refuseSteer = true;
+  const steer = vi.spyOn(a.a.sessions[0]!.session, 'steer');
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Current task');
+  try {
+    await within(gate.entered, 5000, 'solo turn');
+    const b = await start('B');
+    await a.query();
+    await until('refused policy', () => steer.mock.calls.length === 1);
+    await b.claim('task:peer', 'Changed summary');
+    await a.query();
+    assert.equal(steer.mock.calls.length, 1);
+    assert.deepEqual(a.a.contextSteers, []);
+    assert.deepEqual(a.coordinator.snapshot.queue, []);
+  } finally {
+    gate.open();
+    await sending;
+  }
+  assert.equal(a.a.inputs.length, 1);
+  a.a.refuseSteer = false;
+  await a.coordinator.send('Next user request');
+  assert.deepEqual(
+    a.a.inputs.map(({ prompt }) => prompt),
+    ['Current task', 'Next user request'],
+  );
+  assert.match(a.a.inputs[1]!.context!, /Claim coordination is required/);
+  assert.match(a.a.inputs[1]!.context!, /--claim/);
+});
+
+for (const finishFirst of [false, true]) {
+  test(`a policy change during a pending reply ${finishFirst ? 'returns in the next turn after the current turn ends' : 'follows the accepted update'}`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const { start } = await coordinationFixture(cleanup);
+    const a = await start();
+    const session = a.a.sessions[0]!.session;
+    const steer = session.steer.bind(session);
+    const entered = Promise.withResolvers<void>();
+    const reply = Promise.withResolvers<void>();
+    let first = true;
+    session.steer = async (...args) => {
+      const accepted = await steer(...args);
+      if (args[1]?.contextOnly && first) {
+        first = false;
+        entered.resolve();
+        await reply.promise;
+      }
+      return accepted;
+    };
+    const gate = new TurnGate();
+    a.a.gate = gate;
+    const sending = a.coordinator.send('Solo request');
+    try {
+      await within(gate.entered, 5000, 'solo turn');
+      const b = await start('B');
+      await a.query();
+      await within(entered.promise, 5000, 'pending policy reply');
+      await b.coordinator.close();
+      await a.query();
+      assert.equal(a.a.contextSteers.length, 1);
+      if (finishFirst) {
+        gate.open();
+        await sending;
+        await a.coordinator.send('Later solo request');
+        assert.match(a.a.inputs[1]!.context!, /New work needs no claim/);
+        assert.doesNotMatch(a.a.inputs[1]!.context!, /Control command:/);
+        reply.resolve();
+        await nextTick();
+        assert.equal(a.a.contextSteers.length, 1);
+        assert.equal(a.a.inputs.length, 2);
+      } else {
+        reply.resolve();
+        await until('corrected policy', () => a.a.contextSteers.length === 2);
+        assert.match(a.a.contextSteers[1]!, /New work needs no claim/);
+      }
+      assert.deepEqual(a.coordinator.snapshot.queue, []);
+    } finally {
+      reply.resolve();
+      gate.open();
+      await sending;
+    }
+  });
+}
+
+test('unread coordination context never becomes queued user work', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
+  const a = await start();
+  a.a.unreadOnInterrupt = true;
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Current task');
+  try {
+    await within(gate.entered, 5000, 'solo turn');
+    await start('B');
+    await a.query();
+    await until('context update', () => a.a.contextSteers.length === 1);
+    await a.coordinator.send('Real user follow-up');
+    a.a.gate = undefined;
+    await a.coordinator.interrupt();
+    await sending;
+    await until('user follow-up', () => a.a.inputs.length >= 2);
+    assert.deepEqual(
+      a.a.inputs.map(({ prompt }) => prompt),
+      ['Current task', 'Real user follow-up'],
+    );
+    assert.deepEqual(a.coordinator.snapshot.queue, []);
+  } finally {
+    gate.open();
+    await sending;
+  }
+});
+
+test('compaction leaves a pending policy for the next fresh context', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
+  const a = await start();
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  const sending = a.coordinator.send('Current task');
+  try {
+    await within(gate.entered, 5000, 'solo turn');
+    a.a.sessions[0]!.options.onEvent({ type: 'compacted' });
+    await start('B');
+    await a.query();
+    assert.deepEqual(a.a.contextSteers, []);
+    assert.deepEqual(a.coordinator.snapshot.queue, []);
+  } finally {
+    gate.open();
+    await sending;
+  }
+  await a.coordinator.send('After compaction');
+  assert.match(a.a.inputs[1]!.context!, /Control command:/);
+  assert.match(a.a.inputs[1]!.context!, /Claim coordination is required/);
+});
 
 test('clear preserves the same exclusive claim while the native runtime reconnects', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);

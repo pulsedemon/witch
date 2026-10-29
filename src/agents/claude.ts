@@ -189,8 +189,11 @@ interface Turn {
   result?: TurnResult;
   interrupted: boolean;
   messages: TurnText;
-  /** retain consumed input for interrupt receipts; omit command replies' text to prevent replay. */
-  steered: Map<string, { prompt?: string; pending: boolean }>;
+  /** retain consumed user input for interrupt receipts; generated context must never reenter the prompt queue. */
+  steered: Map<
+    string,
+    { prompt?: string; pending: boolean; contextOnly?: true }
+  >;
   inputError?: string;
   commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
   initialInput?: string;
@@ -656,8 +659,9 @@ class ClaudeSession implements AgentSession {
    */
   async steer(
     prompt: string,
-    { command, skill }: { command?: string; skill?: SkillCall } = {},
+    options: Parameters<AgentSession['steer']>[1] = {},
   ): Promise<boolean> {
+    const { command, skill, contextOnly } = options;
     const turn = this.turn;
     if (
       this.closed ||
@@ -679,7 +683,11 @@ class ClaudeSession implements AgentSession {
     if (command === undefined) {
       // Claude Code holds a message shaped like a slash command until the turn ends; marked, it joins as text
       const uuid = this.push(prompt, !skill && prompt.trim().startsWith('/'));
-      turn.steered.set(uuid, { prompt, pending: true });
+      turn.steered.set(uuid, {
+        prompt: contextOnly ? undefined : prompt,
+        pending: true,
+        contextOnly,
+      });
       if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
     } else {
       turn.held = true;
@@ -1013,7 +1021,12 @@ class ClaudeSession implements AgentSession {
         if (input && state !== 'queued') {
           if (state === 'started' && input.pending) turn.result = undefined;
           input.pending = false;
-          if (state !== 'started' && state !== 'completed' && !turn.interrupted)
+          if (
+            state !== 'started' &&
+            state !== 'completed' &&
+            !turn.interrupted &&
+            !input.contextOnly
+          )
             turn.inputError ??= `Claude ${state} a steered prompt`;
           this.finishIdle(turn);
         }
