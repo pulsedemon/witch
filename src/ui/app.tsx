@@ -14,7 +14,7 @@ import type { Coordinator, Snapshot } from '../core/coordinator.js';
 import { modelKey, modelTarget } from '../core/models.js';
 import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
-import { agentWorking } from '../core/state.js';
+import { agentWorking, contextStart } from '../core/state.js';
 import type { StateStore } from '../persistence/store.js';
 import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
@@ -52,6 +52,7 @@ const commands: { id: string; label: string; aliases?: string[] }[] = [
   { id: 'task', label: 'Current task, or /task release' },
   { id: 'model', label: 'Choose model and reasoning' },
   { id: 'compact', label: 'Compact the conversation' },
+  { id: 'clear', label: 'Clear agent context' },
   { id: 'memory', label: 'Browse shared memory' },
   { id: 'jobs', label: 'Running jobs' },
   { id: 'help', label: 'Keyboard help' },
@@ -373,18 +374,32 @@ export function App({
     () => state.queue.map((prompt) => oneLine(prompt).slice(0, width)),
     [state.queue, width],
   );
-  const transcriptHeight = Math.max(2, freeRows - queueRows);
-  const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
-  /** the first row shown from `anchor`, or at the bottom without one. */
-  const topRow = (anchor: ScrollAnchor | null) =>
-    anchor === null ? maxTop : Math.min(transcript.rowOf(anchor), maxTop);
-  const scrollTop = topRow(top);
+  const availableRows = Math.max(2, freeRows - queueRows);
+  const boundary = state.items[contextStart(state.items) - 1];
+  const clearedAt = boundary && transcript.starts.get(boundary.id);
+  const viewport = (anchor: ScrollAnchor | null) => {
+    const row = anchor === null ? Infinity : transcript.rowOf(anchor);
+    // decide before the notice takes a row, so hiding the last old row cannot turn it off
+    const unpinnedTop = Math.min(
+      row,
+      Math.max(0, transcript.lines.length - availableRows),
+    );
+    const pinned = clearedAt !== undefined && unpinnedTop < clearedAt;
+    const height = availableRows - Number(pinned);
+    const maxTop = Math.max(0, transcript.lines.length - height);
+    return { pinned, height, maxTop, top: Math.min(row, maxTop) };
+  };
+  const { pinned, height: transcriptHeight, top: scrollTop } = viewport(top);
   const scrollTo = (row: number | null) =>
     setTop(row === null ? null : (transcript.anchorAt(row) ?? null));
   /** scrolls from the latest position, so two page keys in one read move two pages. */
-  const scrollBy = (rows: number) =>
+  const scrollBy = (rows: number, page = false) =>
     setTop((previous) => {
-      const next = Math.min(maxTop, Math.max(0, topRow(previous) + rows));
+      const { top, maxTop, height } = viewport(previous);
+      const next = Math.min(
+        maxTop,
+        Math.max(0, top + rows * (page ? height : 1)),
+      );
       return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
     });
   /** an exact ID goes first, so Enter never picks a longer ID that contains it. */
@@ -602,6 +617,11 @@ export function App({
             false,
           );
         else run(coordinator.compact());
+        break;
+      case 'clear':
+        if (argument)
+          coordinator.notice('Use /clear without arguments.', undefined, false);
+        else run(coordinator.clear());
         break;
       case 'memory':
         run(showMemory());
@@ -855,8 +875,8 @@ export function App({
     if (!transcriptBox.current) return;
     const box = measureElement(transcriptBox.current);
     // reports in one read arrive before a render, so each starts where the last one scrolled
-    const first = topRow(topRef.current);
-    const shown = Math.min(transcriptHeight, transcript.lines.length - first);
+    const { top: first, height } = viewport(topRef.current);
+    const shown = Math.min(height, transcript.lines.length - first);
     // past the top or bottom, the row a drag scrolls in
     const offset = Math.max(-1, Math.min(shown, row - box.y));
     const at = Math.max(
@@ -954,8 +974,8 @@ export function App({
       }
       return;
     }
-    if (key.pageUp) scrollBy(-transcriptHeight);
-    if (key.pageDown) scrollBy(transcriptHeight);
+    if (key.pageUp) scrollBy(-1, true);
+    if (key.pageDown) scrollBy(1, true);
     if (key.tab) setToolFocus(!toolFocusRef.current);
     if (toolFocusRef.current) {
       const current = toolSelectionRef.current;
@@ -1151,6 +1171,11 @@ export function App({
     }
     body = (
       <Box flexDirection="column" height={bodyHeight}>
+        {pinned && (
+          <Text wrap="truncate-end">
+            Earlier messages shown here are outside the agent's context.
+          </Text>
+        )}
         <Box ref={transcriptBox} height={transcriptHeight} overflow="hidden">
           <Text>
             {state.items.length
