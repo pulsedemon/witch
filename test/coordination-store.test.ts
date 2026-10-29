@@ -14,6 +14,7 @@ import type {
   SessionPresence,
   SelectionTicket,
   TaskClaim,
+  TransferField,
 } from '../src/core/coordination-state.js';
 import {
   ClaimConflict,
@@ -477,12 +478,17 @@ test('presence removal cannot delete a newer activation or its task claim', asyn
   }
 });
 
-async function transferFixture(register: RegisterCleanup) {
+async function transferFixture(
+  register: RegisterCleanup,
+  field: TransferField,
+) {
   const root = await scratch('witch-transfer-');
   const store = await CoordinationStore.open(await StateStore.open(root));
   const sleeper = spawn('/bin/sleep', ['60']);
-  register(() => {
+  const closed = once(sleeper, 'close');
+  register(async () => {
     sleeper.kill();
+    await closed;
   });
   await once(sleeper, 'spawn');
   // a requester distinct from the owner, so a hand-over that keeps the owner's process shows
@@ -498,14 +504,21 @@ async function transferFixture(register: RegisterCleanup) {
     file: join(root, 'coordination', 'claims.json'),
     requester,
     hold,
-    request: (
+    request: async (
       to: ClaimOwner,
       activation: string,
       expires = Date.now() + 60_000,
     ) =>
       store.requestTransfer(
         to,
-        'task:shared',
+        field === 'transfer'
+          ? { field, reference: 'task:shared' }
+          : {
+              field,
+              claim: (await store.claims()).find(
+                (entry) => entry.owner.conversation === owner.conversation,
+              )!,
+            },
         { activation, process: requester, expires },
         Date.now() + 5000,
         verify,
@@ -513,110 +526,189 @@ async function transferFixture(register: RegisterCleanup) {
     handOver: (
       id: string,
       refusal: () => string | undefined = () => undefined,
-    ) => store.handOver(owner, id, Date.now() + 5000, verify, refusal),
+    ) => store.handOver(owner, id, Date.now() + 5000, verify, refusal, field),
   };
 }
 
 const taker = { conversation: 'b', project: 'project-p' };
 
-test("a transfer moves the claim with its identity and drops the requester's suggestion", async (t) => {
-  const f = await transferFixture(orderedCleanup(t.onTestFinished));
-  const original = await claim(f.store, owner, {
-    ...input,
-    aliases: ['task:alias'],
-  });
-  const assigned = await f.store.recordAssignment(
-    original.id,
-    ['github:o/r#1'],
-    Date.now() + 5000,
-    verify,
+test('automatic transfer never follows a released reference onto a replacement claim', async (t) => {
+  const f = await transferFixture(
+    orderedCleanup(t.onTestFinished),
+    'automaticTransfer',
   );
+  const original = await claim(f.store);
+  await release(f.store, owner, original.id);
+  const replacement = await claim(f.store);
   const { activation } = await f.hold();
-  const scope = { owner: taker, activation, turn: randomUUID() };
-  const { ticket } = await f.store.beginSelection(
-    scope,
-    Date.now() + 5000,
-    verify,
+  await assert.rejects(
+    f.store.requestTransfer(
+      taker,
+      { field: 'automaticTransfer', claim: original },
+      { activation, process: f.requester, expires: Date.now() + 5000 },
+      Date.now() + 5000,
+      verify,
+    ),
+    /conflicting claim was released/,
   );
-  await f.store.recommend(
-    scope,
-    ticket.id,
-    { reference: 'task:suggested', summary: 'Suggested work' },
-    identity,
-    Date.now() + 5000,
-    verify,
-  );
-  await f.request(taker, activation);
-  const moved = await f.handOver(original.id);
-  assert.deepEqual(await f.store.claims(), [moved]);
-  assert.deepEqual(moved, {
-    ...assigned,
-    owner: taker,
-    process: f.requester,
-    movedFrom: owner,
-  });
+  assert.deepEqual(await f.store.claims(), [replacement]);
 });
 
-test('a second requester is refused while a transfer is pending or refused', async (t) => {
-  const f = await transferFixture(orderedCleanup(t.onTestFinished));
+test('automatic transfer refuses a claim that moved since the conflict', async (t) => {
+  const f = await transferFixture(orderedCleanup(t.onTestFinished), 'transfer');
   const original = await claim(f.store);
   await f.request(taker, (await f.hold()).activation);
+  const moved = await f.handOver(original.id);
   const third = { conversation: 'c', project: 'project-p' };
-  const { activation } = await f.hold();
-  for (const refusal of [undefined, 'It is running.']) {
-    if (refusal) await f.handOver(original.id, () => refusal);
+  await assert.rejects(
+    f.store.requestTransfer(
+      third,
+      { field: 'automaticTransfer', claim: original },
+      {
+        activation: (await f.hold()).activation,
+        process: identity,
+        expires: Date.now() + 5000,
+      },
+      Date.now() + 5000,
+      verify,
+    ),
+    ClaimConflict,
+  );
+  assert.deepEqual(await f.store.claims(), [moved]);
+});
+
+for (const field of ['transfer', 'automaticTransfer'] as const)
+  test(`${field} excludes a competing request of the other kind`, async (t) => {
+    const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
+    const original = await claim(f.store);
+    await f.request(taker, (await f.hold()).activation);
     const before = await readFile(f.file, 'utf8');
     await assert.rejects(
-      f.request(third, activation),
-      /Another conversation is already taking this task\./,
+      f.store.requestTransfer(
+        { conversation: 'c', project: 'project-p' },
+        field === 'transfer'
+          ? { field: 'automaticTransfer', claim: original }
+          : { field: 'transfer', reference: 'task:shared' },
+        {
+          activation: (await f.hold()).activation,
+          process: identity,
+          expires: Date.now() + 5000,
+        },
+        Date.now() + 5000,
+        verify,
+      ),
     );
     assert.equal(await readFile(f.file, 'utf8'), before);
-  }
-});
-
-test("a refusal stays on the request, and a withdrawal clears only the requester's own request", async (t) => {
-  const f = await transferFixture(orderedCleanup(t.onTestFinished));
-  const original = await claim(f.store);
-  const { activation } = await f.hold();
-  await f.request(taker, activation);
-  const refused = await f.handOver(original.id, () => 'It is running.');
-  assert.equal(refused?.transfer?.refusal, 'It is running.');
-  assert.equal(await f.handOver(original.id), undefined);
-  assert.deepEqual(await f.store.claims(), [refused]);
-  const withdraw = (from: string) =>
-    f.store.withdrawTransfer(from, original.id, Date.now() + 5000, verify);
-  assert.deepEqual(await withdraw(randomUUID()), refused);
-  assert.deepEqual(await withdraw(activation), original);
-  assert.deepEqual(await f.store.claims(), [original]);
-});
-
-test('a hand-over refuses a requester that has since claimed another task', async (t) => {
-  const f = await transferFixture(orderedCleanup(t.onTestFinished));
-  const original = await claim(f.store);
-  await f.request(taker, (await f.hold()).activation);
-  const other = await claim(f.store, taker, {
-    reference: 'task:other',
-    summary: 'Other task',
   });
-  const refused = await f.handOver(original.id);
-  assert.deepEqual(refused?.owner, owner);
-  assert.equal(
-    refused?.transfer?.refusal,
-    'The requesting conversation holds another task. Release it there, then run /task take again.',
-  );
-  assert.deepEqual(await f.store.claims(), [refused, other]);
-});
 
-test('reconcile drops a transfer whose requester activation is released or whose wait expired', async (t) => {
-  const f = await transferFixture(orderedCleanup(t.onTestFinished));
-  const original = await claim(f.store);
-  const left = await f.hold();
-  await f.request(taker, left.activation);
-  await left.close();
-  assert.deepEqual(await f.store.claims(), [original]);
-  await f.request(taker, (await f.hold()).activation, Date.now() + 50);
-  await delay(100);
-  assert.deepEqual(await f.store.claims(), [original]);
-  assert.equal(await f.handOver(original.id), undefined);
-  assert.deepEqual(await f.store.claims(), [original]);
-});
+for (const field of ['transfer', 'automaticTransfer'] as const) {
+  test(`${field}: a transfer moves the claim with its identity and drops the requester's suggestion`, async (t) => {
+    const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
+    const original = await claim(f.store, owner, {
+      ...input,
+      aliases: ['task:alias'],
+    });
+    const assigned = await f.store.recordAssignment(
+      original.id,
+      ['github:o/r#1'],
+      Date.now() + 5000,
+      verify,
+    );
+    const { activation } = await f.hold();
+    const scope = { owner: taker, activation, turn: randomUUID() };
+    const { ticket } = await f.store.beginSelection(
+      scope,
+      Date.now() + 5000,
+      verify,
+    );
+    await f.store.recommend(
+      scope,
+      ticket.id,
+      { reference: 'task:suggested', summary: 'Suggested work' },
+      identity,
+      Date.now() + 5000,
+      verify,
+    );
+    await f.request(taker, activation);
+    const moved = await f.handOver(original.id);
+    assert.deepEqual(await f.store.claims(), [moved]);
+    assert.deepEqual(moved, {
+      ...assigned,
+      owner: taker,
+      process: f.requester,
+      movedFrom: owner,
+    });
+  });
+
+  test(`${field}: a second requester is refused while a transfer is pending or refused`, async (t) => {
+    const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
+    const original = await claim(f.store);
+    await f.request(taker, (await f.hold()).activation);
+    const third = { conversation: 'c', project: 'project-p' };
+    const { activation } = await f.hold();
+    for (const refusal of [undefined, 'It is running.']) {
+      if (refusal) await f.handOver(original.id, () => refusal);
+      const before = await readFile(f.file, 'utf8');
+      await assert.rejects(
+        f.request(third, activation),
+        field === 'transfer'
+          ? /Another conversation is already taking this task\./
+          : ClaimConflict,
+      );
+      assert.equal(await readFile(f.file, 'utf8'), before);
+    }
+  });
+
+  test(`${field}: a refusal stays on the request, and a withdrawal clears only the requester's own request`, async (t) => {
+    const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
+    const original = await claim(f.store);
+    const { activation } = await f.hold();
+    await f.request(taker, activation);
+    const refused = await f.handOver(original.id, () => 'It is running.');
+    assert.equal(refused?.[field]?.refusal, 'It is running.');
+    assert.equal(await f.handOver(original.id), undefined);
+    assert.deepEqual(await f.store.claims(), [refused]);
+    const withdraw = (from: string) =>
+      f.store.withdrawTransfer(
+        from,
+        original.id,
+        Date.now() + 5000,
+        verify,
+        field,
+      );
+    assert.deepEqual(await withdraw(randomUUID()), refused);
+    assert.deepEqual(await withdraw(activation), original);
+    assert.deepEqual(await f.store.claims(), [original]);
+  });
+
+  test(`${field}: a hand-over refuses a requester that has since claimed another task`, async (t) => {
+    const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
+    const original = await claim(f.store);
+    await f.request(taker, (await f.hold()).activation);
+    const other = await claim(f.store, taker, {
+      reference: 'task:other',
+      summary: 'Other task',
+    });
+    const refused = await f.handOver(original.id);
+    assert.deepEqual(refused?.owner, owner);
+    assert.equal(
+      refused?.[field]?.refusal,
+      'The requesting conversation holds another task. Release it there, then run /task take again.',
+    );
+    assert.deepEqual(await f.store.claims(), [refused, other]);
+  });
+
+  test(`${field}: reconcile drops a transfer whose requester activation is released or whose wait expired`, async (t) => {
+    const f = await transferFixture(orderedCleanup(t.onTestFinished), field);
+    const original = await claim(f.store);
+    const left = await f.hold();
+    await f.request(taker, left.activation);
+    await left.close();
+    assert.deepEqual(await f.store.claims(), [original]);
+    await f.request(taker, (await f.hold()).activation, Date.now() + 50);
+    await delay(100);
+    assert.deepEqual(await f.store.claims(), [original]);
+    assert.equal(await f.handOver(original.id), undefined);
+    assert.deepEqual(await f.store.claims(), [original]);
+  });
+}

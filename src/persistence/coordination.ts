@@ -22,6 +22,8 @@ import type {
   SelectionTicket,
   TaskClaim,
   Transfer,
+  TransferField,
+  TransferTarget,
 } from '../core/coordination-state.js';
 import type { ProcessIdentity } from '../core/state.js';
 import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
@@ -354,17 +356,32 @@ export class CoordinationStore {
 
   async requestTransfer(
     to: ClaimOwner,
-    reference: string,
+    target: TransferTarget,
     request: Pick<Transfer, 'activation' | 'process' | 'expires'>,
     deadline: number,
     verify: (ledger: Ledger) => Promise<void>,
   ): Promise<TaskClaim> {
-    const normalized = taskReference(reference, to.project);
+    const normalized =
+      target.field === 'transfer'
+        ? taskReference(target.reference, to.project)
+        : undefined;
     return this.mutate(deadline, verify, (ledger) => {
       const claim = ledger.claims.find((claim) =>
-        claim.references.includes(normalized),
+        target.field === 'automaticTransfer'
+          ? claim.id === target.claim.id
+          : claim.references.includes(normalized!),
       );
-      if (!claim) throw new Error(`No other conversation holds ${reference}.`);
+      if (!claim)
+        throw new Error(
+          target.field === 'transfer'
+            ? `No other conversation holds ${target.reference}.`
+            : 'The conflicting claim was released. Claim it again.',
+        );
+      if (
+        target.field === 'automaticTransfer' &&
+        (!sameOwner(claim.owner, target.claim.owner) || claim.suggestion)
+      )
+        throw new ClaimConflict(claim);
       if (claim.owner.conversation === to.conversation)
         throw new Error('This conversation already holds this task.');
       if (
@@ -374,9 +391,19 @@ export class CoordinationStore {
         )
       )
         throw new Error('Release the current task before taking another.');
-      if (claim.transfer && claim.transfer.to.conversation !== to.conversation)
+      if (
+        (['transfer', 'automaticTransfer'] as const).some(
+          (field) =>
+            claim[field] &&
+            (field !== target.field ||
+              claim[field].to.conversation !== to.conversation),
+        )
+      ) {
+        if (target.field === 'automaticTransfer')
+          throw new ClaimConflict(claim);
         throw new Error('Another conversation is already taking this task.');
-      claim.transfer = { to, ...request };
+      }
+      claim[target.field] = { to, ...request };
       return claim;
     });
   }
@@ -388,10 +415,11 @@ export class CoordinationStore {
     deadline: number,
     verify: (ledger: Ledger) => Promise<void>,
     refusal: () => string | undefined,
+    field: TransferField = 'transfer',
   ): Promise<TaskClaim | undefined> {
     return this.mutate(deadline, verify, (ledger) => {
       const claim = ledger.claims.find((claim) => claim.id === id);
-      const transfer = claim?.transfer;
+      const transfer = claim?.[field];
       if (
         !claim ||
         !transfer ||
@@ -400,12 +428,16 @@ export class CoordinationStore {
       )
         return undefined;
       const { to } = transfer;
-      const reason = ledger.claims.some(
-        (entry) =>
-          entry.owner.conversation === to.conversation && !entry.suggestion,
-      )
-        ? 'The requesting conversation holds another task. Release it there, then run /task take again.'
-        : refusal();
+      const reason =
+        field === 'automaticTransfer' && claim.suggestion
+          ? 'The task is only a suggestion.'
+          : ledger.claims.some(
+                (entry) =>
+                  entry.owner.conversation === to.conversation &&
+                  !entry.suggestion,
+              )
+            ? 'The requesting conversation holds another task. Release it there, then run /task take again.'
+            : refusal();
       if (reason) {
         transfer.refusal = reason;
         return claim;
@@ -420,6 +452,7 @@ export class CoordinationStore {
       claim.process = transfer.process;
       claim.movedFrom = owner;
       delete claim.transfer;
+      delete claim.automaticTransfer;
       delete claim.suggestion;
       return claim;
     });
@@ -431,10 +464,11 @@ export class CoordinationStore {
     id: string,
     deadline: number,
     verify: (ledger: Ledger) => Promise<void>,
+    field: TransferField = 'transfer',
   ): Promise<TaskClaim | undefined> {
     return this.mutate(deadline, verify, (ledger) => {
       const claim = ledger.claims.find((claim) => claim.id === id);
-      if (claim?.transfer?.activation === activation) delete claim.transfer;
+      if (claim?.[field]?.activation === activation) delete claim[field];
       return claim;
     });
   }
@@ -575,7 +609,11 @@ export class CoordinationStore {
       this.activeActivations(
         [
           ...ledger.selections.map((ticket) => ticket.activation),
-          ...ledger.claims.flatMap((claim) => claim.transfer?.activation ?? []),
+          ...ledger.claims.flatMap((claim) =>
+            [claim.transfer, claim.automaticTransfer].flatMap(
+              (request) => request?.activation ?? [],
+            ),
+          ),
         ],
         options,
       ),
@@ -592,12 +630,17 @@ export class CoordinationStore {
             : opened.has(claim.owner.conversation),
         )
         .map((claim) => {
-          const { transfer, ...kept } = claim;
+          const kept = { ...claim };
           // a requester that left, died or stopped waiting abandons its request
-          return !transfer ||
-            (active.has(transfer.activation) && transfer.expires > now)
-            ? claim
-            : kept;
+          for (const field of ['transfer', 'automaticTransfer'] as const) {
+            const transfer = kept[field];
+            if (
+              transfer &&
+              (!active.has(transfer.activation) || transfer.expires <= now)
+            )
+              delete kept[field];
+          }
+          return kept;
         }),
       selections: ledger.selections.filter((ticket) =>
         active.has(ticket.activation),

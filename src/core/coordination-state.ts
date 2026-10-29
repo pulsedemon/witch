@@ -28,6 +28,14 @@ export const selectionStateSchema = z.object({
   position: z.number().int().positive(),
 });
 
+const transferRequestSchema = z.object({
+  to: claimOwnerSchema,
+  activation: z.string().uuid(),
+  process: processIdentity,
+  expires: z.number(),
+  refusal: z.string().optional(),
+});
+
 export const taskClaimSchema = z.object({
   id: z.string().uuid(),
   owner: claimOwnerSchema,
@@ -41,16 +49,9 @@ export const taskClaimSchema = z.object({
       selection: z.string().uuid(),
     })
     .optional(),
-  /** a user's request in another conversation to move this claim there, answered by the owner's Witch. */
-  transfer: z
-    .object({
-      to: claimOwnerSchema,
-      activation: z.string().uuid(),
-      process: processIdentity,
-      expires: z.number(),
-      refusal: z.string().optional(),
-    })
-    .optional(),
+  transfer: transferRequestSchema.optional(),
+  // older owners must ignore automatic requests rather than treat them as a user's transfer.
+  automaticTransfer: transferRequestSchema.optional(),
   movedFrom: claimOwnerSchema.optional(),
 });
 
@@ -124,6 +125,10 @@ export type ClaimInput = z.infer<typeof claimInputSchema>;
 export type ClaimOwner = z.infer<typeof claimOwnerSchema>;
 export type TaskClaim = z.infer<typeof taskClaimSchema>;
 export type Transfer = NonNullable<TaskClaim['transfer']>;
+export type TransferTarget =
+  | { field: 'transfer'; reference: string }
+  | { field: 'automaticTransfer'; claim: TaskClaim };
+export type TransferField = TransferTarget['field'];
 export type SelectionScope = z.infer<typeof selectionScopeSchema>;
 export type SelectionTicket = z.infer<typeof selectionTicketSchema>;
 export type SelectionState = z.infer<typeof selectionStateSchema>;
