@@ -856,6 +856,12 @@ export class Coordinator {
     await this.coordination.releaseTask();
   }
 
+  async takeTask(reference: string): Promise<void> {
+    if (!this.coordination)
+      throw new Error('Session coordination is unavailable.');
+    await this.coordination.takeTask(reference);
+  }
+
   private async handoff(selection: ModelSelection): Promise<void> {
     const { agent } = selection;
     const conversation = this.current();
