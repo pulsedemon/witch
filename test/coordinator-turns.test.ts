@@ -1142,8 +1142,8 @@ test('after the reply, a listed spell steers trimmed with its call, and an unlis
     await within(gate.entered, 2000, 'the gated turn');
     a.replied = true;
     await coordinator.send(' /review now');
-    await coordinator.send('/clear');
-    assert.deepEqual(a.steers, ['/review now', '/clear']);
+    await coordinator.send('/unlisted-command');
+    assert.deepEqual(a.steers, ['/review now', '/unlisted-command']);
     assert.deepEqual(a.skillSteers, [{ name: 'review', args: 'now' }]);
     assert.deepEqual(coordinator.snapshot.queue, []);
     gate.open();

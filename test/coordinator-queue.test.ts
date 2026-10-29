@@ -58,7 +58,7 @@ for (const [name, prompt] of [
     '  /var/folders/xx/a.png\nwhat is this',
   ],
   ["a path under a listed spell's name", '/review/notes.md is stale'],
-  ['an unlisted command', '/clear'],
+  ['an unlisted command', '/unlisted-command'],
 ] as const)
   test(`a prompt that starts with ${name} steers into the running turn`, async () => {
     const { coordinator, a } = await fixture(undefined, (a) => {
