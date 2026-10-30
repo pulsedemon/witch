@@ -13,6 +13,7 @@ import {
   headroom,
   over,
   USAGE_CURRENT_MS,
+  USAGE_PROBE_MS,
   usageContext,
 } from '../src/core/usage.js';
 import { FixtureAgent } from './fixtures/agent.js';
@@ -202,6 +203,38 @@ test('a connect reads the other runtimes', async () => {
   usage.connected(live('a'), '/w');
   await Promise.resolve();
   assert.equal(b.limitReads.length, 1);
+});
+
+test('a probe that never answers is stopped at its bound, so a later read starts again', async () => {
+  const { b, usage } = readings();
+  let signal: AbortSignal | undefined;
+  b.limitsRead = (options: ModelDiscoveryOptions) => {
+    signal = options.signal;
+    return new Promise((_, reject) =>
+      options.signal!.addEventListener('abort', () =>
+        reject(options.signal!.reason),
+      ),
+    );
+  };
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const probing = usage.refresh('b', '/w');
+    vi.advanceTimersByTime(USAGE_PROBE_MS - 1);
+    assert.equal(signal!.aborted, false);
+    vi.advanceTimersByTime(1);
+    await probing;
+    assert.match(String(signal!.reason), /b usage read timed out/);
+  } finally {
+    vi.useRealTimers();
+  }
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + USAGE_CURRENT_MS + 1);
+  try {
+    b.limitsRead = undefined;
+    await usage.refresh('b', '/w');
+    assert.equal(b.limitReads.length, 2);
+  } finally {
+    vi.restoreAllMocks();
+  }
 });
 
 test('close stops a probe in flight with the stop options, and later reads start nothing', async () => {

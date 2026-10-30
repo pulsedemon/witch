@@ -5,6 +5,9 @@ import type { AgentSession, AgentStopOptions, Limit } from '../agents/types.js';
 /** a chosen bound: usage within a window only grows, so an older reading can hide a limit already reached. */
 export const USAGE_CURRENT_MS = 10 * 60_000;
 
+/** a probe that hasn't answered by then is stopped, so a hung CLI doesn't hold its runtime's read. */
+export const USAGE_PROBE_MS = 30_000;
+
 /** observed within `USAGE_CURRENT_MS` and, when the window has a reset, before it. */
 export function current(limit: Limit, now: number): boolean {
   return (
@@ -150,6 +153,11 @@ export class AccountUsage {
     );
     if (!registration) return;
     const abort = new AbortController();
+    const timer = setTimeout(
+      () => abort.abort(new Error(`${agent} usage read timed out`)),
+      USAGE_PROBE_MS,
+    );
+    timer.unref();
     const reports = this.reports.get(agent) ?? 0;
     const probe = registration.adapter
       .limits(
@@ -162,7 +170,10 @@ export class AccountUsage {
       })
       // a failed read leaves the reading to age until the next attempt
       .catch(() => {})
-      .finally(() => this.probes.delete(abort));
+      .finally(() => {
+        clearTimeout(timer);
+        this.probes.delete(abort);
+      });
     this.probes.set(abort, probe);
     return probe;
   }

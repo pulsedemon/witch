@@ -413,11 +413,11 @@ class CodexSession implements AgentSession {
   >();
   /** the account limit the windows belong to, and its windows by slot, which a sparse update merges into. */
   private limitId?: string;
-  private limitsRead?: Promise<void>;
   private readonly windows: {
     primary?: ObservedWindow;
     secondary?: ObservedWindow;
   } = {};
+  private limitsRead?: Promise<void>;
 
   constructor(
     private readonly rpc: JsonRpc,

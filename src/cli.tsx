@@ -70,7 +70,7 @@ Agent control (use the prefix supplied in the current Witch context):
   --cancel-selection <id>  leave this turn's queue
   --route <work>      choose where review, planning, implementation or investigation goes
   --of <runtime>:<model>    the runtime and model whose work a review checks
-  --named <runtime>:<model> a model or family the user or agent named, which runs as named
+  --named <runtime>:<model> a model the user or agent named, which runs as named, or a family, at its newest
   --json              print the control result as JSON
 
 Delegated tasks (use the familiar prefix supplied in the current Witch context):

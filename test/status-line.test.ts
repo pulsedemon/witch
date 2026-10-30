@@ -134,7 +134,17 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its 
     stripAnsi(first),
     '? | DEFAULT | 0M | 5H 69% 7D 70%  0M OLD 30D 90%',
   );
+  assert.ok(first.includes('5H 69% '), first);
   assert.ok(first.includes('\u001b[2m7D 70%  0M OLD\u001b[22m'), first);
+  const [yellow] = statusLines(
+    {
+      usage: {},
+      limits: [{ window: '7D', percent: 70, observedAt: now }],
+      cwd: '/w',
+    },
+    now,
+  );
+  assert.ok(yellow.includes('7D \u001b[33m70%\u001b[39m'), yellow);
   assert.ok(first.includes('30D \u001b[31m90%\u001b[39m'), first);
   const bar = (context: number) =>
     statusLines({ usage: { context }, cwd: '/w' }, now)[1];
