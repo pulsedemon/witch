@@ -210,19 +210,28 @@ test('only a supporting session receives familiar instructions and the exact use
   assert.doesNotMatch(input.context!, /run_in_background/);
   await client.coordinator.send(prompt);
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
-  const codex = input;
   const before = client.coordination.commandPrefixes().familiar;
   const native = client.a.sessions[0]!.session;
   const { familiar } = native;
   await native.close();
   const connect = client.a.connect.bind(client.a);
+  // a Claude session launches its familiar with Bash
   client.a.connect = async (options) => {
     const session = await connect(options);
     session.familiar = familiar;
+    const info = Object.getOwnPropertyDescriptor(session, 'info')!.get!;
+    Object.defineProperty(session, 'info', {
+      get: () => ({ ...info.call(session), agent: 'claude' }),
+    });
     return session;
   };
   await client.coordinator.send(prompt);
-  assert.equal(client.a.inputs.at(-1)!.session, codex.session);
+  assert.equal(client.a.inputs.at(-1)!.session, input.session);
+  assert.match(
+    client.a.inputs.at(-1)!.context!,
+    /Use native Bash with run_in_background: true and keep its stdout connected/,
+  );
+  assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /require_escalated/);
   assert.notEqual(client.coordination.commandPrefixes().familiar, before);
   assert.ok(
     client.a.inputs

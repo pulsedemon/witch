@@ -52,6 +52,7 @@ function ask(
     policy?: Partial<Policy>;
     limits?: Record<string, Limit[]>;
     catalog?: Catalog;
+    installed?: string[];
   } = {},
 ) {
   return route({
@@ -60,7 +61,7 @@ function ask(
     of: fields.of,
     named: fields.named,
     policy: { ...defaultPolicy, ...fields.policy },
-    installed,
+    installed: fields.installed ?? installed,
     catalog: fields.catalog ?? catalog,
     limits: fields.limits ?? fresh,
     now,
@@ -286,6 +287,44 @@ test('no shift happens when the chosen runtime has no current window over the le
       }) as { runtime: string }
     ).runtime,
     'claude',
+  );
+});
+
+test('a runtime that is not installed, a missing other runtime and an unset family are refused', () => {
+  const alone = { installed: ['claude'] };
+  for (const [fields, refused] of [
+    [
+      { named: { runtime: 'codex', model: 'gpt-6-sol' } },
+      'codex is not installed',
+    ],
+    [
+      { policy: { work: { review: 'codex' } }, work: 'review' },
+      'codex is not installed',
+    ],
+    [
+      { work: 'review', of: { runtime: 'codex', model: 'gpt-6-sol' } },
+      'codex is not installed',
+    ],
+    [
+      { policy: { work: { review: 'other' } }, work: 'review' },
+      'no runtime besides claude is installed',
+    ],
+  ] as const)
+    assert.deepEqual(ask({ ...alone, ...fields }), { refused }, refused);
+  assert.deepEqual(ask({ policy: { families: { codex: 'sol' } } }), {
+    refused: 'no family is set for claude',
+  });
+});
+
+test('a runtime over the level stays when no other runtime is installed, and the reason says so', () => {
+  assert.deepEqual(
+    ask({ installed: ['claude'], limits: { claude: [window('7D', 95)] } }),
+    {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason:
+        'implementation stays on claude; claude 7D 95% is at or over 90%, but no other runtime is installed',
+    },
   );
 });
 

@@ -232,3 +232,18 @@ test('interrupting model refresh settlement keeps the session and cancels the pi
     await coordinator.close();
   }
 });
+
+test('the snapshot carries the family aliases read at connect and again on a model refresh', async () => {
+  const { coordinator, a } = await fixture(undefined, (a) => {
+    a.latest = async () => ({ opus: 'a-opus-2' });
+  });
+  try {
+    await until('the connect read', () => !!coordinator.snapshot.latest.a);
+    assert.deepEqual(coordinator.snapshot.latest, { a: { opus: 'a-opus-2' } });
+    a.latest = async () => ({ opus: 'a-opus-3' });
+    assert.equal(await coordinator.refreshModels(), true);
+    assert.deepEqual(coordinator.snapshot.latest, { a: { opus: 'a-opus-3' } });
+  } finally {
+    await coordinator.close();
+  }
+});

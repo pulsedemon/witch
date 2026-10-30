@@ -23,7 +23,7 @@ export const policySchema = z.object({
 });
 export type Policy = z.infer<typeof policySchema>;
 
-/** chosen defaults; no kind of work goes to another runtime until the user says so. */
+/** chosen defaults; no kind of work is sent to another runtime until the user says so, but usage at `shiftAt` still shifts new work. */
 export const defaultPolicy: Policy = {
   shiftAt: 90,
   families: { claude: 'opus', codex: 'sol' },
@@ -61,7 +61,7 @@ function newer(a: string, b: string): boolean {
   return false;
 }
 
-/** a family's newest model: a runtime's alias from `latest`, else the highest-versioned `<prefix>-<version>-<family>` id. */
+/** a family's newest model: a runtime that reports `latest` aliases resolves only through them, any other its highest-versioned `<prefix>-<version>-<family>` id. */
 function newest(
   runtime: string,
   family: string,
@@ -150,6 +150,8 @@ export function route({
       : `; ${state}`;
   };
   if (named) {
+    if (!installed.includes(named.runtime))
+      return { refused: `${named.runtime} is not installed` };
     const resolved = resolve(named.runtime, named.model, catalog);
     if ('refused' in resolved) return resolved;
     return {
@@ -168,7 +170,7 @@ export function route({
       refused:
         kind === 'other'
           ? `no runtime besides ${base} is installed`
-          : `${kind} is not installed`,
+          : `${runtime ?? kind} is not installed`,
     };
   const choose = (id: string) =>
     pinned && id === runtime

@@ -10,7 +10,7 @@ import { errorMessage } from './agents/stderr.js';
 import { callControl } from './persistence/control.js';
 import type { ControlBinding } from './persistence/control.js';
 
-/** outranks every settings file, so the routed model runs as named and an overload doesn't switch it. */
+/** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it. */
 const settings = JSON.stringify({
   env: {
     CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP: '1',

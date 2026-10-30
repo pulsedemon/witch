@@ -173,11 +173,13 @@ const live = (agent: string, readLimits?: () => Promise<void>) =>
 
 test('the live runtime reads through its session once its connect read ages, and a session that cannot read starts nothing', async () => {
   const { b, usage } = readings();
+  const { usage: other, b: silent } = readings();
   let reads = 0;
   usage.connected(
     live('b', async () => void reads++),
     '/w',
   );
+  other.connected(live('b'), '/w');
   await usage.refresh('b', '/w');
   assert.equal(reads, 0);
   vi.spyOn(Date, 'now').mockReturnValue(Date.now() + USAGE_CURRENT_MS + 1);
@@ -185,8 +187,6 @@ test('the live runtime reads through its session once its connect read ages, and
     await usage.refresh('b', '/w');
     assert.equal(reads, 1);
     assert.equal(b.limitReads.length, 0);
-    const { usage: other, b: silent } = readings();
-    other.connected(live('b'), '/w');
     await other.refresh('b', '/w');
     assert.equal(silent.limitReads.length, 0);
   } finally {
@@ -218,7 +218,12 @@ test('close stops a probe in flight with the stop options, and later reads start
   await probing;
   assert.ok(signal!.reason instanceof NativeStop);
   assert.deepEqual((signal!.reason as NativeStop).options, stop);
-  await usage.refresh('b', '/w');
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + USAGE_CURRENT_MS + 1);
+  try {
+    await usage.refresh('b', '/w');
+  } finally {
+    vi.restoreAllMocks();
+  }
   assert.equal(b.limitReads.length, 1);
   assert.deepEqual(published, []);
 });

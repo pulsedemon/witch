@@ -126,7 +126,7 @@ export class ClaudeAdapter implements AgentAdapter {
     });
   }
 
-  /** settings files and `ANTHROPIC_DEFAULT_*_MODEL` can pin an alias to an older model, so neither applies. */
+  /** settings files, `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_*_MODEL` can pin an alias to an older model, so none applies. */
   latest(options: ModelDiscoveryOptions): Promise<Record<string, string>> {
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
