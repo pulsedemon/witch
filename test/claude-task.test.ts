@@ -88,6 +88,62 @@ test('native permission denials remain in the final report even when the review 
   );
 });
 
+const skill = (id: string, name: string, nested = {}) => ({
+  ...read,
+  ...nested,
+  message: {
+    model: 'native-model',
+    content: [{ type: 'tool_use', id, name: 'Skill', input: { skill: name } }],
+  },
+});
+
+test("a delegated Claude's spell call and familiar denial show Witch's names, and its spells, its own familiars' included, are reported once each", () => {
+  const events: FamiliarProgress[] = [];
+  const task = new ClaudeTask('/work', (progress) => events.push(progress));
+  task.message(init);
+  assert.equal('spells' in events.at(-1)!, false);
+  task.message(skill('skill-1', 'review'));
+  assert.equal(events.at(-1)!.activity, 'Spell  review');
+  assert.deepEqual(events.at(-1)!.spells, [{ id: 'skill-1', name: 'review' }]);
+  const nested = skill('nested-1', 'tdd', {
+    parent_tool_use_id: 'agent-tool',
+    agent_id: 'helper',
+  });
+  task.message(nested);
+  task.message(nested);
+  task.message(skill('skill-1', 'review'));
+  assert.equal(events.length, 3);
+  assert.deepEqual(events.at(-1), {
+    status: 'running',
+    model: 'native-model',
+    tools: 1,
+    activity: 'Spell  review',
+    spells: [
+      { id: 'skill-1', name: 'review' },
+      { id: 'nested-1', name: 'tdd' },
+    ],
+  });
+  task.message({
+    ...success,
+    permission_denials: [
+      {
+        tool_name: 'Agent',
+        tool_use_id: 'denied-1',
+        tool_input: { description: 'Fix lint', prompt: 'fix it' },
+      },
+    ],
+  });
+  const closed = task.closed(0, null);
+  assert.equal(
+    closed.report,
+    'Reviewed.\n\nPermission denied: Familiar  Fix lint',
+  );
+  assert.deepEqual(closed.spells, [
+    { id: 'skill-1', name: 'review' },
+    { id: 'nested-1', name: 'tdd' },
+  ]);
+});
+
 test('delegated Claude observes assistant model changes', () => {
   const events: FamiliarProgress[] = [];
   const task = new ClaudeTask('/work', (progress) => events.push(progress));

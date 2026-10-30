@@ -24,11 +24,11 @@ cd project && witch
 
 Flags and the state default are in `witch --help`. Use `/help` for keyboard controls and `Ctrl+P` for commands.
 
-Use `/compact` while idle to compact the current native conversation. Automatic compaction follows the [coordinator's pre-turn policy](src/core/coordinator.ts).
+[Witch commands and compaction](docs/rules.md#witch-commands-and-compaction) describe command sequences, quoted command names and compaction during work.
 
 Other Witch sessions and exclusive task claims are described under [session coordination](docs/rules.md#session-coordination).
 
-Codex and Claude can delegate work to each other through the [familiar reporting path](docs/rules.md#native-adapters-and-execution), with native identity, activity and a saved report.
+Agents delegate work through the [familiar reporting path](docs/rules.md#native-adapters-and-execution) on either runtime, with native identity, activity and a saved report. `/delegation` sets where each kind of work goes, each runtime's model family and the usage level that shifts new work to a runtime with room.
 
 For a moved project directory, use the directory-recovery commands in `witch --help` from its replacement directory. Preview first; applying recovery requires every Witch using that state directory to be closed and retains the original files in a backup.
 
@@ -53,7 +53,7 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
-Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs `pnpm lint` across the working tree: the existing [ESLint configuration](eslint.config.js), then Prettier's formatting check. Fix reported errors, or run `pnpm format` for formatting, and retry the commit. The [ci workflow](.github/workflows/ci.yml) runs the complete `pnpm check` on Linux.
+Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which runs the lint checks defined in [package.json](package.json). Fix reported errors, or run `pnpm format` for formatting, and retry the commit. The [ci workflow](.github/workflows/ci.yml) runs the complete `pnpm check` on Linux.
 
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Keep `TMPDIR` outside that copy so fixtures that model non-repositories do not inherit its Git identity. Running the app and native checks requires the [installation prerequisites](#install).
 
@@ -73,10 +73,10 @@ Watch a selected file, or pause its worker for a source debugger:
 
 ```sh
 pnpm exec vitest --watch test/rpc.test.ts --clearScreen=false
-pnpm exec vitest run test/rpc.test.ts --inspect-brk=127.0.0.1:9229 --no-file-parallelism
+pnpm exec vitest run test/rpc.test.ts --inspect-brk=127.0.0.1:9229 --no-file-parallelism --testTimeout=0 --hookTimeout=0
 ```
 
-Fixture edits rerun the selected watch set, including fixtures loaded only by spawned children. Press `q` to quit watch mode. Attach a Node Inspector client to the printed address to set TypeScript source breakpoints and inspect locals, then resume execution.
+Fixture edits rerun the selected watch set, including fixtures loaded only by spawned children. Press `q` to quit watch mode. Attach a Node Inspector client to the printed address to set TypeScript source breakpoints and inspect locals, then resume execution. The timeout flags turn off the configured test and hook timeouts, which keep counting while a breakpoint pauses the worker.
 
 Confirm before running `pnpm test:integration`: it runs real turns with your native logins and spends account usage. Set `WITCH_CODEX_MODEL` to choose its Codex model.
 
@@ -93,4 +93,76 @@ python3 scripts/check-scratch-lifetime.py "$PWD/dist/cli.js"
 
 To add another installed agent, implement [AgentAdapter](src/agents/types.ts), register it in [registry.ts](src/agents/registry.ts), and add protocol tests that prove its observable turn, approval, cancellation and resume behavior. The coordinator and UI consume the existing contract. What an adapter owns is in the [rules](docs/rules.md).
 
-Tested native versions: Codex 0.162.1 and Claude Code 2.1.299. Dependency versions are owned by [package.json](package.json) and its lockfile. Codex settings updates, Claude idle events and Claude's usage report use experimental native interfaces; rerun protocol and live integration checks when upgrading either CLI.
+The [native protocol manifest](test/fixtures/native/manifest.json) records the tested CLI versions, capture models and launch arguments. Dependency versions are owned by [package.json](package.json) and its lockfile.
+
+Witch uses these experimental or undeclared native interfaces:
+
+| Runtime | Interface                                                                 | Use                                                                |
+| ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Codex   | `thread/settings/update`                                                  | Model and effort changes.                                          |
+| Codex   | `thread/backgroundTerminals/list`, `thread/backgroundTerminals/terminate` | Background command identity and cleanup.                           |
+| Codex   | `runtimeWorkspaceRoots` on `thread/start` and `thread/resume`             | Conversation and memory directory access.                          |
+| Claude  | `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`                                   | Native idle and turn completion.                                   |
+| Claude  | `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`               | Session and account usage.                                         |
+| Claude  | `command_lifecycle`                                                       | Input consumption acknowledgements, outside the SDK message union. |
+| Claude  | `getTaskOutput`                                                           | Background output, implemented but undeclared by the SDK.          |
+
+### Native protocol fixtures
+
+`pnpm exec vitest run test/native-protocol.test.ts test/native-wire.test.ts` runs offline. It replays recorded JSONL through the production adapters and the installed SDK dependency, checks outgoing Codex requests against the generated schema, and retains the separate scripted fixtures for error and race cases. Schema validation checks wire shape; live captures establish the recorded native behavior.
+
+The Claude recording verifies that a result waits for native idle. Its result also acknowledges the original and steered inputs, so scripted fixtures remain responsible for isolating pending-input lifecycle acknowledgements.
+
+After a CLI upgrade, confirm the account usage before capturing new evidence. Create a task directory under Witch scratch with `mktemp -d -p "$TMPDIR"`. Generate both schema variants into new directories there:
+
+```sh
+capture_root=$(mktemp -d -p "$TMPDIR" witch-native-XXXXXX)
+codex app-server generate-json-schema --experimental --out "$capture_root/experimental"
+codex app-server generate-json-schema --out "$capture_root/stable"
+```
+
+Capture `basic`, `control`, `background` and `spell` separately for each runtime, using explicit available models and a new output directory each time:
+
+```sh
+pnpm test:record-native --runtime codex --model "$codex_model" --scenario basic --out "$capture_root/codex-basic"
+pnpm test:record-native --runtime claude --model "$claude_model" --scenario basic --out "$capture_root/claude-basic"
+```
+
+The recorder creates synthetic projects, requests only their named command approvals, checks file effects and native cleanup replies, and retains raw traffic locally. Codex uses `on-request` approvals with user review and a read-only sandbox. Claude uses project settings, strict MCP configuration and default approvals. These per-process capture settings do not change the user's native configuration. The output's `normalized` directory replaces personal paths and account identity while preserving protocol fields, values and ID relationships.
+
+Inspect every normalized stream before copying it into `test/fixtures/native/<runtime>/`. Update the manifest from the successful `capture.json` records, including the SDK version, model, launch arguments and capture date. Copy only the complete generated `codex_app_server_protocol.schemas.json` to `codex/protocol.schema.json`, byte for byte, and record its SHA-256 in the manifest. Compare the stable and experimental definitions against the adapter's consumed interfaces to refresh the inventory above. Review schema and trace diffs before changing expected results; never fill missing native events by hand. Rerun the focused tests and the normal verification below. Keep raw captures out of Git and remove owned scratch after checking its processes and open files.
+
+### Final verification before publication
+
+Before a planned push, verify against a freshly fetched main. Keep this work local; the existing hosted workflow and required checks still run normally.
+
+1. Finish and commit the intended edits in the current branch. Require a clean `git status --short`; preserve unrelated work instead of stashing, resetting or deleting it to pass this gate. Fetch main and merge the exact fetched revision, without rebasing:
+
+   ```sh
+   verification_status=$(git status --porcelain) &&
+     test -z "$verification_status" &&
+     git fetch origin main &&
+     verification_base=$(git rev-parse FETCH_HEAD) &&
+     git merge --no-edit "$verification_base" &&
+     git merge-base --is-ancestor "$verification_base" HEAD &&
+     verification_head=$(git rev-parse HEAD) &&
+     git rev-parse "$verification_head" "$verification_base" "${verification_head}^{tree}"
+   ```
+
+   Stop on failure. Resolve merge conflicts before continuing, then repeat the gate. The three printed IDs identify the head, included base and tree to check. Use the disposable-copy rule above when checking an installed checkout.
+
+2. Run the checks required by the change, reusing only qualifying results below. Record those IDs alongside each completed command, exit status and log location in the local, untracked task record. Include dependency installation state, actual Node/pnpm versions, platform and relevant environment or permission settings. Keep records outside the checks' input files; inspect untracked or ignored inputs separately because the tree ID covers only tracked files. Confirm the checked files did not change during the run.
+
+   Reuse a successful result only when that check's complete inputs and environment match. Compare the recorded revision with the candidate, including source, tests, child fixtures, configuration, dependencies and tool versions. Follow the input scope owned by [package.json](package.json), [TypeScript](tsconfig.json), [ESLint](eslint.config.js), [Vitest](vitest.config.ts) and [the build](scripts/build.mjs). Preserve build outputs when the claim depends on them. A different commit with the same tree can reuse results under the same conditions; a docs-only change needs formatting, not another suite run, when the suite's inputs are unchanged. Rerun affected checks when an input changes or a new concern appears; run the full check when the affected scope is uncertain. Failed, interrupted or partial runs cannot establish a successful full check.
+
+3. Immediately before pushing, confirm the recorded head is still current, the checkout is clean and main has not advanced:
+
+   ```sh
+   verification_status=$(git status --porcelain) &&
+     test -z "$verification_status" &&
+     test "$(git rev-parse HEAD)" = "$verification_head" &&
+     git fetch origin main &&
+     test "$(git rev-parse FETCH_HEAD)" = "$verification_base"
+   ```
+
+   A failed fetch stops publication. A changed head or base returns to step 1; compare check inputs before deciding which results need refreshing. Publish the completed change once, without validation-only pushes or hosted reruns. This establishes verification for the recorded base; main can still advance afterward.

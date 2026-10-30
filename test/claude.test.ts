@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { AbortError } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent, Usage, UserRequest } from '../src/agents/types.js';
 import {
   launcher,
@@ -15,6 +16,7 @@ import {
   frameWriter,
 } from './fixtures/claude-adapter.js';
 import { until, within } from './fixtures/within.js';
+import { untimed } from './fixtures/limits.js';
 
 test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
   const { args, connect } = await launcher();
@@ -47,11 +49,23 @@ test('refresh consumes a fresh native catalog without replacing the default syst
   }
 });
 
-test('skills leave out built-ins and the rows they shadow, before and after a native change', async () => {
+test('skills list a built-in once with its own row in place of a row it shadows, and leave out the built-ins Witch sends as text, before and after a native change', async () => {
   const events: AgentEvent[] = [];
   const { session } = await fixture((event) => events.push(event));
+  const nativeCommands = [
+    'autocompact',
+    'output-style',
+    'advisor',
+    'auto-mode-setup',
+  ].map((name) => ({ name, description: 'Native command', builtin: true }));
   try {
     assert.deepEqual(await session.skills(), [
+      {
+        name: 'compact',
+        description: 'Compact the conversation',
+        builtin: true,
+      },
+      ...nativeCommands,
       {
         name: 'review',
         description: 'Review changes',
@@ -64,8 +78,42 @@ test('skills leave out built-ins and the rows they shadow, before and after a na
       [
         {
           type: 'skills',
-          skills: [{ name: 'later', description: 'Added later' }],
+          skills: [
+            ...nativeCommands,
+            { name: 'later', description: 'Added later' },
+          ],
         },
+      ],
+    );
+  } finally {
+    await session.close();
+  }
+});
+
+test('initial slash prompts go as text unless a native command was selected', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    for (const prompt of ['/config autoCompact=false', '  /rename audit'])
+      assert.equal((await session.send(prompt)).status, 'completed');
+    assert.equal(
+      (await session.send('context', { name: 'autocompact', args: '200k' }))
+        .status,
+      'completed',
+    );
+    assert.deepEqual(
+      ((await jsonLines(join(cwd, 'inputs.jsonl'))) as SDKUserMessage[]).map(
+        (input) => [input.message.content, input.client_composed],
+      ),
+      [
+        ['/config autoCompact=false', true],
+        ['  /rename audit', true],
+        [
+          [
+            { type: 'text', text: 'context' },
+            { type: 'text', text: '/autocompact 200k' },
+          ],
+          undefined,
+        ],
       ],
     );
   } finally {
@@ -373,6 +421,34 @@ test('a prompt steered into a turn reaches Claude Code, and none is taken with n
   }
 });
 
+test('without message lifecycle a command steer is refused until the turn has replied', async () => {
+  const { seen, onEvent } = working();
+  const { session, cwd } = await fixture(onEvent);
+  const steered = join(cwd, 'steered.jsonl');
+  const skill = { name: 'review', args: 'now' };
+  try {
+    const first = session.send('steerable');
+    await within(seen, 2000, 'first output');
+    assert.equal(await session.steer('/review now', { skill }), false);
+    assert.equal(await session.steer('plain'), true);
+    assert.equal(await session.steer('wrap up'), true);
+    assert.equal((await within(first, 2000, 'turn')).status, 'completed');
+    assert.deepEqual(await jsonLines(steered), ['plain', 'wrap up']);
+    const second = session.send('reporting familiar');
+    await until('the reply', () => session.replied);
+    assert.equal(await session.steer('/review now', { skill }), true);
+    await until(
+      'the steered command',
+      async () => (await jsonLines(steered)).at(-1) === '/review now',
+    );
+    for (const file of ['allow-report', 'allow-idle'])
+      await writeFile(join(cwd, file), 'yes');
+    assert.equal((await within(second, 2000, 'turn')).status, 'completed');
+  } finally {
+    await session.close();
+  }
+});
+
 test("a prompt sent after the turn's result while a familiar runs in the background reaches Claude Code in that turn, and none is taken once the familiar reports", async () => {
   const texts: string[] = [];
   const skills: string[] = [];
@@ -535,6 +611,24 @@ test('a dispatch failure reports its transport cause', async () => {
   }
 });
 
+test('prompts steered behind input a dead CLI never wrote come back unread', async () => {
+  const { session, child } = await fixture();
+  try {
+    assert.equal(child.kill('SIGTERM'), true);
+    const turn = session.send('hello');
+    assert.equal(await session.steer('follow'), true);
+    assert.deepEqual(await within(turn, 3000, 'dispatch'), {
+      status: 'failed',
+      text: '',
+      error: 'Cannot write to terminated process',
+      unread: ['follow'],
+      inputUnsent: true,
+    });
+  } finally {
+    await session.close();
+  }
+});
+
 test('a CLI that exits mid-turn ends the turn only once its stderr is complete, and posts no notice', async () => {
   const { seen, onEvent } = working();
   const notices: AgentEvent[] = [];
@@ -682,7 +776,7 @@ test('a failed Claude result keeps accumulated text in message order', async () 
   }
 });
 
-test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
+test("Claude tool use and its result update one tool titled by what it acts on, relative to the session's directory, with a path field's path named for its link, a spell or familiar call titled by Witch's name with the native one kept for its expanded row, a text result shows as text, an image result arrives as an image, a streamed reply ends as its full message, and a subagent's text and tools stay out of the transcript", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -693,9 +787,11 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
     assert.deepEqual(
       events
         .filter((event) => event.type === 'tool')
-        .map(({ id, title, text, done, images }) => [
+        .map(({ id, title, path, expandedTitle, text, done, images }) => [
           id,
           title,
+          path,
+          expandedTitle,
           text,
           done,
           images,
@@ -704,28 +800,68 @@ test("Claude tool use and its result update one tool titled by what it acts on, 
         [
           'tool-1',
           'Bash  List notes  $ ls …',
+          undefined,
+          undefined,
           '{\n  "command": "ls\\nwc -l a.md",\n  "description": "List notes"\n}',
           false,
           undefined,
         ],
-        ['tool-1', '', 'a.md', true, undefined],
+        ['tool-1', '', undefined, undefined, 'a.md', true, undefined],
+        [
+          'tool-s',
+          'Spell  handoff',
+          undefined,
+          'Spell (Skill)  handoff',
+          '{\n  "skill": "handoff"\n}',
+          false,
+          undefined,
+        ],
+        [
+          'tool-s',
+          '',
+          undefined,
+          undefined,
+          'Launching skill: handoff',
+          true,
+          undefined,
+        ],
         [
           'tool-2',
-          'Agent  Find notes',
+          'Familiar  Find notes',
+          undefined,
+          'Familiar (Agent)  Find notes',
           '{\n  "description": "Find notes",\n  "prompt": "look"\n}',
           false,
           undefined,
         ],
-        ['tool-2', '', 'Found a.md.\nRead one file.', true, undefined],
+        [
+          'tool-2',
+          '',
+          undefined,
+          undefined,
+          'Found a.md.\nRead one file.',
+          true,
+          undefined,
+        ],
         [
           'tool-3',
           // a path under the session's directory shows relative to it, after ./ so a bare name links
           'Read  ./shot.png',
+          './shot.png',
+          undefined,
           JSON.stringify({ file_path: join(cwd, 'shot.png') }, null, 2),
           false,
           undefined,
         ],
-        ['tool-3', '', '', true, ['data:image/png;base64,iVBORw==']],
+        [
+          'tool-3',
+          '',
+          undefined,
+          undefined,
+          '',
+          true,
+          ['data:image/png;base64,iVBORw=='],
+        ],
       ],
     );
     const texts = events.filter((event) => event.type === 'text');
@@ -983,7 +1119,7 @@ test('native familiar model-only frames preserve task state', async () => {
   }
 });
 
-test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
+test("a Claude familiar's tool calls give its latest activity, with a path under the session's directory shown relative and a spell under Witch's name, and its count, its last message's text is its report, and an unlisted agent's frames are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -1028,24 +1164,34 @@ test("a Claude familiar's tool calls give its latest activity, with a path under
           tools: 2,
           report: 'Reading the tests.',
         },
+        {
+          ...observed,
+          activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
+          tools: 3,
+          report: 'Reading the tests.',
+        },
         // a later message's text replaces the report
         {
           ...observed,
-          activity: 'Bash  Run tests  $ pnpm test',
-          tools: 2,
+          activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
+          tools: 3,
           report: 'All tests pass.',
         },
         // the report's second block arrives as its own frame of the same message
         {
           ...observed,
-          activity: 'Bash  Run tests  $ pnpm test',
-          tools: 2,
+          activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
+          tools: 3,
           report: 'All tests pass.\nSee a.test.ts.',
         },
         {
           ...observed,
-          activity: 'Bash  Run tests  $ pnpm test',
-          tools: 2,
+          activity: 'Spell  tdd',
+          spells: [{ id: 'r-3', name: 'tdd' }],
+          tools: 3,
           report: 'All tests pass.\nSee a.test.ts.',
           status: 'completed',
         },
@@ -1241,15 +1387,18 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
       'the usage after the turn',
       () => session.usage.lines?.added === 4,
     );
-    assert.deepEqual(session.usage, {
-      context: 12.5,
-      contextWindow: 200000,
-      lines: { added: 4, removed: 1 },
-      limits: [
-        { window: '5H', percent: 23.5, resetsAt: 2000000000 },
-        { window: '7D', percent: 61 },
-      ],
-    });
+    assert.deepEqual(
+      { ...session.usage, limits: untimed(session.usage.limits) },
+      {
+        context: 12.5,
+        contextWindow: 200000,
+        lines: { added: 4, removed: 1 },
+        limits: [
+          { window: '5H', percent: 23.5, resetsAt: 2000000000 },
+          { window: '7D', percent: 61 },
+        ],
+      },
+    );
     assert.deepEqual(reported.at(-1), session.usage);
     assert.equal((await session.send('again')).status, 'completed');
     await until(

@@ -1,8 +1,13 @@
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import readline from 'node:readline';
+import { setInterval } from 'node:timers';
 
 const pending = [];
+if (process.argv.includes('--ignore-term')) {
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1000);
+}
 const lines = readline.createInterface({ input: process.stdin });
 for await (const line of lines) {
   const message = JSON.parse(line);

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
@@ -22,6 +29,8 @@ async function fixture(
   options: {
     mode?: string;
     prompt?: string;
+    openStdin?: boolean;
+    pauseIntervals?: boolean;
     response?: UserResponse;
     waitForResponse?: boolean;
     reject?: boolean;
@@ -42,6 +51,16 @@ async function fixture(
   await chmod(join(bin, 'codex'), 0o700);
   const report = join(root, 'report.txt');
   const preload: string[] = [];
+  if (options.pauseIntervals) {
+    const hook = join(root, 'pause-intervals.mjs');
+    await writeFile(
+      hook,
+      `const interval = globalThis.setInterval;
+globalThis.setInterval = (_callback, milliseconds) => interval(() => {}, milliseconds);
+`,
+    );
+    preload.push('--import', hook);
+  }
   if (options.mode === 'write-failure') {
     const hook = join(root, 'fail-write.mjs');
     await writeFile(
@@ -140,7 +159,8 @@ syncBuiltinESMExports();
   const closed = new Promise<number | null>((resolve) =>
     child.once('close', resolve),
   );
-  child.stdin.end(options.prompt ?? 'implement');
+  child.stdin.write(options.prompt ?? 'implement');
+  if (!options.openStdin) child.stdin.end();
   const updates = () =>
     requests.flatMap((r) =>
       r.action.kind === 'familiar-update' ? [r.action.progress] : [],
@@ -184,6 +204,63 @@ syncBuiltinESMExports();
   };
 }
 
+test('a Codex familiar reports progress before stdin ends without waiting for a heartbeat', async () => {
+  const f = await fixture({
+    prompt: 'implement ',
+    openStdin: true,
+    pauseIntervals: true,
+  });
+  try {
+    await until('progress while stdin remains open', () =>
+      f.updates().some((progress) => progress.status === 'running'),
+    );
+    assert.equal(f.requests[0]!.action.kind, 'familiar-register');
+    assert.equal(
+      (f.requests[0]!.action as { runtime: string }).runtime,
+      'codex',
+    );
+    assert.match(f.output().stdout, /WITCH_FAMILIAR /);
+    assert.deepEqual(f.updates()[0], { status: 'running', tools: 0 });
+    await assert.rejects(f.launch(), { code: 'ENOENT' });
+    f.child.stdin.end('this');
+    assert.equal(await within(f.closed, 8000, 'task after stdin ends'), 0);
+    const delivered = JSON.parse(
+      await readFile(join(f.root, 'prompt.json'), 'utf8'),
+    ) as { params: { input: { text: string }[] } };
+    assert.equal(delivered.params.input[0]!.text, 'implement this');
+    assert.equal(f.updates().at(-1)!.status, 'completed');
+  } finally {
+    await f.close();
+  }
+});
+
+for (const cause of ['signal', 'connection'] as const)
+  test(`a Codex familiar waiting for stdin closes after ${cause} and saves its report`, async () => {
+    const f = await fixture({ openStdin: true });
+    try {
+      await until('progress while stdin remains open', () =>
+        f.updates().some((progress) => progress.status === 'running'),
+      );
+      if (cause === 'signal') f.child.kill('SIGTERM');
+      else f.rejectUpdates();
+      assert.equal(
+        await within(f.closed, 7000, 'pending stdin cleanup'),
+        cause === 'signal' ? 130 : 1,
+      );
+      await assert.rejects(f.launch(), { code: 'ENOENT' });
+      const report = await readFile(f.report, 'utf8');
+      if (cause === 'signal') {
+        assert.equal(f.updates().at(-1)!.status, 'stopped');
+        assert.equal(f.updates().at(-1)!.report, report);
+      } else assert.match(report, /Native connection closed/);
+      assert.ok(
+        f.output().stdout.endsWith(`${report}\n\nSaved report: ${f.report}\n`),
+      );
+    } finally {
+      await f.close();
+    }
+  });
+
 test('a Codex implementation task retains native configuration, approval and its full report', async () => {
   const f = await fixture();
   try {
@@ -224,6 +301,49 @@ test('a Codex implementation task retains native configuration, approval and its
         .length,
       1,
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test("a Codex familiar lists its spells before its turn and reports its own and its nested familiar's casts once each", async () => {
+  const f = await fixture({ mode: 'spell-reads' });
+  try {
+    assert.equal(
+      await within(f.closed, 8000, 'Codex completion'),
+      0,
+      f.output().stderr,
+    );
+    const methods = (await readFile(join(f.root, 'methods.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string);
+    const listed = methods.indexOf('skills/list');
+    assert.ok(
+      listed >= 0 && listed < methods.indexOf('turn/start'),
+      methods.join(),
+    );
+    const path = await realpath(join(f.root, '.agents/skills/a/SKILL.md'));
+    const final = f.updates().at(-1)!;
+    assert.equal(final.status, 'completed');
+    assert.deepEqual(final.spells, [
+      { id: `native-thread/turn-1/${path}`, name: 'a' },
+      { id: `child-thread/child-turn-1/${path}`, name: 'a' },
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a Codex familiar whose spell listing fails still runs its task', async () => {
+  const f = await fixture({ mode: 'skills-fail' });
+  try {
+    assert.equal(
+      await within(f.closed, 8000, 'Codex completion'),
+      0,
+      f.output().stderr,
+    );
+    assert.equal(f.updates().at(-1)!.status, 'completed');
   } finally {
     await f.close();
   }
@@ -317,6 +437,11 @@ for (const cause of ['cancel', 'signal', 'native-exit'] as const)
         f.updates().at(-1)!.status,
         cause === 'native-exit' ? 'failed' : 'stopped',
       );
+      if (cause === 'native-exit')
+        assert.match(
+          await readFile(f.report, 'utf8'),
+          /awaiting a question response: question exit text/,
+        );
       await assert.rejects(readFile(join(f.root, 'question-answer.json')), {
         code: 'ENOENT',
       });
@@ -326,13 +451,18 @@ for (const cause of ['cancel', 'signal', 'native-exit'] as const)
   });
 
 test('rejected registration and an existing report both prevent Codex from launching', async () => {
-  for (const options of [{ reject: true }, { existing: true }]) {
+  for (const options of [
+    { reject: true, openStdin: true },
+    { existing: true },
+  ]) {
     const f = await fixture(options);
     try {
       assert.equal(await within(f.closed, 5000, 'rejected launch'), 1);
       await assert.rejects(f.launch(), { code: 'ENOENT' });
       if ('existing' in options)
         assert.equal(await readFile(f.report, 'utf8'), 'Retain me');
+      else
+        assert.equal(await readFile(f.report, 'utf8'), 'No active connection');
     } finally {
       await f.close();
     }
@@ -372,7 +502,40 @@ test('a nonzero native exit after a result prevents successful terminal reportin
     assert.equal(f.updates().at(-1)!.status, 'failed');
     const report = await readFile(f.report, 'utf8');
     assert.match(report, /^Completed implementation\./);
-    assert.match(report, /Codex exited \(2\)/);
+    assert.match(report, /Codex exited \(2\): close exit text/);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a Codex familiar posts a failed MCP server as a notice and keeps app-server logs off its stderr', async () => {
+  const f = await fixture({ mode: 'mcp-failed' });
+  try {
+    assert.equal(
+      await within(f.closed, 8000, 'Codex completion'),
+      0,
+      f.output().stderr,
+    );
+    assert.deepEqual(f.updates().at(-1)!.notices, [
+      'Codex could not start MCP server unreal: MCP client for `unreal` failed to start: handshake failed',
+      'Codex could not start MCP server auth.',
+    ]);
+    assert.doesNotMatch(f.output().stderr, /rmcp::transport::worker/);
+  } finally {
+    await f.close();
+  }
+});
+
+test('an app-server that exits during startup leaves its stderr tail in the report', async () => {
+  const f = await fixture({ mode: 'exit-on-init' });
+  try {
+    assert.equal(await within(f.closed, 5000, 'startup exit'), 1);
+    const final = f.updates().at(-1)!;
+    assert.equal(final.status, 'failed');
+    assert.match(final.report!, /init exit text/);
+    assert.match(await readFile(f.report, 'utf8'), /init exit text/);
+    assert.match(f.output().stdout, /init exit text/);
+    assert.doesNotMatch(f.output().stderr, /init exit text/);
   } finally {
     await f.close();
   }

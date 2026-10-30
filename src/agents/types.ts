@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isAbsolute } from 'node:path';
 import type { ControlBinding } from '../persistence/control.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+import type { CommandPrefixes } from './tool-title.js';
 
 export interface Model {
   id: string;
@@ -9,17 +10,26 @@ export interface Model {
   efforts: string[];
 }
 
-/** a native skill the composer offers after `/`, run by sending `/name args`. */
+/** a native skill or command run by sending `/name args`; the composer offers it after `/` unless it is `builtin`. */
 export interface Skill {
   name: string;
   description: string;
   argumentHint?: string;
+  /** Claude Code's own command, which `/name args` runs natively but the composer doesn't offer. */
+  builtin?: true;
 }
 
-/** a `/name args` prompt the coordinator matched to a listed skill. */
+/** a `/name args` prompt the coordinator matched to a listed skill or native command. */
 export interface SkillCall {
   name: string;
   args: string;
+  builtin?: true;
+}
+
+/** one spell cast; the id is native and names it across replays and reconnects. */
+export interface Cast {
+  id: string;
+  name: string;
 }
 
 export interface SessionInfo {
@@ -52,6 +62,8 @@ export interface Limit {
   percent: number;
   /** in epoch seconds. */
   resetsAt?: number;
+  /** epoch ms when the adapter last received this window's value; a report that omits the window keeps it. */
+  observedAt: number;
 }
 
 export const taskStatuses = [
@@ -81,6 +93,10 @@ export interface Subagent {
   tools?: number;
   /** its latest message, which is its report once it ends. */
   report?: string;
+  /** the transient notices its native session posted, oldest first. */
+  notices?: string[];
+  /** the spells it has cast, oldest first. */
+  spells?: Cast[];
 }
 
 /** a command the native agent left running in the background; a running event starts it, a later one with another status ends it, and a repeated start changes nothing. */
@@ -149,6 +165,11 @@ export type AgentEvent =
       type: 'tool';
       id: string;
       title: string;
+      /** the file path `title` shows, so its row links the path whole. */
+      path?: string;
+      /** the complete label, including the native name or original command, shown on expansion. */
+      expandedTitle?: string;
+      singleLine?: true;
       text: string;
       done: boolean;
       cwd?: string;
@@ -168,9 +189,11 @@ export type AgentEvent =
   | { type: 'usage'; usage: Usage }
   /** the native skill list changed; it replaces the one `skills()` gave. */
   | { type: 'skills'; skills: Skill[] }
+  | { type: 'spell'; cast: Cast }
   | { type: 'subagent'; subagent: Subagent }
   | { type: 'command'; command: BackgroundCommand }
-  | { type: 'notice'; text: string };
+  /** a transient notice is a diagnostic of this connection, shown but not saved. */
+  | { type: 'notice'; text: string; transient?: boolean };
 
 export interface TurnResult {
   status: 'completed' | 'interrupted' | 'failed';
@@ -184,18 +207,23 @@ export interface TurnResult {
   inputUnsent?: boolean;
 }
 
+export interface AgentStopOptions {
+  /** absolute performance.now() deadline, shared by interruption and closure. */
+  deadline?: number;
+  /** retains the runtime's restart teardown policy. */
+  restart?: boolean;
+}
+
 export interface AgentSession {
   familiar?: {
-    runtime: 'claude' | 'codex';
     report(action: FamiliarAction, deadline: number): Promise<FamiliarOutcome>;
   };
   readonly info: SessionInfo;
   readonly usage: Usage;
+  /** reads the account's limits again, joining a read already in flight; the result arrives as a `usage` event. */
+  readLimits?(): Promise<void>;
   readonly closed: boolean;
-  /**
-   * the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then runs a
-   * steered spell, sent as `/name args`, as a turn of its own, and takes a command or a model change.
-   */
+  /** the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then takes a command or a model change. */
   readonly replied: boolean;
   /** an adapter may ignore `refresh`. */
   models(refresh?: boolean): Promise<Model[]>;
@@ -204,6 +232,8 @@ export interface AgentSession {
   contextUsage(): Promise<number | undefined>;
   /** replaces native history in place; resolves after native completion, independently of replacement events. */
   compact(): Promise<TurnResult>;
+  /** queues native compaction within an ordinary turn without interrupting it; undefined refuses delivery. */
+  compactDuringTurn?(): Promise<TurnResult> | undefined;
   /** generated context never replaces the user's request in native authorization evidence; a `witch` prompt is Witch's own instruction for a turn with no user request. */
   send(
     prompt: string,
@@ -222,9 +252,16 @@ export interface AgentSession {
    * false while a shell command runs. it never refuses while `replied`, and
    * `command` is passed only then: the command runs first, as `shell` runs
    * one, and holds the turn open, and once it completes the prompt goes as
-   * its reply.
+   * its reply. with `skill`, the prompt is that command, run natively: Claude
+   * runs it once the current native turn ends, within this turn, and Codex,
+   * which expands a skill only at a turn's start, refuses it.
+   * `contextOnly` never returns as unread user input; its owner supplies fresh
+   * context after interruption.
    */
-  steer(prompt: string, options?: { command?: string }): Promise<boolean>;
+  steer(
+    prompt: string,
+    options?: { command?: string; skill?: SkillCall; contextOnly?: true },
+  ): Promise<boolean>;
   /**
    * an omitted effort keeps the one in force; `null` resets it where the native agent can. refused during a turn
    * unless it has `replied`.
@@ -235,10 +272,10 @@ export interface AgentSession {
    * does nothing with no turn or shell command in flight. the session may close
    * after an interrupt, and the coordinator then reconnects with resume.
    */
-  interrupt(): Promise<void>;
+  interrupt(options?: AgentStopOptions): Promise<void>;
   /** transfers unsent command records to the conversation on disconnect; valid after close. */
   takeUnreadContext?(): string[];
-  close(): Promise<void>;
+  close(options?: AgentStopOptions): Promise<void>;
 }
 
 /** lets /jobs tell the processes an agent's commands leave under launchd from any other's. */
@@ -251,6 +288,7 @@ export interface CommandMark {
 
 export interface SessionOptions {
   familiarBinding?: ControlBinding;
+  commandPrefixes?: CommandPrefixes;
   cwd: string;
   executable: string;
   resume?: string;
@@ -281,6 +319,13 @@ export interface AgentAdapter {
   label: string;
   /** discovers the native catalog without a conversation; joins child shutdown before settling. */
   models(options: ModelDiscoveryOptions): Promise<Model[]>;
+  /** reads the account's limits without a conversation, keeping each `previous` window the report leaves out; empty when the runtime reports none. */
+  limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]>;
+  /** each family alias's current concrete model, read past native model pins. */
+  latest?(options: ModelDiscoveryOptions): Promise<Record<string, string>>;
   /** cancellation rejects with an `Error` named `AbortError`. */
   connect(options: SessionOptions): Promise<AgentSession>;
 }

@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { BackgroundCommand, Subagent } from '../agents/types.js';
+import type { Subagent } from '../agents/types.js';
 import type { TimedSubagent } from './snapshot.js';
 
 export function familiarIdentity(subagent: Subagent): string {
   return [subagent.runtime, subagent.model].filter(Boolean).join(' · ');
 }
 
-/** late native identity updates retitle the existing rows without losing the report. */
+/**
+ * late native identity updates retitle the existing rows without losing the report. every report repeats the
+ * familiar's notices, so only those past the previous count are new.
+ */
 export function updateFamiliar(
   previous: TimedSubagent | undefined,
   subagent: Subagent,
@@ -14,6 +17,7 @@ export function updateFamiliar(
   | {
       entry: TimedSubagent;
       rows: { id: string; title: string[]; text?: string }[];
+      notices: string[];
     }
   | undefined {
   if (!previous && subagent.status !== 'running') return;
@@ -67,34 +71,8 @@ export function updateFamiliar(
           ]
         : []),
     ],
-  };
-}
-
-/** a familiar's command leaves the brew list, which tracks only running native background commands. */
-export function updateBrew(
-  commands: readonly BackgroundCommand[],
-  command: BackgroundCommand,
-): { commands: BackgroundCommand[]; rows: { title: string[] }[] } | undefined {
-  const listed = commands.some(({ id }) => id === command.id);
-  const without = commands.filter(({ id }) => id !== command.id);
-  if (command.familiar)
-    return listed
-      ? {
-          commands: without,
-          rows: [{ title: ['Brew became familiar', command.description] }],
-        }
-      : undefined;
-  const running = command.status === 'running';
-  if (running === listed) return;
-  return {
-    commands: running ? [...commands, command] : without,
-    rows: [
-      {
-        title: [
-          `Brew ${running ? 'started' : command.status}`,
-          command.description,
-        ],
-      },
-    ],
+    notices: (subagent.notices ?? [])
+      .slice(previous?.notices?.length ?? 0)
+      .map((text) => `Familiar ${subagent.name}: ${text}`),
   };
 }

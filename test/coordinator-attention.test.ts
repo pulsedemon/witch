@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import { setImmediate as next } from 'node:timers/promises';
+import { Coordinator } from '../src/core/coordinator.js';
 import type { ConversationRecord } from '../src/core/state.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { watchTerminal } from '../src/ui/terminal.js';
@@ -42,7 +43,8 @@ test('completion identifies the successful activity only after its final save', 
     assert.equal(coordinator.snapshot.completedTurn, activity.id);
     const stored = await readRecord(root, id);
     assert.equal(stored.activity, undefined);
-    assert.equal('completedTurn' in stored, false);
+    assert.deepEqual(stored.lastTurn, { id: activity.id, status: 'completed' });
+    assert.equal(coordinator.snapshot.completedTurn, stored.lastTurn.id);
   } finally {
     saving.mockRestore();
     release.resolve();
@@ -82,14 +84,15 @@ test('a rejected final save publishes no completion', async () => {
 
 for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
   test(`${outcome} turns clear the preceding successful completion`, async () => {
-    const { coordinator, a, hook } = await fixture();
+    const { coordinator, a, hook, root } = await fixture();
+    const gate = new TurnGate();
     try {
       await coordinator.send('previous success');
       assert.ok(coordinator.snapshot.completedTurn);
+      const id = coordinator.snapshot.conversation!.id;
+      const previous = (await readRecord(root, id)).lastTurn;
       const turns = a.inputs.length;
-      if (outcome === 'failed') a.failNext = true;
-      else if (outcome === 'interrupted') a.interruptNext = true;
-      else
+      if (outcome === 'preparation')
         hook.current = async (command, run) => {
           if (command[0] !== 'rev-parse' || command[1] !== '--git-path')
             return run();
@@ -100,7 +103,21 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
             code: 1,
           };
         };
-      await coordinator.send('next turn');
+      else {
+        a.gate = gate;
+        a.failNext = outcome === 'failed';
+      }
+      const sending = coordinator.send('next turn');
+      if (outcome !== 'preparation') {
+        await within(gate.entered, 5000, 'the next turn');
+        const activity = (await readRecord(root, id)).activity!;
+        if (outcome === 'interrupted') await coordinator.interrupt();
+        else gate.open();
+        await sending;
+        const stored = await readRecord(root, id);
+        assert.deepEqual(stored.lastTurn, { id: activity.id, status: outcome });
+        assert.notEqual(stored.lastTurn.id, previous!.id);
+      } else await sending;
       assert.equal(coordinator.snapshot.completedTurn, undefined);
       assert.equal(
         a.inputs.length,
@@ -109,17 +126,85 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
       if (outcome === 'preparation') {
         assert.match(coordinator.snapshot.error!, /preparation failed/);
         assert.deepEqual(coordinator.snapshot.queue, ['next turn']);
+        assert.deepEqual((await readRecord(root, id)).lastTurn, previous);
       }
     } finally {
       hook.current = passThrough;
+      gate.open();
       await coordinator.close();
     }
   });
 
+test('reconnect and restart retain the ordinary outcome without replaying completion', async () => {
+  const f = await fixture();
+  const output: string[] = [];
+  const stop = watchTerminal(f.coordinator, undefined, (data) =>
+    output.push(data),
+  );
+  let reopened: Coordinator | undefined;
+  let stopReopened: (() => void) | undefined;
+  try {
+    await f.coordinator.send('finished task');
+    await next();
+    const id = f.coordinator.snapshot.conversation!.id;
+    const previous = (await readRecord(f.root, id)).lastTurn!;
+    assert.equal(previous.status, 'completed');
+    assert.equal(previous.id, f.coordinator.snapshot.completedTurn);
+    assert.equal(
+      output.filter((data) => data.includes('Turn complete:')).length,
+      1,
+    );
+    await f.a.sessions.at(-1)!.session.close();
+    await f.coordinator.selectModel({ agent: 'a', id: 'a-big' });
+    await next();
+    assert.deepEqual((await readRecord(f.root, id)).lastTurn, previous);
+    assert.equal(f.a.inputs.length, 1);
+    assert.equal(
+      output.filter((data) => data.includes('Turn complete:')).length,
+      1,
+    );
+    stop();
+    await f.coordinator.close();
+    reopened = new Coordinator(
+      f.store,
+      f.memory,
+      [f.a, f.b].map((adapter) => ({ adapter, executable: adapter.id })),
+    );
+    const resumedOutput: string[] = [];
+    stopReopened = watchTerminal(reopened, undefined, (data) =>
+      resumedOutput.push(data),
+    );
+    await reopened.initialize(f.project, { continue: true });
+    await next();
+    assert.deepEqual((await readRecord(f.root, id)).lastTurn, previous);
+    assert.equal(reopened.snapshot.completedTurn, undefined);
+    assert.equal(f.a.inputs.length, 1);
+    assert.deepEqual(
+      resumedOutput.filter((data) => data.includes('Turn complete:')),
+      [],
+    );
+    await reopened.send('new request');
+    await next();
+    const current = (await readRecord(f.root, id)).lastTurn!;
+    assert.equal(current.status, 'completed');
+    assert.notEqual(current.id, previous.id);
+    assert.equal(reopened.snapshot.completedTurn, current.id);
+    assert.equal(
+      resumedOutput.filter((data) => data.includes('Turn complete:')).length,
+      1,
+    );
+  } finally {
+    stop();
+    stopReopened?.();
+    await reopened?.close();
+    await f.coordinator.close();
+  }
+});
+
 test('conversation adoption clears completion and the internal handoff summary stays silent', async () => {
   const { coordinator, a, b } = await fixture();
   const summary = new TurnGate();
-  const continuation = new TurnGate();
+  const destination = new TurnGate();
   const signals = new Set<string>();
   const unsubscribe = coordinator.subscribe(() => {
     if (coordinator.snapshot.completedTurn)
@@ -137,15 +222,19 @@ test('conversation adoption clears completion and the internal handoff summary s
     assert.notEqual(previous, first);
     signals.clear();
     a.gate = summary;
-    b.gate = continuation;
+    b.gate = destination;
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(summary.entered, 5000, 'the summary');
     summary.open();
-    await within(continuation.entered, 5000, 'the continuation');
+    await within(switching, 5000, 'the switch without continuation');
+    assert.deepEqual(b.inputs, []);
+    assert.equal(coordinator.snapshot.completedTurn, previous);
     assert.deepEqual([...signals], [previous]);
+    const sending = coordinator.send('Destination task');
+    await within(destination.entered, 5000, 'the destination prompt');
     assert.equal(coordinator.snapshot.completedTurn, undefined);
-    continuation.open();
-    await switching;
+    destination.open();
+    await sending;
     const current = coordinator.snapshot.completedTurn;
     assert.ok(current);
     assert.notEqual(current, previous);
@@ -153,7 +242,7 @@ test('conversation adoption clears completion and the internal handoff summary s
   } finally {
     unsubscribe();
     summary.open();
-    continuation.open();
+    destination.open();
     await coordinator.close();
   }
 });

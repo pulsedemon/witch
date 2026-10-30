@@ -460,6 +460,7 @@ test('claim finalization preserves newer background observations', async (t) => 
   const { start, registry } = await coordinationFixture(cleanup, async () => {
     entered.resolve();
     await finish.promise;
+    return { assigned: [] };
   });
   const a = await start(),
     b = await start('B');
@@ -500,6 +501,7 @@ test('claim finalization preserves a newer discovery failure until recovery', as
   const { start, store } = await coordinationFixture(cleanup, async () => {
     entered.resolve();
     await finish.promise;
+    return { assigned: [] };
   });
   const a = await start(),
     b = await start('B');
@@ -646,6 +648,7 @@ for (const outcome of ['success', 'failure'] as const)
       async () => {
         assignmentEntered.resolve();
         await finishAssignment.promise;
+        return { assigned: [] };
       },
     );
     const a = await start(),
@@ -903,9 +906,10 @@ test('a refresh started during verification retains peer claims after mutation c
     cleanup,
     async (references) => {
       if (!references.some((reference) => reference.endsWith(':chosen')))
-        return;
+        return { assigned: [] };
       assignmentEntered.resolve();
       await finishAssignment.promise;
+      return { assigned: [] };
     },
   );
   const a = await start(),
@@ -1058,7 +1062,8 @@ for (const readFails of [false, true])
       });
       failing = readFails;
       if (readFails) {
-        refreshes[0]!();
+        // nothing changed since the last tick, so the gated tick would start no refresh
+        void a.coordination['refresh']();
         await within(
           a.coordination['refreshing']!.promise,
           5000,

@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import { JobWatch } from '../src/core/jobs.js';
 import type { Row } from '../src/core/jobs.js';
@@ -22,7 +23,7 @@ function orphanRow(pid: number): Row {
   };
 }
 
-test("a marked app opened in a group of its own is not a job, nor is anything below it or a helper launchd adopted from its frameworks, though a bundle's main executable run in its command's group, or a tool inside a bundle or a framework, is", async () => {
+test('marked app roots exclude their trees, while commands and tools stay jobs', async () => {
   const app = orphanRow(100701);
   const helper = { ...orphanRow(100702), ppid: app.pid, pgid: app.pid };
   const terminal = { ...orphanRow(100703), ppid: helper.pid };
@@ -36,6 +37,8 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
   const job = orphanRow(100715);
   const browser = { ...orphanRow(100716), ppid: job.pid, pgid: job.pid };
   const renderer = { ...orphanRow(100717), ppid: browser.pid, pgid: job.pid };
+  const unmarkedApp = orphanRow(100718);
+  const markedChild = { ...orphanRow(100719), ppid: unmarkedApp.pid };
   const later = [
     app,
     helper,
@@ -50,6 +53,8 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
     job,
     browser,
     renderer,
+    unmarkedApp,
+    markedChild,
   ];
   const paths = new Map([
     [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
@@ -78,8 +83,11 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
       renderer.pid,
       '/Applications/Chromium.app/Contents/Frameworks/Chromium Helper (Renderer).app/Contents/MacOS/Chromium Helper (Renderer)',
     ],
+    [unmarkedApp.pid, '/Applications/Terminal.app/Contents/MacOS/Terminal'],
+    [markedChild.pid, '/usr/local/bin/node'],
   ]);
   const tables = [[], later];
+  const lookedUp: number[] = [];
   const jobs = new JobWatch({
     directory: await scratch('witch-jobs-'),
     interval: 60_000,
@@ -94,14 +102,32 @@ test("a marked app opened in a group of its own is not a job, nor is anything be
           startedAt: 0,
           command: '',
         })),
-    marked: async (pids) => pids.filter((pid) => pid !== terminal.pid),
-    executables: async () => paths,
+    marked: async (pids) =>
+      pids.filter((pid) => pid !== terminal.pid && pid !== unmarkedApp.pid),
+    executables: async (pids) => {
+      lookedUp.push(...pids);
+      return new Map([...paths].filter(([pid]) => pids.includes(pid)));
+    },
   });
   try {
     await jobs.list();
     assert.deepEqual(
       (await jobs.list()).map(({ group }) => group),
-      [100704, 100706, 100709, 100711, 100712, 100715],
+      [100704, 100706, 100709, 100711, 100712, 100715, 100719],
+    );
+    assert.deepEqual(
+      new Set(lookedUp),
+      new Set([
+        app.pid,
+        direct.pid,
+        plain.pid,
+        crashHandler.pid,
+        xcodePython.pid,
+        frameworkPython.pid,
+        jdk.pid,
+        codeHelper.pid,
+        job.pid,
+      ]),
     );
   } finally {
     jobs.close();
@@ -122,6 +148,7 @@ for (const joins of ['later', 'in the read that opens the app']) {
       [app, terminal, ...strays],
       [app, terminal, ...strays],
     ];
+    const lookedUp: number[] = [];
     const jobs = new JobWatch({
       directory: await scratch('witch-jobs-'),
       interval: 60_000,
@@ -137,11 +164,14 @@ for (const joins of ['later', 'in the read that opens the app']) {
             command: '',
           })),
       marked: async (pids) => pids,
-      executables: async () =>
-        new Map([
+      executables: async (pids) => {
+        lookedUp.push(...pids);
+        const paths = new Map([
           [app.pid, '/Applications/Code.app/Contents/MacOS/Code'],
           ...strays.map(({ pid }) => [pid, '/usr/local/bin/node'] as const),
-        ]),
+        ]);
+        return new Map([...paths].filter(([pid]) => pids.includes(pid)));
+      },
     });
     try {
       await jobs.list();
@@ -150,14 +180,58 @@ for (const joins of ['later', 'in the read that opens the app']) {
           (await jobs.list()).map(({ group }) => group),
           [],
         );
+      assert.deepEqual(
+        new Set(lookedUp),
+        new Set([app.pid, ...strays.map(({ pid }) => pid)]),
+      );
     } finally {
       jobs.close();
     }
   });
 }
 
+test('an excluded app keeps an inactive watch reading', async () => {
+  const app = orphanRow(100901);
+  const terminal = { ...orphanRow(100902), ppid: app.pid };
+  let rows: Row[] = [];
+  let reads = 0;
+  const jobs = new JobWatch({
+    directory: await scratch('witch-jobs-'),
+    interval: 20,
+    settle: 0,
+    processes: async () => {
+      reads++;
+      return rows;
+    },
+    describe: async (pids) =>
+      pids.map((pid) => ({
+        pid,
+        pgid: pid,
+        cpu: 0,
+        startedAt: 0,
+        command: '',
+      })),
+    marked: async (pids) => pids,
+    executables: async (pids) => {
+      assert.deepEqual(pids, [app.pid]);
+      return new Map([[app.pid, '/Applications/Code.app/Contents/MacOS/Code']]);
+    },
+  });
+  try {
+    await jobs.list();
+    rows = [app, terminal];
+    assert.deepEqual(await jobs.list(), []);
+    jobs.setActive(false);
+    const count = reads;
+    await delay(150);
+    assert.ok(reads >= count + 3);
+  } finally {
+    jobs.close();
+  }
+});
+
 test.skipIf(process.platform !== 'darwin')(
-  'a marked launchd child leading its own group from an app bundle is not a job, and one outside a bundle is',
+  'an app executable is excluded by its path, while a plain executable naming the same bundle stays a job',
   async () => {
     const directory = await scratch('witch-jobs-');
     const cwd = await scratch('witch-jobs-');
@@ -171,8 +245,9 @@ test.skipIf(process.platform !== 'darwin')(
         '/bin/sh',
         [
           '-c',
-          `perl -e 'setpgrp(0, 0); exec @ARGV' "$0" -e "require('fs').writeFileSync('${name}', String(process.pid)); setTimeout(() => {}, 60000)" witch-jobs-fixture-${name} &`,
+          `perl -e 'setpgrp(0, 0); exec @ARGV' "$0" -e "require('fs').writeFileSync('${name}', String(process.pid)); setTimeout(() => {}, 60000)" "$1" witch-jobs-fixture-${name} &`,
           executable,
+          join(bundle, 'Code'),
         ],
         {
           cwd,

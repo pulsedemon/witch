@@ -19,8 +19,10 @@
     "test": "vitest run",
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:integration:codex-brews": "node --import tsx scripts/check-codex-brews.ts",
+    "test:record-native": "node --import tsx scripts/record-native-protocol.ts",
     "lint:eslint": "eslint .",
-    "lint": "pnpm lint:eslint && prettier --check .",
+    "lint:compiler": "babel src/ui --extensions .ts,.tsx --out-file /dev/null --env-name lint",
+    "lint": "pnpm lint:eslint && pnpm lint:compiler && prettier --check .",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && node dist/cli.js --help",
     "format": "prettier --write ."
   },
@@ -47,7 +49,7 @@
     "string-width": "8.3.0",
     "strip-ansi": "7.2.0",
     "wrap-ansi": "10.0.2",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@babel/cli": "7.29.7",

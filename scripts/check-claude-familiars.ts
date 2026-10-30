@@ -158,7 +158,7 @@ function command(name: string) {
     'env',
     'NODE_OPTIONS=' + quote('--import=' + join(root, 'audit.mjs')),
     'WITCH_REVIEW_AUDIT=' + quote(audit),
-    coordination.familiarCommand(),
+    coordination.commandPrefixes().familiar,
     '--familiar-claude',
     quote(name),
     '--report-file',

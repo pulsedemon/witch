@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Cast } from './types.js';
 import {
   taskStatuses,
   userRequestSchema,
@@ -11,14 +12,29 @@ export const familiarProgressSchema = z.object({
   activity: z.string().optional(),
   tools: z.number().int().nonnegative().optional(),
   report: z.string().optional(),
+  /** the transient notices its native session posted, oldest first. */
+  notices: z.array(z.string()).optional(),
+  spells: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 });
 export type FamiliarProgress = z.infer<typeof familiarProgressSchema>;
+
+/** a familiar's spells with the new casts added; undefined when none is new. */
+export function mergeCasts(
+  spells: readonly Cast[] | undefined,
+  casts: readonly Cast[],
+): Cast[] | undefined {
+  const known = new Set(spells?.map(({ id }) => id));
+  const added = casts.filter(({ id }) => !known.has(id));
+  return added.length ? [...(spells ?? []), ...added] : undefined;
+}
 
 export const familiarActionSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('familiar-register'),
     run: z.string().uuid(),
     name: z.string().trim().min(1),
+    /** the wrapper's runtime, since either runtime's session can launch either wrapper. */
+    runtime: z.enum(['claude', 'codex']),
   }),
   z.object({
     kind: z.literal('familiar-update'),

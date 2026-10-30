@@ -10,9 +10,18 @@ import { errorMessage } from './agents/stderr.js';
 import { callControl } from './persistence/control.js';
 import type { ControlBinding } from './persistence/control.js';
 
-/** the wrapper owns the stream protocol; native model, settings and permissions remain caller arguments. */
+/** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it. */
+const settings = JSON.stringify({
+  env: {
+    CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP: '1',
+    CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
+  },
+});
+
+/** the wrapper owns the stream protocol and model settings; the native model and permissions remain caller arguments. */
 export function claudeArguments(args: readonly string[]): string[] {
   const conflicting = new Set([
+    '--settings',
     '-p',
     '--print',
     '--verbose',
@@ -31,10 +40,18 @@ export function claudeArguments(args: readonly string[]): string[] {
     if (arg === '--') break;
     if (conflicting.has(arg.split('=')[0]!))
       throw new Error(
-        `Claude familiar mode cannot include ${arg}; it supplies its own print/stream protocol.`,
+        `Claude familiar mode cannot include ${arg}; it supplies its own print/stream protocol and settings.`,
       );
   }
-  return ['--print', '--verbose', '--output-format', 'stream-json', ...args];
+  return [
+    '--print',
+    '--verbose',
+    '--output-format',
+    'stream-json',
+    '--settings',
+    settings,
+    ...args,
+  ];
 }
 
 /** one in-flight snapshot preserves ordering while tool bursts replace only unsent progress. */
@@ -107,6 +124,7 @@ export async function registerFamiliar(
   binding: ControlBinding,
   run: string,
   name: string,
+  runtime: 'claude' | 'codex',
   stopped: () => boolean,
 ): Promise<void> {
   const marker = familiarMarker({
@@ -123,7 +141,7 @@ export async function registerFamiliar(
     process.stdout.write(marker);
     const outcome = await callControl(
       binding,
-      { kind: 'familiar-register', run, name },
+      { kind: 'familiar-register', run, name, runtime },
       deadline,
     );
     if (outcome.kind === 'error') throw new Error(outcome.message);
@@ -171,7 +189,7 @@ export async function runClaudeFamiliar(
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', stop);
   try {
-    await registerFamiliar(binding, run, name, () => !!stopped);
+    await registerFamiliar(binding, run, name, 'claude', () => !!stopped);
     const reports = new FamiliarReports(binding, run, (error) => {
       task.failed(error.message);
       terminate('SIGTERM');

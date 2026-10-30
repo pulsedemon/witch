@@ -8,7 +8,8 @@ import type {
   FamiliarAction,
   FamiliarProgress,
 } from './agents/familiar-report.js';
-import { errorMessage } from './agents/stderr.js';
+import { mergeCasts } from './agents/familiar-report.js';
+import { errorMessage, watchChild, withTail } from './agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
 import { FamiliarReports, registerFamiliar } from './cli-familiar.js';
 import { questionReply } from './core/prompts.js';
@@ -56,7 +57,8 @@ export async function runCodexFamiliar(
   let failure: string | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let childExit:
-    { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    | { code: number | null; signal: NodeJS.Signals | null; tail: string }
+    | undefined;
   let progress: FamiliarProgress = { status: 'running', tools: 0 };
   const tools = new Set<string>();
   const prompts: string[] = [];
@@ -65,6 +67,7 @@ export async function runCodexFamiliar(
     { input: UserRequest; resolved: boolean; work: Promise<void> }
   >();
   const close = () => {
+    process.stdin.destroy();
     if (session) {
       closing ??= session.close();
       void closing.catch((error: unknown) => {
@@ -78,7 +81,6 @@ export async function runCodexFamiliar(
   };
   const stop = () => {
     stopped = true;
-    process.stdin.destroy();
     close();
   };
   const reports = new FamiliarReports(binding, run, fail);
@@ -143,6 +145,18 @@ export async function runCodexFamiliar(
     else if (event.type === 'tool' && !event.done && !event.append) {
       tools.add(event.id);
       progress = { ...progress, tools: tools.size, activity: event.title };
+    } else if (event.type === 'notice' && event.transient)
+      progress = {
+        ...progress,
+        notices: [...(progress.notices ?? []), event.text],
+      };
+    else if (event.type === 'spell' || event.type === 'subagent') {
+      const spells = mergeCasts(
+        progress.spells,
+        event.type === 'spell' ? [event.cast] : (event.subagent.spells ?? []),
+      );
+      if (!spells) return;
+      progress = { ...progress, spells };
     } else if (event.type === 'request') {
       request(event.request);
       return;
@@ -187,12 +201,13 @@ export async function runCodexFamiliar(
     await file.sync();
   };
   try {
+    await registerFamiliar(binding, run, name, 'codex', () => stopped);
+    registered = true;
+    reports.push(progress);
+    heartbeat = setInterval(() => reports.push(progress), 2000);
     let prompt = '';
     process.stdin.setEncoding('utf8');
     for await (const chunk of process.stdin) prompt += chunk as string;
-    await registerFamiliar(binding, run, name, () => stopped);
-    registered = true;
-    heartbeat = setInterval(() => reports.push(progress), 2000);
     const adapter = new CodexAdapter((executable, cwd, signal) => {
       const child = spawn(executable, argv, {
         cwd,
@@ -200,16 +215,24 @@ export async function runCodexFamiliar(
         stdio: 'pipe',
         detached: false,
       });
-      child.stderr.pipe(process.stderr, { end: false });
-      child.once('exit', (code, signal) => {
-        childExit = { code, signal };
+      // the app-server's log lines stay out of the calling agent's output; failures carry their tail
+      const output = watchChild(child);
+      child.once('close', (code, signal) => {
+        childExit = { code, signal, tail: output.tail() };
         if (
           !closing &&
           [...requests.values()].some(
             (pending) => pending.input.replyAsPrompt && !pending.resolved,
           )
         )
-          fail(new Error('Codex exited while awaiting a question response.'));
+          fail(
+            new Error(
+              withTail(
+                'Codex exited while awaiting a question response',
+                childExit.tail,
+              ),
+            ),
+          );
       });
       return child;
     });
@@ -223,6 +246,8 @@ export async function runCodexFamiliar(
     });
     if (stopped || failure)
       throw new Error(failure ?? 'Codex familiar stopped before its turn.');
+    // only to recognize the spells it casts, so a failed listing costs only that
+    await session.skills().catch(() => {});
     for (;;) {
       const result = await session.send(prompt);
       report = [report, result.text, result.error].filter(Boolean).join('\n\n');
@@ -258,7 +283,10 @@ export async function runCodexFamiliar(
     else if (failure) status = 'failed';
     else if (status === 'completed' && childExit?.code !== 0) {
       status = 'failed';
-      failure = `Codex exited (${childExit?.signal ?? childExit?.code ?? 'unknown'}).`;
+      failure = withTail(
+        `Codex exited (${childExit?.signal ?? childExit?.code ?? 'unknown'})`,
+        childExit?.tail ?? '',
+      );
     }
     if (failure) report = [report, failure].filter(Boolean).join('\n\n');
     await save();

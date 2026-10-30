@@ -1,34 +1,48 @@
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
 import { AbortError, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   Query,
   SDKMessage,
   SDKUserMessage,
   ModelInfo,
-  SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
-import { ClaudeUsage } from './claude-usage.js';
+import { accountLimits, ClaudeUsage } from './claude-usage.js';
+import { ClaudeCompaction } from './claude-compaction.js';
+import { sideQuery, startupFailure } from './claude-side.js';
+import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
-import type { ClaudeLaunch, UsageSource } from './claude-usage.js';
+import type { UsageSource } from './claude-usage.js';
 import { proposedDiff, reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
-import { toolTitle } from './tool-title.js';
+import {
+  beforeDeadline,
+  NativeStopTimeout,
+  stopDeadline,
+  terminateChild,
+  terminationReserveMs,
+} from './shutdown.js';
+import { claudeTitle } from './tool-title.js';
+import { acknowledged, skillCasts, skillsOf } from './claude-spells.js';
+import { mergeCasts } from './familiar-report.js';
 import { bashRecord, runShell } from './user-shell.js';
 import type {
   AgentAdapter,
   AgentSession,
+  AgentStopOptions,
+  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
   SessionOptions,
   Skill,
+  Cast,
   SkillCall,
   Subagent,
   TurnResult,
@@ -45,25 +59,12 @@ const launch: ClaudeLaunch = (options) =>
     stdio: 'pipe',
   });
 const effortLevel = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-const limitWindow = z
-  .object({
-    utilization: z.number().nullable(),
-    resets_at: z.string().nullable(),
-  })
-  .nullish();
 /** the experimental usage report may change shape, so only what parses is shown. */
 const sessionUsage = z.object({
   session: z.object({
     total_lines_added: z.number(),
     total_lines_removed: z.number(),
   }),
-});
-const accountUsage = z.object({
-  rate_limits_available: z.boolean(),
-  // percentages of 0 to 100
-  rate_limits: z
-    .object({ five_hour: limitWindow, seven_day: limitWindow })
-    .nullable(),
 });
 const commandLifecycle = z.object({
   type: z.literal('command_lifecycle'),
@@ -96,68 +97,57 @@ function modelsOf(models: readonly ModelInfo[]): Model[] {
   }));
 }
 
-/** bounds stderr collection when startup fails while the CLI is still alive. */
-async function startupFailure(
-  error: unknown,
-  child: ChildExit | undefined,
-): Promise<Error> {
-  await Promise.race([child?.closed, delay(1000)]);
-  const failure = new Error(
-    withTail(errorMessage(error), child?.tail() ?? ''),
-    { cause: error },
-  );
-  if (error instanceof AbortError) failure.name = 'AbortError';
-  return failure;
-}
-
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
   readonly label = 'Claude Code';
 
   constructor(private readonly start: ClaudeLaunch = launch) {}
 
-  async models(options: ModelDiscoveryOptions): Promise<Model[]> {
-    const input = new InputQueue<SDKUserMessage>();
-    const abort = new AbortController();
-    const cancel = () => abort.abort();
-    options.signal?.addEventListener('abort', cancel, { once: true });
-    if (options.signal?.aborted) cancel();
-    let child: ChildExit | undefined;
-    let discovery: Query | undefined;
-    let reading: Promise<void> | undefined;
-    try {
-      discovery = query({
-        prompt: input,
-        options: {
-          cwd: options.cwd,
-          pathToClaudeCodeExecutable: options.executable,
-          abortController: abort,
-          settingSources: ['user', 'project', 'local'],
-          persistSession: false,
-          settings: { disableAllHooks: true },
-          strictMcpConfig: true,
-          mcpServers: {},
-          spawnClaudeCodeProcess: (settings) => {
-            const process = this.start(settings);
-            child = watchChild(process);
-            return process;
-          },
-        },
-      });
-      const stream = discovery;
-      reading = (async () => {
-        for await (const message of stream) void message;
-      })().catch(() => {});
-      return modelsOf(await discovery.supportedModels());
-    } catch (error) {
-      throw await startupFailure(error, child);
-    } finally {
-      input.close();
-      discovery?.close();
-      await reading;
-      await child?.closed;
-      options.signal?.removeEventListener('abort', cancel);
-    }
+  models(options: ModelDiscoveryOptions): Promise<Model[]> {
+    return sideQuery(this.start, options, async (query) =>
+      modelsOf(await query.supportedModels()),
+    );
+  }
+
+  limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]> {
+    return sideQuery(this.start, options, async (query) => {
+      const limits = accountLimits(
+        await query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+          skipBehaviors: true,
+        }),
+        previous,
+      );
+      if (!limits)
+        throw new Error('Claude Code sent an unreadable usage report.');
+      return limits;
+    });
+  }
+
+  /** settings files, `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_*_MODEL` can pin an alias to an older model, so none applies. */
+  latest(options: ModelDiscoveryOptions): Promise<Record<string, string>> {
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) =>
+          name !== 'ANTHROPIC_MODEL' &&
+          !/^ANTHROPIC_DEFAULT_\w+_MODEL$/.test(name),
+      ),
+    );
+    return sideQuery(
+      this.start,
+      options,
+      async (query) =>
+        Object.fromEntries(
+          (await query.supportedModels()).flatMap(({ value, resolvedModel }) =>
+            value !== 'default' && !value.startsWith('claude-') && resolvedModel
+              ? [[value, resolvedModel]]
+              : [],
+          ),
+        ),
+      { settingSources: [], env },
+    );
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {
@@ -177,8 +167,11 @@ interface Turn {
   result?: TurnResult;
   interrupted: boolean;
   messages: TurnText;
-  /** retain consumed input for interrupt receipts; omit command replies' text to prevent replay. */
-  steered: Map<string, { prompt?: string; pending: boolean }>;
+  /** retain consumed user input for interrupt receipts; generated context must never reenter the prompt queue. */
+  steered: Map<
+    string,
+    { prompt?: string; pending: boolean; contextOnly?: true }
+  >;
   inputError?: string;
   commandRecords: Map<string, { records: string[]; writeAttempted: boolean }>;
   initialInput?: string;
@@ -191,21 +184,7 @@ interface Turn {
   idle: boolean;
   /** the completed command's reply, waiting to go. */
   answer?: string;
-  compaction?: { uuid: string; replaced: boolean; error?: string };
-}
-
-/** everything but Claude Code's own commands, including unmarked rows a built-in shadows, since `/name` runs the built-in. */
-function skillsOf(commands: SlashCommand[]): Skill[] {
-  const builtin = new Set(
-    commands.filter((command) => command.builtin).map(({ name }) => name),
-  );
-  return commands
-    .filter(({ name }) => !builtin.has(name))
-    .map(({ name, description, argumentHint }) => ({
-      name,
-      description,
-      ...(argumentHint ? { argumentHint } : {}),
-    }));
+  compaction?: true;
 }
 
 class ClaudeSession implements AgentSession {
@@ -218,6 +197,12 @@ class ClaudeSession implements AgentSession {
   private readonly reading: Promise<void>;
   private registered = Promise.resolve();
   private child?: ChildExit;
+  private process?: ChildProcessWithoutNullStreams;
+  private closeTask?: Promise<void>;
+  private interrupting?: Promise<void>;
+  private terminating?: Promise<boolean>;
+  private stopUntil?: number;
+  private reportedStopTimeout = false;
   private readonly abort = new AbortController();
   private readonly cancelConnection = () => this.abort.abort();
   private readonly requests = new Map<
@@ -226,11 +211,14 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
+  private compaction?: ClaudeCompaction;
   /** the user's `!` command until its record and process reports settle. */
   private command?: { controller: AbortController; finished: Promise<void> };
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
   private records: string[] = [];
   private readonly subagents = new Map<string, Subagent>();
+  /** the spells the user sent, by input uuid, until Claude starts the input. */
+  private readonly pendingCasts = new Map<string, string>();
   private readonly commands: ClaudeCommands;
   /** the background workflows still running. */
   private readonly workflows = new Set<string>();
@@ -243,6 +231,13 @@ class ClaudeSession implements AgentSession {
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private messageLifecycle = false;
+  private sessionLifecycle = false;
+  private reportedMissingLifecycle = false;
+  private readonly reportedMcp = new Set<string>();
+  private mcpTimer?: ReturnType<typeof setTimeout>;
+  private mcpReading = false;
+  private mcpRequested = false;
+  private mcpPending = false;
 
   constructor(
     private readonly options: SessionOptions,
@@ -289,6 +284,7 @@ class ClaudeSession implements AgentSession {
         },
         spawnClaudeCodeProcess: (settings) => {
           const child = start(settings);
+          this.process = child;
           const write = child.stdin.write;
           child.stdin.write = (...args) => {
             const message = JSON.parse(args[0] as string) as SDKUserMessage;
@@ -414,6 +410,60 @@ class ClaudeSession implements AgentSession {
     this.connected = true;
     await this.registered;
     this.readUsage();
+    this.refreshMcpStatus();
+  }
+
+  private refreshMcpStatus(): void {
+    if (this.closed) return;
+    clearTimeout(this.mcpTimer);
+    this.mcpTimer = undefined;
+    this.mcpRequested = true;
+    if (!this.mcpReading) void this.readMcpStatus();
+  }
+
+  private async readMcpStatus(): Promise<void> {
+    this.mcpReading = true;
+    try {
+      do {
+        this.mcpRequested = false;
+        try {
+          const servers = await this.query.mcpServerStatus();
+          if (this.closed) return;
+          // cached discovery also reports pending, but its tools do not need a startup poll.
+          this.mcpPending = servers.some(
+            ({ status, tools }) => status === 'pending' && tools === undefined,
+          );
+          for (const { name, status, error } of servers) {
+            if (status !== 'failed' && status !== 'needs-auth') continue;
+            const key = JSON.stringify([name, status]);
+            if (this.reportedMcp.has(key)) continue;
+            this.reportedMcp.add(key);
+            this.options.onEvent({
+              type: 'notice',
+              text:
+                status === 'needs-auth'
+                  ? `Claude MCP server ${name} needs sign-in.`
+                  : `Claude could not connect to MCP server ${name}${error ? `: ${error}` : '.'}`,
+              transient: true,
+            });
+          }
+        } catch {
+          // a failed diagnostic read must not interrupt the conversation.
+        }
+      } while (this.mcpRequested && !this.closed);
+    } finally {
+      this.mcpReading = false;
+      if (this.mcpPending && !this.closed) {
+        this.mcpTimer = setTimeout(() => this.refreshMcpStatus(), 1000);
+        this.mcpTimer.unref();
+      }
+    }
+  }
+
+  private stopMcpPolling(): void {
+    clearTimeout(this.mcpTimer);
+    this.mcpTimer = undefined;
+    this.mcpRequested = false;
   }
 
   async models(refresh = false): Promise<Model[]> {
@@ -462,17 +512,47 @@ class ClaudeSession implements AgentSession {
       context === undefined
         ? prompt
         : `${context}\n\n${author === 'witch' ? 'Witch' : 'User'} request:\n${prompt}`;
-    const uuid = this.push(this.content(input, skill));
+    const uuid = this.push(
+      this.content(input, skill),
+      !skill && prompt.trim().startsWith('/'),
+    );
     turn.initialInput = uuid;
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
+    if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
     return turn.finished.promise;
   }
 
   async compact(): Promise<TurnResult> {
     if (this.command) throw new Error('This agent is already running');
     const turn = this.beginTurn();
-    turn.compaction = { uuid: this.push('/compact'), replaced: false };
+    turn.compaction = true;
+    this.compaction = new ClaudeCompaction(this.push('/compact'), true);
     return turn.finished.promise;
+  }
+
+  compactDuringTurn(): Promise<TurnResult> | undefined {
+    const turn = this.turn;
+    if (
+      this.closed ||
+      !turn ||
+      turn.interrupted ||
+      turn.held ||
+      turn.compaction ||
+      this.compacting ||
+      this.command ||
+      (!this.messageLifecycle && !this.replied)
+    )
+      return undefined;
+    turn.idle = false;
+    this.compaction = new ClaudeCompaction(
+      this.push('/compact'),
+      !this.messageLifecycle,
+    );
+    return this.compaction.finished.promise;
+  }
+
+  private get compacting(): boolean {
+    return !!this.compaction && !this.compaction.result;
   }
 
   private beginTurn(): Turn {
@@ -561,15 +641,17 @@ class ClaudeSession implements AgentSession {
    */
   async steer(
     prompt: string,
-    { command }: { command?: string } = {},
+    options: Parameters<AgentSession['steer']>[1] = {},
   ): Promise<boolean> {
+    const { command, skill, contextOnly } = options;
     const turn = this.turn;
     if (
       this.closed ||
       !turn ||
       turn.interrupted ||
       turn.held ||
-      turn.compaction
+      turn.compaction ||
+      this.compacting
     )
       return false;
     // without acknowledgements, background holders keep delivery ahead of idle
@@ -579,9 +661,18 @@ class ClaudeSession implements AgentSession {
       !(this.messageLifecycle && command === undefined)
     )
       return false;
-    if (command === undefined)
-      turn.steered.set(this.push(prompt), { prompt, pending: true });
-    else {
+    // Claude Code runs a command only once the native turn ends, which without acknowledgements could be after this one
+    if (skill && !this.messageLifecycle && !this.replied) return false;
+    if (command === undefined) {
+      // Claude Code holds a message shaped like a slash command until the turn ends; marked, it joins as text
+      const uuid = this.push(prompt, !skill && prompt.trim().startsWith('/'));
+      turn.steered.set(uuid, {
+        prompt: contextOnly ? undefined : prompt,
+        pending: true,
+        contextOnly,
+      });
+      if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
+    } else {
       turn.held = true;
       void this.reply(turn, command, prompt);
     }
@@ -594,6 +685,7 @@ class ClaudeSession implements AgentSession {
       !this.closed &&
       !!turn?.result &&
       !turn.compaction &&
+      !this.compacting &&
       !turn.interrupted &&
       !turn.held &&
       this.holding
@@ -609,8 +701,7 @@ class ClaudeSession implements AgentSession {
   }
 
   /**
-   * with no familiar or workflow left and Claude Code not yet idle, a reply could land after idle, so idle releases
-   * it, or a familiar or workflow that starts first.
+   * with native idle tracking, a reply after the last holder may land after idle, so idle or a new holder releases it.
    */
   private async reply(
     turn: Turn,
@@ -626,7 +717,12 @@ class ClaudeSession implements AgentSession {
     if (ran.status === 'failed')
       this.options.onEvent({ type: 'notice', text: ran.error ?? '' });
     if (ran.status === 'completed') turn.answer = prompt;
-    if (ran.status !== 'completed' || turn.idle || this.holding)
+    if (
+      ran.status !== 'completed' ||
+      turn.idle ||
+      this.holding ||
+      !this.sessionLifecycle
+    )
       this.release(turn);
   }
 
@@ -649,18 +745,36 @@ class ClaudeSession implements AgentSession {
   }
 
   readonly familiar = {
-    runtime: 'codex' as const,
     report: (
       action: Parameters<ClaudeCommands['report']>[0],
       deadline: number,
     ) => this.commands.report(action, deadline),
   };
 
-  async interrupt(): Promise<void> {
+  interrupt(options: AgentStopOptions = {}): Promise<void> {
     this.command?.controller.abort();
     const turn = this.turn;
-    if (!turn) return;
+    if (!turn) return Promise.resolve();
+    if (this.interrupting) return this.interrupting;
     turn.interrupted = true;
+    this.stopUntil ??= stopDeadline(options.deadline);
+    const deadline = this.stopUntil;
+    return (this.interrupting = beforeDeadline(
+      this.interruptTurn(turn),
+      deadline - terminationReserveMs,
+    )
+      .catch(async (error: unknown) => {
+        if (!(error instanceof NativeStopTimeout)) throw error;
+        this.reportStopTimeout();
+        await this.close({ ...options, deadline });
+      })
+      .finally(() => {
+        this.interrupting = undefined;
+        if (!this.closed) this.stopUntil = undefined;
+      }));
+  }
+
+  private async interruptTurn(turn: Turn): Promise<void> {
     // a shell-only wait ends when the aborted command releases it
     if (
       turn.idle &&
@@ -692,7 +806,8 @@ class ClaudeSession implements AgentSession {
         (uuid) => turn.commandRecords.get(uuid)?.records ?? [],
       );
       this.closed = true;
-      void this.usageReader.close().catch(() => {});
+      this.stopMcpPolling();
+      void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
       this.finish(turn, {
         status: 'interrupted',
         text: turn.messages.text,
@@ -706,28 +821,81 @@ class ClaudeSession implements AgentSession {
     await turn.finished.promise;
   }
 
-  async close(): Promise<void> {
+  close(options: AgentStopOptions = {}): Promise<void> {
+    this.stopUntil ??= stopDeadline(options.deadline);
+    return (this.closeTask ??= this.closeSession(this.stopUntil));
+  }
+
+  private async closeSession(deadline: number): Promise<void> {
     const command = this.command;
     command?.controller.abort();
     this.closed = true;
-    const usageClosed = this.usageReader.close();
+    this.stopMcpPolling();
+    const usageClosed = this.usageReader.close({ deadline });
     void usageClosed.catch(() => {});
-    let cleanupError: unknown;
+    const stopped = (async () => {
+      let cleanupError: unknown;
+      try {
+        await this.commands.close();
+      } catch (error) {
+        cleanupError = error;
+      } finally {
+        this.input.close();
+        this.query.close();
+      }
+      await this.reading;
+      await this.child?.closed;
+      await command?.finished;
+      await usageClosed;
+      if (cleanupError) throw cleanupError;
+    })();
     try {
-      await this.commands.close();
+      await beforeDeadline(stopped, deadline - terminationReserveMs);
     } catch (error) {
-      cleanupError = error;
-    } finally {
+      if (!(error instanceof NativeStopTimeout)) throw error;
+      this.reportStopTimeout();
+      this.commands.stop();
+      for (const request of this.requests.values())
+        request.resolve({ decision: 'cancel' });
       this.input.close();
       this.query.close();
+      try {
+        await this.terminate(deadline);
+      } finally {
+        await this.end('Claude did not stop in time');
+      }
+      await beforeDeadline(
+        Promise.all([this.reading, usageClosed, command?.finished]),
+        deadline,
+      );
+    } finally {
+      this.options.signal?.removeEventListener('abort', this.cancelConnection);
+      if (
+        !this.process ||
+        this.process.pid === undefined ||
+        this.process.exitCode !== null ||
+        this.process.signalCode !== null
+      )
+        await this.options.onProcess(undefined);
     }
-    await this.reading;
-    await this.child?.closed;
-    await command?.finished;
-    await usageClosed;
-    this.options.signal?.removeEventListener('abort', this.cancelConnection);
-    await this.options.onProcess(undefined);
-    if (cleanupError) throw cleanupError;
+  }
+
+  private terminate(deadline: number): Promise<boolean> {
+    if (!this.process || !this.child) return Promise.resolve(false);
+    return (this.terminating ??= terminateChild(
+      this.process,
+      this.child.closed,
+      deadline,
+    ));
+  }
+
+  private reportStopTimeout(): void {
+    if (this.reportedStopTimeout) return;
+    this.reportedStopTimeout = true;
+    this.options.onEvent({
+      type: 'notice',
+      text: 'Claude did not stop in time.',
+    });
   }
 
   takeUnreadContext(): string[] {
@@ -754,8 +922,11 @@ class ClaudeSession implements AgentSession {
       : prompt;
   }
 
-  /** returns the uuid the message went with. */
-  private push(content: SDKUserMessage['message']['content']): string {
+  /** returns the uuid the message went with; a composed message goes as written, with no slash dispatch or `@path` expansion. */
+  private push(
+    content: SDKUserMessage['message']['content'],
+    composed = false,
+  ): string {
     const uuid = randomUUID();
     this.input.push({
       type: 'user',
@@ -763,6 +934,7 @@ class ClaudeSession implements AgentSession {
       session_id: this.info.id,
       message: { role: 'user', content },
       parent_tool_use_id: null,
+      ...(composed ? { client_composed: true as const } : {}),
     });
     return uuid;
   }
@@ -803,8 +975,11 @@ class ClaudeSession implements AgentSession {
       await this.end(errorMessage(failure));
     } finally {
       this.closed = true;
+      this.stopMcpPolling();
       this.commands.stop();
-      await this.usageReader.close().catch(() => {});
+      await this.usageReader
+        .close({ deadline: this.stopUntil })
+        .catch(() => {});
       for (const request of this.requests.values())
         request.resolve({ decision: 'cancel' });
       if (this.connected) this.options.onEvent({ type: 'closed' });
@@ -813,10 +988,23 @@ class ClaudeSession implements AgentSession {
 
   private receive(message: SDKMessage): void {
     this.commands.receive(message);
+    this.started(message);
+    if (this.compaction?.receive(message, this.info.id)) {
+      this.completeCompaction();
+      return;
+    }
     const type: string = message.type;
     if (type === 'command_lifecycle') {
       const lifecycle = commandLifecycle.safeParse(message);
       if (!lifecycle.success) return;
+      if (
+        lifecycle.data.session_id === this.info.id &&
+        this.compaction?.lifecycle(
+          lifecycle.data.command_uuid,
+          lifecycle.data.state,
+        )
+      )
+        this.completeCompaction();
       const turn = this.turn;
       if (
         this.messageLifecycle &&
@@ -828,7 +1016,12 @@ class ClaudeSession implements AgentSession {
         if (input && state !== 'queued') {
           if (state === 'started' && input.pending) turn.result = undefined;
           input.pending = false;
-          if (state !== 'started' && state !== 'completed' && !turn.interrupted)
+          if (
+            state !== 'started' &&
+            state !== 'completed' &&
+            !turn.interrupted &&
+            !input.contextOnly
+          )
             turn.inputError ??= `Claude ${state} a steered prompt`;
           this.finishIdle(turn);
         }
@@ -852,29 +1045,24 @@ class ClaudeSession implements AgentSession {
               : (message.effort ?? undefined),
         };
         this.options.onEvent({ type: 'info', info: this.info });
+        this.refreshMcpStatus();
       } else if (message.subtype === 'compact_boundary') {
         if (message.session_id !== this.info.id) return;
-        if (
-          this.turn?.compaction &&
-          message.compact_metadata.trigger === 'manual'
-        )
-          this.turn.compaction.replaced = true;
         this.options.onEvent({ type: 'compacted' });
-      } else if (message.subtype === 'status' && this.turn?.compaction) {
-        if (message.compact_result === 'failed')
-          this.turn.compaction.error =
-            message.compact_error ?? 'Claude compaction failed';
       } else if (message.subtype === 'commands_changed') {
         this.options.onEvent({
           type: 'skills',
           skills: skillsOf(message.commands),
         });
-      } else if (message.subtype === 'session_state_changed' && this.turn) {
+      } else if (message.subtype === 'session_state_changed') {
+        this.sessionLifecycle = true;
         const turn = this.turn;
-        turn.idle = message.state === 'idle';
-        if (turn.idle && turn.held && turn.answer !== undefined)
-          this.release(turn);
-        else this.finishIdle(turn);
+        if (turn) {
+          turn.idle = message.state === 'idle';
+          if (turn.idle && turn.held && turn.answer !== undefined)
+            this.release(turn);
+          else this.finishIdle(turn);
+        }
       } else if (
         // ambient tasks are housekeeping, such as forked-skill workers
         message.subtype === 'task_started' &&
@@ -883,11 +1071,11 @@ class ClaudeSession implements AgentSession {
         !message.ambient &&
         !this.late(message)
       ) {
+        if (message.run_id) this.runs.set(message.task_id, message.run_id);
         // a workflow holds off idle as a familiar does, though its agents never reach the stream
         if (message.task_type === 'local_workflow')
           this.workflows.add(message.task_id);
         else {
-          if (message.run_id) this.runs.set(message.task_id, message.run_id);
           this.subagent({
             id: message.task_id,
             parent: message.parent_task_id,
@@ -912,11 +1100,13 @@ class ClaudeSession implements AgentSession {
             this.subagent({ ...subagent, status: 'stopped' });
         }
         this.listed = listed;
+        if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       } else if (message.subtype === 'task_notification') {
+        if (this.late(message)) return;
         this.workflows.delete(message.task_id);
         const subagent = this.subagents.get(message.task_id);
-        if (subagent && !this.late(message))
-          this.subagent({ ...subagent, status: message.status });
+        if (subagent) this.subagent({ ...subagent, status: message.status });
+        if (this.turn && !this.sessionLifecycle) this.finishIdle(this.turn);
       }
     } else if (
       message.type === 'stream_event' &&
@@ -952,21 +1142,36 @@ class ClaudeSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id: block.id,
-            title: toolTitle(block.name, block.input, this.options.cwd),
+            ...claudeTitle(
+              block.name,
+              block.input,
+              this.options.cwd,
+              this.options.commandPrefixes,
+            ),
             text: JSON.stringify(block.input, null, 2),
             done: false,
           });
       }
+      this.cast(skillCasts(message.message.content));
+    } else if (
+      message.type === 'assistant' &&
+      !(message.agent_id && this.subagents.has(message.agent_id))
+    ) {
+      // an ambient worker's or an unattributed nested cast is shown as the main agent's
+      this.cast(skillCasts(message.message.content));
     } else if (message.type === 'assistant' && message.agent_id) {
-      const subagent = this.subagents.get(message.agent_id);
-      if (!subagent) return;
+      const subagent = this.subagents.get(message.agent_id)!;
       const observed = message.message.model;
       const model =
         observed && observed !== '<synthetic>' ? observed : subagent.model;
       let { activity, tools = 0, report } = subagent;
       for (const block of message.message.content)
         if (block.type === 'tool_use') {
-          activity = toolTitle(block.name, block.input, this.options.cwd);
+          activity = claudeTitle(
+            block.name,
+            block.input,
+            this.options.cwd,
+          ).title;
           tools++;
         } else if (block.type === 'text') {
           report =
@@ -976,12 +1181,24 @@ class ClaudeSession implements AgentSession {
               : block.text;
           this.reportMessages.set(subagent.id, message.message.id);
         }
+      const spells = mergeCasts(
+        subagent.spells,
+        skillCasts(message.message.content),
+      );
       if (
         model !== subagent.model ||
         tools !== (subagent.tools ?? 0) ||
-        report !== subagent.report
+        report !== subagent.report ||
+        spells
       )
-        this.subagent({ ...subagent, model, activity, tools, report });
+        this.subagent({
+          ...subagent,
+          model,
+          activity,
+          tools,
+          report,
+          ...(spells ? { spells } : {}),
+        });
     } else if (
       message.type === 'user' &&
       message.parent_tool_use_id === null &&
@@ -1020,28 +1237,7 @@ class ClaudeSession implements AgentSession {
       }
     } else if (message.type === 'result') {
       if (!this.turn) return;
-      const compact = this.turn.compaction;
-      if (compact) {
-        const uuids = message.user_message_uuids ?? [message.user_message_uuid];
-        if (!uuids.includes(compact.uuid)) return;
-        const success =
-          message.subtype === 'success' &&
-          !message.is_error &&
-          compact.replaced &&
-          !compact.error;
-        this.turn.result = {
-          status: success ? 'completed' : 'failed',
-          text: '',
-          ...(!success
-            ? {
-                error:
-                  compact.error ??
-                  'Claude ended compaction without confirming history replacement',
-              }
-            : {}),
-        };
-        return;
-      }
+      if (this.turn.compaction) return;
       const success = message.subtype === 'success' && !message.is_error;
       if (this.messageLifecycle) {
         const uuids = message.user_message_uuids ?? [message.user_message_uuid];
@@ -1072,12 +1268,34 @@ class ClaudeSession implements AgentSession {
             }
           : {}),
       };
+      if (!this.sessionLifecycle) this.finishIdle(this.turn);
     }
   }
 
   private subagent(subagent: Subagent): void {
     this.subagents.set(subagent.id, subagent);
     this.options.onEvent({ type: 'subagent', subagent });
+  }
+
+  private cast(casts: Cast[]): void {
+    for (const cast of casts) this.options.onEvent({ type: 'spell', cast });
+  }
+
+  /** a sent spell counts once Claude starts its input, which can come before init announces lifecycle support. */
+  private started(message: SDKMessage): void {
+    if (!this.pendingCasts.size) return;
+    const lifecycle = commandLifecycle.safeParse(message);
+    const uuids = lifecycle.success
+      ? lifecycle.data.state === 'started'
+        ? [lifecycle.data.command_uuid]
+        : []
+      : (acknowledged.safeParse(message).data?.user_message_uuids ?? []);
+    for (const uuid of uuids) {
+      const name = this.pendingCasts.get(uuid);
+      if (name === undefined) continue;
+      this.pendingCasts.delete(uuid);
+      this.cast([{ id: uuid, name }]);
+    }
   }
 
   /** run ids sort in the order the runs opened, so a frame naming an earlier run is late. */
@@ -1123,32 +1341,8 @@ class ClaudeSession implements AgentSession {
         removed: session.data.session.total_lines_removed,
       };
     }
-    const account = accountUsage.safeParse(report);
-    if (account.success) {
-      const { rate_limits: limits, rate_limits_available: available } =
-        account.data;
-      update.limits = !available
-        ? []
-        : (
-            [
-              ['5H', limits?.five_hour],
-              ['7D', limits?.seven_day],
-            ] as const
-          ).flatMap(([name, limit]) =>
-            limit?.utilization == null
-              ? (this.usage.limits?.filter((entry) => entry.window === name) ??
-                [])
-              : [
-                  {
-                    window: name,
-                    percent: limit.utilization,
-                    ...(limit.resets_at
-                      ? { resetsAt: Date.parse(limit.resets_at) / 1000 }
-                      : {}),
-                  },
-                ],
-          );
-    }
+    const limits = accountLimits(report, this.usage.limits ?? []);
+    if (limits) update.limits = limits;
     if (Object.keys(update).length) this.report(update);
   }
 
@@ -1157,13 +1351,26 @@ class ClaudeSession implements AgentSession {
     const closed = this.closed;
     // set before the wait, so a send() can't start a turn on a dead process
     this.closed = true;
-    void this.usageReader.close().catch(() => {});
+    this.stopMcpPolling();
+    this.stopUntil ??= stopDeadline();
+    void this.usageReader.close({ deadline: this.stopUntil }).catch(() => {});
     const turn = this.turn;
     // a command running beside a turn was steered into it, and one run with no turn open outlives the CLI
     if (turn) this.command?.controller.abort();
-    // this also covers a receive() throw while the CLI lives; the SDK's SIGTERM bounds the wait
     this.query.close();
-    await this.child?.closed;
+    try {
+      await beforeDeadline(
+        this.child?.closed ?? Promise.resolve(),
+        this.stopUntil - terminationReserveMs,
+      );
+    } catch (failure) {
+      if (failure instanceof NativeStopTimeout) {
+        this.reportStopTimeout();
+        await this.terminate(this.stopUntil).catch((failure: unknown) => {
+          error = `${error}: ${errorMessage(failure)}`;
+        });
+      } else error = `${error}: ${errorMessage(failure)}`;
+    }
     const text = withTail(error, this.child?.tail() ?? '');
     if (turn) {
       const unreadContext = [...turn.commandRecords.values()].flatMap(
@@ -1172,10 +1379,17 @@ class ClaudeSession implements AgentSession {
       const inputUnsent =
         turn.initialInput !== undefined &&
         turn.commandRecords.get(turn.initialInput)?.writeAttempted === false;
+      // input goes in order, so what was steered behind unwritten input is unwritten too
+      const unread = inputUnsent
+        ? [...turn.steered.values()].flatMap(({ prompt, pending }) =>
+            pending && prompt !== undefined ? [prompt] : [],
+          )
+        : [];
       this.finish(turn, {
         status: 'failed',
-        text: '',
+        text: this.reportedStopTimeout ? turn.messages.text : '',
         error: text,
+        ...(unread.length ? { unread } : {}),
         ...(unreadContext.length ? { unreadContext } : {}),
         ...(inputUnsent ? { inputUnsent } : {}),
       });
@@ -1187,12 +1401,21 @@ class ClaudeSession implements AgentSession {
 
   private finishIdle(turn: Turn): void {
     if (
-      turn.idle &&
+      this.turn === turn &&
+      (turn.idle || (!this.sessionLifecycle && !this.holding)) &&
       (turn.result || turn.inputError !== undefined) &&
       !turn.held &&
+      !this.compacting &&
       (!this.messageLifecycle ||
         ![...turn.steered.values()].some(({ pending }) => pending))
     ) {
+      if (!this.sessionLifecycle && !this.reportedMissingLifecycle) {
+        this.reportedMissingLifecycle = true;
+        this.options.onEvent({
+          type: 'notice',
+          text: 'Claude did not report session state; Witch finished the turn after its result and tracked work settled.',
+        });
+      }
       this.finish(
         turn,
         turn.inputError !== undefined
@@ -1207,9 +1430,23 @@ class ClaudeSession implements AgentSession {
     }
   }
 
+  private completeCompaction(): void {
+    if (!this.turn) return;
+    if (this.turn.compaction) this.turn.result = this.compaction!.result;
+    if (!this.sessionLifecycle) this.finishIdle(this.turn);
+  }
+
   /** an interrupt decides how the turn ends, whatever result came before or after it. */
   private finish(turn: Turn, result: TurnResult): void {
-    if (this.turn === turn) this.turn = undefined;
+    if (this.turn === turn) {
+      this.turn = undefined;
+      this.compaction?.finish({
+        status: turn.interrupted ? 'interrupted' : 'failed',
+        text: '',
+        error: result.error ?? 'Claude ended before compaction completed',
+      });
+      this.compaction = undefined;
+    }
     turn.finished.resolve(
       turn.interrupted ? { ...result, status: 'interrupted' } : result,
     );

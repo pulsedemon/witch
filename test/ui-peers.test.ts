@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { createElement } from 'react';
 import type { CoordinationSnapshot } from '../src/core/coordination-state.js';
 import { callControl } from '../src/persistence/control.js';
 import { App } from '../src/ui/app.js';
 import { TurnGate } from './fixtures/agent.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import {
+  coordinationFixture,
+  git,
+  pauseDiscovery,
+} from './fixtures/coordination.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
+import { turns } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { fake, forgedLink, show } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
@@ -296,7 +301,7 @@ test('a real peer updates its summary and keeps its reservation across an origin
   }
 });
 
-test('task release refuses running or background work without changing phase, and then releases only this conversation', async (t) => {
+test('task release refuses running or background work in chat without changing phase or stopping queued prompts, and then releases only this conversation', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start, registry } = await coordinationFixture(cleanup);
   const a = await start(),
@@ -311,17 +316,26 @@ test('task release refuses running or background work without changing phase, an
   );
   const gate = new TurnGate();
   a.a.gate = gate;
+  a.a.refuseSteer = true;
   const sending = a.coordinator.send('Held work');
   try {
     await within(gate.entered, 5000, 'held turn');
+    await a.coordinator.send('queued followup');
+    await until('queued followup', () =>
+      ui.text().includes('❯ queued followup'),
+    );
     enter(ui, '/task release');
     await until('idle refusal', () => ui.text().includes('Wait for idle'));
+    assert.ok(!ui.text().includes('Current task'), ui.text());
+    assert.equal(a.coordinator.snapshot.error, undefined);
     assert.equal(a.coordinator.snapshot.phase, 'running');
     assert.deepEqual((await a.query()).ownClaim, own);
     gate.open();
     await sending;
-    ui.stdin.write('\x1b');
-    await until('chat again', () => !ui.text().includes('Current task'));
+    assert.deepEqual(turns(a.a), [
+      ['Held work', undefined],
+      ['queued followup', undefined],
+    ]);
     a.a.sessions.at(-1)!.options.onEvent({
       type: 'command',
       command: { id: 'brew', description: 'Work', status: 'running' },
@@ -336,8 +350,6 @@ test('task release refuses running or background work without changing phase, an
       type: 'command',
       command: { id: 'brew', description: 'Work', status: 'completed' },
     });
-    ui.stdin.write('\x1b');
-    await until('chat restored', () => !ui.text().includes('Current task'));
     enter(ui, '/task release');
     await until('released own', () => ui.text().includes('No task claimed.'));
     assert.deepEqual(
@@ -348,6 +360,48 @@ test('task release refuses running or background work without changing phase, an
       (await callControl(await b.binding(), { kind: 'peers' })).kind,
       'peers',
     );
+  } finally {
+    gate.open();
+    await sending;
+    ui.unmount();
+  }
+});
+
+test('a refused /task take stays in chat and leaves queued prompts runnable', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
+  const a = await start();
+  const ui = show(
+    createElement(App, { coordinator: a.coordinator, onExit() {} }),
+    100,
+    30,
+  );
+  const gate = new TurnGate();
+  a.a.gate = gate;
+  a.a.refuseSteer = true;
+  const sending = a.coordinator.send('Held work');
+  try {
+    await within(gate.entered, 5000, 'held turn');
+    await a.coordinator.send('queued followup');
+    await until('queued followup', () =>
+      ui.text().includes('❯ queued followup'),
+    );
+    enter(ui, '/task take task:other');
+    await until('idle refusal', () =>
+      ui
+        .text()
+        .includes(
+          'Wait for idle and resolve memory recovery before taking a task.',
+        ),
+    );
+    assert.ok(!ui.text().includes('Current task'), ui.text());
+    assert.equal(a.coordinator.snapshot.error, undefined);
+    gate.open();
+    await sending;
+    assert.deepEqual(turns(a.a), [
+      ['Held work', undefined],
+      ['queued followup', undefined],
+    ]);
   } finally {
     gate.open();
     await sending;
@@ -452,6 +506,34 @@ test('task selection advances live and suggested ownership stays visible at narr
     await until('narrow peers', () => !ui.text().includes('SESSIONS'));
     assert.ok(ui.text().includes('Suggested task'));
     assert.ok(ui.text().includes('Issue 17'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test("/task take shows the idle owner's claim in this conversation's task view", async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const ticks = pauseDiscovery(vi.spyOn);
+  const { start, registry } = await coordinationFixture(cleanup);
+  const a = await start(),
+    b = await start('B');
+  await a.claim('task:shared', 'Shared work');
+  const ui = show(
+    createElement(App, { coordinator: b.coordinator, onExit() {} }),
+    100,
+    30,
+  );
+  try {
+    enter(ui, '/task take task:shared');
+    await until('transfer request', async () =>
+      (await registry.claims()).some((claim) => claim.transfer),
+    );
+    ticks[0]!();
+    await until('moved claim shown', () => ui.text().includes('Shared work'));
+    assert.equal(
+      (await registry.claims())[0]!.owner.conversation,
+      b.coordinator.snapshot.conversation!.id,
+    );
   } finally {
     ui.unmount();
   }

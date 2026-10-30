@@ -5,15 +5,34 @@ import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
+import {
+  probeLimits,
+  rateLimits,
+  readRateLimits,
+  windowLimits,
+} from './codex-limits.js';
+import type { ObservedWindow } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
+import { mergeCasts } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
-import { shortPath, toolTitle } from './tool-title.js';
+import {
+  beforeDeadline,
+  NativeStop,
+  NativeStopTimeout,
+  stopDeadline,
+  terminationReserveMs,
+} from './shutdown.js';
+import { boundCommandTitle, shortPath, toolTitle } from './tool-title.js';
+import { castIndex, castSkills } from './codex-spells.js';
+import type { CommandPrefixes, ToolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
   AgentSession,
+  AgentStopOptions,
   FileDiff,
   Hunk,
+  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -83,19 +102,6 @@ const tokenUsage = z.object({
     modelContextWindow: z.number().nullable(),
   }),
 });
-const rateWindow = z
-  .object({
-    usedPercent: z.number(),
-    windowDurationMins: z.number().nullable(),
-    resetsAt: z.number().nullable(),
-  })
-  .nullish();
-const rateLimits = z.object({
-  limitId: z.string().nullish(),
-  primary: rateWindow,
-  secondary: rateWindow,
-});
-type RateWindow = NonNullable<z.infer<typeof rateWindow>>;
 const questionList = z.array(
   z.object({
     id: z.string(),
@@ -168,13 +174,6 @@ const fileChangeIdentity = z.object({
   itemId: z.string(),
 });
 
-/** `5H` for 300 minutes, `7D` for 10080. */
-function windowName(minutes: number): string {
-  return minutes % 1440 === 0
-    ? `${minutes / 1440}D`
-    : `${Math.round(minutes / 60)}H`;
-}
-
 const changedFiles = z.array(z.object({ path: z.string() })).catch([]);
 const fileChanges = z.array(
   z.object({
@@ -197,24 +196,49 @@ const imageContent = z.object({
   mimeType: z.string(),
 });
 const mcpResult = z.object({ content: z.array(z.unknown()) });
+const mcpStartup = z.object({
+  name: stringValue,
+  status: stringValue,
+  error: nullishString,
+});
 const turnId = z.object({ turn: z.object({ id: z.string() }) });
 /** item types besides agentMessage that get no tool row or familiar activity. */
 const untooled = ['userMessage', 'reasoning', 'contextCompaction'];
+
+/** Witch's names for Codex's collab tools; a tool added later keeps its native name. */
+const collabNames = new Map([
+  ['spawnAgent', 'Familiar'],
+  ['sendInput', 'Send input to familiar'],
+  ['resumeAgent', 'Resume familiar'],
+  ['wait', 'Wait for familiar'],
+  ['closeAgent', 'Close familiar'],
+  ['sendMessage', 'Message familiar'],
+  ['followupTask', 'Follow-up task for familiar'],
+  ['interruptAgent', 'Interrupt familiar'],
+  ['listAgents', 'List familiars'],
+]);
 
 /** an item's name and what it acts on; a command shows as itself. */
 function itemTitle(
   type: string,
   item: Record<string, unknown>,
   cwd: string,
-): string {
-  if (typeof item.command === 'string') return item.command;
+  prefixes?: CommandPrefixes,
+): ToolTitle {
+  if (type === 'commandExecution' && typeof item.command === 'string') {
+    const bound = boundCommandTitle(item.command, prefixes);
+    if (bound) return bound;
+  }
+  if (typeof item.command === 'string') return { title: item.command };
   if (type === 'fileChange')
-    return [
-      type,
-      ...changedFiles
-        .parse(item.changes)
-        .map(({ path }) => shortPath(path, cwd)),
-    ].join('  ');
+    return {
+      title: [
+        type,
+        ...changedFiles
+          .parse(item.changes)
+          .map(({ path }) => shortPath(path, cwd)),
+      ].join('  '),
+    };
   const call = type === 'mcpToolCall' ? mcpCall.safeParse(item) : undefined;
   if (call?.success)
     return toolTitle(
@@ -222,8 +246,14 @@ function itemTitle(
       call.data.arguments,
       cwd,
     );
+  if (type === 'subAgentActivity') return toolTitle('Familiar', item, cwd);
   if (typeof item.tool === 'string')
-    return toolTitle(item.tool, item.arguments ?? item, cwd);
+    return toolTitle(
+      (type === 'collabAgentToolCall' && collabNames.get(item.tool)) ||
+        item.tool,
+      item.arguments ?? item,
+      cwd,
+    );
   return toolTitle(type, item, cwd);
 }
 
@@ -291,7 +321,28 @@ export class CodexAdapter implements AgentAdapter {
       await initializeRpc(rpc);
       return await readModels(rpc);
     } finally {
-      await rpc.close();
+      const reason: unknown = options.signal?.reason;
+      await rpc.close(
+        reason instanceof NativeStop ? reason.options : undefined,
+      );
+    }
+  }
+
+  async limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]> {
+    const rpc = new JsonRpc(
+      this.start(options.executable, options.cwd, options.signal),
+    );
+    try {
+      await initializeRpc(rpc);
+      return await probeLimits(rpc, previous);
+    } finally {
+      const reason: unknown = options.signal?.reason;
+      await rpc.close(
+        reason instanceof NativeStop ? reason.options : undefined,
+      );
     }
   }
 
@@ -304,7 +355,10 @@ export class CodexAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
-      await session.close();
+      const reason: unknown = options.signal?.reason;
+      await session.close(
+        reason instanceof NativeStop ? reason.options : undefined,
+      );
       throw error;
     }
   }
@@ -332,6 +386,10 @@ class CodexSession implements AgentSession {
     { threadId: string; turnId: string; diff: FileDiff[] }
   >();
   private closing = false;
+  private closeTask?: Promise<void>;
+  private interrupting?: Promise<void>;
+  private stopUntil?: number;
+  private reportedStopTimeout = false;
   /** an exit before this rejects the connect, which reports it. */
   private connected = false;
   private settings?: ReturnType<typeof Promise.withResolvers<void>>;
@@ -345,8 +403,9 @@ class CodexSession implements AgentSession {
     { configured?: string; rerouted?: string }
   >();
   private readonly commands: CodexCommands;
-  /** each listed skill's SKILL.md, which a skill input names. */
-  private readonly skillPaths = new Map<string, string>();
+  /** every enabled skill, whose SKILL.md a skill input names. */
+  private spellIndex: { name: string; path: string }[] = [];
+  private castIndex = new Map<string, string>();
   /** each turn's latest diff count, since a turn's diff grows as it edits. */
   private readonly turnLines = new Map<
     string,
@@ -354,8 +413,11 @@ class CodexSession implements AgentSession {
   >();
   /** the account limit the windows belong to, and its windows by slot, which a sparse update merges into. */
   private limitId?: string;
-  private readonly windows: { primary?: RateWindow; secondary?: RateWindow } =
-    {};
+  private readonly windows: {
+    primary?: ObservedWindow;
+    secondary?: ObservedWindow;
+  } = {};
+  private limitsRead?: Promise<void>;
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -437,11 +499,14 @@ class CodexSession implements AgentSession {
         forceReload: true,
       }),
     );
-    this.skillPaths.clear();
+    const enabled = data
+      .flatMap((entry) => entry.skills)
+      .filter((skill) => skill.enabled);
+    this.spellIndex = enabled;
+    this.castIndex = castIndex(enabled);
     const skills: Skill[] = [];
-    for (const skill of data.flatMap((entry) => entry.skills)) {
-      if (!skill.enabled || this.skillPaths.has(skill.name)) continue;
-      this.skillPaths.set(skill.name, skill.path);
+    for (const skill of enabled) {
+      if (skills.some(({ name }) => name === skill.name)) continue;
       skills.push({
         name: skill.name,
         description:
@@ -485,6 +550,8 @@ class CodexSession implements AgentSession {
   }
 
   private beginTurn(): NonNullable<CodexSession['turn']> {
+    if (this.closed || this.closing)
+      throw new Error('The Codex session is closed');
     if (this.turn) throw new Error('This agent is already running');
     const turn = {
       started: Promise.withResolvers<string>(),
@@ -501,7 +568,8 @@ class CodexSession implements AgentSession {
     skill?: SkillCall,
     context?: string,
   ): Promise<TurnResult> {
-    const path = skill && this.skillPaths.get(skill.name);
+    const path =
+      skill && this.spellIndex.find(({ name }) => name === skill.name)?.path;
     const turn = this.beginTurn();
     let submitted = false;
     try {
@@ -550,7 +618,6 @@ class CodexSession implements AgentSession {
   }
 
   async compact(): Promise<TurnResult> {
-    if (this.closed) throw new Error('The Codex session is closed');
     const turn = this.beginTurn();
     turn.compaction = { completed: false };
     try {
@@ -581,9 +648,19 @@ class CodexSession implements AgentSession {
   }
 
   /** Codex keeps a steered prompt in the thread even when the turn is then interrupted. */
-  async steer(prompt: string): Promise<boolean> {
-    // a prompt steered into a shell command's turn would never be answered
-    if (this.turn?.command !== undefined || this.turn?.compaction) return false;
+  async steer(
+    prompt: string,
+    { skill }: { skill?: SkillCall } = {},
+  ): Promise<boolean> {
+    // a prompt steered into a shell command's turn would never be answered, and Codex expands a skill only at a turn's start
+    if (
+      this.closed ||
+      this.closing ||
+      this.turn?.command !== undefined ||
+      this.turn?.compaction ||
+      skill
+    )
+      return false;
     const id = await this.turn?.started.promise;
     if (!id) return false;
     try {
@@ -599,26 +676,53 @@ class CodexSession implements AgentSession {
     }
   }
 
-  async interrupt(): Promise<void> {
+  interrupt(options: AgentStopOptions = {}): Promise<void> {
     const turn = this.turn;
-    if (!turn) return;
+    if (!turn) return Promise.resolve();
+    if (this.interrupting) return this.interrupting;
     turn.interrupted = true;
-    const id = await turn.started.promise;
-    if (id && this.turn === turn)
-      try {
-        await this.rpc.request('turn/interrupt', {
-          threadId: this.info.id,
-          turnId: id,
-        });
-      } catch (error) {
-        // an exit has ended the turn by the time its rejection lands here
-        if (!this.closed) throw error;
-      }
-    await turn.finished.promise;
+    this.stopUntil ??= stopDeadline(options.deadline);
+    return (this.interrupting = this.interruptTurn(turn, {
+      ...options,
+      deadline: this.stopUntil,
+    }).finally(() => {
+      this.interrupting = undefined;
+      if (!this.closing) this.stopUntil = undefined;
+    }));
+  }
+
+  private async interruptTurn(
+    turn: NonNullable<CodexSession['turn']>,
+    options: AgentStopOptions & { deadline: number },
+  ): Promise<void> {
+    const stopped = (async () => {
+      const id = await turn.started.promise;
+      if (id && this.turn === turn)
+        try {
+          await this.rpc.request('turn/interrupt', {
+            threadId: this.info.id,
+            turnId: id,
+          });
+        } catch (error) {
+          // an exit has ended the turn by the time its rejection lands here
+          if (!this.closed) throw error;
+        }
+      await turn.finished.promise;
+    })();
+    try {
+      if (options.restart) await stopped;
+      else
+        await beforeDeadline(stopped, options.deadline - terminationReserveMs);
+    } catch (error) {
+      if (!(error instanceof NativeStopTimeout)) throw error;
+      this.reportStopTimeout();
+      this.closing = true;
+      this.commands.stop();
+      await this.rpc.close(options);
+    }
   }
 
   readonly familiar = {
-    runtime: 'claude' as const,
     report: async (
       action: FamiliarAction,
       deadline: number,
@@ -630,6 +734,7 @@ class CodexSession implements AgentSession {
   };
 
   respond(id: string, response: UserResponse): void {
+    if (this.commands.respond(id, response)) return;
     const request = this.requests.get(id);
     if (!request || request.id === undefined) return;
     const params = object.parse(request.params);
@@ -673,15 +778,43 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'request-resolved', id });
   }
 
-  async close(): Promise<void> {
+  close(options: AgentStopOptions = {}): Promise<void> {
     this.closing = true;
-    await this.commands.close();
+    this.stopUntil ??= stopDeadline(options.deadline);
+    return (this.closeTask ??= this.closeSession({
+      ...options,
+      deadline: this.stopUntil,
+    }));
+  }
+
+  private async closeSession(
+    options: AgentStopOptions & { deadline: number },
+  ): Promise<void> {
     try {
-      await this.interrupt();
+      const stopped = (async () => {
+        await this.commands.close();
+        await this.interrupt(options);
+      })();
+      if (options.restart) await stopped;
+      else
+        await beforeDeadline(stopped, options.deadline - terminationReserveMs);
+    } catch (error) {
+      if (!(error instanceof NativeStopTimeout)) throw error;
+      this.reportStopTimeout();
     } finally {
-      await this.rpc.close();
+      this.commands.stop();
+      if (await this.rpc.close(options)) this.reportStopTimeout();
       await this.options.onProcess(undefined);
     }
+  }
+
+  private reportStopTimeout(): void {
+    if (this.reportedStopTimeout) return;
+    this.reportedStopTimeout = true;
+    this.options.onEvent({
+      type: 'notice',
+      text: 'Codex did not stop in time.',
+    });
   }
 
   private updateInfo(response: unknown): void {
@@ -737,6 +870,7 @@ class CodexSession implements AgentSession {
       };
       const diff = this.fileChangeDiff(notification);
       this.commands.receive(notification);
+      this.cast(notification, child);
       if (child) this.subagentNotification(notification, child);
       else this.notification(notification, diff);
     } catch (error) {
@@ -778,6 +912,19 @@ class CodexSession implements AgentSession {
       else this.proposals.delete(key);
     }
     return diff;
+  }
+
+  /** ahead of the familiar filters, so a cast from a familiar's earlier turn or unknown thread still counts. */
+  private cast(message: Notification, threadId: string | undefined): void {
+    if (!message.item) return;
+    const turn = String(message.params.turnId);
+    for (const { path, name } of castSkills(message.item, this.castIndex)) {
+      const cast = { id: `${threadId ?? this.info.id}/${turn}/${path}`, name };
+      const subagent = threadId && this.subagents.get(threadId);
+      const spells = subagent && mergeCasts(subagent.spells, [cast]);
+      if (!subagent) this.options.onEvent({ type: 'spell', cast });
+      else if (spells) this.subagent({ ...subagent, spells });
+    }
   }
 
   /** Codex sends a spawned thread's notifications to every connection, under that thread's id. */
@@ -829,7 +976,7 @@ class CodexSession implements AgentSession {
       } else if (message.method === 'item/started' && !untooled.includes(type))
         this.subagent({
           ...subagent,
-          activity: itemTitle(type, item, this.options.cwd),
+          activity: itemTitle(type, item, this.options.cwd).title,
           tools: (subagent.tools ?? 0) + 1,
         });
       return;
@@ -1038,7 +1185,14 @@ class CodexSession implements AgentSession {
           this.options.onEvent({
             type: 'tool',
             id,
-            title: command ?? itemTitle(type, item, this.options.cwd),
+            ...(command === undefined
+              ? itemTitle(
+                  type,
+                  item,
+                  this.options.cwd,
+                  this.options.commandPrefixes,
+                )
+              : { title: command }),
             // a change's diff comes before it applies and stays after it fails or is declined
             text: diff
               ? item.status === 'failed' || item.status === 'declined'
@@ -1140,6 +1294,16 @@ class CodexSession implements AgentSession {
           this.options.onEvent({ type: 'info', info: this.info });
         }
         break;
+      case 'mcpServer/startupStatus/updated': {
+        const { name, status, error } = mcpStartup.parse(data);
+        if (status === 'failed')
+          this.options.onEvent({
+            type: 'notice',
+            text: `Codex could not start MCP server ${name}${error ? `: ${error}` : '.'}`,
+            transient: true,
+          });
+        break;
+      }
       case 'serverRequest/resolved': {
         const id = String(data.requestId);
         this.requests.delete(id);
@@ -1240,15 +1404,16 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
+  readLimits(): Promise<void> {
+    return (this.limitsRead ??= this.readLimitsOnce().finally(() => {
+      this.limitsRead = undefined;
+    }));
+  }
+
   /** the status line leaves out what Codex can't report, such as limits on an API key. */
-  private async readLimits(): Promise<void> {
+  private async readLimitsOnce(): Promise<void> {
     try {
-      const response = object.parse(
-        await this.rpc.request('account/rateLimits/read', {
-          excludeResetCreditDetails: true,
-        }),
-      );
-      this.mergeLimits(rateLimits.parse(response.rateLimits));
+      this.mergeLimits(await readRateLimits(this.rpc));
     } catch {
       // limits stay unreported
     }
@@ -1260,22 +1425,13 @@ class CodexSession implements AgentSession {
       if (this.limitId && update.limitId !== this.limitId) return;
       this.limitId = update.limitId;
     }
-    if (update.primary) this.windows.primary = update.primary;
-    if (update.secondary) this.windows.secondary = update.secondary;
-    // a window of unknown length has no name to show
-    const windows = [this.windows.primary, this.windows.secondary].flatMap(
-      (window) =>
-        window?.windowDurationMins == null
-          ? []
-          : [{ ...window, minutes: window.windowDurationMins }],
-    );
-    windows.sort((a, b) => a.minutes - b.minutes);
+    const observedAt = Date.now();
+    if (update.primary)
+      this.windows.primary = { ...update.primary, observedAt };
+    if (update.secondary)
+      this.windows.secondary = { ...update.secondary, observedAt };
     this.report({
-      limits: windows.map(({ minutes, usedPercent, resetsAt }) => ({
-        window: windowName(minutes),
-        percent: usedPercent,
-        ...(resetsAt != null ? { resetsAt } : {}),
-      })),
+      limits: windowLimits([this.windows.primary, this.windows.secondary]),
     });
   }
 
@@ -1285,12 +1441,15 @@ class CodexSession implements AgentSession {
     completedTurnId = this.turn?.id,
   ): void {
     const turn = this.turn;
-    if (turn?.compaction) {
-      if (turn.interrupted) status = 'interrupted';
-      else if (status === 'completed' && !turn.compaction.completed) {
-        status = 'failed';
-        error = 'Codex ended compaction without confirming history replacement';
-      }
+    if (turn?.interrupted && (turn.compaction || this.reportedStopTimeout))
+      status = 'interrupted';
+    else if (
+      turn?.compaction &&
+      status === 'completed' &&
+      !turn.compaction.completed
+    ) {
+      status = 'failed';
+      error = 'Codex ended compaction without confirming history replacement';
     }
     this.turn = undefined;
     // a shell command's turn that never reported its start would hold an interrupt waiting for it

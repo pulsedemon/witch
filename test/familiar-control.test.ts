@@ -55,13 +55,17 @@ test('familiar reports bypass a blocked task mailbox and preserve active-session
   pauseDiscovery(vi.spyOn);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const f = await coordinationFixture(cleanup, async () => {
+  const f = await coordinationFixture(cleanup, async (references) => {
     entered.resolve();
     await release.promise;
+    return {
+      assigned: references.filter((reference) =>
+        reference.startsWith('github:'),
+      ),
+    };
   });
   const client = await f.start();
   client.a.sessions[0]!.session.familiar = {
-    runtime: 'claude',
     report: async (action) => {
       if (action.kind === 'familiar-update') {
         client.a.sessions[0]!.options.onEvent({
@@ -135,7 +139,12 @@ test('an explicit control deadline reaches the host and prevents late report acc
   );
   const calling = callControl(
     binding,
-    { kind: 'familiar-register', run: randomUUID(), name: 'review' },
+    {
+      kind: 'familiar-register',
+      run: randomUUID(),
+      name: 'review',
+      runtime: 'codex',
+    },
     deadline,
   );
   const rejected = assert.rejects(calling, /result unknown/);
@@ -164,7 +173,6 @@ test('only a supporting session receives familiar instructions and the exact use
   await client.coordinator.send(prompt);
   assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
   client.a.sessions[0]!.session.familiar = {
-    runtime: 'claude',
     report: async () => ({
       kind: 'familiar-registered',
     }),
@@ -173,22 +181,64 @@ test('only a supporting session receives familiar instructions and the exact use
   const input = client.a.inputs.at(-1)!;
   assert.equal(input.prompt, prompt);
   assert.ok(!input.context!.includes(prompt));
-  assert.ok(input.context!.includes(client.coordination.familiarCommand()));
-  assert.match(input.context!, /--familiar-claude <task-name> --report-file/);
-  assert.match(input.context!, /--permission-prompts none/);
-  assert.match(input.context!, /keep its stdout connected/);
+  assert.ok(
+    input.context!.includes(client.coordination.commandPrefixes().familiar),
+  );
+  // both wrappers, the route first, and the launch tool of a session that isn't Claude
   assert.match(
     input.context!,
-    /Delegate work to Claude when it suits the task/,
+    /Delegate work only through Witch, never your own subagent tool/,
   );
-  client.a.sessions[0]!.session.familiar.runtime = 'codex';
+  assert.match(
+    input.context!,
+    /--route <review\|planning\|implementation\|investigation> --json/,
+  );
+  assert.match(
+    input.context!,
+    /--familiar-claude <task-name> --report-file <new-file-under-task-scratch> -- --model <model>/,
+  );
+  assert.match(
+    input.context!,
+    /--familiar-codex <task-name> --report-file <new-file-under-task-scratch> -- -c model="<model>"/,
+  );
+  assert.match(input.context!, /--permission-prompts none/);
+  assert.match(
+    input.context!,
+    /native exec_command with sandbox_permissions "require_escalated"/,
+  );
+  assert.match(input.context!, /keep its stdout connected/);
+  assert.doesNotMatch(input.context!, /run_in_background/);
   await client.coordinator.send(prompt);
-  const codex = client.a.inputs.at(-1)!;
-  assert.equal(codex.prompt, prompt);
-  assert.match(codex.context!, /Delegate work to Codex when it suits the task/);
-  assert.match(codex.context!, /--familiar-codex <task-name> --report-file/);
-  assert.match(codex.context!, /run_in_background: true/);
-  assert.doesNotMatch(codex.context!, /--familiar-claude/);
+  assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /--familiar-claude/);
+  const before = client.coordination.commandPrefixes().familiar;
+  const native = client.a.sessions[0]!.session;
+  const { familiar } = native;
+  await native.close();
+  const connect = client.a.connect.bind(client.a);
+  // a Claude session launches its familiar with Bash
+  client.a.connect = async (options) => {
+    const session = await connect(options);
+    session.familiar = familiar;
+    const info = Object.getOwnPropertyDescriptor(session, 'info')!.get!;
+    Object.defineProperty(session, 'info', {
+      get: () => ({ ...info.call(session), agent: 'claude' }),
+    });
+    return session;
+  };
+  await client.coordinator.send(prompt);
+  assert.equal(client.a.inputs.at(-1)!.session, input.session);
+  assert.match(
+    client.a.inputs.at(-1)!.context!,
+    /Use native Bash with run_in_background: true and keep its stdout connected/,
+  );
+  assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /require_escalated/);
+  assert.notEqual(client.coordination.commandPrefixes().familiar, before);
+  assert.ok(
+    client.a.inputs
+      .at(-1)!
+      .context!.includes(client.coordination.commandPrefixes().familiar),
+  );
+  assert.ok(!client.a.inputs.at(-1)!.context!.includes(before));
 });
 
 test('pending native requests leave the mailbox available and retain complete request and response payloads', async () => {
@@ -287,6 +337,7 @@ test('pending native requests leave the mailbox available and retain complete re
       kind: 'familiar-register',
       run,
       name: 'review',
+      runtime: 'codex',
     });
     let sequence = 0;
     for (const { request, response } of cases) {

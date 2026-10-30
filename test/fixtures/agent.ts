@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import type {
   AgentAdapter,
   AgentSession,
+  AgentStopOptions,
+  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -53,6 +55,9 @@ export class FixtureAgent implements AgentAdapter {
   }[] = [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
+  readonly contextSteers: string[] = [];
+  /** the calls of the spells and native commands sessions took as steers. */
+  readonly skillSteers: SkillCall[] = [];
   /** the `!` commands sessions ran. */
   readonly shells: string[] = [];
   readonly compactions: string[] = [];
@@ -62,6 +67,8 @@ export class FixtureAgent implements AgentAdapter {
   unreadOnInterrupt = false;
   /** the turn in flight refuses steered prompts, as Codex refuses one for a turn that has just ended. */
   refuseSteer = false;
+  /** the turn in flight refuses a steered spell or native command, as Codex does. */
+  refuseSkillSteer = false;
   /** the turn in flight has replied and a familiar holds it open, as Claude's does. */
   replied = false;
   /** what each session's `skills()` returns. */
@@ -70,6 +77,10 @@ export class FixtureAgent implements AgentAdapter {
   readonly sessions: { options: SessionOptions; session: AgentSession }[] = [];
   readonly selections: [string, string | null | undefined][] = [];
   readonly responses: [string, UserResponse][] = [];
+  readonly stops: {
+    operation: 'interrupt' | 'close';
+    options?: AgentStopOptions;
+  }[] = [];
   failConnect = false;
   /** the next `models()` rejects, as a failed Codex `model/list` does. */
   failModels = false;
@@ -94,6 +105,15 @@ export class FixtureAgent implements AgentAdapter {
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
+  /** what `limits()` returns unless `limitsRead` answers; its reads are kept apart from `discoveries`. */
+  accountLimits: Limit[] = [];
+  limitsRead?: (
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ) => Promise<Limit[]>;
+  readonly limitReads: ModelDiscoveryOptions[] = [];
+  /** set to give the runtime family aliases, as Claude's adapter has. */
+  latest?: (options: ModelDiscoveryOptions) => Promise<Record<string, string>>;
 
   constructor(readonly id: string) {
     this.label = id;
@@ -108,6 +128,17 @@ export class FixtureAgent implements AgentAdapter {
     options.signal?.throwIfAborted();
     if (this.failDiscovery) throw new Error('Discovery failed');
     return this.catalog;
+  }
+
+  async limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]> {
+    this.limitReads.push(options);
+    options.signal?.throwIfAborted();
+    return this.limitsRead
+      ? this.limitsRead(options, previous)
+      : this.accountLimits;
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {
@@ -220,18 +251,26 @@ export class FixtureAgent implements AgentAdapter {
         }
         return { status: 'completed', text: '' };
       },
-      steer: async (prompt, { command } = {}) => {
-        if (!turn || closed || this.refuseSteer) return false;
-        this.steers.push(prompt);
-        // a command's reply never comes back unread, as Claude's doesn't
-        if (command === undefined) steered.push(prompt);
-        else {
+      steer: async (prompt, { command, skill, contextOnly } = {}) => {
+        if (
+          !turn ||
+          closed ||
+          this.refuseSteer ||
+          (skill && this.refuseSkillSteer)
+        )
+          return false;
+        (contextOnly ? this.contextSteers : this.steers).push(prompt);
+        if (skill) this.skillSteers.push(skill);
+        if (command === undefined) {
+          if (!contextOnly) steered.push(prompt);
+        } else {
           this.shells.push(command);
           shellRow(command);
         }
         return true;
       },
-      interrupt: async () => {
+      interrupt: async (options) => {
+        this.stops.push({ operation: 'interrupt', options });
         if (this.failInterrupt) throw new Error('Interrupt failed');
         shell?.resolve({
           status: this.finishShellOnInterrupt ? 'completed' : 'interrupted',
@@ -243,7 +282,8 @@ export class FixtureAgent implements AgentAdapter {
           ...(this.unreadOnInterrupt ? { unread: steered } : {}),
         });
       },
-      close: async () => {
+      close: async (stop) => {
+        this.stops.push({ operation: 'close', options: stop });
         closed = true;
         turn?.resolve({ status: 'failed', text: '', error: 'Session closed' });
         try {

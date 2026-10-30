@@ -9,14 +9,18 @@ import { Box, Text, measureElement, useInput, useWindowSize } from 'ink';
 import type { DOMElement } from 'ink';
 import { dirname, join } from 'node:path';
 import stripAnsi from 'strip-ansi';
+import { errorMessage } from '../agents/stderr.js';
 import type { Skill } from '../agents/types.js';
 import type { Coordinator } from '../core/coordinator.js';
 import type { Snapshot } from '../core/snapshot.js';
 import { modelKey, modelTarget } from '../core/models.js';
 import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
-import { agentWorking } from '../core/state.js';
+import { agentWorking, contextStart } from '../core/state.js';
 import type { StateStore } from '../persistence/store.js';
+import { commands, parseCommands, safeQueueMerge } from './commands.js';
+import type { WitchCommand, CommandName } from './commands.js';
+import { CommandBatches } from './command-batches.js';
 import { Input, inputRows } from './input.js';
 import type { InputHandle } from './input.js';
 import type { InputBuffer } from './input-buffer.js';
@@ -35,30 +39,19 @@ import { markdown } from './markdown.js';
 import { hyperlink, linkify, oneLine, plain } from './links.js';
 import { useKeysReady } from './keys-ready.js';
 import { useLiveState } from './live-state.js';
-import { usePointer, useWheel } from './mouse.js';
+import { useClick, usePointer, useWheel } from './mouse.js';
 import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
-import { Sidebar, sidebarWidth } from './sidebar.js';
+import { castTitle, useCasting } from './cast.js';
+import { Sidebar, sidebarWidth, usagePlacement } from './sidebar.js';
+import { delegation } from './delegation.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
 import { accent, colors, piped, potion } from './theme.js';
 import { wrapLines } from './wrap.js';
 
-const commands: { id: string; label: string; aliases?: string[] }[] = [
-  { id: 'new', label: 'New conversation' },
-  { id: 'sessions', label: 'Saved conversations' },
-  { id: 'peers', label: 'Other sessions in this repository' },
-  { id: 'task', label: 'Current task, or /task release' },
-  { id: 'model', label: 'Choose model and reasoning' },
-  { id: 'compact', label: 'Compact the conversation' },
-  { id: 'memory', label: 'Browse shared memory' },
-  { id: 'jobs', label: 'Running jobs' },
-  { id: 'help', label: 'Keyboard help' },
-  { id: 'restart', label: 'Restart Witch in this conversation' },
-  { id: 'exit', label: 'Exit', aliases: ['quit'] },
-];
 const claimed = new Set(
   commands.flatMap(({ id, aliases = [] }) => [id, ...aliases]),
 );
@@ -119,6 +112,7 @@ export function App({
   graphics,
   jobs,
   store,
+  policy,
   copy,
 }: {
   coordinator: Coordinator;
@@ -130,6 +124,8 @@ export function App({
   jobs?: Pick<JobWatch, 'list' | 'stop'>;
   /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
   store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
+  /** where /delegation reads and saves the routing policy; without it, /delegation shows the default and refuses a change. */
+  policy?: Parameters<typeof delegation>[1];
   onExit(): void;
   /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */
   onRestart?(): void;
@@ -164,6 +160,10 @@ export function App({
     coordinator.coordination?.subscribe ?? unwatched,
     () => coordinator.coordination?.snapshot,
   );
+  const imageLoads = useSyncExternalStore(
+    graphics?.subscribe ?? unwatched,
+    () => graphics?.version,
+  );
   const size = useWindowSize();
   const columns = Math.max(30, size.columns);
   // the sidebar shows only beside a main column of 80 cells
@@ -174,13 +174,37 @@ export function App({
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
   const height = Math.max(12, size.rows);
+  const usage = usagePlacement(state, sidebar, height);
   // the compiler needs the native fallback's string type to memoize its consumers.
   const cwd = state.conversation?.cwd ?? String(process.cwd());
-  const [view, setView] = useState<View>({ kind: 'chat' });
+  const [view, viewRef, setView] = useLiveState<View>({ kind: 'chat' });
+  const [batches] = useState(() => new CommandBatches(coordinator));
+  const disposed = useRef(false);
+  const pickerWait = useRef<PromiseWithResolvers<boolean> | undefined>(
+    undefined,
+  );
+  useEffect(
+    () => () => {
+      disposed.current = true;
+      batches.close();
+      pickerWait.current?.resolve(false);
+      pickerWait.current = undefined;
+    },
+    [batches],
+  );
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
-  const [top, topRef, setTop] = useLiveState<ScrollAnchor | null>(null);
+  const [top, topRef, setAnchor] = useLiveState<ScrollAnchor | null>(null);
+  const [seen, seenRef, setSeen] = useLiveState({
+    conversation: state.conversation?.id,
+    items: state.items,
+  });
+  const setTop = (anchor: ScrollAnchor | null) => {
+    if (topRef.current === null || anchor === null)
+      setSeen({ conversation: state.conversation?.id, items: state.items });
+    setAnchor(anchor);
+  };
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Map<string, boolean>>(new Map());
@@ -211,15 +235,19 @@ export function App({
   const pendingPrompt = useRef(initialPrompt);
   const [layout] = useState(() => new TranscriptLayout(graphics));
   const transcript = useMemo(
-    () => layout.render(state.items, bodyWidth, expanded, fullDiffs),
-    [layout, state.items, bodyWidth, expanded, fullDiffs],
+    () =>
+      layout.render(state.items, bodyWidth, expanded, fullDiffs, imageLoads),
+    [layout, state.items, bodyWidth, expanded, fullDiffs, imageLoads],
   );
+  const casting = useCasting(state.items);
   // a drag's ends are anchored to their text, so they follow it when output above grows
   const [range, rangeRef, setRange] = useLiveState<
     { from: RangeEnd; to: RangeEnd } | undefined
   >(undefined);
   const pressedAt = useRef<RangeEnd>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
+  const newMessagesBox = useRef<DOMElement>(null);
+  const pressedNewMessages = useRef(false);
   /** where an end is drawn: at the width it was measured at, in an item still shown, while its row reads as it did. */
   const pointOf = (end: RangeEnd): Point | undefined => {
     const row = transcript.rowOf(end.anchor);
@@ -287,9 +315,11 @@ export function App({
     ...commands.map(({ id, label, aliases }) => ({
       name: id,
       description: label,
-      aliases,
+      aliases: aliases?.slice(),
     })),
-    ...state.skills.filter(({ name }) => !claimed.has(name)),
+    ...state.skills.filter(
+      ({ name, builtin }) => !builtin && !claimed.has(name),
+    ),
   ];
   /** whether the composer holds the prompt ↑/↓ last showed, as shown. */
   const recalled = (
@@ -359,28 +389,65 @@ export function App({
     Math.max(1, Math.floor(bodyHeight / 2)),
     inputRows(buffer.value, composerWidth, true),
   );
-  const freeRows = bodyHeight - composerRows - 3 - listRows - (working ? 1 : 0);
-  // the transcript keeps two rows
-  const queueRows = Math.max(0, Math.min(state.queue.length, freeRows - 2));
+  const freeRows =
+    bodyHeight -
+    composerRows -
+    3 -
+    listRows -
+    (working ? 1 : 0) -
+    Number(state.pendingCompaction);
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
   const queued = useMemo(
     () => state.queue.map((prompt) => oneLine(prompt).slice(0, width)),
     [state.queue, width],
   );
-  const transcriptHeight = Math.max(2, freeRows - queueRows);
-  const maxTop = Math.max(0, transcript.lines.length - transcriptHeight);
-  /** the first row shown from `anchor`, or at the bottom without one. */
-  const topRow = (anchor: ScrollAnchor | null) =>
-    anchor === null ? maxTop : Math.min(transcript.rowOf(anchor), maxTop);
-  const scrollTop = topRow(top);
+  const boundary = state.items[contextStart(state.items) - 1];
+  const clearedAt = boundary && transcript.starts.get(boundary.id);
+  const viewport = (anchor: ScrollAnchor | null, read = seen) => {
+    const newMessages =
+      anchor !== null &&
+      read.conversation === state.conversation?.id &&
+      read.items !== state.items;
+    const rows = freeRows - Number(newMessages);
+    // the transcript keeps two rows
+    const queueRows = Math.max(0, Math.min(state.queue.length, rows - 2));
+    const availableRows = Math.max(2, rows - queueRows);
+    const row = anchor === null ? Infinity : transcript.rowOf(anchor);
+    // decide before the notice takes a row, so hiding the last old row cannot turn it off
+    const unpinnedTop = Math.min(
+      row,
+      Math.max(0, transcript.lines.length - availableRows),
+    );
+    const pinned = clearedAt !== undefined && unpinnedTop < clearedAt;
+    const height = availableRows - Number(pinned);
+    const maxTop = Math.max(0, transcript.lines.length - height);
+    return {
+      pinned,
+      newMessages,
+      queueRows,
+      height,
+      maxTop,
+      top: Math.min(row, maxTop),
+    };
+  };
+  const {
+    pinned,
+    newMessages,
+    queueRows,
+    height: transcriptHeight,
+    top: scrollTop,
+  } = viewport(top);
   const scrollTo = (row: number | null) =>
     setTop(row === null ? null : (transcript.anchorAt(row) ?? null));
   /** scrolls from the latest position, so two page keys in one read move two pages. */
-  const scrollBy = (rows: number) =>
-    setTop((previous) => {
-      const next = Math.min(maxTop, Math.max(0, topRow(previous) + rows));
-      return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
-    });
+  const scrollBy = (rows: number, page = false) => {
+    const { top, maxTop, height } = viewport(topRef.current, seenRef.current);
+    const next = Math.min(
+      maxTop,
+      Math.max(0, top + rows * (page ? height : 1)),
+    );
+    setTop(next === maxTop ? null : (transcript.anchorAt(next) ?? null));
+  };
   /** an exact ID goes first, so Enter never picks a longer ID that contains it. */
   const filter = (entries: Choice[], text: string) =>
     entries
@@ -402,25 +469,68 @@ export function App({
   const run = (operation: Promise<unknown>) => {
     void operation.catch((error: unknown) => coordinator.report(error));
   };
-  /** a switch shows the conversation it leaves until the next one opens, and a prompt sent from it would run in the next one. */
-  const leave = (operation: () => Promise<void>) => {
-    // one refused for a switch in flight must not reopen the composer
-    if (coordinator.snapshot.phase !== 'idle') return run(operation());
-    setLeaving(state.conversation?.id);
-    run(operation().finally(() => setLeaving(undefined)));
+  /** a task refusal stays transient, but stops the command batch that requested it. */
+  const changeTask = async (operation: Promise<void>): Promise<boolean> => {
+    try {
+      await operation;
+      if (viewRef.current.kind === 'chat') {
+        setPageScroll(0);
+        setView({ kind: 'coordination', mode: 'task' });
+      }
+      return true;
+    } catch (error) {
+      coordinator.notice(errorMessage(error), undefined, false);
+      return false;
+    }
+  };
+  /** a switch shows the old conversation until the next opens, so its draft cannot go to the new one. */
+  const leave = async (operation: () => Promise<void>) => {
+    if (coordinator.snapshot.phase !== 'idle') return operation();
+    setLeaving(coordinator.snapshot.conversation?.id);
+    return operation().finally(() => setLeaving(undefined));
+  };
+  const dismissPicker = (success = true) => {
+    const waiting = pickerWait.current;
+    pickerWait.current = undefined;
+    waiting?.resolve(success);
+    setView({ kind: 'chat' });
   };
   const picker = (
     title: string,
-    entries: Choice[],
-    choose: (id: string) => void,
+    entries: readonly Choice[],
+    choose: (id: string) => void | boolean | Promise<void | boolean>,
     custom = false,
-  ) => {
+  ): Promise<boolean> => {
+    if (disposed.current) return Promise.resolve(false);
+    pickerWait.current?.resolve(true);
+    const waiting = Promise.withResolvers<boolean>();
+    pickerWait.current = waiting;
     pickerInput.current?.set({ value: '', cursor: 0 });
     setQuery('');
     setSelection(0);
-    setView({ kind: 'picker', title, choices: entries, choose, custom });
+    setView({
+      kind: 'picker',
+      title,
+      choices: [...entries],
+      custom,
+      choose: (id) => {
+        if (pickerWait.current !== waiting) return;
+        // a nested picker owns the visible wait while this action still awaits its result
+        pickerWait.current = undefined;
+        setView({ kind: 'chat' });
+        void (async () => {
+          try {
+            waiting.resolve((await choose(id)) !== false);
+          } catch (error) {
+            coordinator.report(error);
+            waiting.resolve(false);
+          }
+        })();
+      },
+    });
+    return waiting.promise;
   };
-  const showMemory = async () => {
+  const showMemory = async (active: () => boolean) => {
     const memory = await coordinator.memoryView();
     const notes = await coordinator.memory.catalog(
       memory.revision,
@@ -436,15 +546,16 @@ export function App({
         cwd: memory.root,
       })),
     );
-    picker(
+    if (!active()) return false;
+    return picker(
       'Shared memory',
       [{ id: '+', label: 'Edit project essentials' }, ...noteChoices],
       (file) => {
         if (file === '+') {
           setView({ kind: 'chat' });
-          run(coordinator.editMemory());
+          return coordinator.editMemory();
         } else if (notes.find((note) => note.path === file)?.deleted) {
-          showHistory(file);
+          return showHistory(file, active);
         } else {
           setPageScroll(0);
           setView({
@@ -458,29 +569,23 @@ export function App({
       },
     );
   };
-  const showHistory = (file: string) => {
-    run(
-      coordinator
-        .memoryView()
-        .then((memory) => coordinator.memory.history(memory.revision, file))
-        .then((history) =>
-          picker(
-            'Restore a memory version',
-            history.map((item) => ({
-              id: item.revision,
-              label: `${item.revision.slice(0, 8)} ${item.subject}`,
-            })),
-            (revision) => {
-              setView({ kind: 'chat' });
-              run(coordinator.restoreMemory(file, revision));
-            },
-          ),
-        ),
+  const showHistory = async (file: string, active = () => true) => {
+    const memory = await coordinator.memoryView();
+    const history = await coordinator.memory.history(memory.revision, file);
+    if (!active()) return false;
+    return picker(
+      'Restore a memory version',
+      history.map((item) => ({
+        id: item.revision,
+        label: `${item.revision.slice(0, 8)} ${item.subject}`,
+      })),
+      (revision) => coordinator.restoreMemory(file, revision),
     );
   };
-  const showJobs = async () => {
+  const showJobs = async (active: () => boolean) => {
     const found = (await jobs?.list()) ?? [];
-    picker(
+    if (!active()) return false;
+    return picker(
       found.length ? 'Jobs · choose one to stop' : 'No jobs are running',
       found.map((job) => ({
         id: String(job.group),
@@ -488,7 +593,7 @@ export function App({
       })),
       (id) => {
         setView({ kind: 'chat' });
-        run(jobs!.stop(found.find(({ group }) => String(group) === id)!));
+        return jobs!.stop(found.find(({ group }) => String(group) === id)!);
       },
     );
   };
@@ -513,7 +618,7 @@ export function App({
       return coordinator.selectModel({ ...selection, effort });
     };
     if (chooseEffort && efforts.length)
-      picker(
+      return picker(
         `Reasoning for ${selection.id}`,
         [
           {
@@ -525,44 +630,53 @@ export function App({
           },
           ...efforts.map((effort) => ({ id: effort, label: effort })),
         ],
-        (effort) => run(select(effort || undefined)),
+        (effort) => select(effort || undefined),
       );
     else await select(effort);
   };
-  const command = (name: string, argument = '') => {
-    setView({ kind: 'chat' });
+  const executeCommand = async (
+    { name, argument }: WitchCommand,
+    active: () => boolean,
+  ): Promise<boolean> => {
+    dismissPicker();
     switch (name) {
       case 'new':
-        leave(() => coordinator.newConversation(argument || undefined));
+        await leave(() => coordinator.newConversation(argument || undefined));
         break;
-      case 'sessions':
-        run(
-          coordinator.conversations().then((conversations) =>
-            picker(
-              'Conversations',
-              conversations.map((conversation) => ({
-                id: conversation.id,
-                label: `${conversation.title} · ${conversation.agent}`,
-                cwd: conversation.cwd,
-              })),
-              (id) => {
-                setView({ kind: 'chat' });
-                setTop(null);
-                leave(() => coordinator.selectConversation(id));
-              },
-            ),
-          ),
+      case 'sessions': {
+        const conversations = await coordinator.conversations();
+        if (!active()) return false;
+        return picker(
+          'Conversations',
+          conversations.map((conversation) => ({
+            id: conversation.id,
+            label: `${conversation.title} · ${conversation.agent}`,
+            cwd: conversation.cwd,
+          })),
+          (id) => {
+            setTop(null);
+            return leave(() => coordinator.selectConversation(id));
+          },
         );
-        break;
+      }
       case 'peers':
         setPageScroll(0);
         setView({ kind: 'coordination', mode: 'peers' });
         break;
       case 'task':
-        if (argument === 'release') run(coordinator.releaseTask());
-        else if (argument) {
-          coordinator.report(new Error('Use /task or /task release.'));
-          break;
+        if (argument === 'release') {
+          return changeTask(coordinator.releaseTask());
+        }
+        if (/^take\s+\S/.test(argument)) {
+          return changeTask(coordinator.takeTask(argument.slice(4).trim()));
+        }
+        if (argument) {
+          coordinator.notice(
+            'Use /task, /task release or /task take <reference>.',
+            undefined,
+            false,
+          );
+          return false;
         }
         setPageScroll(0);
         setView({ kind: 'coordination', mode: 'task' });
@@ -570,51 +684,58 @@ export function App({
       case 'model':
         if (argument) {
           const [id, effort] = argument.split(/\s+/);
-          run(selectModel(id!, effort));
-        } else
-          run(
-            coordinator.refreshModels().then((refreshed) => {
-              if (!refreshed) return;
-              picker(
-                'Models · type an ID or choose one',
-                coordinator.snapshot.models.map((model) => ({
-                  id: modelKey(model),
-                  label: `${state.agents.find((agent) => agent.id === model.agent)!.label} · ${model.label}`,
-                  exact: model.id,
-                })),
-                (id) => run(selectModel(id, undefined, true)),
-                true,
-              );
-            }),
+          await selectModel(id!, effort);
+        } else {
+          if (!(await coordinator.refreshModels()) || !active()) return false;
+          return picker(
+            'Models · type an ID or choose one',
+            coordinator.snapshot.models.map((model) => ({
+              id: modelKey(model),
+              label: `${state.agents.find((agent) => agent.id === model.agent)!.label} · ${model.label}`,
+              exact: model.id,
+            })),
+            (id) => selectModel(id, undefined, true),
+            true,
           );
+        }
         break;
+      case 'delegation': {
+        const text = await delegation(argument, policy, coordinator);
+        if (!text) return false;
+        setPageScroll(0);
+        setView({ kind: 'page', title: 'Delegation', text });
+        break;
+      }
       case 'compact':
-        if (argument)
-          coordinator.report(new Error('Use /compact without arguments.'));
-        else run(coordinator.compact());
+        return coordinator.compact();
+      case 'clear':
+        await coordinator.clear();
         break;
       case 'memory':
-        run(showMemory());
-        break;
+        return showMemory(active);
       case 'jobs':
-        run(showJobs());
-        break;
+        return showJobs(active);
       case 'help':
         setPageScroll(0);
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing else is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an ordinary turn is interrupted. A message sent while Witch answers another session's peer requests waits for that answer turn. Escape or Ctrl+C that stops work holds answer turns until your next message, another conversation or /restart, and stopping an answer turn ends automatic answers for its requests. Cancelled or failed compaction leaves queued messages undelivered. ↑ on the first line takes queued messages back to edit, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it. Ctrl+O switches new or deleted files between their preview and all lines.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues. Ctrl+O switches new or deleted files between their preview and all lines.\nCtrl+C interrupts active work or cancels a pending question. It exits while idle with no request, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects a model on the active runtime.\n/model <agent>:<id> [effort] selects a runtime and model; choosing another runtime performs a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nWitch commands run wherever they appear outside backticks, in message order. Surrounding prose is discarded. /new, /model, /task and /delegation take arguments up to the next command. A leading ! or listed native command keeps the whole input unchanged.\n/compact waits for foreground work without interrupting the task. Claude can compact while familiars continue; Codex waits for its active turn to finish. Pending: /compact shows unfinished requests. Prompts wait until compaction, picker choices and model changes finish. A failed or canceled command stops later command batches and lists them for explicit retry.\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing but a spell or native command is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an ordinary turn is interrupted. A message sent while Witch answers another session's peer requests waits for that answer turn. Escape or Ctrl+C that stops work holds answer turns until your next message, another conversation or /restart, and stopping an answer turn ends automatic answers for its requests. Cancelled or failed compaction leaves queued messages undelivered. ↑ on the first line takes queued messages back to edit when merging would not execute Witch commands, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it. Ctrl+O switches new or deleted files between their preview and all lines.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues. Ctrl+O switches new or deleted files between their preview and all lines.\nCtrl+C interrupts active work or cancels a pending question. It exits while idle with no request, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects a model on the active runtime.\n/model <agent>:<id> [effort] selects a runtime and model; choosing another runtime performs a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'restart':
+        batches.cancel(false);
         onRestart?.();
         break;
       case 'exit':
+        batches.cancel(false);
         onExit();
         break;
     }
+    return true;
   };
+  const command = (name: CommandName) =>
+    batches.submit([{ name, argument: '' }], executeCommand);
 
   /** keeps a submitted prompt for ↑, unless it is blank or repeats the newest. */
   const remember = (text: string) => {
@@ -639,15 +760,10 @@ export function App({
       /^!\s*$/.test(text)
     )
       return false;
-    const match = /^\/(\S+)(?:\s+(.*))?$/s.exec(text.trim());
-    const found =
-      match &&
-      commands.find(
-        ({ id, aliases }) => id === match[1] || aliases?.includes(match[1]!),
-      );
+    const found = parseCommands(text, coordinator.snapshot.skills);
     if (found) {
       remember(text);
-      command(found.id, match[2]);
+      batches.submit(found, executeCommand);
       return true;
     }
     setTop(null);
@@ -660,11 +776,24 @@ export function App({
     return true;
   };
 
+  const draftToAppend = () => {
+    const { index, texts } = recall.current;
+    return (
+      (index === -1
+        ? draftsRef.current[coordinator.snapshot.conversation?.id ?? '']
+        : texts.get(-1)) ?? ''
+    );
+  };
+  const draft =
+    (browsing.index === -1
+      ? drafts[state.conversation?.id ?? '']
+      : browsing.texts.get(-1)) ?? '';
+  const draftEmpty = draft.length === 0;
+
   /** puts text back ahead of the draft, with the cursor after the text while the composer shows; it ends browsing, so the draft is the one typed before it. */
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
-    const { index, texts } = recall.current;
-    const draft = index === -1 ? draftsRef.current[id] : texts.get(-1);
+    const draft = draftToAppend();
     setRecall(unbrowsed());
     const value = draft ? `${text}\n${draft}` : text;
     if (composer.current) composer.current.set({ value, cursor: text.length });
@@ -672,7 +801,15 @@ export function App({
   };
   /** puts the queue back ahead of the draft, as Claude Code's ↑ does. */
   const unqueue = () => {
-    if (!coordinator.snapshot.queue.length) return false;
+    const snapshot = coordinator.snapshot;
+    if (!snapshot.queue.length) return false;
+    if (
+      snapshot.phase !== 'error' &&
+      (snapshot.commandsPending ||
+        snapshot.pendingCompaction ||
+        !safeQueueMerge(snapshot.queue, draftToAppend(), snapshot.skills))
+    )
+      return false;
     prepend(coordinator.unqueue().join('\n'));
     return true;
   };
@@ -737,7 +874,9 @@ export function App({
     moveInList(direction, current) ||
     (direction === 'up'
       ? !current.value.slice(0, current.cursor).includes('\n') &&
-        (unqueue() || browse('up', current))
+        (coordinator.snapshot.queue.length
+          ? (unqueue(), true)
+          : browse('up', current))
       : !current.value.slice(current.cursor).includes('\n') &&
         browse('down', current));
   /** Enter runs the selected command or skill, and inserts a file without sending; a send starts browsing again at the newest. */
@@ -794,7 +933,13 @@ export function App({
   useEffect(() => {
     if (['idle', 'error'].includes(state.phase) && state.queue.length)
       unqueue();
-  }, [state.phase, state.queue]);
+  }, [
+    state.phase,
+    state.queue,
+    state.commandsPending,
+    state.pendingCompaction,
+    draftEmpty,
+  ]);
   const recoveryReady = useKeysReady(state.phase === 'recovery');
   useEffect(() => {
     if (state.phase === 'recovery') setPageScroll(0);
@@ -840,15 +985,35 @@ export function App({
   const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
   usePointer((pointer, { column, row }) => {
     // a press or release ends the drag even while another view covers the transcript
-    if (pointer !== 'drag') pressedAt.current = undefined;
-    if (pointer === 'press') setRange(undefined);
+    if (pointer !== 'drag') {
+      pressedAt.current = undefined;
+      pressedNewMessages.current = false;
+    }
+    if (pointer === 'press') {
+      setRange(undefined);
+      if (newMessagesBox.current) {
+        const box = measureElement(newMessagesBox.current);
+        pressedNewMessages.current =
+          column >= box.x &&
+          column < box.x + box.width &&
+          row >= box.y &&
+          row < box.y + box.height;
+        if (pressedNewMessages.current) return;
+      }
+    }
     if (!transcriptBox.current) return;
     const box = measureElement(transcriptBox.current);
     // reports in one read arrive before a render, so each starts where the last one scrolled
-    const first = topRow(topRef.current);
-    const shown = Math.min(transcriptHeight, transcript.lines.length - first);
+    const {
+      top: first,
+      height,
+      pinned: currentPinned,
+    } = viewport(topRef.current, seenRef.current);
+    const shown = Math.min(height, transcript.lines.length - first);
+    // a queued scroll can move the notice before Ink moves the content box
+    const origin = box.y + Number(currentPinned) - Number(pinned);
     // past the top or bottom, the row a drag scrolls in
-    const offset = Math.max(-1, Math.min(shown, row - box.y));
+    const offset = Math.max(-1, Math.min(shown, row - origin));
     const at = Math.max(
       0,
       Math.min(transcript.lines.length - 1, first + offset),
@@ -868,6 +1033,16 @@ export function App({
       setRange({ from: pressedAt.current, to: end });
     }
   });
+  useClick(() => {
+    if (
+      pressedNewMessages.current &&
+      newMessagesBox.current &&
+      viewport(topRef.current, seenRef.current).newMessages
+    ) {
+      pressedNewMessages.current = false;
+      setTop(null);
+    }
+  });
   useWheel((rows) => {
     if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
   });
@@ -876,9 +1051,11 @@ export function App({
     if (key.eventType === 'release') return;
     if (key.ctrl && input === 'c') {
       // a second Ctrl+C while closing quits without waiting for the agent
-      if ((busy || request) && state.phase !== 'closing')
+      if ((busy || request || batches.pending) && state.phase !== 'closing') {
         run(coordinator.interrupt());
-      else onExit();
+        batches.cancel();
+        dismissPicker(false);
+      } else onExit();
       return;
     }
     if (key.super && input === 'c') {
@@ -913,13 +1090,16 @@ export function App({
       return;
     }
     if (key.escape) {
-      if (view.kind !== 'chat') setView({ kind: 'chat' });
+      if (viewRef.current.kind !== 'chat') dismissPicker();
       else if (toolFocusRef.current) setToolFocus(false);
-      else if (busy) run(coordinator.interrupt());
+      else if (busy || batches.pending || state.phase === 'cleaning') {
+        run(coordinator.interrupt());
+        batches.cancel();
+      }
       return;
     }
     if (key.ctrl && input === 'p') {
-      picker('Commands', commands, (id) => command(id));
+      run(picker('Commands', commands, (id) => command(id as CommandName)));
       return;
     }
     if (view.kind === 'picker') {
@@ -939,13 +1119,13 @@ export function App({
           run(coordinator.editMemory(view.note));
         }
         if (input === 'h') {
-          showHistory(view.note);
+          run(showHistory(view.note));
         }
       }
       return;
     }
-    if (key.pageUp) scrollBy(-transcriptHeight);
-    if (key.pageDown) scrollBy(transcriptHeight);
+    if (key.pageUp) scrollBy(-1, true);
+    if (key.pageDown) scrollBy(1, true);
     if (key.tab) setToolFocus(!toolFocusRef.current);
     if (toolFocusRef.current) {
       const current = toolSelectionRef.current;
@@ -980,9 +1160,7 @@ export function App({
     }
   });
 
-  const model =
-    state.native?.model ||
-    state.conversation?.sessions[state.conversation.agent]?.model;
+  const model = state.native?.model;
   let body;
   if (request)
     body = (
@@ -1064,11 +1242,13 @@ export function App({
           }}
           onSubmit={(text) => {
             // the filter and selection a read changed are not rendered yet
-            const matching = filter(view.choices, text);
+            const current = viewRef.current;
+            if (current.kind !== 'picker') return false;
+            const matching = filter(current.choices, text);
             const choice =
               matching[Math.min(selectionRef.current, matching.length - 1)];
-            if (choice) view.choose(choice.id);
-            else if (view.custom && text.trim()) view.choose(text.trim());
+            if (choice) current.choose(choice.id);
+            else if (current.custom && text.trim()) current.choose(text.trim());
             else return false;
             return true;
           }}
@@ -1116,6 +1296,15 @@ export function App({
       scrollTop,
       scrollTop + transcriptHeight,
     );
+    for (const [id, frame] of casting) {
+      const row = transcript.starts.get(id);
+      if (
+        row !== undefined &&
+        row >= scrollTop &&
+        row - scrollTop < visible.length
+      )
+        visible[row - scrollTop] = castTitle(frame);
+    }
     const selectedToolRow = transcript.starts.get(
       tools[toolSelection]?.id ?? '',
     );
@@ -1143,6 +1332,11 @@ export function App({
     }
     body = (
       <Box flexDirection="column" height={bodyHeight}>
+        {pinned && (
+          <Text wrap="truncate-end">
+            Earlier messages shown here are outside the agent's context.
+          </Text>
+        )}
         <Box ref={transcriptBox} height={transcriptHeight} overflow="hidden">
           <Text>
             {state.items.length
@@ -1152,6 +1346,7 @@ export function App({
                 )}
           </Text>
         </Box>
+        {state.pendingCompaction && <Text dimColor>Pending: /compact</Text>}
         {queueRows > 0 && (
           <Box height={queueRows} flexDirection="column" overflow="hidden">
             {queued.slice(0, queueRows).map((prompt, index) => (
@@ -1162,6 +1357,15 @@ export function App({
           </Box>
         )}
         {working && <Activity />}
+        {newMessages && (
+          <Box height={1} justifyContent="center">
+            <Box ref={newMessagesBox}>
+              <Text color={accent} inverse>
+                {' ↓ New messages '}
+              </Text>
+            </Box>
+          </Box>
+        )}
         <Box
           borderStyle="bold"
           borderColor={
@@ -1180,7 +1384,13 @@ export function App({
             ref={composer}
             initialValue={drafts[state.conversation?.id ?? ''] ?? ''}
             placeholder={
-              state.queue.length ? 'Press ↑ to edit queued messages' : undefined
+              state.queue.length
+                ? !state.commandsPending &&
+                  !state.pendingCompaction &&
+                  safeQueueMerge(state.queue, draft, state.skills)
+                  ? 'Press ↑ to edit queued messages'
+                  : 'Messages remain queued'
+                : undefined
             }
             onChange={changeComposer}
             onSubmit={submitComposer}
@@ -1231,7 +1441,7 @@ export function App({
     <Box width={columns} height={height}>
       <Box flexDirection="column" width={width} height={height}>
         <Box height={1}>
-          <Text dimColor>
+          <Text dimColor wrap="truncate-end">
             {piped([
               state.phase.toUpperCase(),
               ...(state.native?.permissionMode
@@ -1255,6 +1465,8 @@ export function App({
           </Box>
         )}
         <StatusLine
+          width={width}
+          {...usage.status}
           model={
             state.models.find(
               ({ id, agent }) =>
@@ -1276,6 +1488,7 @@ export function App({
           brews={state.backgroundCommands}
           subagents={state.subagents}
           peers={coordination?.peers}
+          accounts={usage.sidebar}
         />
       )}
     </Box>

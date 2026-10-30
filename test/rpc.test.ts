@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -11,13 +12,68 @@ import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
 
-function server() {
+function server(ignoreTerm = false) {
   return spawn(
     process.execPath,
-    [fileURLToPath(new URL('fixtures/rpc-server.mjs', import.meta.url))],
+    [
+      fileURLToPath(new URL('fixtures/rpc-server.mjs', import.meta.url)),
+      ...(ignoreTerm ? ['--ignore-term'] : []),
+    ],
     { cwd: tmpdir(), stdio: 'pipe' },
   );
 }
+
+test('RPC close escalates an unresponsive child and rejects pending requests once', async () => {
+  const child = server(true);
+  const rpc = new JsonRpc(child);
+  let exits = 0;
+  rpc.onExit = () => {
+    exits++;
+  };
+  try {
+    await write(child, rpc, Buffer.from('{"method":"ready"}\n'));
+    const rejected = assert.rejects(rpc.request('hold', {}), /exited/);
+    const started = performance.now();
+    const first = rpc.close({ deadline: started + 1200 });
+    const second = rpc.close({ deadline: started + 4000 });
+    assert.deepEqual(await Promise.all([first, second]), [true, true]);
+    await rejected;
+    assert.ok(performance.now() - started < 1200);
+    assert.equal(child.signalCode, 'SIGKILL');
+    assert.equal(exits, 1);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill('SIGKILL');
+    await rpc.close();
+  }
+});
+
+test('RPC restart closure retains the existing SIGTERM policy', async () => {
+  const child = server(true);
+  const rpc = new JsonRpc(child);
+  let stopped = false;
+  try {
+    await write(child, rpc, Buffer.from('{"method":"ready"}\n'));
+    const closing = rpc
+      .close({ restart: true, deadline: performance.now() + 50 })
+      .then((escalated) => {
+        stopped = true;
+        return escalated;
+      });
+    await delay(150);
+    assert.equal(stopped, false);
+    assert.equal(child.signalCode, null);
+    child.kill('SIGKILL');
+    assert.equal(
+      await within(closing, 2000, 'test-owned restart cleanup'),
+      false,
+    );
+  } finally {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill('SIGKILL');
+    await rpc.close();
+  }
+});
 
 /** waits for each chunk to arrive so pipe buffering cannot hide a split. */
 async function write(

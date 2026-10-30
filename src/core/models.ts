@@ -43,10 +43,14 @@ export function modelTarget(
   return { agent, id };
 }
 
-/** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again. */
+/** an alias read starts a CLI even beside a live session, so one that hasn't answered by then is stopped rather than holding the catalog. */
+export const LATEST_READ_MS = 30_000;
+
+/** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again; each runtime's latest models are kept the same way, whatever the directory. */
 export class ModelCatalog {
   private discovery?: AbortController;
   private readonly lists = new Map<string, Model[]>();
+  private readonly latestModels = new Map<string, Record<string, string>>();
 
   constructor(
     private readonly registrations: readonly AgentRegistration[],
@@ -62,6 +66,32 @@ export class ModelCatalog {
     this.discovery = discovery;
     const installed = this.registrations.filter(({ executable }) => executable);
     try {
+      const latest = installed.filter(
+        ({ adapter }) =>
+          adapter.latest && (refresh || !this.latestModels.has(adapter.id)),
+      );
+      const latestReads = Promise.allSettled(
+        latest.map(async ({ adapter, executable }) => {
+          const timeout = new AbortController();
+          const timer = setTimeout(
+            () => timeout.abort(new Error('the alias read timed out')),
+            LATEST_READ_MS,
+          );
+          timer.unref();
+          try {
+            this.latestModels.set(
+              adapter.id,
+              await adapter.latest!({
+                cwd,
+                executable: executable!,
+                signal: AbortSignal.any([discovery.signal, timeout.signal]),
+              }),
+            );
+          } finally {
+            clearTimeout(timer);
+          }
+        }),
+      );
       const results = await Promise.allSettled(
         installed.map(async ({ adapter, executable }) => {
           let models: Model[] | undefined;
@@ -80,14 +110,19 @@ export class ModelCatalog {
           return models.map((model) => ({ ...model, agent: adapter.id }));
         }),
       );
+      const latestResults = await latestReads;
       discovery.signal.throwIfAborted();
       const errors: string[] = [];
+      const failed = (label: string, reason: unknown) =>
+        errors.push(`${label}: ${errorMessage(reason)}`);
       const models = results.flatMap((result, index) => {
         if (result.status === 'fulfilled') return result.value;
-        errors.push(
-          `${installed[index]!.adapter.label}: ${errorMessage(result.reason)}`,
-        );
+        failed(installed[index]!.adapter.label, result.reason);
         return [];
+      });
+      latestResults.forEach((result, index) => {
+        if (result.status === 'rejected')
+          failed(latest[index]!.adapter.label, result.reason);
       });
       if (errors.length) this.report(new Error(errors.join('\n')));
       return models;
@@ -96,7 +131,19 @@ export class ModelCatalog {
     }
   }
 
-  cancel(): void {
-    this.discovery?.abort();
+  /** each runtime's family aliases and the concrete model each names, read past native pins; a runtime whose read hasn't succeeded has none, so routing can't run its aliases by name. */
+  get latest(): Record<string, Record<string, string>> {
+    return Object.fromEntries(
+      this.registrations
+        .filter(({ adapter, executable }) => executable && adapter.latest)
+        .map(({ adapter }) => [
+          adapter.id,
+          this.latestModels.get(adapter.id) ?? {},
+        ]),
+    );
+  }
+
+  cancel(reason?: unknown): void {
+    this.discovery?.abort(reason);
   }
 }

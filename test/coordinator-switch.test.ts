@@ -19,8 +19,13 @@ test('handoff returns to the original native session with updated context, and a
     await coordinator.send(' Start the migration\n');
     const original = a.inputs[0]!.session;
     await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    assert.equal(b.inputs.length, 0);
+    await coordinator.send('Work on the destination');
     assert.match(b.inputs[0]!.context!, /a: finish the migration/);
+    const sourceInputs = a.inputs.length;
     await coordinator.selectModel({ agent: 'a', id: 'a-model' });
+    assert.equal(a.inputs.length, sourceInputs);
+    await coordinator.send('Return to the original task');
     assert.equal(a.inputs.at(-1)!.session, original);
     assert.match(a.inputs.at(-1)!.context!, /b: finish the migration/);
     assert.equal(coordinator.snapshot.conversation?.agent, 'a');
@@ -37,6 +42,88 @@ test('handoff returns to the original native session with updated context, and a
     assert.equal(a.inputs.length, sent);
   } finally {
     await coordinator.close();
+  }
+});
+
+for (const status of ['completed', 'interrupted', 'failed'] as const)
+  for (const restart of [false, true])
+    test(`handoff after a ${status} ordinary turn${restart ? ' survives restart' : ''}`, async () => {
+      const f = await fixture();
+      let coordinator = f.coordinator;
+      const gate = new TurnGate();
+      let switching: Promise<void> | undefined;
+      try {
+        f.a.interruptNext = status === 'interrupted';
+        f.a.failNext = status === 'failed';
+        await coordinator.send('Source task');
+        const id = coordinator.snapshot.conversation!.id;
+        const source = (await readRecord(f.root, id)).lastTurn;
+        assert.equal(source?.status, status);
+        if (restart) {
+          await coordinator.close();
+          coordinator = await f.reopen();
+          assert.deepEqual((await readRecord(f.root, id)).lastTurn, source);
+        }
+        if (status !== 'completed') f.b.gate = gate;
+        switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
+        if (status !== 'completed') {
+          await within(gate.entered, 5000, 'the destination continuation');
+          assert.deepEqual((await readRecord(f.root, id)).lastTurn, source);
+          gate.open();
+        }
+        await switching;
+        if (status === 'completed') {
+          assert.equal(f.b.inputs.length, 0);
+          const stored = await readRecord(f.root, id);
+          assert.deepEqual(stored.lastTurn, source);
+          assert.equal(stored.handoff?.activated, true);
+          assert.equal(stored.handoff.summary, 'a: finish the migration');
+          await coordinator.send('Next requested action');
+          assert.equal(f.b.inputs[0]!.prompt, 'Next requested action');
+        } else
+          assert.equal(
+            f.b.inputs[0]!.prompt,
+            'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
+          );
+        assert.equal(f.b.inputs.length, 1);
+        assert.match(f.b.inputs[0]!.context!, /a: finish the migration/);
+        assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
+        assert.equal((await readRecord(f.root, id)).handoff, undefined);
+      } finally {
+        gate.open();
+        await switching?.catch(() => {});
+        await coordinator.close();
+        await f.coordinator.close();
+      }
+    });
+
+test('a legacy conversation with history defers its handoff until the next prompt', async () => {
+  const f = await fixture();
+  let coordinator = f.coordinator;
+  try {
+    await coordinator.send('Existing conversation');
+    const id = coordinator.snapshot.conversation!.id;
+    await coordinator.close();
+    const stored = await readRecord(f.root, id);
+    delete stored.lastTurn;
+    await writeFile(
+      join(f.root, 'state', 'conversations', id, 'state.json'),
+      JSON.stringify(stored),
+    );
+    coordinator = await f.reopen();
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    assert.equal(f.b.inputs.length, 0);
+    const pending = await readRecord(f.root, id);
+    assert.equal(pending.lastTurn, undefined);
+    assert.equal(pending.handoff?.summary, 'a: finish the migration');
+    await coordinator.send('Next legacy request');
+    assert.equal(f.b.inputs.length, 1);
+    assert.equal(f.b.inputs[0]!.prompt, 'Next legacy request');
+    assert.match(f.b.inputs[0]!.context!, /a: finish the migration/);
+    assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
+  } finally {
+    await coordinator.close();
+    await f.coordinator.close();
   }
 });
 
@@ -97,6 +184,8 @@ for (const resumed of [false, true])
           return session;
         };
         await coordinator.selectModel({ agent: 'b', id: 'b-big', effort });
+        assert.equal(dispatched.length, 0);
+        await coordinator.send('Use the selected destination model');
         const expectedEffort = effort ?? (resumed ? 'low' : undefined);
         assert.equal(dispatched.length, 1);
         assert.equal(dispatched[0]!.model, 'b-big');
@@ -110,6 +199,7 @@ for (const resumed of [false, true])
         assert.equal(saved.sessions.b!.effort, expectedEffort);
         assert.match(b.inputs.at(-1)!.context!, /a: finish the migration/);
         await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+        await coordinator.send('Use the original session');
         assert.equal(a.inputs.at(-1)!.session, source);
       } finally {
         await coordinator.close();
@@ -203,6 +293,7 @@ test('handoff preference and activation are durable together before continuation
   try {
     await coordinator.selectModel({ agent: 'b', id: 'b-old', effort: 'low' });
     await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
+    a.interruptNext = true;
     await coordinator.send('Start');
     const id = coordinator.snapshot.conversation!.id;
     const source = coordinator.snapshot.native!.id;
@@ -279,7 +370,7 @@ test('handoff preference and activation are durable together before continuation
   }
 });
 
-test('failed destination shutdown still persists pre-activation rollback', async () => {
+test('failed destination shutdown preserves the handoff error and persists pre-activation rollback', async () => {
   const { coordinator, a, b, root } = await fixture();
   try {
     await coordinator.send('Start');
@@ -295,8 +386,9 @@ test('failed destination shutdown still persists pre-activation rollback', async
     b.failClose = true;
     await assert.rejects(
       coordinator.selectModel({ agent: 'b', id: 'b-big', effort: 'high' }),
-      /Close failed/,
+      /Selection refused/,
     );
+    assert.equal(coordinator.snapshot.error, 'Selection refused');
     const saved = await readRecord(root, coordinator.snapshot.conversation!.id);
     assert.equal(saved.agent, 'a');
     assert.equal(saved.sessions.b, undefined);
@@ -747,10 +839,12 @@ test('a handoff cancelled while saving its connection starts no catalog discover
 
 test('a handoff cancelled during the continuation stays with the destination', async () => {
   const context = await handoffFixture();
-  const { coordinator, b } = context;
+  const { coordinator, a, b } = context;
   const gate = new TurnGate();
   b.gate = gate;
   try {
+    a.interruptNext = true;
+    await coordinator.send('Unfinished migration');
     const switching = coordinator.selectModel({
       agent: 'b',
       id: 'b-big',
@@ -784,6 +878,15 @@ test('a prompt sent during a handoff waits and goes to the destination', async (
     await within(switching, 2000, 'the handoff');
     await until('the queued prompt', () =>
       b.inputs.some(({ prompt }) => prompt === 'During'),
+    );
+    assert.deepEqual(
+      b.inputs.map(({ prompt }) => prompt),
+      ['During'],
+    );
+    assert.match(b.inputs[0]!.context!, /a: finish the migration/);
+    await until(
+      'the handoff to clear',
+      () => coordinator.snapshot.conversation!.handoff === undefined,
     );
   } finally {
     gate.open();

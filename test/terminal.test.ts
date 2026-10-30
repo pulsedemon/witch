@@ -37,6 +37,8 @@ function fixture(
     conversation: { ...record('first', '/project'), title: 'First task' },
     items: [],
     queue: [],
+    commandsPending: false,
+    pendingCompaction: false,
     requests: [],
     models: [],
     skills: [],
@@ -44,6 +46,8 @@ function fixture(
     backgroundCommands: [],
     agents: [],
     usage: {},
+    limits: {},
+    latest: {},
     ...initial,
   });
   const errors: unknown[] = [];

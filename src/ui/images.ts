@@ -1,14 +1,8 @@
-import { execFileSync } from 'node:child_process';
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveFile } from '../paths.js';
+import { resolveFile, unescapePath } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image
 const diacritics = [
@@ -18,8 +12,9 @@ const diacritics = [
 ].map((code) => String.fromCodePoint(code));
 export const placeholder = '\u{10EEEE}';
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-// read whole during a render, so a larger file would stall it
+// read whole into memory and sent to the terminal in one transmission
 const largestFile = 64 * 1024 * 1024;
+const retryDelay = 2_000;
 const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 // a quoted path, or a run where a backslash escapes a space; macOS screenshot names hold an unescaped U+202F
 const pathToken = /"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^ \t\r\n\\"'])+)/g;
@@ -27,10 +22,7 @@ const pathToken = /"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^ \t\r\n\\"'])+)/g;
 /** image paths a message names, unescaped, as typed or dropped into the composer. */
 export function imagePaths(text: string): string[] {
   return [...text.matchAll(pathToken)]
-    .map(
-      ([, double, single, bare]) =>
-        double ?? single ?? bare!.replace(/\\(.)/g, '$1'),
-    )
+    .map(([, double, single, bare]) => double ?? single ?? unescapePath(bare!))
     .filter((path) => imageFile.test(path));
 }
 
@@ -42,26 +34,49 @@ interface Image {
   placed?: string;
 }
 
+/** a key's image, its load waiting or running, or its failure, which may be retried from `retry`. */
+type Entry = Image | 'queued' | { retry: number };
+
 /**
  * draws images inline with Kitty Unicode placeholders: each image is sent once, then shown by text rows that
  * scroll and clip with the transcript. the terminal fits the image into its rows, keeping its aspect ratio.
  */
 export class Graphics {
-  private images = new Map<string, Image | undefined>();
+  private entries = new Map<string, Entry>();
   private next = 1;
+  private loads = 0;
+  private readonly listeners = new Set<() => void>();
+  // one load at a time holds one image's memory and one sips process, and none finishes inside the render that asked for it
+  private queue = Promise.resolve();
+  private controller = new AbortController();
 
   constructor(private readonly write: (data: string) => void) {}
 
-  /** the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none when it can't load. */
+  /** counts the images loaded, so it changes whenever more rows can be drawn. */
+  get version(): number {
+    return this.loads;
+  }
+
+  /** hears each load that finishes, whether it loaded, failed or was dropped by `release`. */
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  /** the placeholder rows for `source`, a path or `data:` URL, at most `columns` wide; none until it loads, or when it can't. */
   rows(source: string, cwd: string, columns: number): string[] {
     const key = source.startsWith('data:') ? source : resolveFile(source, cwd);
-    if (!this.images.has(key)) {
-      const loaded = this.load(key);
-      // a file can be written after a message names it, so only a data URL's failure is kept
-      if (loaded || key.startsWith('data:')) this.images.set(key, loaded);
+    const image = this.entries.get(key);
+    if (
+      image === undefined ||
+      (image !== 'queued' && 'retry' in image && Date.now() >= image.retry)
+    ) {
+      this.entries.set(key, 'queued');
+      const { signal } = this.controller;
+      this.queue = this.queue.then(() => this.load(key, signal));
+      return [];
     }
-    const image = this.images.get(key);
-    if (!image || columns < 1) return [];
+    if (image === 'queued' || 'retry' in image || columns < 1) return [];
     // a cell is about twice as tall as wide, and a small image keeps about 8 pixels a column
     const aspect = image.height / image.width / 2;
     const widest = Math.min(columns, Math.ceil(image.width / 8));
@@ -87,63 +102,83 @@ export class Graphics {
       );
   }
 
-  /** frees the images this instance sent; the terminal keeps them until then, even after the alternate screen. */
+  /**
+   * frees the images this instance sent; the terminal keeps them until then, even after the alternate screen.
+   * it also stops the running conversion and drops queued loads, so none writes to the restored terminal.
+   */
   release(): void {
-    for (const image of this.images.values())
-      if (image) this.write(`\u001b_Ga=d,d=I,i=${image.id},q=2\u001b\\`);
-    this.images.clear();
+    this.controller.abort();
+    this.controller = new AbortController();
+    for (const image of this.entries.values())
+      if (image !== 'queued' && 'id' in image)
+        this.write(`\u001b_Ga=d,d=I,i=${image.id},q=2\u001b\\`);
+    this.entries.clear();
   }
 
-  private load(key: string): Image | undefined {
-    let data: Buffer;
-    let width: number;
-    let height: number;
-    try {
-      if (key.startsWith('data:'))
-        data = Buffer.from(key.slice(key.indexOf(',') + 1), 'base64');
-      else {
-        // a FIFO or device named like an image would block the render that reads it
-        const file = statSync(key);
-        if (!file.isFile() || file.size > largestFile) return undefined;
-        data = readFileSync(key);
+  private async load(key: string, signal: AbortSignal): Promise<void> {
+    if (!signal.aborted) {
+      const loaded = await decode(key, signal).catch(() => undefined);
+      // a release since it began has restored the terminal, so the load writes and records nothing
+      if (!signal.aborted) {
+        if (loaded) {
+          const image = { id: this.next++, ...loaded.size };
+          const encoded = loaded.data.toString('base64');
+          for (let start = 0; start < encoded.length; start += 4096) {
+            const more = start + 4096 < encoded.length ? 1 : 0;
+            const keys = start ? '' : `a=t,f=100,t=d,i=${image.id},q=2,`;
+            this.write(
+              `\u001b_G${keys}m=${more};${encoded.slice(start, start + 4096)}\u001b\\`,
+            );
+          }
+          this.entries.set(key, image);
+          this.loads++;
+        } else
+          this.entries.set(key, {
+            // a file can be written after a message names it; a data URL can't change
+            retry: key.startsWith('data:') ? Infinity : Date.now() + retryDelay,
+          });
       }
-      // the terminal decodes only PNG
-      if (!data.subarray(0, 4).equals(pngSignature)) data = toPng(data);
-      // a truncated file throws here rather than in a render
-      width = data.readUInt32BE(16);
-      height = data.readUInt32BE(20);
-    } catch {
-      return undefined;
     }
-    if (!width || !height) return undefined;
-    const image = { id: this.next++, width, height };
-    const encoded = data.toString('base64');
-    for (let start = 0; start < encoded.length; start += 4096) {
-      const more = start + 4096 < encoded.length ? 1 : 0;
-      const keys = start ? '' : `a=t,f=100,t=d,i=${image.id},q=2,`;
-      this.write(
-        `\u001b_G${keys}m=${more};${encoded.slice(start, start + 4096)}\u001b\\`,
-      );
-    }
-    return image;
+    for (const listener of this.listeners) listener();
   }
 }
 
-function toPng(data: Buffer): Buffer {
-  const directory = mkdtempSync(join(tmpdir(), 'witch-image-'));
+/** the PNG data for a path or `data:` URL, and its size; none when it isn't an image. */
+async function decode(key: string, signal: AbortSignal) {
+  let data: Buffer;
+  if (key.startsWith('data:'))
+    data = Buffer.from(key.slice(key.indexOf(',') + 1), 'base64');
+  else {
+    // reading a FIFO named like an image would never finish, stalling every later load and keeping Witch from exiting
+    const file = await stat(key);
+    if (!file.isFile() || file.size > largestFile) return undefined;
+    data = await readFile(key, { signal });
+  }
+  // the terminal decodes only PNG
+  if (!data.subarray(0, 4).equals(pngSignature))
+    data = await toPng(data, signal);
+  // a truncated file throws here, failing its load
+  const size = { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+  return size.width && size.height ? { data, size } : undefined;
+}
+
+async function toPng(data: Buffer, signal: AbortSignal): Promise<Buffer> {
+  signal.throwIfAborted();
+  const directory = await mkdtemp(join(tmpdir(), 'witch-image-'));
   try {
     const input = join(directory, 'input');
     const output = join(directory, 'output.png');
-    writeFileSync(input, data);
-    execFileSync(
-      '/usr/bin/sips',
-      ['-s', 'format', 'png', input, '--out', output],
-      {
-        stdio: 'ignore',
-      },
+    await writeFile(input, data);
+    await new Promise<void>((resolve, reject) =>
+      execFile(
+        '/usr/bin/sips',
+        ['-s', 'format', 'png', input, '--out', output],
+        { signal },
+        (error) => (error ? reject(error) : resolve()),
+      ),
     );
-    return readFileSync(output);
+    return await readFile(output);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 }

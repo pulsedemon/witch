@@ -11,12 +11,38 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { URL } from 'node:url';
 
 // modes that a prompt can't reach come from the command line
 const mode = process.argv[2] ?? '';
+const sessionState = !process.argv.includes('--no-session-state');
+if (mode === 'ignore-term') {
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1000);
+}
+const mcpServers = () =>
+  mode === 'mcp'
+    ? JSON.parse(readFileSync(join(process.cwd(), 'mcp-status.json'), 'utf8'))
+    : [];
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const session_id = randomUUID();
+const nativeVersion = JSON.parse(
+  readFileSync(new URL('native/manifest.json', import.meta.url), 'utf8'),
+).claude.version;
+const stateCommands = [
+  'autocompact',
+  'config',
+  'output-style',
+  'rename',
+  'advisor',
+  'auto-mode-setup',
+].map((name) => ({
+  name,
+  description: 'Native command',
+  argumentHint: '',
+  builtin: true,
+}));
 let initialization = 0;
 let model = 'claude-a';
 let lastPrompt = '';
@@ -35,7 +61,12 @@ const once = (file, then) => {
   }, 5);
   poll.unref();
 };
-const state = (state) =>
+const state = (state) => {
+  if (
+    !sessionState ||
+    (state === 'idle' && existsSync(join(process.cwd(), 'hold-idle')))
+  )
+    return;
   send({
     type: 'system',
     subtype: 'session_state_changed',
@@ -43,9 +74,10 @@ const state = (state) =>
     uuid: randomUUID(),
     session_id,
   });
+};
 const task = (subtype, fields) =>
   send({ type: 'system', subtype, ...fields, uuid: randomUUID(), session_id });
-if (mode === 'compaction' || mode === 'background') {
+if (mode === 'compaction' || mode === 'background' || mode === 'mcp') {
   const read = (index) =>
     once(`events-${index}.json`, () => {
       for (const frame of JSON.parse(
@@ -203,7 +235,7 @@ const finish = () => {
 };
 for await (const line of lines) {
   const message = JSON.parse(line);
-  if (mode === 'background' || mode === 'catalog')
+  if (mode === 'background' || mode === 'catalog' || mode === 'mcp')
     appendFileSync(join(process.cwd(), 'wire.jsonl'), `${line}\n`);
   if (mode === 'pending-model' && message.type === 'user')
     message.message.content = message.message.content
@@ -236,7 +268,6 @@ for await (const line of lines) {
         continue;
       }
       response = {
-        // a built-in, a user command its name shadows, and a skill
         commands: [
           {
             name: 'compact',
@@ -245,6 +276,15 @@ for await (const line of lines) {
             builtin: true,
           },
           { name: 'compact', description: 'Shadowed', argumentHint: '' },
+          {
+            name: 'effort',
+            description: 'Set the effort level',
+            argumentHint: '[low|high]',
+            builtin: true,
+          },
+          ...stateCommands,
+          { name: 'config', description: 'Shadowed', argumentHint: '' },
+          { name: 'rename', description: 'Shadowed', argumentHint: '' },
           {
             name: 'review',
             description: 'Review changes',
@@ -256,6 +296,18 @@ for await (const line of lines) {
         available_output_styles: [],
         account: {},
         models: [
+          ...(mode === 'aliases'
+            ? [
+                ['default', 'claude-opus-5-5'],
+                ['opus', 'claude-opus-5-5'],
+                ['haiku', 'claude-haiku-5-5'],
+              ].map(([value, resolvedModel]) => ({
+                value,
+                resolvedModel,
+                displayName: value,
+                description: 'fixture alias',
+              }))
+            : []),
           {
             value: initialization === 1 ? 'claude-a' : 'claude-b',
             displayName: 'Claude fixture',
@@ -288,6 +340,22 @@ for await (const line of lines) {
     }
     if (request.subtype === 'get_context_usage')
       response = { percentage: 12.5, maxTokens: 200000 };
+    if (request.subtype === 'mcp_status') {
+      if (mode === 'mcp' && existsSync(join(process.cwd(), 'hold-mcp')))
+        continue;
+      if (mode === 'mcp' && existsSync(join(process.cwd(), 'reject-mcp'))) {
+        send({
+          type: 'control_response',
+          response: {
+            subtype: 'error',
+            request_id: message.request_id,
+            error: 'MCP status unavailable',
+          },
+        });
+        continue;
+      }
+      response = { mcpServers: mcpServers() };
+    }
     if (request.subtype === 'get_task_output') {
       const outputs = JSON.parse(
         readFileSync(join(process.cwd(), 'task-outputs.json'), 'utf8'),
@@ -299,6 +367,11 @@ for await (const line of lines) {
         truncated: false,
       };
     }
+    if (
+      request.subtype === 'stop_task' &&
+      existsSync(join(process.cwd(), 'hold-stop'))
+    )
+      continue;
     if (request.subtype === 'stop_task')
       task('task_notification', {
         task_id: request.task_id,
@@ -317,12 +390,18 @@ for await (const line of lines) {
           model_usage: {},
         },
         subscription_type: 'max',
-        rate_limits_available: true,
-        rate_limits: {
-          five_hour: { utilization: 23.5, resets_at: '2033-05-18T03:33:20Z' },
-          seven_day: { utilization: 61, resets_at: null },
-          seven_day_opus: { utilization: 99, resets_at: null },
-        },
+        rate_limits_available: mode !== 'no-limits',
+        rate_limits:
+          mode === 'no-limits'
+            ? null
+            : {
+                five_hour: {
+                  utilization: 23.5,
+                  resets_at: '2033-05-18T03:33:20Z',
+                },
+                seven_day: { utilization: 61, resets_at: null },
+                seven_day_opus: { utilization: 99, resets_at: null },
+              },
         behaviors: null,
       };
     if (request.subtype === 'set_model') {
@@ -344,6 +423,29 @@ for await (const line of lines) {
     }
     if (request.subtype === 'interrupt') {
       appendFileSync(join(process.cwd(), 'interrupts.log'), 'interrupt\n');
+      if (existsSync(join(process.cwd(), 'hold-interrupt'))) {
+        if (existsSync(join(process.cwd(), 'late-interrupt'))) {
+          const waiting = setInterval(() => {}, 1000);
+          process.once('SIGTERM', () => {
+            clearInterval(waiting);
+            send({
+              type: 'control_response',
+              response: {
+                subtype: 'success',
+                request_id: message.request_id,
+                response: { still_queued: [] },
+              },
+            });
+            result();
+            state('idle');
+            result();
+            state('idle');
+            writeFileSync(join(process.cwd(), 'late-response.json'), 'true');
+            process.stdout.end(() => process.exit(0));
+          });
+        }
+        continue;
+      }
       if (mode === 'background') {
         response = {
           still_queued: existsSync(join(process.cwd(), 'receipt.json'))
@@ -396,8 +498,8 @@ for await (const line of lines) {
       },
     });
   } else if (message.type === 'user') {
+    appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
     if (mode === 'background') {
-      appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
       if (lastPrompt) {
         held.push(message.uuid);
         continue;
@@ -474,6 +576,16 @@ for await (const line of lines) {
       lastPrompt.endsWith('User request:\nreporting familiar')
     )
       lastPrompt = 'reporting familiar';
+    // Claude Code starts a pushed input before init advertises lifecycle acknowledgements
+    if (mode === 'spell-user')
+      for (const state of ['queued', 'started'])
+        send({
+          type: 'command_lifecycle',
+          command_uuid: message.uuid,
+          state,
+          uuid: randomUUID(),
+          session_id,
+        });
     send({
       type: 'system',
       subtype: 'init',
@@ -482,7 +594,7 @@ for await (const line of lines) {
       cwd: process.cwd(),
       session_id,
       tools: [],
-      mcp_servers: [],
+      mcp_servers: mcpServers().map(({ name, status }) => ({ name, status })),
       slash_commands: [],
       apiKeySource: 'none',
       output_style: 'default',
@@ -490,12 +602,18 @@ for await (const line of lines) {
       skills: [],
       plugins: [],
       uuid: randomUUID(),
-      claude_code_version: '2.1.296',
-      ...(mode === 'background' ? { capabilities: ['msg_lifecycle_v1'] } : {}),
+      claude_code_version: nativeVersion,
+      ...(['background', 'spell-user'].includes(mode)
+        ? { capabilities: ['msg_lifecycle_v1'] }
+        : {}),
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
     state('running');
     if (mode === 'background') {
+      if (!sessionState) {
+        assistant('Working.');
+        continue;
+      }
       assistant('Initial reply.');
       result({
         user_message_uuid: message.uuid,
@@ -602,6 +720,15 @@ for await (const line of lines) {
         },
       ]);
       toolResult('tool-1', 'a.md');
+      assistant('', [
+        {
+          type: 'tool_use',
+          id: 'tool-s',
+          name: 'Skill',
+          input: { skill: 'handoff' },
+        },
+      ]);
+      toolResult('tool-s', 'Launching skill: handoff');
       assistant('', [
         {
           type: 'tool_use',
@@ -831,6 +958,12 @@ for await (const line of lines) {
             description: 'Run tests',
           }),
         ],
+        'agent-tool',
+        'reader',
+      );
+      assistant(
+        '',
+        [tool('r-3', 'Skill', { skill: 'tdd' })],
         'agent-tool',
         'reader',
       );
@@ -1130,6 +1263,9 @@ for await (const line of lines) {
             builtin: true,
           },
           { name: 'clear', description: 'Shadowed', argumentHint: '' },
+          ...stateCommands,
+          { name: 'config', description: 'Shadowed', argumentHint: '' },
+          { name: 'rename', description: 'Shadowed', argumentHint: '' },
           { name: 'later', description: 'Added later', argumentHint: '' },
         ],
         uuid: randomUUID(),

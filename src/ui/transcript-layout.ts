@@ -1,12 +1,14 @@
 import stripAnsi from 'strip-ansi';
+import wrapAnsi from 'wrap-ansi';
 import type { DisplayItem } from '../core/state.js';
 import { appendedDisplayText } from '../core/state.js';
 import { prepareDiff } from './diff.js';
 import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from './theme.js';
+import { castTitle } from './cast.js';
 import type { Graphics } from './images.js';
 import { imagePaths } from './images.js';
-import { linkify, linkifyAppend } from './links.js';
+import { hyperlink, linkify, linkifyAppend, plain } from './links.js';
 import type { LinkedAppend } from './links.js';
 import { normalizeText, wrapLines } from './wrap.js';
 
@@ -32,6 +34,7 @@ interface Row {
 interface Content {
   item: DisplayItem;
   title: string[];
+  singleLine: boolean;
   complete: string[];
   tail: string[];
   diff?: ReturnType<typeof prepareDiff>;
@@ -49,6 +52,10 @@ interface Block {
   complete: Row[];
   lines: TextRows;
   row(index: number): Row | undefined;
+  /** an image it names had no rows yet. */
+  missing: boolean;
+  /** the image version it was built for. */
+  loads?: number;
 }
 
 function textRows(
@@ -81,6 +88,7 @@ function block(
   viewport: Viewport,
   complete: Row[],
   suffix: Row[],
+  missing: boolean,
 ): Block {
   const count = complete.length;
   const length = count + suffix.length;
@@ -92,6 +100,7 @@ function block(
     complete,
     row,
     lines: textRows(length, (index) => row(index)?.text),
+    missing,
   };
 }
 
@@ -118,6 +127,19 @@ function section(
   return { rows, next: sourceLine };
 }
 
+/** a tool's title, with the path it shows linked whole from the field it came from. */
+function linkedTitle(title: string, path: string | undefined, cwd: string) {
+  // `toolTitle` puts the path two spaces after the name, which can contain the same text
+  const separator = path ? title.indexOf(`  ${path}`) : -1;
+  if (!path || separator < 0) return linkify(title, cwd);
+  const start = separator + 2;
+  return (
+    linkify(title.slice(0, start), cwd) +
+    hyperlink(plain(path), path, cwd) +
+    linkify(title.slice(start + path.length), cwd)
+  );
+}
+
 function prepare(
   item: DisplayItem,
   expansion: Expansion,
@@ -133,9 +155,11 @@ function prepare(
         ? colors.whiteBright.bold(item.title ?? 'Assistant')
         : tool
           ? colors.dim(
-              `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkify(item.title ?? 'Tool', item.cwd)}`,
+              `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkedTitle((expanded && item.expandedTitle) || (item.title ?? 'Tool'), item.path, item.cwd)}`,
             )
-          : colors.dim('Notice');
+          : item.cast
+            ? castTitle()
+            : colors.dim('Notice');
   const linked =
     tool && expanded ? linkifyAppend(item.text, item.cwd) : undefined;
   const assistant =
@@ -158,6 +182,7 @@ function prepare(
   return {
     item,
     title: title.split('\n'),
+    singleLine: tool && !expanded && !!item.singleLine,
     complete,
     tail: hasBody ? (linked?.tail ?? body).split('\n') : [],
     diff,
@@ -178,17 +203,18 @@ function ending(
   width: number,
   first: number,
   graphics: Graphics | undefined,
-): Row[] {
+): { rows: Row[]; missing: boolean } {
   const rendered = section(content.tail, width, false, first);
   const diff = content.diff?.(width) ?? [];
   const images = graphics
-    ? content.images
-        .map((source) => graphics.rows(source, content.item.cwd, width))
-        .filter((rows) => rows.length)
+    ? content.images.map((source) =>
+        graphics.rows(source, content.item.cwd, width),
+      )
     : [];
   const next = rendered.next;
-  // row offsets preserve diff and image rows across resizes and when copying.
-  return rendered.rows.concat(
+  // row offsets preserve diff and image rows across resizes and when copying, and an image without rows yet
+  // keeps its line, so the images after it keep theirs when it loads.
+  const ended = rendered.rows.concat(
     diff.concat(images).flatMap((rows, index) =>
       rows.map((text, offset) => ({
         text,
@@ -200,6 +226,7 @@ function ending(
       anchor: { line: next + diff.length + images.length, offset: 0 },
     },
   );
+  return { rows: ended, missing: images.some((rows) => !rows.length) };
 }
 
 function wrap(
@@ -209,12 +236,27 @@ function wrap(
 ): Block {
   const { width } = viewport;
   const head = section(content.title, width, true, 0);
+  if (content.singleLine && head.rows.length > 1) {
+    const first =
+      width > 1
+        ? wrapAnsi(content.title.join(' '), width - 1, {
+            hard: true,
+            trim: true,
+            wordWrap: false,
+          }).split('\n')[0]!
+        : '';
+    head.rows = [
+      { text: `${first}${colors.dim('…')}`, anchor: { line: 0, offset: 0 } },
+    ];
+  }
   const complete = section(content.complete, width, false, head.next);
+  const end = ending(content, width, complete.next, graphics);
   return block(
     content,
     viewport,
     head.rows.concat(complete.rows),
-    ending(content, width, complete.next, graphics),
+    end.rows,
+    end.missing,
   );
 }
 
@@ -230,6 +272,8 @@ function extend(
     !tail ||
     item.kind !== before.kind ||
     item.title !== before.title ||
+    item.expandedTitle !== before.expandedTitle ||
+    item.singleLine !== before.singleLine ||
     item.done !== before.done ||
     item.cwd !== before.cwd ||
     item.diff !== before.diff ||
@@ -266,12 +310,8 @@ function extend(
   const complete = section(content.complete, width, false, first);
   // a large chunk can exceed the argument limit if spread into push().
   for (const row of complete.rows) previous.complete.push(row);
-  return block(
-    prepared,
-    viewport,
-    previous.complete,
-    ending(prepared, width, complete.next, graphics),
-  );
+  const end = ending(prepared, width, complete.next, graphics);
+  return block(prepared, viewport, previous.complete, end.rows, end.missing);
 }
 
 /** a later diff must not reverse the user's explicit open or closed choice. */
@@ -297,11 +337,13 @@ export class TranscriptLayout {
   /** without `graphics`, images stay out of the transcript. */
   constructor(private readonly graphics?: Graphics) {}
 
+  /** `loads` is the image version to draw for; App passes it so that the React Compiler's memo of this call follows it. */
   render(
     items: readonly DisplayItem[],
     width: number,
     expanded: ReadonlyMap<string, boolean>,
     full?: ReadonlySet<string>,
+    loads = this.graphics?.version,
   ) {
     // reopening a variant at an older width must restore its terminal image placement.
     if (this.viewport.width !== width) this.viewport = { width };
@@ -321,7 +363,8 @@ export class TranscriptLayout {
       const previous = variants.get(expansion);
       const current =
         previous?.content.item === item
-          ? previous.viewport === viewport
+          ? previous.viewport === viewport &&
+            (!previous.missing || previous.loads === loads)
             ? previous
             : wrap(previous.content, viewport, this.graphics)
           : ((previous && extend(previous, item, viewport, this.graphics)) ??
@@ -330,6 +373,7 @@ export class TranscriptLayout {
               viewport,
               this.graphics,
             ));
+      if (current !== previous) current.loads = loads;
       variants.set(expansion, current);
       cache.set(item.id, variants);
       starts.set(item.id, length);

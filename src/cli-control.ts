@@ -11,6 +11,15 @@ import { quote } from './shell.js';
 import { oneLine } from './ui/links.js';
 import { peerStatus } from './ui/peers.js';
 
+/** `<runtime>:<model>`, splitting at the first colon so a model ID keeps its own. */
+function choice(text: string | undefined) {
+  if (text === undefined) return undefined;
+  const colon = text.indexOf(':');
+  if (colon <= 0 || colon === text.length - 1)
+    throw new Error('Name a runtime and model as <runtime>:<model>.');
+  return { runtime: text.slice(0, colon), model: text.slice(colon + 1) };
+}
+
 const options = {
   'state-dir': { type: 'string' },
   continue: { type: 'boolean', short: 'c' },
@@ -33,6 +42,9 @@ const options = {
   answer: { type: 'string' },
   message: { type: 'string' },
   'peer-request': { type: 'string' },
+  route: { type: 'string' },
+  of: { type: 'string' },
+  named: { type: 'string' },
   json: { type: 'boolean' },
   'familiar-claude': { type: 'string' },
   'familiar-codex': { type: 'string' },
@@ -122,6 +134,9 @@ export function parseCommand(args = process.argv.slice(2)) {
     'answer',
     'message',
     'peer-request',
+    'route',
+    'of',
+    'named',
     'json',
   ] as const;
   if (!controls.some((name) => values[name] !== undefined))
@@ -136,11 +151,17 @@ export function parseCommand(args = process.argv.slice(2)) {
     values.ask !== undefined,
     values.answer !== undefined,
     values['peer-request'] !== undefined,
+    values.route !== undefined,
   ].filter(Boolean).length;
   if (actions !== 1)
     throw new Error(
-      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection, --ask, --answer or --peer-request.',
+      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection, --ask, --answer, --peer-request or --route.',
     );
+  if (
+    values.route === undefined &&
+    (values.of !== undefined || values.named !== undefined)
+  )
+    throw new Error('--of and --named require --route.');
   if (
     positionals.length ||
     values.continue ||
@@ -209,7 +230,14 @@ export function parseCommand(args = process.argv.slice(2)) {
                       kind: 'cancel-selection',
                       selection: values['cancel-selection'],
                     }
-                  : { kind: 'release', claim: values.release },
+                  : values.route !== undefined
+                    ? {
+                        kind: 'route',
+                        work: values.route,
+                        of: choice(values.of),
+                        named: choice(values.named),
+                      }
+                    : { kind: 'release', claim: values.release },
   );
   return {
     ...parsed,
@@ -278,6 +306,13 @@ function describe(outcome: ControlOutcome): string {
               : []),
       ].join('\n');
     }
+    case 'route':
+      return outcome.routes
+        .map(
+          ({ runtime, model, reason }) =>
+            `Route: ${runtime} ${model}\nReason: ${reason}`,
+        )
+        .join('\n');
     case 'peers': {
       const snapshot = outcome.snapshot;
       return (

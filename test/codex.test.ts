@@ -5,6 +5,8 @@ import { describe, test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { AgentEvent, Usage } from '../src/agents/types.js';
 import { until, within } from './fixtures/within.js';
+import type { RpcMessage } from '../src/agents/json-rpc.js';
+import { untimed } from './fixtures/limits.js';
 import {
   fixture,
   close,
@@ -582,7 +584,40 @@ test('a prompt steered into a turn goes to Codex for that turn, and one Codex re
       expectedTurnId: 'turn-1',
       input: [{ type: 'text', text: 'also this', text_elements: [] }],
     });
+    assert.equal(
+      await session.steer('Witch coordination update', { contextOnly: true }),
+      true,
+    );
+    const context = JSON.parse(
+      await readFile(join(cwd, 'steer.json'), 'utf8'),
+    ) as { params: unknown };
+    assert.deepEqual(context.params, {
+      threadId: 'native-thread',
+      expectedTurnId: 'turn-1',
+      input: [
+        { type: 'text', text: 'Witch coordination update', text_elements: [] },
+      ],
+    });
     assert.equal(await session.steer('refused'), false);
+    await writeFile(join(cwd, 'release'), 'yes');
+    await within(session.interrupt(), 2000, 'interrupt');
+    assert.equal((await turn).status, 'interrupted');
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+test('a steered spell is refused and Codex gets no turn/steer', async () => {
+  const { session, cwd } = await fixture();
+  try {
+    const turn = session.send('hold');
+    await appears(join(cwd, 'prompt.json'));
+    assert.equal(
+      await session.steer('/review', { skill: { name: 'review', args: '' } }),
+      false,
+    );
+    await assert.rejects(access(join(cwd, 'steer.json')));
+    assert.equal(await session.steer('plain'), true);
     await writeFile(join(cwd, 'release'), 'yes');
     await within(session.interrupt(), 2000, 'interrupt');
     assert.equal((await turn).status, 'interrupted');
@@ -807,7 +842,7 @@ test("a command streams its output into one tool that completes once in the comm
   }
 });
 
-test("Codex items are titled by what they act on, with a path under the session's directory shown relative, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
+test("Codex items are titled by what they act on, with a path under the session's directory shown relative and a path field's path named for its link, a familiar's collab call or activity under Witch's name, and a viewed image and an MCP tool's image arrive as images, not base64 text", async () => {
   const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
   const { session, cwd } = await fixture((event) => {
     if (event.type === 'tool') tools.push(event);
@@ -815,17 +850,21 @@ test("Codex items are titled by what they act on, with a path under the session'
   try {
     assert.equal((await session.send('tool-items')).status, 'completed');
     assert.deepEqual(
-      tools.map(({ id, title, images }) => [id, title, images]),
+      tools.map(({ id, title, path, images }) => [id, title, path, images]),
       [
-        ['patch-1', 'fileChange  ./a.md  b.md', undefined],
+        ['patch-1', 'fileChange  ./a.md  b.md', undefined, undefined],
         [
           'mcp-1',
           'browser.screenshot  https://example.com',
+          undefined,
           ['data:image/png;base64,iVBORw=='],
         ],
-        ['mcp-2', 'files.read  ./c.txt', undefined],
-        ['dynamic-1', 'read  ./d.txt', undefined],
-        ['view-1', 'imageView  /shots/a.png', ['/shots/a.png']],
+        ['mcp-2', 'files.read  ./c.txt', './c.txt', undefined],
+        ['dynamic-1', 'read  ./d.txt', './d.txt', undefined],
+        ['view-1', 'imageView  /shots/a.png', '/shots/a.png', ['/shots/a.png']],
+        ['collab-1', 'Familiar  Review the diff …', undefined, undefined],
+        ['collab-2', 'Close familiar', undefined, undefined],
+        ['activity-1', 'Familiar', undefined, undefined],
       ],
     );
     assert.match(tools[1]!.text, /Captured\./);
@@ -925,6 +964,31 @@ test('a Codex that exits during initialize fails the connect without a notice', 
   assert.deepEqual(events, []);
 });
 
+test('a Codex MCP server that fails to start posts one notice naming it', async () => {
+  const events: AgentEvent[] = [];
+  const { session, cwd } = await fixture((event) => events.push(event), {
+    mode: 'mcp-failed',
+  });
+  const notices = () => events.filter((event) => event.type === 'notice');
+  try {
+    await until('the MCP notices', () => notices().length >= 2);
+    assert.deepEqual(notices(), [
+      {
+        type: 'notice',
+        text: 'Codex could not start MCP server unreal: MCP client for `unreal` failed to start: handshake failed',
+        transient: true,
+      },
+      {
+        type: 'notice',
+        text: 'Codex could not start MCP server auth.',
+        transient: true,
+      },
+    ]);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
 test('a grandchild holding the native pipes cannot keep a dead turn open, and the exit posts no notice', async () => {
   const notices: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => {
@@ -1005,7 +1069,7 @@ test('a model choice that changes no native setting returns and shows the choice
   }
 });
 
-test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
+test("a spawned thread's tool items, not its prompt or thinking, give its familiar's latest activity, with a path under the session's directory shown relative and a familiar it spawns under Witch's name, and its count, its completed message is its report, a thread with no turn here is ignored, a restart starts without the last run's activity, count and report, and an earlier turn's late item and end are ignored", async () => {
   const events: AgentEvent[] = [];
   const { session, cwd } = await fixture((event) => events.push(event));
   try {
@@ -1028,17 +1092,18 @@ test("a spawned thread's tool items, not its prompt or thinking, give its famili
       [
         worker,
         { ...worker, activity: 'pnpm test', tools: 1 },
-        { ...worker, activity: 'imageView  ./a.png', tools: 2 },
+        { ...worker, activity: 'Familiar  Check the docs', tools: 2 },
+        { ...worker, activity: 'imageView  ./a.png', tools: 3 },
         {
           ...worker,
           activity: 'imageView  ./a.png',
-          tools: 2,
+          tools: 3,
           report: 'Done.',
         },
         {
           ...worker,
           activity: 'imageView  ./a.png',
-          tools: 2,
+          tools: 3,
           report: 'Done.',
           status: 'completed',
         },
@@ -1239,15 +1304,18 @@ test("reports context, lines summed over the thread's turns and limits merged fr
   try {
     await until('the limits', () => !!session.usage.limits);
     assert.equal((await session.send('usage')).status, 'completed');
-    assert.deepEqual(session.usage, {
-      context: 25,
-      contextWindow: 256000,
-      lines: { added: 4, removed: 2 },
-      limits: [
-        { window: '5H', percent: 15, resetsAt: 2000000100 },
-        { window: '7D', percent: 40, resetsAt: 2000500000 },
-      ],
-    });
+    assert.deepEqual(
+      { ...session.usage, limits: untimed(session.usage.limits) },
+      {
+        context: 25,
+        contextWindow: 256000,
+        lines: { added: 4, removed: 2 },
+        limits: [
+          { window: '5H', percent: 15, resetsAt: 2000000100 },
+          { window: '7D', percent: 40, resetsAt: 2000500000 },
+        ],
+      },
+    );
     assert.deepEqual(reported.at(-1), session.usage);
     const lineUpdates = reported.flatMap(({ lines }, index) =>
       lines && lines !== reported[index - 1]?.lines ? [lines] : [],
@@ -1281,6 +1349,27 @@ test('a Codex that cannot read its limits still connects, and leaves limits out'
     );
     assert.deepEqual(session.usage, {});
     assert.equal(session.closed, false);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+test('reading limits again joins the read in flight', async () => {
+  const reads: RpcMessage[] = [];
+  const { session, cwd } = await fixture(() => {}, {
+    onClient: (message) => {
+      if ('method' in message && message.method === 'account/rateLimits/read')
+        reads.push(message);
+    },
+  });
+  try {
+    assert.ok(session.readLimits);
+    await until('the read connect starts', () => !!session.usage.limits);
+    assert.equal(reads.length, 1);
+    await Promise.all([session.readLimits(), session.readLimits()]);
+    assert.equal(reads.length, 2);
+    await session.readLimits();
+    assert.equal(reads.length, 3);
   } finally {
     await close(session, cwd);
   }

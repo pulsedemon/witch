@@ -82,6 +82,7 @@ export function forgedLink(target: string, text: string) {
 export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
+  let holds = 0;
   const record =
     (name: string) =>
     async (...args: unknown[]) => {
@@ -93,12 +94,16 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       phase: 'idle',
       items: [],
       queue: [],
+      commandsPending: false,
+      pendingCompaction: false,
       requests: [],
       models: [],
       skills: [],
       subagents: [],
       backgroundCommands: [],
       usage: {},
+      limits: {},
+      latest: {},
       agents: ['a', 'b'].map((id) => ({ id, label: id, installed: true })),
       conversation: {
         id: 'c',
@@ -120,7 +125,21 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       for (const listener of listeners) listener();
     },
     send: record('send'),
-    compact: record('compact'),
+    compact: async () => {
+      calls.push(['compact']);
+      return true;
+    },
+    holdPromptDelivery: () => {
+      holds++;
+      coordinator.publish({ commandsPending: true });
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        coordinator.publish({ commandsPending: --holds > 0 });
+      };
+    },
+    clear: record('clear'),
     unqueue: () => {
       calls.push(['unqueue']);
       const { queue } = coordinator.snapshot;
@@ -138,6 +157,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     },
     selectModel: record('selectModel'),
     report: (error: unknown) => calls.push(['report', String(error)]),
+    notice: record('notice'),
     conversations: async () => [
       { id: 'c2', title: 'Other', agent: 'a', cwd: '/work' },
     ],
@@ -200,4 +220,23 @@ export async function commands(ui: ReturnType<typeof show>) {
   ui.stdin.write('\u0010');
   await until('the command picker', () => ui.text().includes('Commands'));
   await delay(30);
+}
+
+/** an SGR report of the left button at a zero-based cell: down, held moving there, or up. */
+export const left = (
+  kind: 'press' | 'drag' | 'release',
+  column: number,
+  row: number,
+) =>
+  `\u001b[<${kind === 'drag' ? 32 : 0};${column + 1};${row + 1}${kind === 'release' ? 'm' : 'M'}`;
+
+/** a left press at `from`, held motion to `to` and the release there, each its own read. */
+export function drag(
+  ui: ReturnType<typeof show>,
+  from: [number, number],
+  to: [number, number],
+) {
+  ui.stdin.write(left('press', ...from));
+  ui.stdin.write(left('drag', ...to));
+  ui.stdin.write(left('release', ...to));
 }

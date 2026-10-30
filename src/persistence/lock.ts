@@ -118,12 +118,14 @@ export async function tryOpenLocked(
 /** observes kernel lock records without competing with a concurrent acquisition. */
 export async function lockedFiles(
   files: readonly string[],
+  options: { timeout?: number } = {},
 ): Promise<Map<string, 'shared' | 'exclusive'>> {
   if (!files.length) return new Map();
-  const result = execute('/usr/bin/perl', [
-    '-e',
-    nativeLocks ? linuxQuery : query,
-  ]);
+  const result = execute(
+    '/usr/bin/perl',
+    ['-e', nativeLocks ? linuxQuery : query],
+    { ...options, killSignal: 'SIGKILL' },
+  );
   // report the process failure even when stdin also fails with EPIPE.
   result.child.stdin?.on('error', () => {}).end(JSON.stringify(files));
   const { stdout } = await result;

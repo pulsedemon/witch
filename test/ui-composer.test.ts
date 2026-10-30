@@ -271,6 +271,23 @@ test('a skill named like a Witch command is left out, since the command runs ins
   }
 });
 
+test("the composer's list leaves out built-in commands", async () => {
+  // a shared prefix, since `/` alone lists Witch's commands first and the list shows eight rows
+  const { ui } = await launched({
+    skills: [
+      { name: 'x-context', description: 'Context usage', builtin: true },
+      { name: 'x-review', description: 'Review changes' },
+    ],
+  });
+  try {
+    ui.stdin.write('/x');
+    await until('the list', () => ui.text().includes('/x-review Review'));
+    assert.ok(!ui.text().includes('x-context'));
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('list rows drop a link forged in a skill description or a file name', async () => {
   const forged = (text: string) => forgedLink('https://evil.example', text);
   const skill = await launched({

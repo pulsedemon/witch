@@ -128,6 +128,8 @@ test('native receipts and stable notices survive restart and a runtime switch', 
   assert.deepEqual(events(reopened.a.inputs.at(-1)!.context!), []);
   assert.equal(notices(reopened.coordinator).length, 1);
   await reopened.coordinator.selectModel({ agent: 'b', id: 'b-model' });
+  assert.equal(reopened.b.inputs.length, 0);
+  await reopened.coordinator.send('first request on the destination');
   assert.deepEqual(events(reopened.b.inputs.at(-1)!.context!), [delivered]);
   await reopened.coordinator.send('same runtime again');
   assert.deepEqual(events(reopened.b.inputs.at(-1)!.context!), []);

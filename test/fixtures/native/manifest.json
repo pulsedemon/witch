@@ -1,0 +1,213 @@
+{
+  "capturedOn": "2026-10-29",
+  "normalization": {
+    "project": "/native/project",
+    "encodedProject": "-native-project",
+    "home": "/home/native",
+    "account": "synthetic identity; null and omitted values retained",
+    "machine": "synthetic remote-control hostname and installation identity"
+  },
+  "codex": {
+    "version": "0.162.1",
+    "model": "gpt-6.1-sol",
+    "scenarios": {
+      "basic": {
+        "files": ["basic-0.jsonl", "basic-1.jsonl"],
+        "launches": [
+          {
+            "command": "codex",
+            "args": [
+              "app-server",
+              "--stdio",
+              "-c",
+              "approval_policy=\"on-request\"",
+              "-c",
+              "approvals_reviewer=\"user\"",
+              "-c",
+              "sandbox_mode=\"read-only\""
+            ]
+          },
+          {
+            "command": "codex",
+            "args": [
+              "app-server",
+              "--stdio",
+              "-c",
+              "approval_policy=\"on-request\"",
+              "-c",
+              "approvals_reviewer=\"user\"",
+              "-c",
+              "sandbox_mode=\"read-only\""
+            ]
+          }
+        ]
+      },
+      "control": {
+        "files": ["control-0.jsonl"],
+        "launches": [
+          {
+            "command": "codex",
+            "args": ["app-server", "--stdio"]
+          }
+        ]
+      },
+      "background": {
+        "files": ["background-0.jsonl"],
+        "launches": [
+          {
+            "command": "codex",
+            "args": [
+              "app-server",
+              "--stdio",
+              "-c",
+              "approval_policy=\"on-request\"",
+              "-c",
+              "approvals_reviewer=\"user\"",
+              "-c",
+              "sandbox_mode=\"read-only\""
+            ]
+          }
+        ]
+      },
+      "spell": {
+        "files": ["spell-0.jsonl"],
+        "launches": [
+          {
+            "command": "codex",
+            "args": [
+              "app-server",
+              "--stdio",
+              "-c",
+              "approval_policy=\"on-request\"",
+              "-c",
+              "approvals_reviewer=\"user\"",
+              "-c",
+              "sandbox_mode=\"read-only\""
+            ]
+          }
+        ]
+      }
+    },
+    "schema": {
+      "file": "protocol.schema.json",
+      "sha256": "e4e7f0c7d3fd77c48cd8619cad2bf2b315d860ab006ad5a7ebe44f6e32e666c1"
+    }
+  },
+  "claude": {
+    "version": "2.1.299",
+    "model": "haiku",
+    "scenarios": {
+      "basic": {
+        "files": ["basic-0.jsonl", "basic-1.jsonl"],
+        "launches": [
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--effort=low",
+              "--model=haiku",
+              "--permission-prompt-tool=stdio",
+              "--include-partial-messages",
+              "--session-id=4c4668e1-3f7c-46a3-b271-6647a0b9f0e3",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default"
+            ]
+          },
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--effort=low",
+              "--model=haiku",
+              "--permission-prompt-tool=stdio",
+              "--resume=4c4668e1-3f7c-46a3-b271-6647a0b9f0e3",
+              "--include-partial-messages",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default"
+            ]
+          }
+        ]
+      },
+      "control": {
+        "files": ["control-0.jsonl"],
+        "launches": [
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--effort=low",
+              "--model=haiku",
+              "--permission-prompt-tool=stdio",
+              "--include-partial-messages",
+              "--session-id=be06c87a-b4d2-45dc-b775-18063612e8da",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default"
+            ]
+          }
+        ]
+      },
+      "background": {
+        "files": ["background-0.jsonl"],
+        "launches": [
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--effort=low",
+              "--model=haiku",
+              "--permission-prompt-tool=stdio",
+              "--include-partial-messages",
+              "--session-id=b885aa3c-59be-41a4-9163-29979ea8c73b",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default"
+            ]
+          }
+        ]
+      },
+      "spell": {
+        "files": ["spell-0.jsonl"],
+        "launches": [
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--effort=low",
+              "--model=haiku",
+              "--permission-prompt-tool=stdio",
+              "--include-partial-messages",
+              "--session-id=dc32dd84-db7e-47f5-8d66-ce26f27cc7a2",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default"
+            ]
+          }
+        ]
+      }
+    },
+    "sdk": "0.3.296"
+  }
+}

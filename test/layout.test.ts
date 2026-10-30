@@ -1,16 +1,77 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { Lexer } from 'marked';
 import stripAnsi from 'strip-ansi';
-import { Graphics, placeholder } from '../src/ui/images.js';
+import stringWidth from 'string-width';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import type { FileDiff } from '../src/agents/types.js';
 import type { DisplayItem, DisplayUpdate } from '../src/core/state.js';
 import { applyDisplayUpdate, foldDisplayUpdates } from '../src/core/state.js';
-import { png } from './fixtures/png.js';
-import { scratch } from './fixtures/scratch.js';
+
+test('single-line tool titles fit the viewport while expansion retains the full command across resizes', () => {
+  const title = `claim task:${'界review '.repeat(30)}`;
+  const command = `'node' 'witch' --claim '${title.slice(6)}' --summary 'original command end'`;
+  const item: DisplayItem = {
+    id: 'control',
+    kind: 'tool',
+    title,
+    expandedTitle: command,
+    singleLine: true,
+    text: 'CONTROL-OUTPUT',
+    cwd: '/work',
+    done: true,
+  };
+  const layout = new TranscriptLayout();
+  for (const width of [83, 42, 120, 83]) {
+    const collapsed = layout.render([item], width, new Map());
+    const rows = collapsed.lines.slice().map(stripAnsi).filter(Boolean);
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0]!.startsWith('+ ✓ claim task:界review '));
+    assert.ok(rows[0]!.endsWith('…'));
+    assert.ok(stringWidth(rows[0]!) <= width);
+    const anchor = collapsed.anchorAt(0)!;
+    assert.equal(collapsed.rowOf(anchor), 0);
+    const expanded = layout.render([item], width, new Map([['control', true]]));
+    const text = stripAnsi(expanded.lines.slice().join('\n'));
+    assert.ok(text.includes("'node' 'witch' --claim"));
+    assert.match(text, /'original\s+command\s+end'/);
+    assert.ok(text.includes('CONTROL-OUTPUT'));
+    assert.ok(!text.includes('…'));
+    assert.equal(item.expandedTitle, command);
+  }
+  const ordinary = { ...item, singleLine: undefined };
+  assert.ok(layout.render([ordinary], 83, new Map()).lines.length > 2);
+});
+
+test('an expanded title change invalidates an appended tool output cache', () => {
+  let items = applyDisplayUpdate([], {
+    id: 't',
+    kind: 'tool',
+    title: 'peers',
+    expandedTitle: 'first original command',
+    singleLine: true,
+    text: 'first output\n',
+    cwd: '/work',
+    done: false,
+  });
+  const layout = new TranscriptLayout();
+  const expanded = new Map([['t', true]]);
+  layout.render(items, 83, expanded);
+  items = applyDisplayUpdate(items, {
+    id: 't',
+    kind: 'tool',
+    title: '',
+    expandedTitle: 'second original command',
+    text: 'second output',
+    cwd: '/work',
+    done: false,
+  });
+  const rows = layout.render(items, 83, expanded).lines.slice().map(stripAnsi);
+  assert.ok(rows.includes('− … second original command'));
+  assert.ok(!rows.some((row) => row.includes('first original command')));
+  assert.ok(rows.includes('first output'));
+  assert.ok(rows.includes('second output'));
+});
 
 test('full diff choices survive cached renders and resizes', () => {
   const item: DisplayItem = {
@@ -105,6 +166,90 @@ test('expanding a tool shows its complete output without losing links', () => {
       .join('\n')
       .includes('vscode://file/work/project/src/main.ts:9'),
   );
+});
+
+test("a tool's title links the path its field gave whole, spaces and U+202F included", () => {
+  const path = '/shots/Screenshot 2026-10-26 at 3.35.40\u202fPM.png';
+  const lines = new TranscriptLayout()
+    .render(
+      [
+        {
+          id: 'read',
+          kind: 'tool',
+          title: `Read  ${path}`,
+          path,
+          text: '',
+          cwd: '/work',
+          done: true,
+        },
+      ],
+      100,
+      new Map(),
+    )
+    .lines.slice()
+    .join('\n');
+  assert.deepEqual(
+    [
+      // eslint-disable-next-line no-control-regex
+      ...lines.matchAll(/\u001b\]8;;([^\u0007]+)\u0007(.*?)\u001b\]8;;\u0007/g),
+    ].map(([, target, text]) => [target, stripAnsi(text!)]),
+    [
+      [
+        'vscode://file/shots/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
+        path,
+      ],
+    ],
+  );
+});
+
+test("a tool's path links after its name, not where the name holds the same text", () => {
+  const lines = new TranscriptLayout()
+    .render(
+      [
+        {
+          id: 'read',
+          kind: 'tool',
+          title: 'files.read  read',
+          path: 'read',
+          text: '',
+          cwd: '/work',
+          done: true,
+        },
+      ],
+      100,
+      new Map(),
+    )
+    .lines.slice()
+    .join('\n');
+  assert.ok(
+    lines.includes('files.read  \u001b]8;;vscode://file/work/read\u0007'),
+    JSON.stringify(lines),
+  );
+});
+
+test("a tool's linked path reaches the terminal without the escape sequences in it", () => {
+  const path = '/shots/a\u001b]0;title\u0007\u001b[2Jb.png';
+  const lines = new TranscriptLayout()
+    .render(
+      [
+        {
+          id: 'read',
+          kind: 'tool',
+          title: `Read  ${path}`,
+          path,
+          text: '',
+          cwd: '/work',
+          done: true,
+        },
+      ],
+      100,
+      new Map(),
+    )
+    .lines.slice()
+    .join('\n');
+  assert.ok(!lines.includes('\u001b]0;'), JSON.stringify(lines));
+  assert.ok(!lines.includes('\u001b[2J'), JSON.stringify(lines));
+  assert.equal(stripAnsi(lines).trimEnd(), '+ ✓ Read  /shots/a[2Jb.png');
 });
 
 test('completed output is cached when another message streams', () => {
@@ -835,181 +980,6 @@ test('warm tool appends and a fixed page do not scale with completed prefix rows
   );
 });
 
-test('an image arriving with an append replaces the text-only cached block', async () => {
-  const directory = await scratch('witch-layout-');
-  await writeFile(join(directory, 'shot.png'), png(160, 80));
-  const layout = new TranscriptLayout(new Graphics(() => {}));
-  const expanded = new Map([['tool', true]]);
-  let items = applyDisplayUpdate([], { ...tool('read\n'), cwd: directory });
-  const before = layout.render(items, 100, expanded);
-  assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
-  items = applyDisplayUpdate(items, {
-    ...tool('finished'),
-    cwd: directory,
-    images: ['shot.png'],
-  });
-  const frame = layout.render(items, 100, expanded);
-  const rows = frame.lines.slice();
-  const first = rows.findIndex((line) => line.includes(placeholder));
-  assert.equal(rows.filter((line) => line.includes(placeholder)).length, 5);
-  assert.deepEqual(frame.anchorAt(first), { item: 'tool', line: 3, offset: 0 });
-  assert.equal(frame.rowOf({ item: 'tool', line: 3, offset: 4 }), first + 4);
-  assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
-});
-
-test('an append retries a named image that was unavailable during the first render', async () => {
-  for (const [initial, imageLine] of [
-    ['', 2],
-    ['waiting\n', 3],
-  ] as const) {
-    const directory = await scratch('witch-layout-');
-    const layout = new TranscriptLayout(new Graphics(() => {}));
-    const expanded = new Map([['tool', true]]);
-    let items = applyDisplayUpdate([], {
-      ...tool(initial),
-      cwd: directory,
-      images: ['shot.png'],
-    });
-    const before = layout.render(items, 100, expanded);
-    assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
-    const images = items[0]!.images;
-    await writeFile(join(directory, 'shot.png'), png(160, 80));
-    items = applyDisplayUpdate(items, { ...tool('ready'), cwd: directory });
-    assert.equal(items[0]!.images, images);
-    const frame = layout.render(items, 100, expanded);
-    const rows = frame.lines.slice();
-    const first = rows.findIndex((line) => line.includes(placeholder));
-    assert.equal(rows.filter((line) => line.includes(placeholder)).length, 5);
-    assert.deepEqual(frame.anchorAt(first), {
-      item: 'tool',
-      line: imageLine,
-      offset: 0,
-    });
-    assert.equal(
-      frame.rowOf({ item: 'tool', line: imageLine, offset: 4 }),
-      first + 4,
-    );
-    assert.ok(!before.lines.slice().some((line) => line.includes(placeholder)));
-  }
-});
-
-test('a message shows the images it names below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
-  const directory = await scratch('witch-layout-');
-  await writeFile(join(directory, 'shot.png'), png(160, 80));
-  const layout = new TranscriptLayout(new Graphics(() => {}));
-  const message: DisplayItem = {
-    id: 'message',
-    kind: 'user',
-    text: 'look at shot.png',
-    cwd: directory,
-  };
-  const tool: DisplayItem = {
-    id: 'tool',
-    kind: 'tool',
-    title: 'Read',
-    text: 'Read it',
-    cwd: directory,
-    done: true,
-    images: ['shot.png'],
-  };
-  const imageRows = (lines: string[]) =>
-    lines.filter((line) => line.includes(placeholder)).length;
-
-  const collapsed = layout.render([message, tool], 100, new Map());
-  const [shown] = collapsed.blocks;
-  assert.equal(imageRows(shown!.slice()), 5);
-  assert.ok(
-    shown!
-      .slice()
-      .findIndex((line) => stripAnsi(line).includes('look at shot.png')) <
-      shown!.slice().findIndex((line) => line.includes(placeholder)),
-  );
-  assert.equal(imageRows(collapsed.blocks[1]!.slice()), 0);
-
-  const expanded = new Map([['tool', true]]);
-  assert.equal(
-    imageRows(layout.render([message, tool], 100, expanded).blocks[1]!.slice()),
-    5,
-  );
-  const grown = layout
-    .render([message, { ...tool, text: 'Read it\nand more' }], 100, expanded)
-    .blocks[1]!.slice();
-  assert.equal(imageRows(grown), 5);
-  assert.ok(grown.some((line) => stripAnsi(line).includes('and more')));
-});
-
-for (const kind of ['tool', 'user'] as const) {
-  test(`a ${kind}'s image anchors keep their image and closing blank across resizes`, async () => {
-    const directory = await scratch('witch-layout-');
-    await writeFile(join(directory, 'a.png'), png(800, 200));
-    await writeFile(join(directory, 'b.png'), png(800, 160));
-    const item: DisplayItem = {
-      id: 'images',
-      kind,
-      text: 'a.png b.png',
-      cwd: directory,
-      ...(kind === 'tool'
-        ? { title: 'Read', done: true, images: ['a.png', 'b.png'] }
-        : {}),
-    };
-    const layout = new TranscriptLayout(new Graphics(() => {}));
-    const expanded = new Map([['images', true]]);
-    const narrow = layout.render([item], 40, expanded);
-    const wide = layout.render([item], 100, expanded);
-
-    assert.equal(narrow.lines.length, 12);
-    assert.equal(wide.lines.length, 26);
-    assert.equal(narrow.lines.at(11), '');
-    assert.equal(wide.lines.at(25), '');
-    assert.equal(wide.rowOf(narrow.anchorAt(11)!), 25);
-    assert.equal(narrow.rowOf(wide.anchorAt(25)!), 11);
-    assert.equal(wide.rowOf(narrow.anchorAt(4)!), 4);
-    assert.equal(wide.rowOf(narrow.anchorAt(9)!), 17);
-    assert.equal(narrow.rowOf(wide.anchorAt(14)!), 6);
-    assert.equal(narrow.rowOf(wide.anchorAt(24)!), 10);
-  });
-}
-
-test('an image anchor follows wrapped diff output', async () => {
-  const directory = await scratch('witch-layout-');
-  await writeFile(join(directory, 'a.png'), png(800, 200));
-  const item: DisplayItem = {
-    id: 'mixed',
-    kind: 'tool',
-    title: 'Read',
-    text: 'Image',
-    cwd: directory,
-    done: true,
-    images: ['a.png'],
-    diff: [
-      {
-        path: '/elsewhere/a.txt',
-        kind: 'update',
-        hunks: [
-          {
-            oldStart: 1,
-            newStart: 1,
-            lines: [' ' + 'long '.repeat(30), '-old', '+new', ' tail'],
-          },
-        ],
-      },
-    ],
-  };
-  const layout = new TranscriptLayout(new Graphics(() => {}));
-  const expanded = new Map([['mixed', true]]);
-  const narrow = layout.render([item], 40, expanded);
-  const wide = layout.render([item], 100, expanded);
-  const narrowImage = narrow.lines
-    .slice()
-    .findIndex((line) => line.includes(placeholder));
-  const wideImage = wide.lines
-    .slice()
-    .findIndex((line) => line.includes(placeholder));
-  assert.equal(narrowImage, 11);
-  assert.equal(wideImage, 8);
-  assert.equal(wide.rowOf(narrow.anchorAt(narrowImage + 2)!), wideImage + 2);
-});
-
 test("a shell tool row shows expanded until toggled, and an agent's tool row collapsed until toggled", () => {
   const items: DisplayItem[] = [
     {
@@ -1050,6 +1020,36 @@ test("a shell tool row shows expanded until toggled, and an agent's tool row col
   assert.ok(!toggled.includes('shell-a'));
   assert.ok(toggled.includes('− ✓ Read'));
   assert.ok(toggled.includes('agent-x'));
+});
+
+test("a tool row under Witch's name shows the native name only while expanded", () => {
+  const items: DisplayItem[] = [
+    {
+      id: 't',
+      kind: 'tool',
+      title: 'Spell  handoff',
+      expandedTitle: 'Spell (Skill)  handoff',
+      text: 'Launching skill: handoff',
+      cwd: '/work',
+      done: true,
+    },
+  ];
+  const layout = new TranscriptLayout();
+  const lines = (expanded: boolean) =>
+    stripAnsi(
+      layout
+        .render(items, 60, new Map([['t', expanded]]))
+        .lines.slice()
+        .join('\n'),
+    ).split('\n');
+  assert.ok(
+    lines(false).includes('+ ✓ Spell  handoff'),
+    lines(false).join('\n'),
+  );
+  assert.ok(
+    lines(true).includes('− ✓ Spell (Skill)  handoff'),
+    lines(true).join('\n'),
+  );
 });
 
 test('a tool that changed a file under its directory shows its diff until toggled, one elsewhere collapsed until toggled, and a diff that arrives under unchanged output still shows', () => {

@@ -1,11 +1,13 @@
-import { setTimeout } from 'node:timers';
+import { clearInterval, setInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import {
   appendFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -21,17 +23,29 @@ if (familiar) {
       mark: process.env.WITCH_JOBS,
     }),
   );
-  if (familiar === 'nonzero-close') process.exitCode = 2;
+  if (familiar === 'nonzero-close') {
+    process.exitCode = 2;
+    process.stderr.write('close exit text\n');
+  }
   process.on('SIGTERM', () => process.exit());
 }
 // modes that a prompt can't reach come from the command line
 const mode = familiar ? '' : (process.argv[2] ?? '');
+if (process.argv.includes('--ignore-term')) {
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1000);
+}
 let model = 'model-a';
 let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const notify = (method, params) => send({ method, params });
 const file = (name) => join(process.cwd(), name);
+// whole, through a rename, since a test polling for a record would read one half written
+const record = (name, value) => {
+  writeFileSync(file(`${name}.next`), JSON.stringify(value));
+  renameSync(file(`${name}.next`), file(name));
+};
 const session = () => ({
   thread: { id: 'native-thread' },
   model,
@@ -50,6 +64,86 @@ const held = async () => {
   writeFileSync(file('replied'), 'yes');
   while (!existsSync(file('release'))) await delay(5);
 };
+// `spell-reads` lists one spell, `a`, which its turns cast by reading its SKILL.md
+const spellReads = [mode, familiar].includes('spell-reads');
+const spellPath = join(process.cwd(), '.agents', 'skills', 'a', 'SKILL.md');
+if (spellReads) {
+  mkdirSync(join(spellPath, '..', 'scripts'), { recursive: true });
+  writeFileSync(spellPath, '---\nname: a\ndescription: A\n---\n');
+  writeFileSync(join(spellPath, '..', 'scripts', 'run.py'), '');
+}
+/** a command reading the spell, on `item/started` and `item/completed`, or only the latter when `completedOnly`. */
+const readSpell = (threadId, turnId, id, completedOnly = false) => {
+  const item = {
+    type: 'commandExecution',
+    id,
+    command: `cat ${spellPath}`,
+    cwd: process.cwd(),
+    source: 'agent',
+    processId: null,
+    commandActions: [
+      { type: 'read', command: 'cat', name: 'SKILL.md', path: spellPath },
+    ],
+  };
+  if (!completedOnly)
+    notify('item/started', {
+      threadId,
+      turnId,
+      item: { ...item, status: 'inProgress' },
+    });
+  notify('item/completed', {
+    threadId,
+    turnId,
+    item: { ...item, status: 'completed', exitCode: 0 },
+  });
+};
+const spellTurn = (prompt, input, turnId) => {
+  if (prompt === 'cast') {
+    const message = { type: 'userMessage', id: 'user-1', content: input };
+    notify('item/started', {
+      threadId: 'native-thread',
+      turnId,
+      item: message,
+    });
+    notify('item/completed', {
+      threadId: 'native-thread',
+      turnId,
+      item: message,
+    });
+    readSpell('native-thread', turnId, 'read-1');
+    readSpell('native-thread', turnId, 'read-2');
+  } else if (prompt === 'again')
+    readSpell('native-thread', turnId, 'read-3', true);
+  else if (prompt === 'familiar') {
+    const started = (id) =>
+      notify('turn/started', {
+        threadId: 'child-thread',
+        turn: { id, status: 'inProgress' },
+      });
+    started('child-turn-1');
+    readSpell('child-thread', 'child-turn-1', 'child-read-1');
+    readSpell('child-thread', 'child-turn-1', 'child-read-2');
+    // the child starts again before its last turn's read arrives
+    started('child-turn-2');
+    readSpell('child-thread', 'child-turn-1', 'child-read-3');
+    // a thread that never started a turn here is no familiar
+    readSpell('stray-thread', 'stray-turn', 'stray-read');
+  } else {
+    // a familiar's own read, and its nested child's, sent twice
+    readSpell('native-thread', turnId, 'read-1');
+    notify('turn/started', {
+      threadId: 'child-thread',
+      turn: { id: 'child-turn-1', status: 'inProgress' },
+    });
+    readSpell('child-thread', 'child-turn-1', 'child-read-1');
+    readSpell('child-thread', 'child-turn-1', 'child-read-2');
+  }
+  notify('turn/completed', {
+    threadId: 'native-thread',
+    turn: { id: turnId, status: 'completed', error: null },
+  });
+};
+let spellTurns = 0;
 let skillAdded = false;
 let lastPrompt = '';
 /** a `!` command of `hold` runs until an interrupt or the test's release. */
@@ -110,7 +204,7 @@ const waitFor = async (name) => {
   }
 };
 const deferReply = (kind, index, request) => {
-  writeFileSync(file(`${kind}-${index}.json`), JSON.stringify(request));
+  record(`${kind}-${index}.json`, request);
   void (async () => {
     await waitFor(`${kind}-reply-${index}.json`);
     send({
@@ -143,13 +237,36 @@ for await (const line of lines) {
   const request = JSON.parse(line);
   if (mode === 'catalog') appendFileSync(file('wire.jsonl'), `${line}\n`);
   if (mode === 'file-approvals' && request.method === undefined) {
-    writeFileSync(file(`response-${request.id}.json`), JSON.stringify(request));
+    record(`response-${request.id}.json`, request);
     continue;
   }
 
   const reply = (result) => send({ id: request.id, result });
+  if (request.method === 'turn/start' && existsSync(file('hold-start'))) {
+    record('prompt.json', request);
+    continue;
+  }
+  if (
+    request.method === 'turn/interrupt' &&
+    existsSync(file('hold-interrupt'))
+  ) {
+    record('interrupt.json', request);
+    if (existsSync(file('late-interrupt'))) {
+      // stdin can close before SIGTERM reaches the late-response handler.
+      const waiting = setInterval(() => {}, 1000);
+      process.once('SIGTERM', () => {
+        clearInterval(waiting);
+        reply({});
+        finish('completed');
+        finish('completed');
+        record('late-response.json', { sent: true });
+        process.stdout.end(() => process.exit(0));
+      });
+    }
+    continue;
+  }
   if (request.method === 'thread/inject_items') {
-    writeFileSync(file('context.json'), JSON.stringify(request.params));
+    record('context.json', request.params);
     if (mode === 'context-error')
       send({
         id: request.id,
@@ -165,7 +282,7 @@ for await (const line of lines) {
     continue;
   }
   if (request.method === 'turn/start' && mode === 'context-start-error') {
-    writeFileSync(file('prompt.json'), JSON.stringify(request));
+    record('prompt.json', request);
     send({
       id: request.id,
       error: { code: -32603, message: 'Turn response lost' },
@@ -173,16 +290,17 @@ for await (const line of lines) {
     continue;
   }
   if (request.method === 'thread/compact/start') {
-    writeFileSync(file('compact.json'), JSON.stringify(request.params));
+    record('compact.json', request.params);
     reply({});
   }
   if (request.method === 'initialize') {
     if (mode === 'hang-on-init') {
+      record('initializing.json', request);
       // bounded, so an ignored abort fails the test instead of hanging it
       setTimeout(() => process.exit(1), 5000);
       continue;
     }
-    if (mode === 'exit-on-init')
+    if (mode === 'exit-on-init' || familiar === 'exit-on-init')
       process.stderr.write('init exit text\n', () => process.exit(1));
     else reply({ userAgent: 'fixture' });
   }
@@ -222,8 +340,32 @@ for await (const line of lines) {
       nextCursor: second ? null : 'page-2',
     });
   }
+  if (spellReads)
+    appendFileSync(
+      file('methods.jsonl'),
+      `${JSON.stringify(request.method)}\n`,
+    );
+  if (request.method === 'skills/list' && familiar === 'skills-fail') {
+    send({
+      id: request.id,
+      error: { code: -32603, message: 'skills unavailable' },
+    });
+    continue;
+  }
+  if (request.method === 'skills/list' && spellReads) {
+    reply({
+      data: [
+        {
+          cwd: process.cwd(),
+          errors: [],
+          skills: [skill('a', { path: spellPath, description: 'A' })],
+        },
+      ],
+    });
+    continue;
+  }
   if (request.method === 'skills/list') {
-    writeFileSync(file('skills.json'), JSON.stringify(request));
+    record('skills.json', request);
     reply({
       data: [
         {
@@ -250,6 +392,32 @@ for await (const line of lines) {
       ],
     });
   }
+  // the session reads limits once connected, so these arrive after connect as real Codex's do
+  if (
+    request.method === 'account/rateLimits/read' &&
+    [mode, familiar].includes('mcp-failed')
+  ) {
+    process.stderr.write('rmcp::transport::worker: worker quit with fatal\n');
+    for (const [name, status, error, failureReason] of [
+      ['unreal', 'starting'],
+      ['docs', 'starting'],
+      ['docs', 'ready'],
+      ['slow', 'cancelled'],
+      [
+        'unreal',
+        'failed',
+        'MCP client for `unreal` failed to start: handshake failed',
+      ],
+      ['auth', 'failed', null, 'reauthenticationRequired'],
+    ])
+      notify('mcpServer/startupStatus/updated', {
+        threadId: 'native-thread',
+        name,
+        status,
+        error: error ?? null,
+        failureReason: failureReason ?? null,
+      });
+  }
   if (request.method === 'account/rateLimits/read' && mode === 'no-limits')
     send({
       id: request.id,
@@ -260,7 +428,8 @@ for await (const line of lines) {
       rateLimits: {
         limitId: 'codex',
         primary: window(12, 300, 2000000000),
-        secondary: window(40, 10080, 2000500000),
+        secondary:
+          mode === 'sparse-limits' ? null : window(40, 10080, 2000500000),
       },
     });
   if (
@@ -278,13 +447,13 @@ for await (const line of lines) {
     (request.method === 'thread/resume' &&
       request.params.threadId === 'native-thread')
   ) {
-    writeFileSync(file('connect.json'), JSON.stringify(request));
+    record('connect.json', request);
     model = request.params.model ?? model;
     reply(session());
   }
   if (request.method === 'thread/settings/update') {
     if (mode === 'identity') {
-      writeFileSync(file('settings.json'), JSON.stringify(request));
+      record('settings.json', request);
       reply({});
       continue;
     }
@@ -349,7 +518,7 @@ for await (const line of lines) {
   }
   if (request.method === 'thread/shellCommand') {
     const { command } = request.params;
-    writeFileSync(file('shell.json'), JSON.stringify(request));
+    record('shell.json', request);
     if (command === 'refuse') {
       send({
         id: request.id,
@@ -393,7 +562,7 @@ for await (const line of lines) {
   }
   if (request.method === 'turn/interrupt' && shellHeld) {
     shellHeld = false;
-    writeFileSync(file('interrupt.json'), JSON.stringify(request));
+    record('interrupt.json', request);
     reply({});
     shellItem('item/completed', 'hold', {
       status: 'failed',
@@ -405,12 +574,22 @@ for await (const line of lines) {
   }
   if (request.method === 'turn/start') {
     const prompt = request.params.input[0].text;
+    appendFileSync(
+      file('prompts.jsonl'),
+      `${JSON.stringify(request.params.input)}\n`,
+    );
     lastPrompt = prompt;
-    writeFileSync(file('prompt.json'), JSON.stringify(request));
+    record('prompt.json', request);
+    if (spellReads) {
+      const turnId = `turn-${++spellTurns}`;
+      reply({ turn: { id: turnId } });
+      spellTurn(prompt, request.params.input, turnId);
+      continue;
+    }
     if (familiar?.startsWith('question-')) {
       reply({ turn: { id: `turn-${++questionTurn}` } });
       if (questionTurn > 1) {
-        writeFileSync(file('question-answer.json'), JSON.stringify(request));
+        record('question-answer.json', request);
         finishQuestion();
       } else {
         notify('item/completed', {
@@ -429,7 +608,9 @@ for await (const line of lines) {
         });
         if (familiar !== 'question-during') finish('completed');
         if (familiar === 'question-exit')
-          void waitFor('exit-question').then(() => process.exit(3));
+          void waitFor('exit-question').then(() =>
+            process.stderr.write('question exit text\n', () => process.exit(3)),
+          );
       }
       continue;
     }
@@ -437,7 +618,7 @@ for await (const line of lines) {
       const turn = { id: `turn-${++brewTurn}`, status: 'inProgress' };
       reply({ turn });
       notify('turn/started', { threadId: 'native-thread', turn });
-      writeFileSync(file(`turn-${brewTurn}.json`), JSON.stringify(request));
+      record(`turn-${brewTurn}.json`, request);
       continue;
     }
     reply({ turn: { id: 'turn-1' } });
@@ -560,6 +741,16 @@ for await (const line of lines) {
       item('item/completed', 'worker-thread', {
         ...command,
         status: 'completed',
+      });
+      item('item/started', 'worker-thread', {
+        type: 'collabAgentToolCall',
+        id: 'w-c',
+        tool: 'spawnAgent',
+        senderThreadId: 'worker-thread',
+        receiverThreadIds: [],
+        prompt: 'Check the docs',
+        agentsStates: {},
+        status: 'inProgress',
       });
       item('item/started', 'worker-thread', {
         type: 'imageView',
@@ -816,6 +1007,33 @@ for await (const line of lines) {
           status: 'completed',
         },
         { type: 'imageView', id: 'view-1', path: '/shots/a.png' },
+        {
+          type: 'collabAgentToolCall',
+          id: 'collab-1',
+          tool: 'spawnAgent',
+          senderThreadId: 'thread-1',
+          receiverThreadIds: ['worker-thread'],
+          prompt: 'Review the diff\nthen report',
+          agentsStates: {},
+          status: 'completed',
+        },
+        {
+          type: 'collabAgentToolCall',
+          id: 'collab-2',
+          tool: 'closeAgent',
+          senderThreadId: 'thread-1',
+          receiverThreadIds: ['worker-thread'],
+          prompt: null,
+          agentsStates: {},
+          status: 'completed',
+        },
+        {
+          type: 'subAgentActivity',
+          id: 'activity-1',
+          agentThreadId: 'worker-thread',
+          agentPath: '/root/worker',
+          kind: 'started',
+        },
       ])
         notify('item/completed', { item });
       finish('completed');
@@ -988,28 +1206,22 @@ for await (const line of lines) {
     finish('completed');
   }
   if ([88, 89, 91, 94].includes(request.id) && request.result) {
-    writeFileSync(
-      file(`response-${request.id}.json`),
-      JSON.stringify(request.result),
-    );
+    record(`response-${request.id}.json`, request.result);
     finish('completed');
   }
   if ([90, 92].includes(request.id) && request.error) {
-    writeFileSync(
-      file(`error-${request.id}.json`),
-      JSON.stringify(request.error),
-    );
+    record(`error-${request.id}.json`, request.error);
     finish('completed');
   }
   // Codex refuses a turn that has ended, which a prompt of `refused` stands in for
   if (request.method === 'turn/steer') {
     if (familiar === 'question-during') {
-      writeFileSync(file('question-answer.json'), JSON.stringify(request));
+      record('question-answer.json', request);
       reply({ turnId: request.params.expectedTurnId });
       finishQuestion();
       continue;
     }
-    writeFileSync(file('steer.json'), JSON.stringify(request));
+    record('steer.json', request);
     if (request.params.input[0].text !== 'refused')
       reply({ turnId: request.params.expectedTurnId });
     else
@@ -1025,7 +1237,7 @@ for await (const line of lines) {
       continue;
     }
     if (mode === 'brews') {
-      writeFileSync(file('interrupt.json'), JSON.stringify(request));
+      record('interrupt.json', request);
       void (async () => {
         while (
           !existsSync(file('allow-interrupt')) &&

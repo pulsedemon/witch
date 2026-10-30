@@ -4,6 +4,7 @@ import { describe, test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ranCommand } from '../src/core/prompts.js';
 import { Coordinator } from '../src/core/coordinator.js';
+import type { DisplayItem } from '../src/core/state.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import type { FixtureAgent } from './fixtures/agent.js';
 import { TurnGate } from './fixtures/agent.js';
@@ -11,6 +12,38 @@ import { fixture, readRecord, turns } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
+
+test('a tool row keeps the path its title shows and its expanded title through its result and a reopen', async () => {
+  const { coordinator, a, reopen } = await fixture();
+  let reopened: Coordinator | undefined;
+  const title = 'Read  ./shot one.png';
+  const row = (items: readonly DisplayItem[]) => {
+    const item = items.find((item) => item.title === title);
+    return [item?.path, item?.expandedTitle];
+  };
+  const kept = ['./shot one.png', 'Read (native)  ./shot one.png'];
+  try {
+    await coordinator.send('first');
+    const { onEvent } = a.sessions.at(-1)!.options;
+    onEvent({
+      type: 'tool',
+      id: 'read',
+      title,
+      path: './shot one.png',
+      expandedTitle: 'Read (native)  ./shot one.png',
+      text: '',
+      done: false,
+    });
+    onEvent({ type: 'tool', id: 'read', title: '', text: '', done: true });
+    assert.deepEqual(row(coordinator.snapshot.items), kept);
+    await coordinator.close();
+    reopened = await reopen();
+    assert.deepEqual(row(reopened.snapshot.items), kept);
+  } finally {
+    await coordinator.close();
+    await reopened?.close();
+  }
+});
 
 test('an unfinished tool keeps its original row through idle and later turns', async () => {
   const { coordinator, a, reopen } = await fixture();
@@ -196,7 +229,7 @@ test('pending command context stays with its conversation', async () => {
     await coordinator.send('original');
     assert.equal(a.inputs.at(-1)!.context!.split(savedCommand).length - 1, 1);
     await coordinator.send('again');
-    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context, undefined);
   } finally {
     await coordinator.close();
   }
@@ -227,7 +260,7 @@ for (const identical of [false, true]) {
         );
       }
       await coordinator.send('again');
-      assert.equal(a.inputs.at(-1)!.context!.includes('<bash-input>'), false);
+      assert.equal(a.inputs.at(-1)!.context, undefined);
     } finally {
       await coordinator.close();
     }
@@ -250,7 +283,7 @@ test('a failed close preserves outgoing command context', async () => {
     await coordinator.send('original');
     assert.equal(a.inputs.at(-1)!.context!.split(savedCommand).length - 1, 1);
     await coordinator.send('again');
-    assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
+    assert.equal(a.inputs.at(-1)!.context, undefined);
   } finally {
     a.failClose = false;
     await coordinator.close();
@@ -298,7 +331,7 @@ describe('pending command context waits until a prompt is dispatched', () => {
           if (failure === 'connect')
             assert.deepEqual(received.skill, { name: 'review', args: 'now' });
           await coordinator.send('again');
-          assert.equal(a.inputs.at(-1)!.context!.includes(savedCommand), false);
+          assert.equal(a.inputs.at(-1)!.context, undefined);
         } finally {
           await coordinator.close();
         }
@@ -430,6 +463,18 @@ test('a blank prompt starts no turn', async () => {
   }
 });
 
+test('a turn keeps the job watch active until it ends', async () => {
+  const { coordinator, active } = await fixture();
+  try {
+    // the launch is active and idle is not
+    assert.deepEqual(active, [true, false]);
+    await coordinator.send('first');
+    assert.deepEqual(active, [true, false, true, false]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a session that closes during the snapshot receives nothing', async () => {
   const { coordinator, a, hook } = await fixture();
   try {
@@ -503,28 +548,35 @@ test('a failure after the agent has the prompt still counts as delivered', async
   }
 });
 
-test('a prompt sent during a turn joins it and shows at once, and a spell and the prompts behind it wait, the spell for a turn alone and the rest for one turn, a line each', async () => {
+test('a spell, a native command and prompts sent during a turn join it in order and show at once, the spell and command with their calls', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
-    a.skills = [{ name: 'review', description: 'Review changes' }];
+    a.skills = [
+      { name: 'review', description: 'Review changes' },
+      { name: 'context', description: 'Context', builtin: true },
+    ];
   });
   const gate = new TurnGate();
+  const prompts = ['/review now', '/context', 'One', 'Two'];
   try {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
-    for (const prompt of ['Also this', '/review now', 'One', 'Two'])
-      await coordinator.send(prompt);
-    assert.deepEqual(a.steers, ['Also this']);
-    assert.equal(coordinator.snapshot.items.at(-1)!.text, 'Also this');
-    assert.deepEqual(coordinator.snapshot.queue, ['/review now', 'One', 'Two']);
-    gate.open();
-    await within(sending, 2000, 'the queued turns');
-    assert.deepEqual(turns(a), [
-      ['Start', undefined],
-      ['/review now', { name: 'review', args: 'now' }],
-      ['One\nTwo', undefined],
+    for (const prompt of prompts) await coordinator.send(prompt);
+    assert.deepEqual(a.steers, prompts);
+    assert.deepEqual(a.skillSteers, [
+      { name: 'review', args: 'now' },
+      { name: 'context', args: '', builtin: true },
     ]);
+    assert.deepEqual(
+      coordinator.snapshot.items
+        .filter(({ kind }) => kind === 'user')
+        .map(({ text }) => text),
+      ['Start', ...prompts],
+    );
     assert.deepEqual(coordinator.snapshot.queue, []);
+    gate.open();
+    await within(sending, 2000, 'the turn');
+    assert.deepEqual(turns(a), [['Start', undefined]]);
   } finally {
     gate.open();
     await coordinator.close();
@@ -540,6 +592,7 @@ test('a queued prompt taken back never runs', async () => {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
+    a.refuseSteer = true;
     await coordinator.send('/review now');
     assert.deepEqual(coordinator.unqueue(), ['/review now']);
     assert.deepEqual(coordinator.snapshot.queue, []);
@@ -553,22 +606,25 @@ test('a queued prompt taken back never runs', async () => {
 });
 
 test('steered prompts an interrupt leaves unread go as the next turn, ahead of what was queued', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'review', description: 'Review changes' }];
+  });
   const gate = new TurnGate();
   try {
     a.gate = gate;
     a.unreadOnInterrupt = true;
+    a.refuseSkillSteer = true;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
     await coordinator.send('Also this');
-    await coordinator.send('/clear');
+    await coordinator.send('/review');
     await coordinator.interrupt();
     gate.open();
     await within(sending, 2000, 'the next turns');
     assert.equal((await gate.result).status, 'interrupted');
     assert.deepEqual(
       a.inputs.map(({ prompt }) => prompt),
-      ['Start', 'Also this', '/clear'],
+      ['Start', 'Also this', '/review'],
     );
   } finally {
     gate.open();
@@ -594,7 +650,6 @@ for (const [name, prompt, prepare] of [
       a.failInterrupt = false;
     },
   ],
-  ['an unlisted slash command', '  /clear', async () => {}],
 ] as const)
   test(`${name} waits in the queue, unseen until it goes as the next turn`, async () => {
     const { coordinator, a } = await fixture();
@@ -622,7 +677,7 @@ for (const [name, prompt, prepare] of [
     }
   });
 
-test('prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
+test('with steers refused, prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
@@ -649,7 +704,9 @@ test('prompts queued ahead of a spell go as one turn, then the spell alone, then
 });
 
 test('a report after a queued turn stays on screen, and the prompts after it wait', async () => {
-  const { coordinator, a, hook } = await fixture();
+  const { coordinator, a, hook } = await fixture(undefined, (a) => {
+    a.skills = [{ name: 'review', description: 'Review changes' }];
+  });
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -662,12 +719,14 @@ test('a report after a queued turn stays on screen, and the prompts after it wai
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
     await coordinator.send('remember-port');
-    await coordinator.send('/clear');
+    await coordinator.send('/review');
     gate.open();
     await within(sending, 2000, 'the queued turns');
+    coordinator.notice('desktop failed', undefined, false);
+    assert.equal(coordinator.snapshot.items.at(-1)?.text, 'desktop failed');
     assert.equal(coordinator.snapshot.phase, 'idle');
     assert.match(coordinator.snapshot.error ?? '', /cannot lock ref/);
-    assert.deepEqual(coordinator.snapshot.queue, ['/clear']);
+    assert.deepEqual(coordinator.snapshot.queue, ['/review']);
     assert.deepEqual(turns(a), [
       ['Start', undefined],
       ['remember-port', undefined],
@@ -685,6 +744,15 @@ test('prompts sent together steer or queue in the order sent', async () => {
     a.gate = gate;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
+    const { session } = a.sessions.at(-1)!;
+    const steer = session.steer.bind(session);
+    let first = true;
+    // only the first is refused, so the second queues by its place behind it
+    session.steer = async (...args) => {
+      if (!first) return steer(...args);
+      first = false;
+      return false;
+    };
     await Promise.all([
       coordinator.send('/review now'),
       coordinator.send('One'),
@@ -692,11 +760,10 @@ test('prompts sent together steer or queue in the order sent', async () => {
     assert.deepEqual(a.steers, []);
     assert.deepEqual(coordinator.snapshot.queue, ['/review now', 'One']);
     gate.open();
-    await within(sending, 2000, 'the queued turns');
+    await within(sending, 2000, 'the queued turn');
     assert.deepEqual(turns(a), [
       ['Start', undefined],
-      ['/review now', undefined],
-      ['One', undefined],
+      ['/review now\nOne', undefined],
     ]);
   } finally {
     gate.open();
@@ -720,6 +787,28 @@ test('a spell a failed connect leaves queued still goes alone once the agent con
       ['/review now', { name: 'review', args: 'now' }],
       ['One\nTwo', undefined],
     ]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a refusal reported before a conversation opens sets the error', async () => {
+  const { coordinator: original, root, memory, a } = await fixture();
+  await original.close();
+  const coordinator = new Coordinator(
+    await StateStore.open(join(root, 'state')),
+    memory,
+    [{ adapter: a, executable: 'a' }],
+  );
+  try {
+    const refusal = await coordinator
+      .newConversation()
+      .catch((error: unknown) => error);
+    coordinator.report(refusal);
+    assert.equal(
+      coordinator.snapshot.error,
+      'Stop the current operation first',
+    );
   } finally {
     await coordinator.close();
   }
@@ -775,6 +864,7 @@ test('a failed turn leaves what was queued behind it for the composer instead of
   try {
     a.gate = gate;
     a.failNext = true;
+    a.refuseSteer = true;
     const sending = coordinator.send('Start');
     await within(gate.entered, 2000, 'the gated turn');
     await coordinator.send('/review');
@@ -827,9 +917,10 @@ test('a prompt whose steer is refused after a failed turn has ended stays for th
 });
 
 test('a failed handoff continuation leaves what was queued during the switch for the composer', async () => {
-  const { coordinator, b } = await fixture();
+  const { coordinator, a, b } = await fixture();
   const gate = new TurnGate();
   try {
+    a.interruptNext = true;
     await coordinator.send('Start');
     b.gate = gate;
     b.failNext = true;
@@ -1062,7 +1153,7 @@ test('after the reply, while a familiar holds the turn, a ! prompt runs at once 
   }
 });
 
-test('after the reply, a listed spell steers trimmed, and an unlisted slash command still waits', async () => {
+test('after the reply, a listed spell steers trimmed with its call, and an unlisted slash command steers as a prompt', async () => {
   const { coordinator, a } = await fixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
@@ -1073,17 +1164,13 @@ test('after the reply, a listed spell steers trimmed, and an unlisted slash comm
     await within(gate.entered, 2000, 'the gated turn');
     a.replied = true;
     await coordinator.send(' /review now');
-    assert.deepEqual(a.steers, ['/review now']);
+    await coordinator.send('/unlisted-command');
+    assert.deepEqual(a.steers, ['/review now', '/unlisted-command']);
+    assert.deepEqual(a.skillSteers, [{ name: 'review', args: 'now' }]);
     assert.deepEqual(coordinator.snapshot.queue, []);
-    await coordinator.send('/clear');
-    assert.deepEqual(coordinator.snapshot.queue, ['/clear']);
-    assert.deepEqual(a.steers, ['/review now']);
     gate.open();
-    await within(sending, 2000, 'the queued turn');
-    assert.deepEqual(turns(a), [
-      ['Start', undefined],
-      ['/clear', undefined],
-    ]);
+    await within(sending, 2000, 'the turn');
+    assert.deepEqual(turns(a), [['Start', undefined]]);
   } finally {
     gate.open();
     await coordinator.close();
@@ -1126,7 +1213,7 @@ test("a model change runs during a replied turn without waiting, and is refused 
   }
 });
 
-test('a model change during a replied turn refuses another until it finishes', async () => {
+test('a model change during a replied turn refuses another until it finishes, and the refusal reports as a notice', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   const entered = Promise.withResolvers<void>();
@@ -1153,12 +1240,19 @@ test('a model change during a replied turn refuses another until it finishes', a
     });
     await within(entered.promise, 2000, 'the model change');
     duplicate = coordinator.selectModel({ agent: 'a', id: 'a-model' });
-    await within(
-      assert.rejects(duplicate, {
-        message: 'Stop the current operation first',
-      }),
+    const refusal = await within(
+      duplicate.catch((error: unknown) => error),
       2000,
       'the overlapping model change refusal',
+    );
+    assert.ok(refusal instanceof Error);
+    assert.equal(refusal.message, 'Stop the current operation first');
+    coordinator.report(refusal);
+    assert.equal(coordinator.snapshot.error, undefined);
+    const notice = coordinator.snapshot.items.at(-1);
+    assert.deepEqual(
+      [notice?.kind, notice?.text],
+      ['notice', 'Stop the current operation first'],
     );
     release.resolve();
     await first;
@@ -1227,6 +1321,7 @@ for (const rejected of [false, true])
           ? assert.rejects(change, { message: 'Model rejected' })
           : change;
         await within(entered.promise, 2000, 'the model change');
+        a.refuseSteer = true;
         await coordinator.send('/queued');
         gate.open();
         await within(gate.result, 2000, 'the native turn');

@@ -11,6 +11,9 @@ import { hyperlink, oneLine } from './links.js';
 import { peerStatus, peerTitle } from './peers.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
+import { windowText } from './status-line.js';
+import type { Account, Status } from './status-line.js';
+import type { Snapshot } from '../core/snapshot.js';
 import { wrapLines } from './wrap.js';
 
 /** the text's width; the pentacle centers in it, sized by `rows`, its shorter side. */
@@ -56,19 +59,57 @@ function lineage(
   return lines;
 }
 
-/** peer sessions precede local work without taking its last heading and count rows or the pentacle's space. */
+/** a heading, then a row per window or one `?` row per runtime. */
+function usageRows(accounts: readonly Account[]): number {
+  return (
+    1 +
+    accounts.reduce(
+      (sum, { limits }) => sum + Math.max(1, limits?.length ?? 0),
+      0,
+    )
+  );
+}
+
+/** every installed runtime's usage once any has reported, under the pentacle when it fits there and otherwise on the status line. */
+export function usagePlacement(
+  snapshot: Pick<Snapshot, 'agents' | 'limits' | 'native' | 'conversation'>,
+  sidebar: boolean,
+  height: number,
+): {
+  sidebar: readonly Account[];
+  status: Pick<Status, 'limits' | 'others'>;
+} {
+  const readings = snapshot.agents
+    .filter(({ installed }) => installed)
+    .map(({ id }) => ({ id, limits: snapshot.limits[id] }));
+  const accounts = readings.some(({ limits }) => limits) ? readings : [];
+  if (sidebar && height >= rows + usageRows(accounts))
+    return { sidebar: accounts, status: {} };
+  const live = snapshot.native?.agent ?? snapshot.conversation?.agent;
+  return {
+    sidebar: [],
+    status: {
+      limits: live ? snapshot.limits[live] : undefined,
+      others: accounts.filter(({ id }) => id !== live),
+    },
+  };
+}
+/** peer sessions precede local work without taking its last heading and count rows or the space of the pentacle and usage block. */
 export function Sidebar({
   height,
   activity,
   brews,
   subagents,
   peers = [],
+  accounts = [],
 }: {
   height: number;
   activity: PentacleActivity;
   brews: readonly BackgroundCommand[];
   subagents: readonly TimedSubagent[];
   peers?: CoordinationSnapshot['peers'];
+  /** every runtime's usage, shown under the pentacle; empty when it doesn't fit. */
+  accounts?: readonly Account[];
 }) {
   const spinning = useSyncExternalStore(
     activity.subscribe,
@@ -92,11 +133,13 @@ export function Sidebar({
     };
   });
   const running = familiars.length > 0;
+  const usage = accounts.length > 0;
+  // familiars count seconds; usage alone only needs its ages and resets to keep time
   useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    if (!running && !usage) return;
+    const timer = setInterval(() => setNow(Date.now()), running ? 1000 : 5000);
     return () => clearInterval(timer);
-  }, [running]);
+  }, [running, usage]);
   useEffect(() => {
     // wherever work stopped it, the pentacle returns to its rest angle, since edge on it reads as a line
     if (!spinning) {
@@ -107,17 +150,18 @@ export function Sidebar({
     return () => clearInterval(timer);
   }, [spinning]);
   const lines = useMemo(() => pentacle(angle, columns, rows), [angle]);
+  const below = rows + (usage ? usageRows(accounts) : 0);
   // brews take the rows above the pentacle first, less a running familiar's heading and count
   const peerRoom = Math.min(
     8,
-    Math.max(0, height - rows) - (brews.length ? 2 : 0) - (running ? 2 : 0),
+    Math.max(0, height - below) - (brews.length ? 2 : 0) - (running ? 2 : 0),
   );
   const listedPeers = fit(peers, () => 2, peerRoom - 1);
   const peerRows =
     peers.length && peerRoom >= 2
       ? 1 + (listedPeers.hidden ? 1 : 0) + listedPeers.shown.length * 2
       : 0;
-  const above = height - rows - peerRows;
+  const above = height - below - peerRows;
   const brewRoom = above - (running ? 2 : 0) - 1;
   const brewing = brews.length > 0 && brewRoom > 0;
   const listedBrews = fit(brews, () => 1, brewRoom);
@@ -226,6 +270,15 @@ export function Sidebar({
           ))}
         </Text>
       ))}
+      {usage && <Text color={accent}>USAGE</Text>}
+      {accounts.flatMap(({ id, limits }) =>
+        (limits?.length ? limits : [undefined]).map((limit, index) => (
+          <Text key={`${id}:${index}`} wrap="truncate-end">
+            {(index ? '' : id.toUpperCase()).padEnd(8)}
+            {limit ? windowText(limit, now, true) : '?'}
+          </Text>
+        )),
+      )}
     </Box>
   );
 }

@@ -1,8 +1,28 @@
+import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
 import { branchOf, exists } from '../memory/memory.js';
 import type { Memory } from '../memory/memory.js';
+import { missingConversationDirectories } from '../persistence/directory-recovery.js';
 import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
+import { quote } from '../shell.js';
+import { createConversation } from './state.js';
+import type { Conversation } from './state.js';
+
+/** a new conversation in `cwd` continues on the latest conversation's agent while it is installed. */
+export async function launchRecord(
+  store: StateStore,
+  agents: readonly AgentRegistration[],
+  cwd: string,
+): Promise<Conversation> {
+  const [source] = await store.conversations();
+  const installed = agents.filter(({ executable }) => executable);
+  const agent =
+    installed.find(({ adapter }) => adapter.id === source?.agent) ??
+    installed[0] ??
+    agents[0]!;
+  return createConversation(cwd, agent.adapter.id, source);
+}
 
 export async function recoverConversations(
   store: StateStore,
@@ -59,4 +79,23 @@ export async function recoverConversations(
   return lines.length
     ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`
     : undefined;
+}
+
+/** a launch notice for saved conversations whose directories are gone, or undefined when none are. */
+export async function missingDirectoryNotice(
+  store: StateStore,
+): Promise<string | undefined> {
+  try {
+    const missing = await missingConversationDirectories(store);
+    if (!missing.length) return undefined;
+    return [
+      'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
+      ...missing.map(
+        ({ cwd, conversations }) =>
+          `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(store.root)} --recover-directory ${quote(cwd)}`,
+      ),
+    ].join('\n');
+  } catch (error) {
+    return `Could not inspect missing conversation directories: ${errorMessage(error)}`;
+  }
 }

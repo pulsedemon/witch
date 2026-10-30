@@ -11,7 +11,18 @@ export async function listFiles(
 ): Promise<string[]> {
   // each entry is a status tag, a space and the path; a deleted tracked file also gets an `R` entry
   const listed = await runGit(
-    ['ls-files', '-c', '-d', '-o', '--exclude-standard', '-t', '-z'],
+    [
+      // a repository's configured fsmonitor command would run, and `true` starts Git's daemon
+      '-c',
+      'core.fsmonitor=false',
+      'ls-files',
+      '-c',
+      '-d',
+      '-o',
+      '--exclude-standard',
+      '-t',
+      '-z',
+    ],
     { cwd },
   );
   if (listed.code !== 0) return walk(cwd, limit);

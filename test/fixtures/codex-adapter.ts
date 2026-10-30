@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { access, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,7 @@ import type { RpcMessage } from '../../src/agents/json-rpc.js';
 import { until } from './within.js';
 import { scratch } from './scratch.js';
 import type { ControlBinding } from '../../src/persistence/control.js';
+import type { CommandPrefixes } from '../../src/agents/tool-title.js';
 
 const codex = fileURLToPath(new URL('codex.mjs', import.meta.url));
 
@@ -24,6 +26,8 @@ export async function fixture(
     signal,
     mark,
     familiarBinding,
+    commandPrefixes,
+    onClient,
   }: {
     effort?: string;
     resume?: string;
@@ -31,16 +35,27 @@ export async function fixture(
     signal?: AbortSignal;
     mark?: CommandMark;
     familiarBinding?: ControlBinding;
+    commandPrefixes?: CommandPrefixes;
+    onClient?: (message: RpcMessage) => void;
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
-  const adapter = new CodexAdapter((_, directory, signal) =>
-    spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
+  let child: ChildProcessWithoutNullStreams;
+  const adapter = new CodexAdapter((_, directory, signal) => {
+    child = spawn(process.execPath, [codex, ...(mode ? [mode] : [])], {
       cwd: directory,
       stdio: 'pipe',
       signal,
-    }),
-  );
+    });
+    if (onClient) {
+      const write = child.stdin.write;
+      child.stdin.write = (...args) => {
+        onClient(JSON.parse(args[0] as string) as RpcMessage);
+        return Reflect.apply(write, child.stdin, args) as boolean;
+      };
+    }
+    return child;
+  });
   const session = await adapter.connect({
     cwd,
     executable: 'codex',
@@ -52,8 +67,9 @@ export async function fixture(
     onProcess: async () => {},
     mark,
     familiarBinding,
+    commandPrefixes,
   });
-  return { session, cwd };
+  return { session, cwd, child: child! };
 }
 
 /** lets a held fixture event go, so a reverted guard can't hang cleanup. */
@@ -112,10 +128,14 @@ export const turnFrame = (
   method: status === 'inProgress' ? 'turn/started' : 'turn/completed',
   params: { threadId, turn: { id, status, error: null } },
 });
-export async function controlledFixture(mode = 'brews') {
+export async function controlledFixture(
+  mode = 'brews',
+  commandPrefixes?: CommandPrefixes,
+) {
   const events: AgentEvent[] = [];
   const context = await fixture((event) => events.push(event), {
     mode,
+    commandPrefixes,
   });
   const { session, cwd } = context;
   let sequence = 0;

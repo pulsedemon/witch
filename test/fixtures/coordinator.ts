@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import type { AgentSession } from '../../src/agents/types.js';
 import { Coordinator } from '../../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../../src/core/state.js';
 import { Memory } from '../../src/memory/memory.js';
-import { StateStore } from '../../src/persistence/store.js';
+import { ConversationStore, StateStore } from '../../src/persistence/store.js';
 import { FixtureAgent } from './agent.js';
 import { hookedGit, passThrough } from './git.js';
 import { scratch } from './scratch.js';
@@ -29,6 +30,36 @@ export function activity(): ConversationRecord['activity'] {
     kind: 'turn',
     baseRevision: 'unknown',
     startedAt: new Date().toISOString(),
+  };
+}
+
+/** holds the save after the session's first turn returns, where only Witch's settlement keeps the turn running. */
+export function holdSettlement(session: AgentSession) {
+  const entered = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  const save = ConversationStore.prototype.save;
+  let armed: boolean | undefined;
+  const send = session.send.bind(session);
+  session.send = async (...args) => {
+    const result = await send(...args);
+    armed ??= true;
+    return result;
+  };
+  ConversationStore.prototype.save = function (record) {
+    if (!armed) return save.call(this, record);
+    armed = false;
+    entered.resolve();
+    return held.promise.then(() => save.call(this, record));
+  };
+  return {
+    entered: entered.promise,
+    release: () => held.resolve(),
+    fail: (error: Error) => held.reject(error),
+    /** releases a pending hold, so close() can't wait on it. */
+    restore: () => {
+      held.resolve();
+      ConversationStore.prototype.save = save;
+    },
   };
 }
 
@@ -59,8 +90,13 @@ export async function fixture(
   const b = new FixtureAgent('b');
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
   const tracked: number[] = [];
+  /** the activity the coordinator reports to the job watch, once per change. */
+  const active: boolean[] = [];
   const jobs = {
     track: (group: number) => tracked.push(group),
+    setActive: (value: boolean) => {
+      if (active.at(-1) !== value) active.push(value);
+    },
     environment: {},
   };
   const coordinator = new Coordinator(store, memory, agents, jobs, editFile);
@@ -109,6 +145,7 @@ export async function fixture(
     outsider,
     reopen,
     tracked,
+    active,
     jobs,
   };
 }

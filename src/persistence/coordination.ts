@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, statSync } from 'node:fs';
 import { mkdir, readdir, rm } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -21,6 +21,9 @@ import type {
   SelectionState,
   SelectionTicket,
   TaskClaim,
+  Transfer,
+  TransferField,
+  TransferTarget,
 } from '../core/coordination-state.js';
 import type { ProcessIdentity } from '../core/state.js';
 import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
@@ -148,8 +151,10 @@ function parties(
   );
 }
 
-export function checkDeadline(deadline: number): void {
-  if (Date.now() >= deadline) throw new Error('Coordination request expired.');
+export function checkDeadline(deadline: number): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error('Coordination request expired.');
+  return remaining;
 }
 
 export class CoordinationStore {
@@ -162,6 +167,17 @@ export class CoordinationStore {
     const directory = join(store.root, 'coordination');
     await mkdir(join(directory, 'sessions'), { recursive: true, mode: 0o700 });
     return new CoordinationStore(directory, store);
+  }
+
+  /** changes with every presence, claim, merge and activation write, each a rename, creation or removal in these directories. */
+  signature(): string | undefined {
+    try {
+      return [this.directory, join(this.directory, 'sessions')]
+        .map((directory) => statSync(directory, { bigint: true }).mtimeNs)
+        .join(':');
+    } catch {
+      return undefined;
+    }
   }
 
   async presences(): Promise<SessionPresence[]> {
@@ -238,6 +254,17 @@ export class CoordinationStore {
     conversation: string,
   ): Promise<PeerRequest[]> {
     return parties(await this.readPeerRequests(), project, conversation);
+  }
+
+  async peerRequest(owner: ClaimOwner, id: string): Promise<PeerRequest> {
+    const found = (
+      await this.peerRequests(owner.project, owner.conversation)
+    ).find((request) => request.id === id);
+    if (!found)
+      throw new Error(
+        `Peer request ${id} was not sent to or by this conversation.`,
+      );
+    return found;
   }
 
   /** a repeated ask returns the recorded request, whatever its status, so a retry can't buy a second answer turn. */
@@ -384,6 +411,7 @@ export class CoordinationStore {
 
   async activeActivations(
     activations: readonly string[],
+    options: { timeout?: number } = {},
   ): Promise<Set<string>> {
     const paths = new Map(
       activations.map((activation) => [
@@ -391,7 +419,7 @@ export class CoordinationStore {
         activation,
       ]),
     );
-    const locked = await lockedFiles([...paths.keys()]);
+    const locked = await lockedFiles([...paths.keys()], options);
     return new Set([...locked.keys()].map((path) => paths.get(path)!));
   }
 
@@ -410,7 +438,9 @@ export class CoordinationStore {
     const lock = deadline === undefined ? undefined : await this.lock(deadline);
     try {
       observe?.();
-      return await this.reconcile(await this.read());
+      const ledger = await this.reconcile(await this.read(), deadline);
+      if (deadline !== undefined) checkDeadline(deadline);
+      return ledger;
     } finally {
       await lock?.close();
     }
@@ -452,6 +482,22 @@ export class CoordinationStore {
     });
   }
 
+  async recordAssignment(
+    id: string,
+    references: string[],
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<TaskClaim | undefined> {
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) => claim.id === id);
+      if (claim)
+        claim.assigned = [
+          ...new Set([...(claim.assigned ?? []), ...references]),
+        ];
+      return claim;
+    });
+  }
+
   async release(
     owner: ClaimOwner,
     id: string,
@@ -464,6 +510,125 @@ export class CoordinationStore {
       if (!sameOwner(ledger.claims[index]!.owner, owner))
         throw new Error('Only the owning conversation can release this task.');
       ledger.claims.splice(index, 1);
+    });
+  }
+
+  async requestTransfer(
+    to: ClaimOwner,
+    target: TransferTarget,
+    request: Pick<Transfer, 'activation' | 'process' | 'expires'>,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<TaskClaim> {
+    const normalized =
+      target.field === 'transfer'
+        ? taskReference(target.reference, to.project)
+        : undefined;
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) =>
+        target.field === 'automaticTransfer'
+          ? claim.id === target.claim.id
+          : claim.references.includes(normalized!),
+      );
+      if (!claim)
+        throw new Error(
+          target.field === 'transfer'
+            ? `No other conversation holds ${target.reference}.`
+            : 'The conflicting claim was released. Claim it again.',
+        );
+      if (
+        target.field === 'automaticTransfer' &&
+        (!sameOwner(claim.owner, target.claim.owner) || claim.suggestion)
+      )
+        throw new ClaimConflict(claim);
+      if (claim.owner.conversation === to.conversation)
+        throw new Error('This conversation already holds this task.');
+      if (
+        ledger.claims.some(
+          (entry) =>
+            entry.owner.conversation === to.conversation && !entry.suggestion,
+        )
+      )
+        throw new Error('Release the current task before taking another.');
+      if (
+        (['transfer', 'automaticTransfer'] as const).some(
+          (field) =>
+            claim[field] &&
+            (field !== target.field ||
+              claim[field].to.conversation !== to.conversation),
+        )
+      ) {
+        if (target.field === 'automaticTransfer')
+          throw new ClaimConflict(claim);
+        throw new Error('Another conversation is already taking this task.');
+      }
+      claim[target.field] = { to, ...request };
+      return claim;
+    });
+  }
+
+  /** the owner moves its claim or records why not; `refusal` reads the owner's live state under the lock. */
+  async handOver(
+    owner: ClaimOwner,
+    id: string,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+    refusal: () => string | undefined,
+    field: TransferField = 'transfer',
+  ): Promise<TaskClaim | undefined> {
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) => claim.id === id);
+      const transfer = claim?.[field];
+      if (
+        !claim ||
+        !transfer ||
+        transfer.refusal ||
+        !sameOwner(claim.owner, owner)
+      )
+        return undefined;
+      const { to } = transfer;
+      const reason =
+        field === 'automaticTransfer' && claim.suggestion
+          ? 'The task is only a suggestion.'
+          : ledger.claims.some(
+                (entry) =>
+                  entry.owner.conversation === to.conversation &&
+                  !entry.suggestion,
+              )
+            ? 'The requesting conversation holds another task. Release it there, then run /task take again.'
+            : refusal();
+      if (reason) {
+        transfer.refusal = reason;
+        return claim;
+      }
+      ledger.claims = ledger.claims.filter(
+        (entry) => entry.owner.conversation !== to.conversation,
+      );
+      ledger.selections = ledger.selections.filter(
+        (ticket) => ticket.owner.conversation !== to.conversation,
+      );
+      claim.owner = to;
+      claim.process = transfer.process;
+      claim.movedFrom = owner;
+      delete claim.transfer;
+      delete claim.automaticTransfer;
+      delete claim.suggestion;
+      return claim;
+    });
+  }
+
+  /** returns the claim as left, so a requester sees a hand-over that landed first. */
+  async withdrawTransfer(
+    activation: string,
+    id: string,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+    field: TransferField = 'transfer',
+  ): Promise<TaskClaim | undefined> {
+    return this.mutate(deadline, verify, (ledger) => {
+      const claim = ledger.claims.find((claim) => claim.id === id);
+      if (claim?.[field]?.activation === activation) delete claim[field];
+      return claim;
     });
   }
 
@@ -585,26 +750,57 @@ export class CoordinationStore {
     };
   }
 
-  private async reconcile(ledger: Ledger): Promise<Ledger> {
-    const [processes, opened, active] = await Promise.all([
+  private async reconcile(ledger: Ledger, deadline?: number): Promise<Ledger> {
+    const options = {
+      timeout: deadline === undefined ? undefined : checkDeadline(deadline),
+    };
+    const probes = [
       identifyProcesses(
         ledger.claims.flatMap((claim) => claim.process?.pid ?? []),
+        options,
       ),
       this.store.openConversations(
         ledger.claims.flatMap((claim) =>
           claim.process ? [] : [claim.owner.conversation],
         ),
+        options,
       ),
       this.activeActivations(
-        ledger.selections.map((ticket) => ticket.activation),
+        [
+          ...ledger.selections.map((ticket) => ticket.activation),
+          ...ledger.claims.flatMap((claim) =>
+            [claim.transfer, claim.automaticTransfer].flatMap(
+              (request) => request?.activation ?? [],
+            ),
+          ),
+        ],
+        options,
       ),
-    ]);
+    ] as const;
+    // every probe must close before a failure releases the ledger lock.
+    await Promise.allSettled(probes);
+    const [processes, opened, active] = await Promise.all(probes);
+    const now = Date.now();
     return {
-      claims: ledger.claims.filter((claim) =>
-        claim.process
-          ? sameProcess(processes.get(claim.process.pid), claim.process)
-          : opened.has(claim.owner.conversation),
-      ),
+      claims: ledger.claims
+        .filter((claim) =>
+          claim.process
+            ? sameProcess(processes.get(claim.process.pid), claim.process)
+            : opened.has(claim.owner.conversation),
+        )
+        .map((claim) => {
+          const kept = { ...claim };
+          // a requester that left, died or stopped waiting abandons its request
+          for (const field of ['transfer', 'automaticTransfer'] as const) {
+            const transfer = kept[field];
+            if (
+              transfer &&
+              (!active.has(transfer.activation) || transfer.expires <= now)
+            )
+              delete kept[field];
+          }
+          return kept;
+        }),
       selections: ledger.selections.filter((ticket) =>
         active.has(ticket.activation),
       ),
@@ -620,7 +816,8 @@ export class CoordinationStore {
     try {
       const stored = await this.read();
       const before = JSON.stringify(stored);
-      const ledger = await this.reconcile(stored);
+      const ledger = await this.reconcile(stored, deadline);
+      checkDeadline(deadline);
       await verify(ledger);
       checkDeadline(deadline);
       const result = change(ledger);

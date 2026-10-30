@@ -132,6 +132,12 @@ test('recovered conversations reconnect with their saved IDs in the destination'
       );
       assert.equal(agent.inputs.length, 0);
     }
+    assert.deepEqual(
+      await f.coordinator.memoryDirectories(),
+      [f.scope.global, f.scope.project].map((scope) =>
+        join(f.root, 'state', 'conversations', 'old-a', 'memory', scope),
+      ),
+    );
   } finally {
     await f.coordinator.close();
   }
@@ -515,7 +521,7 @@ test('continue into a held conversation shows the lock error with the launch rep
       coordinator.snapshot.error ?? '',
       /open in another Witch instance/,
     );
-    assert.doesNotMatch(coordinator.snapshot.error ?? '', /^Restart Witch/);
+    assert.match(coordinator.snapshot.error ?? '', /^Restart Witch/);
     assert.match(
       coordinator.snapshot.error ?? '',
       new RegExp(`Title ${dirty.id}`),
@@ -742,4 +748,32 @@ test('/new copies this conversation for its own agent, starts another agent on i
   } finally {
     await coordinator.close();
   }
+});
+
+test('a transient native notice shows without making an unused conversation resumable', async () => {
+  const { coordinator, a, root } = await fixture();
+  const id = coordinator.snapshot.conversation!.id;
+  try {
+    a.sessions[0]!.options.onEvent({
+      type: 'notice',
+      text: 'MCP diagnostic',
+      transient: true,
+    });
+    assert.ok(
+      coordinator.snapshot.items.some(
+        ({ kind, text }) => kind === 'notice' && text === 'MCP diagnostic',
+      ),
+    );
+  } finally {
+    await coordinator.close();
+  }
+  // after close, so a saved append would have flushed
+  const history = await readFile(
+    join(root, 'state', 'conversations', id, 'history.jsonl'),
+    'utf8',
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  assert.equal(history, '');
 });

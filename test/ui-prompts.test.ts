@@ -74,6 +74,99 @@ test('queued prompts show above the activity row with a hint, and ↑ on the fir
   }
 });
 
+for (const [command, message] of [
+  ['/task unexpected', 'Use /task, /task release or /task take <reference>.'],
+  ['/new', 'Stop the current operation first'],
+  ['/clear', 'Stop the current operation first'],
+  ['/model b:b-big', 'Stop the current operation first'],
+] as const)
+  test(`${command} leaves queued prompts runnable`, async () => {
+    const { coordinator, a } = await fixture();
+    const gate = new TurnGate();
+    a.gate = gate;
+    a.refuseSteer = true;
+    const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+    const sending = coordinator.send('held turn');
+    try {
+      await within(gate.entered, 3000, 'the gated turn');
+      await coordinator.send('queued followup');
+      await until('the queued followup', () =>
+        ui.text().includes('❯ queued followup'),
+      );
+      ui.stdin.write(command);
+      await until('the command in the composer', () =>
+        ui.text().includes(`┃ ${command}`),
+      );
+      ui.stdin.write(ENTER);
+      await until('the notice', () => ui.text().includes(message));
+      gate.open();
+      await within(sending, 5000, 'the queued turns');
+      assert.deepEqual(turns(a), [
+        ['held turn', undefined],
+        ['queued followup', undefined],
+      ]);
+      assert.deepEqual(coordinator.snapshot.queue, []);
+      assert.equal(coordinator.snapshot.error, undefined);
+      assert.deepEqual(a.steers, []);
+      assert.deepEqual(a.compactions, []);
+      await until('the empty composer', () =>
+        ui.text().includes('┃ Ask the agent'),
+      );
+      assert.ok(ui.text().includes(message), ui.text());
+    } finally {
+      gate.open();
+      await sending;
+      ui.unmount();
+      await coordinator.close();
+    }
+  });
+
+test('a /sessions choice refused during a turn leaves queued prompts runnable', async () => {
+  const { coordinator, a } = await fixture();
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  await coordinator.send('first prompt');
+  await coordinator.newConversation();
+  const { id } = coordinator.snapshot.conversation!;
+  const gate = new TurnGate();
+  a.gate = gate;
+  a.refuseSteer = true;
+  const sending = coordinator.send('held turn');
+  try {
+    await within(gate.entered, 3000, 'the gated turn');
+    await coordinator.send('queued followup');
+    await until('the queued followup', () =>
+      ui.text().includes('❯ queued followup'),
+    );
+    ui.stdin.write('/sessions');
+    await until('the command in the composer', () =>
+      ui.text().includes('┃ /sessions'),
+    );
+    ui.stdin.write(ENTER);
+    await until('the first conversation', () =>
+      ui.text().includes('first prompt · a'),
+    );
+    ui.stdin.write('first prompt');
+    ui.stdin.write(ENTER);
+    await until('the notice', () =>
+      ui.text().includes('Stop the current operation first'),
+    );
+    assert.equal(coordinator.snapshot.error, undefined);
+    gate.open();
+    await within(sending, 5000, 'the queued turns');
+    assert.equal(coordinator.snapshot.conversation!.id, id);
+    assert.deepEqual(turns(a), [
+      ['first prompt', undefined],
+      ['held turn', undefined],
+      ['queued followup', undefined],
+    ]);
+  } finally {
+    gate.open();
+    await sending;
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
 test('accepting failed-turn memory returns queued prompts ahead of the draft', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
@@ -82,6 +175,7 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     await until('the composer', () => ui.text().includes('┃ Ask the agent'));
     a.gate = gate;
     a.failNext = true;
+    a.refuseSteer = true;
     const sending = coordinator.send('remember-port');
     await within(gate.entered, 3000, 'the gated turn');
     await coordinator.send('/review');

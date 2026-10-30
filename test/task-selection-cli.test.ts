@@ -62,6 +62,42 @@ function invoke(
   return { result, child };
 }
 
+test('a later selection uses the retained prefix and rejects the previous turn id', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
+  const client = await f.start();
+  await client.coordinator.send('Seed native history');
+  const first = client.a.inputs.at(-1)!.context!;
+  const prefix = /^Control command: (.+)$/m.exec(first)?.[1];
+  const previousTurn = /^Selection turn: (.+)$/m.exec(first)?.[1];
+  assert.ok(prefix);
+  assert.ok(previousTurn);
+  const next = await selectionTurn(cleanup, client);
+  assert.equal(next.prefix, prefix);
+  assert.notEqual(next.turn, previousTurn);
+  assert.doesNotMatch(client.a.inputs.at(-1)!.context!, /Control command:/);
+  const stale = await invoke(
+    cleanup,
+    prefix,
+    f.root,
+    `--select-next ${previousTurn}`,
+  ).result;
+  assert.notEqual(stale.code, 0);
+  if (stale.outcome.kind !== 'error') assert.fail(JSON.stringify(stale));
+  assert.match(stale.outcome.message, /selection turn is no longer current/);
+  const current = await invoke(
+    cleanup,
+    prefix,
+    f.root,
+    `--select-next ${next.turn}`,
+  ).result;
+  assert.equal(current.code, 0);
+  if (current.outcome.kind !== 'selection')
+    assert.fail(JSON.stringify(current));
+  assert.equal(current.outcome.selection.position, 1);
+  await next.finish();
+});
+
 test('waiting helpers leave the host responsive beyond a request deadline and start work in FIFO order', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);

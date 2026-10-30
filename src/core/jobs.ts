@@ -130,8 +130,8 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
  * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
  * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
- * those below it, are then tracked. a marked launchd child that runs an app's main executable while leading its own
- * group, as LaunchServices starts apps, or a helper from an app's Frameworks directory is excluded instead. an orphan
+ * those below it, are then tracked. a marked launchd child running an executable in an app's Contents/MacOS while
+ * leading its own group, or a helper from its Contents/Frameworks, is excluded instead. an orphan
  * no read saw is missed unless its group was handed over or reported, or a process in it carries the mark.
  */
 export class JobWatch {
@@ -152,11 +152,18 @@ export class JobWatch {
   private seen?: Set<string>;
   private readonly timer: ReturnType<typeof setInterval>;
   private polling?: Promise<Row[]>;
+  private active = true;
+  private activityChanges = 0;
+  /** when activity last changed or a read last found something it tracks, from `performance.now()`. */
+  private busyAt = 0;
+  private paused = false;
 
   constructor(
     private readonly options: {
       /** how often the process table is read, in milliseconds. */
       interval?: number;
+      /** how long the watch keeps reading after activity or its last job ends, in milliseconds. */
+      settle?: number;
       /** how long a job has to exit on SIGTERM before SIGKILL, in milliseconds. */
       grace?: number;
       /** reads the process table, from `ps` without it. */
@@ -185,11 +192,10 @@ export class JobWatch {
         `{ true >| ${quote(directory)}/$$; } 2>/dev/null || :\nexport ${mark}=${quote(directory)}\nunset CLAUDE_ENV_FILE\n`,
       );
     }
-    // a failed read leaves the groups as they were, and the next tick reads again
-    this.timer = setInterval(
-      () => void this.poll().catch(() => {}),
-      options.interval ?? 2000,
-    );
+    // a failed read leaves the groups as they were, and the next tick reads again unless the watch is paused
+    this.timer = setInterval(() => {
+      if (!this.paused) void this.poll().catch(() => {});
+    }, options.interval ?? 2000);
     this.timer.unref();
   }
 
@@ -211,6 +217,16 @@ export class JobWatch {
   /** tracks a group Witch started itself from the next read, even once its leader has exited. */
   track(group: number): void {
     this.handed.add(group);
+    this.paused = false;
+  }
+
+  /** whether a turn, familiar or brew is running, any of which can start a job. */
+  setActive(active: boolean): void {
+    if (active === this.active) return;
+    this.active = active;
+    this.activityChanges++;
+    this.busyAt = performance.now();
+    if (active) this.paused = false;
   }
 
   /** the tracked jobs as of a fresh read, oldest first. */
@@ -283,6 +299,8 @@ export class JobWatch {
   }
 
   private async read(): Promise<Row[]> {
+    const changes = this.activityChanges;
+    const began = performance.now();
     // a group handed over while this read's ps runs can be missing from its rows, so it waits for the next read
     const handed = [...this.handed];
     // a report collected after ps could name a group ps never saw, which this read would drop. one in the copy alone
@@ -361,7 +379,7 @@ export class JobWatch {
         );
         // LaunchServices starts an app in a group of its own, and `open --env` hands it the mark, as VS Code's `code`
         // does. the app, its terminals and its frameworks' helpers, such as its crash handler, are the user's. a
-        // command's own run of a bundle's main executable stays a job unless it leads its own group
+        // command's own run of an executable in Contents/MacOS stays a job unless it leads its own group
         const markedRoots = roots.filter(({ pid }) => marked.has(pid));
         const paths = markedRoots.length
           ? await (this.options.executables ?? executables)(
@@ -369,8 +387,7 @@ export class JobWatch {
             )
           : new Map<number, string>();
         for (const root of markedRoots) {
-          // the outermost bundle only, outside any framework, since Xcode's toolchain, framework builds of python3 and
-          // IDE-bundled JDKs run from inside a bundle without being its app
+          // only the outermost app outside a framework matches, so Xcode's nested tools and framework-installed Python stay jobs
           const bundle =
             /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
               paths.get(root.pid) ?? '',
@@ -406,6 +423,16 @@ export class JobWatch {
     this.excluded = excluded;
     for (const group of handed)
       if (!rows.some(({ pgid }) => pgid === group)) this.handed.delete(group);
+    const tracking =
+      this.groups.size > 0 || this.members.size > 0 || this.handed.size > 0;
+    if (tracking) this.busyAt = performance.now();
+    // read only while something could start a job, and for `settle` after, so an app opened as a turn ends is seen and excluded
+    this.paused =
+      !this.active &&
+      !tracking &&
+      !excluded.size &&
+      changes === this.activityChanges &&
+      began - this.busyAt >= (this.options.settle ?? 5000);
     return tracked;
   }
 

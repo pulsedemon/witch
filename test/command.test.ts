@@ -1,30 +1,47 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import { scratch } from './fixtures/scratch.js';
 
-test('commands preserve cwd, arguments and environment in returned output', async () => {
-  const directory = await scratch('witch-command-');
-  const result = await runCommand(
-    process.execPath,
-    [
-      '-e',
-      'console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(1), gitTerminalPrompt: process.env.GIT_TERMINAL_PROMPT }))',
-      'first',
-      'second',
-    ],
-    {
+for (const cancellable of [false, true])
+  test(`commands preserve cwd, arguments and environment in returned output (cancellable: ${cancellable})`, async () => {
+    const directory = await scratch('witch-command-');
+    const result = await runCommand(
+      process.execPath,
+      [
+        '-e',
+        'console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(1), gitTerminalPrompt: process.env.GIT_TERMINAL_PROMPT }))',
+        'first',
+        'second',
+      ],
+      {
+        cwd: directory,
+        timeout: 5000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        ...(cancellable ? { signal: new AbortController().signal } : {}),
+      },
+    );
+    assert.deepEqual(JSON.parse(result.stdout), {
       cwd: directory,
-      timeout: 5000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    },
-  );
-  assert.deepEqual(JSON.parse(result.stdout), {
-    cwd: directory,
-    args: ['first', 'second'],
-    gitTerminalPrompt: '0',
+      args: ['first', 'second'],
+      gitTerminalPrompt: '0',
+    });
   });
+
+test('a cancelled command cannot start another checkout mutation', async () => {
+  const cwd = await scratch('witch-command-');
+  const signal = AbortSignal.abort();
+  await assert.rejects(
+    runCommand(
+      process.execPath,
+      ['-e', "require('node:fs').writeFileSync('mutation', 'ran')"],
+      { cwd, timeout: 5000, signal },
+    ),
+    { name: 'AbortError' },
+  );
+  await assert.rejects(readFile(join(cwd, 'mutation')), { code: 'ENOENT' });
 });
 
 for (const killSignal of [undefined, 'SIGKILL'] as const) {
@@ -73,34 +90,39 @@ test('timeout failures remain labeled when the child handles SIGTERM', async () 
   );
 });
 
-test('other command failures keep their native diagnostics', async () => {
-  const cwd = await scratch('witch-command-');
-  for (const [command, script, fields] of [
-    [
-      process.execPath,
-      "process.kill(process.pid, 'SIGTERM')",
-      { code: null, signal: 'SIGTERM', killed: false },
-    ],
-    [
-      process.execPath,
-      "process.stdout.write('x'.repeat(1100000)); setTimeout(() => process.exit(29), 10000)",
-      { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' },
-    ],
-    [
-      process.execPath,
-      "process.stdout.write('ordinary stdout'); process.stderr.write('ordinary stderr'); process.exit(23)",
-      {
-        code: 23,
-        killed: false,
-        stdout: 'ordinary stdout',
-        stderr: 'ordinary stderr',
-      },
-    ],
-    [join(cwd, 'missing'), '', { code: 'ENOENT' }],
-  ] as const) {
-    await assert.rejects(
-      runCommand(command, ['-e', script], { cwd, timeout: 5000 }),
-      { message: /^(?!Timed out after )/, ...fields },
-    );
-  }
-});
+for (const cancellable of [false, true])
+  test(`other command failures keep their native diagnostics (cancellable: ${cancellable})`, async () => {
+    const cwd = await scratch('witch-command-');
+    for (const [command, script, fields] of [
+      [
+        process.execPath,
+        "process.kill(process.pid, 'SIGTERM')",
+        { code: null, signal: 'SIGTERM', killed: false },
+      ],
+      [
+        process.execPath,
+        "process.stdout.write('x'.repeat(1100000)); setTimeout(() => process.exit(29), 10000)",
+        { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' },
+      ],
+      [
+        process.execPath,
+        "process.stdout.write('ordinary stdout'); process.stderr.write('ordinary stderr'); process.exit(23)",
+        {
+          code: 23,
+          killed: false,
+          stdout: 'ordinary stdout',
+          stderr: 'ordinary stderr',
+        },
+      ],
+      [join(cwd, 'missing'), '', { code: 'ENOENT' }],
+    ] as const) {
+      await assert.rejects(
+        runCommand(command, ['-e', script], {
+          cwd,
+          timeout: 5000,
+          ...(cancellable ? { signal: new AbortController().signal } : {}),
+        }),
+        { message: /^(?!Timed out after )/, ...fields },
+      );
+    }
+  });

@@ -563,7 +563,6 @@ const merged: PullRequest = {
 test('answer turns keep pending context, handoffs, merges and answers, and the compaction check', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
   await b.coordinator.send('start');
-  b.b.failNext = true;
   await b.coordinator.selectModel({ agent: 'b', id: 'b-model' });
   assert.equal(b.coordinator.snapshot.conversation!.handoff?.to, 'b');
   const { project } = await a.coordinator.memory.scopePaths(
@@ -586,7 +585,7 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
     await refreshed(b);
     const id = b.coordinator.snapshot.conversation!.id;
     return (
-      b.coordination.mergeEvents(id).length === 1 &&
+      b.coordination.events.mergeEvents(id).length === 1 &&
       !!notice(b, `peer-answer/${own.id}`)
     );
   });
@@ -692,8 +691,9 @@ test('answers follow native session receipts', async (t) => {
   assert.deepEqual(listed(a.a.inputs.at(-1)!.context), []);
 
   await a.coordinator.selectModel({ agent: 'b', id: 'b-model' });
-  assert.deepEqual(listed(a.b.inputs.at(-1)!.context), [first.id, second.id]);
   await a.coordinator.send('on b');
+  assert.deepEqual(listed(a.b.inputs.at(-1)!.context), [first.id, second.id]);
+  await a.coordinator.send('again on b');
   assert.deepEqual(listed(a.b.inputs.at(-1)!.context), []);
   await a.coordinator.compact();
   await a.coordinator.send('compacted');
@@ -705,7 +705,10 @@ test('answers follow native session receipts', async (t) => {
   await a.coordinator.close({ restart: true });
   const restarted = await f.start('A', { conversation });
   await refreshed(restarted);
-  assert.equal(restarted.coordination.peerRequests(conversation).length, 2);
+  assert.equal(
+    restarted.coordination.events.peerRequests(conversation).length,
+    2,
+  );
   await restarted.coordinator.send('restarted');
   assert.deepEqual(listed(restarted.b.inputs.at(-1)!.context), []);
   const native = restarted.b.sessions.at(-1)!;
@@ -871,7 +874,7 @@ test('a failed peer request read leaves merge events flowing', async (t) => {
   });
   await until('merge reaches the owner', async () => {
     await refreshed(b);
-    return b.coordination.mergeEvents(owner).length === 1;
+    return b.coordination.events.mergeEvents(owner).length === 1;
   });
   assert.match(b.coordination.snapshot.error ?? '', /Peer requests unreadable/);
 });
@@ -981,13 +984,17 @@ test("Claude answer turns are labeled as Witch's", async (t) => {
     JSON.parse(await readFile(join(cwd, 'content.json'), 'utf8')) as string;
   await within(owner.coordinator.send('user turn'), 10_000, 'user turn');
   const user = await content();
-  assert.match(user, /Delegate work to /);
+  assert.match(user, /Delegate work only through Witch/);
   assert.ok(user.endsWith('User request:\nuser turn'));
   const request = await answerTurn();
   const input = await content();
   assert.ok(input.endsWith(`Witch request:\n${answerInstruction}`));
   assert.ok(input.includes(request.id));
-  for (const absent of ['User request:', 'Delegate work to ', secret])
+  for (const absent of [
+    'User request:',
+    'Delegate work only through Witch',
+    secret,
+  ])
     assert.ok(!input.includes(absent), absent);
 });
 

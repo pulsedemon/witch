@@ -85,6 +85,18 @@ test('discovery batches conversation ownership and keeps only open peers', async
   assert.deepEqual(a.coordination.snapshot.unregistered, []);
 });
 
+test('idle discovery without peers probes only conversation ownership', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const { start } = await coordinationFixture(cleanup);
+  cleanup(() => {
+    vi.useRealTimers();
+  });
+  const a = await start('A');
+  const { ps, perl } = await countProbes(() => a.coordination.context());
+  assert.deepEqual({ ps, perl }, { ps: 0, perl: 1 });
+});
+
 test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { root, start, registry } = await coordinationFixture(cleanup);
@@ -162,10 +174,19 @@ for (const assignmentFails of [false, true]) {
   test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     let pending: Promise<void> | undefined;
-    const { start, registry } = await coordinationFixture(cleanup, async () => {
-      pending = owner.coordination.endTurn().catch(() => {});
-      if (assignmentFails) throw new Error('Injected assignment failure');
-    });
+    const { start, registry } = await coordinationFixture(
+      cleanup,
+      async (references) => {
+        pending = owner.coordination.endTurn().catch(() => {});
+        return assignmentFails
+          ? { assigned: [], failure: 'Injected assignment failure' }
+          : {
+              assigned: references.filter((reference) =>
+                reference.startsWith('github:'),
+              ),
+            };
+      },
+    );
     const owner = await start(),
       contender = await start('B');
     const turn = await selectionTurn(cleanup, owner);
@@ -210,6 +231,7 @@ test('pre-claim cleanup failure still refuses new ownership', async (t) => {
   let assignments = 0;
   const { start, registry } = await coordinationFixture(cleanup, async () => {
     assignments++;
+    return { assigned: [] };
   });
   const owner = await start();
   const turn = await selectionTurn(cleanup, owner);
@@ -856,7 +878,11 @@ test('unknown discovery refuses both a successful query and new ownership', asyn
   assert.equal(attempt.value.kind, 'error');
   assert.equal(attempt.discoveries, 1);
   assert.deepEqual(await registry.claims(), []);
-  assert.match(await a.coordination.context(), /Coordination is unavailable/);
+  const context = await a.coordination.context();
+  assert.match(context.context, /Coordination is unavailable/);
+  assert.match(context.context, /No selection turn is current/);
+  assert.doesNotMatch(context.context, /When asked to choose/);
+  assert.match(context.instructions, /When asked to choose/);
 });
 
 test('an origin change leaves a discoverable reservation in the original project until explicit release', async (t) => {

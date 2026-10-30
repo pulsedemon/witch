@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { Snapshot } from '../src/core/snapshot.js';
@@ -10,7 +10,7 @@ import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { ENTER } from './fixtures/ui.js';
 
-test('the status line shows the stored model and its label until the session reports one, and the phase row its permission mode', async () => {
+test('the status line waits for a live model and uses its runtime label, and the phase row shows its permission mode', async () => {
   const { app, coordinator } = fake({
     conversation: {
       id: 'c',
@@ -24,14 +24,13 @@ test('the status line shows the stored model and its label until the session rep
   const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
   const row = (index: number) => ui.text().split('\n')[index] ?? '';
   try {
-    await until('the stored model', () => /^ STORED-MODEL \|/m.test(ui.text()));
+    await until('the status line', () => /^ \? \|/m.test(ui.text()));
     coordinator.publish({
       models: [
-        { agent: 'b', id: 'stored-model', label: 'Wrong runtime', efforts: [] },
-        { agent: 'a', id: 'stored-model', label: 'Stored label', efforts: [] },
+        { agent: 'b', id: 'live-model', label: 'Wrong runtime', efforts: [] },
+        { agent: 'a', id: 'live-model', label: 'Live label', efforts: [] },
       ],
     });
-    await until('the stored label', () => /^ STORED LABEL \|/m.test(ui.text()));
     coordinator.publish({
       native: {
         id: 's',
@@ -41,10 +40,89 @@ test('the status line shows the stored model and its label until the session rep
         hasHistory: true,
       },
     });
-    await until('the live model', () => /^ LIVE-MODEL \|/m.test(ui.text()));
+    await until('the live label', () => /^ LIVE LABEL \|/m.test(ui.text()));
     assert.match(row(0), /^IDLE \| ON-REQUEST/);
   } finally {
     ui.unmount();
+  }
+});
+
+test('a failed reconnect clears the displayed model and usage while preserving resume settings', async () => {
+  const { coordinator, a, store } = await coordinatorFixture(undefined, (a) => {
+    a.connectUsage = { context: 42 };
+  });
+  const ui = show(createElement(App, { coordinator, store, onExit: () => {} }));
+  try {
+    await coordinator.selectModel({ agent: 'a', id: 'a-big', effort: 'high' });
+    await until(
+      'the connected model and usage',
+      () => /^ A-BIG \| HIGH/m.test(ui.text()) && ui.text().includes('CTX 42%'),
+    );
+    const saved = structuredClone(
+      coordinator.snapshot.conversation!.sessions.a,
+    );
+    await a.sessions[0]!.session.close();
+    a.failConnect = true;
+    await coordinator.send('Reconnect');
+    await until('the reconnect failure', () =>
+      ui.text().includes('Destination unavailable'),
+    );
+    assert.equal(coordinator.snapshot.native, undefined);
+    assert.deepEqual(coordinator.snapshot.usage, {});
+    assert.doesNotMatch(ui.text(), /A-BIG|CTX 42%/);
+    assert.deepEqual(coordinator.snapshot.conversation!.sessions.a, saved);
+    a.failConnect = false;
+    await coordinator.send('Resume');
+    await until('the resumed model', () => /^ A-BIG \| HIGH/m.test(ui.text()));
+    assert.equal(a.sessions.at(-1)!.options.resume, saved!.id);
+    assert.equal(a.sessions.at(-1)!.options.model, 'a-big');
+    assert.equal(a.sessions.at(-1)!.options.effort, 'high');
+  } finally {
+    ui.unmount();
+    a.failConnect = false;
+    await coordinator.close();
+  }
+});
+
+test('a session that closes during reconnect discovery does not restore its displayed status', async () => {
+  const { coordinator, a, store } = await coordinatorFixture(undefined, (a) => {
+    a.connectUsage = { context: 42 };
+  });
+  const ui = show(createElement(App, { coordinator, store, onExit: () => {} }));
+  let closedStatus: Pick<Snapshot, 'native' | 'usage'> | undefined;
+  try {
+    await until(
+      'the connected status',
+      () => /^ A-MODEL \|/m.test(ui.text()) && ui.text().includes('CTX 42%'),
+    );
+    await a.sessions[0]!.session.close();
+    const connect = a.connect.bind(a);
+    a.connect = async (options) => {
+      const session = await connect(options);
+      session.models = async () => {
+        options.onEvent({ type: 'usage', usage: { context: 63 } });
+        await session.close();
+        options.onEvent({ type: 'closed' });
+        closedStatus = {
+          native: coordinator.snapshot.native,
+          usage: coordinator.snapshot.usage,
+        };
+        throw new Error('Process exited during model/list');
+      };
+      return session;
+    };
+    await coordinator.send('Reconnect');
+    await until('the closed session status', () =>
+      ui.text().includes('Process exited during model/list'),
+    );
+    assert.deepEqual(closedStatus, { native: undefined, usage: {} });
+    assert.equal(a.sessions.at(-1)!.session.closed, true);
+    assert.equal(coordinator.snapshot.native, undefined);
+    assert.deepEqual(coordinator.snapshot.usage, {});
+    assert.doesNotMatch(ui.text(), /A-MODEL|CTX (42|63)%/);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
   }
 });
 
@@ -769,3 +847,99 @@ for (const [key, label] of [
     }
   });
 }
+
+test("the sidebar lists every runtime's usage under the pentacle, and the status line leaves it out", async () => {
+  const now = Date.now();
+  const { app } = fake({
+    limits: {
+      a: [
+        {
+          window: '5H',
+          percent: 20,
+          resetsAt: now / 1000 + 2 * 3600 + 18 * 60 + 30,
+          observedAt: now,
+        },
+      ],
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    115,
+    40,
+  );
+  try {
+    await until('the usage block', () =>
+      sidebarRows(ui.text()).includes('USAGE'),
+    );
+    const rows = sidebarRows(ui.text());
+    assert.deepEqual(rows.slice(rows.indexOf('USAGE')).filter(Boolean), [
+      'USAGE',
+      'A       5H 20% 2h18m',
+      'B       ?',
+    ]);
+    assert.ok(/[⠁-⣿]/.test(rows[rows.indexOf('USAGE') - 1]!));
+    const statusRow = ui
+      .text()
+      .split('\n')
+      .find((line) => line.startsWith(' ? | '))!;
+    assert.doesNotMatch(statusRow.slice(0, 80), /5H/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a terminal too short for the usage block leaves usage to the status line', async () => {
+  const now = Date.now();
+  const window = (name: string, percent: number) => ({
+    window: name,
+    percent,
+    observedAt: now,
+  });
+  const { app } = fake({
+    limits: {
+      a: [window('5H', 20), window('7D', 75)],
+      b: [window('5H', 12), window('7D', 40)],
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    115,
+    15,
+  );
+  try {
+    await until('the status line', () => ui.text().includes('B 5H 12% 7D 40%'));
+    assert.ok(!sidebarRows(ui.text()).includes('USAGE'));
+    assert.match(ui.text(), /0M \| 5H 20% 7D 75% \| B 5H 12% 7D 40%/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a usage window turns dim with its age once it stops being current, without a new reading', async (t) => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+  t.onTestFinished(() => {
+    vi.useRealTimers();
+  });
+  const now = Date.now();
+  const { app } = fake({
+    limits: {
+      a: [{ window: '7D', percent: 40, observedAt: now - 10 * 60_000 + 2000 }],
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    115,
+    40,
+  );
+  try {
+    await until('the usage block', () =>
+      sidebarRows(ui.text()).includes('A       7D 40%'),
+    );
+    vi.advanceTimersByTime(5000);
+    await until('the stale window', () =>
+      sidebarRows(ui.text()).includes('A       7D 40%  10M OLD'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});

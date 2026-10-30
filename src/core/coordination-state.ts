@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { work } from './routing.js';
 import type { Snapshot } from './snapshot.js';
 import { conversationSchema, phaseSchema, processIdentity } from './state.js';
 
@@ -28,10 +29,19 @@ export const selectionStateSchema = z.object({
   position: z.number().int().positive(),
 });
 
+const transferRequestSchema = z.object({
+  to: claimOwnerSchema,
+  activation: z.string().uuid(),
+  process: processIdentity,
+  expires: z.number(),
+  refusal: z.string().optional(),
+});
+
 export const taskClaimSchema = z.object({
   id: z.string().uuid(),
   owner: claimOwnerSchema,
   references: z.array(z.string()).min(1),
+  assigned: z.array(z.string()).optional(),
   summary: z.string(),
   createdAt: z.number(),
   process: processIdentity.optional(),
@@ -40,12 +50,25 @@ export const taskClaimSchema = z.object({
       selection: z.string().uuid(),
     })
     .optional(),
+  transfer: transferRequestSchema.optional(),
+  // older owners must ignore automatic requests rather than treat them as a user's transfer.
+  automaticTransfer: transferRequestSchema.optional(),
+  movedFrom: claimOwnerSchema.optional(),
+});
+
+const choiceSchema = z.object({
+  runtime: z.string().min(1),
+  model: z.string().min(1),
 });
 
 export const coordinationActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('peers') }),
   z.object({ kind: z.literal('claim'), input: claimInputSchema }),
   z.object({ kind: z.literal('release'), claim: z.string().uuid() }),
+  z.object({
+    kind: z.literal('take'),
+    input: claimInputSchema.pick({ reference: true }),
+  }),
   z.object({ kind: z.literal('select-next'), turn: z.string().uuid() }),
   z.object({
     kind: z.literal('selection-status'),
@@ -71,6 +94,12 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
     message: z.string().trim().min(1),
   }),
   z.object({ kind: z.literal('peer-request'), request: z.string().uuid() }),
+  z.object({
+    kind: z.literal('route'),
+    work,
+    of: choiceSchema.optional(),
+    named: choiceSchema.optional(),
+  }),
 ]);
 
 export const conversationSummarySchema = conversationSchema.pick({
@@ -119,10 +148,16 @@ export const coordinationSnapshotSchema = z.object({
 export type ClaimInput = z.infer<typeof claimInputSchema>;
 export type ClaimOwner = z.infer<typeof claimOwnerSchema>;
 export type TaskClaim = z.infer<typeof taskClaimSchema>;
+export type Transfer = NonNullable<TaskClaim['transfer']>;
+export type TransferTarget =
+  | { field: 'transfer'; reference: string }
+  | { field: 'automaticTransfer'; claim: TaskClaim };
+export type TransferField = TransferTarget['field'];
 export type SelectionScope = z.infer<typeof selectionScopeSchema>;
 export type SelectionTicket = z.infer<typeof selectionTicketSchema>;
 export type SelectionState = z.infer<typeof selectionStateSchema>;
 export type CoordinationAction = z.infer<typeof coordinationActionSchema>;
+export type RouteAction = Extract<CoordinationAction, { kind: 'route' }>;
 export type SessionPresence = z.infer<typeof sessionPresenceSchema>;
 export type CoordinationSnapshot = z.infer<typeof coordinationSnapshotSchema>;
 

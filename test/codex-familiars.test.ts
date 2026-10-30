@@ -6,7 +6,7 @@ import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import { writeJson } from '../src/persistence/json.js';
 import { fixture } from './fixtures/codex-adapter.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
 
 async function reportedFixture() {
   const events: AgentEvent[] = [];
@@ -15,7 +15,7 @@ async function reportedFixture() {
     conversation: 'conversation',
     activation: randomUUID(),
   };
-  const { session, cwd } = await fixture((event) => events.push(event), {
+  const { session, cwd, child } = await fixture((event) => events.push(event), {
     mode: 'brews',
     familiarBinding: binding,
   });
@@ -54,21 +54,26 @@ async function reportedFixture() {
     method: 'item/commandExecution/outputDelta',
     params: { ...params, threadId, itemId: item.id, delta },
   });
-  const register = () =>
+  const register = (runtime: 'claude' | 'codex' = 'claude') =>
     session.familiar!.report(
-      { kind: 'familiar-register', run, name: 'plan review' },
+      {
+        kind: 'familiar-register',
+        run,
+        name: 'plan review',
+        runtime,
+      },
       Date.now() + 5000,
     );
   const familiarEvents = () =>
     events.flatMap((event) =>
-      event.type === 'subagent' &&
-      event.subagent.id.startsWith('claude-familiar/')
+      event.type === 'subagent' && event.subagent.id.includes('-familiar/')
         ? [event.subagent]
         : [],
     );
   return {
     session,
     cwd,
+    child,
     events,
     binding,
     run,
@@ -81,6 +86,32 @@ async function reportedFixture() {
     familiarEvents,
   };
 }
+
+test('a missing familiar cleanup acknowledgment cannot hold Codex close open', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await writeFile(join(f.cwd, 'hold-termination'), '');
+    const closing = f.session.close({ deadline: performance.now() + 3200 });
+    await within(closing, 2500, 'bounded familiar cleanup');
+    assert.equal(f.session.closed, true);
+    assert.ok(f.child.exitCode !== null || f.child.signalCode !== null);
+    assert.equal(f.familiarEvents().at(-1)!.status, 'stopped');
+    assert.equal(
+      f.events.filter(
+        (event) =>
+          event.type === 'notice' && /did not stop in time/.test(event.text),
+      ).length,
+      1,
+    );
+  } finally {
+    await f.session.close();
+  }
+});
 
 test('a split registration marker and a live native handle are both required before familiar progress can be reported', async () => {
   const f = await reportedFixture();
@@ -258,7 +289,12 @@ test('stale markers and expired admission cannot register, and another command c
     await f.emit(f.output(`${'x'.repeat(5000)}\n${f.marker}`));
     await assert.rejects(
       f.session.familiar!.report(
-        { kind: 'familiar-register', run: f.run, name: 'plan review' },
+        {
+          kind: 'familiar-register',
+          run: f.run,
+          name: 'plan review',
+          runtime: 'claude',
+        },
         Date.now() - 1,
       ),
       /expired/i,
@@ -556,6 +592,68 @@ test('known child-thread command deltas can register a nested reviewer without p
       () => f.familiarEvents().at(-1)?.status === 'failed',
     );
     assert.equal(f.familiarEvents()[0]!.status, 'running');
+  } finally {
+    await f.session.close();
+  }
+});
+
+test("a Codex session's Codex familiar forwards its requests, which an answer or the familiar's end resolves", async () => {
+  const f = await reportedFixture();
+  const request = (id: string) => ({
+    id,
+    kind: 'approval' as const,
+    title: 'Create a file',
+    detail: 'touch ok.txt',
+  });
+  const report = (
+    action:
+      | { kind: 'familiar-request'; request: ReturnType<typeof request> }
+      | { kind: 'familiar-request-poll'; id: string },
+  ) => f.session.familiar!.report({ ...action, run: f.run }, Date.now() + 5000);
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    await until(
+      'registration',
+      async () => (await f.register('codex')).kind === 'familiar-registered',
+    );
+    assert.equal(f.familiarEvents()[0]!.id, `codex-familiar/${f.run}`);
+    assert.equal(f.familiarEvents()[0]!.runtime, 'codex');
+    assert.deepEqual(
+      await report({ kind: 'familiar-request', request: request('first') }),
+      { kind: 'familiar-request-pending' },
+    );
+    const shown = `familiar/${f.run}/first`;
+    assert.ok(
+      f.events.some(
+        (event) => event.type === 'request' && event.request.id === shown,
+      ),
+    );
+    f.session.respond(shown, { decision: 'accept' });
+    assert.deepEqual(
+      await report({ kind: 'familiar-request-poll', id: 'first' }),
+      {
+        kind: 'familiar-response',
+        response: { decision: 'accept' },
+      },
+    );
+    await report({ kind: 'familiar-request', request: request('second') });
+    await f.emit({
+      method: 'item/completed',
+      params: {
+        ...f.params,
+        item: { ...f.item, status: 'completed', exitCode: 0 },
+      },
+    });
+    await until('the pending request resolves with the familiar', () =>
+      f.events.some(
+        (event) =>
+          event.type === 'request-resolved' &&
+          event.id === `familiar/${f.run}/second`,
+      ),
+    );
   } finally {
     await f.session.close();
   }

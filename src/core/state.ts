@@ -9,6 +9,7 @@ const session = z.object({
   hasHistory: z.boolean(),
   effort: z.string().optional(),
   deliveredRevision: z.string().optional(),
+  deliveredInstructionsRevision: z.string().optional(),
   deliveredProject: z.string().optional(),
   deliveredMerges: z.array(z.string()).optional(),
   deliveredAnswers: z.array(z.string()).optional(),
@@ -56,6 +57,12 @@ export function agentWorking(phase: Phase): boolean {
 }
 
 export const conversationRecordSchema = conversationSchema.extend({
+  lastTurn: z
+    .object({
+      id: z.string(),
+      status: z.enum(['completed', 'interrupted', 'failed']),
+    })
+    .optional(),
   process: processIdentity.optional(),
   usageProcess: processIdentity.optional(),
   // the shell of a running `!` command Witch runs for Claude
@@ -90,12 +97,20 @@ export const displayUpdateSchema = z.object({
   text: z.string(),
   cwd: z.string(),
   title: z.string().optional(),
+  // the file path a tool's title shows, so its row links the path whole
+  path: z.string().optional(),
+  // the complete label, including the native name or original command, shown on expansion
+  expandedTitle: z.string().optional(),
+  singleLine: z.literal(true).optional(),
   done: z.boolean().optional(),
   replace: z.boolean().optional(),
   images: z.array(z.string()).optional(),
   diff: z.array(fileDiff).optional(),
   // a command the user ran with `!`
   shell: z.boolean().optional(),
+  contextCleared: z.literal(true).optional(),
+  // a spell cast, animated while new
+  cast: z.literal(true).optional(),
   // when Witch received the update; history from before it was recorded has none
   at: z.string().optional(),
 });
@@ -105,6 +120,29 @@ export type ConversationRecord = z.infer<typeof conversationRecordSchema>;
 export type ProcessIdentity = z.infer<typeof processIdentity>;
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
+
+export function contextStart(items: readonly DisplayItem[]): number {
+  return items.findLastIndex((item) => item.contextCleared) + 1;
+}
+
+export function clearConversationContext(
+  record: ConversationRecord,
+  info?: SessionInfo,
+): void {
+  const previous = record.sessions[record.agent];
+  const model = info?.model || previous?.model || '';
+  record.sessions = {
+    [record.agent]: {
+      id: '',
+      model,
+      requestedModel: previous?.requestedModel ?? (model || undefined),
+      effort: previous?.effort ?? info?.effort ?? info?.nativeEffort,
+      hasHistory: false,
+    },
+  };
+  delete record.handoff;
+  delete record.lastTurn;
+}
 
 interface TextAppend {
   stream: object;
@@ -148,9 +186,6 @@ export function recordSession(
     id: info.id,
     model: info.model,
     hasHistory: info.hasHistory,
-    // a new native session has seen no memory snapshot yet
-    deliveredRevision:
-      previous?.id === info.id ? previous.deliveredRevision : undefined,
   };
   if (previous?.id !== info.id) clearDelivery(conversation.sessions[agent]!);
 }
@@ -172,8 +207,10 @@ export function recordDelivery(
     ];
 }
 
-/** a native session that compacted or was replaced has seen none of the delivered events. */
+/** a native session that compacted or was replaced has seen neither the memory snapshot, the fixed instructions nor the delivered events. */
 export function clearDelivery(reference: NativeSession): void {
+  delete reference.deliveredRevision;
+  delete reference.deliveredInstructionsRevision;
   delete reference.deliveredMerges;
   delete reference.deliveredAnswers;
 }
@@ -208,19 +245,8 @@ function merge(
   return item;
 }
 
-export function applyDisplayUpdate(
-  items: readonly DisplayItem[],
-  update: DisplayUpdate,
-): DisplayItem[] {
-  const index = items.findLastIndex((item) => item.id === update.id);
-  if (index < 0) return [...items, merge(undefined, update)];
-  const next = [...items];
-  next[index] = merge(items[index], update);
-  return next;
-}
-
-/** the transcript row a native text or tool event updates. */
-export function nativeDisplay(
+/** the row an agent's text or tool event updates. */
+export function agentDisplay(
   event: Extract<AgentEvent, { type: 'text' | 'tool' }>,
   id: string,
   agent: string,
@@ -239,6 +265,9 @@ export function nativeDisplay(
         id,
         kind: 'tool',
         title: event.title,
+        ...(event.path ? { path: event.path } : {}),
+        ...(event.expandedTitle ? { expandedTitle: event.expandedTitle } : {}),
+        ...(event.singleLine ? { singleLine: event.singleLine } : {}),
         text: event.text,
         replace: !event.append,
         done: event.done,
@@ -248,6 +277,17 @@ export function nativeDisplay(
         // an append leaves it out, and keeps the one its row has
         ...(event.shell ? { shell: true } : {}),
       };
+}
+
+export function applyDisplayUpdate(
+  items: readonly DisplayItem[],
+  update: DisplayUpdate,
+): DisplayItem[] {
+  const index = items.findLastIndex((item) => item.id === update.id);
+  if (index < 0) return [...items, merge(undefined, update)];
+  const next = [...items];
+  next[index] = merge(items[index], update);
+  return next;
 }
 
 export function foldDisplayUpdates(

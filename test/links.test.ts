@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { test } from 'vitest';
 import { promisify } from 'node:util';
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import {
+  clickTarget,
   hyperlink,
   linkify,
   linkifyAppend,
@@ -14,6 +17,7 @@ import {
   plain,
 } from '../src/ui/links.js';
 import { markdown } from '../src/ui/markdown.js';
+import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);
 
@@ -307,6 +311,18 @@ test('quoted and Markdown file links preserve spaces without linking command nam
   }
 });
 
+test("a path dropped into a message links whole to its unescaped file, through escaped spaces and a screenshot name's U+202F", () => {
+  const dropped =
+    '/var/folders/T/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
+  assert.deepEqual(linkSpans(markdown(`${dropped} what is this?`, '/work')), [
+    {
+      target:
+        'vscode://file/var/folders/T/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
+      text: dropped,
+    },
+  ]);
+});
+
 test('bare source references take precedence over fuzzy domains while explicit web URLs stay web links', () => {
   for (const file of ['server.py:42', 'foo.sh', 'README.md', 'src/main.py:4']) {
     const rendered = linkify(file, '/work/project');
@@ -324,6 +340,65 @@ test('bare source references take precedence over fuzzy domains while explicit w
 test('a dotted word or a name with an unlisted extension and no directory stays text', () => {
   const prose = 'Use e.g. or i.e. with foo.bar.';
   assert.equal(linkify(prose, '/work'), prose);
+});
+
+/** a project and both memory scopes, with `files` written under them. */
+async function clickRoots(files: string[]) {
+  const root = await scratch('links-');
+  const cwd = join(root, 'project');
+  const global = join(root, 'memory', 'global');
+  const project = join(root, 'memory', 'projects', 'p');
+  for (const file of files) {
+    const path = join(root, file);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, file);
+  }
+  const click = (text: string) =>
+    clickTarget(linkSpans(markdown(text, cwd))[0]!.target, async () => [
+      global,
+      project,
+    ]);
+  return { cwd, global, project, click };
+}
+
+test('a click opens a bare name in its cwd, else its one shared-memory note at the same line', async () => {
+  const { cwd, project, click } = await clickRoots([
+    'project/here.md',
+    'memory/global/here.md',
+    'memory/projects/p/note.md',
+  ]);
+  assert.deepEqual(await click('see `here.md`'), {
+    open: `vscode://file${join(cwd, 'here.md')}`,
+  });
+  assert.deepEqual(await click('see `note.md:12`'), {
+    open: `vscode://file${join(project, 'note.md')}:12`,
+  });
+  assert.deepEqual(await click('see [the note](note.md)'), {
+    open: `vscode://file${join(project, 'note.md')}`,
+  });
+});
+
+test('a click on a missing file shows a notice, listing both notes when a bare name is in both memory scopes', async () => {
+  const { cwd, global, project, click } = await clickRoots([
+    'memory/global/both.md',
+    'memory/projects/p/both.md',
+  ]);
+  assert.deepEqual(await click('see `both.md`'), {
+    notice: `both.md is in both memory scopes:\n${join(global, 'both.md')}\n${join(project, 'both.md')}`,
+  });
+  assert.deepEqual(await click('see `gone.md`'), {
+    notice: `No gone.md in ${cwd} or shared memory`,
+  });
+  assert.deepEqual(await click('see `docs/both.md`'), {
+    notice: `No file at ${join(cwd, 'docs', 'both.md')}`,
+  });
+  assert.deepEqual(
+    await click(`see [the report](vscode://file${cwd}/gone:report.md:3)`),
+    { notice: `No file at ${join(cwd, 'gone:report.md')}` },
+  );
+  assert.deepEqual(await click('see https://example.com/gone.md'), {
+    open: 'https://example.com/gone.md',
+  });
 });
 
 test('malformed file URLs remain readable without breaking a persisted transcript', () => {
@@ -380,8 +455,11 @@ test('long runs of filename characters, and links on many lines or one, link in 
   }
 });
 
-test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, so a link across the cut stays whole', () => {
+test('text past 2000 characters is cut after a newline, else after a space, < or >, else after a quote, but not inside a dropped path, so a link across the cut stays whole', () => {
   const file = `src/notes ${'n'.repeat(20)}.md`;
+  const dropped = '/tmp/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
+  const screenshot =
+    'vscode://file/tmp/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png';
   for (const [text, target] of [
     [
       `${'x'.repeat(1990)} https://example.com/abcdef end`,
@@ -400,6 +478,9 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
       `${'x'.repeat(1990)}"https://example.com/abcdef"]`,
       'https://example.com/abcdef',
     ],
+    // an escaped space, then the U+202F, is the last whitespace before the cut
+    [`${'x'.repeat(1980)} ${dropped} end`, screenshot],
+    [`${'x'.repeat(1958)} ${dropped} end`, screenshot],
   ] as const) {
     const output = linkify(text, '/work');
     assert.ok(output.includes(`\u001b]8;;${target}\u0007`), target);

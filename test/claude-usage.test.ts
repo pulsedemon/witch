@@ -23,7 +23,8 @@ import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
 import { show } from './fixtures/ui.js';
-import { until } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
+import { untimed } from './fixtures/limits.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
 const timeout = 10_000;
@@ -218,6 +219,34 @@ async function complete(f: Fixture) {
   await turn;
 }
 
+test('closing Claude uses the same stop budget for a usage helper that ignores SIGTERM', async (t) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const f = await controlled(t.onTestFinished, {}, 'background', 'ignore-term');
+  await initial(f);
+  const helper = await poll(f);
+  vi.useRealTimers();
+  const started = performance.now();
+  await within(
+    f.session.close({ deadline: started + 3200 }),
+    3000,
+    'usage helper shutdown',
+  );
+  assert.ok(performance.now() - started < 3200);
+  assert.equal(helper.child.signalCode, 'SIGKILL');
+  assert.deepEqual(f.identities, [helper.child.pid, undefined]);
+  assert.ok(
+    f.children[0]!.exitCode !== null || f.children[0]!.signalCode !== null,
+  );
+  assert.equal(
+    f.events.filter(
+      (event) =>
+        event.type === 'notice' && /did not stop in time/.test(event.text),
+    ).length,
+    1,
+  );
+  await within(f.session.close(), 1000, 'repeated close');
+});
+
 for (const state of ['foreground', 'familiar', 'idle'] as const) {
   test(
     `periodic Claude limits refresh during ${state} without a new result or idle event`,
@@ -247,7 +276,7 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
       await until('first periodic helper', () => !!f.helpers[0]);
       const helper = f.helpers[0]!;
       const first = await helper.reply();
-      assert.deepEqual(f.session.usage.limits, firstLimits);
+      assert.deepEqual(untimed(f.session.usage.limits), firstLimits);
       assert.ok(
         f.events.some(
           (e) =>
@@ -259,7 +288,7 @@ for (const state of ['foreground', 'familiar', 'idle'] as const) {
       assert.equal((await helper.requests()).length, 1);
       vi.advanceTimersByTime(1);
       await helper.reply(report(true), first);
-      assert.deepEqual(f.session.usage.limits, nextLimits);
+      assert.deepEqual(untimed(f.session.usage.limits), nextLimits);
       assert.equal(finished, false);
       assert.equal(
         writes.mock.calls.filter((args) =>
@@ -294,7 +323,7 @@ test(
     const id = await f.main.reply();
     await f.main.reply(report(true), id);
     assert.equal((await f.main.requests()).length, 2);
-    assert.deepEqual(f.session.usage.limits, nextLimits);
+    assert.deepEqual(untimed(f.session.usage.limits), nextLimits);
     const helper = await poll(f);
     await helper.reply();
     assert.equal((await f.main.requests()).length, 2);
@@ -337,7 +366,7 @@ test(
     await f.main.reply(next);
     assert.equal((await f.main.requests()).length, 2);
     assert.deepEqual(f.session.usage.lines, { added: 17, removed: 3 });
-    assert.deepEqual(f.session.usage.limits, nextLimits);
+    assert.deepEqual(untimed(f.session.usage.limits), nextLimits);
   },
 );
 
@@ -355,9 +384,11 @@ for (const source of ['main', 'helper'] as const) {
           'background',
           true,
         );
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000);
         const mainId = await f.main.reply();
-        assert.deepEqual(f.session.usage.limits, firstLimits);
+        assert.deepEqual(untimed(f.session.usage.limits), firstLimits);
         const target = source === 'main' ? f.main : await poll(f);
+        clock.mockReturnValue(2_000);
         if (source === 'main') await complete(f);
         const bad = report();
         if (variant === 'null') bad.rate_limits = null;
@@ -376,17 +407,27 @@ for (const source of ['main', 'helper'] as const) {
           variant === 'rejected',
         );
         assert.deepEqual(
-          f.session.usage.limits,
+          untimed(f.session.usage.limits),
           variant === 'partial'
             ? [{ window: '5H', percent: 0 }, firstLimits[1]]
             : firstLimits,
         );
+        // a window the report left out keeps the time it was last received
+        assert.deepEqual(
+          f.session.usage.limits!.map(({ observedAt }) => observedAt),
+          [variant === 'partial' ? 2_000 : 1_000, 1_000],
+        );
+        clock.mockReturnValue(3_000);
         const helper = f.helpers[0] ?? (await poll(f));
         const last =
           source === 'helper' ? (await helper.pending()).request_id : '';
         if (source === 'helper') vi.advanceTimersByTime(60_000);
         await helper.reply(report(true), last);
-        assert.deepEqual(f.session.usage.limits, nextLimits);
+        assert.deepEqual(untimed(f.session.usage.limits), nextLimits);
+        assert.deepEqual(
+          f.session.usage.limits!.map(({ observedAt }) => observedAt),
+          [3_000, 3_000],
+        );
         assert.equal(f.helpers.length, 1);
       },
     );
@@ -424,7 +465,7 @@ test(
     assert.deepEqual(f.session.info, info);
     assert.deepEqual(f.session.usage.lines, { added: 4, removed: 1 });
     assert.equal(f.session.usage.context, 12.5);
-    assert.deepEqual(f.session.usage.limits, nextLimits);
+    assert.deepEqual(untimed(f.session.usage.limits), nextLimits);
     const args = f.usageChildren[0]!.args;
     assert.ok(!args.includes('--resume') && !args.includes(info.id));
     assert.ok(args.includes('--strict-mcp-config'));
@@ -597,7 +638,7 @@ for (const failure of ['startup', 'registration'] as const) {
       vi.advanceTimersByTime(1);
       await until('replacement helper', () => f.helpers.length === 2);
       await f.helpers[1]!.reply(report(true));
-      assert.deepEqual(f.session.usage.limits, nextLimits);
+      assert.deepEqual(untimed(f.session.usage.limits), nextLimits);
       assert.equal(f.children[0]!.pid, mainPid);
       assert.equal(f.session.info.id, sessionId);
     },
@@ -644,7 +685,7 @@ test(
       undefined,
       f.helpers[1]!.child.pid,
     ]);
-    assert.deepEqual(f.session.usage.limits, nextLimits);
+    assert.deepEqual(untimed(f.session.usage.limits), nextLimits);
     assert.equal(f.children.length, 1);
   },
 );

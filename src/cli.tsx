@@ -20,10 +20,13 @@ import { Coordinator } from './core/coordinator.js';
 import { SessionCoordination } from './core/coordination.js';
 import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
+import { watchConflicts } from './core/pr-conflicts.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
 import { writeJson } from './persistence/json.js';
+import { DelegationStore } from './persistence/delegation.js';
+import { router } from './core/router.js';
 import { NotificationSchedule } from './persistence/notifications.js';
 import { ScratchSpace } from './persistence/scratch.js';
 import { StateStore } from './persistence/store.js';
@@ -33,6 +36,7 @@ import {
 } from './persistence/directory-recovery.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
+import { clickTarget } from './ui/links.js';
 import { MouseInput, captureMouse, releaseMouse } from './ui/mouse.js';
 import type { Cell, Pointer } from './ui/mouse.js';
 import { Screen, recorded } from './ui/screen.js';
@@ -52,7 +56,7 @@ Options:
   -c, --continue       continue this directory's most recent conversation
   --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
   --recover-directory <old>  preview recovery of a missing directory into this one
-  --apply             apply the directory recovery with all Witches closed
+  --apply              apply the directory recovery with all Witches closed
   -h, --help           show this help
 
 Agent control (use the prefix supplied in the current Witch context):
@@ -69,6 +73,9 @@ Agent control (use the prefix supplied in the current Witch context):
   --answer <id>       answer a peer request; needs --message
   --message <text>    the request or answer text
   --peer-request <id> show a peer request you sent or received
+  --route <work>      choose where review, planning, implementation or investigation goes
+  --of <runtime>:<model>    the runtime and model whose work a review checks
+  --named <runtime>:<model> a model the user or agent named, which runs as named, or a family, at its newest
   --json              print the control result as JSON
 
 Delegated tasks (use the familiar prefix supplied in the current Witch context):
@@ -232,6 +239,8 @@ if (familiar) {
       undefined,
       coordination,
     );
+    const policy = await DelegationStore.open(join(store.root, 'delegation'));
+    coordination.router = router(coordinator, policy);
     // straight to the terminal, since the link screen would read image data as printed text
     const graphics = new Graphics((data) => process.stdout.write(data));
     /** frees the images while the alternate screen that holds them is still active. */
@@ -271,6 +280,7 @@ if (familiar) {
     );
     coordination.updateRepository(repository.snapshot);
     const stopMerges = watchMerges(repository, coordinator, install);
+    const stopConflicts = watchConflicts(repository, coordinator);
     const screen = new Screen(process.stdout);
     const stdin = new MouseInput(process.stdin);
     // output can scroll another link under the pointer before the release, so a click opens the one it pressed
@@ -285,10 +295,20 @@ if (familiar) {
       if (pointer === 'press') pressed = screen.linkAt(cell.column, cell.row);
     });
     stdin.on('click', () => {
-      if (pressed)
-        execFile('/usr/bin/open', [pressed], (error) => {
-          if (error) coordinator.report(error);
-        });
+      if (!pressed) return;
+      clickTarget(pressed, () => coordinator.memoryDirectories())
+        .then((target) => {
+          if ('notice' in target)
+            coordinator.notice(target.notice, undefined, false);
+          else
+            execFile('/usr/bin/open', [target.open], (error) => {
+              if (error)
+                coordinator.notice(errorMessage(error), undefined, false);
+            });
+        })
+        .catch((error: unknown) =>
+          coordinator.notice(errorMessage(error), undefined, false),
+        );
     });
     const application = render(
       <App
@@ -296,13 +316,15 @@ if (familiar) {
         repository={repository}
         jobs={jobs}
         store={store}
+        policy={policy}
         onExit={shutdown}
         onRestart={restart}
         initialPrompt={prompt || undefined}
         graphics={graphics}
         copy={(text) => {
           const child = execFile('/usr/bin/pbcopy', (error) => {
-            if (error) coordinator.report(error);
+            if (error)
+              coordinator.notice(errorMessage(error), undefined, false);
           });
           // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
           child.stdin?.on('error', () => {}).end(text);
@@ -340,6 +362,7 @@ if (familiar) {
       .catch(() => {});
     await application.waitUntilExit();
     stopMerges();
+    stopConflicts();
     stopCoordinationRepository();
     repository.close();
     jobs.close();
