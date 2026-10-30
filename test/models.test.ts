@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { setImmediate } from 'node:timers/promises';
-import { ModelCatalog, modelKey, modelTarget } from '../src/core/models.js';
+import {
+  LATEST_READ_MS,
+  ModelCatalog,
+  modelKey,
+  modelTarget,
+} from '../src/core/models.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { scratch } from './fixtures/scratch.js';
 import { within } from './fixtures/within.js';
@@ -162,6 +167,33 @@ test('latest models are read once per process, again on a refresh or after a fai
   release();
   await assert.rejects(reading);
   assert.equal(reads.at(-1)!.aborted, true);
+});
+
+test('a latest read that has not answered in time is stopped and reported, and the catalog read finishes', async () => {
+  const a = new FixtureAgent('a');
+  let signal: AbortSignal | undefined;
+  a.latest = (options) =>
+    new Promise((_resolve, reject) => {
+      signal = options.signal;
+      signal?.addEventListener('abort', () => reject(signal!.reason));
+    });
+  const errors: unknown[] = [];
+  const catalog = new ModelCatalog([{ adapter: a, executable: 'a' }], (error) =>
+    errors.push(error),
+  );
+  const cwd = await scratch('witch-latest-');
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const reading = catalog.read(cwd);
+    vi.advanceTimersByTime(LATEST_READ_MS - 1);
+    assert.equal(signal!.aborted, false);
+    vi.advanceTimersByTime(1);
+    await reading;
+  } finally {
+    vi.useRealTimers();
+  }
+  assert.match(String(errors[0]), /a: the alias read timed out/);
+  assert.deepEqual(catalog.latest, {});
 });
 
 test('explicit targets parse registered prefixes and retain native IDs containing colons', () => {

@@ -43,6 +43,9 @@ export function modelTarget(
   return { agent, id };
 }
 
+/** an alias read starts a CLI even beside a live session, so one that hasn't answered by then is stopped rather than holding the catalog. */
+export const LATEST_READ_MS = 30_000;
+
 /** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again; each runtime's latest models are kept the same way, whatever the directory. */
 export class ModelCatalog {
   private discovery?: AbortController;
@@ -69,14 +72,24 @@ export class ModelCatalog {
       );
       const latestReads = Promise.allSettled(
         latest.map(async ({ adapter, executable }) => {
-          this.latestModels.set(
-            adapter.id,
-            await adapter.latest!({
-              cwd,
-              executable: executable!,
-              signal: discovery.signal,
-            }),
+          const timeout = new AbortController();
+          const timer = setTimeout(
+            () => timeout.abort(new Error('the alias read timed out')),
+            LATEST_READ_MS,
           );
+          timer.unref();
+          try {
+            this.latestModels.set(
+              adapter.id,
+              await adapter.latest!({
+                cwd,
+                executable: executable!,
+                signal: AbortSignal.any([discovery.signal, timeout.signal]),
+              }),
+            );
+          } finally {
+            clearTimeout(timer);
+          }
         }),
       );
       const results = await Promise.allSettled(
