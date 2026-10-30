@@ -105,18 +105,29 @@ function git(repository: Repository): string {
   ].join(' ');
 }
 
-function pullRequest({ pullRequest: request }: Repository): string | undefined {
-  if (!request) return;
-  const link = hyperlink(`PR#${request.number}`, request.url, '/');
-  if (request.state === 'MERGED') return `${link} ${colors.magenta('MERGED')}`;
-  if (request.state === 'CLOSED') return `${link} CLOSED`;
-  return `${link} ${
-    request.checks === 'passing'
-      ? colors.green('✓')
-      : request.checks === 'failing'
-        ? colors.red('✗')
-        : colors.yellow('…')
-  }`;
+/** a conflict outlasts a failed read of its pull request, which shows it without checks. */
+function pullRequest({
+  pullRequest: request,
+  conflict,
+}: Repository): string | undefined {
+  const shown = request ?? conflict?.pullRequest;
+  if (!shown) return;
+  const link = hyperlink(`PR#${shown.number}`, shown.url, '/');
+  if (shown.state === 'MERGED') return `${link} ${colors.magenta('MERGED')}`;
+  if (shown.state === 'CLOSED') return `${link} CLOSED`;
+  return [
+    link,
+    ...(request
+      ? [
+          request.checks === 'passing'
+            ? colors.green('✓')
+            : request.checks === 'failing'
+              ? colors.red('✗')
+              : colors.yellow('…'),
+        ]
+      : []),
+    ...(conflict ? [colors.red('CONFLICT')] : []),
+  ].join(' ');
 }
 
 /** the live runtime's reset times drop when the first row would overflow `width`, so the others stay visible. */

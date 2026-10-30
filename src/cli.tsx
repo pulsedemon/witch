@@ -20,6 +20,7 @@ import { Coordinator } from './core/coordinator.js';
 import { SessionCoordination } from './core/coordination.js';
 import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
+import { watchConflicts } from './core/pr-conflicts.js';
 import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
@@ -275,6 +276,7 @@ if (familiar) {
     );
     coordination.updateRepository(repository.snapshot);
     const stopMerges = watchMerges(repository, coordinator, install);
+    const stopConflicts = watchConflicts(repository, coordinator);
     const screen = new Screen(process.stdout);
     const stdin = new MouseInput(process.stdin);
     // output can scroll another link under the pointer before the release, so a click opens the one it pressed
@@ -359,6 +361,7 @@ if (familiar) {
       .catch(() => {});
     await application.waitUntilExit();
     stopMerges();
+    stopConflicts();
     stopCoordinationRepository();
     repository.close();
     jobs.close();

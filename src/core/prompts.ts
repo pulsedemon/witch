@@ -14,6 +14,8 @@ import type { Conversation } from './state.js';
 import type { SessionCoordination } from './coordination.js';
 import { mergeContext } from './merge-events.js';
 import type { MergeEvent } from './merge-events.js';
+import { conflictContext } from './pr-conflicts.js';
+import type { Conflict } from './repository.js';
 
 // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
 export const ranCommand =
@@ -72,6 +74,7 @@ export async function nativePrompt({
   command,
   familiarCommand,
   merges = [],
+  conflict,
   usage,
 }: {
   prompt: string;
@@ -90,6 +93,7 @@ export async function nativePrompt({
     runtime: string;
   };
   merges?: readonly MergeEvent[];
+  conflict?: Conflict;
   /** the account usage line, sent with every turn outside the fixed instructions. */
   usage?: string;
 }): Promise<{
@@ -148,6 +152,7 @@ export async function nativePrompt({
     ...(coordination ? [coordination.context] : []),
     ...(usage ? [usage] : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),
+    ...(conflict ? [conflictContext(conflict)] : []),
     ...(pendingContext
       ? [
           'These commands already ran before an interrupt. Use their output as context without running them again:',
