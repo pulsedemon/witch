@@ -3,7 +3,14 @@ import stripAnsi from 'strip-ansi';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
@@ -365,7 +372,9 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       return opened()!.args![0]!;
     };
     write('\u001b[5~'.repeat(10));
-    await open('screenshot image', (url) => url === pathToFileURL(shot).href);
+    // open gets the real path, which differs where TMPDIR sits under a symlink such as macOS /var
+    const shotLink = pathToFileURL(await realpath(shot)).href;
+    await open('screenshot image', (url) => url === shotLink);
     const focused = output.length;
     write('\t');
     await wait('tool focus', () =>

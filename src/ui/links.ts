@@ -1,5 +1,6 @@
 import { tokenize } from '@alcalzone/ansi-tokenize';
 import LinkifyIt from 'linkify-it';
+import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exists } from '../memory/memory.js';
@@ -38,8 +39,22 @@ export function linkTarget(target: string, cwd: string): string {
   return `vscode://file${path.split('/').map(encodeURIComponent).join('/')}${suffix}`;
 }
 
-/** what a click on a drawn link opens, or the notice it shows when the file isn't there. */
+/** what a click on a drawn link opens, or the notice it shows when the file isn't there or isn't an image. */
 export async function clickTarget(
+  url: string,
+  memory: () => Promise<string[]>,
+): Promise<{ open: string } | { notice: string }> {
+  const target = await located(url, memory);
+  if (!('open' in target) || !target.open.startsWith('file://')) return target;
+  // open follows a symlink and picks the app by the real file's type, so a `.png` link to a script would run it
+  const path = fileURLToPath(target.open);
+  const real = await realpath(path);
+  return imageFile.test(real) && (await stat(real)).isFile()
+    ? { open: pathToFileURL(real).href }
+    : { notice: `${path} is not an image file` };
+}
+
+async function located(
   url: string,
   memory: () => Promise<string[]>,
 ): Promise<{ open: string } | { notice: string }> {

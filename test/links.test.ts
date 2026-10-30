@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { styledCharsFromTokens, tokenize } from '@alcalzone/ansi-tokenize';
 import stripAnsi from 'strip-ansi';
@@ -404,6 +405,25 @@ test('a click on a missing file shows a notice, listing both notes when a bare n
   });
   assert.deepEqual(await click('see https://example.com/gone.md'), {
     open: 'https://example.com/gone.md',
+  });
+});
+
+test("a click opens an image only when its real file is one, so a .png link to a script or folder doesn't launch it", async () => {
+  const { cwd, click } = await clickRoots([
+    'project/run.command',
+    'project/shots/real.png',
+  ]);
+  await symlink(join(cwd, 'run.command'), join(cwd, 'shot.png'));
+  await symlink(join(cwd, 'shots', 'real.png'), join(cwd, 'alias.png'));
+  await mkdir(join(cwd, 'folder.png'));
+  assert.deepEqual(await click('see `./shot.png`'), {
+    notice: `${join(cwd, 'shot.png')} is not an image file`,
+  });
+  assert.deepEqual(await click('see `./folder.png`'), {
+    notice: `${join(cwd, 'folder.png')} is not an image file`,
+  });
+  assert.deepEqual(await click('see `./alias.png`'), {
+    open: pathToFileURL(await realpath(join(cwd, 'shots', 'real.png'))).href,
   });
 });
 
