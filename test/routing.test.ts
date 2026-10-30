@@ -139,6 +139,40 @@ test('a named family with no model in the catalog is refused rather than run by 
   );
 });
 
+test('an unversioned model a runtime without aliases lists runs as named, by name or rule, and is not a family', () => {
+  const listed: Catalog = {
+    ...catalog,
+    models: [
+      ...catalog.models,
+      { agent: 'codex', id: 'gpt-reserve', label: 'reserve', efforts: [] },
+    ],
+  };
+  assert.deepEqual(
+    ask({
+      named: { runtime: 'codex', model: 'gpt-reserve' },
+      catalog: listed,
+    }),
+    { runtime: 'codex', model: 'gpt-reserve', reason: 'named explicitly' },
+  );
+  assert.deepEqual(
+    ask({
+      policy: { work: { implementation: 'codex:gpt-reserve' } },
+      catalog: listed,
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-reserve',
+      reason: 'the policy sends implementation to codex:gpt-reserve',
+    },
+  );
+  assert.deepEqual(family('codex', 'gpt-reserve', listed), {
+    refused: 'gpt-reserve names a model, not a family',
+  });
+  assert.deepEqual(resolve('codex', 'gpt-reserve', catalog), {
+    refused: 'codex lists no gpt-reserve model to run',
+  });
+});
+
 test('default and names that are not Claude families are refused, and a policy family must stay a family', () => {
   assert.deepEqual(resolve('claude', 'default', catalog), {
     refused: 'name a claude family or model, not default',
