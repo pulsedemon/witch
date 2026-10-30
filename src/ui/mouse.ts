@@ -145,6 +145,10 @@ export function useWheel(handler: (rows: number) => void): void {
   useMouse('wheel', handler);
 }
 
+export function useClick(handler: () => void): void {
+  useMouse('click', handler);
+}
+
 /** runs `handler` for each left press, drag and release. outside a MouseInput none arrive. */
 export function usePointer(
   handler: (pointer: Pointer, cell: Cell) => void,
