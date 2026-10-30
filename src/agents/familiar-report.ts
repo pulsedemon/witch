@@ -33,6 +33,8 @@ export const familiarActionSchema = z.discriminatedUnion('kind', [
     kind: z.literal('familiar-register'),
     run: z.string().uuid(),
     name: z.string().trim().min(1),
+    /** the wrapper's runtime, since either runtime's session can launch either wrapper. */
+    runtime: z.enum(['claude', 'codex']),
   }),
   z.object({
     kind: z.literal('familiar-update'),

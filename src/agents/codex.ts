@@ -723,7 +723,6 @@ class CodexSession implements AgentSession {
   }
 
   readonly familiar = {
-    runtime: 'claude' as const,
     report: async (
       action: FamiliarAction,
       deadline: number,
@@ -735,6 +734,7 @@ class CodexSession implements AgentSession {
   };
 
   respond(id: string, response: UserResponse): void {
+    if (this.commands.respond(id, response)) return;
     const request = this.requests.get(id);
     if (!request || request.id === undefined) return;
     const params = object.parse(request.params);

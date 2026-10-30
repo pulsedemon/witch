@@ -201,7 +201,7 @@ export async function runCodexFamiliar(
     await file.sync();
   };
   try {
-    await registerFamiliar(binding, run, name, () => stopped);
+    await registerFamiliar(binding, run, name, 'codex', () => stopped);
     registered = true;
     reports.push(progress);
     heartbeat = setInterval(() => reports.push(progress), 2000);

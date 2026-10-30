@@ -989,7 +989,7 @@ export class Coordinator {
             session.familiar && this.coordination
               ? {
                   command: this.coordination.commandPrefixes().familiar,
-                  runtime: session.familiar.runtime,
+                  runtime: session.info.agent,
                 }
               : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),

@@ -742,7 +742,6 @@ class ClaudeSession implements AgentSession {
   }
 
   readonly familiar = {
-    runtime: 'codex' as const,
     report: (
       action: Parameters<ClaudeCommands['report']>[0],
       deadline: number,

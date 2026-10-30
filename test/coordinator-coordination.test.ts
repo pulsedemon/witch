@@ -274,7 +274,6 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   const client = await f.start();
   const native = client.a.sessions[0]!;
   native.session.familiar = {
-    runtime: 'claude',
     report: async () => ({ kind: 'familiar-registered' }),
   };
   await client.coordinator.send('Read the current bindings');
@@ -644,7 +643,7 @@ for (const name of ['claude', 'codex'] as const) {
                   'After position 1',
                   'Keep the suggestion reserved',
                   'Before starting a new task',
-                  'Delegate work to',
+                  'Delegate work only through Witch',
                 ]
               : []),
           ])

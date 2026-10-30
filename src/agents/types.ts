@@ -216,7 +216,6 @@ export interface AgentStopOptions {
 
 export interface AgentSession {
   familiar?: {
-    runtime: 'claude' | 'codex';
     report(action: FamiliarAction, deadline: number): Promise<FamiliarOutcome>;
   };
   readonly info: SessionInfo;
