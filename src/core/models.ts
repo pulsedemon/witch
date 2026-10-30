@@ -43,7 +43,7 @@ export function modelTarget(
   return { agent, id };
 }
 
-/** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again; each runtime's latest models are read once per process the same way. */
+/** an inactive runtime's list is kept until a refresh, so a connect doesn't start that CLI again; each runtime's latest models are kept the same way, whatever the directory. */
 export class ModelCatalog {
   private discovery?: AbortController;
   private readonly lists = new Map<string, Model[]>();

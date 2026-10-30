@@ -67,13 +67,14 @@ test('each /delegation change round-trips through the policy file', async () => 
   }
 });
 
-test('/delegation refuses a default or versioned family, an unknown kind or runtime, and a level out of range', () => {
+test('/delegation refuses a default or versioned family, an unknown kind or runtime, an empty model and a level out of range', () => {
   for (const [argument, refusal] of [
     ['family claude default', 'name a claude family or model, not default.'],
     ['family codex gpt-6-sol', 'gpt-6-sol names a model, not a family.'],
     ['family codex nova', 'codex lists no nova model to run.'],
     ['triage other', /^Use \/delegation/],
     ['review gemini', 'gemini is not installed.'],
+    ['review claude:', /^Use \/delegation/],
     ['review claude:haiku', 'claude lists no haiku model to run.'],
     ['shift 0', 'Use a whole percent from 1 to 100, or off.'],
     ['shift 101', 'Use a whole percent from 1 to 100, or off.'],

@@ -124,7 +124,7 @@ export function App({
   jobs?: Pick<JobWatch, 'list' | 'stop'>;
   /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
   store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
-  /** where /delegation reads and saves the routing policy; without it, /delegation shows the default. */
+  /** where /delegation reads and saves the routing policy; without it, /delegation shows the default and refuses a change. */
   policy?: Parameters<typeof delegation>[1];
   onExit(): void;
   /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */

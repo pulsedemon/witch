@@ -110,7 +110,10 @@ test('a reading is read once while due, and a read in flight is joined', async (
   const read = pending();
   b.limitsRead = () => read.promise;
   const first = usage.refresh('b', '/w');
-  const second = usage.refresh('b', '/w');
+  let joined = false;
+  const second = usage.refresh('b', '/w').then(() => (joined = true));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(joined, false);
   read.settle([window('7D', 40, { observedAt: Date.now() })]);
   await Promise.all([first, second]);
   assert.equal(b.limitReads.length, 1);
