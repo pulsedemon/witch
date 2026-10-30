@@ -103,7 +103,6 @@ async function send(prompt: string, expected?: string): Promise<string> {
   }
 }
 
-/** runs a turn that waits in a tool, calls `during` once the tool starts, and returns the rows the turns added. */
 async function duringTool(
   during: () => Promise<void>,
   expected?: string,
@@ -127,7 +126,6 @@ async function duringTool(
       .some(({ kind }) => kind === 'tool')
   )
     await delay(100);
-  // a turn that ended first throws its own failure
   if (done) await running;
   await during();
   await running;
@@ -272,8 +270,29 @@ try {
     'Create sum.mjs exporting sum(values), which sums numbers. Do not create tests yet. The next agent will add sum.test.mjs using node:test, covering empty, negative and mixed numbers, and run node --test. Stop after creating sum.mjs. Do not commit project files.',
   );
   const sourceId = coordinator.snapshot.conversation!.sessions.codex!.id;
+  const codexCompletion = coordinator.snapshot.completedTurn;
+  assert.ok(codexCompletion);
+  await assert.rejects(readFile(join(project, 'sum.test.mjs'), 'utf8'), {
+    code: 'ENOENT',
+  });
   await coordinator.selectModel({ agent: 'claude', id: claudeModel });
   assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
+  assert.equal(coordinator.snapshot.phase, 'idle');
+  assert.equal(coordinator.snapshot.completedTurn, codexCompletion);
+  assert.equal(coordinator.snapshot.conversation!.handoff?.to, 'claude');
+  assert.equal(coordinator.snapshot.conversation!.handoff?.activated, true);
+  assert.ok(coordinator.snapshot.conversation!.handoff?.summary);
+  await assert.rejects(readFile(join(project, 'sum.test.mjs'), 'utf8'), {
+    code: 'ENOENT',
+  });
+  await send(
+    'Complete the next coding step described in the handoff context. Do not commit project files.',
+  );
+  const claudeCompletion = coordinator.snapshot.completedTurn;
+  assert.ok(claudeCompletion);
+  assert.notEqual(claudeCompletion, codexCompletion);
+  const completedHandoff = coordinator.snapshot.conversation!.handoff;
+  assert.equal(completedHandoff, undefined);
   assert.ok(
     (await readFile(join(project, 'sum.test.mjs'), 'utf8')).includes('test'),
   );
@@ -285,6 +304,10 @@ try {
     ).stdout,
   );
   await coordinator.selectModel({ agent: 'codex', id: codexModel });
+  assert.equal(coordinator.snapshot.phase, 'idle');
+  assert.equal(coordinator.snapshot.completedTurn, claudeCompletion);
+  assert.equal(coordinator.snapshot.conversation!.handoff?.to, 'codex');
+  assert.equal(coordinator.snapshot.conversation!.handoff?.activated, true);
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
   const sourceConversation = coordinator.snapshot.conversation!.id;
   await coordinator.close();
@@ -293,10 +316,12 @@ try {
   await send(
     'Run node --test sum.test.mjs and report the result. Do not change files.',
   );
+  assert.ok(coordinator.snapshot.completedTurn);
+  assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
   assert.equal(coordinator.snapshot.conversation!.sessions.codex!.id, sourceId);
   assert.equal(coordinator.snapshot.recovery, undefined);
   console.log(
-    'PASS: native instructions, steering, steered paths, spells and built-ins, a built-in first turn, fresh memory both ways, project isolation, coding handoff, return-to-agent and restart.',
+    'PASS: native instructions, steering, steered paths, spells and built-ins, a built-in first turn, fresh memory both ways, project isolation, prompted coding handoff, return-to-agent and restart.',
   );
 } finally {
   await coordinator.close();
