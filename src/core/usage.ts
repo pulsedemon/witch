@@ -92,11 +92,24 @@ export class AccountUsage {
     private readonly publish: (limits: Record<string, Limit[]>) => void,
   ) {}
 
-  /** what a runtime reported; a report without limits leaves its reading alone. */
+  /** what a runtime reported; a report without limits leaves its reading alone, and an empty one clears it. */
   report(agent: string, limits: Limit[] | undefined): void {
-    if (!limits || this.limits[agent] === limits) return;
+    if (!limits) return;
+    const previous = this.limits[agent];
+    // a session's first report knows only its own windows, so one it leaves out keeps the earlier reading
+    const kept = limits.length
+      ? (previous ?? []).filter(
+          ({ window }) => !limits.some((limit) => limit.window === window),
+        )
+      : [];
+    const reading = kept.length ? [...limits, ...kept] : limits;
+    if (
+      previous?.length === reading.length &&
+      reading.every((limit, index) => limit === previous[index])
+    )
+      return;
     this.reports.set(agent, (this.reports.get(agent) ?? 0) + 1);
-    this.limits = { ...this.limits, [agent]: limits };
+    this.limits = { ...this.limits, [agent]: reading };
     this.publish(this.limits);
   }
 

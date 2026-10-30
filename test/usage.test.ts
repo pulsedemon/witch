@@ -155,6 +155,18 @@ test('a report that arrives during a probe keeps its value when the probe finish
   assert.equal(published.at(-1)!.b, reported);
 });
 
+test('a window a report leaves out keeps its earlier reading, and the same report again publishes nothing', () => {
+  const { usage, published } = readings();
+  const weekly = window('7D', 95);
+  usage.report('b', [window('5H', 30), weekly]);
+  const sparse = [window('5H', 31)];
+  usage.report('b', sparse);
+  usage.report('b', sparse);
+  assert.equal(published.length, 2);
+  assert.deepEqual(published.at(-1)!.b, [sparse[0], weekly]);
+  assert.equal(over(published.at(-1)!.b!, 90, now), true);
+});
+
 test('a probe receives the reading it may extend, and an empty report clears headroom', async () => {
   const { b, usage, published } = readings();
   const kept = [
