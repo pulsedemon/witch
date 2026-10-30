@@ -232,7 +232,7 @@ test('work shifts to the runtime with room once the chosen one is over the level
   );
 });
 
-test('a review the policy sent away from its producer stays off the producer when the reviewer is over the level', () => {
+test('a review the policy sent away from its producer stays off the producer when the reviewer is over the level, and other work does not', () => {
   const of = { runtime: 'codex', model: 'gpt-6.1-sol' };
   const limits = { claude: [window('7D', 92)], codex: [window('7D', 49)] };
   assert.deepEqual(
@@ -255,6 +255,8 @@ test('a review the policy sent away from its producer stays off the producer whe
     ).runtime,
     'claude',
   );
+  // `--of` is accepted with any work, but only a review stays off its producer
+  assert.equal((ask({ of, limits }) as { runtime: string }).runtime, 'codex');
 });
 
 test('no shift happens without current evidence of room, and the reason says which reading is missing', () => {
