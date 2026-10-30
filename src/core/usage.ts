@@ -97,7 +97,7 @@ export class AccountUsage {
     this.publish(this.limits);
   }
 
-  /** a live session reads its own limits as it connects, which counts as that runtime's attempt; later reads of its runtime go through it. */
+  /** a live session reads its own limits as it connects, which counts as that runtime's attempt; later reads go through its `readLimits`, or wait on its own polling without one. */
   connected(session: AgentSession, cwd: string): void {
     this.session = session;
     this.attempts.set(session.info.agent, Date.now());

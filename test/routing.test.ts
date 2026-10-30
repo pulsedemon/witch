@@ -270,6 +270,24 @@ test('no shift happens without current evidence of room, and the reason says whi
         'implementation stays on claude; claude 7D 92% is at or over 90%, but codex lists no sol model to run',
     },
   );
+  // the reason names the current window that is over, not a stale one beside it
+  assert.deepEqual(
+    ask({
+      limits: {
+        claude: [
+          window('5H', 95),
+          window('7D', 40, now - USAGE_CURRENT_MS - 1),
+        ],
+        codex: [window('7D', 49, now - USAGE_CURRENT_MS - 1)],
+      },
+    }),
+    {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason:
+        "implementation stays on claude; claude 5H 95% is at or over 90%, but codex's 7D reading is not current",
+    },
+  );
 });
 
 test('no shift happens when the chosen runtime has no current window over the level, both are over, or shifting is off', () => {

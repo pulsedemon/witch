@@ -197,7 +197,7 @@ test('the live runtime reads through its session once its connect read ages, and
   }
 });
 
-test('a connect counts as the live runtime attempt and reads the others', async () => {
+test('a connect reads the other runtimes', async () => {
   const { b, usage } = readings();
   usage.connected(live('a'), '/w');
   await Promise.resolve();
