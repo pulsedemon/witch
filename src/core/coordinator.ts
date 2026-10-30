@@ -103,6 +103,10 @@ export class Coordinator {
   private cancelled = false;
   /** memory recovery must keep a failed turn's queue held for the composer. */
   private turnFailed = false;
+  /** the operation's native turn has ended, so only its settlement holds the phase. */
+  private turnEnded = false;
+  /** counts admitted operations, so a waiting choice can tell another one ran. */
+  private operations = 0;
   private closed = false;
   /** a model change accepted after the reply can outlive the native turn. */
   private changingModel?: Promise<void>;
@@ -574,6 +578,8 @@ export class Coordinator {
         this.registration(selection.agent);
         await this.handoff(selection);
       });
+    if (!this.replied && this.snapshot.phase === 'running' && this.turnEnded)
+      await this.settled();
     // a familiar or workflow holding a replied turn open doesn't stop Claude Code taking the change
     if (!this.replied)
       return this.operate('starting', () => this.changeModel(selection));
@@ -586,6 +592,15 @@ export class Coordinator {
     } finally {
       this.changingModel = undefined;
     }
+  }
+
+  /** waits for the ended turn to settle; lapses if Witch was interrupted, the turn or its settlement failed, or another operation ran first. */
+  private async settled(): Promise<void> {
+    const { task, draining, operations } = this;
+    await task?.catch(() => {});
+    await draining?.promise;
+    if (this.operations !== operations || this.cancelled || this.halted())
+      throw new Refusal('Model change canceled');
   }
 
   private async changeModel(selection: ModelSelection): Promise<void> {
@@ -1028,6 +1043,7 @@ export class Coordinator {
       } catch (error) {
         result = { status: 'failed', text: '', error: errorMessage(error) };
       }
+      this.turnEnded = true;
       // first, so the prompts the turn left unread go ahead of those a refused steer gives back
       await steering;
       await this.compaction.busy;
@@ -1435,6 +1451,8 @@ export class Coordinator {
       );
     }
     this.cancelled = false;
+    this.turnEnded = false;
+    this.operations++;
     this.compaction.beginActivity();
     if (expected === 'idle') this.turnFailed = false;
     this.publish({ phase, error: undefined });
