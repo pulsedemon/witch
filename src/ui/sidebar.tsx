@@ -94,7 +94,7 @@ export function usagePlacement(
     },
   };
 }
-/** peer sessions precede local work without taking its last heading and count rows or the pentacle's space. */
+/** peer sessions precede local work without taking its last heading and count rows or the space of the pentacle and usage block. */
 export function Sidebar({
   height,
   activity,

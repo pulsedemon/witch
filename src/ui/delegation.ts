@@ -41,7 +41,7 @@ export function changeDelegation(
   }
   if (second !== 'same' && second !== 'other') {
     const [runtime = '', model] = second.split(/:(.*)/s);
-    if (model === '') return `Use ${delegationUsage}.`;
+    if (!runtime || model === '') return `Use ${delegationUsage}.`;
     if (!installed.includes(runtime)) return `${runtime} is not installed.`;
     const resolved = model
       ? resolve(runtime, model, catalog)

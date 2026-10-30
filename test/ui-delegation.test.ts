@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import { createElement } from 'react';
 import { test } from 'vitest';
 import { defaultPolicy } from '../src/core/routing.js';
@@ -67,7 +68,7 @@ test('each /delegation change round-trips through the policy file', async () => 
   }
 });
 
-test('/delegation refuses a default or versioned family, an unknown kind or runtime, an empty model and a level out of range', () => {
+test('/delegation refuses a default or versioned family, an unknown kind or runtime, an empty runtime or model and a level out of range', () => {
   for (const [argument, refusal] of [
     ['family claude default', 'name a claude family or model, not default.'],
     ['family codex gpt-6-sol', 'gpt-6-sol names a model, not a family.'],
@@ -75,6 +76,7 @@ test('/delegation refuses a default or versioned family, an unknown kind or runt
     ['triage other', /^Use \/delegation/],
     ['review gemini', 'gemini is not installed.'],
     ['review claude:', /^Use \/delegation/],
+    ['review :gpt-6-sol', /^Use \/delegation/],
     ['review claude:haiku', 'claude lists no haiku model to run.'],
     ['shift 0', 'Use a whole percent from 1 to 100, or off.'],
     ['shift 101', 'Use a whole percent from 1 to 100, or off.'],
@@ -120,4 +122,55 @@ test('/delegation shows the policy and saves a change before showing it again', 
   } finally {
     ui.unmount();
   }
+});
+
+test('a refused /delegation change cancels the commands after it', async () => {
+  const { app, calls } = fake({
+    agents: ['claude', 'codex'].map((id) => ({
+      id,
+      label: id,
+      installed: true,
+    })),
+    models: catalog.models,
+    latest: catalog.latest,
+  });
+  const policy = await DelegationStore.open(
+    `${await scratch('witch-delegation-')}/delegation`,
+  );
+  const ui = show(
+    createElement(App, { coordinator: app, policy, onExit: () => {} }),
+  );
+  try {
+    ui.stdin.write(`/delegation shift 0 /clear${ENTER}`);
+    await until('the canceled batch', () =>
+      calls.some(
+        ([name, text]) =>
+          name === 'notice' &&
+          text ===
+            'Commands canceled. Retry explicitly: /delegation shift 0; /clear',
+      ),
+    );
+    assert.ok(
+      calls.some(
+        ([name, text]) =>
+          name === 'notice' &&
+          text === 'Use a whole percent from 1 to 100, or off.',
+      ),
+    );
+    assert.ok(!calls.some(([name]) => name === 'clear'));
+    assert.deepEqual(await policy.read(), defaultPolicy);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('an unreadable policy file is named in the error rather than replaced', async () => {
+  const directory = `${await scratch('witch-delegation-')}/delegation`;
+  const store = await DelegationStore.open(directory);
+  await writeFile(`${directory}/policy.json`, '{"shiftAt": 90,');
+  await assert.rejects(store.read(), {
+    message: new RegExp(
+      `^The delegation policy at ${directory}/policy\\.json is unreadable; fix or delete it\\. `,
+    ),
+  });
 });
