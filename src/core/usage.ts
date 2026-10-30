@@ -109,9 +109,8 @@ export class AccountUsage {
 
   context(
     agents: readonly { id: string; label: string }[],
-    now = Date.now(),
   ): string | undefined {
-    return usageContext(this.limits, agents, now);
+    return usageContext(this.limits, agents, Date.now());
   }
 
   others(live: string, cwd: string): void {

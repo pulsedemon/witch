@@ -73,6 +73,7 @@ test('/delegation refuses a default or versioned family, an unknown kind or runt
     ['family claude default', 'name a claude family or model, not default.'],
     ['family codex gpt-6-sol', 'gpt-6-sol names a model, not a family.'],
     ['family codex nova', 'codex lists no nova model to run.'],
+    ['family claude constructor', 'claude lists no constructor model to run.'],
     ['triage other', /^Use \/delegation/],
     ['review gemini', 'gemini is not installed.'],
     ['review claude:', /^Use \/delegation/],

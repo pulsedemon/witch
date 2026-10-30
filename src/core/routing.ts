@@ -68,7 +68,8 @@ function newest(
   catalog: Catalog,
 ): string | undefined {
   const aliases = catalog.latest[runtime];
-  if (aliases) return aliases[family];
+  if (aliases)
+    return Object.hasOwn(aliases, family) ? aliases[family] : undefined;
   let best: { id: string; version: string } | undefined;
   for (const { agent, id } of catalog.models) {
     if (agent !== runtime) continue;
@@ -134,7 +135,7 @@ export function route({
   caller: string;
   /** the runtime and model that produced the work under review. */
   of?: Choice;
-  /** a model the user or the agent named, which runs as named. */
+  /** a model the user or the agent named, which runs as named, or a family, at its newest. */
   named?: Choice;
   policy: Policy;
   installed: readonly string[];
