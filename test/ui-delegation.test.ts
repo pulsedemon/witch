@@ -6,7 +6,7 @@ import { defaultPolicy } from '../src/core/routing.js';
 import type { Catalog } from '../src/core/routing.js';
 import { DelegationStore } from '../src/persistence/delegation.js';
 import { App } from '../src/ui/app.js';
-import { changeDelegation } from '../src/ui/delegation.js';
+import { changeDelegation, delegationPage } from '../src/ui/delegation.js';
 import { scratch } from './fixtures/scratch.js';
 import { ENTER, fake, show } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
@@ -29,6 +29,7 @@ test('each /delegation change round-trips through the policy file', async () => 
   assert.deepEqual(await store.read(), defaultPolicy);
   let policy = defaultPolicy;
   for (const [argument, expected] of [
+    ['review both', { ...policy, work: { review: 'both' } }],
     ['review other', { ...policy, work: { review: 'other' } }],
     [
       'implementation codex:astra',
@@ -66,6 +67,12 @@ test('each /delegation change round-trips through the policy file', async () => 
     policy = await store.read();
     assert.deepEqual(policy, expected, argument);
   }
+});
+
+test('the policy page shows the rule each kind of work follows when it has none', () => {
+  const page = delegationPage(defaultPolicy, catalog, {}, installed, 0);
+  assert.match(page, /^review +both$/m);
+  assert.match(page, /^implementation +same$/m);
 });
 
 test('/delegation refuses a default or versioned family, an unknown kind or runtime, an empty runtime or model and a level out of range', () => {

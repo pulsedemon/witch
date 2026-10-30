@@ -85,9 +85,9 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('error'), message: z.string() }),
   z.object({
     kind: z.literal('route'),
-    runtime: z.string(),
-    model: z.string(),
-    reason: z.string(),
+    routes: z.array(
+      z.object({ runtime: z.string(), model: z.string(), reason: z.string() }),
+    ),
   }),
 ]);
 const controlResultSchema = controlOutcomeSchema.and(

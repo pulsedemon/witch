@@ -11,7 +11,7 @@ export const work = z.enum([
 ]);
 export type Work = z.infer<typeof work>;
 
-/** `same`, `other`, `<runtime>` or `<runtime>:<model-or-family>`; `same` and `other` are relative to the work's producer for review. */
+/** `same`, `other`, `both`, `<runtime>` or `<runtime>:<model-or-family>`; `same` and `other` are relative to the work's producer for review, and `both` sends work to every installed runtime. */
 const target = z.string().regex(/^[a-z][\w-]*(:.+)?$/);
 
 export const policySchema = z.object({
@@ -23,7 +23,7 @@ export const policySchema = z.object({
 });
 export type Policy = z.infer<typeof policySchema>;
 
-/** chosen defaults; no kind of work is sent to another runtime until the user says so, but usage at `shiftAt` still shifts new work. */
+/** chosen defaults; `ruleFor` places work that has no rule, and usage at `shiftAt` still shifts new work. */
 export const defaultPolicy: Policy = {
   shiftAt: 90,
   families: { claude: 'opus', codex: 'sol' },
@@ -35,7 +35,33 @@ export interface Choice {
   model: string;
 }
 
-export type Route = (Choice & { reason: string }) | { refused: string };
+export type Routed = Choice & { reason: string };
+
+export type Route = { routes: Routed[] } | { refused: string };
+
+/** with no rule, review goes to every installed runtime and other work stays on the runtime asking. */
+export function ruleFor(policy: Policy, kind: Work): string {
+  return policy.work[kind] ?? (kind === 'review' ? 'both' : 'same');
+}
+
+/** families of comparable capability, per each catalog's own descriptions; a shift lands on a runtime's first listed family. */
+const tiers: readonly Readonly<Record<string, readonly string[]>>[] = [
+  { claude: ['opus'], codex: ['astra'] },
+  { claude: ['sonnet'], codex: ['sol', 'terra'] },
+  { claude: ['haiku'], codex: ['luna'] },
+];
+
+/** the family on `to` comparable to a model or family on `from`, matched by a name segment such as `astra` in `gpt-6-astra`. */
+function comparable(
+  from: string,
+  name: string,
+  to: string,
+): string | undefined {
+  const segments = name.split('-');
+  return tiers.find((tier) =>
+    tier[from]?.some((family) => segments.includes(family)),
+  )?.[to]?.[0];
+}
 
 export interface Catalog {
   models: readonly ModelChoice[];
@@ -156,90 +182,116 @@ export function route({
     const resolved = resolve(named.runtime, named.model, catalog);
     if ('refused' in resolved) return resolved;
     return {
-      runtime: named.runtime,
-      model: resolved.model,
-      reason: `named explicitly${evidence(named.runtime)}`,
+      routes: [
+        {
+          runtime: named.runtime,
+          model: resolved.model,
+          reason: `named explicitly${evidence(named.runtime)}`,
+        },
+      ],
     };
   }
   const base = work === 'review' && of ? of.runtime : caller;
-  const other = installed.find((id) => id !== base);
-  const rule = policy.work[work] ?? 'same';
-  const [kind, pinned] = rule.split(/:(.*)/s) as [string, string?];
-  const runtime = kind === 'same' ? base : kind === 'other' ? other : kind;
-  if (!runtime || !installed.includes(runtime))
-    return {
-      refused:
-        kind === 'other'
-          ? `no runtime besides ${base} is installed`
-          : `${runtime ?? kind} is not installed`,
+  const subject = `${work}${work === 'review' && of ? ` of ${of.runtime} work` : ''}`;
+  const place = (
+    rule: string,
+    why: string,
+    mixed = false,
+  ): Routed | { refused: string } => {
+    const [kind, pinned] = rule.split(/:(.*)/s) as [string, string?];
+    const runtime =
+      kind === 'same'
+        ? base
+        : kind === 'other'
+          ? installed.find((id) => id !== base)
+          : kind;
+    if (!runtime || !installed.includes(runtime))
+      return {
+        refused:
+          kind === 'other'
+            ? `no runtime besides ${base} is installed`
+            : `${runtime ?? kind} is not installed`,
+      };
+    const choose = (id: string) => {
+      if (!pinned)
+        return policy.families[id]
+          ? family(id, policy.families[id], catalog)
+          : { refused: `no family is set for ${id}` };
+      if (id === runtime) return resolve(id, pinned, catalog);
+      const match = comparable(runtime, pinned, id);
+      return match
+        ? resolve(id, match, catalog)
+        : { refused: `${id} has no model comparable to ${pinned}` };
     };
-  const choose = (id: string) =>
-    pinned && id === runtime
-      ? resolve(id, pinned, catalog)
-      : policy.families[id]
-        ? family(id, policy.families[id], catalog)
-        : { refused: `no family is set for ${id}` };
-  const chosen = choose(runtime);
-  if ('refused' in chosen) return chosen;
+    const chosen = choose(runtime);
+    if ('refused' in chosen) return chosen;
+    const { shiftAt } = policy;
+    if (shiftAt === null || !over(limits[runtime] ?? [], shiftAt, now))
+      return {
+        runtime,
+        model: chosen.model,
+        reason: `${why}${evidence(runtime)}`,
+      };
+    const hot = describeReading(
+      runtime,
+      limits[runtime]!.filter(
+        (limit) => current(limit, now) && limit.percent >= shiftAt,
+      ),
+      now,
+    )!;
+    const blocked: string[] = [];
+    // a review the policy sent away from its producer never shifts back onto it, unless the producer reviews too
+    const producer =
+      !mixed && work === 'review' && of?.runtime !== runtime
+        ? of?.runtime
+        : undefined;
+    for (const id of installed) {
+      if (id === runtime) continue;
+      if (id === producer) {
+        blocked.push(`${id} produced the work`);
+        continue;
+      }
+      if (!headroom(limits[id] ?? [], shiftAt, now)) {
+        blocked.push(
+          limits[id]?.length && limits[id].every((limit) => current(limit, now))
+            ? `${id} is at ${shiftAt}% or more too`
+            : reading(id, limits[id], now),
+        );
+        continue;
+      }
+      const shifted = choose(id);
+      if ('refused' in shifted) {
+        blocked.push(shifted.refused);
+        continue;
+      }
+      return {
+        runtime: id,
+        model: shifted.model,
+        reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, limits[id], now)} has room${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
+      };
+    }
+    return {
+      runtime,
+      model: chosen.model,
+      reason: `${why}; ${hot} is at or over ${shiftAt}%, but ${blocked.join(', ') || 'no other runtime is installed'}`,
+    };
+  };
+  const rule = ruleFor(policy, work);
+  if (rule === 'both') {
+    const routes: Routed[] = [];
+    for (const runtime of installed) {
+      const placed = place(runtime, `${subject} goes to every runtime`, true);
+      if ('refused' in placed) return placed;
+      routes.push(placed);
+    }
+    return { routes };
+  }
   const why =
     rule === 'same'
       ? work === 'review' && of
         ? `${work} stays on ${of.runtime}, which produced it`
         : `${work} stays on ${caller}`
-      : `the policy sends ${work}${work === 'review' && of ? ` of ${of.runtime} work` : ''} to ${rule}`;
-  const exactPin = pinned !== undefined && exact(pinned);
-  const { shiftAt } = policy;
-  if (shiftAt === null || exactPin)
-    return {
-      runtime,
-      model: chosen.model,
-      reason: `${why}${evidence(runtime)}`,
-    };
-  if (!over(limits[runtime] ?? [], shiftAt, now))
-    return {
-      runtime,
-      model: chosen.model,
-      reason: `${why}${evidence(runtime)}`,
-    };
-  const hot = describeReading(
-    runtime,
-    limits[runtime]!.filter(
-      (limit) => current(limit, now) && limit.percent >= shiftAt,
-    ),
-    now,
-  )!;
-  const blocked: string[] = [];
-  // a review the policy sent away from its producer never shifts back onto it
-  const producer =
-    work === 'review' && of?.runtime !== runtime ? of?.runtime : undefined;
-  for (const id of installed) {
-    if (id === runtime) continue;
-    if (id === producer) {
-      blocked.push(`${id} produced the work`);
-      continue;
-    }
-    if (!headroom(limits[id] ?? [], shiftAt, now)) {
-      blocked.push(
-        limits[id]?.length && limits[id].every((limit) => current(limit, now))
-          ? `${id} is at ${shiftAt}% or more too`
-          : reading(id, limits[id], now),
-      );
-      continue;
-    }
-    const shifted = choose(id);
-    if ('refused' in shifted) {
-      blocked.push(shifted.refused);
-      continue;
-    }
-    return {
-      runtime: id,
-      model: shifted.model,
-      reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, limits[id], now)} has room`,
-    };
-  }
-  return {
-    runtime,
-    model: chosen.model,
-    reason: `${why}; ${hot} is at or over ${shiftAt}%, but ${blocked.join(', ') || 'no other runtime is installed'}`,
-  };
+      : `the policy sends ${subject} to ${rule}`;
+  const placed = place(rule, why);
+  return 'refused' in placed ? placed : { routes: [placed] };
 }
