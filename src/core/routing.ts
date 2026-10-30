@@ -65,13 +65,17 @@ function comparable(
 
 export interface Catalog {
   models: readonly ModelChoice[];
-  /** each runtime's family aliases and the concrete model each names. */
+  /** each runtime's family aliases and the concrete model each names; a runtime with aliases resolves every unversioned name through them. */
   latest: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
-/** a name with a version names one model; any other name is a family, which resolves to its newest model. */
-function exact(name: string): boolean {
-  return /\d/.test(name);
+/** a name with a version names one model, as does an unversioned id listed by a runtime without aliases; any other name is a family, which resolves to its newest model. */
+function exact(runtime: string, name: string, catalog: Catalog): boolean {
+  return (
+    /\d/.test(name) ||
+    (!catalog.latest[runtime] &&
+      catalog.models.some(({ agent, id }) => agent === runtime && id === name))
+  );
 }
 
 function version(text: string): number[] {
@@ -115,7 +119,7 @@ export function resolve(
 ): { model: string } | { refused: string } {
   if (name === 'default')
     return { refused: `name a ${runtime} family or model, not default` };
-  if (exact(name)) return { model: name };
+  if (exact(runtime, name, catalog)) return { model: name };
   const model = newest(runtime, name, catalog);
   return model
     ? { model }
@@ -128,7 +132,7 @@ export function family(
   name: string,
   catalog: Catalog,
 ): { model: string } | { refused: string } {
-  return exact(name)
+  return exact(runtime, name, catalog)
     ? { refused: `${name} names a model, not a family` }
     : resolve(runtime, name, catalog);
 }

@@ -133,7 +133,7 @@ test('catalog cancellation waits for every discovery to finish cleanup before re
 });
 
 test('latest models are read once per process, again on a refresh or after a failure, and cancel with discovery', async () => {
-  const a = new FixtureAgent('a');
+  const [a, b] = [new FixtureAgent('a'), new FixtureAgent('b')];
   const reads: (AbortSignal | undefined)[] = [];
   let failing = true;
   const gate: { hold?: Promise<void> } = {};
@@ -145,12 +145,16 @@ test('latest models are read once per process, again on a refresh or after a fai
     return { opus: 'a-opus-2' };
   };
   const errors: unknown[] = [];
-  const catalog = new ModelCatalog([{ adapter: a, executable: 'a' }], (error) =>
-    errors.push(error),
+  const catalog = new ModelCatalog(
+    [
+      { adapter: a, executable: 'a' },
+      { adapter: b, executable: 'b' },
+    ],
+    (error) => errors.push(error),
   );
   const cwd = await scratch('witch-latest-');
   await catalog.read(cwd);
-  assert.deepEqual(catalog.latest, {});
+  assert.deepEqual(catalog.latest, { a: {} });
   assert.match(String(errors[0]), /a: latest failed/);
   failing = false;
   await catalog.read(cwd);
@@ -193,7 +197,7 @@ test('a latest read that has not answered in time is stopped and reported, and t
     vi.useRealTimers();
   }
   assert.match(String(errors[0]), /a: the alias read timed out/);
-  assert.deepEqual(catalog.latest, {});
+  assert.deepEqual(catalog.latest, { a: {} });
 });
 
 test('explicit targets parse registered prefixes and retain native IDs containing colons', () => {

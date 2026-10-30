@@ -131,9 +131,16 @@ export class ModelCatalog {
     }
   }
 
-  /** each runtime's family aliases and the concrete model each names, read past native pins. */
+  /** each runtime's family aliases and the concrete model each names, read past native pins; a runtime whose read hasn't succeeded has none, so routing can't run its aliases by name. */
   get latest(): Record<string, Record<string, string>> {
-    return Object.fromEntries(this.latestModels);
+    return Object.fromEntries(
+      this.registrations
+        .filter(({ adapter, executable }) => executable && adapter.latest)
+        .map(({ adapter }) => [
+          adapter.id,
+          this.latestModels.get(adapter.id) ?? {},
+        ]),
+    );
   }
 
   cancel(reason?: unknown): void {
