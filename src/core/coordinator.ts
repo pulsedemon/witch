@@ -87,6 +87,9 @@ interface Launch {
 /** another operation holds the phase, so nothing ran and nothing failed. */
 class Refusal extends Error {}
 
+const aborted = (error: unknown) =>
+  error instanceof Error && error.name === 'AbortError';
+
 export class Coordinator {
   readonly pentacle = new PentacleActivity();
   snapshot: Snapshot;
@@ -556,13 +559,7 @@ export class Coordinator {
           if (!refresh.cancelled)
             this.publish({ models, latest: this.catalog.latest });
         } catch (error) {
-          if (
-            !refresh.cancelled ||
-            this.closed ||
-            !(error instanceof Error) ||
-            error.name !== 'AbortError'
-          )
-            throw error;
+          if (!refresh.cancelled || this.closed || !aborted(error)) throw error;
         }
       });
       return !refresh.cancelled;
@@ -764,12 +761,7 @@ export class Coordinator {
       try {
         await this.editFile(file, this.editorCancellation.signal);
       } catch (error) {
-        if (
-          !this.cancelled ||
-          !(error instanceof Error) ||
-          error.name !== 'AbortError'
-        )
-          throw error;
+        if (!this.cancelled || !aborted(error)) throw error;
       } finally {
         this.editorCancellation = undefined;
       }
@@ -1165,12 +1157,7 @@ export class Coordinator {
     try {
       return await this.connect(this.current().agent, turnScope);
     } catch (error) {
-      if (
-        !this.cancelled ||
-        !(error instanceof Error) ||
-        error.name !== 'AbortError'
-      )
-        throw error;
+      if (!this.cancelled || !aborted(error)) throw error;
     }
   }
 
