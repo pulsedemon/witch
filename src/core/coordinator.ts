@@ -20,11 +20,12 @@ import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { identifyProcess } from '../persistence/process.js';
-import { missingConversationDirectories } from '../persistence/directory-recovery.js';
-import { quote } from '../shell.js';
 import { updateBackgroundActivity } from './background-activity.js';
 import { castRow } from './spells.js';
-import { recoverConversations } from './startup-recovery.js';
+import {
+  missingDirectoryNotice,
+  recoverConversations,
+} from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { listFiles } from './files.js';
 import {
@@ -214,27 +215,8 @@ export class Coordinator {
       () => undefined,
       errorMessage,
     );
-    try {
-      const missing = await missingConversationDirectories(this.store);
-      if (missing.length)
-        this.notice(
-          [
-            'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
-            ...missing.map(
-              ({ cwd, conversations }) =>
-                `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(this.store.root)} --recover-directory ${quote(cwd)}`,
-            ),
-          ].join('\n'),
-          undefined,
-          false,
-        );
-    } catch (error) {
-      this.notice(
-        `Could not inspect missing conversation directories: ${errorMessage(error)}`,
-        undefined,
-        false,
-      );
-    }
+    const missing = await missingDirectoryNotice(this.store);
+    if (missing) this.notice(missing, undefined, false);
     // a failed scope read fails both, so its message shows once
     await this.settle(
       [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
