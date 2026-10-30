@@ -544,6 +544,7 @@ export class Coordinator {
   /** returns false when canceled; a replied turn keeps its catalog because reinitialization needs idle. */
   async refreshModels(): Promise<boolean> {
     if (this.replied) return true;
+    if (!(await this.settled())) return false;
     const refresh = { cancelled: false };
     try {
       await this.operate('starting', async () => {
@@ -578,8 +579,8 @@ export class Coordinator {
         this.registration(selection.agent);
         await this.handoff(selection);
       });
-    if (!this.replied && this.snapshot.phase === 'running' && this.turnEnded)
-      await this.settled();
+    if (!this.replied && !(await this.settled()))
+      throw new Refusal('Model change canceled');
     // a familiar or workflow holding a replied turn open doesn't stop Claude Code taking the change
     if (!this.replied)
       return this.operate('starting', () => this.changeModel(selection));
@@ -594,13 +595,13 @@ export class Coordinator {
     }
   }
 
-  /** waits for the ended turn to settle; lapses if Witch was interrupted, the turn or its settlement failed, or another operation ran first. */
-  private async settled(): Promise<void> {
+  /** waits for an ended turn to settle; false if Witch was interrupted, the turn or its settlement failed, or another operation ran first. */
+  private async settled(): Promise<boolean> {
+    if (!this.turnEnded || this.snapshot.phase !== 'running') return true;
     const { task, draining, operations } = this;
     await task?.catch(() => {});
     await draining?.promise;
-    if (this.operations !== operations || this.cancelled || this.halted())
-      throw new Refusal('Model change canceled');
+    return this.operations === operations && !this.cancelled && !this.halted();
   }
 
   private async changeModel(selection: ModelSelection): Promise<void> {
