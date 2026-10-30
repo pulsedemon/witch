@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Box, Text } from 'ink';
 import { basename } from 'node:path';
-import type { BackgroundCommand, Limit } from '../agents/types.js';
+import type { BackgroundCommand } from '../agents/types.js';
 import type { TimedSubagent } from '../core/snapshot.js';
 import { familiarIdentity } from '../core/familiars.js';
 import type { CoordinationSnapshot } from '../core/coordination-state.js';
@@ -12,6 +12,7 @@ import { peerStatus, peerTitle } from './peers.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
 import { windowText } from './status-line.js';
+import type { Account } from './status-line.js';
 import { wrapLines } from './wrap.js';
 
 /** the text's width; the pentacle centers in it, sized by `rows`, its shorter side. */
@@ -55,12 +56,6 @@ function lineage(
   };
   visit(undefined, 0);
   return lines;
-}
-
-export interface Account {
-  id: string;
-  /** `undefined` until a reading arrives. */
-  limits?: readonly Limit[];
 }
 
 /** a heading, then a row per window or one `?` row per runtime. */

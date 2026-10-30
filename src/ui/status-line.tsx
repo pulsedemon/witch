@@ -8,14 +8,20 @@ import type { Repository } from '../core/repository.js';
 import { hyperlink, oneLine, plain } from './links.js';
 import { colors, piped } from './theme.js';
 
+export interface Account {
+  id: string;
+  /** `undefined` until a reading arrives. */
+  limits?: readonly Limit[];
+}
+
 export interface Status {
   model?: string;
   effort?: string;
   usage: Usage;
   /** the live runtime's account limits; absent while the sidebar shows every runtime's. */
   limits?: readonly Limit[];
-  /** each other runtime's limits, `undefined` until one is read, in runtime order. */
-  others?: readonly { id: string; limits?: readonly Limit[] }[];
+  /** each other runtime's limits, in runtime order. */
+  others?: readonly Account[];
   /** epoch milliseconds. */
   openedAt?: number;
   cwd: string;

@@ -1,7 +1,7 @@
 import type { Limit } from '../agents/types.js';
 import { family, resolve, work } from '../core/routing.js';
 import type { Catalog, Policy } from '../core/routing.js';
-import { current } from '../core/usage.js';
+import { describeReading } from '../core/usage.js';
 
 export const delegationUsage =
   '/delegation <kind> <same|other|runtime[:model or family]|clear>, /delegation family <runtime> <family> or /delegation shift <1-100|off>';
@@ -63,16 +63,10 @@ export function delegationPage(
     const resolved = family(runtime, name, catalog);
     return `${runtime}  ${name} → ${'refused' in resolved ? 'unavailable' : resolved.model}`;
   });
-  const usage = installed.map((runtime) => {
-    const reading = limits[runtime];
-    if (!reading?.length) return `${runtime}  no reading`;
-    return `${runtime}  ${reading
-      .map(
-        (limit) =>
-          `${limit.window} ${Math.round(limit.percent)}%${current(limit, now) ? '' : `, ${Math.floor((now - limit.observedAt) / 60_000)} minutes old`}`,
-      )
-      .join(', ')}`;
-  });
+  const usage = installed.map(
+    (runtime) =>
+      describeReading(runtime, limits[runtime], now) ?? `${runtime} no reading`,
+  );
   return [
     'Work goes where its rule sends it; with no rule it stays on the runtime asking, or for review on the runtime that produced the work.',
     '',

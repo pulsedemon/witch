@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Limit } from '../agents/types.js';
 import type { ModelChoice } from './models.js';
-import { current, headroom, over } from './usage.js';
+import { current, describeReading, headroom, over } from './usage.js';
 
 export const work = z.enum([
   'review',
@@ -113,12 +113,9 @@ function reading(
 ): string {
   if (!limits?.length) return `${runtime} has no usage reading`;
   const stale = limits.filter((limit) => !current(limit, now));
-  const windows = limits
-    .map(({ window, percent }) => `${window} ${Math.round(percent)}%`)
-    .join(', ');
   return stale.length
     ? `${runtime}'s ${stale.map(({ window }) => window).join(' and ')} reading is not current`
-    : `${runtime} ${windows}`;
+    : describeReading(runtime, limits, now)!;
 }
 
 export function route({

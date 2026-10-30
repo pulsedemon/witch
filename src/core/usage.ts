@@ -40,6 +40,24 @@ export function due(limits: readonly Limit[], now: number): boolean {
   return limits.length === 0 || limits.some((limit) => !current(limit, now));
 }
 
+/** `Codex 7D 49%`, with the oldest window's age when one isn't current; `undefined` with no window. */
+export function describeReading(
+  name: string,
+  reading: readonly Limit[] | undefined,
+  now: number,
+): string | undefined {
+  if (!reading?.length) return;
+  const windows = reading
+    .map(({ window, percent }) => `${window} ${Math.round(percent)}%`)
+    .join(', ');
+  if (reading.every((limit) => current(limit, now)))
+    return `${name} ${windows}`;
+  const age = Math.floor(
+    (now - Math.min(...reading.map(({ observedAt }) => observedAt))) / 60_000,
+  );
+  return `${name} ${windows}, not current (${age} minutes old)`;
+}
+
 /** one context line for the agent; a runtime with no window is left out, and none at all leaves no line. */
 export function usageContext(
   limits: Readonly<Record<string, readonly Limit[]>>,
@@ -47,17 +65,8 @@ export function usageContext(
   now: number,
 ): string | undefined {
   const readings = agents.flatMap(({ id, label }) => {
-    const reading = limits[id];
-    if (!reading?.length) return [];
-    const windows = reading
-      .map(({ window, percent }) => `${window} ${Math.round(percent)}%`)
-      .join(', ');
-    if (reading.every((limit) => current(limit, now)))
-      return [`${label} ${windows}`];
-    const age = Math.floor(
-      (now - Math.min(...reading.map(({ observedAt }) => observedAt))) / 60_000,
-    );
-    return [`${label} ${windows}, not current (${age} minutes old)`];
+    const reading = describeReading(label, limits[id], now);
+    return reading ? [reading] : [];
   });
   return readings.length
     ? `Account usage: ${readings.join('; ')}. A reading older than ${USAGE_CURRENT_MS / 60_000} minutes or past its reset is not current.`
