@@ -209,8 +209,15 @@ export function route({
     now,
   )!;
   const blocked: string[] = [];
+  // a review the policy sent away from its producer never shifts back onto it
+  const producer =
+    work === 'review' && of?.runtime !== runtime ? of?.runtime : undefined;
   for (const id of installed) {
     if (id === runtime) continue;
+    if (id === producer) {
+      blocked.push(`${id} produced the work`);
+      continue;
+    }
     if (!headroom(limits[id] ?? [], shiftAt, now)) {
       blocked.push(
         limits[id]?.length && limits[id].every((limit) => current(limit, now))

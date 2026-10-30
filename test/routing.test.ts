@@ -232,6 +232,31 @@ test('work shifts to the runtime with room once the chosen one is over the level
   );
 });
 
+test('a review the policy sent away from its producer stays off the producer when the reviewer is over the level', () => {
+  const of = { runtime: 'codex', model: 'gpt-6.1-sol' };
+  const limits = { claude: [window('7D', 92)], codex: [window('7D', 49)] };
+  assert.deepEqual(
+    ask({ work: 'review', of, policy: { work: { review: 'other' } }, limits }),
+    {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason:
+        'the policy sends review of codex work to other; claude 7D 92% is at or over 90%, but codex produced the work',
+    },
+  );
+  // with no rule the review stays with its producer, so it may shift away
+  assert.equal(
+    (
+      ask({
+        work: 'review',
+        of,
+        limits: { claude: [window('7D', 40)], codex: [window('7D', 92)] },
+      }) as { runtime: string }
+    ).runtime,
+    'claude',
+  );
+});
+
 test('no shift happens without current evidence of room, and the reason says which reading is missing', () => {
   const over = [window('7D', 92)];
   const cases: [Limit[] | undefined, string][] = [
