@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { promises as files } from 'node:fs';
 import {
   chmod,
   copyFile,
@@ -12,8 +13,9 @@ import {
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { parseCommand } from '../src/cli-control.js';
+import { FamiliarReports } from '../src/cli-familiar.js';
 import { ControlHost } from '../src/persistence/control.js';
 import type {
   ControlRequest,
@@ -249,6 +251,48 @@ test('SIGTERM escalates for an unresponsive child and reports stopped without ac
     await f.close();
   }
 });
+
+for (const kind of ['permission', 'malformed'] as const)
+  test(`a retry wait crossing the deadline preserves the ${kind} reply failure`, async (t) => {
+    const directory = await scratch('familiar-retry-deadline-');
+    await mkdir(join(directory, 'inbox'));
+    await mkdir(join(directory, 'replies'));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const originalRead = files.readFile;
+    let advance: ReturnType<typeof setTimeout> | undefined;
+    t.onTestFinished(() => clearTimeout(advance));
+    vi.spyOn(files, 'readFile').mockImplementation(
+      async (...args: Parameters<typeof files.readFile>) => {
+        if (!String(args[0]).startsWith(join(directory, 'replies')))
+          return originalRead(...args);
+        now.mockReturnValue(10_950);
+        advance = setTimeout(() => now.mockReturnValue(11_001), 0);
+        if (kind === 'permission')
+          throw Object.assign(new Error('EACCES: reply unreadable'), {
+            code: 'EACCES',
+          });
+        return '{\n';
+      },
+    );
+    const failed = Promise.withResolvers<Error>();
+    const reports = new FamiliarReports(
+      { directory, conversation: 'owner', activation: randomUUID() },
+      randomUUID(),
+      failed.resolve,
+    );
+    reports.push({ status: 'running' });
+    const error = await within(failed.promise, 3000, 'original reply failure');
+    assert.match(
+      error.message,
+      kind === 'permission' ? /EACCES: reply unreadable/ : /JSON/,
+    );
+    assert.equal(reports.error, error);
+    await assert.rejects(
+      reports.finish({ status: 'completed', report: 'not delivered' }),
+      (failure) => failure === error,
+    );
+    assert.equal((await files.readdir(join(directory, 'inbox'))).length, 1);
+  });
 
 test('an explicit reporting rejection stops its child and exits failed', async () => {
   const f = await fixture('ignore-term', async (request) =>

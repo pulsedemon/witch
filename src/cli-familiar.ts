@@ -109,6 +109,7 @@ export class FamiliarReports {
             Math.min(deadline, Date.now() + 1500),
           );
         } catch (error) {
+          if (Date.now() < deadline) await delay(100);
           if (Date.now() >= deadline) {
             if (
               progress.status === 'running' &&
@@ -117,7 +118,6 @@ export class FamiliarReports {
               break;
             throw error;
           }
-          await delay(100);
           continue;
         }
         if (outcome.kind === 'error') throw new Error(outcome.message);
