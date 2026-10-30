@@ -372,3 +372,52 @@ test('selection commands validate bindings and action-specific arguments before 
     /complete control prefix/,
   );
 });
+
+test('peer request commands pair --message with --ask or --answer', () => {
+  const claim = randomUUID(),
+    request = randomUUID();
+  const binding = [
+    '--control-dir',
+    '/private/control',
+    '--control-conversation',
+    'conversation',
+    '--control-activation',
+    randomUUID(),
+  ];
+  const action = (args: string[]) =>
+    parseCommand([...binding, ...args]).control!.action;
+  assert.deepEqual(action(['--ask', claim, '--message', ' What port? ']), {
+    kind: 'ask',
+    claim,
+    message: 'What port?',
+  });
+  assert.deepEqual(action(['--answer', request, '--message', '4000']), {
+    kind: 'answer',
+    request,
+    message: '4000',
+  });
+  assert.deepEqual(action(['--peer-request', request]), {
+    kind: 'peer-request',
+    request,
+  });
+  assert.throws(() => action(['--ask', claim]), {
+    message: '--ask and --answer require --message.',
+  });
+  assert.throws(() => action(['--answer', request]), {
+    message: '--ask and --answer require --message.',
+  });
+  for (const extra of [['--peers'], ['--peer-request', request]])
+    assert.throws(() => action([...extra, '--message', 'x']), {
+      message: '--message requires --ask or --answer.',
+    });
+  for (const message of ['', '   '])
+    assert.throws(() => action(['--ask', claim, '--message', message]), {
+      name: 'ZodError',
+    });
+  for (const pair of [
+    ['--ask', claim, '--answer', request, '--message', 'x'],
+    ['--ask', claim, '--message', 'x', '--peers'],
+    ['--peer-request', request, '--release', claim],
+  ])
+    assert.throws(() => action(pair), /Choose exactly one control action/);
+});

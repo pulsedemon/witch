@@ -28,6 +28,8 @@ import type {
 import type { ProcessIdentity } from '../core/state.js';
 import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
 import type { MergeEvent } from '../core/merge-events.js';
+import { answerable, peerRequestSchema } from '../core/peer-requests.js';
+import type { PeerRequest } from '../core/peer-requests.js';
 import type { PullRequest } from '../core/repository.js';
 import { identifyProcesses, sameProcess } from './process.js';
 import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
@@ -137,6 +139,18 @@ export class ClaimConflict extends Error {
   }
 }
 
+function parties(
+  requests: readonly PeerRequest[],
+  project: string,
+  conversation: string,
+): PeerRequest[] {
+  return requests.filter(
+    (request) =>
+      request.project === project &&
+      (request.from === conversation || request.to === conversation),
+  );
+}
+
 export function checkDeadline(deadline: number): number {
   const remaining = deadline - Date.now();
   if (remaining <= 0) throw new Error('Coordination request expired.');
@@ -224,6 +238,151 @@ export class CoordinationStore {
     } finally {
       await lock.close();
     }
+  }
+
+  private async readPeerRequests(): Promise<PeerRequest[]> {
+    return (
+      (await readJson(
+        join(this.directory, 'peer-requests.json'),
+        z.array(peerRequestSchema),
+      )) ?? []
+    );
+  }
+
+  async peerRequests(
+    project: string,
+    conversation: string,
+  ): Promise<PeerRequest[]> {
+    return parties(await this.readPeerRequests(), project, conversation);
+  }
+
+  async peerRequest(owner: ClaimOwner, id: string): Promise<PeerRequest> {
+    const found = (
+      await this.peerRequests(owner.project, owner.conversation)
+    ).find((request) => request.id === id);
+    if (!found)
+      throw new Error(
+        `Peer request ${id} was not sent to or by this conversation.`,
+      );
+    return found;
+  }
+
+  /** a repeated ask returns the recorded request, whatever its status, so a retry can't buy a second answer turn. */
+  async askPeer(
+    sender: ClaimOwner,
+    claim: string,
+    message: string,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<PeerRequest> {
+    const lock = await this.lock(deadline);
+    try {
+      const requests = await this.readPeerRequests();
+      const existing = requests.find(
+        (request) =>
+          request.project === sender.project &&
+          request.from === sender.conversation &&
+          request.claim === claim &&
+          request.message === message.trim(),
+      );
+      if (existing) return existing;
+      const ledger = await this.reconcile(await this.read(), deadline);
+      const owned = ledger.claims.find(({ id }) => id === claim);
+      if (!owned)
+        throw new Error(
+          `No session claims ${claim}. Query --peers --json for claim ids.`,
+        );
+      if (owned.owner.conversation === sender.conversation)
+        throw new Error('This conversation owns that claim.');
+      await verify(ledger);
+      const request = peerRequestSchema.parse({
+        id: randomUUID(),
+        project: sender.project,
+        from: sender.conversation,
+        to: owned.owner.conversation,
+        claim,
+        reference: owned.references[0],
+        message,
+        askedAt: new Date().toISOString(),
+      });
+      checkDeadline(deadline);
+      await this.writePeerRequests([...requests, request]);
+      return request;
+    } finally {
+      await lock.close();
+    }
+  }
+
+  /** stamps the conversation's answerable requests so each gets one automatic answer attempt. */
+  async attemptPeerRequests(
+    project: string,
+    conversation: string,
+    deadline: number,
+    verify: (ledger: Ledger) => Promise<void>,
+  ): Promise<{ attempted: PeerRequest[]; requests: PeerRequest[] }> {
+    const lock = await this.lock(deadline);
+    try {
+      const ledger = await this.reconcile(await this.read(), deadline);
+      await verify(ledger);
+      const stored = await this.readPeerRequests();
+      const batch = new Set(
+        answerable(stored, conversation, project, ledger.claims),
+      );
+      if (!batch.size)
+        return {
+          attempted: [],
+          requests: parties(stored, project, conversation),
+        };
+      const attemptedAt = new Date().toISOString();
+      const attempted: PeerRequest[] = [];
+      const requests = stored.map((request) => {
+        if (!batch.has(request)) return request;
+        const stamped = peerRequestSchema.parse({ ...request, attemptedAt });
+        attempted.push(stamped);
+        return stamped;
+      });
+      checkDeadline(deadline);
+      await this.writePeerRequests(requests);
+      return {
+        attempted,
+        requests: parties(requests, project, conversation),
+      };
+    } finally {
+      await lock.close();
+    }
+  }
+
+  async answerPeer(
+    conversation: string,
+    id: string,
+    message: string,
+    deadline: number,
+  ): Promise<PeerRequest> {
+    const lock = await this.lock(deadline);
+    try {
+      const requests = await this.readPeerRequests();
+      const index = requests.findIndex((request) => request.id === id);
+      const request = requests[index];
+      if (request?.to !== conversation)
+        throw new Error(
+          `Peer request ${id} is not addressed to this conversation.`,
+        );
+      if (request.answer)
+        throw new Error(`Peer request ${id} already has an answer.`);
+      const answer = peerRequestSchema.parse({
+        ...request,
+        answer: { message, answeredAt: new Date().toISOString() },
+      });
+      checkDeadline(deadline);
+      await this.writePeerRequests(requests.with(index, answer));
+      return answer;
+    } finally {
+      await lock.close();
+    }
+  }
+
+  private async writePeerRequests(requests: PeerRequest[]): Promise<void> {
+    await writeJson(join(this.directory, 'peer-requests.json'), requests);
   }
 
   async publish(presence: SessionPresence): Promise<void> {

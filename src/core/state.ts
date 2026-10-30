@@ -12,6 +12,7 @@ const session = z.object({
   deliveredInstructionsRevision: z.string().optional(),
   deliveredProject: z.string().optional(),
   deliveredMerges: z.array(z.string()).optional(),
+  deliveredAnswers: z.array(z.string()).optional(),
 });
 
 export const conversationSchema = z.object({
@@ -185,16 +186,33 @@ export function recordSession(
     id: info.id,
     model: info.model,
     hasHistory: info.hasHistory,
-    // a replacement session has seen neither the memory snapshot nor the fixed instructions
-    deliveredRevision:
-      previous?.id === info.id ? previous.deliveredRevision : undefined,
-    deliveredInstructionsRevision:
-      previous?.id === info.id
-        ? previous.deliveredInstructionsRevision
-        : undefined,
   };
-  if (previous?.id !== info.id)
-    delete conversation.sessions[agent]!.deliveredMerges;
+  if (previous?.id !== info.id) clearDelivery(conversation.sessions[agent]!);
+}
+
+type NativeSession = z.infer<typeof session>;
+
+/** adds the events a completed turn's context delivered to the native session. */
+export function recordDelivery(
+  reference: NativeSession,
+  delivered: { merges: readonly string[]; answers: readonly string[] },
+): void {
+  if (delivered.merges.length)
+    reference.deliveredMerges = [
+      ...new Set([...(reference.deliveredMerges ?? []), ...delivered.merges]),
+    ];
+  if (delivered.answers.length)
+    reference.deliveredAnswers = [
+      ...new Set([...(reference.deliveredAnswers ?? []), ...delivered.answers]),
+    ];
+}
+
+/** a native session that compacted or was replaced has seen neither the memory snapshot, the fixed instructions nor the delivered events. */
+export function clearDelivery(reference: NativeSession): void {
+  delete reference.deliveredRevision;
+  delete reference.deliveredInstructionsRevision;
+  delete reference.deliveredMerges;
+  delete reference.deliveredAnswers;
 }
 
 function merge(

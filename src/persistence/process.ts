@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { killGroup } from '../agents/user-shell.js';
-import type { ProcessIdentity } from '../core/state.js';
+import type { ConversationRecord, ProcessIdentity } from '../core/state.js';
+import type { ConversationStore } from './store.js';
 
 const execute = promisify(execFile);
 
@@ -92,6 +93,30 @@ export async function identifyProcess(
   pid: number,
 ): Promise<ProcessIdentity | undefined> {
   return (await identifyProcesses([pid])).get(pid);
+}
+
+/** session callbacks that save the identity of each native process a session reports, so a later Witch can stop it. */
+export function processReports(
+  conversation: ConversationRecord,
+  files: ConversationStore,
+  track: (pid: number) => void,
+) {
+  const identify =
+    (key: 'process' | 'usageProcess' | 'shell') => async (pid?: number) => {
+      const id = pid === undefined ? undefined : await identifyProcess(pid);
+      if (files.closed) return;
+      conversation[key] = id;
+      await files.save(conversation);
+    };
+  return {
+    onProcess: identify('process'),
+    onUsageProcess: identify('usageProcess'),
+    // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
+    onShell: async (pid?: number) => {
+      if (pid !== undefined) track(pid);
+      await identify('shell')(pid);
+    },
+  };
 }
 
 export function sameProcess(

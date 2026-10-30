@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { errorMessage } from './agents/stderr.js';
+import { aborted, errorMessage } from './agents/stderr.js';
 import { claudeArguments } from './cli-familiar.js';
 import { codexArguments } from './cli-codex-familiar.js';
 import { coordinationActionSchema } from './core/coordination-state.js';
@@ -20,36 +20,42 @@ function choice(text: string | undefined) {
   return { runtime: text.slice(0, colon), model: text.slice(colon + 1) };
 }
 
+const options = {
+  'state-dir': { type: 'string' },
+  continue: { type: 'boolean', short: 'c' },
+  help: { type: 'boolean', short: 'h' },
+  'recover-directory': { type: 'string' },
+  apply: { type: 'boolean' },
+  'control-dir': { type: 'string' },
+  'control-conversation': { type: 'string' },
+  'control-activation': { type: 'string' },
+  peers: { type: 'boolean' },
+  claim: { type: 'string' },
+  summary: { type: 'string' },
+  alias: { type: 'string', multiple: true },
+  release: { type: 'string' },
+  'select-next': { type: 'string' },
+  'cancel-selection': { type: 'string' },
+  recommend: { type: 'string' },
+  selection: { type: 'string' },
+  ask: { type: 'string' },
+  answer: { type: 'string' },
+  message: { type: 'string' },
+  'peer-request': { type: 'string' },
+  route: { type: 'string' },
+  of: { type: 'string' },
+  named: { type: 'string' },
+  json: { type: 'boolean' },
+  'familiar-claude': { type: 'string' },
+  'familiar-codex': { type: 'string' },
+  'report-file': { type: 'string' },
+} as const;
+
 export function parseCommand(args = process.argv.slice(2)) {
   const separator = args.indexOf('--');
   const parsed = parseArgs({
     args,
-    options: {
-      'state-dir': { type: 'string' },
-      continue: { type: 'boolean', short: 'c' },
-      help: { type: 'boolean', short: 'h' },
-      'recover-directory': { type: 'string' },
-      apply: { type: 'boolean' },
-      'control-dir': { type: 'string' },
-      'control-conversation': { type: 'string' },
-      'control-activation': { type: 'string' },
-      peers: { type: 'boolean' },
-      claim: { type: 'string' },
-      summary: { type: 'string' },
-      alias: { type: 'string', multiple: true },
-      release: { type: 'string' },
-      'select-next': { type: 'string' },
-      'cancel-selection': { type: 'string' },
-      recommend: { type: 'string' },
-      selection: { type: 'string' },
-      route: { type: 'string' },
-      of: { type: 'string' },
-      named: { type: 'string' },
-      json: { type: 'boolean' },
-      'familiar-claude': { type: 'string' },
-      'familiar-codex': { type: 'string' },
-      'report-file': { type: 'string' },
-    },
+    options,
     allowPositionals: true,
     strict: true,
   });
@@ -124,6 +130,10 @@ export function parseCommand(args = process.argv.slice(2)) {
     'cancel-selection',
     'recommend',
     'selection',
+    'ask',
+    'answer',
+    'message',
+    'peer-request',
     'route',
     'of',
     'named',
@@ -138,11 +148,14 @@ export function parseCommand(args = process.argv.slice(2)) {
     values['select-next'] !== undefined,
     values['cancel-selection'] !== undefined,
     values.recommend !== undefined,
+    values.ask !== undefined,
+    values.answer !== undefined,
+    values['peer-request'] !== undefined,
     values.route !== undefined,
   ].filter(Boolean).length;
   if (actions !== 1)
     throw new Error(
-      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection or --route.',
+      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection, --ask, --answer, --peer-request or --route.',
     );
   if (
     values.route === undefined &&
@@ -177,6 +190,11 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error('--recommend requires --selection.');
   if (values.recommend === undefined && values.selection !== undefined)
     throw new Error('--selection requires --recommend.');
+  const asking = values.ask !== undefined || values.answer !== undefined;
+  if (asking && values.message === undefined)
+    throw new Error('--ask and --answer require --message.');
+  if (!asking && values.message !== undefined)
+    throw new Error('--message requires --ask or --answer.');
   const binding = controlBindingSchema.parse({
     directory: resolve(values['control-dir']),
     conversation: values['control-conversation'],
@@ -195,21 +213,31 @@ export function parseCommand(args = process.argv.slice(2)) {
               aliases: values.alias,
             },
           }
-        : values['select-next'] !== undefined
-          ? { kind: 'select-next', turn: values['select-next'] }
-          : values['cancel-selection'] !== undefined
+        : values.ask !== undefined
+          ? { kind: 'ask', claim: values.ask, message: values.message }
+          : values.answer !== undefined
             ? {
-                kind: 'cancel-selection',
-                selection: values['cancel-selection'],
+                kind: 'answer',
+                request: values.answer,
+                message: values.message,
               }
-            : values.route !== undefined
-              ? {
-                  kind: 'route',
-                  work: values.route,
-                  of: choice(values.of),
-                  named: choice(values.named),
-                }
-              : { kind: 'release', claim: values.release },
+            : values['peer-request'] !== undefined
+              ? { kind: 'peer-request', request: values['peer-request'] }
+              : values['select-next'] !== undefined
+                ? { kind: 'select-next', turn: values['select-next'] }
+                : values['cancel-selection'] !== undefined
+                  ? {
+                      kind: 'cancel-selection',
+                      selection: values['cancel-selection'],
+                    }
+                  : values.route !== undefined
+                    ? {
+                        kind: 'route',
+                        work: values.route,
+                        of: choice(values.of),
+                        named: choice(values.named),
+                      }
+                    : { kind: 'release', claim: values.release },
   );
   return {
     ...parsed,
@@ -262,6 +290,22 @@ function describe(outcome: ControlOutcome): string {
       return `${outcome.message}${outcome.owner ? `\nCheckout: ${outcome.owner.cwd}` : ''}\nClaim id: ${outcome.claim.id}`;
     case 'error':
       return outcome.message;
+    case 'peer-request': {
+      const { request, status } = outcome;
+      return [
+        `Peer request ${request.id} from ${oneLine(request.from)} to ${oneLine(request.to)} about ${oneLine(request.reference)}: ${status}`,
+        `Request: ${oneLine(request.message)}`,
+        ...(request.answer
+          ? [`Answer: ${oneLine(request.answer.message)}`]
+          : status === 'attempted'
+            ? [
+                "The owner's Witch took this request for its one answer turn; no answer is recorded yet.",
+              ]
+            : status === 'undeliverable'
+              ? ['The owner no longer holds that claim.']
+              : []),
+      ].join('\n');
+    }
     case 'route':
       return outcome.routes
         .map(
@@ -336,8 +380,7 @@ export async function runControl(
       }
       await delay(1000, undefined, { signal: stopped.signal }).catch(
         (error: unknown) => {
-          if (!(error instanceof Error) || error.name !== 'AbortError')
-            throw error;
+          if (!aborted(error)) throw error;
         },
       );
       if (!stopped.signal.aborted)

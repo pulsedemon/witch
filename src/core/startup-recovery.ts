@@ -1,3 +1,4 @@
+import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
 import { branchOf, exists } from '../memory/memory.js';
 import type { Memory } from '../memory/memory.js';
@@ -5,6 +6,23 @@ import { missingConversationDirectories } from '../persistence/directory-recover
 import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
 import { quote } from '../shell.js';
+import { createConversation } from './state.js';
+import type { Conversation } from './state.js';
+
+/** a new conversation in `cwd` continues on the latest conversation's agent while it is installed. */
+export async function launchRecord(
+  store: StateStore,
+  agents: readonly AgentRegistration[],
+  cwd: string,
+): Promise<Conversation> {
+  const [source] = await store.conversations();
+  const installed = agents.filter(({ executable }) => executable);
+  const agent =
+    installed.find(({ adapter }) => adapter.id === source?.agent) ??
+    installed[0] ??
+    agents[0]!;
+  return createConversation(cwd, agent.adapter.id, source);
+}
 
 export async function recoverConversations(
   store: StateStore,

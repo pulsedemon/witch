@@ -75,7 +75,7 @@ function fixture(
         coordinationListeners.add(listener);
         return () => coordinationListeners.delete(listener);
       },
-      mergeEvents: () => events,
+      events: { mergeEvents: () => events },
     },
   };
   function publish(update: Partial<Snapshot>) {

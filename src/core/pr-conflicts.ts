@@ -48,7 +48,7 @@ export function watchConflicts(
     const conversation = coordinator.snapshot.conversation;
     const request = repository.snapshot?.pullRequest;
     if (!coordination || !conversation || request?.state !== 'OPEN') return;
-    const events = coordination.mergeEvents(conversation.id);
+    const events = coordination.events.mergeEvents(conversation.id);
     const fresh = events.filter(({ id }) => !seen?.has(id));
     const first = !seen;
     seen ??= new Set();

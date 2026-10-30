@@ -84,6 +84,17 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
     selection: z.string().uuid(),
   }),
   z.object({
+    kind: z.literal('ask'),
+    claim: z.string().uuid(),
+    message: z.string().trim().min(1),
+  }),
+  z.object({
+    kind: z.literal('answer'),
+    request: z.string().uuid(),
+    message: z.string().trim().min(1),
+  }),
+  z.object({ kind: z.literal('peer-request'), request: z.string().uuid() }),
+  z.object({
     kind: z.literal('route'),
     work,
     of: choiceSchema.optional(),
@@ -101,6 +112,7 @@ export const conversationSummarySchema = conversationSchema.pick({
 export const sessionPresenceSchema = conversationSummarySchema.extend({
   version: z.literal(1),
   selectionQueue: z.literal(1).optional(),
+  peerRequests: z.literal(1).optional(),
   project: z.string(),
   activation: z.string().uuid(),
   process: processIdentity,

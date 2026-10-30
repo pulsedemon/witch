@@ -51,6 +51,7 @@ export class FixtureAgent implements AgentAdapter {
     prompt: string;
     context?: string;
     skill?: SkillCall;
+    author?: 'witch';
   }[] = [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
@@ -292,13 +293,19 @@ export class FixtureAgent implements AgentAdapter {
           await options.onProcess(undefined);
         }
       },
-      send: async (prompt, skill, context): Promise<TurnResult> => {
+      send: async (
+        prompt,
+        skill,
+        context,
+        author = 'user',
+      ): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.inputs.push({
           session: info.id,
           prompt,
           ...(context === undefined ? {} : { context }),
           ...(skill ? { skill } : {}),
+          ...(author === 'witch' ? { author } : {}),
         });
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere
         const note = /remember:(\S+)/.exec(prompt)?.[1];

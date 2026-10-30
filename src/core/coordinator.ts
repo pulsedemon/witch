@@ -5,28 +5,33 @@ import type { Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
-import { errorMessage } from '../agents/stderr.js';
+import { aborted, errorMessage } from '../agents/stderr.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,
   AgentSession,
   AgentStopOptions,
   TurnResult,
-  Skill,
   UserResponse,
 } from '../agents/types.js';
-import { indexNote, main } from '../memory/memory.js';
+import { indexNote, noticeText } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
-import { identifyProcess } from '../persistence/process.js';
-import { updateBackgroundActivity } from './background-activity.js';
+import { processReports } from '../persistence/process.js';
+import {
+  stoppedActivity,
+  updateBackgroundActivity,
+} from './background-activity.js';
 import { castRow } from './spells.js';
 import {
+  launchRecord,
   missingDirectoryNotice,
   recoverConversations,
 } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
+import { editNote, memoryView, recoverMemory } from './memory-actions.js';
+import type { MemoryView } from './memory-actions.js';
 import { listFiles } from './files.js';
 import {
   shellCommand,
@@ -34,7 +39,6 @@ import {
   ranCommand,
   nativePrompt,
   questionReply,
-  noteName,
   memoryAttribution,
 } from './prompts.js';
 import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
@@ -51,12 +55,20 @@ import type { ModelSelection } from './models.js';
 import type { Conflict, PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
+  answerInstruction,
+  answerNotice,
+  watchPeerRequestNotices,
+} from './peer-requests.js';
+import type { PeerRequest } from './peer-requests.js';
+import {
   agentDisplay,
   agentWorking,
   applyDisplayUpdate,
   clearConversationContext,
+  clearDelivery,
   contextStart,
   createConversation,
+  recordDelivery,
   recordSession,
   untitled,
 } from './state.js';
@@ -71,24 +83,19 @@ const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
 
-/** the revision one memory UI action reads, resolved once so a publish mid-action can't move it. */
-interface MemoryView {
-  revision: string;
-  scope: MemoryScope;
-  /** the conversation's worktree, for links, while it holds this revision. */
-  root?: string;
-}
-
 interface Launch {
   continue?: boolean;
   conversation?: string;
 }
 
+interface TurnOptions {
+  delivered?: () => void;
+  queued?: boolean;
+  requests?: readonly PeerRequest[];
+}
+
 /** another operation holds the phase, so nothing ran and nothing failed. */
 class Refusal extends Error {}
-
-const aborted = (error: unknown) =>
-  error instanceof Error && error.name === 'AbortError';
 
 export class Coordinator {
   readonly pentacle = new PentacleActivity();
@@ -120,6 +127,9 @@ export class Coordinator {
   readonly accountUsage: AccountUsage;
   private draining?: PromiseWithResolvers<void>;
   private deliveryHolds = 0;
+  private admissions = 0;
+  /** a stop holds answer turns until the user's next send or another conversation. */
+  private answersHeld = false;
   private readonly compaction = new Compaction({
     state: () => ({
       conversation: this.record?.id,
@@ -173,13 +183,18 @@ export class Coordinator {
     this.snapshot = initialSnapshot(agents);
     this.coordination?.attach(() => this.session);
     this.publish({});
-    watchMergeNotices(
-      coordination,
-      () => this.snapshot,
-      (notice) => {
-        if (!this.closed) this.display(notice);
-      },
-    );
+    for (const watch of [watchMergeNotices, watchPeerRequestNotices])
+      watch(
+        coordination,
+        () => this.snapshot,
+        (notice) => {
+          if (!this.closed) this.display(notice);
+        },
+      );
+    // requests that arrive during work wait for the drain that follows it
+    coordination?.subscribe(() => {
+      if (!this.snapshot.queue.length) this.drainAfter();
+    });
   }
 
   subscribe(listener: () => void): () => void {
@@ -211,7 +226,9 @@ export class Coordinator {
     const report = await recoverConversations(this.store, this.memory, id);
     try {
       await this.openConversation(
-        id ? { id } : { create: await this.launchRecord(cwd) },
+        id
+          ? { id }
+          : { create: await launchRecord(this.store, this.agents, cwd) },
       );
     } catch (error) {
       if (report === undefined) throw error;
@@ -230,16 +247,6 @@ export class Coordinator {
       [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
         undefined,
     );
-  }
-
-  private async launchRecord(cwd: string): Promise<Conversation> {
-    const [source] = await this.store.conversations();
-    const installed = this.agents.filter(({ executable }) => executable);
-    const agent =
-      installed.find(({ adapter }) => adapter.id === source?.agent) ??
-      installed[0] ??
-      this.agents[0]!;
-    return createConversation(cwd, agent.adapter.id, source);
   }
 
   /** claims the target first, so a failed claim leaves the current conversation untouched. */
@@ -284,6 +291,7 @@ export class Coordinator {
       }
       this.files = files;
       this.record = files.record;
+      this.answersHeld = false;
       this.workspace = workspace;
       if (!this.record.handoff?.activated) delete this.record.handoff;
       this.publish({
@@ -314,16 +322,20 @@ export class Coordinator {
     if (this.opening) throw new Error('Wait for the next conversation to open');
     // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
     const during = this.snapshot.phase !== 'idle';
+    this.answersHeld = false;
+    this.admissions++;
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
-    const admitted = this.admitting.then(async () => {
-      if (
-        !waitsBehind(this.snapshot.queue, this.snapshot.skills) &&
-        (await this.steer(prompt))
-      )
-        return true;
-      this.publish({ queue: [...this.snapshot.queue, prompt] });
-      return false;
-    });
+    const admitted = this.admitting
+      .then(async () => {
+        if (
+          !waitsBehind(this.snapshot.queue, this.snapshot.skills) &&
+          (await this.steer(prompt))
+        )
+          return true;
+        this.publish({ queue: [...this.snapshot.queue, prompt] });
+        return false;
+      })
+      .finally(() => this.admissions--);
     this.admitting = admitted.catch(() => {});
     if (!(await admitted) && !(during && this.halted())) await this.drain();
   }
@@ -355,6 +367,7 @@ export class Coordinator {
     const session = this.session;
     if (
       this.snapshot.phase !== 'running' ||
+      this.snapshot.answering ||
       this.cancelled ||
       !session ||
       this.deliveryHeld ||
@@ -399,7 +412,7 @@ export class Coordinator {
         });
       return;
     }
-    if (!this.snapshot.queue.length) return;
+    if (!this.snapshot.queue.length && !this.answerReady()) return;
     const draining = this.replied ? this.steerQueued() : this.drain();
     draining.catch((error: unknown) => this.report(error));
   }
@@ -409,15 +422,18 @@ export class Coordinator {
     return !!this.snapshot.error || this.turnFailed;
   }
 
+  /** queued prompts run first; with none, waiting peer requests get one answer turn. */
   private async drain(): Promise<void> {
     if (this.draining) return;
     const draining = (this.draining = Promise.withResolvers<void>());
     try {
-      while (
-        !this.deliveryHeld &&
-        this.snapshot.phase === 'idle' &&
-        this.snapshot.queue.length
-      ) {
+      while (!this.deliveryHeld && this.snapshot.phase === 'idle') {
+        if (!this.snapshot.queue.length) {
+          if (!this.answerReady()) return;
+          const ran = await this.answerPeers();
+          if (ran ? this.halted() : !this.snapshot.queue.length) return;
+          continue;
+        }
         const queue = this.snapshot.queue;
         const batch = nextTurn(
           queue,
@@ -426,32 +442,12 @@ export class Coordinator {
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
         try {
-          await this.operate('running', async () => {
-            try {
-              const session = await this.connectForTurn();
-              if (!session) return;
-              const usage = session.info.hasHistory
-                ? await session.contextUsage()
-                : undefined;
-              if (this.cancelled || session.closed || this.session !== session)
-                return;
-              if (this.deliveryHeld) return;
-              if (usage !== undefined && usage >= compactAt) {
-                this.publish({ phase: 'compacting' });
-                if (!(await this.performCompaction())) return;
-                this.publish({ phase: 'running' });
-              }
-              if (this.deliveryHeld) return;
-              await this.performTurn(
-                batch.join('\n'),
-                'turn',
-                () => (delivered = true),
-                true,
-              );
-            } catch (error) {
-              this.report(error);
-            }
-          });
+          await this.operate('running', () =>
+            this.runTurn(batch.join('\n'), 'turn', {
+              delivered: () => (delivered = true),
+              queued: true,
+            }),
+          );
         } finally {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
@@ -462,6 +458,61 @@ export class Coordinator {
       this.draining = undefined;
       draining.resolve();
     }
+  }
+
+  /** what each turn Witch starts from the queue or for peer requests goes through, including pre-turn compaction; a delivery hold stops only a queued turn, since an admitted answer has used its one attempt. */
+  private async runTurn(
+    prompt: string,
+    kind: 'turn' | 'answer',
+    options: TurnOptions,
+  ): Promise<void> {
+    try {
+      const session = await this.connectForTurn();
+      if (!session) return;
+      const usage = session.info.hasHistory
+        ? await session.contextUsage()
+        : undefined;
+      if (this.cancelled || session.closed || this.session !== session) return;
+      if (options.queued && this.deliveryHeld) return;
+      if (usage !== undefined && usage >= compactAt) {
+        this.publish({ phase: 'compacting' });
+        if (!(await this.performCompaction())) return;
+        this.publish({ phase: 'running' });
+      }
+      if (options.queued && this.deliveryHeld) return;
+      await this.performTurn(prompt, kind, options);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+
+  /** an answer turn starts only when nothing the user started or must decide is waiting. */
+  private answerReady(): boolean {
+    return (
+      this.snapshot.phase === 'idle' &&
+      !this.task &&
+      !this.admissions &&
+      !this.deliveryHeld &&
+      !this.halted() &&
+      !this.opening &&
+      !this.closed &&
+      !this.snapshot.requests.length &&
+      !this.answersHeld &&
+      !!this.record &&
+      !!this.coordination?.events.answerable(this.record.id)
+    );
+  }
+
+  /** runs once `answerReady` holds; true when it admitted requests, which used their one answer attempt. */
+  private async answerPeers(): Promise<boolean> {
+    let ran = false;
+    this.publish({ answering: true });
+    await this.operate('running', async () => {
+      const requests = await this.coordination!.beginAnswer();
+      ran = requests.length > 0;
+      if (ran) await this.runTurn(answerInstruction, 'answer', { requests });
+    }).finally(() => this.publish({ answering: false }));
+    return ran;
   }
 
   /** the prompts queued behind a queued turn's prompt join that turn; a `!` command and what follows it wait. */
@@ -647,6 +698,7 @@ export class Coordinator {
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
+    this.answersHeld = true;
     this.compaction.cancel();
     this.publish({
       requests: this.snapshot.requests.filter(
@@ -706,28 +758,7 @@ export class Coordinator {
     await this.operate(
       'editing',
       async () => {
-        const workspace = this.workspace!;
-        if (kind === 'conflict') {
-          if (decision === 'keep') await workspace.keepMine();
-          else if (decision === 'discard') await workspace.discardMine();
-          else throw new Error('Keep your memory changes or discard them.');
-        } else {
-          const origin = this.current().activity;
-          const actor =
-            origin?.kind === 'memory-edit'
-              ? 'manual'
-              : (origin?.agent ?? 'manual');
-          if (decision === 'accept')
-            await workspace.commit(
-              `chore(memory): recover ${actor} changes\n\n${memoryAttribution(origin ? this.current().id : 'manual', origin?.id ?? 'manual')}`,
-            );
-          else if (decision === 'discard') await workspace.discardPending();
-          else throw new Error('Accept these memory changes or discard them.');
-          delete this.current().activity;
-        }
-        if (decision === 'discard')
-          for (const reference of Object.values(this.current().sessions))
-            delete reference.deliveredRevision;
+        await recoverMemory(this.workspace!, this.current(), kind, decision);
         await this.save();
       },
       'recovery',
@@ -735,13 +766,7 @@ export class Coordinator {
   }
 
   async memoryView(): Promise<MemoryView> {
-    const workspace = this.workspace!;
-    const revision = await this.memory.resolve(main);
-    const scope = await this.memory.scopePaths(this.current().cwd);
-    // an idle worktree stays where its last turn left it, behind anything published since
-    const linked =
-      (await workspace.exists()) && (await workspace.revision()) === revision;
-    return { revision, scope, ...(linked ? { root: workspace.root } : {}) };
+    return memoryView(this.memory, this.workspace!, this.current().cwd);
   }
 
   async memoryDirectories(): Promise<string[]> {
@@ -754,19 +779,17 @@ export class Coordinator {
       const note =
         path ??
         `${(await this.memory.scopePaths(this.current().cwd)).project}/${indexNote}`;
-      this.notice(`Memory edit: ${noteName(note)}`, this.workspace!.root);
+      this.notice(`Memory edit: ${noticeText(note)}`, this.workspace!.root);
       await this.beginActivity('memory-edit');
-      const file = await this.workspace!.prepareNote(note);
-      this.editorCancellation = new AbortController();
-      try {
-        await this.editFile(file, this.editorCancellation.signal);
-      } catch (error) {
-        if (!this.cancelled || !aborted(error)) throw error;
-      } finally {
-        this.editorCancellation = undefined;
-      }
-      if (this.cancelled) return;
-      await this.workspace!.commit('chore(memory): save edited notes');
+      const abort = (this.editorCancellation = new AbortController());
+      if (this.cancelled) abort.abort();
+      const saved = await editNote(
+        this.workspace!,
+        note,
+        this.editFile,
+        abort.signal,
+      ).finally(() => (this.editorCancellation = undefined));
+      if (!saved) return;
       delete this.current().activity;
       await this.save();
     });
@@ -800,7 +823,7 @@ export class Coordinator {
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
       this.notice(
-        `Memory restore: ${noteName(path)} at ${revision.slice(0, 8)}`,
+        `Memory restore: ${noticeText(path)} at ${revision.slice(0, 8)}`,
         this.workspace!.root,
       );
       await this.beginActivity('memory-edit');
@@ -938,18 +961,21 @@ export class Coordinator {
     }
   }
 
+  /** an answer turn has no user request: it sends Witch's instruction and leaves pending user context for the next turn. */
   private async performTurn(
     prompt: string,
-    kind: 'turn' | 'handoff',
-    delivered?: () => void,
-    queued = false,
+    kind: 'turn' | 'handoff' | 'answer',
+    { delivered, queued = false, requests }: TurnOptions = {},
   ): Promise<TurnResult> {
     const conversation = this.current();
+    const answer = kind === 'answer';
     if (kind === 'turn') this.publish({ completedTurn: undefined });
-    const { activity, scope } = await this.beginActivity(kind);
+    const { activity, scope } = await this.beginActivity(
+      answer ? 'turn' : kind,
+    );
     const session = await this.connectForTurn(scope);
     if (!session || this.cancelled) return { status: 'interrupted', text: '' };
-    this.coordination?.beginTurn(activity.id);
+    if (!answer) this.coordination?.beginTurn(activity.id);
     try {
       this.publish({
         subagents: this.snapshot.subagents.filter(
@@ -959,11 +985,13 @@ export class Coordinator {
       const command = kind === 'turn' ? shellCommand(prompt) : undefined;
       const handoff = conversation.handoff;
       const pendingHandoff =
-        handoff?.activated && handoff.to === conversation.agent
+        !answer && handoff?.activated && handoff.to === conversation.agent
           ? handoff
           : undefined;
       const coordination = await this.coordination?.context();
-      const pendingContext = this.pendingContext.get(conversation.id);
+      const pendingContext = answer
+        ? undefined
+        : this.pendingContext.get(conversation.id);
       const context = () =>
         nativePrompt({
           prompt,
@@ -983,7 +1011,12 @@ export class Coordinator {
                   runtime: session.info.agent,
                 }
               : undefined,
-          merges: this.coordination?.mergeEvents(conversation.id),
+          merges: this.coordination?.events.mergeEvents(conversation.id),
+          requests,
+          answers:
+            kind === 'turn'
+              ? this.coordination?.events.answered(conversation.id)
+              : undefined,
           conflict: this.conflict,
           usage: this.accountUsage.context(this.snapshot.agents),
         });
@@ -995,8 +1028,8 @@ export class Coordinator {
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
       this.display({
         id: randomUUID(),
-        kind: kind === 'handoff' ? 'notice' : 'user',
-        text: prompt,
+        kind: kind === 'turn' ? 'user' : 'notice',
+        text: requests ? answerNotice(requests) : prompt,
         cwd: conversation.cwd,
       });
       this.persist(this.save());
@@ -1013,12 +1046,13 @@ export class Coordinator {
           if (this.cancelled || session.closed)
             result = { status: 'interrupted', text: '' };
           else {
-            this.pendingContext.delete(conversation.id);
+            if (!answer) this.pendingContext.delete(conversation.id);
             generation = this.contextGeneration;
             const sending = session.send(
               input.prompt,
               skillCall(prompt, this.snapshot.skills),
               input.context,
+              answer ? 'witch' : 'user',
             );
             const stopPolicy = watchClaimPolicy(
               this.coordination,
@@ -1053,11 +1087,10 @@ export class Coordinator {
         if (generation === this.contextGeneration) {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
-          reference.deliveredInstructionsRevision = input.instructionsRevision;
-          if (input.merges.length)
-            reference.deliveredMerges = Array.from(
-              new Set([...(reference.deliveredMerges ?? []), ...input.merges]),
-            );
+          if (!answer)
+            reference.deliveredInstructionsRevision =
+              input.instructionsRevision;
+          recordDelivery(reference, input);
         }
         if (pendingHandoff === conversation.handoff)
           delete conversation.handoff;
@@ -1181,13 +1214,6 @@ export class Coordinator {
     const scope = turnScope ?? (await workspace.scope(conversation.cwd));
     await this.coordination?.activate(conversation, scope.project);
     const stored = conversation.sessions[agent];
-    const identify =
-      (key: 'process' | 'usageProcess' | 'shell') => async (pid?: number) => {
-        const id = pid === undefined ? undefined : await identifyProcess(pid);
-        if (files.closed) return;
-        conversation[key] = id;
-        await files.save(conversation);
-      };
     this.connecting = new AbortController();
     try {
       const session = await adapter.connect({
@@ -1204,13 +1230,7 @@ export class Coordinator {
         onEvent: (event) => {
           if (!files.closed) this.receive(conversation, agent, event, tools);
         },
-        onProcess: identify('process'),
-        onUsageProcess: identify('usageProcess'),
-        // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
-        onShell: async (pid) => {
-          if (pid !== undefined) this.jobs?.track(pid);
-          await identify('shell')(pid);
-        },
+        ...processReports(conversation, files, (pid) => this.jobs?.track(pid)),
         mark: this.jobs,
         familiarBinding: this.coordination?.familiarBinding(),
         commandPrefixes: this.coordination?.commandPrefixes(),
@@ -1223,12 +1243,10 @@ export class Coordinator {
         throw new DOMException('Connection was interrupted', 'AbortError');
       const models = await this.catalog.read(conversation.cwd, session);
       // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
-      let skills: Skill[] = [];
-      try {
-        skills = await session.skills();
-      } catch (error) {
+      const skills = await session.skills().catch((error: unknown) => {
         this.notice(errorMessage(error), undefined, false);
-      }
+        return [];
+      });
       const live = this.live(agent);
       this.publish({
         native: live?.info,
@@ -1259,7 +1277,7 @@ export class Coordinator {
     const conversationId = this.record?.id;
     const session = this.session;
     this.session = undefined;
-    this.stopBackgroundActivity();
+    for (const event of stoppedActivity(this.snapshot)) this.background(event);
     this.publish({
       native: undefined,
       usage: {},
@@ -1283,20 +1301,6 @@ export class Coordinator {
     }
   }
 
-  private stopBackgroundActivity(): void {
-    for (const subagent of this.snapshot.subagents)
-      if (subagent.status === 'running')
-        this.background({
-          type: 'subagent',
-          subagent: { ...subagent, status: 'stopped' },
-        });
-    for (const command of this.snapshot.backgroundCommands)
-      this.background({
-        type: 'command',
-        command: { ...command, status: 'stopped' },
-      });
-  }
-
   private receive(
     conversation: ConversationRecord,
     agent: string,
@@ -1311,18 +1315,15 @@ export class Coordinator {
     } else if (event.type === 'compacted') {
       this.contextGeneration++;
       const reference = conversation.sessions[agent];
-      if (reference) {
-        delete reference.deliveredRevision;
-        delete reference.deliveredInstructionsRevision;
-        delete reference.deliveredMerges;
-      }
+      if (reference) clearDelivery(reference);
       this.persist(this.save());
       this.notice('Conversation compacted');
     } else if (event.type === 'request') {
       if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
     } else if (event.type === 'closed') {
-      this.stopBackgroundActivity();
+      for (const event of stoppedActivity(this.snapshot))
+        this.background(event);
       this.publish({
         native: undefined,
         usage: {},

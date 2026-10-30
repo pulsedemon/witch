@@ -69,6 +69,10 @@ Agent control (use the prefix supplied in the current Witch context):
   --recommend <ref>   reserve a recommendation and advance the queue
   --selection <id>    identify the selection for --recommend
   --cancel-selection <id>  leave this turn's queue
+  --ask <claim-id>    ask the owner of a claimed task; needs --message
+  --answer <id>       answer a peer request; needs --message
+  --message <text>    the request or answer text
+  --peer-request <id> show a peer request you sent or received
   --route <work>      choose where review, planning, implementation or investigation goes
   --of <runtime>:<model>    the runtime and model whose work a review checks
   --named <runtime>:<model> a model the user or agent named, which runs as named, or a family, at its newest

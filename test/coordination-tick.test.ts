@@ -25,7 +25,7 @@ async function settle(coordination: SessionCoordination) {
     await coordination['projecting']?.promise;
     const running = [
       coordination['refreshing']?.promise,
-      coordination['refreshingMerges']?.promise,
+      coordination['events'].pending,
     ].filter((promise) => promise !== undefined);
     if (!running.length) return;
     await Promise.all(running);
@@ -159,7 +159,7 @@ test('a merge another Witch records shows within a tick', async (t) => {
   const f = await idle(orderedCleanup(t.onTestFinished));
   await f.registry.recordMerge(f.own.project, merged, randomUUID(), [f.own.id]);
   await tick(f.a.coordination);
-  assert.equal(f.a.coordination.mergeEvents(f.own.id).length, 1);
+  assert.equal(f.a.coordination.events.mergeEvents(f.own.id).length, 1);
 });
 
 test('a peer whose process ends without removing its presence leaves at the next minute reread', async (t) => {

@@ -27,6 +27,9 @@ for (const kind of [
   'selection-status',
   'recommend',
   'cancel-selection',
+  'ask',
+  'answer',
+  'peer-request',
 ] as const)
   test(`${kind} discovers once and publishes the resulting ownership`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
@@ -70,6 +73,34 @@ for (const kind of [
         };
         expected = 'claimed';
         break;
+      case 'ask':
+        action = { kind, claim: peer.claim.id, message: 'Which port?' };
+        expected = 'peer-request';
+        break;
+      case 'answer': {
+        const claimed = await a.claim('task:chosen', 'Chosen work');
+        if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
+        const asked = await callControl(await b.binding(), {
+          kind: 'ask',
+          claim: claimed.claim.id,
+          message: 'Which port?',
+        });
+        if (asked.kind !== 'peer-request') assert.fail(JSON.stringify(asked));
+        action = { kind, request: asked.request.id, message: '4000' };
+        expected = 'peer-request';
+        break;
+      }
+      case 'peer-request': {
+        const asked = await callControl(turn.binding, {
+          kind: 'ask',
+          claim: peer.claim.id,
+          message: 'Which port?',
+        });
+        if (asked.kind !== 'peer-request') assert.fail(JSON.stringify(asked));
+        action = { kind, request: asked.request.id };
+        expected = 'peer-request';
+        break;
+      }
       default:
         action = { kind, selection: (await turn.select()).ticket.id };
         expected =

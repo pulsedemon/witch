@@ -43,6 +43,8 @@ export interface Snapshot {
   openedAt?: number;
   /** a live completion signal; reopening never announces a stored result. */
   completedTurn?: string;
+  /** a Witch-started turn answering peer requests holds the phase. */
+  answering?: boolean;
   recovery?: Recovery;
   error?: string;
 }
