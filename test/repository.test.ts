@@ -385,10 +385,11 @@ const view = (fields: object) =>
     headRefName: 'feat/x',
     headRefOid: 'a1b2c3',
     baseRefName: 'develop',
+    mergeable: 'MERGEABLE',
     ...fields,
   });
 
-test("a pull request's checks fail on a failed run or status, stay pending while any runs or none exist, and pass otherwise", () => {
+test("a pull request's checks fail on a failed run or status, stay pending while any runs or none exist, and pass otherwise, and only an open one carries its mergeability", () => {
   const checks = (rollup: object[]) =>
     parsePullRequest(view({ state: 'OPEN', statusCheckRollup: rollup })).checks;
   const done = (conclusion: string) => ({
@@ -419,6 +420,12 @@ test("a pull request's checks fail on a failed run or status, stay pending while
   assert.equal(
     checks([{ __typename: 'StatusContext', state: 'EXPECTED' }]),
     'pending',
+  );
+  assert.equal(
+    parsePullRequest(
+      view({ state: 'OPEN', statusCheckRollup: [], mergeable: 'CONFLICTING' }),
+    ).mergeable,
+    'CONFLICTING',
   );
   assert.deepEqual(
     parsePullRequest(view({ state: 'MERGED', statusCheckRollup: [] })),
@@ -458,7 +465,10 @@ test('the watch reads the pull request once per branch, again when the branch ch
   try {
     await delay(20);
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
-    assert.match(fields ?? '', /,headRefName,headRefOid,baseRefName$/);
+    assert.match(
+      fields ?? '',
+      /,headRefName,headRefOid,baseRefName,mergeable$/,
+    );
     const settled = published;
     vi.advanceTimersByTime(5000);
     await delay(20);
@@ -553,6 +563,196 @@ test('a read still running skips the next ticks, and a pull request read for a b
     gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
     await delay(20);
     assert.equal(watch.snapshot?.pullRequest, undefined);
+  } finally {
+    watch.close();
+  }
+});
+
+/** a watch on `main` whose pull request reads answer with `answer`, recording each tip lookup's arguments. */
+function conflictWatch(options: {
+  answer: () => object | Error;
+  tip?: () => string | Error;
+  branch?: () => string;
+  project?: () => Promise<string>;
+}) {
+  const reads = { pr: 0, tips: [] as string[][] };
+  const watch = new RepositoryWatch(
+    '/work',
+    async (command, args) => {
+      if (command !== 'gh')
+        return { stdout: `# branch.head ${options.branch?.() ?? 'main'}\n` };
+      if (args[0] === 'api') {
+        reads.tips.push(args);
+        const tip = options.tip?.() ?? 'f00';
+        if (tip instanceof Error) throw tip;
+        return { stdout: `${tip}\n` };
+      }
+      reads.pr++;
+      const answer = options.answer();
+      if (answer instanceof Error) throw answer;
+      return {
+        stdout: view({
+          url: 'https://github.com/o/r/pull/4',
+          state: 'OPEN',
+          statusCheckRollup: [],
+          ...answer,
+        }),
+      };
+    },
+    options.project,
+  );
+  return { watch, reads };
+}
+
+test("a conflicting read records its base's tip, and only a fresh read that no longer describes that conflict clears it", async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
+  let answer: object | Error = { mergeable: 'CONFLICTING' };
+  let tip: string | Error = 'f00';
+  const { watch, reads } = conflictWatch({
+    answer: () => answer,
+    tip: () => tip,
+  });
+  // a function, so an assertion that it's unset doesn't narrow later reads
+  const conflict = () => watch.snapshot?.conflict;
+  const read = async (next: object | Error) => {
+    answer = next;
+    watch.refreshPullRequest();
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+  };
+  try {
+    await delay(20);
+    assert.deepEqual(reads.tips, [
+      [
+        'api',
+        '--hostname',
+        'github.com',
+        'repos/o/r/commits/develop',
+        '--jq',
+        '.sha',
+      ],
+    ]);
+    assert.equal(conflict()?.baseTip, 'f00');
+    assert.equal(conflict()?.pullRequest.commit, 'a1b2c3');
+    await read({ mergeable: 'UNKNOWN' });
+    assert.equal(watch.snapshot?.pullRequest?.mergeable, 'UNKNOWN');
+    assert.equal(conflict()?.baseTip, 'f00');
+    await read(new Error('network'));
+    assert.equal(watch.snapshot?.pullRequest, undefined);
+    assert.equal(conflict()?.baseTip, 'f00');
+    await read({ mergeable: 'UNKNOWN' });
+    assert.equal(conflict()?.baseTip, 'f00');
+    assert.equal(reads.tips.length, 1);
+    await read({ mergeable: 'UNKNOWN', headRefOid: 'd4e5f6' });
+    assert.equal(conflict(), undefined);
+    tip = new Error('not found');
+    await read({ mergeable: 'CONFLICTING' });
+    assert.ok(conflict());
+    assert.equal(conflict()?.baseTip, undefined);
+    await read({ mergeable: 'UNKNOWN', baseRefName: 'main' });
+    assert.equal(conflict(), undefined);
+    await read({ mergeable: 'CONFLICTING' });
+    await read({ mergeable: 'MERGEABLE' });
+    assert.equal(conflict(), undefined);
+    await read({ mergeable: 'CONFLICTING' });
+    await read({ state: 'MERGED' });
+    assert.equal(conflict(), undefined);
+    assert.equal(reads.tips.length, 4);
+  } finally {
+    watch.close();
+  }
+});
+
+test('an uncomputed mergeability is read again after 10 seconds, while a status read in between keeps a conflict', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
+  let answer: object = { mergeable: 'CONFLICTING' };
+  const { watch, reads } = conflictWatch({ answer: () => answer });
+  try {
+    await delay(20);
+    answer = { mergeable: 'UNKNOWN' };
+    watch.refreshPullRequest();
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.equal(reads.pr, 2);
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.equal(reads.pr, 2);
+    assert.ok(watch.snapshot?.conflict);
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.equal(reads.pr, 3);
+  } finally {
+    watch.close();
+  }
+});
+
+test('another local branch leaves a conflict out of the snapshot, and a read for another project leaves it in place', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
+  let branch = 'main';
+  let answer: object | Error = { mergeable: 'CONFLICTING' };
+  let project = 'a';
+  let asked = 0;
+  const { watch } = conflictWatch({
+    answer: () => answer,
+    branch: () => branch,
+    // the second call checks the project hasn't changed while gh ran
+    project: async () => (asked++ % 2 ? project : 'a'),
+  });
+  try {
+    await delay(20);
+    assert.ok(watch.snapshot?.conflict);
+    project = 'b';
+    answer = { mergeable: 'MERGEABLE' };
+    watch.refreshPullRequest();
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.ok(watch.snapshot?.conflict);
+    project = 'a';
+    answer = new Error('no pull requests found');
+    branch = 'feat/y';
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.equal(watch.snapshot?.branch, 'feat/y');
+    assert.equal(watch.snapshot?.conflict, undefined);
+  } finally {
+    watch.close();
+  }
+});
+
+test('a refresh asked for while a pull request read runs reads again once it ends', async () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
+  const gh: PromiseWithResolvers<{ stdout: string }>[] = [];
+  const watch = new RepositoryWatch('/work', (command) => {
+    if (command !== 'gh')
+      return Promise.resolve({ stdout: '# branch.head main\n' });
+    const read = Promise.withResolvers<{ stdout: string }>();
+    gh.push(read);
+    return read.promise;
+  });
+  try {
+    await delay(20);
+    assert.equal(gh.length, 1);
+    watch.refreshPullRequest();
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.equal(gh.length, 1);
+    gh[0]!.resolve({ stdout: view({ state: 'OPEN', statusCheckRollup: [] }) });
+    await delay(20);
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+    assert.equal(gh.length, 2);
   } finally {
     watch.close();
   }

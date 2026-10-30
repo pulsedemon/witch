@@ -145,6 +145,7 @@ watching(
               headRefName: 'main',
               headRefOid: 'a1b2c3',
               baseRefName: 'develop',
+              mergeable: 'MERGEABLE',
             }),
           };
         }

@@ -17,6 +17,8 @@ export const pullRequestSchema = z.object({
   base: z.string(),
   /** an open pull request's checks, pending while it has none. */
   checks: z.enum(['passing', 'failing', 'pending']).optional(),
+  /** an open pull request's mergeability as GitHub last computed it, `UNKNOWN` while it computes. */
+  mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']).optional(),
 });
 
 export type PullRequest = z.infer<typeof pullRequestSchema>;
@@ -33,6 +35,13 @@ export interface Repository {
   untracked: number;
   pullRequest?: PullRequest;
   pullRequestProject?: string;
+  /** the branch's pull request as last read conflicting, with its base's tip when that read looked it up. */
+  conflict?: Conflict;
+}
+
+export interface Conflict {
+  pullRequest: PullRequest;
+  baseTip?: string;
 }
 
 /**
@@ -123,6 +132,7 @@ const pullRequestView = z.object({
   headRefName: z.string(),
   headRefOid: z.string(),
   baseRefName: z.string(),
+  mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
   statusCheckRollup: z
     .array(
       z.union([
@@ -137,7 +147,7 @@ const pullRequestView = z.object({
     .nullish(),
 });
 
-/** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName`. */
+/** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable`. */
 export function parsePullRequest(json: string): PullRequest {
   const {
     number,
@@ -146,6 +156,7 @@ export function parsePullRequest(json: string): PullRequest {
     headRefName,
     headRefOid,
     baseRefName,
+    mergeable,
     statusCheckRollup,
   } = pullRequestView.parse(JSON.parse(json));
   const pullRequest = {
@@ -177,6 +188,7 @@ export function parsePullRequest(json: string): PullRequest {
         : failing
           ? 'failing'
           : 'passing',
+    mergeable,
   };
 }
 
@@ -199,7 +211,8 @@ const retry = 60_000;
 
 /**
  * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
- * seconds and whenever the branch changes. on macOS a change in the work tree or its Git dirs starts a read, at most
+ * seconds, after 10 while GitHub hasn't computed its mergeability, and whenever the branch changes or
+ * `refreshPullRequest` asks. on macOS a change in the work tree or its Git dirs starts a read, at most
  * one per `interval`, and a read Git failed with exit 128 is retried each minute. elsewhere, or once a watch fails,
  * status is read every `interval`, since Linux's recursive watch loses a file once it is replaced by rename. each read
  * shows until the next; a failed one leaves its field out.
@@ -215,6 +228,9 @@ export class RepositoryWatch {
     value?: PullRequest;
     project?: string;
   };
+  /** a failed read confirms nothing, so it leaves this. */
+  private conflict?: { branch: string; conflict: Conflict };
+  private requested = false;
   private fetching = false;
   private refreshing = false;
   /** unset while polling. */
@@ -281,13 +297,17 @@ export class RepositoryWatch {
     if (branch && this.due(branch)) void this.fetchPullRequest(branch);
   }
 
+  /** reads the branch's pull request on the next tick, or on the first after a read in progress. */
+  refreshPullRequest(): void {
+    this.requested = true;
+  }
+
   private due(branch: string): boolean {
     const known = this.pullRequest;
-    return (
-      branch !== 'HEAD' &&
-      !this.fetching &&
-      (known?.branch !== branch || Date.now() - known.at >= 90_000)
-    );
+    if (branch === 'HEAD' || this.fetching) return false;
+    if (this.requested || known?.branch !== branch) return true;
+    const wait = known.value?.mergeable === 'UNKNOWN' ? 10_000 : 90_000;
+    return Date.now() - known.at >= wait;
   }
 
   /** reads soon after a change, but no sooner than `interval` after the previous read started. */
@@ -403,6 +423,7 @@ export class RepositoryWatch {
 
   private async fetchPullRequest(branch: string): Promise<void> {
     this.fetching = true;
+    this.requested = false;
     let value: PullRequest | undefined;
     let project: string | undefined;
     try {
@@ -413,12 +434,13 @@ export class RepositoryWatch {
           'pr',
           'view',
           '--json',
-          'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName',
+          'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable',
         ],
         { cwd: this.cwd, timeout: 30_000 },
       );
       value = parsePullRequest(stdout);
       if (this.project && project !== (await this.project())) value = undefined;
+      if (value) this.conflict = await this.conflicted(branch, value);
     } catch {
       // no pull request, no gh or no network
     } finally {
@@ -433,8 +455,61 @@ export class RepositoryWatch {
       });
   }
 
+  /** an `UNKNOWN` read at the same head and base keeps the conflict, since GitHub is still computing it. */
+  private async conflicted(
+    branch: string,
+    value: PullRequest,
+  ): Promise<{ branch: string; conflict: Conflict } | undefined> {
+    if (value.mergeable === 'CONFLICTING') {
+      const baseTip = await this.tip(value);
+      return {
+        branch,
+        conflict: { pullRequest: value, ...(baseTip ? { baseTip } : {}) },
+      };
+    }
+    const known = this.conflict;
+    const { url, commit, base } = known?.conflict.pullRequest ?? {};
+    return value.mergeable === 'UNKNOWN' &&
+      known?.branch === branch &&
+      value.url === url &&
+      value.commit === commit &&
+      value.base === base
+      ? known
+      : undefined;
+  }
+
+  /** the base branch's current tip, which gh's `baseRefOid` isn't, from the pull request's own repository. */
+  private async tip({ url, base }: PullRequest): Promise<string | undefined> {
+    const [, host, repository] =
+      /^https:\/\/([^/]+)\/([^/]+\/[^/]+)\/pull\//.exec(url) ?? [];
+    if (!host || !repository) return;
+    try {
+      const { stdout } = await this.run(
+        'gh',
+        [
+          'api',
+          '--hostname',
+          host,
+          `repos/${repository}/commits/${base}`,
+          '--jq',
+          '.sha',
+        ],
+        { cwd: this.cwd, timeout: 30_000 },
+      );
+      return stdout.trim() || undefined;
+    } catch {
+      return;
+    }
+  }
+
   /** an unchanged status publishes nothing, so a quiet repository costs no redraws. */
   private publish(repository: Repository | undefined): void {
+    if (repository) {
+      repository = { ...repository };
+      if (this.conflict?.branch === repository.branch)
+        repository.conflict = this.conflict.conflict;
+      else delete repository.conflict;
+    }
     if (JSON.stringify(repository) === JSON.stringify(this.snapshot)) return;
     this.snapshot = repository;
     for (const listener of this.listeners) listener();
