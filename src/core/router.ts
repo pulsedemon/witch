@@ -48,12 +48,13 @@ export function router(
       now: Date.now(),
     });
     if ('refused' in decision) return refuse(decision.refused);
-    const label =
-      snapshot.agents.find(({ id }) => id === decision.runtime)?.label ??
-      decision.runtime;
-    coordinator.notice(
-      `Routed ${action.work} to ${label} · ${decision.model}: ${decision.reason}`,
-    );
+    for (const { runtime, model, reason } of decision.routes) {
+      const label =
+        snapshot.agents.find(({ id }) => id === runtime)?.label ?? runtime;
+      coordinator.notice(
+        `Routed ${action.work} to ${label} · ${model}: ${reason}`,
+      );
+    }
     return { kind: 'route', ...decision };
   };
 }

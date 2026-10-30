@@ -263,7 +263,12 @@ function describe(outcome: ControlOutcome): string {
     case 'error':
       return outcome.message;
     case 'route':
-      return `Route: ${outcome.runtime} ${outcome.model}\nReason: ${outcome.reason}`;
+      return outcome.routes
+        .map(
+          ({ runtime, model, reason }) =>
+            `Route: ${runtime} ${model}\nReason: ${reason}`,
+        )
+        .join('\n');
     case 'peers': {
       const snapshot = outcome.snapshot;
       return (

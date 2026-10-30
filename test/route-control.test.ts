@@ -52,9 +52,13 @@ test('a route answers during a running turn with no selection turn, and shows it
       { ...reply, id: undefined },
       {
         kind: 'route',
-        runtime: 'a',
-        model: 'a-2-model',
-        reason: 'implementation stays on a; a has no usage reading',
+        routes: [
+          {
+            runtime: 'a',
+            model: 'a-2-model',
+            reason: 'implementation stays on a; a has no usage reading',
+          },
+        ],
         id: undefined,
       },
     );
@@ -70,6 +74,29 @@ test('a route answers during a running turn with no selection turn, and shows it
     gate.open();
     await sending;
   }
+});
+
+test('a review with no rule answers a route for each runtime and shows each in the transcript', async (t) => {
+  const f = await start(t.onTestFinished);
+  const reply = await f.route({
+    work: 'review',
+    of: { runtime: 'a', model: 'a-2-model' },
+  });
+  assert.equal(reply.kind, 'route');
+  if (reply.kind !== 'route') return;
+  assert.deepEqual(
+    reply.routes.map(({ runtime, model }) => `${runtime} ${model}`),
+    ['a a-2-model', 'b b-3-model'],
+  );
+  for (const { runtime, model, reason } of reply.routes)
+    assert.ok(
+      f.coordinator.snapshot.items.some(
+        (item) =>
+          item.kind === 'notice' &&
+          item.text === `Routed review to ${runtime} · ${model}: ${reason}`,
+      ),
+      runtime,
+    );
 });
 
 test('a runtime over the level shifts work to one with room, and a stale reading is read again first', async (t) => {
@@ -91,12 +118,13 @@ test('a runtime over the level shifts work to one with room, and a stale reading
   assert.equal(f.b.limitReads.length, 2);
   assert.equal(reply.kind, 'route');
   if (reply.kind !== 'route') return;
-  assert.equal(reply.runtime, 'b');
-  assert.equal(reply.model, 'b-3-model');
-  assert.equal(
-    reply.reason,
-    'a 7D 92% is at or over 90%, and b 7D 40% has room',
-  );
+  assert.deepEqual(reply.routes, [
+    {
+      runtime: 'b',
+      model: 'b-3-model',
+      reason: 'a 7D 92% is at or over 90%, and b 7D 40% has room',
+    },
+  ]);
 });
 
 test('a route after an empty read starts no new one, and says the reading is missing', async (t) => {
@@ -108,7 +136,7 @@ test('a route after an empty read starts no new one, and says the reading is mis
   assert.equal(reply.kind, 'route');
   if (reply.kind === 'route')
     assert.equal(
-      reply.reason,
+      reply.routes[0]!.reason,
       'implementation stays on a; a 7D 95% is at or over 90%, but b has no usage reading',
     );
 });
@@ -137,8 +165,8 @@ test('a read slower than the wait still gets a reply, routed on what is current'
   assert.ok(performance.now() - started >= 2900);
   assert.equal(reply.kind, 'route');
   if (reply.kind === 'route') {
-    assert.equal(reply.runtime, 'a');
-    assert.match(reply.reason, /b's 7D reading is not current$/);
+    assert.equal(reply.routes[0]!.runtime, 'a');
+    assert.match(reply.routes[0]!.reason, /b's 7D reading is not current$/);
   }
 });
 
