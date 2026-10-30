@@ -286,7 +286,7 @@ export class CoordinationStore {
           request.message === message.trim(),
       );
       if (existing) return existing;
-      const ledger = await this.reconcile(await this.read());
+      const ledger = await this.reconcile(await this.read(), deadline);
       const owned = ledger.claims.find(({ id }) => id === claim);
       if (!owned)
         throw new Error(
@@ -322,7 +322,7 @@ export class CoordinationStore {
   ): Promise<{ attempted: PeerRequest[]; requests: PeerRequest[] }> {
     const lock = await this.lock(deadline);
     try {
-      const ledger = await this.reconcile(await this.read());
+      const ledger = await this.reconcile(await this.read(), deadline);
       await verify(ledger);
       const stored = await this.readPeerRequests();
       const batch = new Set(

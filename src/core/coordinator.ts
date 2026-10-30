@@ -503,7 +503,7 @@ export class Coordinator {
     );
   }
 
-  /** runs once `answerReady` holds; true when admitted requests got their one answer turn. */
+  /** runs once `answerReady` holds; true when it admitted requests, which used their one answer attempt. */
   private async answerPeers(): Promise<boolean> {
     let ran = false;
     this.publish({ answering: true });

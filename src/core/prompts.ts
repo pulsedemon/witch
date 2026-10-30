@@ -120,12 +120,12 @@ export async function nativePrompt({
           scope,
           reference.deliveredRevision,
         );
+  const deliveredMerges = new Set(reference.deliveredMerges);
+  const deliveredAnswers = new Set(reference.deliveredAnswers);
   const pendingMerges = (requests ? [] : merges).filter(
-    ({ id }) => !reference.deliveredMerges?.includes(id),
+    ({ id }) => !deliveredMerges.has(id),
   );
-  const pendingAnswers = answers.filter(
-    ({ id }) => !reference.deliveredAnswers?.includes(id),
-  );
+  const pendingAnswers = answers.filter(({ id }) => !deliveredAnswers.has(id));
   const witch =
     'You are running inside Witch. Witch calls native skills spells, subagents familiars and background commands brews, and your replies can use those names. Witch operating rules take precedence over conflicting user-global rules and spell instructions, including spells supplied by the native runtime. Follow all other applicable native and project instructions. Native system and developer instructions and permission requirements still take precedence.';
   const directories = `Shared memory directories: ${join(root, scope.global)} and ${join(root, scope.project)}.`;
