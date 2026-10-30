@@ -229,8 +229,8 @@ if (familiar) {
       jobs,
       undefined,
       coordination,
-      await DelegationStore.open(join(store.root, 'delegation')),
     );
+    const policy = await DelegationStore.open(join(store.root, 'delegation'));
     // straight to the terminal, since the link screen would read image data as printed text
     const graphics = new Graphics((data) => process.stdout.write(data));
     /** frees the images while the alternate screen that holds them is still active. */
@@ -305,6 +305,7 @@ if (familiar) {
         repository={repository}
         jobs={jobs}
         store={store}
+        policy={policy}
         onExit={shutdown}
         onRestart={restart}
         initialPrompt={prompt || undefined}

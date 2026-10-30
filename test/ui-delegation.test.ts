@@ -91,7 +91,7 @@ test('/delegation refuses a default or versioned family, an unknown kind or runt
 });
 
 test('/delegation shows the policy and saves a change before showing it again', async () => {
-  const { app, calls } = fake({
+  const { app } = fake({
     agents: ['claude', 'codex'].map((id) => ({
       id,
       label: id,
@@ -100,14 +100,19 @@ test('/delegation shows the policy and saves a change before showing it again', 
     models: catalog.models,
     latest: catalog.latest,
   });
-  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const policy = await DelegationStore.open(
+    `${await scratch('witch-delegation-')}/delegation`,
+  );
+  const ui = show(
+    createElement(App, { coordinator: app, policy, onExit: () => {} }),
+  );
   try {
     ui.stdin.write(`/delegation review other${ENTER}`);
     await until('the policy page', () => ui.text().includes('Families'));
-    assert.deepEqual(
-      calls.find(([name]) => name === 'setDelegation'),
-      ['setDelegation', { ...defaultPolicy, work: { review: 'other' } }],
-    );
+    assert.deepEqual(await policy.read(), {
+      ...defaultPolicy,
+      work: { review: 'other' },
+    });
     assert.match(ui.text(), /review +other/);
     assert.match(ui.text(), /claude {2}opus → claude-opus-5-5/);
     assert.match(ui.text(), /codex {2}sol → gpt-6\.1-sol/);

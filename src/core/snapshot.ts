@@ -1,3 +1,4 @@
+import type { AgentRegistration } from '../agents/registry.js';
 import type {
   BackgroundCommand,
   Limit,
@@ -7,8 +8,8 @@ import type {
   Usage,
   UserRequest,
 } from '../agents/types.js';
-import type { ModelChoice } from './models.js';
 import type { Conversation, DisplayItem, Phase } from './state.js';
+import type { ModelChoice } from './models.js';
 
 /** a listed subagent, when Witch saw its run start in epoch milliseconds, and the run's transcript rows. */
 export interface TimedSubagent extends Subagent {
@@ -22,6 +23,8 @@ export interface Snapshot {
   items: readonly DisplayItem[];
   /** prompts waiting for a turn, oldest first. */
   queue: readonly string[];
+  commandsPending: boolean;
+  pendingCompaction: boolean;
   requests: readonly UserRequest[];
   models: readonly ModelChoice[];
   skills: readonly Skill[];
@@ -50,4 +53,29 @@ export interface Recovery {
   paths: string[];
   diff: string;
   root: string;
+}
+
+export function initialSnapshot(
+  agents: readonly AgentRegistration[],
+): Snapshot {
+  return {
+    phase: 'starting',
+    items: [],
+    queue: [],
+    commandsPending: false,
+    pendingCompaction: false,
+    requests: [],
+    models: [],
+    skills: [],
+    subagents: [],
+    backgroundCommands: [],
+    usage: {},
+    limits: {},
+    latest: {},
+    agents: agents.map(({ adapter, executable }) => ({
+      id: adapter.id,
+      label: adapter.label,
+      installed: !!executable,
+    })),
+  };
 }

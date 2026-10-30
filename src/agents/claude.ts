@@ -7,12 +7,12 @@ import type {
   SDKMessage,
   SDKUserMessage,
   ModelInfo,
-  SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
 import { accountLimits, ClaudeUsage } from './claude-usage.js';
+import { ClaudeCompaction } from './claude-compaction.js';
 import { sideQuery, startupFailure } from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
@@ -29,7 +29,7 @@ import {
   terminationReserveMs,
 } from './shutdown.js';
 import { claudeTitle } from './tool-title.js';
-import { acknowledged, skillCasts } from './claude-spells.js';
+import { acknowledged, skillCasts, skillsOf } from './claude-spells.js';
 import { mergeCasts } from './familiar-report.js';
 import { bashRecord, runShell } from './user-shell.js';
 import type {
@@ -184,33 +184,7 @@ interface Turn {
   idle: boolean;
   /** the completed command's reply, waiting to go. */
   answer?: string;
-  compaction?: { uuid: string; replaced: boolean; error?: string };
-}
-
-// these native controls can diverge from Witch's history, settings, titles or compaction policy
-const textCommands = new Set(['clear', 'config', 'effort', 'fast', 'rename']);
-
-/** one entry per name, a built-in's own row for a name it shadows, since `/name` runs the built-in. */
-function skillsOf(commands: SlashCommand[]): Skill[] {
-  const builtins = new Map(
-    commands
-      .filter((command) => command.builtin)
-      .map((command) => [command.name, command]),
-  );
-  const listed = new Map<string, Skill>();
-  for (const command of commands) {
-    const builtin = builtins.has(command.name);
-    const { name, description, argumentHint } =
-      builtins.get(command.name) ?? command;
-    if (listed.has(name) || (builtin && textCommands.has(name))) continue;
-    listed.set(name, {
-      name,
-      description,
-      ...(argumentHint ? { argumentHint } : {}),
-      ...(builtin ? { builtin: true as const } : {}),
-    });
-  }
-  return [...listed.values()];
+  compaction?: true;
 }
 
 class ClaudeSession implements AgentSession {
@@ -237,6 +211,7 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
+  private compaction?: ClaudeCompaction;
   /** the user's `!` command until its record and process reports settle. */
   private command?: { controller: AbortController; finished: Promise<void> };
   /** commands' records for the next prompt, where Claude Code merges its own `!` records. */
@@ -547,8 +522,34 @@ class ClaudeSession implements AgentSession {
   async compact(): Promise<TurnResult> {
     if (this.command) throw new Error('This agent is already running');
     const turn = this.beginTurn();
-    turn.compaction = { uuid: this.push('/compact'), replaced: false };
+    turn.compaction = true;
+    this.compaction = new ClaudeCompaction(this.push('/compact'), true);
     return turn.finished.promise;
+  }
+
+  compactDuringTurn(): Promise<TurnResult> | undefined {
+    const turn = this.turn;
+    if (
+      this.closed ||
+      !turn ||
+      turn.interrupted ||
+      turn.held ||
+      turn.compaction ||
+      this.compacting ||
+      this.command ||
+      (!this.messageLifecycle && !this.replied)
+    )
+      return undefined;
+    turn.idle = false;
+    this.compaction = new ClaudeCompaction(
+      this.push('/compact'),
+      !this.messageLifecycle,
+    );
+    return this.compaction.finished.promise;
+  }
+
+  private get compacting(): boolean {
+    return !!this.compaction && !this.compaction.result;
   }
 
   private beginTurn(): Turn {
@@ -646,7 +647,8 @@ class ClaudeSession implements AgentSession {
       !turn ||
       turn.interrupted ||
       turn.held ||
-      turn.compaction
+      turn.compaction ||
+      this.compacting
     )
       return false;
     // without acknowledgements, background holders keep delivery ahead of idle
@@ -680,6 +682,7 @@ class ClaudeSession implements AgentSession {
       !this.closed &&
       !!turn?.result &&
       !turn.compaction &&
+      !this.compacting &&
       !turn.interrupted &&
       !turn.held &&
       this.holding
@@ -984,10 +987,22 @@ class ClaudeSession implements AgentSession {
   private receive(message: SDKMessage): void {
     this.commands.receive(message);
     this.started(message);
+    if (this.compaction?.receive(message, this.info.id)) {
+      this.completeCompaction();
+      return;
+    }
     const type: string = message.type;
     if (type === 'command_lifecycle') {
       const lifecycle = commandLifecycle.safeParse(message);
       if (!lifecycle.success) return;
+      if (
+        lifecycle.data.session_id === this.info.id &&
+        this.compaction?.lifecycle(
+          lifecycle.data.command_uuid,
+          lifecycle.data.state,
+        )
+      )
+        this.completeCompaction();
       const turn = this.turn;
       if (
         this.messageLifecycle &&
@@ -1031,16 +1046,7 @@ class ClaudeSession implements AgentSession {
         this.refreshMcpStatus();
       } else if (message.subtype === 'compact_boundary') {
         if (message.session_id !== this.info.id) return;
-        if (
-          this.turn?.compaction &&
-          message.compact_metadata.trigger === 'manual'
-        )
-          this.turn.compaction.replaced = true;
         this.options.onEvent({ type: 'compacted' });
-      } else if (message.subtype === 'status' && this.turn?.compaction) {
-        if (message.compact_result === 'failed')
-          this.turn.compaction.error =
-            message.compact_error ?? 'Claude compaction failed';
       } else if (message.subtype === 'commands_changed') {
         this.options.onEvent({
           type: 'skills',
@@ -1229,29 +1235,7 @@ class ClaudeSession implements AgentSession {
       }
     } else if (message.type === 'result') {
       if (!this.turn) return;
-      const compact = this.turn.compaction;
-      if (compact) {
-        const uuids = message.user_message_uuids ?? [message.user_message_uuid];
-        if (!uuids.includes(compact.uuid)) return;
-        const success =
-          message.subtype === 'success' &&
-          !message.is_error &&
-          compact.replaced &&
-          !compact.error;
-        this.turn.result = {
-          status: success ? 'completed' : 'failed',
-          text: '',
-          ...(!success
-            ? {
-                error:
-                  compact.error ??
-                  'Claude ended compaction without confirming history replacement',
-              }
-            : {}),
-        };
-        if (!this.sessionLifecycle) this.finishIdle(this.turn);
-        return;
-      }
+      if (this.turn.compaction) return;
       const success = message.subtype === 'success' && !message.is_error;
       if (this.messageLifecycle) {
         const uuids = message.user_message_uuids ?? [message.user_message_uuid];
@@ -1419,6 +1403,7 @@ class ClaudeSession implements AgentSession {
       (turn.idle || (!this.sessionLifecycle && !this.holding)) &&
       (turn.result || turn.inputError !== undefined) &&
       !turn.held &&
+      !this.compacting &&
       (!this.messageLifecycle ||
         ![...turn.steered.values()].some(({ pending }) => pending))
     ) {
@@ -1443,9 +1428,23 @@ class ClaudeSession implements AgentSession {
     }
   }
 
+  private completeCompaction(): void {
+    if (!this.turn) return;
+    if (this.turn.compaction) this.turn.result = this.compaction!.result;
+    if (!this.sessionLifecycle) this.finishIdle(this.turn);
+  }
+
   /** an interrupt decides how the turn ends, whatever result came before or after it. */
   private finish(turn: Turn, result: TurnResult): void {
-    if (this.turn === turn) this.turn = undefined;
+    if (this.turn === turn) {
+      this.turn = undefined;
+      this.compaction?.finish({
+        status: turn.interrupted ? 'interrupted' : 'failed',
+        text: '',
+        error: result.error ?? 'Claude ended before compaction completed',
+      });
+      this.compaction = undefined;
+    }
     turn.finished.resolve(
       turn.interrupted ? { ...result, status: 'interrupted' } : result,
     );

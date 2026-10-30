@@ -168,28 +168,37 @@ test('a probe receives the reading it may extend, and an empty report clears hea
   assert.equal(headroom(published.at(-1)!.b!, 90, Date.now()), false);
 });
 
-test('the live runtime reads through its session, and a session that cannot starts nothing', async () => {
+const live = (agent: string, readLimits?: () => Promise<void>) =>
+  ({ info: { agent }, closed: false, readLimits }) as unknown as AgentSession;
+
+test('the live runtime reads through its session once its connect read ages, and a session that cannot read starts nothing', async () => {
   const { b, usage } = readings();
   let reads = 0;
-  const session = { readLimits: async () => void reads++ } as AgentSession;
-  await usage.refresh('b', '/w', session);
-  assert.equal(reads, 1);
-  assert.equal(b.limitReads.length, 0);
-  const { usage: other, b: silent } = readings();
-  await other.refresh('b', '/w', {} as AgentSession);
-  await other.refresh('b', '/w');
-  assert.equal(silent.limitReads.length, 1);
+  usage.connected(
+    live('b', async () => void reads++),
+    '/w',
+  );
+  await usage.refresh('b', '/w');
+  assert.equal(reads, 0);
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + USAGE_CURRENT_MS + 1);
+  try {
+    await usage.refresh('b', '/w');
+    assert.equal(reads, 1);
+    assert.equal(b.limitReads.length, 0);
+    const { usage: other, b: silent } = readings();
+    other.connected(live('b'), '/w');
+    await other.refresh('b', '/w');
+    assert.equal(silent.limitReads.length, 0);
+  } finally {
+    vi.restoreAllMocks();
+  }
 });
 
 test('a connect counts as the live runtime attempt and reads the others', async () => {
   const { b, usage } = readings();
-  usage.connected('b', '/w');
-  await usage.refresh('b', '/w');
-  assert.equal(b.limitReads.length, 0);
-  const { b: other, usage: second } = readings();
-  second.connected('a', '/w');
-  await second.refresh('b', '/w');
-  assert.equal(other.limitReads.length, 1);
+  usage.connected(live('a'), '/w');
+  await Promise.resolve();
+  assert.equal(b.limitReads.length, 1);
 });
 
 test('close stops a probe in flight with the stop options, and later reads start nothing', async () => {

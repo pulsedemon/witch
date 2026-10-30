@@ -233,6 +233,8 @@ export interface AgentSession {
   contextUsage(): Promise<number | undefined>;
   /** replaces native history in place; resolves after native completion, independently of replacement events. */
   compact(): Promise<TurnResult>;
+  /** queues native compaction within an ordinary turn without interrupting it; undefined refuses delivery. */
+  compactDuringTurn?(): Promise<TurnResult> | undefined;
   /** generated context must not replace the user's request in native authorization evidence. */
   send(
     prompt: string,

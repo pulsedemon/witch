@@ -73,23 +73,33 @@ export class AccountUsage {
   private readonly reads = new Map<string, Promise<void>>();
   private readonly probes = new Map<AbortController, Promise<void>>();
   private closed = false;
+  private session?: AgentSession;
 
   constructor(
     private readonly agents: readonly AgentRegistration[],
     private readonly publish: (limits: Record<string, Limit[]>) => void,
   ) {}
 
-  report(agent: string, limits: Limit[]): void {
-    if (this.limits[agent] === limits) return;
+  /** what a runtime reported; a report without limits leaves its reading alone. */
+  report(agent: string, limits: Limit[] | undefined): void {
+    if (!limits || this.limits[agent] === limits) return;
     this.reports.set(agent, (this.reports.get(agent) ?? 0) + 1);
     this.limits = { ...this.limits, [agent]: limits };
     this.publish(this.limits);
   }
 
-  /** a live session reads its own limits as it connects, which counts as that runtime's attempt. */
-  connected(live: string, cwd: string): void {
-    this.attempts.set(live, Date.now());
-    this.others(live, cwd);
+  /** a live session reads its own limits as it connects, which counts as that runtime's attempt; later reads of its runtime go through it. */
+  connected(session: AgentSession, cwd: string): void {
+    this.session = session;
+    this.attempts.set(session.info.agent, Date.now());
+    this.others(session.info.agent, cwd);
+  }
+
+  context(
+    agents: readonly { id: string; label: string }[],
+    now = Date.now(),
+  ): string | undefined {
+    return usageContext(this.limits, agents, now);
   }
 
   others(live: string, cwd: string): void {
@@ -97,8 +107,7 @@ export class AccountUsage {
       if (adapter.id !== live) void this.refresh(adapter.id, cwd);
   }
 
-  /** `session` is the runtime's live session, which reads through its own connection. */
-  refresh(agent: string, cwd: string, session?: AgentSession): Promise<void> {
+  refresh(agent: string, cwd: string): Promise<void> {
     const running = this.reads.get(agent);
     if (running) return running;
     const now = Date.now();
@@ -108,7 +117,11 @@ export class AccountUsage {
       now - (this.attempts.get(agent) ?? -Infinity) <= USAGE_CURRENT_MS
     )
       return Promise.resolve();
-    const read = session ? session.readLimits?.() : this.probe(agent, cwd);
+    const live =
+      this.session?.info.agent === agent && !this.session.closed
+        ? this.session
+        : undefined;
+    const read = live ? live.readLimits?.() : this.probe(agent, cwd);
     if (!read) return Promise.resolve();
     this.attempts.set(agent, now);
     const settled = read.finally(() => this.reads.delete(agent));
