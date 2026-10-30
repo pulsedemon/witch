@@ -86,6 +86,7 @@ const controlActions = new Set([
   'release',
   'select-next',
   'cancel-selection',
+  'route',
 ]);
 
 /** recognizes the invocation supplied by Witch, without interpreting arbitrary shell scripts. */

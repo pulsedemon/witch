@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { Snapshot } from '../src/core/snapshot.js';
@@ -847,3 +847,99 @@ for (const [key, label] of [
     }
   });
 }
+
+test("the sidebar lists every runtime's usage under the pentacle, and the status line leaves it out", async () => {
+  const now = Date.now();
+  const { app } = fake({
+    limits: {
+      a: [
+        {
+          window: '5H',
+          percent: 20,
+          resetsAt: now / 1000 + 2 * 3600 + 18 * 60 + 30,
+          observedAt: now,
+        },
+      ],
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    115,
+    40,
+  );
+  try {
+    await until('the usage block', () =>
+      sidebarRows(ui.text()).includes('USAGE'),
+    );
+    const rows = sidebarRows(ui.text());
+    assert.deepEqual(rows.slice(rows.indexOf('USAGE')).filter(Boolean), [
+      'USAGE',
+      'A       5H 20% 2h18m',
+      'B       ?',
+    ]);
+    assert.ok(/[⠁-⣿]/.test(rows[rows.indexOf('USAGE') - 1]!));
+    const statusRow = ui
+      .text()
+      .split('\n')
+      .find((line) => line.startsWith(' ? | '))!;
+    assert.doesNotMatch(statusRow.slice(0, 80), /5H/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a terminal too short for the usage block leaves usage to the status line', async () => {
+  const now = Date.now();
+  const window = (name: string, percent: number) => ({
+    window: name,
+    percent,
+    observedAt: now,
+  });
+  const { app } = fake({
+    limits: {
+      a: [window('5H', 20), window('7D', 75)],
+      b: [window('5H', 12), window('7D', 40)],
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    115,
+    15,
+  );
+  try {
+    await until('the status line', () => ui.text().includes('B 5H 12% 7D 40%'));
+    assert.ok(!sidebarRows(ui.text()).includes('USAGE'));
+    assert.match(ui.text(), /0M \| 5H 20% 7D 75% \| B 5H 12% 7D 40%/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a usage window turns dim with its age once it stops being current, without a new reading', async (t) => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+  t.onTestFinished(() => {
+    vi.useRealTimers();
+  });
+  const now = Date.now();
+  const { app } = fake({
+    limits: {
+      a: [{ window: '7D', percent: 40, observedAt: now - 10 * 60_000 + 2000 }],
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit: () => {} }),
+    115,
+    40,
+  );
+  try {
+    await until('the usage block', () =>
+      sidebarRows(ui.text()).includes('A       7D 40%'),
+    );
+    vi.advanceTimersByTime(5000);
+    await until('the stale window', () =>
+      sidebarRows(ui.text()).includes('A       7D 40%  10M OLD'),
+    );
+  } finally {
+    ui.unmount();
+  }
+});

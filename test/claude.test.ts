@@ -16,6 +16,7 @@ import {
   frameWriter,
 } from './fixtures/claude-adapter.js';
 import { until, within } from './fixtures/within.js';
+import { untimed } from './fixtures/limits.js';
 
 test('a stored effort reaches Claude Code on connect and shows before any model change', async () => {
   const { args, connect } = await launcher();
@@ -1386,15 +1387,18 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
       'the usage after the turn',
       () => session.usage.lines?.added === 4,
     );
-    assert.deepEqual(session.usage, {
-      context: 12.5,
-      contextWindow: 200000,
-      lines: { added: 4, removed: 1 },
-      limits: [
-        { window: '5H', percent: 23.5, resetsAt: 2000000000 },
-        { window: '7D', percent: 61 },
-      ],
-    });
+    assert.deepEqual(
+      { ...session.usage, limits: untimed(session.usage.limits) },
+      {
+        context: 12.5,
+        contextWindow: 200000,
+        lines: { added: 4, removed: 1 },
+        limits: [
+          { window: '5H', percent: 23.5, resetsAt: 2000000000 },
+          { window: '7D', percent: 61 },
+        ],
+      },
+    );
     assert.deepEqual(reported.at(-1), session.usage);
     assert.equal((await session.send('again')).status, 'completed');
     await until(

@@ -274,7 +274,6 @@ test('bound tool titles use the delivered prefixes, refresh on reconnect and sur
   const client = await f.start();
   const native = client.a.sessions[0]!;
   native.session.familiar = {
-    runtime: 'claude',
     report: async () => ({ kind: 'familiar-registered' }),
   };
   await client.coordinator.send('Read the current bindings');
@@ -342,13 +341,15 @@ for (const name of ['claude', 'codex'] as const) {
         new URL(`fixtures/${name}.mjs`, import.meta.url),
       );
       let child: ChildProcessWithoutNullStreams | undefined;
+      // the session spawns first; later children read models or usage
       const launch = (signal?: AbortSignal) => {
-        child = spawn(
+        const spawned = spawn(
           process.execPath,
           [executable, name === 'claude' ? 'background' : 'brews'],
           { cwd, stdio: 'pipe', signal },
         );
-        return child;
+        child ??= spawned;
+        return spawned;
       };
       const adapter =
         name === 'claude'
@@ -642,7 +643,7 @@ for (const name of ['claude', 'codex'] as const) {
                   'After position 1',
                   'Keep the suggestion reserved',
                   'Before starting a new task',
-                  'Delegate work to',
+                  'Delegate work only through Witch',
                 ]
               : []),
           ])
@@ -659,11 +660,20 @@ for (const name of ['claude', 'codex'] as const) {
           if (name === 'claude')
             assert.ok(input[0].text.endsWith(`User request:\n${prompt}`));
         } else {
-          assert.equal(input[0].text, prompt);
-          if (name === 'codex')
-            await assert.rejects(access(join(root, 'A', 'context.json')), {
-              code: 'ENOENT',
-            });
+          // the account usage line goes with every turn, coordinated or not
+          const usage =
+            name === 'claude'
+              ? input[0].text
+              : JSON.parse(
+                  await readFile(join(root, 'A', 'context.json'), 'utf8'),
+                ).items[0].content[0].text;
+          assert.match(
+            usage,
+            /^Account usage: [^\n]+\.(?:\n\nUser request:\n|$)/,
+          );
+          assert.ok(!usage.includes('You are running inside Witch'));
+          if (name === 'claude')
+            assert.ok(input[0].text.endsWith(`User request:\n${prompt}`));
         }
         if (name === 'codex') assert.equal(input[0].text, prompt);
         assert.deepEqual(

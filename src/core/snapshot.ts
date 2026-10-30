@@ -1,6 +1,7 @@
 import type { AgentRegistration } from '../agents/registry.js';
 import type {
   BackgroundCommand,
+  Limit,
   SessionInfo,
   Skill,
   Subagent,
@@ -34,6 +35,10 @@ export interface Snapshot {
   agents: readonly { id: string; label: string; installed: boolean }[];
   native?: SessionInfo;
   usage: Usage;
+  /** each installed runtime's latest account limits, which outlast the session that reported them. */
+  limits: Readonly<Record<string, readonly Limit[]>>;
+  /** each runtime's family aliases and the concrete model each names, read past native pins. */
+  latest: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** when this instance opened the conversation, in epoch milliseconds. */
   openedAt?: number;
   /** a live completion signal; reopening never announces a stored result. */
@@ -65,6 +70,8 @@ export function initialSnapshot(
     subagents: [],
     backgroundCommands: [],
     usage: {},
+    limits: {},
+    latest: {},
     agents: agents.map(({ adapter, executable }) => ({
       id: adapter.id,
       label: adapter.label,

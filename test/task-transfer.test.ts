@@ -242,7 +242,12 @@ async function automatic(t: TestContext, ids = ['claude', 'codex']) {
     type: 'usage',
     usage: {
       limits: [
-        { window: '5H', percent: 100, resetsAt: Date.now() / 1000 + 3600 },
+        {
+          window: '5H',
+          percent: 100,
+          resetsAt: Date.now() / 1000 + 3600,
+          observedAt: 0,
+        },
       ],
     },
   });
@@ -311,16 +316,31 @@ test('automatic transfer requires an exhausted window whose reported reset is st
   for (const [limits, allowed] of [
     [undefined, false],
     [[], false],
-    [[{ window: '5H', percent: 100 }], false],
-    [[{ window: '5H', percent: 99, resetsAt: 2_000_000_001 }], false],
-    [[{ window: '5H', percent: 100, resetsAt: 1_999_999_999 }], false],
-    [[{ window: '5H', percent: 100, resetsAt: 2_000_000_000 }], false],
-    [[{ window: '5H', percent: 100, resetsAt: 2_000_000_001 }], true],
-    [[{ window: '5H', percent: 101, resetsAt: 2_000_000_001 }], true],
+    [[{ window: '5H', percent: 100, observedAt: 0 }], false],
+    [
+      [{ window: '5H', percent: 99, resetsAt: 2_000_000_001, observedAt: 0 }],
+      false,
+    ],
+    [
+      [{ window: '5H', percent: 100, resetsAt: 1_999_999_999, observedAt: 0 }],
+      false,
+    ],
+    [
+      [{ window: '5H', percent: 100, resetsAt: 2_000_000_000, observedAt: 0 }],
+      false,
+    ],
+    [
+      [{ window: '5H', percent: 100, resetsAt: 2_000_000_001, observedAt: 0 }],
+      true,
+    ],
+    [
+      [{ window: '5H', percent: 101, resetsAt: 2_000_000_001, observedAt: 0 }],
+      true,
+    ],
     [
       [
-        { window: '5H', percent: 0, resetsAt: 2_000_000_001 },
-        { window: '7D', percent: 100, resetsAt: 2_000_086_400 },
+        { window: '5H', percent: 0, resetsAt: 2_000_000_001, observedAt: 0 },
+        { window: '7D', percent: 100, resetsAt: 2_000_086_400, observedAt: 0 },
       ],
       true,
     ],
@@ -405,7 +425,9 @@ for (const change of ['report', 'reset'] as const)
     const resetsAt = Date.now() / 1000 + 1;
     f.emit({
       type: 'usage',
-      usage: { limits: [{ window: '5H', percent: 100, resetsAt }] },
+      usage: {
+        limits: [{ window: '5H', percent: 100, resetsAt, observedAt: 0 }],
+      },
     });
     const original = CoordinationStore.prototype.handOver;
     vi.spyOn(CoordinationStore.prototype, 'handOver').mockImplementation(
@@ -428,7 +450,11 @@ for (const change of ['report', 'reset'] as const)
             if (change === 'report')
               f.emit({
                 type: 'usage',
-                usage: { limits: [{ window: '5H', percent: 20, resetsAt }] },
+                usage: {
+                  limits: [
+                    { window: '5H', percent: 20, resetsAt, observedAt: 0 },
+                  ],
+                },
               });
             else vi.spyOn(Date, 'now').mockReturnValue(resetsAt * 1000);
           },
@@ -468,7 +494,12 @@ for (const alias of ['task:ALIAS', 'https://github.com/acme/queue/pull/7'])
       type: 'usage',
       usage: {
         limits: [
-          { window: '5H', percent: 25, resetsAt: Date.now() / 1000 + 3600 },
+          {
+            window: '5H',
+            percent: 25,
+            resetsAt: Date.now() / 1000 + 3600,
+            observedAt: 0,
+          },
         ],
       },
     });

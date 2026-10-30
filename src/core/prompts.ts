@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
-  AgentSession,
   Question,
   Skill,
   SkillCall,
@@ -73,6 +72,7 @@ export async function nativePrompt({
   command,
   familiarCommand,
   merges = [],
+  usage,
 }: {
   prompt: string;
   memory: Memory;
@@ -86,9 +86,12 @@ export async function nativePrompt({
   command?: string;
   familiarCommand?: {
     command: string;
-    runtime: NonNullable<AgentSession['familiar']>['runtime'];
+    /** the session's own runtime, which decides the tool that launches a familiar. */
+    runtime: string;
   };
   merges?: readonly MergeEvent[];
+  /** the account usage line, sent with every turn outside the fixed instructions. */
+  usage?: string;
 }): Promise<{
   prompt: string;
   context: string | undefined;
@@ -125,9 +128,7 @@ export async function nativePrompt({
     ...(coordination ? [coordination.instructions] : []),
     ...(familiarCommand
       ? [
-          familiarCommand.runtime === 'claude'
-            ? `Delegate work to Claude when it suits the task, using this familiar prefix: ${familiarCommand.command}\nAppend --familiar-claude <task-name> --report-file <new-file-under-task-scratch> -- <native-Claude-arguments>. Use a native exec_command and keep its stdout connected so Witch can register it before Claude starts. Witch supplies --print --verbose --output-format stream-json; omit those from the native arguments. Supply the requested model and authorized native tool/permission settings, including --permission-prompts none for this noninteractive path. Native approval still applies. Supply the task prompt on stdin or as a native argument. The final report is saved to the specified new file; reporting does not survive a Witch restart.`
-            : `Delegate work to Codex when it suits the task, using this familiar prefix: ${familiarCommand.command}\nAppend --familiar-codex <task-name> --report-file <new-file-under-task-scratch> -- <native-app-server-options>. Use native Bash with run_in_background: true, keep stdout connected, and supply the task prompt on stdin, for example with a quoted heredoc. Witch supplies app-server --stdio. Use native -c configuration options for the requested model, effort and authorized permissions; preserve exact model IDs such as gpt-6-astra. Native credentials and approval policy remain in force; approval requests, questions and elicitation appear in Witch. The complete report is saved to the specified new file. Do not use codex exec for this reporting path. Reporting does not survive a Witch restart.`,
+          `Delegate work only through Witch, never your own subagent tool, so Witch chooses the model and shows it, using this familiar prefix: ${familiarCommand.command}\nFirst run the control command with --route <review|planning|implementation|investigation> --json, adding --of <runtime>:<model> for work under review and --named <runtime>:<model> when the user or you named a model or family. Launch the familiar on the runtime and model it returns; take a refused route to the user with its reason. Witch shows each route and its reason to the user.\nFor Claude, append --familiar-claude <task-name> --report-file <new-file-under-task-scratch> -- --model <model> <native-Claude-arguments>. Witch supplies --print --verbose --output-format stream-json and its own --settings; omit those. Supply authorized native tool/permission settings, including --permission-prompts none for this noninteractive path. Native approval still applies.\nFor Codex, append --familiar-codex <task-name> --report-file <new-file-under-task-scratch> -- -c model="<model>" <native-app-server-options>. Witch supplies app-server --stdio. Use native -c configuration options for effort and authorized permissions. Native credentials and approval policy remain in force; approval requests, questions and elicitation appear in Witch. Do not use codex exec for this reporting path.\n${familiarCommand.runtime === 'claude' ? 'Use native Bash with run_in_background: true' : 'Use a native exec_command with sandbox_permissions "require_escalated" and a justification, since the familiar runs a CLI that needs its own state and the network,'} and keep its stdout connected so Witch can register the familiar before it starts. Supply the task prompt on stdin, for example with a quoted heredoc. The complete report is saved to the specified new file; reporting does not survive a Witch restart.`,
         ]
       : []),
   ].join('\n\n');
@@ -145,6 +146,7 @@ export async function nativePrompt({
         ]
       : []),
     ...(coordination ? [coordination.context] : []),
+    ...(usage ? [usage] : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),
     ...(pendingContext
       ? [

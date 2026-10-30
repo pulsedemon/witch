@@ -223,7 +223,12 @@ export async function nativeScenario(
         async () =>
           (
             await session.familiar!.report(
-              { kind: 'familiar-register', run, name: 'protocol probe' },
+              {
+                kind: 'familiar-register',
+                run,
+                name: 'protocol probe',
+                runtime: 'codex',
+              },
               Date.now() + 10000,
             )
           ).kind === 'familiar-registered',

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { work } from './routing.js';
 import type { Snapshot } from './snapshot.js';
 import { conversationSchema, phaseSchema, processIdentity } from './state.js';
 
@@ -55,6 +56,11 @@ export const taskClaimSchema = z.object({
   movedFrom: claimOwnerSchema.optional(),
 });
 
+const choiceSchema = z.object({
+  runtime: z.string().min(1),
+  model: z.string().min(1),
+});
+
 export const coordinationActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('peers') }),
   z.object({ kind: z.literal('claim'), input: claimInputSchema }),
@@ -76,6 +82,12 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('cancel-selection'),
     selection: z.string().uuid(),
+  }),
+  z.object({
+    kind: z.literal('route'),
+    work,
+    of: choiceSchema.optional(),
+    named: choiceSchema.optional(),
   }),
 ]);
 
@@ -133,6 +145,7 @@ export type SelectionScope = z.infer<typeof selectionScopeSchema>;
 export type SelectionTicket = z.infer<typeof selectionTicketSchema>;
 export type SelectionState = z.infer<typeof selectionStateSchema>;
 export type CoordinationAction = z.infer<typeof coordinationActionSchema>;
+export type RouteAction = Extract<CoordinationAction, { kind: 'route' }>;
 export type SessionPresence = z.infer<typeof sessionPresenceSchema>;
 export type CoordinationSnapshot = z.infer<typeof coordinationSnapshotSchema>;
 

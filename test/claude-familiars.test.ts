@@ -58,9 +58,9 @@ function commands() {
     activation: binding.activation,
     run,
   });
-  const register = () =>
+  const register = (runtime: 'claude' | 'codex' = 'codex') =>
     owner.report(
-      { kind: 'familiar-register', run, name: 'review' },
+      { kind: 'familiar-register', run, name: 'review', runtime },
       Date.now() + 5000,
     );
   const update = (sequence: number, status: TaskStatus = 'running') =>
@@ -160,7 +160,7 @@ test('a Claude background command registers after the parent turn and closes onl
     assert.equal(
       (
         await session.familiar!.report(
-          { kind: 'familiar-register', run, name: 'check' },
+          { kind: 'familiar-register', run, name: 'check', runtime: 'codex' },
           Date.now() + 5000,
         )
       ).kind,
@@ -230,7 +230,7 @@ test('a Claude background command registers after the parent turn and closes onl
     );
     await assert.rejects(
       session.familiar!.report(
-        { kind: 'familiar-register', run, name: 'check' },
+        { kind: 'familiar-register', run, name: 'check', runtime: 'codex' },
         Date.now() + 5000,
       ),
       /unavailable/,
@@ -256,7 +256,7 @@ test('native request IDs stay distinct between familiar runs and answers survive
     }),
   );
   await f.owner.report(
-    { kind: 'familiar-register', run: other, name: 'other' },
+    { kind: 'familiar-register', run: other, name: 'other', runtime: 'codex' },
     Date.now() + 5000,
   );
   const request = {
@@ -408,7 +408,12 @@ test('a task end or expired deadline during an output read prevents admission', 
     f.control.getTaskOutput = () => output.promise;
     const deadline = Date.now() + 10_000;
     const registering = f.owner.report(
-      { kind: 'familiar-register', run: f.run, name: 'review' },
+      {
+        kind: 'familiar-register',
+        run: f.run,
+        name: 'review',
+        runtime: 'codex',
+      },
       deadline,
     );
     const now =
@@ -503,4 +508,13 @@ test('native completion without a final report fails the familiar while live-set
     );
     await f.owner.close();
   }
+});
+
+test("a Claude session's Claude familiar registers under its own runtime", async () => {
+  const f = commands();
+  f.start();
+  assert.equal((await f.register('claude')).kind, 'familiar-registered');
+  assert.equal(f.familiars()[0]!.id, `claude-familiar/${f.run}`);
+  assert.equal(f.familiars()[0]!.runtime, 'claude');
+  await f.owner.close();
 });

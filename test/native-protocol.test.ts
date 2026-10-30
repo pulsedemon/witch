@@ -18,6 +18,7 @@ import type {
   UserResponse,
 } from '../src/agents/types.js';
 import { until, within } from './fixtures/within.js';
+import { untimed } from './fixtures/limits.js';
 
 const schema = JSON.parse(
   readFileSync(
@@ -71,7 +72,7 @@ for (const runtime of ['codex', 'claude'] as const) {
       if (scenario === 'basic') {
         const limits = events
           .filter((event) => event.type === 'usage')
-          .map((event) => event.usage.limits)
+          .map((event) => untimed(event.usage.limits))
           .filter((value) => value !== undefined);
         assert.deepEqual(
           limits[0],

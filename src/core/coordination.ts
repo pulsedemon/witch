@@ -25,6 +25,7 @@ import {
 } from './coordination-state.js';
 import type {
   CoordinationSnapshot,
+  RouteAction,
   SessionPresence,
   SelectionScope,
   TransferTarget,
@@ -126,7 +127,9 @@ export class SessionCoordination {
   private publishingMerges?: Promise<void>;
   private host!: ControlHost;
   private familiarHost!: ControlHost;
-  private familiarHandler?: NonNullable<AgentSession['familiar']>['report'];
+  private live?: () => AgentSession | undefined;
+  /** answers `--route` outside the serialized claim queue, so background claim work doesn't delay it. */
+  router?: (action: RouteAction) => Promise<ControlOutcome>;
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;
   private pending?: SessionPresence;
@@ -208,11 +211,12 @@ export class SessionCoordination {
           const { action } = request;
           if (!isFamiliarAction(action))
             throw new Error('Use the task control mailbox for this action.');
-          if (!coordination.familiarHandler)
+          const familiar = coordination.live?.()?.familiar;
+          if (!familiar)
             throw new Error(
               'The active runtime cannot report delegated familiars.',
             );
-          return coordination.familiarHandler(action, request.deadline);
+          return familiar.report(action, request.deadline);
         },
         (error) => coordination.fail('control', error),
       );
@@ -230,10 +234,9 @@ export class SessionCoordination {
     return () => this.listeners.delete(listener);
   };
 
-  setFamiliarHandler(
-    handler: NonNullable<AgentSession['familiar']>['report'] | undefined,
-  ): void {
-    this.familiarHandler = handler;
+  /** the conversation's live session, which receives its familiars' reports; `undefined` once it closes. */
+  attach(live: (() => AgentSession | undefined) | undefined): void {
+    this.live = live;
   }
 
   familiarBinding(): ControlBinding {
@@ -905,6 +908,11 @@ export class SessionCoordination {
         message: 'Use the familiar reporting mailbox for this action.',
       });
     this.failures.delete('control');
+    if (request.action.kind === 'route') {
+      this.admit(request);
+      if (!this.router) throw new Error('This Witch cannot route work.');
+      return this.router(request.action);
+    }
     return this.serialize(() => this.dispatch(request, human));
   }
 
@@ -930,8 +938,8 @@ export class SessionCoordination {
     let outcome: ControlOutcome | undefined;
     try {
       const action = request.action;
-      if (isFamiliarAction(action))
-        throw new Error('Use the familiar reporting mailbox for this action.');
+      if (isFamiliarAction(action) || action.kind === 'route')
+        throw new Error('This action is answered before dispatch.');
       if (action.kind === 'peers') {
         const snapshot = await this.requestSnapshot(active, state);
         if (snapshot.error) throw new Error(snapshot.error);

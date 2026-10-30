@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
+import type { Limit } from '../src/agents/types.js';
 import { statusLines } from '../src/ui/status-line.js';
 
 const now = Date.parse('2026-10-13T12:00:00Z');
@@ -14,12 +16,22 @@ test('the status line shows reported fields with the context capacity beside its
       usage: {
         context: 45.8,
         contextWindow: 828400,
-        limits: [
-          { window: '5H', percent: 23.4, resetsAt: seconds + 2 * 3600 + 600 },
-          { window: '7D', percent: 41, resetsAt: seconds + 3 * 86_400 + 7200 },
-        ],
         lines: { added: 12, removed: 3 },
       },
+      limits: [
+        {
+          window: '5H',
+          percent: 23.4,
+          resetsAt: seconds + 2 * 3600 + 600,
+          observedAt: now,
+        },
+        {
+          window: '7D',
+          percent: 41,
+          resetsAt: seconds + 3 * 86_400 + 7200,
+          observedAt: now,
+        },
+      ],
       openedAt: now - (65 * 60 + 59) * 1000,
       cwd: '/work/witch',
       repository: {
@@ -100,22 +112,39 @@ test('a conversation opened since the clock was last read shows 0M, not a negati
   assert.equal(stripAnsi(first), '? | DEFAULT | 0M');
 });
 
-test('limits turn yellow at 70% and red at 90%, a past reset shows no time, and the bar warms from 40%', () => {
+test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its age, and the bar warms from 40%', () => {
   const [first] = statusLines(
     {
-      usage: {
-        limits: [
-          { window: '5H', percent: 69.4 },
-          { window: '7D', percent: 69.6, resetsAt: seconds - 60 },
-          { window: '30D', percent: 90 },
-        ],
-      },
+      usage: {},
+      limits: [
+        { window: '5H', percent: 69.4, observedAt: now },
+        {
+          window: '7D',
+          percent: 69.6,
+          resetsAt: seconds - 60,
+          observedAt: now,
+        },
+        { window: '30D', percent: 90, observedAt: now },
+      ],
       cwd: '/w',
     },
     now,
   );
-  assert.equal(stripAnsi(first), '? | DEFAULT | 0M | 5H 69% 7D 70% 30D 90%');
-  assert.ok(first.includes('7D \u001b[33m70%\u001b[39m'), first);
+  assert.equal(
+    stripAnsi(first),
+    '? | DEFAULT | 0M | 5H 69% 7D 70%  0M OLD 30D 90%',
+  );
+  assert.ok(first.includes('5H 69% '), first);
+  assert.ok(first.includes('\u001b[2m7D 70%  0M OLD\u001b[22m'), first);
+  const [yellow] = statusLines(
+    {
+      usage: {},
+      limits: [{ window: '7D', percent: 70, observedAt: now }],
+      cwd: '/w',
+    },
+    now,
+  );
+  assert.ok(yellow.includes('7D \u001b[33m70%\u001b[39m'), yellow);
   assert.ok(first.includes('30D \u001b[31m90%\u001b[39m'), first);
   const bar = (context: number) =>
     statusLines({ usage: { context }, cwd: '/w' }, now)[1];
@@ -161,4 +190,75 @@ test('a merged pull request says so in magenta, a closed one plainly, and failin
   assert.ok(pr('CLOSED').includes('| PR#3 CLOSED |'));
   assert.ok(pr('OPEN', 'failing').includes('| PR#3 ✗ |'));
   assert.ok(pr('OPEN', 'pending').includes('| PR#3 … |'));
+});
+
+test('other runtimes follow the live one as percents, dim when not current, and ? with no reading', () => {
+  const [first] = statusLines(
+    {
+      usage: {},
+      cwd: '/w',
+      limits: [
+        {
+          window: '7D',
+          percent: 49,
+          resetsAt: seconds + 86_400,
+          observedAt: now,
+        },
+      ],
+      others: [
+        {
+          id: 'claude',
+          limits: [
+            { window: '5H', percent: 20, observedAt: now - 11 * 60_000 },
+            { window: '7D', percent: 75, observedAt: now },
+          ],
+        },
+        { id: 'other' },
+      ],
+    },
+    now,
+  );
+  assert.equal(
+    stripAnsi(first),
+    '? | DEFAULT | 0M | 7D 49% 1d0h | CLAUDE 5H 20% 7D 75% | OTHER ?',
+  );
+  assert.ok(first.includes('\u001b[2m5H 20%\u001b[22m'), first);
+});
+
+test('a first row that would overflow drops the live reset times, so the other runtime stays whole', () => {
+  const window = (name: string, percent: number, reset?: number): Limit => ({
+    window: name,
+    percent,
+    observedAt: now,
+    ...(reset === undefined ? {} : { resetsAt: seconds + reset }),
+  });
+  const first = (codex: Limit[]) =>
+    statusLines(
+      {
+        model: 'gpt-6.1-terra',
+        effort: 'xhigh',
+        usage: {},
+        cwd: '/w',
+        openedAt: now - 83 * 60_000,
+        limits: codex,
+        others: [
+          { id: 'claude', limits: [window('5H', 20), window('7D', 75)] },
+        ],
+      },
+      now,
+      78,
+    )[0];
+  const both = first([
+    window('5H', 12, 2 * 3600 + 600),
+    window('7D', 40, 3 * 86_400 + 7200),
+  ]);
+  assert.equal(
+    stripAnsi(both),
+    'GPT-6.1-TERRA | XHIGH | 1H23M | 5H 12% 7D 40% | CLAUDE 5H 20% 7D 75%',
+  );
+  assert.ok(stringWidth(both) <= 78);
+  assert.equal(
+    stripAnsi(first([window('7D', 40, 3 * 86_400 + 7200)])),
+    'GPT-6.1-TERRA | XHIGH | 1H23M | 7D 40% 3d2h | CLAUDE 5H 20% 7D 75%',
+  );
 });

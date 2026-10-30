@@ -45,6 +45,7 @@ import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
+import { AccountUsage } from './usage.js';
 import type { ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
@@ -107,6 +108,7 @@ export class Coordinator {
   private selectingModel = false;
   private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
+  readonly accountUsage: AccountUsage;
   private draining?: PromiseWithResolvers<void>;
   private deliveryHolds = 0;
   private readonly compaction = new Compaction({
@@ -156,14 +158,11 @@ export class Coordinator {
     this.catalog = new ModelCatalog(agents, (error) =>
       this.notice(errorMessage(error), undefined, false),
     );
+    this.accountUsage = new AccountUsage(agents, (limits) =>
+      this.publish({ limits }),
+    );
     this.snapshot = initialSnapshot(agents);
-    this.coordination?.setFamiliarHandler(async (action, deadline) => {
-      if (!this.session?.familiar)
-        throw new Error(
-          'The active runtime cannot report delegated familiars.',
-        );
-      return this.session.familiar.report(action, deadline);
-    });
+    this.coordination?.attach(() => this.session);
     this.publish({});
     watchMergeNotices(
       coordination,
@@ -566,7 +565,8 @@ export class Coordinator {
         const { cwd, agent } = this.current();
         try {
           const models = await this.catalog.read(cwd, this.live(agent), true);
-          if (!refresh.cancelled) this.publish({ models });
+          if (!refresh.cancelled)
+            this.publish({ models, latest: this.catalog.latest });
         } catch (error) {
           if (
             !refresh.cancelled ||
@@ -831,7 +831,7 @@ export class Coordinator {
     if (this.closed) return;
     this.closed = true;
     const stop = { ...options, deadline: stopDeadline() };
-    this.coordination?.setFamiliarHandler(undefined);
+    this.coordination?.attach(undefined);
     const quiescing = this.coordination?.quiesce();
     // interrupt() reads the phase before `closing` replaces it
     const interrupting = this.interrupt(stop);
@@ -856,6 +856,7 @@ export class Coordinator {
       failure ??= error;
     } finally {
       try {
+        await this.accountUsage.close(stop);
         await this.disconnect(false, false, stop);
       } finally {
         try {
@@ -988,10 +989,11 @@ export class Coordinator {
             session.familiar && this.coordination
               ? {
                   command: this.coordination.commandPrefixes().familiar,
-                  runtime: session.familiar.runtime,
+                  runtime: session.info.agent,
                 }
               : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),
+          usage: this.accountUsage.context(this.snapshot.agents),
         });
       let input = await context();
       // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
@@ -1122,6 +1124,7 @@ export class Coordinator {
         `chore(memory): save ${activity.agent} notes\n\n${memoryAttribution(conversation.id, activity.id)}`,
       );
       delete conversation.activity;
+      this.accountUsage.others(activity.agent, conversation.cwd);
     } else {
       this.notice(result.error ?? 'Turn interrupted');
       if (result.status === 'failed') this.turnFailed = true;
@@ -1243,8 +1246,10 @@ export class Coordinator {
         native: live?.info,
         usage: live?.usage ?? {},
         models,
+        latest: this.catalog.latest,
         skills,
       });
+      this.accountUsage.connected(session, conversation.cwd);
       return session;
     } finally {
       this.connecting = undefined;
@@ -1346,6 +1351,7 @@ export class Coordinator {
     } else if (event.type === 'skills') {
       if (this.live(agent)) this.publish({ skills: event.skills });
     } else if (event.type === 'usage') {
+      this.accountUsage.report(agent, event.usage.limits);
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent' || event.type === 'command') {
       if (this.live(agent)) this.background(event, conversation.cwd);

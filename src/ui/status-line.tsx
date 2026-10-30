@@ -1,15 +1,27 @@
 import { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { basename } from 'node:path';
-import type { Usage } from '../agents/types.js';
+import stringWidth from 'string-width';
+import type { Limit, Usage } from '../agents/types.js';
+import { current } from '../core/usage.js';
 import type { Repository } from '../core/repository.js';
 import { hyperlink, oneLine, plain } from './links.js';
 import { colors, piped } from './theme.js';
+
+export interface Account {
+  id: string;
+  /** `undefined` until a reading arrives. */
+  limits?: readonly Limit[];
+}
 
 export interface Status {
   model?: string;
   effort?: string;
   usage: Usage;
+  /** the live runtime's account limits; absent while the sidebar shows every runtime's. */
+  limits?: readonly Limit[];
+  /** each other runtime's limits, in runtime order. */
+  others?: readonly Account[];
   /** epoch milliseconds. */
   openedAt?: number;
   cwd: string;
@@ -61,6 +73,16 @@ function untilReset(resetsAt: number | undefined, now: number): string {
   return ` ${Math.floor(left / 60)}m`;
 }
 
+/** a window that isn't current shows dim, with its age in place of the reset when `reset` is set. */
+export function windowText(limit: Limit, now: number, reset: boolean): string {
+  const percent = Math.round(limit.percent);
+  if (!current(limit, now))
+    return colors.dim(
+      `${limit.window} ${percent}%${reset ? `  ${duration(now - limit.observedAt)} OLD` : ''}`,
+    );
+  return `${limit.window} ${limitColor(percent)(`${percent}%`)}${reset ? untilReset(limit.resetsAt, now) : ''}`;
+}
+
 function limitColor(percent: number): (text: string) => string {
   return percent >= 90
     ? colors.red
@@ -97,28 +119,43 @@ function pullRequest({ pullRequest: request }: Repository): string | undefined {
   }`;
 }
 
-export function statusLines(status: Status, now: number): [string, string] {
+/** the live runtime's reset times drop when the first row would overflow `width`, so the others stay visible. */
+export function statusLines(
+  status: Status,
+  now: number,
+  width = Infinity,
+): [string, string] {
   const { usage, repository } = status;
   const context = Math.floor(usage.context ?? 0);
   const capacity =
     usage.contextWindow === undefined
       ? ''
       : ` (${tokenCount.format(usage.contextWindow)})`;
-  const limits = (usage.limits ?? [])
-    .map(({ window, percent, resetsAt }) => {
-      const rounded = Math.round(percent);
-      return `${window} ${limitColor(rounded)(`${rounded}%`)}${untilReset(resetsAt, now)}`;
-    })
-    .join(' ');
-  const request = repository && pullRequest(repository);
-  return [
-    piped([
+  const others = (status.others ?? []).map(({ id, limits }) =>
+    [
+      id.toUpperCase(),
+      ...(limits?.length
+        ? limits.map((limit) => windowText(limit, now, false))
+        : ['?']),
+    ].join(' '),
+  );
+  const first = (reset: boolean) => {
+    const limits = (status.limits ?? [])
+      .map((limit) => windowText(limit, now, reset))
+      .join(' ');
+    return piped([
       white(plain(status.model || '?').toUpperCase()),
       plain(status.effort || 'default').toUpperCase(),
       // a conversation can open after the clock was last read
       duration(Math.max(0, now - (status.openedAt ?? now))),
       ...(limits ? [limits] : []),
-    ]),
+      ...others,
+    ]);
+  };
+  const full = first(true);
+  const request = repository && pullRequest(repository);
+  return [
+    stringWidth(full) > width ? first(false) : full,
     piped([
       `${white('CTX')} ${context}%${capacity} ${bar(context)}`,
       white(hyperlink(oneLine(basename(status.cwd)), status.cwd, status.cwd)),
@@ -130,7 +167,7 @@ export function statusLines(status: Status, now: number): [string, string] {
 }
 
 /** redrawn every 5 seconds, as Claude Code refreshes a status line, so the duration and resets keep time. */
-export function StatusLine(status: Status) {
+export function StatusLine(status: Status & { width: number }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 5000);
@@ -138,7 +175,7 @@ export function StatusLine(status: Status) {
   }, []);
   return (
     <Box flexDirection="column" height={2} paddingX={1}>
-      {statusLines(status, now).map((line, row) => (
+      {statusLines(status, now, status.width - 2).map((line, row) => (
         <Text key={row} wrap="truncate-end">
           {line}
         </Text>

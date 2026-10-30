@@ -30,6 +30,7 @@ for (const [args, title] of [
   ['--release claim-id', 'release claim-id'],
   ['--select-next turn-id --json', 'select-next turn-id'],
   ['--cancel-selection ticket-id', 'cancel-selection ticket-id'],
+  ['--route review --of codex:gpt-6.1-sol --json', 'route review'],
 ]) {
   test(`a bound ${title!.split(' ')[0]} call retains its operand and complete command`, () => {
     const command = `${prefixes.control} ${args}`;

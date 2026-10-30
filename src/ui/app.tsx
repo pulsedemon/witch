@@ -18,7 +18,7 @@ import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
 import type { StateStore } from '../persistence/store.js';
-import { commands, parseCommands } from './commands.js';
+import { commands, parseCommands, safeQueueMerge } from './commands.js';
 import type { WitchCommand, CommandName } from './commands.js';
 import { CommandBatches } from './command-batches.js';
 import { Input, inputRows } from './input.js';
@@ -44,7 +44,8 @@ import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { castTitle, useCasting } from './cast.js';
-import { Sidebar, sidebarWidth } from './sidebar.js';
+import { Sidebar, sidebarWidth, usagePlacement } from './sidebar.js';
+import { delegation } from './delegation.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
@@ -111,6 +112,7 @@ export function App({
   graphics,
   jobs,
   store,
+  policy,
   copy,
 }: {
   coordinator: Coordinator;
@@ -122,6 +124,8 @@ export function App({
   jobs?: Pick<JobWatch, 'list' | 'stop'>;
   /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
   store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
+  /** where /delegation reads and saves the routing policy; without it, /delegation shows the default and refuses a change. */
+  policy?: Parameters<typeof delegation>[1];
   onExit(): void;
   /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */
   onRestart?(): void;
@@ -170,6 +174,7 @@ export function App({
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
   const height = Math.max(12, size.rows);
+  const usage = usagePlacement(state, sidebar, height);
   // the compiler needs the native fallback's string type to memoize its consumers.
   const cwd = state.conversation?.cwd ?? String(process.cwd());
   const [view, viewRef, setView] = useLiveState<View>({ kind: 'chat' });
@@ -694,6 +699,13 @@ export function App({
           );
         }
         break;
+      case 'delegation': {
+        const text = await delegation(argument, policy, coordinator);
+        if (!text) return false;
+        setPageScroll(0);
+        setView({ kind: 'page', title: 'Delegation', text });
+        break;
+      }
       case 'compact':
         return coordinator.compact();
       case 'clear':
@@ -708,7 +720,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nWitch commands run wherever they appear outside backticks, in message order. Surrounding prose is discarded. /new, /model and /task take arguments up to the next command. A leading ! or listed native command keeps the whole input unchanged.\n/compact waits for foreground work without interrupting the task. Claude can compact while familiars continue; Codex waits for its active turn to finish. Pending: /compact shows unfinished requests. Prompts wait until compaction, picker choices and model changes finish. A failed or canceled command stops later command batches and lists them for explicit retry.\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing but a spell or native command is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an ordinary turn is interrupted. Cancelled or failed compaction leaves queued messages undelivered. ↑ on the first line takes queued messages back to edit when merging would not execute Witch commands, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it. Ctrl+O switches new or deleted files between their preview and all lines.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues. Ctrl+O switches new or deleted files between their preview and all lines.\nCtrl+C interrupts active work or cancels a pending question. It exits while idle with no request, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects a model on the active runtime.\n/model <agent>:<id> [effort] selects a runtime and model; choosing another runtime performs a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nWitch commands run wherever they appear outside backticks, in message order. Surrounding prose is discarded. /new, /model, /task and /delegation take arguments up to the next command. A leading ! or listed native command keeps the whole input unchanged.\n/compact waits for foreground work without interrupting the task. Claude can compact while familiars continue; Codex waits for its active turn to finish. Pending: /compact shows unfinished requests. Prompts wait until compaction, picker choices and model changes finish. A failed or canceled command stops later command batches and lists them for explicit retry.\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing but a spell or native command is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an ordinary turn is interrupted. Cancelled or failed compaction leaves queued messages undelivered. ↑ on the first line takes queued messages back to edit when merging would not execute Witch commands, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it. Ctrl+O switches new or deleted files between their preview and all lines.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues. Ctrl+O switches new or deleted files between their preview and all lines.\nCtrl+C interrupts active work or cancels a pending question. It exits while idle with no request, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects a model on the active runtime.\n/model <agent>:<id> [effort] selects a runtime and model; choosing another runtime performs a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
         });
         break;
       case 'restart':
@@ -1453,6 +1465,8 @@ export function App({
           </Box>
         )}
         <StatusLine
+          width={width}
+          {...usage.status}
           model={
             state.models.find(
               ({ id, agent }) =>
@@ -1474,20 +1488,9 @@ export function App({
           brews={state.backgroundCommands}
           subagents={state.subagents}
           peers={coordination?.peers}
+          accounts={usage.sidebar}
         />
       )}
     </Box>
-  );
-}
-
-/** recovered text must not turn separate native input or a command draft into an executable Witch batch. */
-function safeQueueMerge(
-  queue: readonly string[],
-  draft: string,
-  skills: readonly Skill[],
-): boolean {
-  return (
-    !parseCommands(draft, skills) &&
-    !parseCommands([...queue, ...(draft ? [draft] : [])].join('\n'), skills)
   );
 }

@@ -5,6 +5,13 @@ import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
+import {
+  probeLimits,
+  rateLimits,
+  readRateLimits,
+  windowLimits,
+} from './codex-limits.js';
+import type { ObservedWindow } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { mergeCasts } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
@@ -25,6 +32,7 @@ import type {
   AgentStopOptions,
   FileDiff,
   Hunk,
+  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -94,19 +102,6 @@ const tokenUsage = z.object({
     modelContextWindow: z.number().nullable(),
   }),
 });
-const rateWindow = z
-  .object({
-    usedPercent: z.number(),
-    windowDurationMins: z.number().nullable(),
-    resetsAt: z.number().nullable(),
-  })
-  .nullish();
-const rateLimits = z.object({
-  limitId: z.string().nullish(),
-  primary: rateWindow,
-  secondary: rateWindow,
-});
-type RateWindow = NonNullable<z.infer<typeof rateWindow>>;
 const questionList = z.array(
   z.object({
     id: z.string(),
@@ -178,13 +173,6 @@ const fileChangeIdentity = z.object({
   turnId: z.string(),
   itemId: z.string(),
 });
-
-/** `5H` for 300 minutes, `7D` for 10080. */
-function windowName(minutes: number): string {
-  return minutes % 1440 === 0
-    ? `${minutes / 1440}D`
-    : `${Math.round(minutes / 60)}H`;
-}
 
 const changedFiles = z.array(z.object({ path: z.string() })).catch([]);
 const fileChanges = z.array(
@@ -340,6 +328,24 @@ export class CodexAdapter implements AgentAdapter {
     }
   }
 
+  async limits(
+    options: ModelDiscoveryOptions,
+    previous: readonly Limit[],
+  ): Promise<Limit[]> {
+    const rpc = new JsonRpc(
+      this.start(options.executable, options.cwd, options.signal),
+    );
+    try {
+      await initializeRpc(rpc);
+      return await probeLimits(rpc, previous);
+    } finally {
+      const reason: unknown = options.signal?.reason;
+      await rpc.close(
+        reason instanceof NativeStop ? reason.options : undefined,
+      );
+    }
+  }
+
   async connect(options: SessionOptions): Promise<AgentSession> {
     const child = this.start(options.executable, options.cwd, options.signal);
     const rpc = new JsonRpc(child);
@@ -407,8 +413,11 @@ class CodexSession implements AgentSession {
   >();
   /** the account limit the windows belong to, and its windows by slot, which a sparse update merges into. */
   private limitId?: string;
-  private readonly windows: { primary?: RateWindow; secondary?: RateWindow } =
-    {};
+  private readonly windows: {
+    primary?: ObservedWindow;
+    secondary?: ObservedWindow;
+  } = {};
+  private limitsRead?: Promise<void>;
 
   constructor(
     private readonly rpc: JsonRpc,
@@ -714,7 +723,6 @@ class CodexSession implements AgentSession {
   }
 
   readonly familiar = {
-    runtime: 'claude' as const,
     report: async (
       action: FamiliarAction,
       deadline: number,
@@ -726,6 +734,7 @@ class CodexSession implements AgentSession {
   };
 
   respond(id: string, response: UserResponse): void {
+    if (this.commands.respond(id, response)) return;
     const request = this.requests.get(id);
     if (!request || request.id === undefined) return;
     const params = object.parse(request.params);
@@ -1395,15 +1404,16 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
+  readLimits(): Promise<void> {
+    return (this.limitsRead ??= this.readLimitsOnce().finally(() => {
+      this.limitsRead = undefined;
+    }));
+  }
+
   /** the status line leaves out what Codex can't report, such as limits on an API key. */
-  private async readLimits(): Promise<void> {
+  private async readLimitsOnce(): Promise<void> {
     try {
-      const response = object.parse(
-        await this.rpc.request('account/rateLimits/read', {
-          excludeResetCreditDetails: true,
-        }),
-      );
-      this.mergeLimits(rateLimits.parse(response.rateLimits));
+      this.mergeLimits(await readRateLimits(this.rpc));
     } catch {
       // limits stay unreported
     }
@@ -1415,22 +1425,13 @@ class CodexSession implements AgentSession {
       if (this.limitId && update.limitId !== this.limitId) return;
       this.limitId = update.limitId;
     }
-    if (update.primary) this.windows.primary = update.primary;
-    if (update.secondary) this.windows.secondary = update.secondary;
-    // a window of unknown length has no name to show
-    const windows = [this.windows.primary, this.windows.secondary].flatMap(
-      (window) =>
-        window?.windowDurationMins == null
-          ? []
-          : [{ ...window, minutes: window.windowDurationMins }],
-    );
-    windows.sort((a, b) => a.minutes - b.minutes);
+    const observedAt = Date.now();
+    if (update.primary)
+      this.windows.primary = { ...update.primary, observedAt };
+    if (update.secondary)
+      this.windows.secondary = { ...update.secondary, observedAt };
     this.report({
-      limits: windows.map(({ minutes, usedPercent, resetsAt }) => ({
-        window: windowName(minutes),
-        percent: usedPercent,
-        ...(resetsAt != null ? { resetsAt } : {}),
-      })),
+      limits: windowLimits([this.windows.primary, this.windows.secondary]),
     });
   }
 

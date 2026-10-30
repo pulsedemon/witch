@@ -11,6 +11,11 @@ const catalog = [
     takesArguments: true,
   },
   { id: 'model', label: 'Choose model and reasoning', takesArguments: true },
+  {
+    id: 'delegation',
+    label: 'Where delegated work goes, and when usage shifts it',
+    takesArguments: true,
+  },
   { id: 'compact', label: 'Compact the conversation' },
   { id: 'clear', label: 'Clear agent context' },
   { id: 'memory', label: 'Browse shared memory' },
@@ -79,4 +84,16 @@ export function parseCommands(
       ? text.slice(end, found[index + 1]?.start).trim()
       : '',
   }));
+}
+
+/** recovered text must not turn separate native input or a command draft into an executable Witch batch. */
+export function safeQueueMerge(
+  queue: readonly string[],
+  draft: string,
+  skills: readonly Skill[],
+): boolean {
+  return (
+    !parseCommands(draft, skills) &&
+    !parseCommands([...queue, ...(draft ? [draft] : [])].join('\n'), skills)
+  );
 }

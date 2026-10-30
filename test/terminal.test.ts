@@ -46,6 +46,8 @@ function fixture(
     backgroundCommands: [],
     agents: [],
     usage: {},
+    limits: {},
+    latest: {},
     ...initial,
   });
   const errors: unknown[] = [];

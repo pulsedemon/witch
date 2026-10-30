@@ -158,6 +158,13 @@ test('the wrapper retries a lost marker, preserves native inputs and saves a ful
       '--verbose',
       '--output-format',
       'stream-json',
+      '--settings',
+      JSON.stringify({
+        env: {
+          CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP: '1',
+          CLAUDE_CODE_NO_MODEL_FALLBACK: '1',
+        },
+      }),
       '--model',
       'requested-alias',
       '--permission-prompts',
@@ -169,6 +176,12 @@ test('the wrapper retries a lost marker, preserves native inputs and saves a ful
     await writeFile(join(f.root, 'exit'), 'yes');
     assert.equal(await f.closed, 0, f.output().stderr);
     assert.equal(f.requests[0]!.deadline, f.requests[1]!.deadline);
+    assert.deepEqual(f.requests[0]!.action, {
+      kind: 'familiar-register',
+      run: (f.requests[0]!.action as { run: string }).run,
+      name: 'plan review',
+      runtime: 'claude',
+    });
     assert.equal(f.updates().at(-1)!.progress.model, 'claude-response');
     assert.equal(f.updates().at(-1)!.progress.tools, 2);
     assert.equal(f.updates().at(-1)!.progress.status, 'completed');
@@ -368,6 +381,8 @@ test('familiar CLI arguments reject mixed actions and conflicting native stream 
     ['--', '--output-format=json'],
     ['--', '--input-format', 'stream-json'],
     ['--', '--remote-control'],
+    // Witch's own settings keep the routed model from being remapped or swapped
+    ['--', '--settings', '{}'],
     [],
   ])
     assert.throws(() => parseCommand([...args, ...extra]));

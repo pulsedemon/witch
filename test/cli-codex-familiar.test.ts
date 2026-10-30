@@ -215,6 +215,10 @@ test('a Codex familiar reports progress before stdin ends without waiting for a 
       f.updates().some((progress) => progress.status === 'running'),
     );
     assert.equal(f.requests[0]!.action.kind, 'familiar-register');
+    assert.equal(
+      (f.requests[0]!.action as { runtime: string }).runtime,
+      'codex',
+    );
     assert.match(f.output().stdout, /WITCH_FAMILIAR /);
     assert.deepEqual(f.updates()[0], { status: 'running', tools: 0 });
     await assert.rejects(f.launch(), { code: 'ENOENT' });

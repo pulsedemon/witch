@@ -1,10 +1,9 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type {
-  Query,
-  SDKUserMessage,
-  SpawnOptions,
-} from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
+import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { promptless } from './claude-side.js';
+import type { ClaudeLaunch } from './claude-side.js';
 import { InputQueue } from './input-queue.js';
 import { watchChild } from './stderr.js';
 import type { ChildExit } from './stderr.js';
@@ -15,12 +14,54 @@ import {
   terminateChild,
   terminationReserveMs,
 } from './shutdown.js';
-import type { AgentStopOptions, SessionOptions } from './types.js';
+import type { AgentStopOptions, Limit, SessionOptions } from './types.js';
 
-export type ClaudeLaunch = (
-  options: SpawnOptions,
-) => ChildProcessWithoutNullStreams;
 export type UsageSource = 'main' | 'usage';
+
+const limitWindow = z
+  .object({
+    utilization: z.number().nullable(),
+    resets_at: z.string().nullable(),
+  })
+  .nullish();
+const accountUsage = z.object({
+  rate_limits_available: z.boolean(),
+  // percentages of 0 to 100
+  rate_limits: z
+    .object({ five_hour: limitWindow, seven_day: limitWindow })
+    .nullable(),
+});
+/** undefined for a report that doesn't parse; a window the report leaves null keeps its previous entry, time included. */
+export function accountLimits(
+  report: unknown,
+  previous: readonly Limit[],
+): Limit[] | undefined {
+  const account = accountUsage.safeParse(report);
+  if (!account.success) return;
+  const { rate_limits: limits, rate_limits_available: available } =
+    account.data;
+  if (!available) return [];
+  const observedAt = Date.now();
+  return (
+    [
+      ['5H', limits?.five_hour],
+      ['7D', limits?.seven_day],
+    ] as const
+  ).flatMap(([name, limit]) =>
+    limit?.utilization == null
+      ? previous.filter((entry) => entry.window === name)
+      : [
+          {
+            window: name,
+            percent: limit.utilization,
+            ...(limit.resets_at
+              ? { resetsAt: Date.parse(limit.resets_at) / 1000 }
+              : {}),
+            observedAt,
+          },
+        ],
+  );
+}
 
 interface Helper {
   input: InputQueue<SDKUserMessage>;
@@ -121,11 +162,7 @@ export class ClaudeUsage {
             cwd: this.options.cwd,
             pathToClaudeCodeExecutable: this.options.executable,
             abortController: helper.abort,
-            settingSources: ['user', 'project', 'local'],
-            persistSession: false,
-            settings: { disableAllHooks: true },
-            strictMcpConfig: true,
-            mcpServers: {},
+            ...promptless,
             spawnClaudeCodeProcess: (options) => {
               const child = this.start(options);
               helper.process = child;

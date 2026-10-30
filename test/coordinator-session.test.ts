@@ -1213,6 +1213,7 @@ test('interrupting a pending replied model change preserves unread Claude prompt
         id: 'claude',
         label: 'Claude',
         models: (options) => adapter.models(options),
+        limits: async () => [],
         connect: async (options) => (session = await connect(options)),
       },
       executable: '/fake/claude',

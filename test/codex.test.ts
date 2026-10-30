@@ -5,6 +5,8 @@ import { describe, test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { AgentEvent, Usage } from '../src/agents/types.js';
 import { until, within } from './fixtures/within.js';
+import type { RpcMessage } from '../src/agents/json-rpc.js';
+import { untimed } from './fixtures/limits.js';
 import {
   fixture,
   close,
@@ -1302,15 +1304,18 @@ test("reports context, lines summed over the thread's turns and limits merged fr
   try {
     await until('the limits', () => !!session.usage.limits);
     assert.equal((await session.send('usage')).status, 'completed');
-    assert.deepEqual(session.usage, {
-      context: 25,
-      contextWindow: 256000,
-      lines: { added: 4, removed: 2 },
-      limits: [
-        { window: '5H', percent: 15, resetsAt: 2000000100 },
-        { window: '7D', percent: 40, resetsAt: 2000500000 },
-      ],
-    });
+    assert.deepEqual(
+      { ...session.usage, limits: untimed(session.usage.limits) },
+      {
+        context: 25,
+        contextWindow: 256000,
+        lines: { added: 4, removed: 2 },
+        limits: [
+          { window: '5H', percent: 15, resetsAt: 2000000100 },
+          { window: '7D', percent: 40, resetsAt: 2000500000 },
+        ],
+      },
+    );
     assert.deepEqual(reported.at(-1), session.usage);
     const lineUpdates = reported.flatMap(({ lines }, index) =>
       lines && lines !== reported[index - 1]?.lines ? [lines] : [],
@@ -1344,6 +1349,27 @@ test('a Codex that cannot read its limits still connects, and leaves limits out'
     );
     assert.deepEqual(session.usage, {});
     assert.equal(session.closed, false);
+  } finally {
+    await close(session, cwd);
+  }
+});
+
+test('reading limits again joins the read in flight', async () => {
+  const reads: RpcMessage[] = [];
+  const { session, cwd } = await fixture(() => {}, {
+    onClient: (message) => {
+      if ('method' in message && message.method === 'account/rateLimits/read')
+        reads.push(message);
+    },
+  });
+  try {
+    assert.ok(session.readLimits);
+    await until('the read connect starts', () => !!session.usage.limits);
+    assert.equal(reads.length, 1);
+    await Promise.all([session.readLimits(), session.readLimits()]);
+    assert.equal(reads.length, 2);
+    await session.readLimits();
+    assert.equal(reads.length, 3);
   } finally {
     await close(session, cwd);
   }

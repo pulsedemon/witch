@@ -138,7 +138,7 @@ test('Claude closure bounds a missing familiar stop acknowledgment and resolves 
     assert.equal(
       (
         await session.familiar!.report(
-          { kind: 'familiar-register', run, name: 'review' },
+          { kind: 'familiar-register', run, name: 'review', runtime: 'codex' },
           Date.now() + 5000,
         )
       ).kind,

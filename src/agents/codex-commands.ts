@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
 import { readFamiliarMarker } from './familiar-report.js';
+import { FamiliarRequests } from './familiar-requests.js';
 import type {
   FamiliarAction,
   FamiliarOutcome,
@@ -9,7 +10,12 @@ import type {
 } from './familiar-report.js';
 import type { JsonRpc, RpcMessage } from './json-rpc.js';
 import { errorMessage } from './stderr.js';
-import type { AgentEvent, BackgroundCommand, Subagent } from './types.js';
+import type {
+  AgentEvent,
+  BackgroundCommand,
+  Subagent,
+  UserResponse,
+} from './types.js';
 
 interface Command {
   threadId: string;
@@ -25,7 +31,11 @@ interface Command {
   partial: string;
   discarding?: boolean;
   marker?: FamiliarMarker;
-  familiar?: { sequence: number; subagent: Subagent };
+  familiar?: {
+    sequence: number;
+    subagent: Subagent;
+    requests: FamiliarRequests;
+  };
   cleanup?: Promise<void>;
 }
 
@@ -105,6 +115,7 @@ export class CodexCommands {
         : undefined;
     entry.done = true;
     if (entry.familiar) {
+      entry.familiar.requests.resolveAll();
       const subagent = entry.familiar.subagent;
       if (subagent.status === 'running') {
         entry.familiar.subagent = {
@@ -214,18 +225,22 @@ export class CodexCommands {
         return { kind: 'familiar-pending' };
       }
       const subagent: Subagent = {
-        id: `claude-familiar/${action.run}`,
+        id: `${action.runtime}-familiar/${action.run}`,
         run: action.run,
         name: action.name,
         kind: '',
-        runtime: 'claude',
+        runtime: action.runtime,
         status: 'running',
         tools: 0,
         ...(entry.threadId === this.mainThread()
           ? {}
           : { parent: entry.threadId }),
       };
-      entry.familiar = { sequence: -1, subagent };
+      entry.familiar = {
+        sequence: -1,
+        subagent,
+        requests: new FamiliarRequests(action.run, this.emit),
+      };
       this.emit({ type: 'subagent', subagent });
       if (entry.command)
         this.emit({
@@ -236,16 +251,26 @@ export class CodexCommands {
     }
     const familiar = entry.familiar;
     if (!familiar) throw new Error('The familiar run has not registered.');
-    if (action.kind !== 'familiar-update')
-      throw new Error('This familiar does not accept native requests.');
+    if (action.kind !== 'familiar-update') {
+      if (entry.done || familiar.subagent.status !== 'running')
+        throw new Error('The familiar run has already ended.');
+      return familiar.requests.report(action);
+    }
     if (action.sequence <= familiar.sequence)
       return { kind: 'familiar-updated' };
     if (entry.done || familiar.subagent.status !== 'running')
       throw new Error('The familiar run has already ended.');
     familiar.sequence = action.sequence;
     familiar.subagent = { ...familiar.subagent, ...action.progress };
+    if (familiar.subagent.status !== 'running') familiar.requests.resolveAll();
     this.emit({ type: 'subagent', subagent: familiar.subagent });
     return { kind: 'familiar-updated' };
+  }
+
+  respond(id: string, response: UserResponse): boolean {
+    return [...this.entries.values()].some(
+      (entry) => entry.familiar?.requests.respond(id, response) ?? false,
+    );
   }
 
   async close(): Promise<void> {
@@ -261,6 +286,7 @@ export class CodexCommands {
   stop(): void {
     this.stopped = true;
     for (const entry of this.entries.values()) {
+      entry.familiar?.requests.resolveAll();
       if (entry.familiar?.subagent.status === 'running')
         this.emit({
           type: 'subagent',

@@ -428,7 +428,8 @@ for await (const line of lines) {
       rateLimits: {
         limitId: 'codex',
         primary: window(12, 300, 2000000000),
-        secondary: window(40, 10080, 2000500000),
+        secondary:
+          mode === 'sparse-limits' ? null : window(40, 10080, 2000500000),
       },
     });
   if (
