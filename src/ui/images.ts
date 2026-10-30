@@ -1,7 +1,17 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { rmSync } from 'node:fs';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveFile, unescapePath } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image
@@ -15,7 +25,7 @@ const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 // read whole into memory and sent to the terminal in one transmission
 const largestFile = 64 * 1024 * 1024;
 const retryDelay = 2_000;
-const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
+export const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 // a quoted path, or a run where a backslash escapes a space; macOS screenshot names hold an unescaped U+202F
 const pathToken = /"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^ \t\r\n\\"'])+)/g;
 
@@ -30,6 +40,8 @@ interface Image {
   id: number;
   width: number;
   height: number;
+  /** the file URL a click on its rows opens. */
+  link: string;
   /** the `c,r` its virtual placement has, once placed. */
   placed?: string;
 }
@@ -49,6 +61,8 @@ export class Graphics {
   // one load at a time holds one image's memory and one sips process, and none finishes inside the render that asked for it
   private queue = Promise.resolve();
   private controller = new AbortController();
+  /** holds the files a click opens for `data:` images, which have none of their own. */
+  private readonly directory = join(tmpdir(), `witch-images-${randomUUID()}`);
 
   constructor(private readonly write: (data: string) => void) {}
 
@@ -94,11 +108,12 @@ export class Graphics {
       image.placed = size;
     }
     const color = `\u001b[38;2;${(image.id >> 16) & 255};${(image.id >> 8) & 255};${image.id & 255}m`;
+    // not underlined like a text link, since the terminal would draw the underline across the image
     return diacritics
       .slice(0, rows)
       .map(
         (row) =>
-          `${color}${placeholder}${row}${diacritics[0]}${placeholder.repeat(cells - 1)}\u001b[39m`,
+          `\u001b]8;;${image.link}\u0007${color}${placeholder}${row}${diacritics[0]}${placeholder.repeat(cells - 1)}\u001b[39m\u001b]8;;\u0007`,
       );
   }
 
@@ -113,6 +128,25 @@ export class Graphics {
       if (image !== 'queued' && 'id' in image)
         this.write(`\u001b_Ga=d,d=I,i=${image.id},q=2\u001b\\`);
     this.entries.clear();
+    // synchronous, since a forced quit exits right after
+    rmSync(this.directory, { recursive: true, force: true });
+  }
+
+  /** writes the file a `data:` image's rows link to, which exists only once a click needs it. */
+  async save(link: string): Promise<void> {
+    const { signal } = this.controller;
+    for (const [key, image] of this.entries)
+      if (
+        key.startsWith('data:') &&
+        image !== 'queued' &&
+        'id' in image &&
+        image.link === link
+      ) {
+        const loaded = await decode(key, signal);
+        if (!loaded) return;
+        await mkdir(this.directory, { recursive: true, mode: 0o700 });
+        await writeFile(fileURLToPath(link), loaded.data, { signal });
+      }
   }
 
   private async load(key: string, signal: AbortSignal): Promise<void> {
@@ -121,7 +155,11 @@ export class Graphics {
       // a release since it began has restored the terminal, so the load writes and records nothing
       if (!signal.aborted) {
         if (loaded) {
-          const image = { id: this.next++, ...loaded.size };
+          const id = this.next++;
+          const file = key.startsWith('data:')
+            ? join(this.directory, `${id}.png`)
+            : key;
+          const image = { id, link: pathToFileURL(file).href, ...loaded.size };
           const encoded = loaded.data.toString('base64');
           for (let start = 0; start < encoded.length; start += 4096) {
             const more = start + 4096 < encoded.length ? 1 : 0;

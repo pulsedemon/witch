@@ -195,7 +195,7 @@ test("a tool's title links the path its field gave whole, spaces and U+202F incl
     ].map(([, target, text]) => [target, stripAnsi(text!)]),
     [
       [
-        'vscode://file/shots/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
+        'file:///shots/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
         path,
       ],
     ],

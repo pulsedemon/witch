@@ -311,15 +311,18 @@ test('quoted and Markdown file links preserve spaces without linking command nam
   }
 });
 
-test("a path dropped into a message links whole to its unescaped file, through escaped spaces and a screenshot name's U+202F", () => {
+test("a path dropped into a message links whole to its unescaped image, through escaped spaces and a screenshot name's U+202F, for the default viewer to open", () => {
   const dropped =
     '/var/folders/T/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
   assert.deepEqual(linkSpans(markdown(`${dropped} what is this?`, '/work')), [
     {
       target:
-        'vscode://file/var/folders/T/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
+        'file:///var/folders/T/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png',
       text: dropped,
     },
+  ]);
+  assert.deepEqual(linkSpans(markdown('see `shots/a.PNG:3`', '/work')), [
+    { target: 'file:///work/shots/a.PNG', text: 'shots/a.PNG:3' },
   ]);
 });
 
@@ -396,6 +399,9 @@ test('a click on a missing file shows a notice, listing both notes when a bare n
     await click(`see [the report](vscode://file${cwd}/gone:report.md:3)`),
     { notice: `No file at ${join(cwd, 'gone:report.md')}` },
   );
+  assert.deepEqual(await click('see `shots/gone shot.png`'), {
+    notice: `No file at ${join(cwd, 'shots', 'gone shot.png')}`,
+  });
   assert.deepEqual(await click('see https://example.com/gone.md'), {
     open: 'https://example.com/gone.md',
   });
@@ -459,7 +465,7 @@ test('text past 2000 characters is cut after a newline, else after a space, < or
   const file = `src/notes ${'n'.repeat(20)}.md`;
   const dropped = '/tmp/Screenshot\\ 2026-10-26\\ at\\ 3.35.40\u202fPM.png';
   const screenshot =
-    'vscode://file/tmp/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png';
+    'file:///tmp/Screenshot%202026-10-26%20at%203.35.40%E2%80%AFPM.png';
   for (const [text, target] of [
     [
       `${'x'.repeat(1990)} https://example.com/abcdef end`,
