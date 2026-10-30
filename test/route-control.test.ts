@@ -178,3 +178,24 @@ test('--route takes the kind of work, the producer and a named model', () => {
     },
   );
 });
+
+test('a policy that cannot be read refuses the route in the transcript as well as to the agent', async (t) => {
+  const f = await start(t.onTestFinished);
+  const unreadable = 'The delegation policy at /p/policy.json is unreadable.';
+  f.coordination.router = router(f.coordinator, {
+    read: async () => {
+      throw new Error(unreadable);
+    },
+  });
+  const reply = await f.route();
+  assert.deepEqual(
+    { ...reply, id: undefined },
+    { kind: 'error', message: unreadable, id: undefined },
+  );
+  assert.ok(
+    f.coordinator.snapshot.items.some(
+      (item) =>
+        item.kind === 'notice' && item.text === `Route refused: ${unreadable}`,
+    ),
+  );
+});

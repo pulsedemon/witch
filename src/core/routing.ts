@@ -200,6 +200,13 @@ export function route({
       model: chosen.model,
       reason: `${why}${evidence(runtime)}`,
     };
+  const hot = describeReading(
+    runtime,
+    limits[runtime]!.filter(
+      (limit) => current(limit, now) && limit.percent >= shiftAt,
+    ),
+    now,
+  )!;
   const blocked: string[] = [];
   for (const id of installed) {
     if (id === runtime) continue;
@@ -219,12 +226,12 @@ export function route({
     return {
       runtime: id,
       model: shifted.model,
-      reason: `${reading(runtime, limits[runtime], now)} is at or over ${shiftAt}%, and ${reading(id, limits[id], now)} has room`,
+      reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, limits[id], now)} has room`,
     };
   }
   return {
     runtime,
     model: chosen.model,
-    reason: `${why}; ${reading(runtime, limits[runtime], now)} is at or over ${shiftAt}%, but ${blocked.join(', ') || 'no other runtime is installed'}`,
+    reason: `${why}; ${hot} is at or over ${shiftAt}%, but ${blocked.join(', ') || 'no other runtime is installed'}`,
   };
 }

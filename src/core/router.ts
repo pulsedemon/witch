@@ -1,4 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { errorMessage } from '../agents/stderr.js';
 import type { DelegationStore } from '../persistence/delegation.js';
 import type { ControlOutcome } from '../persistence/control.js';
 import type { RouteAction } from './coordination-state.js';
@@ -19,6 +20,12 @@ export function router(
     const caller = snapshot.native?.agent ?? snapshot.conversation?.agent;
     if (!cwd || !caller)
       return { kind: 'error', message: 'Witch has no conversation open.' };
+    const refuse = (reason: string): ControlOutcome => {
+      coordinator.notice(`Route refused: ${reason}`);
+      return { kind: 'error', message: reason };
+    };
+    const current = await policy.read().catch(errorMessage);
+    if (typeof current === 'string') return refuse(current);
     const installed = snapshot.agents
       .filter((agent) => agent.installed)
       .map(({ id }) => id);
@@ -31,7 +38,7 @@ export function router(
     const decision = route({
       ...action,
       caller,
-      policy: await policy.read(),
+      policy: current,
       installed,
       catalog: {
         models: coordinator.snapshot.models,
@@ -40,10 +47,7 @@ export function router(
       limits: coordinator.snapshot.limits,
       now: Date.now(),
     });
-    if ('refused' in decision) {
-      coordinator.notice(`Route refused: ${decision.refused}`);
-      return { kind: 'error', message: decision.refused };
-    }
+    if ('refused' in decision) return refuse(decision.refused);
     const label =
       snapshot.agents.find(({ id }) => id === decision.runtime)?.label ??
       decision.runtime;

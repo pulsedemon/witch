@@ -128,7 +128,7 @@ export class SessionCoordination {
   private host!: ControlHost;
   private familiarHost!: ControlHost;
   private live?: () => AgentSession | undefined;
-  /** answers `--route` apart from the claim queue, so a route never waits behind claim work. */
+  /** answers `--route` outside the serialized claim queue, so background claim work doesn't delay it. */
   router?: (action: RouteAction) => Promise<ControlOutcome>;
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;

@@ -199,8 +199,24 @@ test('work shifts to the runtime with room once the chosen one is over the level
     {
       runtime: 'codex',
       model: 'gpt-6.1-sol',
-      reason:
-        'claude 5H 20%, 7D 92% is at or over 90%, and codex 7D 49% has room',
+      reason: 'claude 7D 92% is at or over 90%, and codex 7D 49% has room',
+    },
+  );
+  // the reason names the current window that is over, not a stale one beside it
+  assert.deepEqual(
+    ask({
+      limits: {
+        claude: [
+          window('5H', 95),
+          window('7D', 40, now - USAGE_CURRENT_MS - 1),
+        ],
+        codex: [window('5H', 10)],
+      },
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason: 'claude 5H 95% is at or over 90%, and codex 5H 10% has room',
     },
   );
   assert.deepEqual(
