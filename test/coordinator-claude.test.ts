@@ -14,7 +14,7 @@ import {
   jsonLines,
   launcher,
 } from './fixtures/claude-adapter.js';
-import { readRecord } from './fixtures/coordinator.js';
+import { holdSettlement, readRecord } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 
 async function claudeCoordinator(mode: string) {
@@ -421,6 +421,48 @@ for (const mode of [
     },
   );
 }
+
+test('a Claude model choice made as a familiar-held turn settles applies once', async () => {
+  const { coordinator, adapter, cwd } = await claudeCoordinator(
+    'coordinator-reporting',
+  );
+  const connect = adapter.connect.bind(adapter);
+  let session: AgentSession | undefined;
+  adapter.connect = async (options) => (session = await connect(options));
+  let settlement: ReturnType<typeof holdSettlement> | undefined;
+  try {
+    await coordinator.initialize(cwd);
+    settlement = holdSettlement(session!);
+    const turn = coordinator.send('reporting familiar');
+    await until('replied turn', () => session?.replied === true);
+    assert.equal(await coordinator.refreshModels(), true);
+    await writeFile(join(cwd, 'allow-report'), '');
+    await until('the familiar completes', () =>
+      coordinator.snapshot.subagents.some(
+        ({ status }) => status === 'completed',
+      ),
+    );
+    // the familiar no longer holds the reply open, and Claude Code hasn't reached idle
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'claude', id: 'claude-b' }),
+      { message: 'Stop the current operation first' },
+    );
+    await writeFile(join(cwd, 'allow-idle'), '');
+    await within(settlement.entered, 5000, 'the post-turn save');
+    assert.equal(coordinator.snapshot.phase, 'running');
+    assert.equal(session!.replied, false);
+    const choice = coordinator.selectModel({ agent: 'claude', id: 'claude-b' });
+    settlement.release();
+    await within(choice, 5000, 'the model choice');
+    await within(turn, 5000, 'the turn');
+    assert.equal(session!.info.model, 'claude-b');
+    const record = await readRecord(cwd, coordinator.snapshot.conversation!.id);
+    assert.equal(record.sessions.claude!.model, 'claude-b');
+  } finally {
+    settlement?.restore();
+    await coordinator.close();
+  }
+});
 
 async function backgroundCoordinator() {
   const { coordinator, memory, cwd, children } =

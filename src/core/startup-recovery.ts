@@ -1,8 +1,10 @@
 import { errorMessage } from '../agents/stderr.js';
 import { branchOf, exists } from '../memory/memory.js';
 import type { Memory } from '../memory/memory.js';
+import { missingConversationDirectories } from '../persistence/directory-recovery.js';
 import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
+import { quote } from '../shell.js';
 
 export async function recoverConversations(
   store: StateStore,
@@ -59,4 +61,23 @@ export async function recoverConversations(
   return lines.length
     ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`
     : undefined;
+}
+
+/** a launch notice for saved conversations whose directories are gone, or undefined when none are. */
+export async function missingDirectoryNotice(
+  store: StateStore,
+): Promise<string | undefined> {
+  try {
+    const missing = await missingConversationDirectories(store);
+    if (!missing.length) return undefined;
+    return [
+      'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
+      ...missing.map(
+        ({ cwd, conversations }) =>
+          `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(store.root)} --recover-directory ${quote(cwd)}`,
+      ),
+    ].join('\n');
+  } catch (error) {
+    return `Could not inspect missing conversation directories: ${errorMessage(error)}`;
+  }
 }
