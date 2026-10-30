@@ -192,6 +192,22 @@ test('idle owner answers in one attributed turn', async (t) => {
   assert.ok(b.coordinator.snapshot.completedTurn);
 });
 
+test('a delivery hold taken during admission still runs the admitted answer turn', async (t) => {
+  const { f, a, b, claim } = await owners(t.onTestFinished);
+  const begin = b.coordination.beginAnswer.bind(b.coordination);
+  let release: (() => void) | undefined;
+  b.coordination.beginAnswer = () => {
+    release = b.coordinator.holdPromptDelivery();
+    return begin();
+  };
+  const request = await ask(a, claim, 'Held?');
+  await refreshed(b);
+  await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  assert.ok(answerTurns(b)[0]!.context!.includes(request.id));
+  assert.ok((await stored(f, request)).attemptedAt);
+  release!();
+});
+
 test('pending requests to one owner coalesce into one answer turn', async (t) => {
   const { a, b, claim } = await owners(t.onTestFinished);
   const gate = new TurnGate();

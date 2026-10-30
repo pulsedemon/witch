@@ -99,7 +99,7 @@ export async function identifyProcess(
 export function processReports(
   conversation: ConversationRecord,
   files: ConversationStore,
-  track?: (pid: number) => void,
+  track: (pid: number) => void,
 ) {
   const identify =
     (key: 'process' | 'usageProcess' | 'shell') => async (pid?: number) => {
@@ -113,7 +113,7 @@ export function processReports(
     onUsageProcess: identify('usageProcess'),
     // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
     onShell: async (pid?: number) => {
-      if (pid !== undefined) track?.(pid);
+      if (pid !== undefined) track(pid);
       await identify('shell')(pid);
     },
   };

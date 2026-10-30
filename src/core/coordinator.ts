@@ -460,7 +460,7 @@ export class Coordinator {
     }
   }
 
-  /** what each turn Witch starts from the queue or for peer requests goes through, including pre-turn compaction. */
+  /** what each turn Witch starts from the queue or for peer requests goes through, including pre-turn compaction; a delivery hold stops only a queued turn, since an admitted answer has used its one attempt. */
   private async runTurn(
     prompt: string,
     kind: 'turn' | 'answer',
@@ -473,13 +473,13 @@ export class Coordinator {
         ? await session.contextUsage()
         : undefined;
       if (this.cancelled || session.closed || this.session !== session) return;
-      if (this.deliveryHeld) return;
+      if (options.queued && this.deliveryHeld) return;
       if (usage !== undefined && usage >= compactAt) {
         this.publish({ phase: 'compacting' });
         if (!(await this.performCompaction())) return;
         this.publish({ phase: 'running' });
       }
-      if (this.deliveryHeld) return;
+      if (options.queued && this.deliveryHeld) return;
       await this.performTurn(prompt, kind, options);
     } catch (error) {
       this.report(error);

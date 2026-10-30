@@ -45,9 +45,10 @@ export function watchMergeNotices(
   coordination?.subscribe(() => {
     const { conversation, items } = snapshot();
     if (!conversation) return;
+    const shown = new Set(items.map(({ id }) => id));
     for (const event of coordination.events.mergeEvents(conversation.id)) {
       const notice = mergeNotice(event, conversation.cwd);
-      if (!items.some(({ id }) => id === notice.id)) show(notice);
+      if (!shown.has(notice.id)) show(notice);
     }
   });
 }

@@ -113,7 +113,7 @@ export function answerable(
   );
 }
 
-export function incoming(
+function incoming(
   requests: readonly PeerRequest[],
   conversation: string,
 ): PeerRequest[] {
@@ -147,6 +147,7 @@ export function watchPeerRequestNotices(
     const { conversation, items } = snapshot();
     if (!conversation) return;
     const requests = coordination.events.peerRequests(conversation.id);
+    const shown = new Set(items.map(({ id }) => id));
     const notices = [
       ...incoming(requests, conversation.id).map((request) => ({
         id: `peer-request/${request.id}`,
@@ -158,7 +159,7 @@ export function watchPeerRequestNotices(
       })),
     ];
     for (const notice of notices)
-      if (!items.some(({ id }) => id === notice.id))
+      if (!shown.has(notice.id))
         show({
           ...notice,
           kind: 'notice',
@@ -168,7 +169,7 @@ export function watchPeerRequestNotices(
   });
 }
 
-/** native context carries only ids and parties, since every native runtime takes context as user input. */
+/** native context carries only ids, parties and the claim reference, since every native runtime takes context as user input. */
 function listing(requests: readonly PeerRequest[]): string {
   return JSON.stringify(
     requests.map(({ id, from, to, reference }) => ({
