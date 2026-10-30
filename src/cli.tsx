@@ -295,8 +295,11 @@ if (familiar) {
       if (pointer === 'press') pressed = screen.linkAt(cell.column, cell.row);
     });
     stdin.on('click', () => {
-      if (!pressed) return;
-      clickTarget(pressed, () => coordinator.memoryDirectories())
+      const link = pressed;
+      if (!link) return;
+      graphics
+        .save(link)
+        .then(() => clickTarget(link, () => coordinator.memoryDirectories()))
         .then((target) => {
           if ('notice' in target)
             coordinator.notice(target.notice, undefined, false);

@@ -1,4 +1,5 @@
 import stringWidth from 'string-width';
+import { imageFile } from './images.js';
 
 const escape =
   // eslint-disable-next-line no-control-regex
@@ -12,8 +13,11 @@ const textRuns = new RegExp(
   `${keycap.source}|(?:(?!${keycap.source})[ -~])+|[^ -~]+`,
   'g',
 );
-// Witch draws only these links; open would launch a file for a bare path
-const openable = /^(?:https?|vscode):\/\//i;
+// Witch draws only these links. open would launch an app or script a file URL names, so a file must be an image,
+// with no query or fragment to hide its real extension
+const openable = (target: string) =>
+  /^(?:https?|vscode):\/\//i.test(target) ||
+  (/^file:\/\/\/[^?#]*$/i.test(target) && imageFile.test(target));
 
 /** replays cursor movement and erasing so links track what the terminal actually shows. */
 export class Screen {
@@ -62,7 +66,7 @@ export class Screen {
       if (match?.[2] && match[2] !== 'm') this.control(match[1]!, match[2]);
       else if (match?.[3]?.startsWith('8;')) {
         const target = match[3].slice(match[3].indexOf(';', 2) + 1);
-        this.link = openable.test(target) ? target : undefined;
+        this.link = openable(target) ? target : undefined;
       }
     }
     this.print(data.slice(text));

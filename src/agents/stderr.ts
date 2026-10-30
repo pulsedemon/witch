@@ -48,3 +48,7 @@ export function withTail(message: string, tail: string): string {
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+export function aborted(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}

@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { errorMessage } from './agents/stderr.js';
+import { aborted, errorMessage } from './agents/stderr.js';
 import { claudeArguments } from './cli-familiar.js';
 import { codexArguments } from './cli-codex-familiar.js';
 import { coordinationActionSchema } from './core/coordination-state.js';
@@ -380,8 +380,7 @@ export async function runControl(
       }
       await delay(1000, undefined, { signal: stopped.signal }).catch(
         (error: unknown) => {
-          if (!(error instanceof Error) || error.name !== 'AbortError')
-            throw error;
+          if (!aborted(error)) throw error;
         },
       );
       if (!stopped.signal.aborted)

@@ -5,7 +5,7 @@ import type { Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
-import { errorMessage } from '../agents/stderr.js';
+import { aborted, errorMessage } from '../agents/stderr.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,
@@ -610,13 +610,7 @@ export class Coordinator {
           if (!refresh.cancelled)
             this.publish({ models, latest: this.catalog.latest });
         } catch (error) {
-          if (
-            !refresh.cancelled ||
-            this.closed ||
-            !(error instanceof Error) ||
-            error.name !== 'AbortError'
-          )
-            throw error;
+          if (!refresh.cancelled || this.closed || !aborted(error)) throw error;
         }
       });
       return !refresh.cancelled;
@@ -1196,12 +1190,7 @@ export class Coordinator {
     try {
       return await this.connect(this.current().agent, turnScope);
     } catch (error) {
-      if (
-        !this.cancelled ||
-        !(error instanceof Error) ||
-        error.name !== 'AbortError'
-      )
-        throw error;
+      if (!this.cancelled || !aborted(error)) throw error;
     }
   }
 

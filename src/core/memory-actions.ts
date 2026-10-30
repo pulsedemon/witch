@@ -1,3 +1,4 @@
+import { aborted } from '../agents/stderr.js';
 import { main } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
@@ -66,12 +67,7 @@ export async function editNote(
   try {
     await editFile(file, signal);
   } catch (error) {
-    if (
-      !signal.aborted ||
-      !(error instanceof Error) ||
-      error.name !== 'AbortError'
-    )
-      throw error;
+    if (!signal.aborted || !aborted(error)) throw error;
   }
   if (signal.aborted) return false;
   await workspace.commit('chore(memory): save edited notes');

@@ -2,17 +2,26 @@ import assert from 'node:assert/strict';
 import stripAnsi from 'strip-ansi';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import {
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 import { StateStore } from '../src/persistence/store.js';
 import { Screen } from '../src/ui/screen.js';
 import { turnFrame } from './fixtures/codex-adapter.js';
+import { png } from './fixtures/png.js';
 
 interface DesktopEvent {
   diagnostic?: string;
@@ -23,7 +32,7 @@ interface DesktopEvent {
   configured?: string;
 }
 
-test('the CLI opens the pressed link, copies selected text and runs queued prompts after desktop failures', async () => {
+test('the CLI opens the pressed link or image, copies selected text and runs queued prompts after desktop failures', async () => {
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const root = await scratch('witch-cli-desktop-');
   const build = join(root, 'dist');
@@ -54,6 +63,25 @@ test('the CLI opens the pressed link, copies selected text and runs queued promp
     agent: 'codex',
     sessions: {},
     createdAt: new Date().toISOString(),
+  });
+  // a screenshot name's spaces and U+202F, and a tool's image that has no file until it is clicked
+  const shot = join(project, 'Screenshot 2026-10-30 at 3.35.40\u202fPM.png');
+  await writeFile(shot, png(16, 16));
+  const toolImage = png(24, 24);
+  await files.append({
+    id: 'shot',
+    kind: 'user',
+    cwd: project,
+    text: `see ${shot.replaceAll(' ', '\\ ')}`,
+  });
+  await files.append({
+    id: 'read',
+    kind: 'tool',
+    title: 'Read',
+    text: 'Image',
+    cwd: project,
+    done: true,
+    images: [`data:image/png;base64,${toolImage.toString('base64')}`],
   });
   await files.append({
     id: 'text',
@@ -102,9 +130,17 @@ test('the CLI opens the pressed link, copies selected text and runs queued promp
   const screen = new Screen({ columns: 80, rows: 30 });
   let output = '';
   let stderr = '';
+  // the CLI's own Screen records only what Ink draws, so image transmissions, which go around Ink, are left out
+  let transmission = '';
   child.stdout!.on('data', (chunk) => {
     output += chunk.toString();
-    screen.write(chunk.toString());
+    const text = transmission + chunk.toString();
+    const open = text.lastIndexOf('\u001b_G');
+    const end =
+      open >= 0 && !text.includes('\u001b\\', open) ? open : text.length;
+    transmission = text.slice(end);
+    // eslint-disable-next-line no-control-regex
+    screen.write(text.slice(0, end).replace(/\u001b_G[^\u001b]*\u001b\\/g, ''));
   });
   child.stderr!.on('data', (chunk) => (stderr += chunk.toString()));
   const diagnostics: string[] = [];
@@ -304,9 +340,55 @@ test('the CLI opens the pressed link, copies selected text and runs queued promp
         output.slice(idleAt).includes('IDLE'),
       );
     }
+
+    /** clicks the bottom row of an image whose link `matches` accepts, resolving to the target the CLI opened. */
+    const open = async (name: string, matches: (url: string) => boolean) => {
+      const bottom = () => {
+        let found: { column: number; row: number } | undefined;
+        const rows = new Set<number>();
+        for (let row = 0; row < 30; row++)
+          for (let column = 0; column < 80; column++) {
+            const url = screen.linkAt(column, row);
+            if (url && matches(url)) {
+              found = { column, row };
+              rows.add(row);
+            }
+          }
+        // a loaded image spans rows below any text link to its file
+        return rows.size > 1 ? found : undefined;
+      };
+      await wait(name, bottom);
+      const cell = bottom()!;
+      write(
+        mouse('press', cell.column, cell.row) +
+          mouse('release', cell.column, cell.row),
+      );
+      // an earlier open's report can arrive after the notice its failure showed
+      const opened = () =>
+        messages.find(
+          (m) => m.file === '/usr/bin/open' && matches(m.args![0]!),
+        );
+      await wait(`${name} opened`, opened);
+      return opened()!.args![0]!;
+    };
+    write('\u001b[5~'.repeat(10));
+    // open gets the real path, which differs where TMPDIR sits under a symlink such as macOS /var
+    const shotLink = pathToFileURL(await realpath(shot)).href;
+    await open('screenshot image', (url) => url === shotLink);
+    const focused = output.length;
+    write('\t');
+    await wait('tool focus', () =>
+      stripAnsi(output.slice(focused)).includes('TOOLS'),
+    );
+    write('\r');
+    const saved = await open('tool image', (url) =>
+      url.includes('witch-images-'),
+    );
+    assert.deepEqual(await readFile(fileURLToPath(saved)), toolImage);
     write('\u0003');
     const [code, signal] = await within(closed, 5000, 'CLI exit');
     assert.equal(code, 0, `${stderr} ${signal}`);
+    assert.equal(existsSync(fileURLToPath(saved)), false);
   } finally {
     await writeFile(join(project, 'release'), 'yes');
     if (child.exitCode === null && child.signalCode === null) {
