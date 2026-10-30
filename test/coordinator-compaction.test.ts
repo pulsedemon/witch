@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { Workspace } from '../src/memory/workspace.js';
-import { fixture, readRecord } from './fixtures/coordinator.js';
+import { fixture, holdSettlement, readRecord } from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { within, until } from './fixtures/within.js';
 import type { TurnResult } from '../src/agents/types.js';
@@ -664,6 +664,39 @@ test('busy foreground compact waits for parent settlement before admitting model
     assert.equal(native.session.info.model, 'a-big');
     await parent;
   } finally {
+    gate.open();
+    await c.close();
+  }
+});
+
+test('a model choice after a busy compaction waits for the finished turn to settle', async () => {
+  const f = await fixture(),
+    c = f.coordinator,
+    gate = new TurnGate();
+  const native = f.a.sessions.at(-1)!.session;
+  const settlement = holdSettlement(native);
+  try {
+    f.a.gate = gate;
+    const parent = c.send('foreground');
+    await gate.entered;
+    f.a.replied = true;
+    native.compactDuringTurn = () =>
+      Promise.resolve({ status: 'completed', text: '' });
+    assert.equal(await within(c.compact(), 3000, 'busy compact'), true);
+    const before = f.a.selections.length;
+    gate.open();
+    await within(settlement.entered, 2000, 'the post-turn save');
+    assert.equal(c.snapshot.phase, 'running');
+    assert.equal(native.replied, false);
+    const choice = c.selectModel({ agent: 'a', id: 'a-big' });
+    settlement.release();
+    await within(choice, 2000, 'the model choice');
+    assert.equal(native.info.model, 'a-big');
+    assert.deepEqual(f.a.selections.slice(before), [['a-big', undefined]]);
+    assert.equal(c.snapshot.phase, 'idle');
+    await parent;
+  } finally {
+    settlement.restore();
     gate.open();
     await c.close();
   }
