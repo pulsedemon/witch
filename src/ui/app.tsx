@@ -39,7 +39,7 @@ import { markdown } from './markdown.js';
 import { hyperlink, linkify, oneLine, plain } from './links.js';
 import { useKeysReady } from './keys-ready.js';
 import { useLiveState } from './live-state.js';
-import { usePointer, useWheel } from './mouse.js';
+import { useClick, usePointer, useWheel } from './mouse.js';
 import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
@@ -203,7 +203,16 @@ export function App({
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
-  const [top, topRef, setTop] = useLiveState<ScrollAnchor | null>(null);
+  const [top, topRef, setAnchor] = useLiveState<ScrollAnchor | null>(null);
+  const [seen, seenRef, setSeen] = useLiveState({
+    conversation: state.conversation?.id,
+    items: state.items,
+  });
+  const setTop = (anchor: ScrollAnchor | null) => {
+    if (topRef.current === null || anchor === null)
+      setSeen({ conversation: state.conversation?.id, items: state.items });
+    setAnchor(anchor);
+  };
   const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Map<string, boolean>>(new Map());
@@ -245,6 +254,8 @@ export function App({
   >(undefined);
   const pressedAt = useRef<RangeEnd>(undefined);
   const transcriptBox = useRef<DOMElement>(null);
+  const newMessagesBox = useRef<DOMElement>(null);
+  const pressedNewMessages = useRef(false);
   /** where an end is drawn: at the width it was measured at, in an item still shown, while its row reads as it did. */
   const pointOf = (end: RangeEnd): Point | undefined => {
     const row = transcript.rowOf(end.anchor);
@@ -393,17 +404,22 @@ export function App({
     listRows -
     (working ? 1 : 0) -
     Number(state.pendingCompaction);
-  // the transcript keeps two rows
-  const queueRows = Math.max(0, Math.min(state.queue.length, freeRows - 2));
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
   const queued = useMemo(
     () => state.queue.map((prompt) => oneLine(prompt).slice(0, width)),
     [state.queue, width],
   );
-  const availableRows = Math.max(2, freeRows - queueRows);
   const boundary = state.items[contextStart(state.items) - 1];
   const clearedAt = boundary && transcript.starts.get(boundary.id);
-  const viewport = (anchor: ScrollAnchor | null) => {
+  const viewport = (anchor: ScrollAnchor | null, read = seen) => {
+    const newMessages =
+      anchor !== null &&
+      read.conversation === state.conversation?.id &&
+      read.items !== state.items;
+    const rows = freeRows - Number(newMessages);
+    // the transcript keeps two rows
+    const queueRows = Math.max(0, Math.min(state.queue.length, rows - 2));
+    const availableRows = Math.max(2, rows - queueRows);
     const row = anchor === null ? Infinity : transcript.rowOf(anchor);
     // decide before the notice takes a row, so hiding the last old row cannot turn it off
     const unpinnedTop = Math.min(
@@ -413,21 +429,33 @@ export function App({
     const pinned = clearedAt !== undefined && unpinnedTop < clearedAt;
     const height = availableRows - Number(pinned);
     const maxTop = Math.max(0, transcript.lines.length - height);
-    return { pinned, height, maxTop, top: Math.min(row, maxTop) };
+    return {
+      pinned,
+      newMessages,
+      queueRows,
+      height,
+      maxTop,
+      top: Math.min(row, maxTop),
+    };
   };
-  const { pinned, height: transcriptHeight, top: scrollTop } = viewport(top);
+  const {
+    pinned,
+    newMessages,
+    queueRows,
+    height: transcriptHeight,
+    top: scrollTop,
+  } = viewport(top);
   const scrollTo = (row: number | null) =>
     setTop(row === null ? null : (transcript.anchorAt(row) ?? null));
   /** scrolls from the latest position, so two page keys in one read move two pages. */
-  const scrollBy = (rows: number, page = false) =>
-    setTop((previous) => {
-      const { top, maxTop, height } = viewport(previous);
-      const next = Math.min(
-        maxTop,
-        Math.max(0, top + rows * (page ? height : 1)),
-      );
-      return next === maxTop ? null : (transcript.anchorAt(next) ?? null);
-    });
+  const scrollBy = (rows: number, page = false) => {
+    const { top, maxTop, height } = viewport(topRef.current, seenRef.current);
+    const next = Math.min(
+      maxTop,
+      Math.max(0, top + rows * (page ? height : 1)),
+    );
+    setTop(next === maxTop ? null : (transcript.anchorAt(next) ?? null));
+  };
   /** an exact ID goes first, so Enter never picks a longer ID that contains it. */
   const filter = (entries: Choice[], text: string) =>
     entries
@@ -1000,8 +1028,22 @@ export function App({
   const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
   usePointer((pointer, { column, row }) => {
     // a press or release ends the drag even while another view covers the transcript
-    if (pointer !== 'drag') pressedAt.current = undefined;
-    if (pointer === 'press') setRange(undefined);
+    if (pointer !== 'drag') {
+      pressedAt.current = undefined;
+      pressedNewMessages.current = false;
+    }
+    if (pointer === 'press') {
+      setRange(undefined);
+      if (newMessagesBox.current) {
+        const box = measureElement(newMessagesBox.current);
+        pressedNewMessages.current =
+          column >= box.x &&
+          column < box.x + box.width &&
+          row >= box.y &&
+          row < box.y + box.height;
+        if (pressedNewMessages.current) return;
+      }
+    }
     if (!transcriptBox.current) return;
     const box = measureElement(transcriptBox.current);
     // reports in one read arrive before a render, so each starts where the last one scrolled
@@ -1009,7 +1051,7 @@ export function App({
       top: first,
       height,
       pinned: currentPinned,
-    } = viewport(topRef.current);
+    } = viewport(topRef.current, seenRef.current);
     const shown = Math.min(height, transcript.lines.length - first);
     // a queued scroll can move the notice before Ink moves the content box
     const origin = box.y + Number(currentPinned) - Number(pinned);
@@ -1032,6 +1074,16 @@ export function App({
     } else if (pressedAt.current && end) {
       if (offset < 0 || offset === shown) scrollBy(offset < 0 ? -1 : 1);
       setRange({ from: pressedAt.current, to: end });
+    }
+  });
+  useClick(() => {
+    if (
+      pressedNewMessages.current &&
+      newMessagesBox.current &&
+      viewport(topRef.current, seenRef.current).newMessages
+    ) {
+      pressedNewMessages.current = false;
+      setTop(null);
     }
   });
   useWheel((rows) => {
@@ -1348,6 +1400,15 @@ export function App({
           </Box>
         )}
         {working && <Activity />}
+        {newMessages && (
+          <Box height={1} justifyContent="center">
+            <Box ref={newMessagesBox}>
+              <Text color={accent} inverse>
+                {' ↓ New messages '}
+              </Text>
+            </Box>
+          </Box>
+        )}
         <Box
           borderStyle="bold"
           borderColor={
@@ -1423,7 +1484,7 @@ export function App({
     <Box width={columns} height={height}>
       <Box flexDirection="column" width={width} height={height}>
         <Box height={1}>
-          <Text dimColor>
+          <Text dimColor wrap="truncate-end">
             {piped([
               state.phase.toUpperCase(),
               ...(state.native?.permissionMode
