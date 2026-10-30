@@ -129,3 +129,78 @@ for (const outcome of [
       await coordinator.close();
     }
   });
+
+test('a model picker opened while a finished turn settles waits and refreshes once', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  const { session } = a.sessions.at(-1)!;
+  const settlement = holdSettlement(session);
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const release = coordinator.holdPromptDelivery();
+    gate.open();
+    await within(settlement.entered, 2000, 'the post-turn save');
+    assert.equal(coordinator.snapshot.phase, 'running');
+    assert.equal(session.replied, false);
+    a.catalog.push({ id: 'a-new', label: 'a-new', efforts: [] });
+    const refreshing = coordinator.refreshModels();
+    await coordinator.send('/after');
+    await delay(100);
+    assert.equal(
+      coordinator.snapshot.models.some(({ id }) => id === 'a-new'),
+      false,
+    );
+    settlement.release();
+    assert.equal(await within(refreshing, 2000, 'the refresh'), true);
+    assert.equal(
+      coordinator.snapshot.models.some(({ id }) => id === 'a-new'),
+      true,
+    );
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(coordinator.snapshot.queue, ['/after']);
+    release();
+    await within(sending, 2000, 'the turn');
+  } finally {
+    settlement.restore();
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+for (const outcome of ['interrupt', 'close', 'failure'] as const)
+  test(`a model picker waiting on a finished turn lapses after ${outcome}`, async () => {
+    const { coordinator, a } = await fixture();
+    const gate = new TurnGate();
+    const { session } = a.sessions.at(-1)!;
+    const settlement = holdSettlement(session);
+    try {
+      a.gate = gate;
+      const sending = coordinator.send('Start');
+      await within(gate.entered, 2000, 'the gated turn');
+      gate.open();
+      await within(settlement.entered, 2000, 'the post-turn save');
+      assert.equal(coordinator.snapshot.phase, 'running');
+      a.catalog.push({ id: 'a-new', label: 'a-new', efforts: [] });
+      const refreshing = coordinator.refreshModels();
+      if (outcome === 'interrupt') {
+        await coordinator.interrupt();
+        settlement.release();
+      } else if (outcome === 'close') {
+        const closing = coordinator.close();
+        settlement.release();
+        await closing;
+      } else settlement.fail(new Error('disk full'));
+      assert.equal(await within(refreshing, 2000, 'the lapsed refresh'), false);
+      await within(sending, 2000, 'the turn');
+      assert.equal(
+        coordinator.snapshot.models.some(({ id }) => id === 'a-new'),
+        false,
+      );
+    } finally {
+      settlement.restore();
+      gate.open();
+      await coordinator.close();
+    }
+  });
