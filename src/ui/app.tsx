@@ -18,7 +18,7 @@ import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
 import type { StateStore } from '../persistence/store.js';
-import { commands, parseCommands } from './commands.js';
+import { commands, parseCommands, safeQueueMerge } from './commands.js';
 import type { WitchCommand, CommandName } from './commands.js';
 import { CommandBatches } from './command-batches.js';
 import { Input, inputRows } from './input.js';
@@ -44,10 +44,8 @@ import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { castTitle, useCasting } from './cast.js';
-import { fitsUsage, Sidebar, sidebarWidth } from './sidebar.js';
-import { changeDelegation, delegationPage } from './delegation.js';
-import { defaultPolicy } from '../core/routing.js';
-import type { DelegationStore } from '../persistence/delegation.js';
+import { Sidebar, sidebarWidth, usagePlacement } from './sidebar.js';
+import { delegation } from './delegation.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
@@ -127,7 +125,7 @@ export function App({
   /** keeps the prompts ↑ recalls across runs; without it, ↑ recalls only this run's. */
   store?: Pick<StateStore, 'prompts' | 'addPrompt'>;
   /** where /delegation reads and saves the routing policy; without it, /delegation shows the default. */
-  policy?: Pick<DelegationStore, 'read' | 'write'>;
+  policy?: Parameters<typeof delegation>[1];
   onExit(): void;
   /** replaces Witch with a fresh one on this conversation; /restart does nothing without it. */
   onRestart?(): void;
@@ -176,13 +174,7 @@ export function App({
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
   const height = Math.max(12, size.rows);
-  const live = state.native?.agent ?? state.conversation?.agent;
-  const readings = state.agents
-    .filter(({ installed }) => installed)
-    .map(({ id }) => ({ id, limits: state.limits[id] }));
-  // usage shows once any runtime has reported, so a fresh start isn't a column of `?`
-  const accounts = readings.some(({ limits }) => limits) ? readings : [];
-  const usageInSidebar = sidebar && fitsUsage(height, accounts);
+  const usage = usagePlacement(state, sidebar, height);
   // the compiler needs the native fallback's string type to memoize its consumers.
   const cwd = state.conversation?.cwd ?? String(process.cwd());
   const [view, viewRef, setView] = useLiveState<View>({ kind: 'chat' });
@@ -707,9 +699,13 @@ export function App({
           );
         }
         break;
-      case 'delegation':
-        run(delegation(argument));
+      case 'delegation': {
+        const text = await delegation(argument, policy, coordinator);
+        if (!text) break;
+        setPageScroll(0);
+        setView({ kind: 'page', title: 'Delegation', text });
         break;
+      }
       case 'compact':
         return coordinator.compact();
       case 'clear':
@@ -740,45 +736,6 @@ export function App({
   };
   const command = (name: CommandName) =>
     batches.submit([{ name, argument: '' }], executeCommand);
-
-  /** shows the routing policy, after applying the argument's change when there is one. */
-  const delegation = async (argument: string) => {
-    const installed = state.agents
-      .filter((agent) => agent.installed)
-      .map(({ id }) => id);
-    const catalog = {
-      models: coordinator.snapshot.models,
-      latest: coordinator.snapshot.latest,
-    };
-    let current = (await policy?.read()) ?? defaultPolicy;
-    if (argument) {
-      const changed = changeDelegation(argument, current, catalog, installed);
-      if (typeof changed === 'string' || !policy) {
-        coordinator.notice(
-          typeof changed === 'string'
-            ? changed
-            : 'This Witch has no policy file.',
-          undefined,
-          false,
-        );
-        return;
-      }
-      await policy.write(changed);
-      current = changed;
-    }
-    setPageScroll(0);
-    setView({
-      kind: 'page',
-      title: 'Delegation',
-      text: delegationPage(
-        current,
-        catalog,
-        coordinator.snapshot.limits,
-        installed,
-        Date.now(),
-      ),
-    });
-  };
 
   /** keeps a submitted prompt for ↑, unless it is blank or repeats the newest. */
   const remember = (text: string) => {
@@ -1509,12 +1466,7 @@ export function App({
         )}
         <StatusLine
           width={width}
-          {...(usageInSidebar
-            ? {}
-            : {
-                limits: live ? state.limits[live] : undefined,
-                others: accounts.filter(({ id }) => id !== live),
-              })}
+          {...usage.status}
           model={
             state.models.find(
               ({ id, agent }) =>
@@ -1536,21 +1488,9 @@ export function App({
           brews={state.backgroundCommands}
           subagents={state.subagents}
           peers={coordination?.peers}
-          accounts={usageInSidebar ? accounts : []}
+          accounts={usage.sidebar}
         />
       )}
     </Box>
-  );
-}
-
-/** recovered text must not turn separate native input or a command draft into an executable Witch batch. */
-function safeQueueMerge(
-  queue: readonly string[],
-  draft: string,
-  skills: readonly Skill[],
-): boolean {
-  return (
-    !parseCommands(draft, skills) &&
-    !parseCommands([...queue, ...(draft ? [draft] : [])].join('\n'), skills)
   );
 }

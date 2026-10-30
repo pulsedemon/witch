@@ -85,3 +85,15 @@ export function parseCommands(
       : '',
   }));
 }
+
+/** recovered text must not turn separate native input or a command draft into an executable Witch batch. */
+export function safeQueueMerge(
+  queue: readonly string[],
+  draft: string,
+  skills: readonly Skill[],
+): boolean {
+  return (
+    !parseCommands(draft, skills) &&
+    !parseCommands([...queue, ...(draft ? [draft] : [])].join('\n'), skills)
+  );
+}

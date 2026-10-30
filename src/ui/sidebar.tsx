@@ -12,7 +12,8 @@ import { peerStatus, peerTitle } from './peers.js';
 import { pentacle } from './pentacle.js';
 import { accent, accentDim, piped } from './theme.js';
 import { windowText } from './status-line.js';
-import type { Account } from './status-line.js';
+import type { Account, Status } from './status-line.js';
+import type { Snapshot } from '../core/snapshot.js';
 import { wrapLines } from './wrap.js';
 
 /** the text's width; the pentacle centers in it, sized by `rows`, its shorter side. */
@@ -69,14 +70,30 @@ function usageRows(accounts: readonly Account[]): number {
   );
 }
 
-/** whether every runtime's usage fits under the pentacle; otherwise the status line carries it. */
-export function fitsUsage(
+/** every installed runtime's usage once any has reported, under the pentacle when it fits there and otherwise on the status line. */
+export function usagePlacement(
+  snapshot: Pick<Snapshot, 'agents' | 'limits' | 'native' | 'conversation'>,
+  sidebar: boolean,
   height: number,
-  accounts: readonly Account[],
-): boolean {
-  return height >= rows + usageRows(accounts);
+): {
+  sidebar: readonly Account[];
+  status: Pick<Status, 'limits' | 'others'>;
+} {
+  const readings = snapshot.agents
+    .filter(({ installed }) => installed)
+    .map(({ id }) => ({ id, limits: snapshot.limits[id] }));
+  const accounts = readings.some(({ limits }) => limits) ? readings : [];
+  if (sidebar && height >= rows + usageRows(accounts))
+    return { sidebar: accounts, status: {} };
+  const live = snapshot.native?.agent ?? snapshot.conversation?.agent;
+  return {
+    sidebar: [],
+    status: {
+      limits: live ? snapshot.limits[live] : undefined,
+      others: accounts.filter(({ id }) => id !== live),
+    },
+  };
 }
-
 /** peer sessions precede local work without taking its last heading and count rows or the pentacle's space. */
 export function Sidebar({
   height,

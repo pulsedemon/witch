@@ -1,7 +1,10 @@
 import type { Limit } from '../agents/types.js';
 import { family, resolve, work } from '../core/routing.js';
 import type { Catalog, Policy } from '../core/routing.js';
+import { defaultPolicy } from '../core/routing.js';
+import type { Coordinator } from '../core/coordinator.js';
 import { describeReading } from '../core/usage.js';
+import type { DelegationStore } from '../persistence/delegation.js';
 
 export const delegationUsage =
   '/delegation <kind> <same|other|runtime[:model or family]|clear>, /delegation family <runtime> <family> or /delegation shift <1-100|off>';
@@ -86,4 +89,40 @@ export function delegationPage(
     '',
     delegationUsage,
   ].join('\n');
+}
+
+/** the policy page after applying the argument's change, or `undefined` once a notice says why it was refused. */
+export async function delegation(
+  argument: string,
+  policy: Pick<DelegationStore, 'read' | 'write'> | undefined,
+  coordinator: Pick<Coordinator, 'snapshot' | 'notice'>,
+): Promise<string | undefined> {
+  const { snapshot } = coordinator;
+  const installed = snapshot.agents
+    .filter((agent) => agent.installed)
+    .map(({ id }) => id);
+  const catalog = { models: snapshot.models, latest: snapshot.latest };
+  let current = (await policy?.read()) ?? defaultPolicy;
+  if (argument) {
+    const changed = changeDelegation(argument, current, catalog, installed);
+    if (typeof changed === 'string' || !policy) {
+      coordinator.notice(
+        typeof changed === 'string'
+          ? changed
+          : 'This Witch has no policy file.',
+        undefined,
+        false,
+      );
+      return;
+    }
+    await policy.write(changed);
+    current = changed;
+  }
+  return delegationPage(
+    current,
+    catalog,
+    snapshot.limits,
+    installed,
+    Date.now(),
+  );
 }
