@@ -5,7 +5,11 @@ import { syncBuiltinESMExports } from 'node:module';
 import { basename, join } from 'node:path';
 import { onTestFinished, test, vi } from 'vitest';
 import { setImmediate, setTimeout as delay } from 'node:timers/promises';
-import { callControl, ControlHost } from '../src/persistence/control.js';
+import {
+  callControl,
+  ControlHost,
+  ControlTimeoutError,
+} from '../src/persistence/control.js';
 import type {
   ControlBinding,
   ControlRequest,
@@ -198,7 +202,12 @@ test('a reply for another request is not accepted or acknowledged', async () => 
   await files.mkdir(join(bound.directory, 'inbox'));
   await files.mkdir(join(bound.directory, 'replies'));
   const calling = callControl(bound, { kind: 'peers' });
-  const rejected = assert.rejects(calling, /result unknown.*Reply id/s);
+  const rejected = assert.rejects(calling, (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error instanceof ControlTimeoutError, false);
+    assert.match(error.message, /result unknown.*Reply id/s);
+    return true;
+  });
   let id = '';
   await until('published request', async () => {
     id =
@@ -435,7 +444,14 @@ test('a missing host reply leaves the result unknown and keeps the published req
       kind: 'claim',
       input: { reference: 'task:kept', summary: 'Unknown outcome' },
     }),
-    /result unknown.*Query peers before doing work/s,
+    (error: unknown) => {
+      assert.ok(error instanceof ControlTimeoutError);
+      assert.match(
+        error.message,
+        /result unknown.*Query peers before doing work/s,
+      );
+      return true;
+    },
   );
   assert.equal(
     (await files.readdir(join(bound.directory, 'inbox'))).filter((name) =>
@@ -444,6 +460,38 @@ test('a missing host reply leaves the result unknown and keeps the published req
     1,
   );
 });
+
+for (const { code, expired } of [
+  { code: 'ENOENT', expired: true },
+  { code: 'ENOENT', expired: false },
+  { code: 'EACCES', expired: true },
+])
+  test(`re-notification ${code} ${expired ? 'after' : 'before'} expiry preserves its failure kind`, async () => {
+    const bound = await binding();
+    await files.mkdir(join(bound.directory, 'inbox'));
+    await files.mkdir(join(bound.directory, 'replies'));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const failure = Object.assign(new Error('Cannot touch request'), { code });
+    vi.spyOn(files, 'lutimes').mockImplementation(async () => {
+      now.mockReturnValue(expired ? 2001 : 1500);
+      throw failure;
+    });
+    await assert.rejects(
+      callControl(bound, { kind: 'peers' }, 2000),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(
+          error instanceof ControlTimeoutError,
+          code === 'ENOENT' && expired,
+        );
+        assert.match(error.message, /Coordination result unknown/);
+        if (error instanceof ControlTimeoutError)
+          assert.match(error.message, /host did not reply before the deadline/);
+        else assert.equal(error.cause, failure);
+        return true;
+      },
+    );
+  });
 
 test('acknowledgement between reply lookup and request read cannot dispatch the request twice', async () => {
   const bound = await binding();

@@ -285,26 +285,77 @@ test('an error exit overrides a native success result', async () => {
   }
 });
 
-test('an exhausted reporting outage stops the child within the ten-second retry budget', async () => {
+test('an exhausted progress timeout leaves the child running and delivers its final report after recovery', async () => {
   const gate = Promise.withResolvers<void>();
-  const f = await fixture('ignore-term', async (request) => {
+  const entered = Promise.withResolvers<void>();
+  const f = await fixture('gated', async (request) => {
     if (request.action.kind === 'familiar-register')
       return { kind: 'familiar-registered' };
+    entered.resolve();
     await gate.promise;
     return { kind: 'familiar-updated' };
   });
   try {
     await f.ready();
     const launch = await f.launch();
-    assert.equal(
-      await within(f.closed, 14_000, 'outage budget and cleanup'),
-      1,
+    const native = await identifyProcess(launch.pid);
+    assert.ok(native);
+    await within(entered.promise, 3000, 'stalled progress');
+    await delay(11_000);
+    assert.equal(f.child.exitCode, null);
+    assert.deepEqual(await identifyProcess(launch.pid), native);
+    await writeFile(join(f.root, 'exit'), 'yes');
+    const expected = 'Full review.\n'.repeat(7000);
+    await until(
+      'final report saved during the outage',
+      async () =>
+        (await readFile(join(f.root, 'report.txt'), 'utf8')) === expected,
     );
+    gate.resolve();
+    assert.equal(
+      await within(f.closed, 5000, 'recovered completion'),
+      0,
+      f.output().stderr,
+    );
+    assert.equal(await readFile(join(f.root, 'report.txt'), 'utf8'), expected);
+    assert.equal(f.updates().at(-1)!.progress.status, 'completed');
+    assert.equal(f.updates().at(-1)!.progress.report, expected);
+    assert.equal(await identifyProcess(launch.pid), undefined);
+  } finally {
+    gate.resolve();
+    await writeFile(join(f.root, 'exit'), 'yes');
+    await f.close();
+  }
+});
+
+test('an exhausted final report timeout retains the result and exits failed', async () => {
+  const gate = Promise.withResolvers<void>();
+  const f = await fixture('success', async (request) => {
+    if (request.action.kind === 'familiar-register')
+      return { kind: 'familiar-registered' };
+    if (
+      request.action.kind === 'familiar-update' &&
+      request.action.progress.status !== 'running'
+    )
+      await gate.promise;
+    return { kind: 'familiar-updated' };
+  });
+  try {
+    assert.equal(await within(f.closed, 14_000, 'final delivery budget'), 1);
+    const report = await readFile(join(f.root, 'report.txt'), 'utf8');
+    assert.ok(report.startsWith('Full review.\n'.repeat(7000)));
     assert.match(
-      await readFile(join(f.root, 'report.txt'), 'utf8'),
+      report,
       /Familiar reporting failed: Coordination result unknown/,
     );
-    assert.equal(await identifyProcess(launch.pid), undefined);
+    assert.ok(
+      f
+        .output()
+        .stdout.endsWith(
+          `${report}\n\nSaved report: ${join(f.root, 'report.txt')}\n`,
+        ),
+    );
+    assert.equal(await identifyProcess((await f.launch()).pid), undefined);
   } finally {
     gate.resolve();
     await f.close();

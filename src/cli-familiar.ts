@@ -7,8 +7,8 @@ import { ClaudeTask } from './agents/claude-task.js';
 import { familiarMarker } from './agents/familiar-report.js';
 import type { FamiliarProgress } from './agents/familiar-report.js';
 import { errorMessage } from './agents/stderr.js';
-import { callControl } from './persistence/control.js';
-import type { ControlBinding } from './persistence/control.js';
+import { callControl, ControlTimeoutError } from './persistence/control.js';
+import type { ControlBinding, ControlResult } from './persistence/control.js';
 
 /** outranks user, project and local settings, so the routed model runs as named and an overload doesn't switch it. */
 const settings = JSON.stringify({
@@ -96,21 +96,30 @@ export class FamiliarReports {
       const sequence = this.sequence++;
       const deadline = Date.now() + 10_000;
       for (;;) {
-        const outcome = await callControl(
-          this.binding,
-          {
-            kind: 'familiar-update',
-            run: this.run,
-            sequence,
-            progress,
-          },
-          Math.min(deadline, Date.now() + 1500),
-        ).catch(async (error: unknown) => {
-          if (Date.now() >= deadline) throw error;
+        let outcome: ControlResult;
+        try {
+          outcome = await callControl(
+            this.binding,
+            {
+              kind: 'familiar-update',
+              run: this.run,
+              sequence,
+              progress,
+            },
+            Math.min(deadline, Date.now() + 1500),
+          );
+        } catch (error) {
+          if (Date.now() >= deadline) {
+            if (
+              progress.status === 'running' &&
+              error instanceof ControlTimeoutError
+            )
+              break;
+            throw error;
+          }
           await delay(100);
-          return undefined;
-        });
-        if (!outcome) continue;
+          continue;
+        }
         if (outcome.kind === 'error') throw new Error(outcome.message);
         if (outcome.kind !== 'familiar-updated')
           throw new Error(`Unexpected familiar reply: ${outcome.kind}`);

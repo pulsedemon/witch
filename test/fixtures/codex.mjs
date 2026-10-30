@@ -1203,7 +1203,9 @@ for await (const line of lines) {
     notify('item/completed', {
       item: { type: 'agentMessage', id: 'message-1', text },
     });
-    finish('completed');
+    if (familiar === 'gated-completion')
+      void held().then(() => finish('completed'));
+    else finish('completed');
   }
   if ([88, 89, 91, 94].includes(request.id) && request.result) {
     record(`response-${request.id}.json`, request.result);
