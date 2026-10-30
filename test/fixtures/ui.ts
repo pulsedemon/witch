@@ -5,6 +5,8 @@ import type { ReactElement } from 'react';
 import stripAnsi from 'strip-ansi';
 import type { Coordinator } from '../../src/core/coordinator.js';
 import type { Snapshot } from '../../src/core/snapshot.js';
+import { defaultPolicy } from '../../src/core/routing.js';
+import type { Policy } from '../../src/core/routing.js';
 import { PentacleActivity } from '../../src/core/pentacle-activity.js';
 import { MouseInput } from '../../src/ui/mouse.js';
 import { until } from './within.js';
@@ -140,6 +142,14 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       return true;
     },
     selectModel: record('selectModel'),
+    policy: defaultPolicy,
+    async delegation() {
+      return coordinator.policy;
+    },
+    async setDelegation(policy: Policy) {
+      calls.push(['setDelegation', policy]);
+      coordinator.policy = policy;
+    },
     report: (error: unknown) => calls.push(['report', String(error)]),
     notice: record('notice'),
     conversations: async () => [

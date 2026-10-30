@@ -43,6 +43,9 @@ import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import type { Recovery, Snapshot } from './snapshot.js';
 import { AccountUsage, usageContext } from './usage.js';
+import { defaultPolicy } from './routing.js';
+import type { Policy } from './routing.js';
+import type { DelegationStore } from '../persistence/delegation.js';
 import type { ModelSelection } from './models.js';
 import type { PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
@@ -121,6 +124,7 @@ export class Coordinator {
     >,
     private readonly editFile = editInVSCode,
     readonly coordination?: SessionCoordination,
+    private readonly policy?: DelegationStore,
   ) {
     this.catalog = new ModelCatalog(agents, (error) =>
       this.notice(errorMessage(error), undefined, false),
@@ -503,6 +507,16 @@ export class Coordinator {
 
   async conversations(): Promise<Conversation[]> {
     return this.store.conversations(this.current().cwd);
+  }
+
+  /** routing policy edits touch only its file, so they act while work runs. */
+  delegation(): Promise<Policy> {
+    return this.policy?.read() ?? Promise.resolve(defaultPolicy);
+  }
+
+  setDelegation(policy: Policy): Promise<void> {
+    if (!this.policy) throw new Refusal('This Witch has no delegation policy');
+    return this.policy.write(policy);
   }
 
   /** returns false when canceled; a replied turn keeps its catalog because reinitialization needs idle. */

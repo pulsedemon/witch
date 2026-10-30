@@ -24,6 +24,7 @@ import { RepositoryWatch } from './core/repository.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
 import { writeJson } from './persistence/json.js';
+import { DelegationStore } from './persistence/delegation.js';
 import { NotificationSchedule } from './persistence/notifications.js';
 import { ScratchSpace } from './persistence/scratch.js';
 import { StateStore } from './persistence/store.js';
@@ -228,6 +229,7 @@ if (familiar) {
       jobs,
       undefined,
       coordination,
+      await DelegationStore.open(join(store.root, 'delegation')),
     );
     // straight to the terminal, since the link screen would read image data as printed text
     const graphics = new Graphics((data) => process.stdout.write(data));

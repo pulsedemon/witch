@@ -42,6 +42,7 @@ import type { Point } from './selection.js';
 import { Activity, elapsed } from './activity.js';
 import { castTitle, useCasting } from './cast.js';
 import { fitsUsage, Sidebar, sidebarWidth } from './sidebar.js';
+import { changeDelegation, delegationPage } from './delegation.js';
 import { coordinationText } from './peers.js';
 import { StatusLine } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
@@ -57,6 +58,10 @@ const commands: { id: string; label: string; aliases?: string[] }[] = [
     label: 'Current task, /task release or /task take <reference>',
   },
   { id: 'model', label: 'Choose model and reasoning' },
+  {
+    id: 'delegation',
+    label: 'Where delegated work goes, and when usage shifts it',
+  },
   { id: 'compact', label: 'Compact the conversation' },
   { id: 'clear', label: 'Clear agent context' },
   { id: 'memory', label: 'Browse shared memory' },
@@ -646,6 +651,9 @@ export function App({
             }),
           );
         break;
+      case 'delegation':
+        run(delegation(argument));
+        break;
       case 'compact':
         if (argument)
           coordinator.notice(
@@ -681,6 +689,39 @@ export function App({
         onExit();
         break;
     }
+  };
+
+  /** shows the routing policy, after applying the argument's change when there is one. */
+  const delegation = async (argument: string) => {
+    const installed = state.agents
+      .filter((agent) => agent.installed)
+      .map(({ id }) => id);
+    const catalog = {
+      models: coordinator.snapshot.models,
+      latest: coordinator.snapshot.latest,
+    };
+    let policy = await coordinator.delegation();
+    if (argument) {
+      const changed = changeDelegation(argument, policy, catalog, installed);
+      if (typeof changed === 'string') {
+        coordinator.notice(changed, undefined, false);
+        return;
+      }
+      await coordinator.setDelegation(changed);
+      policy = changed;
+    }
+    setPageScroll(0);
+    setView({
+      kind: 'page',
+      title: 'Delegation',
+      text: delegationPage(
+        policy,
+        catalog,
+        coordinator.snapshot.limits,
+        installed,
+        Date.now(),
+      ),
+    });
   };
 
   /** keeps a submitted prompt for ↑, unless it is blank or repeats the newest. */
