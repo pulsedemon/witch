@@ -154,12 +154,22 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its 
   assert.ok(bar(60).includes('\u001b[38;2;255;0;0m'));
 });
 
-test('a merged pull request says so in magenta, a closed one plainly, and failing or pending checks get their marks', () => {
+test('a merged pull request says so in magenta, a closed one plainly, checks get their marks, and a conflict is marked even when its pull request read failed', () => {
   const line = (
     state: 'OPEN' | 'MERGED' | 'CLOSED',
-    checks?: 'failing' | 'pending',
-  ) =>
-    statusLines(
+    checks?: 'passing' | 'failing' | 'pending',
+    { conflict = false, read = true } = {},
+  ) => {
+    const pullRequest = {
+      number: 3,
+      url: 'https://x.test/3',
+      state,
+      branch: 'feat/x',
+      commit: 'a1b2c3',
+      base: 'main',
+      checks,
+    };
+    return statusLines(
       {
         usage: {},
         cwd: '/w',
@@ -171,25 +181,28 @@ test('a merged pull request says so in magenta, a closed one plainly, and failin
           modified: 0,
           conflicts: 0,
           untracked: 0,
-          pullRequest: {
-            number: 3,
-            url: 'https://x.test/3',
-            state,
-            branch: 'feat/x',
-            commit: 'a1b2c3',
-            base: 'main',
-            checks,
-          },
+          ...(read ? { pullRequest } : {}),
+          ...(conflict ? { conflict: { pullRequest } } : {}),
         },
       },
       now,
     )[1];
+  };
   const pr = (...args: Parameters<typeof line>) => stripAnsi(line(...args));
   assert.ok(pr('MERGED').includes('| main | PR#3 MERGED |'));
   assert.ok(line('MERGED').includes('\u001b[35mMERGED\u001b[39m'));
   assert.ok(pr('CLOSED').includes('| PR#3 CLOSED |'));
   assert.ok(pr('OPEN', 'failing').includes('| PR#3 ✗ |'));
   assert.ok(pr('OPEN', 'pending').includes('| PR#3 … |'));
+  assert.ok(pr('OPEN', 'passing').includes('| PR#3 ✓ |'));
+  assert.ok(
+    pr('OPEN', 'passing', { conflict: true }).includes('| PR#3 ✓ CONFLICT |'),
+  );
+  assert.ok(
+    pr('OPEN', 'passing', { conflict: true, read: false }).includes(
+      '| PR#3 CONFLICT |',
+    ),
+  );
 });
 
 test('other runtimes follow the live one as percents, dim when not current, and ? with no reading', () => {

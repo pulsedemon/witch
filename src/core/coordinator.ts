@@ -48,7 +48,7 @@ import { PentacleActivity } from './pentacle-activity.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { ModelSelection } from './models.js';
-import type { PullRequest } from './repository.js';
+import type { Conflict, PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
   agentDisplay,
@@ -90,6 +90,7 @@ class Refusal extends Error {}
 export class Coordinator {
   readonly pentacle = new PentacleActivity();
   snapshot: Snapshot;
+  conflict?: Conflict;
   private record?: ConversationRecord;
   private files?: ConversationStore;
   private workspace?: Workspace;
@@ -991,6 +992,7 @@ export class Coordinator {
                 }
               : undefined,
           merges: this.coordination?.mergeEvents(conversation.id),
+          conflict: this.conflict,
           usage: this.accountUsage.context(this.snapshot.agents),
         });
       let input = await context();
