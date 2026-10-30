@@ -4,7 +4,7 @@ A personal terminal app for installed Codex and Claude Code, with Git-backed sha
 
 ## Install
 
-Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links and memory editing, and a signed-in `gh` adds the branch's pull request to the status line and lets Witch clean up after it merges.
+Install Node.js (the version in `package.json` `engines`), pnpm, Git 2.43 or newer and the native agent CLIs. Sign in through each native CLI. VS Code handles file links other than images and memory editing, and a signed-in `gh` adds the branch's pull request to the status line and lets Witch clean up after it merges.
 
 Lock observation requires macOS's `/usr/bin/perl` with its core `Fcntl` and `JSON::PP` modules. Installing the native dependency requires Python 3 and Xcode Command Line Tools.
 

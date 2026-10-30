@@ -1,8 +1,11 @@
 import { tokenize } from '@alcalzone/ansi-tokenize';
 import LinkifyIt from 'linkify-it';
+import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exists } from '../memory/memory.js';
 import { resolveFile, unescapePath } from '../paths.js';
+import { imageFile } from './images.js';
 import { colors } from './theme.js';
 
 const urls = new LinkifyIt();
@@ -28,27 +31,48 @@ export function linkTarget(target: string, cwd: string): string {
     /:(\d+)(?::(\d+))?$/.exec(target) ?? /#L(\d+)(?:C(\d+))?$/.exec(target);
   const file = location ? target.slice(0, location.index) : target;
   const path = resolveFile(file, cwd);
+  // the system's default viewer opens an image, which has no line to go to
+  if (imageFile.test(path)) return pathToFileURL(path).href;
   const suffix = location
     ? `:${location[1]}${location[2] ? `:${location[2]}` : ''}`
     : '';
   return `vscode://file${path.split('/').map(encodeURIComponent).join('/')}${suffix}`;
 }
 
-/** what a click on a drawn link opens, or the notice it shows when the file isn't there. */
+/** what a click on a drawn link opens, or the notice it shows when the file isn't there or isn't an image. */
 export async function clickTarget(
   url: string,
   memory: () => Promise<string[]>,
 ): Promise<{ open: string } | { notice: string }> {
+  const target = await located(url, memory);
+  if (!('open' in target) || !target.open.startsWith('file://')) return target;
+  // open follows a symlink and picks the app by the real file's type, so a `.png` link to a script would run it
+  const path = fileURLToPath(target.open);
+  const real = await realpath(path);
+  return imageFile.test(real) && (await stat(real)).isFile()
+    ? { open: pathToFileURL(real).href }
+    : { notice: `${path} is not an image file` };
+}
+
+async function located(
+  url: string,
+  memory: () => Promise<string[]>,
+): Promise<{ open: string } | { notice: string }> {
   const file = /^vscode:\/\/file(\/.*?)((?::\d+){0,2})$/.exec(url);
-  if (!file) return { open: url };
-  const path = decodeURIComponent(file[1]!);
+  const path = file
+    ? decodeURIComponent(file[1]!)
+    : url.startsWith('file://')
+      ? fileURLToPath(url)
+      : undefined;
+  if (path === undefined) return { open: url };
   if (await exists(path)) return { open: url };
   if (!bareNames.has(url)) return { notice: `No file at ${path}` };
   const name = basename(path);
   const notes: string[] = [];
   for (const directory of await memory())
     if (await exists(join(directory, name))) notes.push(join(directory, name));
-  if (notes.length === 1) return { open: linkTarget(notes[0]! + file[2], '/') };
+  if (notes.length === 1)
+    return { open: linkTarget(notes[0]! + (file?.[2] ?? ''), '/') };
   return {
     notice: notes.length
       ? `${name} is in both memory scopes:\n${notes.join('\n')}`

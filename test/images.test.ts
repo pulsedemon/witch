@@ -6,6 +6,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import type { TestContext } from 'vitest';
 import { test, vi } from 'vitest';
 import { Graphics, imagePaths } from '../src/ui/images.js';
@@ -57,7 +58,7 @@ test('a dropped path keeps its escaped spaces and unescaped U+202F, a quoted pat
   );
 });
 
-test('an image loads in the background, then is sent once as its PNG data, shown by rows whose color names it and whose first cell names its row, and placed again without resending when the width changes', async (t) => {
+test('an image loads in the background, then is sent once as its PNG data, shown by rows that link to its file, whose color names it and whose first cell names its row, and placed again without resending when the width changes', async (t) => {
   const directory = await scratch('witch-images-');
   const image = png(160, 80);
   const path = join(directory, 'shot.png');
@@ -92,7 +93,7 @@ test('an image loads in the background, then is sent once as its PNG data, shown
     rows,
     [row0, row1, row2, '̐', '̒'].map(
       (row) =>
-        `\u001b[38;2;0;0;1m${placeholder}${row}${row0}${placeholder.repeat(19)}\u001b[39m`,
+        `\u001b]8;;${pathToFileURL(path).href}\u0007\u001b[38;2;0;0;1m${placeholder}${row}${row0}${placeholder.repeat(19)}\u001b[39m\u001b]8;;\u0007`,
     ),
   );
   assert.ok(writes.length > 2, 'the image spans several chunks');
