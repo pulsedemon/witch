@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { Limit } from '../src/agents/types.js';
-import type { Catalog, Policy, Work } from '../src/core/routing.js';
+import type { Catalog, Policy, Route, Work } from '../src/core/routing.js';
 import { defaultPolicy, family, resolve, route } from '../src/core/routing.js';
 import { USAGE_CURRENT_MS } from '../src/core/usage.js';
 
@@ -43,6 +43,12 @@ const fresh = {
   codex: [window('7D', 49)],
 };
 
+/** a single route as itself, so a result with an unexpected number of routes fails as an array. */
+function unwrap(result: Route) {
+  if ('refused' in result) return result;
+  return result.routes.length === 1 ? result.routes[0]! : result.routes;
+}
+
 function ask(
   fields: {
     work?: Work;
@@ -55,17 +61,19 @@ function ask(
     installed?: string[];
   } = {},
 ) {
-  return route({
-    work: fields.work ?? 'implementation',
-    caller: fields.caller ?? 'claude',
-    of: fields.of,
-    named: fields.named,
-    policy: { ...defaultPolicy, ...fields.policy },
-    installed: fields.installed ?? installed,
-    catalog: fields.catalog ?? catalog,
-    limits: fields.limits ?? fresh,
-    now,
-  });
+  return unwrap(
+    route({
+      work: fields.work ?? 'implementation',
+      caller: fields.caller ?? 'claude',
+      of: fields.of,
+      named: fields.named,
+      policy: { ...defaultPolicy, ...fields.policy },
+      installed: fields.installed ?? installed,
+      catalog: fields.catalog ?? catalog,
+      limits: fields.limits ?? fresh,
+      now,
+    }),
+  );
 }
 
 test('a versioned model runs as named, even absent from the catalog, and the reason says when usage is not current', () => {
@@ -173,11 +181,18 @@ test('review routes relative to the runtime that produced the work', () => {
       reason: 'the policy sends review of codex work to other',
     },
   );
-  assert.deepEqual(ask({ work: 'review', of: codexWork }), {
-    runtime: 'codex',
-    model: 'gpt-6.1-sol',
-    reason: 'review stays on codex, which produced it',
-  });
+  assert.deepEqual(
+    ask({
+      work: 'review',
+      of: codexWork,
+      policy: { work: { review: 'same' } },
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason: 'review stays on codex, which produced it',
+    },
+  );
   assert.equal(
     (
       ask({ work: 'review', policy: { work: { review: 'other' } } }) as {
@@ -244,12 +259,13 @@ test('a review the policy sent away from its producer stays off the producer whe
         'the policy sends review of codex work to other; claude 7D 92% is at or over 90%, but codex produced the work',
     },
   );
-  // with no rule the review stays with its producer, so it may shift away
+  // a review kept on its producer may shift away
   assert.equal(
     (
       ask({
         work: 'review',
         of,
+        policy: { work: { review: 'same' } },
         limits: { claude: [window('7D', 40)], codex: [window('7D', 92)] },
       }) as { runtime: string }
     ).runtime,
@@ -363,7 +379,11 @@ test('a runtime that is not installed, a missing other runtime and an unset fami
       'codex is not installed',
     ],
     [
-      { work: 'review', of: { runtime: 'codex', model: 'gpt-6-sol' } },
+      {
+        work: 'review',
+        of: { runtime: 'codex', model: 'gpt-6-sol' },
+        policy: { work: { review: 'same' } },
+      },
       'codex is not installed',
     ],
     [
@@ -389,34 +409,71 @@ test('a runtime over the level stays when no other runtime is installed, and the
   );
 });
 
-test('a policy that pins a versioned model keeps it, and one that pins a family shifts', () => {
-  const limits = { claude: [window('7D', 99)], codex: [window('7D', 1)] };
+test('with no rule, review goes to every runtime, and a reviewer over the level shifts even onto the producer', () => {
+  const of = { runtime: 'claude', model: 'claude-opus-5-5' };
+  const reason = 'review of claude work goes to every runtime';
+  assert.deepEqual(ask({ work: 'review', of }), [
+    { runtime: 'claude', model: 'claude-opus-5-5', reason },
+    { runtime: 'codex', model: 'gpt-6.1-sol', reason },
+  ]);
   assert.deepEqual(
     ask({
-      policy: { work: { implementation: 'claude:claude-opus-5' } },
-      limits,
+      work: 'review',
+      of,
+      limits: { claude: [window('7D', 40)], codex: [window('7D', 92)] },
     }),
+    [
+      { runtime: 'claude', model: 'claude-opus-5-5', reason },
+      {
+        runtime: 'claude',
+        model: 'claude-opus-5-5',
+        reason: 'codex 7D 92% is at or over 90%, and claude 7D 40% has room',
+      },
+    ],
+  );
+  assert.deepEqual(ask({ work: 'review', of, installed: ['claude'] }), {
+    runtime: 'claude',
+    model: 'claude-opus-5-5',
+    reason,
+  });
+});
+
+test('a rule that names a model or family shifts to the comparable model on a runtime with room, and stays when there is none', () => {
+  const claudeHot = { claude: [window('7D', 99)], codex: [window('7D', 1)] };
+  const codexHot = { claude: [window('7D', 1)], codex: [window('7D', 99)] };
+  for (const [rule, limits, model, from] of [
+    ['claude:claude-opus-5', claudeHot, 'gpt-6-astra', 'claude-opus-5'],
+    ['claude:sonnet', claudeHot, 'gpt-6.1-sol', 'sonnet'],
+    ['codex:gpt-6.1-terra', codexHot, 'claude-sonnet-5-5', 'gpt-6.1-terra'],
+    ['codex:luna', codexHot, 'claude-haiku-5-5', 'luna'],
+  ] as const)
+    assert.deepEqual(
+      ask({ policy: { work: { implementation: rule } }, limits }),
+      {
+        runtime: limits === claudeHot ? 'codex' : 'claude',
+        model,
+        reason: `${limits === claudeHot ? 'claude 7D 99% is at or over 90%, and codex 7D 1%' : 'codex 7D 99% is at or over 90%, and claude 7D 1%'} has room; ${model} is comparable to ${from}`,
+      },
+      rule,
+    );
+  assert.deepEqual(
+    ask({
+      policy: { work: { implementation: 'codex:gpt-6-nova' } },
+      limits: codexHot,
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6-nova',
+      reason:
+        'the policy sends implementation to codex:gpt-6-nova; codex 7D 99% is at or over 90%, but claude has no model comparable to gpt-6-nova',
+    },
+  );
+  assert.deepEqual(
+    ask({ policy: { work: { implementation: 'claude:claude-opus-5' } } }),
     {
       runtime: 'claude',
       model: 'claude-opus-5',
       reason: 'the policy sends implementation to claude:claude-opus-5',
     },
-  );
-  assert.equal(
-    (
-      ask({
-        policy: { work: { implementation: 'claude:sonnet' } },
-        limits,
-      }) as { runtime: string }
-    ).runtime,
-    'codex',
-  );
-  assert.equal(
-    (
-      ask({ policy: { work: { implementation: 'claude:sonnet' } } }) as {
-        model: string;
-      }
-    ).model,
-    'claude-sonnet-5-5',
   );
 });
