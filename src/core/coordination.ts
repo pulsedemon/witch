@@ -25,6 +25,7 @@ import {
 } from './coordination-state.js';
 import type {
   CoordinationSnapshot,
+  RouteAction,
   SessionPresence,
   SelectionScope,
   TransferTarget,
@@ -127,6 +128,8 @@ export class SessionCoordination {
   private host!: ControlHost;
   private familiarHost!: ControlHost;
   private live?: () => AgentSession | undefined;
+  /** answers `--route` apart from the claim queue, so a route never waits behind claim work. */
+  router?: (action: RouteAction) => Promise<ControlOutcome>;
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;
   private pending?: SessionPresence;
@@ -905,6 +908,11 @@ export class SessionCoordination {
         message: 'Use the familiar reporting mailbox for this action.',
       });
     this.failures.delete('control');
+    if (request.action.kind === 'route') {
+      this.admit(request);
+      if (!this.router) throw new Error('This Witch cannot route work.');
+      return this.router(request.action);
+    }
     return this.serialize(() => this.dispatch(request, human));
   }
 
@@ -930,8 +938,8 @@ export class SessionCoordination {
     let outcome: ControlOutcome | undefined;
     try {
       const action = request.action;
-      if (isFamiliarAction(action))
-        throw new Error('Use the familiar reporting mailbox for this action.');
+      if (isFamiliarAction(action) || action.kind === 'route')
+        throw new Error('This action is answered before dispatch.');
       if (action.kind === 'peers') {
         const snapshot = await this.requestSnapshot(active, state);
         if (snapshot.error) throw new Error(snapshot.error);

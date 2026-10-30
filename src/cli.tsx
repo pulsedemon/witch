@@ -25,6 +25,7 @@ import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
 import { writeJson } from './persistence/json.js';
 import { DelegationStore } from './persistence/delegation.js';
+import { router } from './core/router.js';
 import { NotificationSchedule } from './persistence/notifications.js';
 import { ScratchSpace } from './persistence/scratch.js';
 import { StateStore } from './persistence/store.js';
@@ -67,6 +68,9 @@ Agent control (use the prefix supplied in the current Witch context):
   --recommend <ref>   reserve a recommendation and advance the queue
   --selection <id>    identify the selection for --recommend
   --cancel-selection <id>  leave this turn's queue
+  --route <work>      choose where review, planning, implementation or investigation goes
+  --of <runtime>:<model>    the runtime and model whose work a review checks
+  --named <runtime>:<model> a model or family the user or agent named, which runs as named
   --json              print the control result as JSON
 
 Delegated tasks (use the familiar prefix supplied in the current Witch context):
@@ -231,6 +235,7 @@ if (familiar) {
       coordination,
     );
     const policy = await DelegationStore.open(join(store.root, 'delegation'));
+    coordination.router = router(coordinator, policy);
     // straight to the terminal, since the link screen would read image data as printed text
     const graphics = new Graphics((data) => process.stdout.write(data));
     /** frees the images while the alternate screen that holds them is still active. */
