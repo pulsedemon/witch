@@ -187,6 +187,8 @@ export async function runReview(
         .map(({ runtime, why }) => `; ${label(runtime)} sits out: ${why}`)
         .join('')}`,
     );
+    // read before any await: a correction that reconnects the session gets a new prefix, and a close in between rejects the lookup
+    const prefix = coordination.commandPrefixes().familiar;
     const briefFile = join(directory, `round-${number}-brief.md`);
     await writeFile(
       briefFile,
@@ -197,8 +199,6 @@ export async function runReview(
         known,
       }),
     );
-    // a correction that reconnects the session activates coordination anew, with a new familiar prefix
-    const prefix = coordination.commandPrefixes().familiar;
     const counts = new Map<string, number>();
     const reviewers: (Reviewer & { route: Routed })[] = routes.map((route) => {
       const index = counts.get(route.runtime) ?? 0;
