@@ -30,6 +30,7 @@ import { mergeEventId, mergeEventSchema } from '../core/merge-events.js';
 import type { MergeEvent } from '../core/merge-events.js';
 import { answerable, peerRequestSchema } from '../core/peer-requests.js';
 import type { PeerRequest } from '../core/peer-requests.js';
+import type { PeerAnswer } from '../core/peer-answers.js';
 import type { PullRequest } from '../core/repository.js';
 import { identifyProcesses, sameProcess } from './process.js';
 import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
@@ -337,7 +338,7 @@ export class CoordinationStore {
       const attempted: PeerRequest[] = [];
       const requests = stored.map((request) => {
         if (!batch.has(request)) return request;
-        const stamped = peerRequestSchema.parse({ ...request, attemptedAt });
+        const stamped = { ...request, attemptedAt };
         attempted.push(stamped);
         return stamped;
       });
@@ -358,24 +359,47 @@ export class CoordinationStore {
     message: string,
     deadline: number,
   ): Promise<PeerRequest> {
+    const [answer] = await this.answerPeers(
+      conversation,
+      [{ id, message }],
+      deadline,
+    );
+    return answer!;
+  }
+
+  /** validate the whole batch before publishing any answer. */
+  async answerPeers(
+    conversation: string,
+    answers: readonly PeerAnswer[],
+    deadline: number,
+    preserveAnswered = false,
+  ): Promise<PeerRequest[]> {
     const lock = await this.lock(deadline);
     try {
       const requests = await this.readPeerRequests();
-      const index = requests.findIndex((request) => request.id === id);
-      const request = requests[index];
-      if (request?.to !== conversation)
-        throw new Error(
-          `Peer request ${id} is not addressed to this conversation.`,
-        );
-      if (request.answer)
-        throw new Error(`Peer request ${id} already has an answer.`);
-      const answer = peerRequestSchema.parse({
-        ...request,
-        answer: { message, answeredAt: new Date().toISOString() },
-      });
+      const updates = new Map<number, PeerRequest>();
+      for (const { id, message } of answers) {
+        const index = requests.findIndex((request) => request.id === id);
+        const request = updates.get(index) ?? requests[index];
+        if (request?.to !== conversation)
+          throw new Error(
+            `Peer request ${id} is not addressed to this conversation.`,
+          );
+        if (request.answer) {
+          if (preserveAnswered && !updates.has(index)) continue;
+          throw new Error(`Peer request ${id} already has an answer.`);
+        }
+        const answer = peerRequestSchema.parse({
+          ...request,
+          answer: { message, answeredAt: new Date().toISOString() },
+        });
+        updates.set(index, answer);
+      }
       checkDeadline(deadline);
-      await this.writePeerRequests(requests.with(index, answer));
-      return answer;
+      await this.writePeerRequests(
+        requests.map((request, index) => updates.get(index) ?? request),
+      );
+      return [...updates.values()];
     } finally {
       await lock.close();
     }

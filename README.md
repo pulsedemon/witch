@@ -97,15 +97,15 @@ The [native protocol manifest](test/fixtures/native/manifest.json) records the t
 
 Witch uses these experimental or undeclared native interfaces:
 
-| Runtime | Interface                                                                 | Use                                                                |
-| ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Codex   | `thread/settings/update`                                                  | Model and effort changes.                                          |
-| Codex   | `thread/backgroundTerminals/list`, `thread/backgroundTerminals/terminate` | Background command identity and cleanup.                           |
-| Codex   | `runtimeWorkspaceRoots` on `thread/start` and `thread/resume`             | Conversation and memory directory access.                          |
-| Claude  | `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`                                   | Native idle and turn completion.                                   |
-| Claude  | `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`               | Session and account usage.                                         |
-| Claude  | `command_lifecycle`                                                       | Input consumption acknowledgements, outside the SDK message union. |
-| Claude  | `getTaskOutput`                                                           | Background output, implemented but undeclared by the SDK.          |
+| Runtime | Interface                                                                    | Use                                                                |
+| ------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Codex   | `thread/settings/update`                                                     | Model and effort changes.                                          |
+| Codex   | `thread/backgroundTerminals/list`, `thread/backgroundTerminals/terminate`    | Background command identity and cleanup.                           |
+| Codex   | `runtimeWorkspaceRoots` on `thread/start`, `thread/resume` and `thread/fork` | Conversation and memory directory access.                          |
+| Claude  | `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`                                      | Native idle and turn completion.                                   |
+| Claude  | `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`                  | Session and account usage.                                         |
+| Claude  | `command_lifecycle`                                                          | Input consumption acknowledgements, outside the SDK message union. |
+| Claude  | `getTaskOutput`                                                              | Background output, implemented but undeclared by the SDK.          |
 
 ### Native protocol fixtures
 
@@ -131,6 +131,8 @@ pnpm test:record-native --runtime claude --model "$claude_model" --scenario basi
 The recorder creates synthetic projects, requests only their named command approvals, checks file effects and native cleanup replies, and retains raw traffic locally. Codex uses `on-request` approvals with user review and a read-only sandbox. Claude uses project settings, strict MCP configuration and default approvals. These per-process capture settings do not change the user's native configuration. The output's `normalized` directory replaces personal paths and account identity while preserving protocol fields, values and ID relationships.
 
 Inspect every normalized stream before copying it into `test/fixtures/native/<runtime>/`. Update the manifest from the successful `capture.json` records, including the SDK version, model, launch arguments and capture date. Copy only the complete generated `codex_app_server_protocol.schemas.json` to `codex/protocol.schema.json`, byte for byte, and record its SHA-256 in the manifest. Compare the stable and experimental definitions against the adapter's consumed interfaces to refresh the inventory above. Review schema and trace diffs before changing expected results; never fill missing native events by hand. Rerun the focused tests and the normal verification below. Keep raw captures out of Git and remove owned scratch after checking its processes and open files.
+
+For changes to [automatic peer-answer isolation](docs/rules.md#session-coordination), run disposable owner/asker conversations with each real runtime. Retain native input and tool output, attempt a local marker write and a fake connected-tool mutation, verify no prompt or target change, and confirm the answer is stored. Check a subsequent normal owner write, interruption during answer startup, and cleanup of the separate process. A model declining an action without invoking a tool does not establish native enforcement; use the native tool result or verified absence of the mutation capability. Keep synthetic targets and captures under Witch scratch, and never use real connected-service writes for this check.
 
 ### Final verification before publication
 

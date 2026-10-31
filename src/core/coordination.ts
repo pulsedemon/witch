@@ -1,6 +1,5 @@
 import { isFamiliarAction } from '../agents/familiar-report.js';
 import { randomUUID } from 'node:crypto';
-import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentSession } from '../agents/types.js';
 import { errorMessage } from '../agents/stderr.js';
@@ -33,11 +32,10 @@ import type { Reviewers } from './reviewers.js';
 import type { router } from './router.js';
 import type { Snapshot } from './snapshot.js';
 import {
-  answerInstructions,
   coordinationContext,
   coordinationInstructions,
 } from './coordination-policy.js';
-import { discover, projectDiscovery } from './discovery.js';
+import { configStamp, discover, projectDiscovery } from './discovery.js';
 import {
   awaitTransfer,
   movedNotices,
@@ -51,6 +49,7 @@ import type { Repository } from './repository.js';
 import { ConversationEvents } from './conversation-events.js';
 import { checkAnswering, isPeerAction, peerOutcome } from './peer-requests.js';
 import type { PeerRequest } from './peer-requests.js';
+import type { PeerAnswer } from './peer-answers.js';
 import type { Conversation, ProcessIdentity } from './state.js';
 
 interface Activation {
@@ -75,17 +74,6 @@ interface Activation {
 
 /** lock holders and process exits change no file, so the tick rereads them this often. */
 const rereadInterval = 60_000;
-
-/** what changes when Git rewrites a config file. */
-function configStamp(file: string | undefined): string {
-  if (!file) return 'none';
-  try {
-    const { mtimeNs, ino, size } = statSync(file, { bigint: true });
-    return `${mtimeNs}:${ino}:${size}`;
-  } catch {
-    return 'missing';
-  }
-}
 
 interface LedgerView {
   revision: number;
@@ -481,6 +469,19 @@ export class SessionCoordination {
     }
   }
 
+  answerPeers(answers: readonly PeerAnswer[]): Promise<void> {
+    return this.serialize(async () => {
+      const active = this.admit();
+      await this.registry.answerPeers(
+        active.conversation.id,
+        answers,
+        Date.now() + 1000,
+        true,
+      );
+      await this.refreshEvents();
+    });
+  }
+
   beginTurn(turn: string): void {
     const active = this.admit();
     this.turn = {
@@ -575,7 +576,6 @@ export class SessionCoordination {
 
   async context(): Promise<{
     instructions: string;
-    answering: string;
     context: string;
     snapshot: CoordinationSnapshot;
   }> {
@@ -601,8 +601,7 @@ export class SessionCoordination {
       snapshot,
       this.commandPrefixes().control,
     );
-    const answering = answerInstructions(this.commandPrefixes().control);
-    return { instructions, answering, context, snapshot };
+    return { instructions, context, snapshot };
   }
 
   async releaseTask(): Promise<void> {

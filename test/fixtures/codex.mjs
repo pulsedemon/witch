@@ -1,3 +1,4 @@
+import { peerAnswer } from './peer-answer.mjs';
 import { clearInterval, setInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
 import readline from 'node:readline';
@@ -39,7 +40,15 @@ let model = 'model-a';
 let effort = 'low';
 const lines = readline.createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
-const notify = (method, params) => send({ method, params });
+let answering = false;
+const notify = (method, params) =>
+  send({
+    method,
+    params:
+      answering && params.threadId
+        ? { ...params, threadId: 'answer-thread' }
+        : params,
+  });
 const file = (name) => join(process.cwd(), name);
 // whole, through a rename, since a test polling for a record would read one half written
 const record = (name, value) => {
@@ -47,12 +56,15 @@ const record = (name, value) => {
   renameSync(file(`${name}.next`), file(name));
 };
 const session = () => ({
-  thread: { id: 'native-thread' },
+  thread: { id: answering ? 'answer-thread' : 'native-thread' },
   model,
   cwd: process.cwd(),
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
   reasoningEffort: effort,
+  ...(mode === 'named-profile'
+    ? { activePermissionProfile: { id: 'owner' } }
+    : {}),
 });
 const finish = (status, error = null) =>
   notify('turn/completed', {
@@ -233,8 +245,34 @@ if (['brews', 'identity', 'file-approvals', 'compaction'].includes(mode))
       }
     }
   })();
+const finishPeerAnswer = () => {
+  const context = JSON.parse(readFileSync(file('context.json'), 'utf8'));
+  const text = context.items
+    .flatMap((item) => item.content.map((part) => part.text))
+    .join('\n');
+  for (const [id, message] of [
+    ['commentary', 'Reading requests.'],
+    ['final', peerAnswer(text)],
+  ])
+    notify('item/completed', {
+      threadId: 'answer-thread',
+      turnId: 'turn-1',
+      item: {
+        type: 'agentMessage',
+        id,
+        text: message,
+        phase: id === 'final' ? 'final_answer' : 'commentary',
+      },
+    });
+  finish('completed');
+};
 for await (const line of lines) {
   const request = JSON.parse(line);
+  if (answering && request.id === 'answer-approval' && !request.method) {
+    record('answer-response.json', request);
+    finishPeerAnswer();
+    continue;
+  }
   if (mode === 'catalog') appendFileSync(file('wire.jsonl'), `${line}\n`);
   if (mode === 'file-approvals' && request.method === undefined) {
     record(`response-${request.id}.json`, request);
@@ -292,6 +330,23 @@ for await (const line of lines) {
   if (request.method === 'thread/compact/start') {
     record('compact.json', request.params);
     reply({});
+  }
+  if (request.method === 'config/read') {
+    reply({
+      config: existsSync(file('config.json'))
+        ? JSON.parse(readFileSync(file('config.json'), 'utf8'))
+        : {},
+    });
+    continue;
+  }
+  if (request.method === 'mcpServerStatus/list') {
+    reply({
+      data: existsSync(file('answer-tools.json'))
+        ? JSON.parse(readFileSync(file('answer-tools.json'), 'utf8'))
+        : [],
+      nextCursor: null,
+    });
+    continue;
   }
   if (request.method === 'initialize') {
     if (mode === 'hang-on-init') {
@@ -444,10 +499,12 @@ for await (const line of lines) {
     });
   if (
     request.method === 'thread/start' ||
+    request.method === 'thread/fork' ||
     (request.method === 'thread/resume' &&
       request.params.threadId === 'native-thread')
   ) {
-    record('connect.json', request);
+    answering = request.params.ephemeral === true;
+    record(answering ? 'answer-connect.json' : 'connect.json', request);
     model = request.params.model ?? model;
     reply(session());
   }
@@ -580,6 +637,22 @@ for await (const line of lines) {
     );
     lastPrompt = prompt;
     record('prompt.json', request);
+    if (answering) {
+      reply({ turn: { id: 'turn-1' } });
+      if (existsSync(file('answer-approval'))) {
+        send({
+          id: 'answer-approval',
+          method: 'item/permissions/requestApproval',
+          params: {
+            threadId: 'answer-thread',
+            turnId: 'turn-1',
+            itemId: 'read',
+            permissions: { network: { enabled: true } },
+          },
+        });
+      } else finishPeerAnswer();
+      continue;
+    }
     if (spellReads) {
       const turnId = `turn-${++spellTurns}`;
       reply({ turn: { id: turnId } });

@@ -209,12 +209,17 @@ export class StateStore {
     try {
       const record = await readRecord(directory);
       const files = new ConversationStore(directory, unlock, record);
-      if (record.shell || record.process || record.usageProcess) {
+      if (
+        record.shell ||
+        record.process ||
+        record.usageProcess ||
+        record.answerProcess
+      ) {
         // the shell goes first, so a CLI that won't stop still leaves the command killed
         if (record.shell) await stopPreviousShell(record.shell);
         const stopped = await Promise.allSettled(
-          [record.process, record.usageProcess].flatMap((identity) =>
-            identity ? [stopPreviousProcess(identity)] : [],
+          [record.process, record.usageProcess, record.answerProcess].flatMap(
+            (identity) => (identity ? [stopPreviousProcess(identity)] : []),
           ),
         );
         for (const result of stopped)
@@ -222,6 +227,7 @@ export class StateStore {
         delete record.shell;
         delete record.process;
         delete record.usageProcess;
+        delete record.answerProcess;
         await files.save(record);
       }
       return files;
