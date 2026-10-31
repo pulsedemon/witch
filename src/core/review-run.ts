@@ -180,6 +180,8 @@ export async function runReview(
     );
     if (!routes.length) routes = reply.routes;
     if (!routes.length) return stopped('no reviewer was routed');
+    // read with no await since the abort check and before any notice, which a close would otherwise reject; a correction that reconnects gets a new prefix
+    const prefix = coordination.commandPrefixes().familiar;
     const dropped = sittingOut.filter(
       ({ runtime }) =>
         reply.routes.some((route) => route.runtime === runtime) &&
@@ -192,8 +194,6 @@ export async function runReview(
         .map(({ runtime, why }) => `; ${label(runtime)} sits out: ${why}`)
         .join('')}`,
     );
-    // read before any await: a correction that reconnects the session gets a new prefix, and a close in between rejects the lookup
-    const prefix = coordination.commandPrefixes().familiar;
     const briefFile = join(directory, `round-${number}-brief.md`);
     await writeFile(
       briefFile,
