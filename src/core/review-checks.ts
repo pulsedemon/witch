@@ -273,7 +273,7 @@ function links(parts: readonly Segment[]): Link[] {
   const raw = parts.map((part) => part.raw).join('');
   const found: Link[] = [];
   for (const match of masked.matchAll(
-    /\[([^\]]*)\]\(\s*<?([^)\s>]*)>?(?:\s+"[^"]*")?\s*\)/g,
+    /\[([^\]]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))*)>?(?:\s+"[^"]*")?\s*\)/g,
   )) {
     const start = match.index + 1;
     const whole = match[2]!;
@@ -550,7 +550,7 @@ function anchors(text: string): Set<string> {
 /** GitHub's slug of a heading's rendered text. */
 function slug(heading: string): string {
   return heading
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
     .replace(/[`*]/g, '')
     .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
     .toLowerCase()
@@ -565,7 +565,7 @@ function writable(parts: readonly Segment[]): string {
     .map((part) => (part.code ? ' ' : part.text))
     .join('')
     .replace(/<[a-z][\w+.-]*:[^>\s]*>/gi, ' ')
-    .replace(/\]\([^)]*\)/g, ']')
+    .replace(/\]\((?:[^()]|\([^()]*\))*\)/g, ']')
     .replace(/\b[a-z][\w+.-]*:\/\/\S+/gi, ' ');
 }
 
