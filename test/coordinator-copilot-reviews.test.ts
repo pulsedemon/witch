@@ -7,7 +7,7 @@ import { test, vi } from 'vitest';
 import type { TestContext } from 'vitest';
 import * as github from '../src/core/github-reviews.js';
 import type { GitHubReviews } from '../src/core/github-reviews.js';
-import type { ReviewResult } from '../src/core/copilot-reviews.js';
+import type { ReviewBatch, ReviewResult } from '../src/core/copilot-reviews.js';
 import { conversationRecordSchema } from '../src/core/state.js';
 import { callControl } from '../src/persistence/control.js';
 import { RepositoryWatch } from '../src/core/repository.js';
@@ -84,7 +84,7 @@ async function setup(t: TestContext) {
       async () =>
         c.snapshot.phase === 'idle' &&
         !c.snapshot.reviewing &&
-        !!(await record(f, a)).copilotReviews?.items.every(
+        !!(await record(f, a)).copilotReviews?.[0]?.items.every(
           ({ status }) => status === 'handled',
         ),
     );
@@ -93,7 +93,7 @@ async function setup(t: TestContext) {
 
 async function reply(f: Fixture, client: Client, source: GitHubReviews) {
   const saved = await record(f, client);
-  const batch = saved.copilotReviews!.batch!;
+  const batch = saved.copilotReviews![0]!.batch!;
   assert.ok(batch, 'the admission receipt was saved before native input');
   const packet = JSON.parse(await readFile(batch.packet, 'utf8')) as {
     source: GitHubReviews;
@@ -104,7 +104,7 @@ async function reply(f: Fixture, client: Client, source: GitHubReviews) {
   );
   const items: ReviewResult['items'] = [];
   for (const expected of batch.items) {
-    const item = saved.copilotReviews!.items.find(
+    const item = saved.copilotReviews![0]!.items.find(
       ({ id }) => id === expected.id,
     )!;
     if (item.kind === 'review') {
@@ -151,7 +151,11 @@ function autoReply(
   source: GitHubReviews,
   enabled = () => true,
 ) {
-  const session = client.a.sessions.at(-1)!.session;
+  const agent =
+    client.coordinator.snapshot.conversation!.agent === 'b'
+      ? client.b
+      : client.a;
+  const session = agent.sessions.at(-1)!.session;
   const send = session.send;
   vi.spyOn(session, 'send').mockImplementation(
     async (prompt, skill, context, author) => {
@@ -180,9 +184,9 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
   assert.equal(x.c.snapshot.completedTurn, completion);
   assert.equal(x.c.snapshot.native?.permissionMode, 'default');
   assert.equal(x.reviews().length, 1);
-  assert.equal(after.copilotReviews!.batch, undefined);
+  assert.equal(after.copilotReviews![0]!.batch, undefined);
   assert.equal(
-    after.copilotReviews!.items.find(({ kind }) => kind === 'thread')!
+    after.copilotReviews![0]!.items.find(({ kind }) => kind === 'thread')!
       .receipts[0]!.disposition,
     'fixed',
   );
@@ -260,13 +264,13 @@ test('Escape holds unknown outcomes through rereads and the next user prompt res
   await within(gate.entered, 5000, 'review dispatch');
   await x.c.interrupt();
   await until('blocked result', async () =>
-    (await record(x.f, x.a)).copilotReviews!.items.every(
+    (await record(x.f, x.a)).copilotReviews![0]!.items.every(
       ({ status }) => status === 'blocked',
     ),
   );
   await x.observe();
   assert.equal(x.reviews().length, 1);
-  assert.ok((await record(x.f, x.a)).copilotReviews!.batch);
+  assert.ok((await record(x.f, x.a)).copilotReviews![0]!.batch);
   gate.open();
   respond = true;
   await x.c.send('resume this task');
@@ -284,7 +288,7 @@ test('delivery holds and pending questions block review turns without consuming 
   await x.observe();
   assert.equal(x.reviews().length, 0);
   assert.ok(
-    (await record(x.f, x.a)).copilotReviews!.items.every(
+    (await record(x.f, x.a)).copilotReviews![0]!.items.every(
       ({ status }) => status === 'pending',
     ),
   );
@@ -333,7 +337,7 @@ for (const kind of ['branch', 'claim', 'project']) {
       );
       await x.a.coordination.context();
     } else {
-      const claim = (await record(x.f, x.a)).copilotReviews!.claim!;
+      const claim = (await record(x.f, x.a)).copilotReviews![0]!.claim!;
       const result = await callControl(await x.a.binding(), {
         kind: 'release',
         claim,
@@ -345,12 +349,12 @@ for (const kind of ['branch', 'claim', 'project']) {
       () => x.c.snapshot.phase === 'idle' && !x.c.snapshot.reviewing,
     );
     await until('retained attempt', async () =>
-      (await record(x.f, x.a)).copilotReviews!.items.every(
+      (await record(x.f, x.a)).copilotReviews![0]!.items.every(
         ({ status }) => status === 'blocked',
       ),
     );
     assert.equal(x.reviews().length, 1);
-    assert.ok((await record(x.f, x.a)).copilotReviews!.batch);
+    assert.ok((await record(x.f, x.a)).copilotReviews![0]!.batch);
     assert.ok(
       x.c.snapshot.items.some(({ text }) =>
         text.includes('branch or task ownership changed'),
@@ -411,7 +415,7 @@ test('reopening reconciles a reply saved before interruption without another aut
   reopened.coordinator.copilot.updateRepository(x.repository);
   await reopened.coordinator.copilot.observe(structuredClone(x.source));
   await until('recovered receipts', async () =>
-    (await record(x.f, reopened)).copilotReviews!.items.every(
+    (await record(x.f, reopened)).copilotReviews![0]!.items.every(
       ({ status }) => status === 'handled',
     ),
   );
@@ -456,7 +460,7 @@ test('the CLI watcher wiring carries a real repository observation through a rev
     await x.handled();
     const saved = await record(x.f, x.a);
     assert.deepEqual(
-      saved.copilotReviews!.items.map(({ id, status }) => [id, status]),
+      saved.copilotReviews![0]!.items.map(({ id, status }) => [id, status]),
       [
         ['review-1', 'handled'],
         ['thread-1', 'handled'],
@@ -485,7 +489,7 @@ test('a prompt in another conversation cannot resume an uncertain review on retu
   await x.c.interrupt();
   gate.open();
   await until('uncertain result', async () =>
-    (await record(x.f, x.a)).copilotReviews!.items.every(
+    (await record(x.f, x.a)).copilotReviews![0]!.items.every(
       ({ status }) => status === 'blocked',
     ),
   );
@@ -496,7 +500,7 @@ test('a prompt in another conversation cannot resume an uncertain review on retu
   await x.observe();
   assert.equal(x.c.copilot.ready(), false);
   assert.equal(x.reviews().length, 1);
-  assert.ok((await record(x.f, x.a)).copilotReviews!.batch);
+  assert.ok((await record(x.f, x.a)).copilotReviews![0]!.batch);
 });
 
 test('review turns compact before native input and retain the feedback packet across replacement', async (t) => {
@@ -524,7 +528,7 @@ test('waiting peer answers run before a pending Copilot review', async (t) => {
   const state = await record(x.f, x.a);
   const asked = await callControl(await b.binding(), {
     kind: 'ask',
-    claim: state.copilotReviews!.claim!,
+    claim: state.copilotReviews![0]!.claim!,
     message: 'What did this task find?',
   });
   assert.equal(asked.kind, 'peer-request');
@@ -579,7 +583,7 @@ test('a final ownership check that proves input unsent leaves feedback pending f
   });
   await x.observe();
   await until('proven unsent review settlement', async () => {
-    const state = (await record(x.f, x.a)).copilotReviews!;
+    const state = (await record(x.f, x.a)).copilotReviews![0]!;
     return (
       withdrawn &&
       x.c.snapshot.phase === 'idle' &&
@@ -638,7 +642,7 @@ test('an uncertain batch with new feedback does not cause admission reads before
     'uncertain review settlement',
     async () =>
       !x.c.snapshot.reviewing &&
-      (await record(x.f, x.a)).copilotReviews!.items.every(
+      (await record(x.f, x.a)).copilotReviews![0]!.items.every(
         ({ status }) => status === 'blocked',
       ),
   );
@@ -650,7 +654,7 @@ test('an uncertain batch with new feedback does not cause admission reads before
   assert.equal(vi.mocked(github.readGitHubReviews).mock.calls.length, 0);
   assert.equal(x.reviews().length, 1);
   assert.equal(
-    (await record(x.f, x.a)).copilotReviews!.items.find(
+    (await record(x.f, x.a)).copilotReviews![0]!.items.find(
       ({ id }) => id === 'thread-2',
     )!.status,
     'pending',
@@ -663,7 +667,7 @@ test('an unrelated user prompt does not retry dispositions explicitly blocked fo
   const send = session.send;
   vi.spyOn(session, 'send').mockImplementation(async (...args) => {
     if (args[3] === 'witch') {
-      const batch = (await record(x.f, x.a)).copilotReviews!.batch!;
+      const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
       await writeFile(
         batch.result,
         JSON.stringify({
@@ -683,7 +687,7 @@ test('an unrelated user prompt does not retry dispositions explicitly blocked fo
     'blocked dispositions',
     async () =>
       !x.c.snapshot.reviewing &&
-      (await record(x.f, x.a)).copilotReviews!.items.every(
+      (await record(x.f, x.a)).copilotReviews![0]!.items.every(
         ({ status }) => status === 'blocked',
       ),
   );
@@ -691,7 +695,7 @@ test('an unrelated user prompt does not retry dispositions explicitly blocked fo
   await x.observe();
   assert.equal(x.c.copilot.ready(), false);
   assert.equal(x.reviews().length, 1);
-  const state = (await record(x.f, x.a)).copilotReviews!;
+  const state = (await record(x.f, x.a)).copilotReviews![0]!;
   assert.equal(state.batch, undefined);
   assert.ok(
     state.items.every(
@@ -709,7 +713,7 @@ test('a missing result after restart stays blocked until a user prompt reconcile
   await x.observe();
   await within(gate.entered, 5000, 'review dispatch');
   const id = x.c.snapshot.conversation!.id;
-  const oldBatch = (await record(x.f, x.a)).copilotReviews!.batch!;
+  const oldBatch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
   await unlink(oldBatch.result);
   const replies = structuredClone(x.source.threads[0]!.comments);
   await x.c.close({ restart: true });
@@ -717,7 +721,7 @@ test('a missing result after restart stays blocked until a user prompt reconcile
   reopened.coordination.updateRepository(x.repository);
   reopened.coordinator.copilot.updateRepository(x.repository);
   await reopened.coordinator.copilot.observe(structuredClone(x.source));
-  const blocked = (await record(x.f, reopened)).copilotReviews!;
+  const blocked = (await record(x.f, reopened)).copilotReviews![0]!;
   assert.equal(blocked.batch!.id, oldBatch.id);
   assert.ok(blocked.items.every(({ status }) => status === 'blocked'));
   assert.equal(reopened.a.inputs.length, 0);
@@ -727,7 +731,7 @@ test('a missing result after restart stays blocked until a user prompt reconcile
     'reconciled existing replies',
     async () =>
       !reopened.coordinator.snapshot.reviewing &&
-      (await record(x.f, reopened)).copilotReviews!.items.every(
+      (await record(x.f, reopened)).copilotReviews![0]!.items.every(
         ({ status }) => status === 'handled',
       ),
   );
@@ -736,5 +740,193 @@ test('a missing result after restart stays blocked until a user prompt reconcile
     1,
   );
   assert.deepEqual(x.source.threads[0]!.comments, replies);
-  assert.equal((await record(x.f, reopened)).copilotReviews!.batch, undefined);
+  assert.equal(
+    (await record(x.f, reopened)).copilotReviews![0]!.batch,
+    undefined,
+  );
+});
+
+for (const change of ['edit', 'addition']) {
+  test(`a ${change} observed during ownership validation cannot enter an older feedback packet`, async (t) => {
+    const x = await setup(t);
+    const settled = Promise.withResolvers<boolean>();
+    const run = x.c.copilot.run.bind(x.c.copilot);
+    vi.spyOn(x.c.copilot, 'run').mockImplementationOnce(async () => {
+      const result = await run();
+      settled.resolve(result);
+      return result;
+    });
+    const owns = x.a.coordination.reviews.owns.bind(x.a.coordination.reviews);
+    vi.spyOn(x.a.coordination.reviews, 'owns').mockImplementationOnce(
+      async (...args) => {
+        const owned = await owns(...args);
+        if (change === 'edit')
+          x.source.reviews[0]!.body = 'The corrected overview.';
+        else
+          x.source.reviews.push({
+            ...x.source.reviews[0]!,
+            id: 'review-2',
+            url: `${x.source.pullRequest.url}#pullrequestreview-2`,
+            body: 'Another overview with no inline findings.',
+          });
+        await x.observe();
+        return owned;
+      },
+    );
+    await x.observe();
+    assert.equal(
+      await within(settled.promise, 5000, 'stale admission refusal'),
+      false,
+    );
+    await until(
+      'admission returned to idle',
+      () => x.c.snapshot.phase === 'idle',
+    );
+    assert.equal(x.reviews().length, 0);
+    assert.ok(
+      (await record(x.f, x.a)).copilotReviews![0]!.items.every(
+        ({ status }) => status === 'pending',
+      ),
+    );
+    let admitted: ReviewBatch | undefined;
+    autoReply(x.f, x.a, x.source, () => {
+      admitted = x.c.copilot.context()!.batch;
+      return true;
+    });
+    await x.observe();
+    await x.handled();
+    const packet = JSON.parse(await readFile(admitted!.packet, 'utf8')) as {
+      source: GitHubReviews;
+      batch: ReviewBatch;
+    };
+    if (change === 'edit')
+      assert.equal(packet.source.reviews[0]!.body, 'The corrected overview.');
+    else {
+      assert.equal(packet.source.reviews[1]!.id, 'review-2');
+      assert.ok(packet.batch.items.some(({ id }) => id === 'review-2'));
+    }
+    assert.equal(x.reviews().length, 1);
+  });
+}
+
+for (const outcome of ['handled', 'uncertain']) {
+  test(`switching PRs and reopening preserves ${outcome} feedback without replaying it`, async (t) => {
+    const x = await setup(t);
+    if (outcome === 'handled') autoReply(x.f, x.a, x.source);
+    await x.observe();
+    await until(
+      'first PR disposition',
+      async () =>
+        !x.c.snapshot.reviewing &&
+        (await record(x.f, x.a)).copilotReviews![0]!.items.every(
+          ({ status }) =>
+            status === (outcome === 'handled' ? 'handled' : 'blocked'),
+        ),
+    );
+    const original = (await record(x.f, x.a)).copilotReviews![0]!;
+    const hold = x.c.holdPromptDelivery();
+    const other = reviewSource();
+    other.pullRequest = {
+      ...other.pullRequest,
+      number: 13,
+      url: 'https://github.com/team/project/pull/13',
+      branch: 'feat/another-review',
+    };
+    other.reviews = [];
+    other.threads = [];
+    await git(
+      '-C',
+      x.cwd,
+      'symbolic-ref',
+      'HEAD',
+      'refs/heads/feat/another-review',
+    );
+    const repository = {
+      ...x.repository,
+      branch: other.pullRequest.branch,
+      pullRequest: other.pullRequest,
+    };
+    x.a.coordination.updateRepository(repository);
+    x.c.copilot.updateRepository(repository);
+    await x.c.copilot.observe(other);
+    hold();
+    await x.c.send('work on this second PR');
+    await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
+    x.a.coordination.updateRepository(x.repository);
+    x.c.copilot.updateRepository(x.repository);
+    await x.observe();
+    assert.equal(x.c.copilot.ready(), false);
+    assert.equal(x.reviews().length, 1);
+    const restored = (await record(x.f, x.a)).copilotReviews!.find(
+      ({ pullRequest }) => pullRequest.url === x.source.pullRequest.url,
+    )!;
+    assert.deepEqual(restored.items, original.items);
+    assert.equal(
+      x.c.copilot.context()!.pullRequest.url,
+      x.source.pullRequest.url,
+    );
+    assert.equal(x.c.copilot.context()!.batch?.id, original.batch?.id);
+    const id = x.c.snapshot.conversation!.id;
+    await x.c.close({ restart: true });
+    const reopened = await x.f.start('A', { conversation: id });
+    reopened.coordination.updateRepository(x.repository);
+    reopened.coordinator.copilot.updateRepository(x.repository);
+    await reopened.coordinator.copilot.observe(structuredClone(x.source));
+    const history = (await record(x.f, reopened)).copilotReviews!;
+    assert.deepEqual(
+      history.map(({ pullRequest }) => pullRequest.url),
+      [x.source.pullRequest.url, other.pullRequest.url],
+    );
+    assert.deepEqual(history[0]!.items, original.items);
+    assert.equal(history[0]!.batch?.id, original.batch?.id);
+    assert.equal(reopened.a.inputs.length, 0);
+  });
+}
+
+test('absent feedback retains pending history without entering a packet until it returns', async (t) => {
+  const x = await setup(t);
+  const hold = x.c.holdPromptDelivery();
+  await x.observe();
+  const body = x.source.reviews[0]!.body;
+  x.source.reviews[0]!.body = '';
+  await x.observe();
+  let admitted: ReviewBatch | undefined;
+  autoReply(x.f, x.a, x.source, () => {
+    admitted = x.c.copilot.context()!.batch;
+    return true;
+  });
+  hold();
+  await until(
+    'visible thread handled',
+    async () =>
+      !x.c.snapshot.reviewing &&
+      (await record(x.f, x.a)).copilotReviews![0]!.items.find(
+        ({ id }) => id === 'thread-1',
+      )!.status === 'handled',
+  );
+  assert.deepEqual(
+    admitted!.items.map(({ id }) => id),
+    ['thread-1'],
+  );
+  assert.equal(x.reviews().length, 1);
+  assert.equal(x.c.copilot.ready(), false);
+  const absent = x.c.copilot
+    .context()!
+    .items.find(({ id }) => id === 'review-1')!;
+  assert.equal(absent.present, false);
+  assert.equal(absent.status, 'pending');
+  x.source.reviews[0]!.body = body;
+  await x.observe();
+  await x.handled();
+  assert.equal(x.reviews().length, 2);
+  assert.deepEqual(
+    admitted!.items.map(({ id }) => id),
+    ['review-1'],
+  );
+  assert.equal(
+    x.source.threads[0]!.comments.filter(
+      ({ author }) => author?.login === 'owner',
+    ).length,
+    1,
+  );
 });

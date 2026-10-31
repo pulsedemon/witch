@@ -36,7 +36,7 @@ export class CopilotReviewController {
   private updating: Promise<unknown> = Promise.resolve();
   private executing?: ReviewBatch;
   private revoked?: string;
-  private retry = false;
+  private retry?: string;
   private unmatched?: string;
   private noticeState?: string;
   private abort = new AbortController();
@@ -52,7 +52,7 @@ export class CopilotReviewController {
     this.abort = new AbortController();
     this.source = undefined;
     this.sourceOwner = undefined;
-    this.retry = false;
+    this.retry = undefined;
     this.unmatched = undefined;
     this.noticeState = undefined;
     this.revoked = undefined;
@@ -95,7 +95,7 @@ export class CopilotReviewController {
   }
 
   resume(): void {
-    this.retry = true;
+    this.retry = this.repository?.pullRequest?.url;
   }
 
   close(): void {
@@ -115,6 +115,27 @@ export class CopilotReviewController {
       this.repository?.branch === source.pullRequest.branch &&
       this.repository.pullRequest?.url === source.pullRequest.url
     );
+  }
+
+  private state(
+    record: ConversationRecord,
+    url = this.repository?.pullRequest?.url,
+  ) {
+    return record.copilotReviews?.find(
+      ({ pullRequest }) => pullRequest.url === url,
+    );
+  }
+
+  private setState(
+    record: ConversationRecord,
+    state: CopilotReviewState,
+  ): void {
+    const history = (record.copilotReviews ??= []);
+    const index = history.findIndex(
+      ({ pullRequest }) => pullRequest.url === state.pullRequest.url,
+    );
+    if (index < 0) history.push(state);
+    else history[index] = state;
   }
 
   private async recover(
@@ -148,8 +169,9 @@ export class CopilotReviewController {
       if (!record || !this.matches(record, source) || !this.host.coordination())
         return false;
       if (source.pullRequest.state !== 'OPEN') {
-        if (record.copilotReviews?.pullRequest.url === source.pullRequest.url) {
-          record.copilotReviews.pullRequest = source.pullRequest;
+        const state = this.state(record, source.pullRequest.url);
+        if (state) {
+          state.pullRequest = source.pullRequest;
           await this.host.save();
           if (this.executing) {
             this.revoked = this.executing.id;
@@ -174,23 +196,29 @@ export class CopilotReviewController {
       }
       this.unmatched = undefined;
       if (bound.warning) this.host.notice(bound.warning);
-      let state = observeReviews(record.copilotReviews, source);
+      let state = observeReviews(
+        this.state(record, source.pullRequest.url),
+        source,
+      );
       state.claim = bound.claim.id;
       state = await this.recover(state, source, record.cwd);
       if (!this.matches(record, source)) return false;
-      record.copilotReviews = state;
+      this.setState(record, state);
       this.source = source;
       this.sourceOwner = record.id;
       await this.host.save();
       this.show(record);
       this.host.changed();
-      return state.items.some(({ status }) => status !== 'handled');
+      return state.items.some(
+        ({ present, status }) => present && status !== 'handled',
+      );
     });
   }
 
   context(): CopilotReviewState | undefined {
     if (this.abort.signal.aborted) return;
-    const state = this.host.record()?.copilotReviews;
+    const record = this.host.record();
+    const state = record && this.state(record);
     const coordination = this.host.coordination();
     const claim = coordination?.snapshot.ownClaim;
     return state &&
@@ -205,16 +233,25 @@ export class CopilotReviewController {
   ready(): boolean {
     const record = this.host.record();
     const state = this.context();
+    const retry = this.retry === state?.pullRequest.url;
     return (
       !this.executing &&
       this.sourceOwner === record?.id &&
       !!state &&
       state.pullRequest.state === 'OPEN' &&
+      this.source?.pullRequest.url === state.pullRequest.url &&
       !!state.claim &&
       this.host.coordination()?.snapshot.ownClaim?.id === state.claim &&
-      (!state.batch || this.retry) &&
-      (state.items.some(({ status }) => status === 'pending') ||
-        (this.retry && !!state.batch))
+      (!state.batch || retry) &&
+      state.items.some(
+        (item) =>
+          item.present &&
+          (item.status === 'pending' ||
+            (retry &&
+              state.batch?.items.some(
+                ({ id, version }) => item.id === id && item.version === version,
+              ))),
+      )
     );
   }
 
@@ -255,18 +292,25 @@ export class CopilotReviewController {
         return false;
       if (
         !(await coordination.reviews.owns(
-          record.copilotReviews!.claim!,
+          this.state(record, fresh.pullRequest.url)!.claim!,
           fresh.pullRequest,
         ))
       )
         return false;
       batch = await this.serial(async () => {
-        if (!this.matches(record, fresh) || !this.host.ready()) return;
-        const state = record.copilotReviews!;
-        if (this.retry) this.resetBatch(state);
-        this.retry = false;
+        if (
+          this.source !== fresh ||
+          !this.matches(record, fresh) ||
+          !this.host.ready()
+        )
+          return;
+        const state = this.state(record, fresh.pullRequest.url)!;
+        if (this.retry === state.pullRequest.url) this.resetBatch(state);
+        this.retry = undefined;
         if (state.batch) return;
-        const items = state.items.filter(({ status }) => status === 'pending');
+        const items = state.items.filter(
+          ({ present, status }) => present && status === 'pending',
+        );
         if (!items.length) return;
         const id = randomUUID();
         const admitted: ReviewBatch = {
@@ -293,7 +337,7 @@ export class CopilotReviewController {
       if (!this.matches(record, fresh) || !this.host.ready()) {
         await this.serial(async () => {
           if (this.host.record() !== record) return;
-          this.resetBatch(record.copilotReviews!);
+          this.resetBatch(this.state(record, batch!.pullRequest.url)!);
           await this.host.save();
         });
         return false;
@@ -305,7 +349,7 @@ export class CopilotReviewController {
       if (result?.inputUnsent) {
         await this.serial(async () => {
           if (this.host.record() !== record) return;
-          this.resetBatch(record.copilotReviews!);
+          this.resetBatch(this.state(record, batch!.pullRequest.url)!);
           await this.host.save();
           this.show(record);
         });
@@ -317,12 +361,11 @@ export class CopilotReviewController {
         this.abort.signal,
       );
       await this.serial(async () => {
-        if (
-          this.host.record() !== record ||
-          record.copilotReviews?.pullRequest.url !== after.pullRequest.url
-        )
-          return;
-        let state = observeReviews(record.copilotReviews, after);
+        if (this.host.record() !== record) return;
+        let state = observeReviews(
+          this.state(record, after.pullRequest.url),
+          after,
+        );
         state = await this.recover(state, after, record.cwd);
         if (result?.status !== 'completed' && state.batch)
           state = blockReviewBatch(
@@ -331,8 +374,8 @@ export class CopilotReviewController {
               'Review handling was interrupted; its result must be reconciled before retrying.',
           );
         if (this.host.record() !== record) return;
-        record.copilotReviews = state;
-        this.source = after;
+        this.setState(record, state);
+        if (this.matches(record, after)) this.source = after;
         await this.host.save();
         this.show(record);
       });
@@ -341,11 +384,9 @@ export class CopilotReviewController {
       if (this.host.record() === record) {
         await this.serial(async () => {
           if (this.host.record() !== record) return;
-          if (batch && record.copilotReviews)
-            record.copilotReviews = blockReviewBatch(
-              record.copilotReviews,
-              errorMessage(error),
-            );
+          const state = batch && this.state(record, batch.pullRequest.url);
+          if (state)
+            this.setState(record, blockReviewBatch(state, errorMessage(error)));
           await this.host.save();
           this.host.notice(
             `Copilot review handling could not continue: ${errorMessage(error)}`,
@@ -359,13 +400,12 @@ export class CopilotReviewController {
   }
 
   private show(record: ConversationRecord): void {
-    const state = record.copilotReviews;
+    const state = this.state(record);
     if (!state) return;
-    const handled = state.items.filter(
-      ({ status }) => status === 'handled',
-    ).length;
-    const blocked = state.items.filter(({ status }) => status === 'blocked');
-    const pending = state.items.length - handled - blocked.length;
+    const items = state.items.filter(({ present }) => present);
+    const handled = items.filter(({ status }) => status === 'handled').length;
+    const blocked = items.filter(({ status }) => status === 'blocked');
+    const pending = items.length - handled - blocked.length;
     const signature = JSON.stringify([
       record.id,
       state.pullRequest.url,

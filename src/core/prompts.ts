@@ -169,7 +169,7 @@ export async function nativePrompt({
     ...(usage ? [usage] : []),
     ...(reviewWatch && !requests
       ? [
-          `Copilot review watch: ${reviewWatch.pullRequest.url}, ${reviewWatch.items.filter(({ status }) => status === 'handled').length} handled, ${reviewWatch.items.filter(({ status }) => status !== 'handled').length} outstanding. Keep this task claimed while its open pull request remains watched; verify feedback against current code and existing replies.`,
+          `Copilot review watch: ${reviewWatch.pullRequest.url}, ${reviewWatch.items.filter(({ present, status }) => present && status === 'handled').length} handled, ${reviewWatch.items.filter(({ present, status }) => present && status !== 'handled').length} outstanding. Keep this task claimed while its open pull request remains watched; verify feedback against current code and existing replies.`,
         ]
       : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),

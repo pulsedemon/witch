@@ -53,6 +53,7 @@ export const copilotReviewStateSchema = z.object({
   claim: z.string().uuid().optional(),
   items: z.array(
     feedbackSchema.extend({
+      present: z.boolean().default(true),
       status: z.enum(['pending', 'attempted', 'handled', 'blocked']),
       reason: z.string().optional(),
       receipts: z.array(disposition),
@@ -118,33 +119,40 @@ function feedback(source: GitHubReviews): Feedback[] {
 }
 
 export function observeReviews(
-  previous: CopilotReviewState | undefined,
+  state: CopilotReviewState | undefined,
   source: GitHubReviews,
 ): CopilotReviewState {
-  const state =
-    previous?.pullRequest.url === source.pullRequest.url ? previous : undefined;
+  const current = feedback(source);
+  const present = new Set(current.map(({ id }) => id));
   return {
     ...state,
     pullRequest: source.pullRequest,
-    items: feedback(source).map((item) => {
-      const old = state?.items.find(({ id }) => id === item.id);
-      if (old?.version === item.version) return { ...old, ...item };
-      const receipt = old?.receipts.find(
-        ({ version }) => version === item.version,
-      );
-      return {
-        ...item,
-        status: !receipt
-          ? 'pending'
-          : receipt.disposition === 'blocked'
-            ? 'blocked'
-            : 'handled',
-        ...(receipt?.disposition === 'blocked'
-          ? { reason: receipt.reason }
-          : {}),
-        receipts: old?.receipts ?? [],
-      };
-    }),
+    items: [
+      ...current.map((item): CopilotReviewState['items'][number] => {
+        const old = state?.items.find(({ id }) => id === item.id);
+        if (old?.version === item.version)
+          return { ...old, ...item, present: true };
+        const receipt = old?.receipts.find(
+          ({ version }) => version === item.version,
+        );
+        return {
+          ...item,
+          present: true,
+          status: !receipt
+            ? 'pending'
+            : receipt.disposition === 'blocked'
+              ? 'blocked'
+              : 'handled',
+          ...(receipt?.disposition === 'blocked'
+            ? { reason: receipt.reason }
+            : {}),
+          receipts: old?.receipts ?? [],
+        };
+      }),
+      ...(state?.items ?? [])
+        .filter(({ id }) => !present.has(id))
+        .map((item) => ({ ...item, present: false })),
+    ],
   };
 }
 
@@ -187,7 +195,9 @@ export async function reconcileReviews(
     else if (entry.disposition === 'covered') {
       const threads = state.items.filter(
         (candidate) =>
-          candidate.kind === 'thread' && candidate.reviews.includes(item.id),
+          candidate.kind === 'thread' &&
+          (candidate.present || admitted.has(candidate.id)) &&
+          candidate.reviews.includes(item.id),
       );
       const verified = (thread: CopilotReviewState['items'][number]) => {
         const expected = admitted.get(thread.id);

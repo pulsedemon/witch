@@ -58,7 +58,12 @@ export function agentWorking(phase: Phase): boolean {
 }
 
 export const conversationRecordSchema = conversationSchema.extend({
-  copilotReviews: copilotReviewStateSchema.optional(),
+  copilotReviews: z
+    .union([
+      z.array(copilotReviewStateSchema),
+      copilotReviewStateSchema.transform((state) => [state]),
+    ])
+    .optional(),
   lastTurn: z
     .object({
       id: z.string(),

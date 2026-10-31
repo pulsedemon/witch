@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'vitest';
 import {
   blockReviewBatch,
@@ -305,7 +307,7 @@ test('an interrupted batch retains its identity and does not consume later feedb
   );
 });
 
-test('reopen and context clear retain receipts while older records still parse', async (t) => {
+test('reopen and context clear retain receipts from legacy single-PR records', async (t) => {
   const root = await scratch('witch-review-record-');
   const store = await StateStore.open(root);
   const f = fixture();
@@ -320,21 +322,33 @@ test('reopen and context clear retain receipts while older records still parse',
   assert.equal(record.copilotReviews, undefined);
   const files = await store.create(record);
   t.onTestFinished(() => files.close());
-  record.copilotReviews = await reconcileReviews(
-    f.state,
-    f.batch,
-    f.result,
-    f.source,
-    async () => true,
-  );
+  record.copilotReviews = [
+    await reconcileReviews(
+      f.state,
+      f.batch,
+      f.result,
+      f.source,
+      async () => true,
+    ),
+  ];
   clearConversationContext(record);
   await files.save(record);
   await files.close();
+  await writeFile(
+    join(root, 'conversations', record.id, 'state.json'),
+    JSON.stringify(
+      { ...record, copilotReviews: record.copilotReviews![0] },
+      (key, value: unknown) => (key === 'present' ? undefined : value),
+    ),
+  );
   const reopened = await store.claim(record.id);
   t.onTestFinished(() => reopened.close());
   assert.deepEqual(
-    reopened.record.copilotReviews!.items.map(({ status }) => status),
+    reopened.record.copilotReviews![0]!.items.map(({ status }) => status),
     ['handled', 'handled'],
+  );
+  assert.ok(
+    reopened.record.copilotReviews![0]!.items.every(({ present }) => present),
   );
   assert.equal(reopened.record.sessions.codex!.hasHistory, false);
 });
@@ -356,4 +370,59 @@ test('the result schema and instruction keep source bodies out of native input',
   assert.ok(prompt.includes(f.batch.result));
   assert.ok(!prompt.includes(f.source.reviews[0]!.body));
   assert.ok(!prompt.includes(f.source.threads[0]!.comments[0]!.body));
+});
+
+for (const disposition of ['handled', 'blocked']) {
+  test(`temporarily absent review bodies preserve their ${disposition} receipts`, async () => {
+    const f = fixture();
+    const result =
+      disposition === 'handled'
+        ? f.result
+        : {
+            batch: f.batch.id,
+            items: f.batch.items.map((item) => ({
+              ...item,
+              disposition: 'blocked' as const,
+              reason: 'Needs authorization.',
+            })),
+          };
+    const settled = await reconcileReviews(
+      f.state,
+      f.batch,
+      result,
+      f.source,
+      async () => true,
+    );
+    const before = settled.items.find(({ id }) => id === 'review-1')!;
+    const body = f.source.reviews[0]!.body;
+    f.source.reviews[0]!.body = '';
+    const absent = observeReviews(settled, f.source);
+    assert.equal(
+      absent.items.find(({ id }) => id === 'review-1')!.present,
+      false,
+    );
+    f.source.reviews[0]!.body = body;
+    const restored = observeReviews(absent, f.source).items.find(
+      ({ id }) => id === 'review-1',
+    )!;
+    assert.deepEqual(restored, before);
+  });
+}
+
+test('an omitted thread retains its attempted version and batch for reconciliation', () => {
+  const f = fixture();
+  const threads = f.source.threads;
+  f.source.threads = [];
+  const absent = observeReviews(f.state, f.source);
+  const item = absent.items.find(({ id }) => id === 'thread-1')!;
+  assert.equal(item.present, false);
+  assert.equal(item.status, 'attempted');
+  assert.equal(absent.batch!.id, f.batch.id);
+  f.source.threads = threads;
+  const restored = observeReviews(absent, f.source);
+  assert.deepEqual(
+    restored.items.find(({ id }) => id === 'thread-1'),
+    f.state.items.find(({ id }) => id === 'thread-1'),
+  );
+  assert.equal(restored.batch!.id, f.batch.id);
 });
