@@ -111,6 +111,8 @@ export class Reviewers {
     for (const { name } of reviewers) this.expected.set(name, {});
     const groups: number[] = [];
     const diagnostics = reviewers.map(() => '');
+    // kept apart from stderr, which can still arrive after the exit
+    const killed: (NodeJS.Signals | null)[] = reviewers.map(() => null);
     const exits = reviewers.map(
       ({ command }, index) =>
         new Promise<number | null>((resolve) => {
@@ -128,7 +130,10 @@ export class Reviewers {
             diagnostics[index] = error.message;
             resolve(null);
           });
-          child.once('exit', (code) => resolve(code));
+          child.once('exit', (code, ended) => {
+            killed[index] = ended;
+            resolve(code);
+          });
         }),
     );
     let stopping: Promise<void> | undefined;
@@ -168,14 +173,20 @@ export class Reviewers {
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
           const run = finish(name);
+          let unread: string | undefined;
           const report = await readFile(reportFile, 'utf8').catch(
             (error: unknown) => {
-              diagnostics[index] =
-                `${diagnostics[index]!.trim()}\n${errorMessage(error)}`;
+              unread = errorMessage(error);
               return '';
             },
           );
-          const diagnosis = diagnostics[index]!.trim();
+          const diagnosis = [
+            diagnostics[index]!.trim(),
+            killed[index] && `killed by ${killed[index]}`,
+            unread,
+          ]
+            .filter(Boolean)
+            .join('\n');
           return {
             code: codes[index]!,
             ...(diagnosis ? { diagnostics: diagnosis } : {}),
