@@ -13,14 +13,13 @@ const execute = promisify(execFile);
 async function check(
   files: Record<string, string>,
   target = 'plan.md',
-  blob?: Parameters<typeof checkTargets>[2],
 ): Promise<string[]> {
   const root = await scratch('witch-review-checks-');
   for (const [path, content] of Object.entries(files)) {
     await mkdir(join(root, path, '..'), { recursive: true });
     await writeFile(join(root, path), content);
   }
-  return (await checkTargets(root, [target], blob)).map(
+  return (await checkTargets(root, [target])).map(
     ({ line, message }) => `${line}: ${message}`,
   );
 }
