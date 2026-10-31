@@ -5,6 +5,7 @@ import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
+import type { FamiliarAction } from '../src/agents/familiar-report.js';
 import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
 import { reviewerCommand } from '../src/core/review.js';
 import { Reviewers } from '../src/core/reviewers.js';
@@ -126,22 +127,28 @@ test('a Witch-launched reviewer registers, reports and exits', async (t) => {
 });
 
 test('an unexpected name falls through to the live session', async (t) => {
-  const { coordination } = await setup(t.onTestFinished);
+  const { coordination, a } = await setup(t.onTestFinished);
+  const forwarded: [FamiliarAction, number][] = [];
+  a.sessions.at(-1)!.session.familiar = {
+    report: async (action, deadline) => {
+      forwarded.push([action, deadline]);
+      return { kind: 'familiar-registered' };
+    },
+  };
+  const action: FamiliarAction = {
+    kind: 'familiar-register',
+    run: randomUUID(),
+    name: 'not-a-reviewer',
+    runtime: 'claude',
+  };
+  const deadline = Date.now() + 5000;
   const outcome = await callControl(
     coordination.familiarBinding(),
-    {
-      kind: 'familiar-register',
-      run: randomUUID(),
-      name: 'not-a-reviewer',
-      runtime: 'claude',
-    },
-    Date.now() + 5000,
+    action,
+    deadline,
   );
-  assert.deepEqual(outcome.kind, 'error');
-  assert.match(
-    (outcome as { message: string }).message,
-    /cannot report delegated familiars/,
-  );
+  assert.equal(outcome.kind, 'familiar-registered');
+  assert.deepEqual(forwarded, [[action, deadline]]);
 });
 
 test('a familiar request fails the reviewer', async (t) => {
