@@ -30,6 +30,7 @@ import type {
   SelectionScope,
   TransferTarget,
 } from './coordination-state.js';
+import type { Reviewers } from './reviewers.js';
 import type { Snapshot } from './snapshot.js';
 import {
   answerInstructions,
@@ -117,6 +118,7 @@ export class SessionCoordination {
   private live?: () => AgentSession | undefined;
   /** answers `--route` outside the serialized claim queue, so background claim work doesn't delay it. */
   router?: (action: RouteAction) => Promise<ControlOutcome>;
+  ownFamiliars?: Reviewers['report'];
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;
   private pending?: SessionPresence;
@@ -231,11 +233,11 @@ export class SessionCoordination {
           const { action } = request;
           if (!isFamiliarAction(action))
             throw new Error('Use the task control mailbox for this action.');
+          const owned = coordination.ownFamiliars?.(action);
+          if (owned) return owned;
           const familiar = coordination.live?.()?.familiar;
           if (!familiar)
-            throw new Error(
-              'The active runtime cannot report delegated familiars.',
-            );
+            throw new Error('This runtime cannot report delegated familiars.');
           return familiar.report(action, request.deadline);
         },
         (error) => coordination.fail('control', error),

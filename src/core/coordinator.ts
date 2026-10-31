@@ -49,6 +49,7 @@ import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
+import { Reviewers } from './reviewers.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { ModelSelection } from './models.js';
@@ -130,6 +131,8 @@ export class Coordinator {
   private admissions = 0;
   /** a stop holds answer turns until the user's next send or another conversation. */
   private answersHeld = false;
+  /** the familiars Witch launches itself, which the familiar mailbox consults before the live session. */
+  readonly reviewers = new Reviewers((event) => this.background(event));
   private readonly compaction = new Compaction({
     state: () => ({
       conversation: this.record?.id,
@@ -1277,12 +1280,14 @@ export class Coordinator {
     const conversationId = this.record?.id;
     const session = this.session;
     this.session = undefined;
-    for (const event of stoppedActivity(this.snapshot)) this.background(event);
+    const owned = (id: string) => this.reviewers.owns(id);
+    for (const event of stoppedActivity(this.snapshot, owned))
+      this.background(event);
     this.publish({
       native: undefined,
       usage: {},
       skills: [],
-      subagents: [],
+      subagents: this.snapshot.subagents.filter(({ id }) => owned(id)),
       requests: keepQuestions
         ? this.snapshot.requests.filter((request) => request.replyAsPrompt)
         : [],
@@ -1322,7 +1327,9 @@ export class Coordinator {
       if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
     } else if (event.type === 'closed') {
-      for (const event of stoppedActivity(this.snapshot))
+      for (const event of stoppedActivity(this.snapshot, (id) =>
+        this.reviewers.owns(id),
+      ))
         this.background(event);
       this.publish({
         native: undefined,
