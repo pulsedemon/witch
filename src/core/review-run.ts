@@ -77,7 +77,10 @@ export async function runReview(
     const inside = relative(cwd, path);
     const exists = await stat(path).then(
       (entry) => entry.isFile(),
-      () => false,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false;
+        throw error;
+      },
     );
     if (!inside || inside.startsWith('..') || isAbsolute(inside) || !exists) {
       host.notice(`Review refused: ${file} is not a file in ${cwd}`);

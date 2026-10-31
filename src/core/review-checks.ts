@@ -600,8 +600,11 @@ async function readText(path: string): Promise<string | undefined> {
 }
 
 async function isDirectory(path: string): Promise<boolean> {
-  return stat(path).then(
-    (entry) => entry.isDirectory(),
-    () => false,
-  );
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+    throw error;
+  }
 }
