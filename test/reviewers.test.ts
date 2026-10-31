@@ -319,7 +319,7 @@ test('abort stops every reviewer', async (t) => {
   );
 });
 
-test('abort respects the stop deadline', async (t) => {
+test('abort stops a native reviewer that ignores SIGTERM', async (t) => {
   const { coordinator, root, reviewer } = await setup(t.onTestFinished);
   const stubborn = await reviewer(
     'review-a1-1-claude-0',
