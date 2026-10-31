@@ -707,9 +707,17 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
 test('control requests stay scoped while an automatic answer is in flight', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const other = await claimed(a, 'a-work');
+  b.a.peerReply = (requests) =>
+    JSON.stringify({
+      answers: requests.map(({ id, message }) => ({
+        id,
+        message: `Automatic: ${message}`,
+      })),
+    });
   const gate = new TurnGate();
   b.a.gate = gate;
   const request = await ask(a, claim, 'Hold on?');
+  const second = await ask(a, claim, 'Second question');
   await refreshed(b);
   await gate.entered;
   assert.equal(b.coordinator.snapshot.answering, true);
@@ -739,6 +747,12 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
   gate.open();
   await until('owner settled', () => settled(b));
   assert.equal((await stored(f, request)).answer?.message, 'Mid-turn');
+  assert.equal(
+    (await stored(f, second)).answer?.message,
+    'Automatic: Second question',
+  );
+  await refreshed(b);
+  assert.equal(answerTurns(b).length, 1);
   assert.equal((await b.query()).ownClaim?.id, claim.id);
 });
 

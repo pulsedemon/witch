@@ -372,6 +372,7 @@ export class CoordinationStore {
     conversation: string,
     answers: readonly PeerAnswer[],
     deadline: number,
+    preserveAnswered = false,
   ): Promise<PeerRequest[]> {
     const lock = await this.lock(deadline);
     try {
@@ -384,8 +385,10 @@ export class CoordinationStore {
           throw new Error(
             `Peer request ${id} is not addressed to this conversation.`,
           );
-        if (request.answer)
+        if (request.answer) {
+          if (preserveAnswered && !updates.has(index)) continue;
           throw new Error(`Peer request ${id} already has an answer.`);
+        }
         const answer = peerRequestSchema.parse({
           ...request,
           answer: { message, answeredAt: new Date().toISOString() },

@@ -474,6 +474,7 @@ export class SessionCoordination {
         active.conversation.id,
         answers,
         Date.now() + 1000,
+        true,
       );
       await this.refreshEvents();
     });
