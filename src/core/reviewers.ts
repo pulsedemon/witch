@@ -26,7 +26,7 @@ export interface Reviewer {
 export interface ReviewerResult {
   /** the command's exit code; null when it was signalled or never ran. */
   code: number | null;
-  /** the end of the command's stderr, why it couldn't start, and why its report couldn't be read. */
+  /** the end of the command's stderr, why it couldn't start, the signal that killed it, and why its report couldn't be read. */
   diagnostics?: string;
   /** the familiar's last status, absent when it never registered. */
   status?: TaskStatus;
@@ -122,8 +122,8 @@ export class Reviewers {
             stdio: ['ignore', 'ignore', 'pipe'],
           });
           if (child.pid) groups.push(child.pid);
-          child.stderr?.setEncoding('utf8');
-          child.stderr?.on('data', (chunk: string) => {
+          child.stderr.setEncoding('utf8');
+          child.stderr.on('data', (chunk: string) => {
             diagnostics[index] = (diagnostics[index] + chunk).slice(-2000);
           });
           child.once('error', (error) => {
