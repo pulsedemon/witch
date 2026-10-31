@@ -316,3 +316,73 @@ test('Claude owner shutdown still closes its native process after answer cleanup
     f.children[0]!.kill();
   }
 });
+
+for (const runtime of ['codex', 'claude'] as const) {
+  for (const phase of ['closing', 'closed']) {
+    test(`${runtime} rejects automatic answers through a ${phase} owner without spawning`, async () => {
+      const processes: (number | undefined)[] = [];
+      const onAnswerProcess = async (pid: number | undefined) => {
+        processes.push(pid);
+      };
+      const f =
+        runtime === 'codex'
+          ? await codex(undefined, { onAnswerProcess })
+          : await claude();
+      const session =
+        'session' in f ? f.session : await f.connect({ onAnswerProcess });
+      const closing = session.close();
+      if (phase === 'closed') await closing;
+      const rejected = assert.rejects(
+        session.send(
+          answerInstruction,
+          undefined,
+          '',
+          'witch',
+          peerAnswerOutputSchema,
+        ),
+        /session is closed/,
+      );
+      await closing;
+      await rejected;
+      assert.deepEqual(processes, []);
+    });
+  }
+
+  test(`${runtime} normalizes cancelled startup only after its answer process exits`, async (t) => {
+    const entered = Promise.withResolvers<void>();
+    const registered = Promise.withResolvers<void>();
+    let answerPid: number | undefined;
+    const onAnswerProcess = async (pid: number | undefined) => {
+      if (pid !== undefined) {
+        answerPid = pid;
+        entered.resolve();
+        await registered.promise;
+      }
+    };
+    const f =
+      runtime === 'codex'
+        ? await codex(undefined, { onAnswerProcess })
+        : await claude();
+    const session =
+      'session' in f ? f.session : await f.connect({ onAnswerProcess });
+    t.onTestFinished(async () => {
+      registered.resolve();
+      await session.close();
+    });
+    const sending = session.send(
+      answerInstruction,
+      undefined,
+      '',
+      'witch',
+      peerAnswerOutputSchema,
+    );
+    await entered.promise;
+    const stopping = session.interrupt();
+    registered.resolve();
+    await stopping;
+    assert.equal((await sending).status, 'interrupted');
+    assert.throws(() => process.kill(answerPid!, 0), { code: 'ESRCH' });
+    assert.equal(session.closed, false);
+    assert.ok((await session.skills()).length > 0);
+  });
+}

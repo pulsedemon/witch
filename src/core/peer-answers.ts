@@ -7,7 +7,7 @@ import type { TurnResult } from '../agents/types.js';
 import type { SessionCoordination } from './coordination.js';
 import type { PeerRequest } from './peer-requests.js';
 
-export const peerAnswerSchema = z.strictObject({
+const peerAnswerSchema = z.strictObject({
   answers: z
     .array(
       z.strictObject({

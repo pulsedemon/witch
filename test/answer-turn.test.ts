@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import { AnswerTurn } from '../src/agents/answer-turn.js';
-import { NativeStop } from '../src/agents/shutdown.js';
+import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
 import type {
   AgentSession,
   SessionOptions,
@@ -59,16 +59,43 @@ test('cancellation during connection aborts startup and waits for its cleanup', 
   });
   const running = turn.run(source, 'answer');
   const connected = await entered.promise;
-  const stopping = turn.interrupt({ deadline: 123, restart: true });
+  let stopped = false;
+  const stopping = turn.interrupt({ deadline: 123, restart: true }).then(() => {
+    stopped = true;
+  });
   assert.ok(connected.signal!.reason instanceof NativeStop);
   assert.deepEqual(connected.signal!.reason.options, {
     deadline: 123,
     restart: true,
   });
   assert.equal(turn.busy, true);
+  await Promise.resolve();
+  assert.equal(stopped, false);
   cleanup.resolve();
   await stopping;
   assert.equal((await running).status, 'interrupted');
+  assert.equal(turn.busy, false);
+});
+
+test('startup cleanup failures remain visible after cancellation', async () => {
+  const entered = Promise.withResolvers<void>();
+  const failure = new NativeStopTimeout();
+  const turn = new AnswerTurn(options, async (connected) => {
+    entered.resolve();
+    await new Promise<void>((resolve) =>
+      connected.signal!.addEventListener('abort', () => resolve(), {
+        once: true,
+      }),
+    );
+    throw failure;
+  });
+  const rejected = assert.rejects(
+    turn.run(source, 'answer'),
+    (error) => error === failure,
+  );
+  await entered.promise;
+  await turn.interrupt();
+  await rejected;
   assert.equal(turn.busy, false);
 });
 

@@ -43,7 +43,7 @@ export class AnswerTurn {
       stop: undefined as AgentStopOptions | undefined,
     };
     this.active = active;
-    let result: TurnResult;
+    let result: TurnResult = { status: 'interrupted', text: '' };
     const hidden = new Set<string>();
     try {
       active.session = await this.connect({
@@ -66,12 +66,10 @@ export class AnswerTurn {
             this.options.onEvent(event);
         },
       });
-      result = active.cancelled
-        ? { status: 'interrupted', text: '', inputUnsent: true }
-        : await active.session.send(prompt, undefined, context, 'witch');
+      if (!active.cancelled)
+        result = await active.session.send(prompt, undefined, context, 'witch');
     } catch (error) {
-      if (!active.cancelled) throw error;
-      result = { status: 'interrupted', text: '' };
+      if (!active.cancelled || !(error instanceof NativeStop)) throw error;
     } finally {
       try {
         await active.session?.close(active.stop);

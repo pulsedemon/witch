@@ -156,7 +156,7 @@ export class ClaudeAdapter implements AgentAdapter {
       await session.close(
         reason instanceof NativeStop ? reason.options : undefined,
       );
-      throw error;
+      throw reason instanceof NativeStop ? reason : error;
     }
   }
 }
@@ -517,6 +517,7 @@ class ClaudeSession implements AgentSession {
     outputSchema?: Record<string, unknown>,
   ): Promise<TurnResult> {
     if (author === 'witch' && !this.options.answer) {
+      if (this.closed) throw new Error('The Claude session is closed');
       if (this.turn) throw new Error('This agent is already running');
       return this.answers.run(this.info, prompt, context, outputSchema);
     }
