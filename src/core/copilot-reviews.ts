@@ -32,7 +32,7 @@ export const reviewResultSchema = z.object({
   items: z.array(disposition),
 });
 
-export const reviewBatchSchema = z.object({
+const reviewBatchSchema = z.object({
   id: z.string().uuid(),
   claim: z.string().uuid(),
   owner: z.string(),

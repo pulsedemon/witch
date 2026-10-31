@@ -266,8 +266,7 @@ export class Coordinator {
   ): Promise<void> {
     this.opening = true;
     try {
-      // a queued prompt belongs to the conversation it was sent in, so none is taken until the next one opens,
-      // including one sent just before the switch whose admission is still pending
+      // pending admissions still belong to this conversation and can block the switch.
       await this.admitting;
       if (this.snapshot.queue.length)
         throw new Error('Prompts are still queued for this conversation');
@@ -1034,6 +1033,7 @@ export class Coordinator {
           )))
       )
         return { status: 'interrupted', text: '', inputUnsent: true };
+      // a stop during an awaited check must prevent native input.
       if (this.cancelled || session.closed || (queued && this.deliveryHeld))
         return { status: 'interrupted', text: '' };
       if (kind === 'turn' && conversation.title === untitled)

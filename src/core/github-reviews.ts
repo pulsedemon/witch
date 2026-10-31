@@ -52,18 +52,17 @@ const pageInfo = z.object({
 const connection = <T extends z.ZodType>(item: T) =>
   z.object({ nodes: z.array(item), pageInfo });
 
-export const githubReviewsSchema = z.object({
-  pullRequest: pullRequestSchema,
-  viewer: z.string(),
-  closingIssues: z.array(z.string()),
-  requested: z.array(requested),
-  checks: z.array(check),
-  reviews: z.array(review),
-  comments: z.array(comment),
-  threads: z.array(thread),
-});
+export interface GitHubReviews {
+  pullRequest: PullRequest;
+  viewer: string;
+  closingIssues: string[];
+  requested: z.infer<typeof requested>[];
+  checks: z.infer<typeof check>[];
+  reviews: z.infer<typeof review>[];
+  comments: z.infer<typeof comment>[];
+  threads: z.infer<typeof thread>[];
+}
 
-export type GitHubReviews = z.infer<typeof githubReviewsSchema>;
 export type ReviewComment = z.infer<typeof comment>;
 
 export function isCopilot(

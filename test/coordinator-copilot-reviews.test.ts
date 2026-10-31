@@ -207,6 +207,35 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
   );
 });
 
+test('unmatched feedback reports one blocker until a matching claim admits it', async (t) => {
+  const x = await setup(t);
+  await x.a.coordination.releaseTask();
+  const notices = () =>
+    x.c.snapshot.items.filter(({ text }) =>
+      text.includes('needs a matching task claim'),
+    ).length;
+  assert.equal(await x.observe(), false);
+  assert.equal(await x.observe(), false);
+  assert.equal((await record(x.f, x.a)).copilotReviews, undefined);
+  assert.equal(x.reviews().length, 0);
+  assert.equal(notices(), 1);
+  const claimed = await x.a.claim(x.source.closingIssues[0]!);
+  assert.ok(claimed.kind === 'claimed');
+  autoReply(x.f, x.a, x.source);
+  await x.observe();
+  await x.handled();
+  assert.equal(
+    (await record(x.f, x.a)).copilotReviews![0]!.claim,
+    claimed.claim.id,
+  );
+  assert.equal(x.reviews().length, 1);
+  await x.a.coordination.releaseTask();
+  assert.equal(await x.observe(), false);
+  assert.equal(await x.observe(), false);
+  assert.equal(notices(), 2);
+  assert.equal(x.reviews().length, 1);
+});
+
 test('feedback arriving during work waits behind queued user prompts', async (t) => {
   const x = await setup(t);
   autoReply(x.f, x.a, x.source);
