@@ -10,6 +10,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 import { codexArguments } from '../src/cli-codex-familiar.js';
@@ -36,6 +37,7 @@ async function fixture(
     reject?: boolean;
     existing?: boolean;
   } = {},
+  beforeReply?: (request: ControlRequest) => Promise<void>,
 ) {
   const root = await scratch('codex-familiar-');
   const bin = join(root, 'bin');
@@ -96,6 +98,7 @@ syncBuiltinESMExports();
     binding.directory,
     async (request): Promise<ControlOutcome> => {
       requests.push(request);
+      await beforeReply?.(request);
       switch (request.action.kind) {
         case 'familiar-register':
           return options.reject
@@ -493,6 +496,49 @@ test('a silent Codex task stops on interruption or loss of its reporting connect
     } finally {
       await f.close();
     }
+  }
+});
+
+test('a Codex familiar survives an exhausted progress timeout and delivers its pending final report', async () => {
+  const gate = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  let approvalResolved = false;
+  const f = await fixture({ mode: 'gated-completion' }, async (request) => {
+    if (request.action.kind === 'familiar-request-resolved')
+      approvalResolved = true;
+    if (
+      approvalResolved &&
+      request.action.kind === 'familiar-update' &&
+      request.action.progress.status === 'running'
+    ) {
+      entered.resolve();
+      await gate.promise;
+    }
+  });
+  try {
+    await within(entered.promise, 5000, 'stalled progress after approval');
+    const launch = await f.launch();
+    const native = await identifyProcess(launch.pid);
+    assert.ok(native);
+    await delay(11_000);
+    assert.equal(f.child.exitCode, null);
+    assert.deepEqual(await identifyProcess(launch.pid), native);
+    await writeFile(join(f.root, 'release'), 'yes');
+    const expected = 'Completed implementation.\n'.repeat(5000);
+    await until(
+      'final report saved during the outage',
+      async () => (await readFile(f.report, 'utf8')) === expected,
+    );
+    gate.resolve();
+    assert.equal(await within(f.closed, 5000, 'recovered completion'), 0);
+    assert.equal(await readFile(f.report, 'utf8'), expected);
+    assert.equal(f.updates().at(-1)!.status, 'completed');
+    assert.equal(f.updates().at(-1)!.report, expected);
+    assert.equal(await identifyProcess(launch.pid), undefined);
+  } finally {
+    gate.resolve();
+    await writeFile(join(f.root, 'release'), 'yes');
+    await f.close();
   }
 });
 
