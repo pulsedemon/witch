@@ -209,7 +209,28 @@ test("a heading's character references slug as the characters they stand for, ou
   assert.deepEqual(
     await check({
       'plan.md':
-        '[a](#a--b) [b](#x-amp-y) [c](#c-d)\n\n## A &amp; B\n\n## `x &amp; y`\n\n## C&#32;D\n',
+        '[a](#a--b) [b](#x-amp-y) [c](#c-d) [d](#ef)\n\n## A &amp; B\n\n## `x &amp; y`\n\n## C&#32;D\n\n## E&#99999999;F\n',
+    }),
+    [],
+  );
+});
+
+test('character references decode in heading slugs, link targets and anchor attributes', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#résumé) [b](#café) [c](A&amp;B.md)\n\n## R&eacute;sum&eacute;\n\n<a id="caf&eacute;"></a>\n',
+      'A&B.md': 'x\n',
+    }),
+    [],
+  );
+});
+
+test("a heading's unpaired underscores stay in its slug", async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#_id) [b](#the-_id-field) [c](#__dirname) [d](#bold-text)\n\n## _id\n\n## The _id field\n\n## __dirname\n\n## __bold__ text\n',
     }),
     [],
   );
