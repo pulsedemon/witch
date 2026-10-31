@@ -284,6 +284,35 @@ test('partial results retain missing findings as visible blockers', async () => 
     ['blocked', 'handled'],
   );
   assert.match(result.items[0]!.reason!, /did not return/);
+  assert.equal(result.items[0]!.receipts[0]!.disposition, 'blocked');
+  f.source.reviews[0]!.body = 'A revised summary.';
+  const edited = observeReviews(result, f.source);
+  f.source.reviews[0]!.body = reviewSource().reviews[0]!.body;
+  assert.equal(observeReviews(edited, f.source).items[0]!.status, 'blocked');
+});
+
+test('an omitted disposition retains its admitted version when the finding changes mid-turn', async () => {
+  const f = fixture();
+  const original = f.source.threads[0]!.comments[0]!.body;
+  f.source.threads[0]!.comments[0]!.body = 'Edited during the review turn.';
+  const edited = observeReviews(f.state, f.source);
+  const settled = await reconcileReviews(
+    edited,
+    f.batch,
+    { batch: f.batch.id, items: [] },
+    f.source,
+    async () => true,
+  );
+  assert.equal(settled.items[1]!.status, 'pending');
+  assert.equal(
+    settled.items[1]!.receipts[0]!.version,
+    f.batch.items[1]!.version,
+  );
+  assert.equal(settled.items[1]!.receipts[0]!.disposition, 'blocked');
+  f.source.threads[0]!.comments[0]!.body = original;
+  const restored = observeReviews(settled, f.source);
+  assert.equal(restored.items[1]!.status, 'blocked');
+  assert.match(restored.items[1]!.reason!, /did not return/);
 });
 
 test('an interrupted batch retains its identity and does not consume later feedback', () => {

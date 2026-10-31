@@ -40,6 +40,7 @@ export const reviewBatchSchema = z.object({
   items: z.array(itemIdentity),
   packet: z.string(),
   result: z.string(),
+  verifying: z.boolean().optional(),
 });
 
 const feedbackSchema = itemIdentity.extend({
@@ -183,7 +184,19 @@ export async function reconcileReviews(
     seen.add(entry.id);
   }
   const commits = new Map<string, Promise<boolean>>();
-  const items = [...result.items].sort(
+  const waiting = new Set<string>();
+  const items: ReviewResult['items'] = [
+    ...result.items,
+    ...batch.items
+      .filter(({ id }) => !seen.has(id))
+      .map((item) => ({
+        ...item,
+        disposition: 'blocked' as const,
+        reason:
+          'The review turn did not return a disposition for this finding.',
+      })),
+  ];
+  items.sort(
     (a, b) =>
       Number(a.disposition === 'covered') - Number(b.disposition === 'covered'),
   );
@@ -199,6 +212,13 @@ export async function reconcileReviews(
           (candidate.present || admitted.has(candidate.id)) &&
           candidate.reviews.includes(item.id),
       );
+      if (
+        threads.some(({ id }) => waiting.has(id)) ||
+        entry.threads.some((id) => waiting.has(id))
+      ) {
+        waiting.add(entry.id);
+        continue;
+      }
       const verified = (thread: CopilotReviewState['items'][number]) => {
         const expected = admitted.get(thread.id);
         return expected
@@ -234,6 +254,17 @@ export async function reconcileReviews(
           author?.__typename === 'User' &&
           author.login === source.viewer,
       );
+      if (
+        !reply &&
+        entry.reply.startsWith(`${source.pullRequest.url}#`) &&
+        ![
+          ...source.comments,
+          ...source.threads.flatMap(({ comments }) => comments),
+        ].some(({ url }) => url === entry.reply)
+      ) {
+        waiting.add(entry.id);
+        continue;
+      }
       if (!reply || (item.kind !== 'thread' && !reply.body.includes(item.url)))
         failure =
           'The reply was not found on the finding under the signed-in user.';
@@ -275,17 +306,14 @@ export async function reconcileReviews(
       item.reason = failure;
     }
   }
-  for (const expected of batch.items) {
-    const item = state.items.find(
-      ({ id, version }) => id === expected.id && version === expected.version,
-    );
-    if (item && !seen.has(item.id)) {
-      item.status = 'blocked';
-      item.reason =
-        'The review turn did not return a disposition for this finding.';
-    }
-  }
-  delete state.batch;
+  if (waiting.size) {
+    state.batch = { ...batch, verifying: true };
+    for (const item of state.items)
+      if (waiting.has(item.id) && admitted.get(item.id) === item.version) {
+        item.status = 'attempted';
+        delete item.reason;
+      }
+  } else delete state.batch;
   return state;
 }
 
@@ -295,6 +323,7 @@ export function blockReviewBatch(
 ): CopilotReviewState {
   return {
     ...state,
+    ...(state.batch ? { batch: { ...state.batch, verifying: false } } : {}),
     items: state.items.map((item) =>
       state.batch?.items.some(
         ({ id, version }) => id === item.id && version === item.version,

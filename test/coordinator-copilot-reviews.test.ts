@@ -429,6 +429,64 @@ test('reopening reconciles a reply saved before interruption without another aut
   );
 });
 
+for (const kind of ['thread', 'reply']) {
+  test(`missing ${kind} evidence is verified after restart without repeating the native attempt`, async (t) => {
+    const x = await setup(t);
+    let complete: GitHubReviews;
+    const session = x.a.a.sessions.at(-1)!.session;
+    const send = session.send;
+    session.send = async (...args) => {
+      if (args[3] === 'witch') {
+        await reply(x.f, x.a, x.source);
+        complete = structuredClone(x.source);
+        if (kind === 'thread') x.source.threads = [];
+        else x.source.threads[0]!.comments.pop();
+      }
+      return send(...args);
+    };
+    await x.observe();
+    await until(
+      'verification waiting for GitHub evidence',
+      async () =>
+        x.c.snapshot.phase === 'idle' &&
+        !x.c.snapshot.reviewing &&
+        !!(await record(x.f, x.a)).copilotReviews![0]!.batch?.verifying,
+    );
+    const waiting = (await record(x.f, x.a)).copilotReviews![0]!;
+    assert.ok(
+      waiting.items.every(
+        ({ status, receipts }) => status === 'attempted' && !receipts.length,
+      ),
+    );
+    assert.equal(x.reviews().length, 1);
+    await x.c.send('continue the task');
+    assert.equal(x.reviews().length, 1);
+    const id = x.c.snapshot.conversation!.id;
+    await x.c.close({ restart: true });
+    const reopened = await x.f.start('A', { conversation: id });
+    reopened.coordination.updateRepository(x.repository);
+    reopened.coordinator.copilot.updateRepository(x.repository);
+    await reopened.coordinator.copilot.observe(structuredClone(x.source));
+    assert.equal(
+      (await record(x.f, reopened)).copilotReviews![0]!.batch!.id,
+      waiting.batch!.id,
+    );
+    assert.equal(reopened.coordinator.copilot.ready(), false);
+    Object.assign(x.source, complete!);
+    await reopened.coordinator.copilot.observe(structuredClone(x.source));
+    const settled = (await record(x.f, reopened)).copilotReviews![0]!;
+    assert.ok(settled.items.every(({ status }) => status === 'handled'));
+    assert.equal(settled.batch, undefined);
+    assert.equal(reopened.a.inputs.length, 0);
+    assert.equal(
+      x.source.threads[0]!.comments.filter(
+        ({ author }) => author?.login === 'owner',
+      ).length,
+      1,
+    );
+  });
+}
+
 test('the CLI watcher wiring carries a real repository observation through a review turn to persisted receipts', async (t) => {
   const x = await setup(t);
   const execute = promisify(execFile);

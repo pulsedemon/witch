@@ -242,7 +242,7 @@ export class CopilotReviewController {
       this.source?.pullRequest.url === state.pullRequest.url &&
       !!state.claim &&
       this.host.coordination()?.snapshot.ownClaim?.id === state.claim &&
-      (!state.batch || retry) &&
+      (!state.batch || (!state.batch.verifying && retry)) &&
       state.items.some(
         (item) =>
           item.present &&
