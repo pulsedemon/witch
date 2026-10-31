@@ -182,6 +182,22 @@ test("a heading's slug drops a whole link target and inline tags", async () => {
   );
 });
 
+test("a heading's code span keeps its brackets, link syntax and underscores in the slug", async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#promiset) [b](#labeltarget) [c](#__dirname) [d](#the-details-element)\n\n## `Promise<T>`\n\n## `[label](target)`\n\n## `__dirname`\n\n## The `<details>` element\n',
+    }),
+    [],
+  );
+});
+
+test('writing rules skip HTML tags', async () => {
+  assert.deepEqual(await check({ 'plan.md': '<a id="CI"></a> CI\n' }), [
+    '1: uppercase CI in prose',
+  ]);
+});
+
 test('a protocol-relative link is not a local path', async () => {
   assert.deepEqual(await check({ 'plan.md': '[a](//example.com/docs)\n' }), []);
 });
