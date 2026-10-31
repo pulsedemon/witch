@@ -218,7 +218,6 @@ export async function runReview(
         }),
       };
     });
-    if (signal.aborted) return stopped(incomplete);
     const results = await host.reviewers.run({ cwd, reviewers, signal });
     if (signal.aborted) return stopped(incomplete);
     const reviews: Review[] = [];
