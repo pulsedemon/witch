@@ -798,11 +798,10 @@ class CodexSession implements AgentSession {
     options: AgentStopOptions & { deadline: number },
   ): Promise<void> {
     try {
-      const stopped = (async () => {
-        await this.answers.interrupt(options);
+      const stopped = this.answers.interrupt(options).finally(async () => {
         await this.commands.close();
         await this.interrupt(options);
-      })();
+      });
       if (options.restart) await stopped;
       else
         await beforeDeadline(stopped, options.deadline - terminationReserveMs);

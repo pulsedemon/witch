@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { AnswerTurn } from '../src/agents/answer-turn.js';
 import type { AgentEvent, AgentSession } from '../src/agents/types.js';
+import { writeJson } from '../src/persistence/json.js';
 import {
   peerAnswerOutputSchema,
   preparePeerAnswers,
@@ -16,6 +17,7 @@ import {
 } from '../src/core/peer-requests.js';
 import { fixture as codex } from './fixtures/codex-adapter.js';
 import { launcher as claude } from './fixtures/claude-adapter.js';
+import { until } from './fixtures/within.js';
 
 async function input(cwd: string) {
   const requests = ['First private question', 'Second private question'].map(
@@ -196,7 +198,7 @@ test('Codex preserves named read boundaries and inherited denies while removing 
           filesystem: {
             '/project': 'write',
             '/secret': 'deny',
-            ':workspace': { '/cache': 'write', '/denied': 'deny' },
+            ':workspace': { cache: 'write', denied: 'deny' },
           },
           network: { enabled: true, allowed_domains: ['example.com'] },
         },
@@ -219,7 +221,7 @@ test('Codex preserves named read boundaries and inherited denies while removing 
       filesystem: {
         '/project': 'read',
         '/secret': 'deny',
-        ':workspace': { '/cache': 'read', '/denied': 'deny' },
+        ':workspace': { cache: 'read', denied: 'deny' },
       },
       network: { enabled: false, allowed_domains: ['example.com'] },
     },
@@ -332,6 +334,94 @@ test('Claude closes a child whose process registration fails and keeps its owner
   assert.notEqual(f.children[1]!.exitCode ?? f.children[1]!.signalCode, null);
   assert.equal(f.children[0]!.exitCode, null);
   assert.equal((await session.send('normal afterward')).status, 'completed');
+});
+
+test('Codex owner shutdown collects its familiar after answer cleanup rejects', async () => {
+  const events: AgentEvent[] = [];
+  const binding = {
+    directory: '/control/familiars',
+    conversation: 'conversation',
+    activation: randomUUID(),
+  };
+  const run = randomUUID();
+  const f = await codex((event) => events.push(event), {
+    mode: 'brews',
+    familiarBinding: binding,
+  });
+  const interrupted = vi
+    .spyOn(AnswerTurn.prototype, 'interrupt')
+    .mockRejectedValueOnce(new Error('Answer cleanup refused'));
+  try {
+    const params = { threadId: 'native-thread', turnId: 'reported-turn' };
+    await writeJson(join(f.cwd, 'events-1.json'), [
+      {
+        method: 'item/started',
+        params: {
+          ...params,
+          item: {
+            id: 'review-command',
+            type: 'commandExecution',
+            processId: '42',
+            command: 'review',
+            cwd: f.cwd,
+            source: 'unifiedExecStartup',
+            status: 'inProgress',
+            commandActions: [],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null,
+          },
+        },
+      },
+      {
+        method: 'item/commandExecution/outputDelta',
+        params: {
+          ...params,
+          itemId: 'review-command',
+          delta: `WITCH_FAMILIAR ${JSON.stringify({ version: 1, conversation: binding.conversation, activation: binding.activation, run })}\r\n`,
+        },
+      },
+    ]);
+    await until(
+      'registered familiar',
+      async () =>
+        (
+          await f.session.familiar!.report(
+            {
+              kind: 'familiar-register',
+              run,
+              name: 'cleanup check',
+              runtime: 'claude',
+            },
+            Date.now() + 5000,
+          )
+        ).kind === 'familiar-registered',
+    );
+    await assert.rejects(f.session.close(), /Answer cleanup refused/);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(f.cwd, 'terminated.jsonl'), 'utf8')),
+      {
+        threadId: 'native-thread',
+        processId: '42',
+      },
+    );
+    assert.notEqual(f.child.exitCode ?? f.child.signalCode, null);
+    assert.ok(
+      !events.some(
+        (event) =>
+          event.type === 'notice' &&
+          /could not confirm cleanup/.test(event.text),
+      ),
+    );
+    assert.equal(
+      events.filter((event) => event.type === 'subagent').at(-1)?.subagent
+        .status,
+      'stopped',
+    );
+  } finally {
+    interrupted.mockRestore();
+    await f.session.close().catch(() => {});
+  }
 });
 
 test('Claude owner shutdown still closes its native process after answer cleanup rejects', async () => {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ import { untitled } from '../src/core/state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { NotificationSchedule } from '../src/persistence/notifications.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import { watchTerminal } from '../src/ui/terminal.js';
 import { TurnGate } from './fixtures/agent.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
@@ -29,6 +31,7 @@ import {
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { scratch } from './fixtures/scratch.js';
+import { readRecord } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 
 type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
@@ -122,6 +125,37 @@ async function holds(
   assert.equal((await stored(f, request)).attemptedAt, undefined);
   assert.equal(seen.answering, false);
 }
+
+test('answer process registration preserves the owner identity and ignores reports after close', async (t) => {
+  const { f, b } = await owners(t.onTestFinished);
+  const helper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  const id = b.coordinator.snapshot.conversation!.id;
+  const report = b.a.sessions[0]!.options.onAnswerProcess!;
+  try {
+    const before = await readRecord(f.root, id);
+    assert.ok(before.process);
+    assert.notEqual(helper.pid, before.process.pid);
+    await report(helper.pid);
+    const registered = await readRecord(f.root, id);
+    assert.deepEqual(
+      registered.answerProcess,
+      await identifyProcess(helper.pid!),
+    );
+    assert.deepEqual(registered.process, before.process);
+    await report(undefined);
+    const cleared = await readRecord(f.root, id);
+    assert.equal(cleared.answerProcess, undefined);
+    assert.deepEqual(cleared.process, before.process);
+    await b.coordinator.close();
+    await report(helper.pid);
+    assert.equal((await readRecord(f.root, id)).answerProcess, undefined);
+  } finally {
+    await report(undefined);
+    const closed = once(helper, 'close');
+    helper.kill('SIGKILL');
+    await closed;
+  }
+});
 
 test('idle owner answers in one attributed turn', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
