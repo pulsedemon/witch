@@ -120,14 +120,47 @@ test('a comment delimiter in a code span opens no comment', async () => {
   );
 });
 
-test('a backtick inside an HTML comment or tag starts no code span', async () => {
+test('a backtick inside an HTML comment or tag starts no code span, and one after a bare angle bracket does', async () => {
   assert.deepEqual(
     await check({
       'plan.md':
-        'a <!-- ` --> use `code`.\n[a](missing.md)\n[b](#real)\n\n<a title="`" id="real"></a> use `code`.\n',
+        'a <!-- ` --> use `code`.\n[a](missing.md)\n[b](#real)\n\n<a title="`" id="real"></a> use `code`.\nMap<string, `a — b`> is no tag\n',
     }),
     ['2: link target missing.md does not exist'],
   );
+});
+
+test("a comment delimiter or a > quoted in a tag's attribute doesn't end the tag", async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '<span title="<!--">ok</span>\n[a](missing.md)\n<span title="> `">x</span> [b](lost.md) `ok`\n',
+    }),
+    [
+      '2: link target missing.md does not exist',
+      '3: link target lost.md does not exist',
+    ],
+  );
+});
+
+test("a tag's id counts with a quoted > before it or in single quotes", async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#real) [b](#single)\n\n<a title=">" id="real"></a> <a id=\'single\'></a>\n',
+    }),
+    [],
+  );
+});
+
+test('an escaped backtick opens no code span', async () => {
+  assert.deepEqual(await check({ 'plan.md': '\\` [a](missing.md) `ok`\n' }), [
+    '1: link target missing.md does not exist',
+  ]);
+});
+
+test('a protocol-relative link is not a local path', async () => {
+  assert.deepEqual(await check({ 'plan.md': '[a](//example.com/docs)\n' }), []);
 });
 
 test('an id quoted in a code span is not an anchor, and one in a tag is', async () => {
