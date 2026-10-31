@@ -234,10 +234,10 @@ export async function runReview(
             ? `exited with code ${result.code}`
             : result.model !== route.model
               ? `ran on ${result.model ?? 'an unreported model'}, not ${route.model}`
-              : !findings
-                ? 'did not report findings'
+              : 'invalid' in findings
+                ? `did not report findings: ${findings.invalid}`
                 : undefined;
-      if (reason || !findings)
+      if (reason || 'invalid' in findings)
         return stopped(
           `${name} ${reason}${result.diagnostics ? `: ${result.diagnostics}` : ''}`,
         );

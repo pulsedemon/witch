@@ -1,6 +1,7 @@
 import { isAbsolute, normalize, relative } from 'node:path';
 import { formatPatch, structuredPatch } from 'diff';
 import { z } from 'zod';
+import { errorMessage } from '../agents/stderr.js';
 import { quote } from '../shell.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Routed } from './routing.js';
@@ -18,31 +19,40 @@ const findingsSchema = z.strictObject({
 });
 export type Finding = z.infer<typeof findingsSchema>['findings'][number];
 
-/** the findings in a report's last fenced json block, with each file normalized to a listed target; undefined when that block is missing, unclosed, invalid or names another file. */
+/** the findings in a report's last fenced json block, with each file normalized to a listed target; `invalid` says why there are none to read. */
 export function parseFindings(
   report: string,
   cwd: string,
   files: readonly string[],
-): Finding[] | undefined {
+): Finding[] | { invalid: string } {
   const last = [...report.matchAll(/```json[^\n]*\n([\s\S]*?)\n\s*```/g)].at(
     -1,
   );
-  if (!last || report.includes('```json', last.index + last[0].length)) return;
-  const block = last[1]!;
+  if (!last) return { invalid: 'no closed json block' };
+  if (report.includes('```json', last.index + last[0].length))
+    return { invalid: 'the last json block is unclosed' };
   let parsed: unknown;
   try {
-    parsed = JSON.parse(block);
-  } catch {
-    return;
+    parsed = JSON.parse(last[1]!);
+  } catch (error) {
+    return { invalid: errorMessage(error) };
   }
   const result = findingsSchema.safeParse(parsed);
-  if (!result.success) return;
+  if (!result.success)
+    return {
+      invalid: result.error.issues
+        .map(({ path, message }) =>
+          path.length ? `${path.join('.')}: ${message}` : message,
+        )
+        .join('; '),
+    };
   const findings: Finding[] = [];
   for (const finding of result.data.findings) {
     const file = normalize(
       isAbsolute(finding.file) ? relative(cwd, finding.file) : finding.file,
     );
-    if (!files.includes(file)) return;
+    if (!files.includes(file))
+      return { invalid: `${finding.file} is not a review target` };
     findings.push({ ...finding, file });
   }
   return findings;
