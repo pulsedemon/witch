@@ -524,8 +524,9 @@ function anchors(text: string): Set<string> {
       !/^ {0,3}(#|[-*+]\s|\d+[.)]\s|>)/.test(above)
     )
       add(above.trim());
-    for (const match of line.matchAll(/\b(?:id|name)="([^"]+)"/g))
-      ids.add(match[1]!);
+    for (const [tag] of outsideCode(line).matchAll(/<[a-z][^>]*>/gi))
+      for (const match of tag.matchAll(/\s(?:id|name)="([^"]+)"/g))
+        ids.add(match[1]!);
   }
   return new Set([...headings, ...ids]);
 }
