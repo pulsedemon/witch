@@ -89,7 +89,8 @@ export async function checkTargets(
           }
           content = read;
         }
-        if (link.anchor === undefined) continue;
+        // an empty fragment and #top go to the top of any page
+        if (!link.anchor || link.anchor.toLowerCase() === 'top') continue;
         const range = /^L(\d+)(?:-L(\d+))?$/.exec(link.anchor);
         if (range) {
           const start = Number(range[1]);
