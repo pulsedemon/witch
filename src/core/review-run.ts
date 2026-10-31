@@ -1,0 +1,267 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import type { SessionCoordination } from './coordination.js';
+import {
+  afterCorrection,
+  brief,
+  changes,
+  correctionPrompt,
+  decide,
+  parseFindings,
+  reviewerCommand,
+  scopeFor,
+} from './review.js';
+import type { Finding, Review, SitOut, Texts } from './review.js';
+import { checkTargets } from './review-checks.js';
+import type { CheckFailure } from './review-checks.js';
+import type { Reviewer, Reviewers } from './reviewers.js';
+import type { Routed } from './routing.js';
+import { untitled } from './state.js';
+import type { ConversationRecord, DisplayUpdate } from './state.js';
+
+/** what a review needs from the coordinator, which runs it as one operation. */
+export interface ReviewHost {
+  conversation: ConversationRecord;
+  coordination:
+    Pick<SessionCoordination, 'router' | 'commandPrefixes'> | undefined;
+  reviewers: Pick<Reviewers, 'run'>;
+  agents: readonly { id: string; label: string }[];
+  signal: AbortSignal;
+  notice(text: string): void;
+  display(update: DisplayUpdate): void;
+  /** runs a silent correction turn; false when it or its memory publication didn't settle. */
+  turn(prompt: string): Promise<boolean>;
+}
+
+export interface ReviewOutcome {
+  stop: string;
+  /** true for a settled review or a regression stop. */
+  ok: boolean;
+  /** the non-blocking findings the final correction turn received. */
+  nonBlocking: number;
+  /** the mechanical failures at the last check. */
+  remaining: number;
+  directory: string;
+}
+
+/** the finish notice for a review that settled or stopped at a regression. */
+export function finished(outcome: ReviewOutcome): string {
+  return `Review finished: ${outcome.stop} · ${outcome.nonBlocking} non-blocking findings sent · ${outcome.remaining} mechanical failures remain · reports in ${outcome.directory}`;
+}
+
+/** runs review rounds over the files `argument` names until they settle or stop; undefined when the files are refused. */
+export async function runReview(
+  argument: string,
+  host: ReviewHost,
+): Promise<ReviewOutcome | undefined> {
+  const { conversation, coordination, signal } = host;
+  const { cwd } = conversation;
+  const label = (runtime: string) =>
+    host.agents.find(({ id }) => id === runtime)?.label ?? runtime;
+  const router = coordination?.router;
+  if (!coordination || !router) {
+    host.notice('This Witch cannot route work.');
+    return;
+  }
+  const named = argument.split(/\s+/).filter(Boolean);
+  if (!named.length) {
+    host.notice('Use /review <files>.');
+    return;
+  }
+  const files: string[] = [];
+  for (const file of named) {
+    const path = resolve(cwd, file);
+    const inside = relative(cwd, path);
+    const exists = await stat(path).then(
+      (entry) => entry.isFile(),
+      () => false,
+    );
+    if (!inside || inside.startsWith('..') || isAbsolute(inside) || !exists) {
+      host.notice(`Review refused: ${file} is not a file in ${cwd}`);
+      return;
+    }
+    files.push(inside);
+  }
+  if (conversation.title === untitled)
+    conversation.title = `Review ${files.join(' ')}`.slice(0, 80);
+  host.display({
+    id: randomUUID(),
+    kind: 'user',
+    text: `/review ${argument}`,
+    cwd,
+  });
+  const prefix = coordination.commandPrefixes().familiar;
+  const model = conversation.sessions[conversation.agent]?.model;
+  const action = {
+    kind: 'route' as const,
+    work: 'review' as const,
+    ...(model ? { of: { runtime: conversation.agent, model } } : {}),
+  };
+  const directory = await mkdtemp(join(tmpdir(), 'review-'));
+  const run = randomBytes(4).toString('hex');
+  const read = async (): Promise<Texts> =>
+    Object.fromEntries(
+      await Promise.all(
+        files.map(
+          async (file) =>
+            [file, await readFile(resolve(cwd, file), 'utf8')] as const,
+        ),
+      ),
+    );
+  const same = (a: Texts, b: Texts) =>
+    files.every((file) => a[file] === b[file]);
+  const identity = (failure: CheckFailure, texts: Texts) =>
+    `${failure.file}\0${failure.message}\0${texts[failure.file]?.split('\n')[failure.line - 1] ?? ''}`;
+  let known: CheckFailure[] = [];
+  let knownIdentities = new Set<string>();
+  let reviewed: Texts | undefined;
+  let next = { number: 1, closing: false };
+  let sittingOut: SitOut[] = [];
+  const outcome = (
+    stop: string,
+    ok: boolean,
+    nonBlocking = 0,
+    remaining = known.length,
+  ): ReviewOutcome => ({ stop, ok, nonBlocking, remaining, directory });
+  const stopped = (reason: string): ReviewOutcome => {
+    if (!signal.aborted) host.notice(`Review stopped: ${reason}`);
+    return outcome(reason, false);
+  };
+  for (;;) {
+    const number = next.number;
+    const incomplete = `round ${number} did not complete`;
+    let texts = await read();
+    let failures = await checkTargets(cwd, files);
+    const fresh = failures.filter(
+      (failure) => !knownIdentities.has(identity(failure, texts)),
+    );
+    if (fresh.length) {
+      if (!(await host.turn(correctionPrompt({ failures: fresh }))))
+        return stopped(incomplete);
+      texts = await read();
+      failures = await checkTargets(cwd, files);
+    }
+    known = failures;
+    knownIdentities = new Set(
+      failures.map((failure) => identity(failure, texts)),
+    );
+    const delta = reviewed ? changes(reviewed, texts) : undefined;
+    const scope = scopeFor(next, delta?.ratio ?? 0);
+    if (signal.aborted) return stopped(incomplete);
+    const reply = await Promise.race([
+      router(action, signal),
+      new Promise<undefined>((settle) => {
+        if (signal.aborted) settle(undefined);
+        signal.addEventListener('abort', () => settle(undefined), {
+          once: true,
+        });
+      }),
+    ]);
+    if (!reply || signal.aborted) return stopped(incomplete);
+    if (reply.kind === 'error') return stopped(reply.message);
+    if (reply.kind !== 'route') return stopped('unexpected route reply');
+    const out = new Set(sittingOut.map(({ runtime }) => runtime));
+    let routes: Routed[] = reply.routes.filter(
+      ({ runtime }) => !out.has(runtime),
+    );
+    if (!routes.length) routes = reply.routes;
+    const dropped = sittingOut.filter(
+      ({ runtime }) =>
+        reply.routes.some((route) => route.runtime === runtime) &&
+        !routes.some((route) => route.runtime === runtime),
+    );
+    host.notice(
+      `Review round ${number} · ${scope}: ${routes
+        .map(({ runtime, model }) => `${label(runtime)} · ${model}`)
+        .join(', ')}${dropped
+        .map(({ runtime, why }) => `; ${label(runtime)} sits out: ${why}`)
+        .join('')}`,
+    );
+    const briefFile = join(directory, `round-${number}-brief.md`);
+    await writeFile(
+      briefFile,
+      brief({
+        files,
+        scope,
+        ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
+        known,
+      }),
+    );
+    const counts = new Map<string, number>();
+    const reviewers: (Reviewer & { route: Routed })[] = routes.map((route) => {
+      const index = counts.get(route.runtime) ?? 0;
+      counts.set(route.runtime, index + 1);
+      const name = `review-${run}-${number}-${route.runtime}-${index}`;
+      const reportFile = join(directory, `${name}.md`);
+      return {
+        name,
+        runtime: route.runtime,
+        route,
+        reportFile,
+        command: reviewerCommand({
+          prefix,
+          route,
+          name,
+          reportFile,
+          briefFile,
+        }),
+      };
+    });
+    if (signal.aborted) return stopped(incomplete);
+    const results = await host.reviewers.run({ cwd, reviewers, signal });
+    if (signal.aborted) return stopped(incomplete);
+    const reviews: Review[] = [];
+    for (const [index, result] of results.entries()) {
+      const { route, name } = reviewers[index]!;
+      const findings = parseFindings(result.report, cwd, files);
+      const reason =
+        result.status !== 'completed'
+          ? `ended ${result.status ?? 'without registering'}`
+          : result.code !== 0
+            ? `exited with code ${result.code}`
+            : result.model !== route.model
+              ? `ran on ${result.model ?? 'an unreported model'}, not ${route.model}`
+              : !findings
+                ? 'did not report findings'
+                : undefined;
+      if (reason || !findings) return stopped(`${name} ${reason}`);
+      reviews.push({ runtime: route.runtime, findings });
+    }
+    if (!same(await read(), texts))
+      return stopped('the targets changed while reviewers read them');
+    const round = {
+      number,
+      scope,
+      runtimes: [...new Set(routes.map(({ runtime }) => runtime))],
+    };
+    const decided = decide({
+      round,
+      reviews,
+      ...(delta ? { previousChanges: delta.changed } : {}),
+    });
+    const findings: Finding[] = reviews.flatMap(({ findings }) => findings);
+    const nonBlocking = findings.filter(({ blocking }) => !blocking).length;
+    if (findings.length && !(await host.turn(correctionPrompt({ findings }))))
+      return stopped(incomplete);
+    const remaining = async () =>
+      findings.length ? (await checkTargets(cwd, files)).length : known.length;
+    if ('stop' in decided)
+      return outcome(decided.stop, true, nonBlocking, await remaining());
+    const after = afterCorrection({
+      round,
+      blockers: decided.blockers.length,
+      sittingOut: decided.sittingOut,
+      ...(decided.stopAfter ? { stopAfter: decided.stopAfter } : {}),
+      changedDuring: !same(await read(), texts),
+    });
+    if ('stop' in after) {
+      if (!after.ok) return stopped(after.stop);
+      return outcome(after.stop, true, nonBlocking, await remaining());
+    }
+    reviewed = texts;
+    next = after.next;
+    sittingOut = after.sittingOut;
+  }
+}

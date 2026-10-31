@@ -25,12 +25,12 @@ import {
 } from './coordination-state.js';
 import type {
   CoordinationSnapshot,
-  RouteAction,
   SessionPresence,
   SelectionScope,
   TransferTarget,
 } from './coordination-state.js';
 import type { Reviewers } from './reviewers.js';
+import type { router } from './router.js';
 import type { Snapshot } from './snapshot.js';
 import {
   answerInstructions,
@@ -117,7 +117,7 @@ export class SessionCoordination {
   private familiarHost!: ControlHost;
   private live?: () => AgentSession | undefined;
   /** answers `--route` outside the serialized claim queue, so background claim work doesn't delay it. */
-  router?: (action: RouteAction) => Promise<ControlOutcome>;
+  router?: ReturnType<typeof router>;
   ownFamiliars?: Reviewers['report'];
   private timer?: ReturnType<typeof setInterval>;
   private scheduled?: ReturnType<typeof setTimeout>;

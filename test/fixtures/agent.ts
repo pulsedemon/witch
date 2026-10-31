@@ -105,6 +105,8 @@ export class FixtureAgent implements AgentAdapter {
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
+  /** runs as each turn is sent, after its input is recorded, as an agent's edits during the turn would. */
+  onSend?: (prompt: string) => Promise<void>;
   /** what `limits()` returns unless `limitsRead` answers; its reads are kept apart from `discoveries`. */
   accountLimits: Limit[] = [];
   limitsRead?: (
@@ -307,6 +309,7 @@ export class FixtureAgent implements AgentAdapter {
           ...(skill ? { skill } : {}),
           ...(author === 'witch' ? { author } : {}),
         });
+        if (this.onSend) await this.onSend(prompt);
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere
         const note = /remember:(\S+)/.exec(prompt)?.[1];
         if (note)

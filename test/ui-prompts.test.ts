@@ -178,7 +178,7 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     a.refuseSteer = true;
     const sending = coordinator.send('remember-port');
     await within(gate.entered, 3000, 'the gated turn');
-    await coordinator.send('/review');
+    await coordinator.send('/audit');
     await coordinator.send('queued followup');
     ui.stdin.write('unsent draft');
     await until('the draft', () => ui.text().includes('┃ unsent draft'));
@@ -189,7 +189,7 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     );
     await delay(550);
     ui.stdin.write('a');
-    const rows = ['┃ /review', '┃ queued followup', '┃ unsent draft'];
+    const rows = ['┃ /audit', '┃ queued followup', '┃ unsent draft'];
     await until('the restored draft', () =>
       rows.every((row) => ui.text().includes(row)),
     );
@@ -208,7 +208,7 @@ test('accepting failed-turn memory returns queued prompts ahead of the draft', a
     );
     assert.deepEqual(turns(a), [
       ['remember-port', undefined],
-      ['/review\nqueued followup\nunsent draft', undefined],
+      ['/audit\nqueued followup\nunsent draft', undefined],
     ]);
   } finally {
     gate.open();

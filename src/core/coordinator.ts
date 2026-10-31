@@ -50,6 +50,8 @@ import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { runHandoff } from './handoff.js';
+import { finished, runReview } from './review-run.js';
+import type { ReviewOutcome } from './review-run.js';
 import { Reviewers } from './reviewers.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import { AccountUsage } from './usage.js';
@@ -93,6 +95,8 @@ interface TurnOptions {
   delivered?: () => void;
   queued?: boolean;
   requests?: readonly PeerRequest[];
+  /** a turn Witch composed, such as a review's correction, adds no user row and doesn't title the conversation. */
+  silent?: boolean;
 }
 
 /** another operation holds the phase, so nothing ran and nothing failed. */
@@ -166,6 +170,7 @@ export class Coordinator {
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
+  private reviewCancellation?: AbortController;
   constructor(
     private readonly store: StateStore,
     readonly memory: Memory,
@@ -445,12 +450,12 @@ export class Coordinator {
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
         try {
-          await this.operate('running', () =>
-            this.runTurn(batch.join('\n'), 'turn', {
+          await this.operate('running', async () => {
+            await this.runTurn(batch.join('\n'), 'turn', {
               delivered: () => (delivered = true),
               queued: true,
-            }),
-          );
+            });
+          });
         } finally {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
@@ -468,7 +473,7 @@ export class Coordinator {
     prompt: string,
     kind: 'turn' | 'answer',
     options: TurnOptions,
-  ): Promise<void> {
+  ): Promise<TurnResult | undefined> {
     try {
       const session = await this.connectForTurn();
       if (!session) return;
@@ -483,7 +488,7 @@ export class Coordinator {
         this.publish({ phase: 'running' });
       }
       if (options.queued && this.deliveryHeld) return;
-      await this.performTurn(prompt, kind, options);
+      return await this.performTurn(prompt, kind, options);
     } catch (error) {
       this.report(error);
     }
@@ -712,6 +717,7 @@ export class Coordinator {
     this.catalog.cancel(new NativeStop(stop));
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
+    this.reviewCancellation?.abort(new NativeStop(stop));
     const results = await Promise.allSettled([
       this.cleanupCancellation ? this.task : undefined,
       this.coordination?.endTurn(),
@@ -823,6 +829,40 @@ export class Coordinator {
     return acted;
   }
 
+  /** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
+  async review(argument: string): Promise<boolean> {
+    const conversation = this.current();
+    const abort = (this.reviewCancellation = new AbortController());
+    let outcome: ReviewOutcome | undefined;
+    await this.operate('running', async () => {
+      outcome = await runReview(argument, {
+        conversation,
+        coordination: this.coordination,
+        reviewers: this.reviewers,
+        agents: this.snapshot.agents,
+        signal: abort.signal,
+        notice: (text) => this.notice(text),
+        display: (update) => this.display(update),
+        turn: async (prompt) => {
+          const done = await this.runTurn(prompt, 'turn', { silent: true });
+          if (done?.status !== 'completed' || this.cancelled) return false;
+          if (this.halted() || conversation.activity) return false;
+          const { recovery, failure } = await settleMemory(this.workspace!);
+          return !recovery && !failure;
+        },
+      });
+    }).finally(() => (this.reviewCancellation = undefined));
+    if (!outcome) return false;
+    this.retainContext(conversation.id, [
+      `Witch ran /review ${argument}: ${outcome.stop}`,
+    ]);
+    if (!outcome.ok || abort.signal.aborted || this.snapshot.error)
+      return false;
+    if (this.snapshot.phase !== 'idle') return false;
+    this.notice(finished(outcome));
+    return true;
+  }
+
   async restoreMemory(path: string, revision: string): Promise<void> {
     await this.operate('editing', async () => {
       this.notice(
@@ -931,7 +971,7 @@ export class Coordinator {
   private async performTurn(
     prompt: string,
     kind: 'turn' | 'handoff' | 'answer',
-    { delivered, queued = false, requests }: TurnOptions = {},
+    { delivered, queued = false, requests, silent }: TurnOptions = {},
   ): Promise<TurnResult> {
     const conversation = this.current();
     const answer = kind === 'answer';
@@ -990,14 +1030,15 @@ export class Coordinator {
       // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
       if (this.cancelled || session.closed || (queued && this.deliveryHeld))
         return { status: 'interrupted', text: '' };
-      if (kind === 'turn' && conversation.title === untitled)
+      if (kind === 'turn' && !silent && conversation.title === untitled)
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
-      this.display({
-        id: randomUUID(),
-        kind: kind === 'turn' ? 'user' : 'notice',
-        text: requests ? answerNotice(requests) : prompt,
-        cwd: conversation.cwd,
-      });
+      if (!silent)
+        this.display({
+          id: randomUUID(),
+          kind: kind === 'turn' ? 'user' : 'notice',
+          text: requests ? answerNotice(requests) : prompt,
+          cwd: conversation.cwd,
+        });
       this.persist(this.save());
       if (command !== undefined) delivered?.();
       let result: TurnResult;
