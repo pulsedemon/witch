@@ -128,7 +128,7 @@ export async function checkTargets(
 function proseLines(lines: readonly string[]): (string | undefined)[] {
   const prose: (string | undefined)[] = [];
   let fence: { mark: string; length: number } | undefined;
-  let front = lines[0] === '---';
+  let front = lines[0] === '---' && lines.indexOf('---', 1) !== -1;
   let comment = false;
   for (const [index, line] of lines.entries()) {
     if (front) {
@@ -183,7 +183,7 @@ interface Segment {
   text: string;
   /** the segment as written, ticks included. */
   raw: string;
-  /** an HTML comment or tag, which no code span or link reaches into. */
+  /** an HTML comment or tag, whose backticks open no code span. */
   html?: true;
 }
 
