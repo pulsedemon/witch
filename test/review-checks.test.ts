@@ -120,6 +120,16 @@ test('a comment delimiter in a code span opens no comment', async () => {
   );
 });
 
+test('a backtick inside an HTML comment or tag starts no code span', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        'a <!-- ` --> use `code`.\n[a](missing.md)\n[b](#real)\n\n<a title="`" id="real"></a> use `code`.\n',
+    }),
+    ['2: link target missing.md does not exist'],
+  );
+});
+
 test('an id quoted in a code span is not an anchor, and one in a tag is', async () => {
   assert.deepEqual(
     await check({
