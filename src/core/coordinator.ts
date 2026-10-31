@@ -848,6 +848,7 @@ export class Coordinator {
         signal: abort.signal,
         notice: (text) => this.notice(text),
         display: (update) => this.display(update),
+        retain: (text) => this.retainContext(conversation.id, [text]),
         turn: async (prompt) => {
           const done = await this.runTurn(prompt, 'turn', { silent: true });
           if (done?.status !== 'completed' || this.cancelled) return false;
@@ -859,9 +860,6 @@ export class Coordinator {
       });
     }).finally(() => (this.reviewCancellation = undefined));
     if (!outcome) return false;
-    this.retainContext(conversation.id, [
-      `Witch ran /review ${argument}: ${outcome.stop}`,
-    ]);
     if (!outcome.ok || abort.signal.aborted || this.snapshot.error)
       return false;
     if (this.snapshot.phase !== 'idle') return false;
@@ -952,17 +950,10 @@ export class Coordinator {
       performTurn: (prompt, kind) => this.performTurn(prompt, kind),
       save: () => this.save(),
       cancelled: () => this.cancelled,
-      connect: async () =>
-        this.applyModel(
-          await this.connect(selection.agent, undefined, selection),
-          selection,
-        ),
-      published: (failed) =>
-        this.publish({
-          conversation,
-          native: this.session?.info,
-          ...(failed ? { usage: this.session?.usage ?? {} } : {}),
-        }),
+      connect: () => this.connect(selection.agent, undefined, selection),
+      applyModel: (session) => this.applyModel(session, selection),
+      publish: (update) => this.publish(update),
+      session: () => this.session,
       disconnect: () => this.disconnect(),
       reactivate: async () => {
         if (!this.coordination) return;

@@ -1,5 +1,6 @@
-import type { TurnResult } from '../agents/types.js';
+import type { AgentSession, TurnResult } from '../agents/types.js';
 import type { ModelSelection } from './models.js';
+import type { Snapshot } from './snapshot.js';
 import { contextStart } from './state.js';
 import type { ConversationRecord, DisplayItem } from './state.js';
 
@@ -12,10 +13,12 @@ export interface HandoffHost {
   performTurn(prompt: string, kind: 'turn' | 'handoff'): Promise<TurnResult>;
   save(): Promise<void>;
   cancelled(): boolean;
-  /** connects the destination runtime and selects the model, returning its session reference. */
-  connect(): Promise<SessionReference>;
-  /** publishes the conversation and the live session, with its usage after a failed handoff. */
-  published(failed: boolean): void;
+  /** connects the destination runtime. */
+  connect(): Promise<AgentSession>;
+  /** selects the model on the connected session, returning its session reference. */
+  applyModel(session: AgentSession): Promise<SessionReference>;
+  publish(update: Partial<Snapshot>): void;
+  session(): AgentSession | undefined;
   disconnect(): Promise<void>;
   /** reactivates coordination for the conversation unless Witch is closing. */
   reactivate(): Promise<void>;
@@ -32,6 +35,13 @@ export async function runHandoff(
   const outcome = conversation.lastTurn?.status;
   const unfinished = outcome === 'interrupted' || outcome === 'failed';
   const previous = conversation.sessions[agent];
+  /** publishes the conversation and the live session, with its usage after a failed handoff. */
+  const published = (failed: boolean) =>
+    host.publish({
+      conversation,
+      native: host.session()?.info,
+      ...(failed ? { usage: host.session()?.usage ?? {} } : {}),
+    });
   let activated = false;
   try {
     let summary = '';
@@ -51,14 +61,14 @@ export async function runHandoff(
     conversation.handoff = { from, to: agent, summary, activated: false };
     await host.save();
     if (host.cancelled()) throw new Error('Handoff was interrupted');
-    const selected = await host.connect();
+    const selected = await host.applyModel(await host.connect());
     if (host.cancelled()) throw new Error('Handoff was interrupted');
     conversation.agent = agent;
     conversation.sessions[agent] = selected;
     conversation.handoff.activated = true;
     await host.save();
     activated = true;
-    host.published(false);
+    published(false);
     if (summary && unfinished)
       await host.performTurn(
         'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
@@ -75,7 +85,7 @@ export async function runHandoff(
       else delete conversation.sessions[agent];
     }
     await host.save();
-    host.published(true);
+    published(true);
     if (!activated) await host.reactivate();
     throw error;
   }

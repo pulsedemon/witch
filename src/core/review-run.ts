@@ -31,6 +31,8 @@ export interface ReviewHost {
   signal: AbortSignal;
   notice(text: string): void;
   display(update: DisplayUpdate): void;
+  /** keeps context for the agent's next turn. */
+  retain(text: string): void;
   /** runs a silent correction turn; false when it or its memory publication didn't settle. */
   turn(prompt: string): Promise<boolean>;
 }
@@ -134,7 +136,10 @@ export async function runReview(
     stop: string,
     ok: boolean,
     remaining = known.length,
-  ): ReviewOutcome => ({ stop, ok, nonBlocking, remaining, directory });
+  ): ReviewOutcome => {
+    host.retain(`Witch ran /review ${argument}: ${stop}`);
+    return { stop, ok, nonBlocking, remaining, directory };
+  };
   const stopped = (reason: string): ReviewOutcome => {
     if (!signal.aborted) host.notice(`Review stopped: ${reason}`);
     return outcome(reason, false);
