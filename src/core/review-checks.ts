@@ -163,25 +163,18 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
         continue;
       }
     }
-    // a code span can quote a delimiter, so comments are found with spans blanked
+    // a code span or a tag can quote a comment delimiter, so only a comment segment opens one
     let visible = '';
-    let at = 0;
-    for (const match of outsideCode(text).matchAll(/<!--.*?(?:-->|$)/g)) {
-      visible += text.slice(at, match.index) + ' '.repeat(match[0].length);
-      at = match.index + match[0].length;
-      if (!match[0].endsWith('-->')) comment = true;
+    for (const part of segments(text)) {
+      if (!part.html || !part.raw.startsWith('<!--')) visible += part.raw;
+      else {
+        visible += ' '.repeat(part.raw.length);
+        if (!part.raw.endsWith('-->')) comment = true;
+      }
     }
-    visible += text.slice(at);
     prose.push(visible.trim() ? visible : undefined);
   }
   return prose;
-}
-
-/** `line` with each code span blanked to spaces, so positions still match. */
-function outsideCode(line: string): string {
-  return segments(line)
-    .map((part) => (part.code ? ' '.repeat(part.raw.length) : part.raw))
-    .join('');
 }
 
 interface Segment {
@@ -190,6 +183,8 @@ interface Segment {
   text: string;
   /** the segment as written, ticks included. */
   raw: string;
+  /** an HTML comment or tag, which no code span or link reaches into. */
+  html?: true;
 }
 
 /** splits a line into code spans and the text between them, by CommonMark's equal-length backtick runs. */
@@ -208,7 +203,8 @@ function segments(line: string): Segment[] {
     html.lastIndex = index;
     const raw = line[index] === '<' ? html.exec(line) : null;
     if (raw) {
-      text += raw[0];
+      flush();
+      parts.push({ code: false, text: raw[0], raw: raw[0], html: true });
       index += raw[0].length;
       continue;
     }
@@ -534,9 +530,12 @@ function anchors(text: string): Set<string> {
       !/^ {0,3}(#|[-*+]\s|\d+[.)]\s|>)/.test(above)
     )
       add(above.trim());
-    for (const [tag] of outsideCode(line).matchAll(/<[a-z][^>]*>/gi))
-      for (const match of tag.matchAll(/\s(?:id|name)="([^"]+)"/g))
-        ids.add(match[1]!);
+    for (const part of segments(line))
+      if (part.html)
+        for (const match of part.raw.matchAll(
+          /\s(?:id|name)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g,
+        ))
+          ids.add(match[1] ?? match[2] ?? match[3]!);
   }
   return new Set([...headings, ...ids]);
 }
