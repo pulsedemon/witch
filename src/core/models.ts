@@ -57,6 +57,17 @@ export class ModelCatalog {
     private readonly report: (error: unknown) => void,
   ) {}
 
+  installed(id: string): AgentRegistration {
+    const registration = this.registrations.find(
+      ({ adapter }) => adapter.id === id,
+    );
+    if (!registration?.executable)
+      throw new Error(
+        `${registration?.adapter.label ?? id} is not installed. Install its native CLI and sign in before using it.`,
+      );
+    return registration;
+  }
+
   async read(
     cwd: string,
     active?: AgentSession,

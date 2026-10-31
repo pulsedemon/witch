@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentEvent, SessionInfo } from '../agents/types.js';
+import { copilotReviewStateSchema } from './copilot-reviews.js';
 
 const session = z.object({
   id: z.string(),
@@ -57,6 +58,7 @@ export function agentWorking(phase: Phase): boolean {
 }
 
 export const conversationRecordSchema = conversationSchema.extend({
+  copilotReviews: copilotReviewStateSchema.optional(),
   lastTurn: z
     .object({
       id: z.string(),
