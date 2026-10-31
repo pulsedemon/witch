@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { getEventListeners } from 'node:events';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { TestContext } from 'vitest';
@@ -312,6 +313,23 @@ test('blockers in the previous corrections stop the review', async (t) => {
     h.notice('Review finished')!,
     /^Review finished: every blocker sat on lines corrected since the last round/,
   );
+});
+
+test('a round leaves no abort listener on the review behind', async (t) => {
+  const h = await harness(t);
+  h.state.outcome = (_round, { runtime }) =>
+    runtime === 'claude' ? { findings: [{ line: 5, blocking: true }] } : {};
+  h.corrections.push(
+    () => h.setLines({ 5: 'fixed five' }),
+    () => h.setLines({ 5: 'fixed five again' }),
+  );
+  const listeners: number[] = [];
+  h.state.during = async () => {
+    listeners.push(getEventListeners(h.rounds.at(-1)!.signal, 'abort').length);
+  };
+  assert.equal(await h.coordinator.review('plan.md'), true);
+  assert.equal(listeners.length, 2);
+  assert.equal(listeners[1], listeners[0]);
 });
 
 test("a settling round's non-blocking findings get a final turn", async (t) => {
