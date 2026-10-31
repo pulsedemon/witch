@@ -13,6 +13,7 @@ import {
   stopDeadline,
   terminateGraceMs,
 } from '../agents/shutdown.js';
+import { errorMessage } from '../agents/stderr.js';
 import type { AgentEvent, Subagent, TaskStatus } from '../agents/types.js';
 
 export interface Reviewer {
@@ -25,7 +26,7 @@ export interface Reviewer {
 export interface ReviewerResult {
   /** the command's exit code; null when it was signalled or never ran. */
   code: number | null;
-  /** the end of the command's stderr, or why it couldn't start; what explains a reviewer that never registered. */
+  /** the end of the command's stderr, why it couldn't start, and why its report couldn't be read. */
   diagnostics?: string;
   /** the familiar's last status, absent when it never registered. */
   status?: TaskStatus;
@@ -54,9 +55,8 @@ export class Reviewers {
   ) {}
 
   /** whether a familiar entry belongs to a Witch-launched reviewer, so native session shutdown leaves it alone. */
-  owns(id: string): boolean {
-    return [...this.runs.values()].some(({ subagent }) => subagent.id === id);
-  }
+  readonly owns = (id: string): boolean =>
+    [...this.runs.values()].some(({ subagent }) => subagent.id === id);
 
   /** the reply to a familiar action this registry owns, or undefined for one the live session should handle. */
   report(action: FamiliarAction): FamiliarOutcome | undefined {
@@ -168,6 +168,13 @@ export class Reviewers {
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
           const run = finish(name);
+          const report = await readFile(reportFile, 'utf8').catch(
+            (error: unknown) => {
+              diagnostics[index] =
+                `${diagnostics[index]!.trim()}\n${errorMessage(error)}`;
+              return '';
+            },
+          );
           const diagnosis = diagnostics[index]!.trim();
           return {
             code: codes[index]!,
@@ -178,7 +185,7 @@ export class Reviewers {
                   ...(run.subagent.model ? { model: run.subagent.model } : {}),
                 }
               : {}),
-            report: await readFile(reportFile, 'utf8').catch(() => ''),
+            report,
           };
         }),
       );

@@ -848,6 +848,7 @@ export class Coordinator {
           if (done?.status !== 'completed' || this.cancelled) return false;
           if (this.halted() || conversation.activity) return false;
           const { recovery, failure } = await settleMemory(this.workspace!);
+          if (failure) this.notice(`Memory publication failed: ${failure}`);
           return !recovery && !failure;
         },
       });
@@ -1284,7 +1285,7 @@ export class Coordinator {
     const conversationId = this.record?.id;
     const session = this.session;
     this.session = undefined;
-    const owned = (id: string) => this.reviewers.owns(id);
+    const owned = this.reviewers.owns;
     for (const event of stoppedActivity(this.snapshot, owned))
       this.background(event);
     this.publish({
@@ -1331,9 +1332,7 @@ export class Coordinator {
       if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
     } else if (event.type === 'closed') {
-      for (const event of stoppedActivity(this.snapshot, (id) =>
-        this.reviewers.owns(id),
-      ))
+      for (const event of stoppedActivity(this.snapshot, this.reviewers.owns))
         this.background(event);
       this.publish({
         native: undefined,

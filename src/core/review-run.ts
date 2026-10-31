@@ -51,7 +51,7 @@ export function finished(outcome: ReviewOutcome): string {
   return `Review finished: ${outcome.stop} · ${outcome.nonBlocking} non-blocking findings sent · ${outcome.remaining} mechanical failures remain · reports in ${outcome.directory}`;
 }
 
-/** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files or a file outside the directory. */
+/** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files, or a name that isn't a file in the directory. */
 export async function runReview(
   argument: string,
   host: ReviewHost,
@@ -228,7 +228,7 @@ export async function runReview(
         result.status !== 'completed'
           ? result.status
             ? `ended ${result.status}`
-            : `ended without registering${result.diagnostics ? `: ${result.diagnostics}` : ''}`
+            : 'ended without registering'
           : result.code !== 0
             ? `exited with code ${result.code}`
             : result.model !== route.model
@@ -236,7 +236,10 @@ export async function runReview(
               : !findings
                 ? 'did not report findings'
                 : undefined;
-      if (reason || !findings) return stopped(`${name} ${reason}`);
+      if (reason || !findings)
+        return stopped(
+          `${name} ${reason}${result.diagnostics ? `: ${result.diagnostics}` : ''}`,
+        );
       reviews.push({ runtime: route.runtime, findings });
     }
     if (!same(await read(), texts))
