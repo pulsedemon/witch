@@ -88,6 +88,23 @@ test('a link shown in fenced code or an inline code span is not checked', async 
   );
 });
 
+test('a link inside an HTML comment is not checked, and one beside it is', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        'a <!-- [b](gone.md) --> c\nd <!-- [e](gone.md)\n[f](gone.md) -->\n<!-- g --> [h](missing.md)\n',
+    }),
+    ['4: link target missing.md does not exist'],
+  );
+});
+
+test('a target that is not markdown gets no checks', async () => {
+  assert.deepEqual(
+    await check({ 'plan.ts': '// a — PR, see [b](missing.md)\n' }, 'plan.ts'),
+    [],
+  );
+});
+
 test("a relative link resolves from the target's directory", async () => {
   assert.deepEqual(
     await check(
