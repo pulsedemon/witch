@@ -551,6 +551,7 @@ function anchors(text: string): Set<string> {
 function slug(heading: string): string {
   return heading
     .replace(/!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
+    .replace(/<\/?[a-z][^>]*>/gi, '')
     .replace(/[`*]/g, '')
     .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
     .toLowerCase()
