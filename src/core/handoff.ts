@@ -17,7 +17,9 @@ export interface HandoffHost {
   connect(): Promise<AgentSession>;
   /** selects the model on the connected session, returning its session reference. */
   applyModel(session: AgentSession): Promise<SessionReference>;
-  publish(update: Partial<Snapshot>): void;
+  publish(
+    update: Partial<Pick<Snapshot, 'conversation' | 'native' | 'usage'>>,
+  ): void;
   session(): AgentSession | undefined;
   disconnect(): Promise<void>;
   /** reactivates coordination for the conversation unless Witch is closing. */
