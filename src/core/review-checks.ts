@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { decodeHTMLStrict } from 'entities';
 
 const execute = promisify(execFile);
 
@@ -277,7 +278,7 @@ function links(parts: readonly Segment[]): Link[] {
     /\[([^\]]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))*)>?(?:\s+"[^"]*")?\s*\)/g,
   )) {
     const start = match.index + 1;
-    const whole = match[2]!;
+    const whole = decodeHTMLStrict(match[2]!);
     const hash = whole.indexOf('#');
     found.push({
       text: raw.slice(start, start + match[1]!.length),
@@ -543,18 +544,10 @@ function anchors(text: string): Set<string> {
         for (const match of part.raw.matchAll(
           /\s(?:id|name)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g,
         ))
-          ids.add(match[1] ?? match[2] ?? match[3]!);
+          ids.add(decodeHTMLStrict(match[1] ?? match[2] ?? match[3]!));
   }
   return new Set([...headings, ...ids]);
 }
-
-const references: Readonly<Record<string, string>> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-};
 
 /** GitHub's slug of a heading's rendered text, where a code span's markdown syntax and character references stay as text. */
 function slug(heading: string): string {
@@ -568,15 +561,7 @@ function slug(heading: string): string {
     .replace(/<\/?[a-z][^>]*>/gi, '')
     .replace(/\*/g, '')
     .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
-    .replace(
-      /&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([\da-f]+));/gi,
-      (_, name?: string, decimal?: string, hex?: string) =>
-        name
-          ? references[name.toLowerCase()]!
-          : String.fromCodePoint(
-              decimal ? Number(decimal) : parseInt(hex!, 16),
-            ),
-    )
+    .replace(/&[#\w]+;/g, (reference) => decodeHTMLStrict(reference))
     .replace(/\uE000(\d+)\uE001/g, (_, index: string) => code[Number(index)]!)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}_\s-]/gu, '')
