@@ -196,7 +196,7 @@ test('late updates never reopen a finished reviewer', () => {
   return running;
 });
 
-test("a command's stderr comes back as its diagnostics", async () => {
+test("a command's stderr and a report read error come back as its diagnostics", async () => {
   const root = await scratch('witch-reviewers-');
   const [result] = await new Reviewers(() => {}).run({
     cwd: root,
@@ -211,7 +211,7 @@ test("a command's stderr comes back as its diagnostics", async () => {
   });
   assert.deepEqual(result, {
     code: 3,
-    diagnostics: 'first\ncannot open report',
+    diagnostics: `first\ncannot open report\nENOENT: no such file or directory, open '${join(root, 'report.md')}'`,
     report: '',
   });
 });

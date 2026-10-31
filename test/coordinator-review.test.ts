@@ -5,6 +5,7 @@ import { test } from 'vitest';
 import type { TestContext } from 'vitest';
 import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
 import type { Usage } from '../src/agents/types.js';
+import type { ControlOutcome } from '../src/persistence/control.js';
 import { router } from '../src/core/router.js';
 import type { Reviewer, ReviewerResult } from '../src/core/reviewers.js';
 import type { Routed } from '../src/core/routing.js';
@@ -180,7 +181,6 @@ async function harness(
     coordinator,
     coordination,
     claude,
-    codex,
     cwd,
     lines,
     setLines,
@@ -302,6 +302,12 @@ test('blockers in the previous corrections stop the review', async (t) => {
   assert.equal(await h.coordinator.review('plan.md'), true);
   assert.deepEqual(h.rounds.map(names), [['claude', 'codex'], ['claude']]);
   assert.equal(h.correctionPrompts().length, 2);
+  assert.deepEqual(
+    h.coordinator.snapshot.items
+      .filter(({ kind }) => kind === 'user')
+      .map(({ text }) => text),
+    ['/review plan.md'],
+  );
   assert.match(
     h.notice('Review finished')!,
     /^Review finished: every blocker sat on lines corrected since the last round/,
@@ -398,6 +404,10 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
   const h = await harness(t);
   const cases: [Outcome, RegExp][] = [
     [{ status: 'failed' }, /ended failed$/],
+    [
+      { status: 'failed', diagnostics: 'witch: EIO: report.md' },
+      /ended failed: witch: EIO: report\.md$/,
+    ],
     [{ status: 'stopped' }, /ended stopped$/],
     [{ code: 1 }, /exited with code 1$/],
     [
@@ -545,18 +555,18 @@ test('closing Witch fails when a reviewer outlives the stop deadline', async (t)
 test('Escape during routing launches no reviewer', async (t) => {
   const h = await harness(t);
   const held = Promise.withResolvers<void>();
-  let routing = false;
-  h.coordination.router = async () => {
-    routing = true;
-    await held.promise;
-    return { kind: 'route', routes: [claudeRoute] };
-  };
+  let routing: Promise<ControlOutcome> | undefined;
+  h.coordination.router = () =>
+    (routing = held.promise.then(() => ({
+      kind: 'route',
+      routes: [claudeRoute],
+    })));
   const reviewing = h.coordinator.review('plan.md');
-  await until('the route request', () => routing, 500);
+  await until('the route request', () => routing !== undefined, 500);
   await h.coordinator.interrupt();
   assert.equal(await within(reviewing, 3000, 'the review'), false);
   held.resolve();
-  await new Promise((settle) => setTimeout(settle, 50));
+  await routing;
   assert.equal(h.rounds.length, 0);
 });
 
@@ -575,6 +585,39 @@ test('a cancelled route posts nothing later', async (t) => {
   h.coordination.router = (action, signal) => (routed = route(action, signal));
   const reviewing = h.coordinator.review('plan.md');
   await until('the policy read', () => reading, 500);
+  await h.coordinator.interrupt();
+  assert.equal(await within(reviewing, 3000, 'the review'), false);
+  await h.coordinator.newConversation();
+  held.resolve();
+  assert.equal(
+    (await within(routed!, 5000, 'the cancelled route')).kind,
+    'error',
+  );
+  assert.ok(
+    !h.notices().some((text) => /^Route|^Routed/.test(text)),
+    h.notices().join('\n'),
+  );
+});
+
+test('a route cancelled during its usage refresh posts nothing later', async (t) => {
+  const h = await harness(t);
+  const held = Promise.withResolvers<void>();
+  let refreshing = false;
+  h.coordinator.accountUsage.refresh = async () => {
+    refreshing = true;
+    await held.promise;
+  };
+  const route = router(h.coordinator, {
+    read: async () => ({
+      shiftAt: null,
+      families: {},
+      work: { review: 'claude:claude-opus-5-5' },
+    }),
+  });
+  let routed: ReturnType<typeof route> | undefined;
+  h.coordination.router = (action, signal) => (routed = route(action, signal));
+  const reviewing = h.coordinator.review('plan.md');
+  await until('the usage refresh', () => refreshing, 500);
   await h.coordinator.interrupt();
   assert.equal(await within(reviewing, 3000, 'the review'), false);
   await h.coordinator.newConversation();
