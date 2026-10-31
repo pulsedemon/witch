@@ -49,6 +49,7 @@ import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
+import { runHandoff } from './handoff.js';
 import { Reviewers } from './reviewers.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import { AccountUsage } from './usage.js';
@@ -67,7 +68,6 @@ import {
   applyDisplayUpdate,
   clearConversationContext,
   clearDelivery,
-  contextStart,
   createConversation,
   recordDelivery,
   recordSession,
@@ -898,70 +898,33 @@ export class Coordinator {
     await this.coordination.takeTask(reference);
   }
 
-  private async handoff(selection: ModelSelection): Promise<void> {
-    const { agent } = selection;
+  private handoff(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
-    const { agent: from, handoff: previousHandoff } = conversation;
-    const outcome = conversation.lastTurn?.status;
-    const unfinished = outcome === 'interrupted' || outcome === 'failed';
-    const previous = conversation.sessions[agent];
-    let activated = false;
-    try {
-      let summary = '';
-      if (
-        this.snapshot.items
-          .slice(contextStart(this.snapshot.items))
-          .some((item) => item.kind === 'user')
-      ) {
-        const result = await this.performTurn(
-          'Produce a concise handoff summary: objective, constraints, verified decisions, changed files, completed checks, and remaining work. Only summarize. Do not run tools or change files.',
-          'handoff',
-        );
-        if (result.status !== 'completed')
-          throw new Error(result.error ?? 'Handoff was interrupted');
-        summary = result.text;
-      }
-      conversation.handoff = { from, to: agent, summary, activated: false };
-      await this.save();
-      if (this.cancelled) throw new Error('Handoff was interrupted');
-      const session = await this.connect(agent, undefined, selection);
-      const selected = await this.applyModel(session, selection);
-      if (this.cancelled) throw new Error('Handoff was interrupted');
-      conversation.agent = agent;
-      conversation.sessions[agent] = selected;
-      conversation.handoff.activated = true;
-      await this.save();
-      activated = true;
-      this.publish({ conversation, native: this.session?.info });
-      if (summary && unfinished)
-        await this.performTurn(
-          'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
-          'turn',
-        );
-      else if (!summary) delete conversation.handoff;
-      await this.save();
-    } catch (error) {
-      if (!activated) {
-        conversation.agent = from;
-        if (conversation.handoff !== previousHandoff)
-          delete conversation.handoff;
-        await this.disconnect().catch(() => {});
-        if (previous) conversation.sessions[agent] = previous;
-        else delete conversation.sessions[agent];
-      }
-      await this.save();
-      this.publish({
-        conversation,
-        native: this.session?.info,
-        usage: this.session?.usage ?? {},
-      });
-      if (!activated && this.coordination) {
+    return runHandoff(selection, {
+      conversation,
+      items: this.snapshot.items,
+      performTurn: (prompt, kind) => this.performTurn(prompt, kind),
+      save: () => this.save(),
+      cancelled: () => this.cancelled,
+      connect: async () =>
+        this.applyModel(
+          await this.connect(selection.agent, undefined, selection),
+          selection,
+        ),
+      published: (failed) =>
+        this.publish({
+          conversation,
+          native: this.session?.info,
+          ...(failed ? { usage: this.session?.usage ?? {} } : {}),
+        }),
+      disconnect: () => this.disconnect(),
+      reactivate: async () => {
+        if (!this.coordination) return;
         const { project } = await this.memory.scopePaths(conversation.cwd);
         if (!this.closed)
           await this.coordination.activate(conversation, project);
-      }
-      throw error;
-    }
+      },
+    });
   }
 
   /** an answer turn has no user request: it sends Witch's instruction and leaves pending user context for the next turn. */
