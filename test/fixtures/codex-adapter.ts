@@ -8,6 +8,7 @@ import type {
   AgentEvent,
   AgentSession,
   CommandMark,
+  SessionOptions,
 } from '../../src/agents/types.js';
 import type { RpcMessage } from '../../src/agents/json-rpc.js';
 import { until } from './within.js';
@@ -28,6 +29,7 @@ export async function fixture(
     familiarBinding,
     commandPrefixes,
     onClient,
+    onAnswerProcess,
   }: {
     effort?: string;
     resume?: string;
@@ -37,6 +39,7 @@ export async function fixture(
     familiarBinding?: ControlBinding;
     commandPrefixes?: CommandPrefixes;
     onClient?: (message: RpcMessage) => void;
+    onAnswerProcess?: SessionOptions['onAnswerProcess'];
   } = {},
 ) {
   const cwd = await scratch('witch-codex-');
@@ -65,6 +68,7 @@ export async function fixture(
     memoryDirectories: ['/shared/global', '/shared/project'],
     onEvent,
     onProcess: async () => {},
+    onAnswerProcess,
     mark,
     familiarBinding,
     commandPrefixes,

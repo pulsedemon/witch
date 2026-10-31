@@ -368,7 +368,12 @@ test('pending recovery rejects a changed destination scope even without saved sc
   assert.deepEqual(await f.data(), before);
 });
 
-for (const field of ['process', 'usageProcess', 'shell'] as const) {
+for (const field of [
+  'process',
+  'usageProcess',
+  'answerProcess',
+  'shell',
+] as const) {
   test(`a live saved ${field} blocks recovery without stopping it`, async () => {
     const f = await fixture();
     const child = spawn('/bin/sleep', ['30']);

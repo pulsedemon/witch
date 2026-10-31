@@ -61,6 +61,11 @@ import {
 } from './peer-requests.js';
 import type { PeerRequest } from './peer-requests.js';
 import {
+  preparePeerAnswers,
+  recordPeerAnswers,
+  peerAnswerOutputSchema,
+} from './peer-answers.js';
+import {
   agentDisplay,
   agentWorking,
   applyDisplayUpdate,
@@ -977,6 +982,7 @@ export class Coordinator {
     if (!session || this.cancelled) return { status: 'interrupted', text: '' };
     if (!answer) this.coordination?.beginTurn(activity.id);
     try {
+      const batch = requests && (await preparePeerAnswers(requests));
       this.publish({
         subagents: this.snapshot.subagents.filter(
           ({ status }) => status === 'running',
@@ -1012,7 +1018,7 @@ export class Coordinator {
                 }
               : undefined,
           merges: this.coordination?.events.mergeEvents(conversation.id),
-          requests,
+          requests: batch,
           answers:
             kind === 'turn'
               ? this.coordination?.events.answered(conversation.id)
@@ -1053,6 +1059,10 @@ export class Coordinator {
               skillCall(prompt, this.snapshot.skills),
               input.context,
               answer ? 'witch' : 'user',
+              batch && {
+                outputSchema: peerAnswerOutputSchema,
+                requestFile: batch.file,
+              },
             );
             const stopPolicy = watchClaimPolicy(
               this.coordination,
@@ -1067,6 +1077,8 @@ export class Coordinator {
             // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
             if (queued && command === undefined) steering = this.steerQueued();
             result = await sending.finally(stopPolicy);
+            if (requests)
+              await recordPeerAnswers(result, requests, this.coordination!);
           }
         }
       } catch (error) {
@@ -1083,13 +1095,11 @@ export class Coordinator {
         this.retainContext(conversation.id, pendingContext);
       this.retainContext(conversation.id, result.unreadContext);
       await this.finishActivity(activity, this.compaction.failure ?? result);
-      if (result.status === 'completed') {
+      if (result.status === 'completed' && !answer) {
         if (generation === this.contextGeneration) {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
-          if (!answer)
-            reference.deliveredInstructionsRevision =
-              input.instructionsRevision;
+          reference.deliveredInstructionsRevision = input.instructionsRevision;
           recordDelivery(reference, input);
         }
         if (pendingHandoff === conversation.handoff)

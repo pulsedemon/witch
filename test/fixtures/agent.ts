@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { symlink, writeFile } from 'node:fs/promises';
+import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
   AgentAdapter,
   AgentSession,
   AgentStopOptions,
+  AnswerInput,
   Limit,
   Model,
   ModelDiscoveryOptions,
@@ -18,6 +19,8 @@ import type {
   Usage,
   UserResponse,
 } from '../../src/agents/types.js';
+import { peerRequestSchema } from '../../src/core/peer-requests.js';
+import type { PeerRequest } from '../../src/core/peer-requests.js';
 
 /** holds gated turns until `open()`, which releases the current turn and every later one. */
 export class TurnGate {
@@ -52,6 +55,7 @@ export class FixtureAgent implements AgentAdapter {
     context?: string;
     skill?: SkillCall;
     author?: 'witch';
+    answer?: AnswerInput;
   }[] = [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
@@ -94,6 +98,7 @@ export class FixtureAgent implements AgentAdapter {
   interruptNext = false;
   /** the next turn fails once its gate opens, as a native error ends one. */
   failNext = false;
+  peerReply?: (requests: PeerRequest[]) => string;
   gate?: TurnGate;
   /** what a session reports as its usage when it connects. */
   connectUsage?: Usage;
@@ -298,6 +303,7 @@ export class FixtureAgent implements AgentAdapter {
         skill,
         context,
         author = 'user',
+        answer,
       ): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.inputs.push({
@@ -306,6 +312,7 @@ export class FixtureAgent implements AgentAdapter {
           ...(context === undefined ? {} : { context }),
           ...(skill ? { skill } : {}),
           ...(author === 'witch' ? { author } : {}),
+          ...(answer ? { answer } : {}),
         });
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere
         const note = /remember:(\S+)/.exec(prompt)?.[1];
@@ -338,10 +345,25 @@ export class FixtureAgent implements AgentAdapter {
           result = { status: 'failed', text: '', error: 'Overloaded' };
         }
         if (!result) {
-          const text = prompt.includes('handoff summary')
+          let text = prompt.includes('handoff summary')
             ? `${this.id}: finish the migration`
             : 'Done.';
-          options.onEvent({ type: 'text', id: randomUUID(), text });
+          if (author === 'witch') {
+            const path = /Read their messages from ("(?:[^"\\]|\\.)*")/.exec(
+              context ?? '',
+            )?.[1];
+            if (!path) throw new Error('Missing peer request file');
+            const requests = peerRequestSchema
+              .array()
+              .parse(
+                JSON.parse(await readFile(JSON.parse(path) as string, 'utf8')),
+              );
+            text =
+              this.peerReply?.(requests) ??
+              JSON.stringify({
+                answers: requests.map(({ id }) => ({ id, message: 'Done.' })),
+              });
+          } else options.onEvent({ type: 'text', id: randomUUID(), text });
           if (this.turnUsage) {
             usage = this.turnUsage;
             options.onEvent({ type: 'usage', usage });
