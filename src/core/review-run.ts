@@ -223,7 +223,7 @@ export async function runReview(
     if (signal.aborted) return stopped(incomplete);
     const reviews: Review[] = [];
     for (const [index, result] of results.entries()) {
-      const { route, name } = reviewers[index]!;
+      const { route, name, reportFile } = reviewers[index]!;
       const findings = parseFindings(result.report, cwd, files);
       const reason =
         result.status !== 'completed'
@@ -239,7 +239,7 @@ export async function runReview(
                 : undefined;
       if (reason || 'invalid' in findings)
         return stopped(
-          `${name} ${reason}${result.diagnostics ? `: ${result.diagnostics}` : ''}`,
+          `${name} ${reason}${result.diagnostics ? `: ${result.diagnostics}` : ''} · report ${reportFile}`,
         );
       reviews.push({ runtime: route.runtime, findings });
     }
