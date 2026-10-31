@@ -180,7 +180,7 @@ export async function runReview(
     );
     if (!routes.length) routes = reply.routes;
     if (!routes.length) return stopped('no reviewer was routed');
-    // read with no await since the abort check and before any notice, which a close would otherwise reject; a correction that reconnects gets a new prefix
+    // read before any notice, whose listeners can close Witch and make the lookup throw; a correction that reconnects gets a new prefix
     const prefix = coordination.commandPrefixes().familiar;
     const dropped = sittingOut.filter(
       ({ runtime }) =>
