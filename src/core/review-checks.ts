@@ -163,17 +163,25 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
         continue;
       }
     }
-    let visible = text.replace(/<!--.*?-->/g, (match) =>
-      ' '.repeat(match.length),
-    );
-    const start = visible.indexOf('<!--');
-    if (start !== -1) {
-      comment = true;
-      visible = visible.slice(0, start);
+    // a code span can quote a delimiter, so comments are found with spans blanked
+    let visible = '';
+    let at = 0;
+    for (const match of outsideCode(text).matchAll(/<!--.*?(?:-->|$)/g)) {
+      visible += text.slice(at, match.index) + ' '.repeat(match[0].length);
+      at = match.index + match[0].length;
+      if (!match[0].endsWith('-->')) comment = true;
     }
+    visible += text.slice(at);
     prose.push(visible.trim() ? visible : undefined);
   }
   return prose;
+}
+
+/** `line` with each code span blanked to spaces, so positions still match. */
+function outsideCode(line: string): string {
+  return segments(line)
+    .map((part) => (part.code ? ' '.repeat(part.raw.length) : part.raw))
+    .join('');
 }
 
 interface Segment {
