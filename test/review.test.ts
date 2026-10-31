@@ -179,7 +179,7 @@ test('a quiet full pass settles', () => {
       round: both,
       reviews: [review('claude', finding(3, false)), review('codex')],
     }),
-    { stop: 'settled: round 1 found no blockers in a full pass', ok: true },
+    { stop: 'settled: round 1 found no blockers in a full pass' },
   );
 });
 
@@ -199,7 +199,7 @@ test('a single routed runtime settles on its own', () => {
       round: { number: 3, scope: 'full', runtimes: ['claude'] },
       reviews: [review('claude')],
     }),
-    { stop: 'settled: round 3 found no blockers in a full pass', ok: true },
+    { stop: 'settled: round 3 found no blockers in a full pass' },
   );
 });
 
@@ -213,7 +213,7 @@ test('blockers in the previous corrections stop after their correction', () => {
   assert.ok('blockers' in decided);
   assert.equal(
     decided.stopAfter,
-    "every blocker sat in the previous round's corrections",
+    'every blocker sat on lines corrected since the last round',
   );
   assert.deepEqual(
     afterCorrection({
@@ -223,7 +223,10 @@ test('blockers in the previous corrections stop after their correction', () => {
       stopAfter: decided.stopAfter,
       changedDuring: true,
     }),
-    { stop: "every blocker sat in the previous round's corrections", ok: true },
+    {
+      stop: 'every blocker sat on lines corrected since the last round',
+      ok: true,
+    },
   );
 });
 
@@ -270,7 +273,10 @@ test('a regression stop wins over the recall', () => {
       stopAfter: decided.stopAfter,
       changedDuring: true,
     }),
-    { stop: "every blocker sat in the previous round's corrections", ok: true },
+    {
+      stop: 'every blocker sat on lines corrected since the last round',
+      ok: true,
+    },
   );
 });
 

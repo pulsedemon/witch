@@ -128,6 +128,19 @@ test('a leading slash resolves from the repository root', async () => {
   );
 });
 
+test('a reversed or zero-start range is not a line range', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md': '`src/a.ts:3-1` and `src/a.ts:0`\n',
+      'src/a.ts': a,
+    }),
+    [
+      '1: src/a.ts:3-1 is not a line range',
+      '1: src/a.ts:0 is not a line range',
+    ],
+  );
+});
+
 test('line anchor past the end fails, and so does a citation', async () => {
   assert.deepEqual(
     await check({
@@ -141,33 +154,45 @@ test('line anchor past the end fails, and so does a citation', async () => {
   );
 });
 
-test('a blob link to a missing path fails and an unreadable revision is skipped', async () => {
+/** a repository with `origin` at `remote` and one commit of `files`; returns its root and the commit. */
+async function committed(
+  remote: string,
+  files: Record<string, string>,
+): Promise<{ root: string; commit: string }> {
   const root = await scratch('witch-review-checks-');
-  await execute('git', ['-C', root, 'init', '-q']);
-  await execute('git', [
-    '-C',
-    root,
-    'remote',
-    'add',
-    'origin',
-    'git@github.com:owner/repo.git',
-  ]);
+  const git = (...args: string[]) =>
+    execute('git', [
+      '-C',
+      root,
+      '-c',
+      'user.name=t',
+      '-c',
+      'user.email=t@t',
+      ...args,
+    ]);
+  await git('init', '-q');
+  await git('remote', 'add', 'origin', remote);
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(join(root, path, '..'), { recursive: true });
+    await writeFile(join(root, path), content);
+  }
+  await git('add', '-A');
+  await git('commit', '-q', '-m', 'files');
+  return { root, commit: (await git('rev-parse', 'HEAD')).stdout.trim() };
+}
+
+test('a blob link to a missing path fails and an unreadable revision is skipped', async () => {
+  const { root, commit } = await committed('git@github.com:owner/repo.git', {
+    'x.ts': 'one\n',
+  });
   await writeFile(
     join(root, 'plan.md'),
-    '[a](https://github.com/owner/repo/blob/abc/gone.ts#L1)\n[b](https://github.com/owner/repo/blob/bad/x.ts#L1)\n[c](https://github.com/other/repo/blob/abc/gone.ts)\n',
+    `[a](https://github.com/owner/repo/blob/${commit}/gone.ts#L1)\n[b](https://github.com/owner/repo/blob/0000000/x.ts#L1)\n[c](https://github.com/other/repo/blob/${commit}/gone.ts)\n`,
   );
-  const asked: string[] = [];
-  const failures = await checkTargets(
-    root,
-    ['plan.md'],
-    async (revision, path) => {
-      asked.push(`${revision}:${path}`);
-      return revision === 'abc' ? { missing: true } : undefined;
-    },
-  );
-  assert.deepEqual(asked, ['abc:gone.ts', 'bad:x.ts']);
   assert.deepEqual(
-    failures.map(({ line, message }) => `${line}: ${message}`),
+    (await checkTargets(root, ['plan.md'])).map(
+      ({ line, message }) => `${line}: ${message}`,
+    ),
     ['1: link target gone.ts does not exist'],
   );
 });
@@ -194,31 +219,18 @@ test('a blob revision that looks like an option reads nothing and writes nothing
 });
 
 test('blob link to this repository reads the cited revision', async () => {
-  const root = await scratch('witch-review-checks-');
-  await execute('git', ['-C', root, 'init', '-q']);
-  await execute('git', [
-    '-C',
-    root,
-    'remote',
-    'add',
-    'origin',
+  const { root, commit } = await committed(
     'https://github.com/Owner/Repo.git',
-  ]);
-  await writeFile(
-    join(root, 'plan.md'),
-    '[`close()`](https://github.com/owner/repo/blob/1a2b/src/x.ts#L2)\n',
-  );
-  const asked: string[] = [];
-  const failures = await checkTargets(
-    root,
-    ['plan.md'],
-    async (revision, path) => {
-      asked.push(`${revision}:${path}`);
-      return { text: 'one\nclose();\n' };
+    {
+      'src/x.ts': 'one\nclose();\n',
     },
   );
-  assert.deepEqual(asked, ['1a2b:src/x.ts']);
-  assert.deepEqual(failures, []);
+  await writeFile(join(root, 'src/x.ts'), 'changed\n');
+  await writeFile(
+    join(root, 'plan.md'),
+    `[\`close()\`](https://github.com/owner/repo/blob/${commit}/src/x.ts#L2)\n`,
+  );
+  assert.deepEqual(await checkTargets(root, ['plan.md']), []);
 });
 
 test('range that stops inside its block fails', async () => {

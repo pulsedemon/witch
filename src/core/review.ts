@@ -5,7 +5,7 @@ import { quote } from '../shell.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Routed } from './routing.js';
 
-export const findingsSchema = z.strictObject({
+const findingsSchema = z.strictObject({
   findings: z.array(
     z.strictObject({
       file: z.string(),
@@ -114,7 +114,7 @@ export function decide({
   reviews: readonly Review[];
   previousChanges?: Map<string, Set<number>>;
 }):
-  | { stop: string; ok: true }
+  | { stop: string }
   | { blockers: Finding[]; sittingOut: SitOut[]; stopAfter?: string } {
   const blockers = reviews.flatMap(({ findings }) =>
     findings.filter(({ blocking }) => blocking),
@@ -123,7 +123,6 @@ export function decide({
     return round.scope === 'full'
       ? {
           stop: `settled: round ${round.number} found no blockers in a full pass`,
-          ok: true,
         }
       : { blockers, sittingOut: [] };
   if (
@@ -133,7 +132,7 @@ export function decide({
     return {
       blockers,
       sittingOut: [],
-      stopAfter: "every blocker sat in the previous round's corrections",
+      stopAfter: 'every blocker sat on lines corrected since the last round',
     };
   return {
     blockers,
@@ -150,7 +149,7 @@ export function decide({
   };
 }
 
-/** after the correction turn, or right after `decide` when there were no blockers: stop, or the next round. */
+/** after `decide` keeps going, once its findings, if any, reached the correction turn: stop, or the next round. */
 export function afterCorrection({
   round,
   blockers,

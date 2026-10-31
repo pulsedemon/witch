@@ -39,7 +39,7 @@ export interface ReviewOutcome {
   stop: string;
   /** true for a settled review or a regression stop. */
   ok: boolean;
-  /** the non-blocking findings the final correction turn received. */
+  /** the non-blocking findings correction turns received over the whole review. */
   nonBlocking: number;
   /** the mechanical failures at the last check. */
   remaining: number;
@@ -51,7 +51,7 @@ export function finished(outcome: ReviewOutcome): string {
   return `Review finished: ${outcome.stop} · ${outcome.nonBlocking} non-blocking findings sent · ${outcome.remaining} mechanical failures remain · reports in ${outcome.directory}`;
 }
 
-/** runs review rounds over the files `argument` names until they settle or stop; undefined when the files are refused. */
+/** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files or a file outside the directory. */
 export async function runReview(
   argument: string,
   host: ReviewHost,
@@ -126,10 +126,10 @@ export async function runReview(
   let reviewed: Texts | undefined;
   let next = { number: 1, closing: false };
   let sittingOut: SitOut[] = [];
+  let nonBlocking = 0;
   const outcome = (
     stop: string,
     ok: boolean,
-    nonBlocking = 0,
     remaining = known.length,
   ): ReviewOutcome => ({ stop, ok, nonBlocking, remaining, directory });
   const stopped = (reason: string): ReviewOutcome => {
@@ -206,7 +206,6 @@ export async function runReview(
       const reportFile = join(directory, `${name}.md`);
       return {
         name,
-        runtime: route.runtime,
         route,
         reportFile,
         command: reviewerCommand({
@@ -227,7 +226,9 @@ export async function runReview(
       const findings = parseFindings(result.report, cwd, files);
       const reason =
         result.status !== 'completed'
-          ? `ended ${result.status ?? 'without registering'}`
+          ? result.status
+            ? `ended ${result.status}`
+            : `ended without registering${result.diagnostics ? `: ${result.diagnostics}` : ''}`
           : result.code !== 0
             ? `exited with code ${result.code}`
             : result.model !== route.model
@@ -251,13 +252,13 @@ export async function runReview(
       ...(delta ? { previousChanges: delta.changed } : {}),
     });
     const findings: Finding[] = reviews.flatMap(({ findings }) => findings);
-    const nonBlocking = findings.filter(({ blocking }) => !blocking).length;
     if (findings.length && !(await host.turn(correctionPrompt({ findings }))))
       return stopped(incomplete);
+    nonBlocking += findings.filter(({ blocking }) => !blocking).length;
     const remaining = async () =>
       findings.length ? (await checkTargets(cwd, files)).length : known.length;
     if ('stop' in decided)
-      return outcome(decided.stop, true, nonBlocking, await remaining());
+      return outcome(decided.stop, true, await remaining());
     const after = afterCorrection({
       round,
       blockers: decided.blockers.length,
@@ -267,7 +268,7 @@ export async function runReview(
     });
     if ('stop' in after) {
       if (!after.ok) return stopped(after.stop);
-      return outcome(after.stop, true, nonBlocking, await remaining());
+      return outcome(after.stop, true, await remaining());
     }
     reviewed = texts;
     next = after.next;

@@ -11,12 +11,6 @@ export interface CheckFailure {
   message: string;
 }
 
-/** a file at a revision; `missing` when the revision lacks the path, undefined when the revision can't be read. */
-type Blob = (
-  revision: string,
-  path: string,
-) => Promise<{ text: string } | { missing: true } | undefined>;
-
 /** the files a cited range's bracket walk understands; other languages' comments and closers would miscount. */
 const scripts = new Set([
   '.ts',
@@ -49,10 +43,8 @@ type Fail = (line: number, message: string) => void;
 export async function checkTargets(
   cwd: string,
   files: readonly string[],
-  blob?: Blob,
 ): Promise<CheckFailure[]> {
   const repository = await repositoryOf(cwd);
-  const atRevision = blob ?? ((revision, path) => show(cwd, revision, path));
   const cache = new Map<string, Promise<string | undefined>>();
   const local = (path: string) => {
     let text = cache.get(path);
@@ -80,7 +72,7 @@ export async function checkTargets(
           'revision' in target ? target.path : relative(cwd, target.path);
         let content: string;
         if ('revision' in target) {
-          const read = await atRevision(target.revision, target.path);
+          const read = await show(cwd, target.revision, target.path);
           if (!read) continue;
           if ('missing' in read) {
             fail(number, `link target ${shown} does not exist`);
@@ -342,7 +334,7 @@ function span(start: number, end: number): string {
   return start === end ? `${start}` : `${start}-${end}`;
 }
 
-/** false when the range is past the file's end, so nothing else about it can be checked. */
+/** false when the range is reversed, starts before line 1 or runs past the file's end, so nothing else about it can be checked. */
 function checkRange(
   shown: string,
   text: string,
@@ -352,7 +344,11 @@ function checkRange(
   line: number,
 ): boolean {
   const count = text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
-  if (start < 1 || end < start || end > count) {
+  if (start < 1 || end < start) {
+    fail(line, `${shown}:${span(start, end)} is not a line range`);
+    return false;
+  }
+  if (end > count) {
     fail(
       line,
       `${shown}:${span(start, end)} is past the end of ${shown} (${count} lines)`,
@@ -570,6 +566,7 @@ async function repositoryOf(cwd: string): Promise<Repository> {
   };
 }
 
+/** a file at a revision; `missing` when the revision lacks the path, undefined when the revision can't be read. */
 async function show(
   cwd: string,
   revision: string,

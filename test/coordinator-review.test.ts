@@ -37,13 +37,18 @@ interface Finding {
 /** what one scripted reviewer reports. */
 interface Outcome {
   findings?: Finding[];
-  status?: ReviewerResult['status'];
+  /** null for a reviewer that never registered. */
+  status?: ReviewerResult['status'] | null;
+  diagnostics?: string;
   code?: number | null;
   model?: string;
   report?: string;
 }
 
 const target = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
+
+/** the runtime a reviewer's name carries, as `review-<run>-<round>-<runtime>-<index>`. */
+const runtimeOf = ({ name }: Reviewer) => name.split('-')[3]!;
 
 async function harness(
   t: TestContext,
@@ -77,7 +82,7 @@ async function harness(
   const actions: unknown[] = [];
   const state: {
     routes: (round: number) => Routed[];
-    outcome: (round: number, reviewer: Reviewer) => Outcome;
+    outcome: (round: number, reviewer: { runtime: string }) => Outcome;
     /** a round's reviewers wait for this before reporting, when set. */
     hold?: Promise<void>;
     during?: () => Promise<void>;
@@ -104,14 +109,18 @@ async function harness(
     await state.during?.();
     await state.hold;
     return reviewers.map((reviewer) => {
-      const outcome = state.outcome(rounds.length, reviewer);
+      const outcome = state.outcome(rounds.length, {
+        runtime: runtimeOf(reviewer),
+      });
       const model = /'--model' '([^']+)'|'model="([^"]+)"'/.exec(
         reviewer.command,
       )!;
       return {
-        name: reviewer.name,
         code: outcome.code === undefined ? 0 : outcome.code,
-        status: outcome.status ?? 'completed',
+        ...(outcome.status === null
+          ? {}
+          : { status: outcome.status ?? 'completed' }),
+        ...(outcome.diagnostics ? { diagnostics: outcome.diagnostics } : {}),
         model: outcome.model ?? model[1] ?? model[2]!,
         report:
           outcome.report ??
@@ -200,7 +209,7 @@ function batches(h: Awaited<ReturnType<typeof harness>>) {
 }
 
 const names = (round: { reviewers: Reviewer[] }) =>
-  round.reviewers.map(({ runtime }) => runtime);
+  round.reviewers.map(runtimeOf);
 
 test('a single-harness change brings the quiet harness back', async (t) => {
   const h = await harness(t);
@@ -256,7 +265,7 @@ test('a single-harness change brings the quiet harness back', async (t) => {
   );
   assert.match(
     h.notice('Review finished')!,
-    /^Review finished: settled: round 4 found no blockers in a full pass · 0 non-blocking findings sent · 0 mechanical failures remain/,
+    /^Review finished: settled: round 4 found no blockers in a full pass · 1 non-blocking findings sent · 0 mechanical failures remain/,
   );
 });
 
@@ -295,7 +304,7 @@ test('blockers in the previous corrections stop the review', async (t) => {
   assert.equal(h.correctionPrompts().length, 2);
   assert.match(
     h.notice('Review finished')!,
-    /^Review finished: every blocker sat in the previous round's corrections/,
+    /^Review finished: every blocker sat on lines corrected since the last round/,
   );
 });
 
@@ -396,6 +405,11 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
       /ran on claude-haiku-5-5, not claude-opus-5-5$/,
     ],
     [{ report: 'No findings block.' }, /did not report findings$/],
+    [
+      { status: null, code: 1, diagnostics: 'witch: EEXIST: report.md' },
+      /ended without registering: witch: EEXIST: report\.md$/,
+    ],
+    [{ status: null, code: 1 }, /ended without registering$/],
   ];
   for (const [outcome, reason] of cases) {
     h.state.outcome = (_round, { runtime }) =>

@@ -62,7 +62,6 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
     });
     return {
       name,
-      runtime,
       directory,
       reportFile: join(directory, 'report.md'),
       command: `cd ${quote(directory)} && PATH=${quote(bin)}:"$PATH" WITCH_FAMILIAR_FIXTURE=${mode} ${command}`,
@@ -163,9 +162,7 @@ test('late updates never reopen a finished reviewer', () => {
   const controller = new AbortController();
   const running = reviewers.run({
     cwd: '/',
-    reviewers: [
-      { name: 'r', runtime: 'claude', command: 'sleep 5', reportFile: '/x' },
-    ],
+    reviewers: [{ name: 'r', command: 'sleep 5', reportFile: '/x' }],
     signal: controller.signal,
   });
   const run = randomUUID();
@@ -193,6 +190,26 @@ test('late updates never reopen a finished reviewer', () => {
   return running;
 });
 
+test("a command's stderr comes back as its diagnostics", async () => {
+  const root = await scratch('witch-reviewers-');
+  const [result] = await new Reviewers(() => {}).run({
+    cwd: root,
+    reviewers: [
+      {
+        name: 'r',
+        command: 'echo first >&2; echo cannot open report >&2; exit 3',
+        reportFile: join(root, 'report.md'),
+      },
+    ],
+    signal: new AbortController().signal,
+  });
+  assert.deepEqual(result, {
+    code: 3,
+    diagnostics: 'first\ncannot open report',
+    report: '',
+  });
+});
+
 test('an aborted signal spawns nothing', async () => {
   const root = await scratch('witch-reviewers-');
   const controller = new AbortController();
@@ -202,14 +219,13 @@ test('an aborted signal spawns nothing', async () => {
     reviewers: [
       {
         name: 'r',
-        runtime: 'claude',
         command: 'touch started',
         reportFile: join(root, 'report.md'),
       },
     ],
     signal: controller.signal,
   });
-  assert.deepEqual(results, [{ name: 'r', code: null, report: '' }]);
+  assert.deepEqual(results, [{ code: null, report: '' }]);
   await assert.rejects(readFile(join(root, 'started')), { code: 'ENOENT' });
 });
 
@@ -234,7 +250,6 @@ test('cleanup waits while macOS answers EPERM for an exiting group', async () =>
       reviewers: [
         {
           name: 'r',
-          runtime: 'claude',
           command: 'true',
           reportFile: join(root, 'report.md'),
         },
@@ -271,7 +286,6 @@ test('a reviewer that outlives the stop deadline ends the run at the deadline', 
       reviewers: [
         {
           name: 'r',
-          runtime: 'claude',
           command: 'exec sleep 30',
           reportFile: join(root, 'report.md'),
         },

@@ -17,16 +17,16 @@ import type { AgentEvent, Subagent, TaskStatus } from '../agents/types.js';
 
 export interface Reviewer {
   name: string;
-  runtime: string;
   /** the familiar wrapper's shell command, which reads its brief on stdin. */
   command: string;
   reportFile: string;
 }
 
 export interface ReviewerResult {
-  name: string;
   /** the command's exit code; null when it was signalled or never ran. */
   code: number | null;
+  /** the end of the command's stderr, or why it couldn't start; what explains a reviewer that never registered. */
+  diagnostics?: string;
   /** the familiar's last status, absent when it never registered. */
   status?: TaskStatus;
   model?: string;
@@ -107,19 +107,27 @@ export class Reviewers {
     signal: AbortSignal;
   }): Promise<ReviewerResult[]> {
     if (signal.aborted)
-      return reviewers.map(({ name }) => ({ name, code: null, report: '' }));
+      return reviewers.map(() => ({ code: null, report: '' }));
     for (const { name } of reviewers) this.expected.set(name, {});
     const groups: number[] = [];
+    const diagnostics = reviewers.map(() => '');
     const exits = reviewers.map(
-      ({ command }) =>
+      ({ command }, index) =>
         new Promise<number | null>((resolve) => {
           const child = spawn('/bin/sh', ['-c', command], {
             cwd,
             detached: true,
-            stdio: 'ignore',
+            stdio: ['ignore', 'ignore', 'pipe'],
           });
           if (child.pid) groups.push(child.pid);
-          child.once('error', () => resolve(null));
+          child.stderr?.setEncoding('utf8');
+          child.stderr?.on('data', (chunk: string) => {
+            diagnostics[index] = (diagnostics[index] + chunk).slice(-2000);
+          });
+          child.once('error', (error) => {
+            diagnostics[index] = error.message;
+            resolve(null);
+          });
           child.once('exit', (code) => resolve(code));
         }),
     );
@@ -160,9 +168,10 @@ export class Reviewers {
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
           const run = finish(name);
+          const diagnosis = diagnostics[index]!.trim();
           return {
-            name,
             code: codes[index]!,
+            ...(diagnosis ? { diagnostics: diagnosis } : {}),
             ...(run
               ? {
                   status: run.subagent.status,
