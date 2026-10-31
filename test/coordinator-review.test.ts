@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { TestContext } from 'vitest';
@@ -400,6 +400,24 @@ test('an empty or bad target refuses', async (t) => {
   assert.deepEqual(runs.ran, ['review', 'review', 'review', 'clear']);
 });
 
+test('a target Witch cannot stat stops the review with the error', async (t) => {
+  const h = await harness(t);
+  const locked = join(h.cwd, 'locked');
+  await mkdir(locked);
+  await writeFile(join(locked, 'plan.md'), 'x\n');
+  await chmod(locked, 0o000);
+  try {
+    await assert.rejects(h.coordinator.review('locked/plan.md'), {
+      code: 'EACCES',
+    });
+  } finally {
+    await chmod(locked, 0o700);
+  }
+  assert.match(h.coordinator.snapshot.error ?? '', /EACCES/);
+  assert.ok(!h.notice('Review refused'), h.notices().join('\n'));
+  assert.equal(h.rounds.length, 0);
+});
+
 test('a reviewer that fails, stops, exits non-zero, reports another model or writes an unparsable report stops the review', async (t) => {
   const h = await harness(t);
   const cases: [Outcome, RegExp][] = [
@@ -570,66 +588,68 @@ test('Escape during routing launches no reviewer', async (t) => {
   assert.equal(h.rounds.length, 0);
 });
 
-test('a cancelled route posts nothing later', async (t) => {
-  const h = await harness(t);
-  const held = Promise.withResolvers<void>();
-  let reading = false;
-  const route = router(h.coordinator, {
-    read: async () => {
-      reading = true;
-      await held.promise;
-      return { shiftAt: null, families: {}, work: {} };
-    },
-  });
+/** a policy that routes review to Claude, so only cancellation can stop a held route. */
+const routable = {
+  shiftAt: null,
+  families: {},
+  work: { review: 'claude:claude-opus-5-5' },
+};
+
+/** interrupts a review whose route is held, opens another conversation, then releases the route, which must answer cancelled and post nothing. */
+async function cancelHeldRoute(
+  h: Awaited<ReturnType<typeof harness>>,
+  read: () => Promise<typeof routable>,
+  held: { waiting: () => boolean; release: () => void },
+) {
+  const route = router(h.coordinator, { read });
   let routed: ReturnType<typeof route> | undefined;
   h.coordination.router = (action, signal) => (routed = route(action, signal));
   const reviewing = h.coordinator.review('plan.md');
-  await until('the policy read', () => reading, 500);
+  await until('the held route', held.waiting, 500);
   await h.coordinator.interrupt();
   assert.equal(await within(reviewing, 3000, 'the review'), false);
   await h.coordinator.newConversation();
-  held.resolve();
-  assert.equal(
-    (await within(routed!, 5000, 'the cancelled route')).kind,
-    'error',
-  );
+  held.release();
+  assert.deepEqual(await within(routed!, 5000, 'the cancelled route'), {
+    kind: 'error',
+    message: 'Route cancelled.',
+  });
   assert.ok(
     !h.notices().some((text) => /^Route|^Routed/.test(text)),
     h.notices().join('\n'),
   );
+}
+
+test('a route cancelled during its policy read posts nothing later', async (t) => {
+  const h = await harness(t);
+  for (const outcome of ['read', 'failed']) {
+    const gate = Promise.withResolvers<void>();
+    let reading = false;
+    await cancelHeldRoute(
+      h,
+      async () => {
+        reading = true;
+        await gate.promise;
+        if (outcome === 'failed') throw new Error('policy unreadable');
+        return routable;
+      },
+      { waiting: () => reading, release: () => gate.resolve() },
+    );
+  }
 });
 
 test('a route cancelled during its usage refresh posts nothing later', async (t) => {
   const h = await harness(t);
-  const held = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
   let refreshing = false;
   h.coordinator.accountUsage.refresh = async () => {
     refreshing = true;
-    await held.promise;
+    await gate.promise;
   };
-  const route = router(h.coordinator, {
-    read: async () => ({
-      shiftAt: null,
-      families: {},
-      work: { review: 'claude:claude-opus-5-5' },
-    }),
+  await cancelHeldRoute(h, async () => routable, {
+    waiting: () => refreshing,
+    release: () => gate.resolve(),
   });
-  let routed: ReturnType<typeof route> | undefined;
-  h.coordination.router = (action, signal) => (routed = route(action, signal));
-  const reviewing = h.coordinator.review('plan.md');
-  await until('the usage refresh', () => refreshing, 500);
-  await h.coordinator.interrupt();
-  assert.equal(await within(reviewing, 3000, 'the review'), false);
-  await h.coordinator.newConversation();
-  held.resolve();
-  assert.equal(
-    (await within(routed!, 5000, 'the cancelled route')).kind,
-    'error',
-  );
-  assert.ok(
-    !h.notices().some((text) => /^Route|^Routed/.test(text)),
-    h.notices().join('\n'),
-  );
 });
 
 test('an interrupted correction turn ends the review and keeps its memory pending', async (t) => {
