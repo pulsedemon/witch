@@ -124,7 +124,7 @@ export async function checkTargets(
   return failures;
 }
 
-/** each line's prose with its HTML comments blanked; undefined in fenced code, front matter or a comment that leaves nothing visible. indented lines stay prose, since nested list items use them. */
+/** each line's prose with its HTML comments blanked; undefined where nothing visible is left: fenced code, front matter, comments and blank lines. indented lines stay prose, since nested list items use them. */
 function proseLines(lines: readonly string[]): (string | undefined)[] {
   const prose: (string | undefined)[] = [];
   let fence: { mark: string; length: number } | undefined;
@@ -163,16 +163,15 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
         continue;
       }
     }
-    const bare = text.replace(/<!--.*?-->/g, (match) =>
+    let visible = text.replace(/<!--.*?-->/g, (match) =>
       ' '.repeat(match.length),
     );
-    const start = bare.indexOf('<!--');
-    if (start === -1) prose.push(bare);
-    else {
+    const start = visible.indexOf('<!--');
+    if (start !== -1) {
       comment = true;
-      const before = bare.slice(0, start);
-      prose.push(before.trim() ? before : undefined);
+      visible = visible.slice(0, start);
     }
+    prose.push(visible.trim() ? visible : undefined);
   }
   return prose;
 }
@@ -513,7 +512,7 @@ function anchors(text: string): Set<string> {
     const above = prose[index - 1];
     if (
       /^ {0,3}(=+|-+)\s*$/.test(line) &&
-      above?.trim() &&
+      above &&
       !/^ {0,3}(#|[-*+]\s|\d+[.)]\s|>)/.test(above)
     )
       add(above.trim());
