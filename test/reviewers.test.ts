@@ -72,16 +72,22 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
 
 async function nativePid(directory: string): Promise<number> {
   const launched = join(directory, 'launched.json');
+  let pid: number | undefined;
   await until(
     'the native reviewer to launch',
-    () =>
-      readFile(launched, 'utf8').then(
-        () => true,
-        () => false,
-      ),
+    // the fixture writes the file in place, so a poll can find it still empty
+    async () => {
+      try {
+        pid = (JSON.parse(await readFile(launched, 'utf8')) as { pid: number })
+          .pid;
+        return true;
+      } catch {
+        return false;
+      }
+    },
     500,
   );
-  return (JSON.parse(await readFile(launched, 'utf8')) as { pid: number }).pid;
+  return pid!;
 }
 
 function alive(pid: number): boolean {
