@@ -170,6 +170,8 @@ async function read(
   }
 }
 
+export class ControlTimeoutError extends Error {}
+
 export async function callControl(
   binding: ControlBinding,
   action: CoordinationAction | FamiliarAction,
@@ -204,14 +206,26 @@ export async function callControl(
       }
       if (performance.now() - touched >= renotify) {
         touched = performance.now();
-        // the host removes a request only once it has expired, so no reply can follow ENOENT
-        await files.lutimes(inbox, new Date(), new Date());
+        try {
+          await files.lutimes(inbox, new Date(), new Date());
+        } catch (error) {
+          if (
+            (error as NodeJS.ErrnoException).code !== 'ENOENT' ||
+            Date.now() < request.deadline
+          )
+            throw error;
+          break;
+        }
       }
       await delay(25);
     }
-    throw new Error('The host did not reply before the deadline.');
+    throw new ControlTimeoutError(
+      'The host did not reply before the deadline.',
+    );
   } catch (error) {
-    throw new Error(
+    const Failure =
+      error instanceof ControlTimeoutError ? ControlTimeoutError : Error;
+    throw new Failure(
       `Coordination result unknown. Query peers before doing work. ${errorMessage(error)}`,
       { cause: error },
     );
