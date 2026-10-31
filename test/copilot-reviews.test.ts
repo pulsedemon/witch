@@ -382,6 +382,46 @@ test('reopen and context clear retain receipts from legacy single-PR records', a
   assert.equal(reopened.record.sessions.codex!.hasHistory, false);
 });
 
+test('blocked receipts with blank errors survive save and reopen', async (t) => {
+  const root = await scratch('witch-blank-review-error-');
+  const store = await StateStore.open(root);
+  for (const error of ['', ' \n']) {
+    const f = fixture();
+    const id = randomUUID();
+    f.batch.owner = id;
+    f.state.claim = f.batch.claim;
+    const record = conversationRecordSchema.parse({
+      id,
+      title: 'review',
+      cwd: root,
+      agent: 'codex',
+      sessions: {},
+      createdAt: '2026-10-30T00:00:00Z',
+    });
+    const files = await store.create(record);
+    t.onTestFinished(() => files.close());
+    record.copilotReviews = [blockReviewBatch(f.state, error)];
+    await files.save(record);
+    await files.close();
+    const reopened = await store.claim(id);
+    t.onTestFinished(() => reopened.close());
+    const saved = reopened.record.copilotReviews![0]!;
+    assert.ok(saved.batch!.reason!.trim());
+    assert.equal(saved.items.length, 2);
+    assert.ok(
+      saved.items.every(
+        ({ status, receipts }) =>
+          status === 'blocked' &&
+          receipts.some(
+            (receipt) =>
+              receipt.disposition === 'blocked' && !!receipt.reason.trim(),
+          ),
+      ),
+    );
+    await reopened.close();
+  }
+});
+
 test('the result schema and instruction keep source bodies out of native input', () => {
   const f = fixture();
   assert.ok(reviewResultSchema.safeParse(f.result).success);

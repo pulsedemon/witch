@@ -323,6 +323,7 @@ export function blockReviewBatch(
   state: CopilotReviewState,
   reason: string,
 ): CopilotReviewState {
+  reason = reason.trim() || 'Review handling failed without a reported error.';
   return {
     ...state,
     ...(state.batch
