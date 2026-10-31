@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { NativeStop } from '../src/agents/shutdown.js';
 import { reviewerCommand } from '../src/core/review.js';
 import { Reviewers } from '../src/core/reviewers.js';
@@ -211,6 +211,41 @@ test('an aborted signal spawns nothing', async () => {
   });
   assert.deepEqual(results, [{ name: 'r', code: null, report: '' }]);
   await assert.rejects(readFile(join(root, 'started')), { code: 'ENOENT' });
+});
+
+test('cleanup waits while macOS answers EPERM for an exiting group', async () => {
+  const root = await scratch('witch-reviewers-');
+  const kill = process.kill.bind(process);
+  const sent: (string | number | undefined)[] = [];
+  let probes = 0;
+  const refuse = (code: string) =>
+    Object.assign(new Error(`kill ${code}`), { code });
+  const spy = vi
+    .spyOn(process, 'kill')
+    .mockImplementation((pid: number, signal?: string | number) => {
+      if (pid >= 0) return kill(pid, signal);
+      sent.push(signal);
+      if (signal !== 0) throw refuse('EPERM');
+      throw refuse(++probes <= 3 ? 'EPERM' : 'ESRCH');
+    });
+  try {
+    const [result] = await new Reviewers(() => {}).run({
+      cwd: root,
+      reviewers: [
+        {
+          name: 'r',
+          runtime: 'claude',
+          command: 'true',
+          reportFile: join(root, 'report.md'),
+        },
+      ],
+      signal: new AbortController().signal,
+    });
+    assert.equal(result!.code, 0);
+    assert.deepEqual(sent, ['SIGKILL', 0, 0, 0, 0]);
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 test('abort stops every reviewer', async (t) => {
