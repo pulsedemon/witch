@@ -30,10 +30,8 @@ async function input(cwd: string) {
       askedAt: '2026-10-30T00:00:00Z',
     }),
   );
-  return {
-    requests,
-    context: requestContext(await preparePeerAnswers(requests, cwd)),
-  };
+  const batch = await preparePeerAnswers(requests, cwd);
+  return { requests, file: batch.file, context: requestContext(batch) };
 }
 
 async function answer(session: AgentSession, cwd: string) {
@@ -43,7 +41,7 @@ async function answer(session: AgentSession, cwd: string) {
     undefined,
     batch.context,
     'witch',
-    peerAnswerOutputSchema,
+    { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
   );
   assert.equal(result.status, 'completed');
   assert.deepEqual(
@@ -107,6 +105,7 @@ for (const history of [false, true]) {
     for (const feature of [
       'apps',
       'plugins',
+      'hooks',
       'multi_agent',
       'multi_agent_v2',
       'skill_mcp_dependency_install',
@@ -287,6 +286,36 @@ for (const runtime of ['codex', 'claude'] as const) {
   });
 }
 
+test('Claude allows its exact request file when the native read needs approval', async (t) => {
+  const f = await claude();
+  const events: AgentEvent[] = [];
+  const session = await f.connect({ onEvent: (event) => events.push(event) });
+  t.onTestFinished(() => session.close());
+  const batch = await input(f.cwd);
+  await writeFile(join(f.cwd, 'answer-approval'), batch.file);
+  const result = await session.send(
+    answerInstruction,
+    undefined,
+    batch.context,
+    'witch',
+    { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
+  );
+  assert.equal(result.status, 'completed');
+  const response = JSON.parse(
+    await readFile(join(f.cwd, 'answer-response.json'), 'utf8'),
+  ) as { response: { behavior: string; updatedInput: unknown } };
+  assert.equal(response.response.behavior, 'allow');
+  assert.deepEqual(response.response.updatedInput, { file_path: batch.file });
+  assert.ok(!events.some((event) => event.type === 'request'));
+  assert.deepEqual(
+    parsePeerAnswers(result.text, batch.requests),
+    batch.requests.map(({ id, message }) => ({
+      id,
+      message: `Read: ${message}`,
+    })),
+  );
+});
+
 test('Claude closes a child whose process registration fails and keeps its owner usable', async (t) => {
   const f = await claude();
   const session = await f.connect({
@@ -333,16 +362,14 @@ for (const runtime of ['codex', 'claude'] as const) {
           : await claude();
       const session =
         'session' in f ? f.session : await f.connect({ onAnswerProcess });
+      const batch = await input(f.cwd);
       const closing = session.close();
       if (phase === 'closed') await closing;
       const rejected = assert.rejects(
-        session.send(
-          answerInstruction,
-          undefined,
-          '',
-          'witch',
-          peerAnswerOutputSchema,
-        ),
+        session.send(answerInstruction, undefined, '', 'witch', {
+          outputSchema: peerAnswerOutputSchema,
+          requestFile: batch.file,
+        }),
         /session is closed/,
       );
       await closing;
@@ -372,13 +399,11 @@ for (const runtime of ['codex', 'claude'] as const) {
       registered.resolve();
       await session.close();
     });
-    const sending = session.send(
-      answerInstruction,
-      undefined,
-      '',
-      'witch',
-      peerAnswerOutputSchema,
-    );
+    const batch = await input(f.cwd);
+    const sending = session.send(answerInstruction, undefined, '', 'witch', {
+      outputSchema: peerAnswerOutputSchema,
+      requestFile: batch.file,
+    });
     await entered.promise;
     const stopping = session.interrupt();
     registered.resolve();

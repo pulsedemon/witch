@@ -39,6 +39,7 @@ import type {
   AgentAdapter,
   AgentSession,
   AgentStopOptions,
+  AnswerInput,
   Limit,
   Model,
   ModelDiscoveryOptions,
@@ -280,14 +281,10 @@ class ClaudeSession implements AgentSession {
               strictMcpConfig: true,
               mcpServers: {},
               settings: { disableAllHooks: true },
-              ...(options.answer.outputSchema
-                ? {
-                    outputFormat: {
-                      type: 'json_schema' as const,
-                      schema: options.answer.outputSchema,
-                    },
-                  }
-                : {}),
+              outputFormat: {
+                type: 'json_schema' as const,
+                schema: options.answer.outputSchema,
+              },
             }
           : {}),
         systemPrompt: { type: 'preset', preset: 'claude_code' },
@@ -322,6 +319,13 @@ class ClaudeSession implements AgentSession {
           return child;
         },
         canUseTool: async (toolName, input, context) => {
+          // the batch file is Witch-owned input outside Claude's working directories
+          if (
+            toolName === 'Read' &&
+            options.answer &&
+            input.file_path === options.answer.requestFile
+          )
+            return { behavior: 'allow', updatedInput: input };
           if (options.answer)
             return {
               behavior: 'deny',
@@ -514,12 +518,12 @@ class ClaudeSession implements AgentSession {
     skill?: SkillCall,
     context?: string,
     author: 'user' | 'witch' = 'user',
-    outputSchema?: Record<string, unknown>,
+    answer?: AnswerInput,
   ): Promise<TurnResult> {
     if (author === 'witch' && !this.options.answer) {
       if (this.closed) throw new Error('The Claude session is closed');
       if (this.turn) throw new Error('This agent is already running');
-      return this.answers.run(this.info, prompt, context, outputSchema);
+      return this.answers.run(this.info, prompt, context, answer);
     }
     const turn = this.beginTurn();
     const records = this.records;
@@ -1279,7 +1283,7 @@ class ClaudeSession implements AgentSession {
         status: success ? 'completed' : 'failed',
         text:
           message.subtype === 'success'
-            ? this.options.answer?.outputSchema
+            ? this.options.answer
               ? (JSON.stringify(message.structured_output) ?? '')
               : message.result
             : this.turn.messages.text,

@@ -7,6 +7,7 @@ import type {
   AgentAdapter,
   AgentSession,
   AgentStopOptions,
+  AnswerInput,
   Limit,
   Model,
   ModelDiscoveryOptions,
@@ -54,7 +55,7 @@ export class FixtureAgent implements AgentAdapter {
     context?: string;
     skill?: SkillCall;
     author?: 'witch';
-    outputSchema?: Record<string, unknown>;
+    answer?: AnswerInput;
   }[] = [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
@@ -302,7 +303,7 @@ export class FixtureAgent implements AgentAdapter {
         skill,
         context,
         author = 'user',
-        outputSchema,
+        answer,
       ): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.inputs.push({
@@ -311,7 +312,7 @@ export class FixtureAgent implements AgentAdapter {
           ...(context === undefined ? {} : { context }),
           ...(skill ? { skill } : {}),
           ...(author === 'witch' ? { author } : {}),
-          ...(outputSchema ? { outputSchema } : {}),
+          ...(answer ? { answer } : {}),
         });
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere
         const note = /remember:(\S+)/.exec(prompt)?.[1];

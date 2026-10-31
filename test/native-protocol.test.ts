@@ -330,7 +330,7 @@ test('a restricted Codex fork and its structured reply use the generated native 
       undefined,
       requestContext(batch),
       'witch',
-      peerAnswerOutputSchema,
+      { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
     );
     assert.equal(result.status, 'completed');
     assert.deepEqual(parsePeerAnswers(result.text, [request]), [

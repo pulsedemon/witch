@@ -1,6 +1,7 @@
 import type {
   AgentSession,
   AgentStopOptions,
+  AnswerInput,
   SessionInfo,
   SessionOptions,
   TurnResult,
@@ -32,8 +33,9 @@ export class AnswerTurn {
     source: SessionInfo,
     prompt: string,
     context?: string,
-    outputSchema?: Record<string, unknown>,
+    input?: AnswerInput,
   ): Promise<TurnResult> {
+    if (!input) throw new Error('A peer answer requires its request file.');
     if (this.active) throw new Error('A peer answer is already running.');
     const active = {
       abort: new AbortController(),
@@ -51,7 +53,7 @@ export class AnswerTurn {
         resume: source.hasHistory ? source.id : undefined,
         model: source.model,
         effort: source.effort ?? source.nativeEffort,
-        answer: { outputSchema, permissionProfile: source.permissionProfile },
+        answer: { ...input, permissionProfile: source.permissionProfile },
         signal: active.abort.signal,
         familiarBinding: undefined,
         onUsageProcess: undefined,

@@ -1059,7 +1059,10 @@ export class Coordinator {
               skillCall(prompt, this.snapshot.skills),
               input.context,
               answer ? 'witch' : 'user',
-              answer ? peerAnswerOutputSchema : undefined,
+              batch && {
+                outputSchema: peerAnswerOutputSchema,
+                requestFile: batch.file,
+              },
             );
             const stopPolicy = watchClaimPolicy(
               this.coordination,

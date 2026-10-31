@@ -33,6 +33,7 @@ import type {
   AgentAdapter,
   AgentSession,
   AgentStopOptions,
+  AnswerInput,
   FileDiff,
   Hunk,
   Limit,
@@ -562,13 +563,13 @@ class CodexSession implements AgentSession {
     skill?: SkillCall,
     context?: string,
     author: 'user' | 'witch' = 'user',
-    outputSchema?: Record<string, unknown>,
+    answer?: AnswerInput,
   ): Promise<TurnResult> {
     if (author === 'witch' && !this.options.answer) {
       if (this.closed || this.closing)
         throw new Error('The Codex session is closed');
       if (this.turn) throw new Error('This agent is already running');
-      return this.answers.run(this.info, prompt, context, outputSchema);
+      return this.answers.run(this.info, prompt, context, answer);
     }
     const path =
       skill && this.spellIndex.find(({ name }) => name === skill.name)?.path;
@@ -602,7 +603,7 @@ class CodexSession implements AgentSession {
               : []),
           ],
           effort: this.info.effort,
-          ...(this.options.answer?.outputSchema
+          ...(this.options.answer
             ? { outputSchema: this.options.answer.outputSchema }
             : {}),
         }),

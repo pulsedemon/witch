@@ -137,6 +137,18 @@ test('idle owner answers in one attributed turn', async (t) => {
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
   const [input] = answerTurns(b);
   assert.equal(input!.prompt, answerInstruction);
+  assert.ok(
+    input!.context!.includes(JSON.stringify(input!.answer!.requestFile)),
+  );
+  const supplied = JSON.parse(
+    await readFile(input!.answer!.requestFile, 'utf8'),
+  ) as PeerRequest[];
+  assert.equal(supplied[0]!.id, request.id);
+  assert.equal(supplied[0]!.message, `Which port? ${secret}`);
+  assert.equal(
+    b.coordinator.snapshot.conversation!.sessions.a!.deliveredRevision,
+    undefined,
+  );
   assert.ok(input!.context!.includes(request.id));
   for (const absent of [
     secret,
@@ -187,6 +199,7 @@ test('idle owner answers in one attributed turn', async (t) => {
   assert.ok(!a.a.inputs.at(-1)!.context!.includes(request.id));
   await b.coordinator.send('owner work');
   const user = b.a.inputs.at(-1)!;
+  assert.match(user.context!, /Accepted shared memory/);
   assert.equal(user.author, undefined);
   assert.deepEqual(listed(user.context), [request.id]);
   for (const present of [

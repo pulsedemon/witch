@@ -215,6 +215,11 @@ export interface AgentStopOptions {
   restart?: boolean;
 }
 
+export interface AnswerInput {
+  outputSchema: Record<string, unknown>;
+  requestFile: string;
+}
+
 export interface AgentSession {
   familiar?: {
     report(action: FamiliarAction, deadline: number): Promise<FamiliarOutcome>;
@@ -241,7 +246,7 @@ export interface AgentSession {
     skill?: SkillCall,
     context?: string,
     author?: 'user' | 'witch',
-    outputSchema?: Record<string, unknown>,
+    answer?: AnswerInput,
   ): Promise<TurnResult>;
   /**
    * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to
@@ -289,8 +294,7 @@ export interface CommandMark {
 }
 
 export interface SessionOptions {
-  answer?: {
-    outputSchema?: Record<string, unknown>;
+  answer?: AnswerInput & {
     permissionProfile?: string;
   };
   familiarBinding?: ControlBinding;

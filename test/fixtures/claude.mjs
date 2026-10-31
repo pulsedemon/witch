@@ -645,7 +645,11 @@ for await (const line of lines) {
           request: {
             subtype: 'can_use_tool',
             tool_name: 'Read',
-            input: { file_path: '/denied' },
+            input: {
+              file_path:
+                readFileSync(join(process.cwd(), 'answer-approval'), 'utf8') ||
+                '/denied',
+            },
             tool_use_id: 'denied-read',
           },
         });
