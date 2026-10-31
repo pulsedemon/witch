@@ -65,6 +65,16 @@ test('a repeated heading gets a numbered slug', async () => {
   );
 });
 
+test('a repeated heading skips a numbered slug another heading took', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#setup-1) [b](#setup-2) [c](#setup-3)\n\n# Setup\n\n# Setup-1\n\n# Setup\n',
+    }),
+    ['1: no heading in plan.md has the anchor #setup-3'],
+  );
+});
+
 test('a setext heading has a slug', async () => {
   assert.deepEqual(
     await check({ 'plan.md': '[a](#first-part)\n\nFirst part\n==========\n' }),
@@ -92,9 +102,12 @@ test('a link inside an HTML comment is not checked, and one beside it is', async
   assert.deepEqual(
     await check({
       'plan.md':
-        'a <!-- [b](gone.md) --> c\nd <!-- [e](gone.md)\n[f](gone.md) -->\n<!-- g --> [h](missing.md)\n',
+        'a <!-- [b](gone.md) --> c\nd <!-- [e](gone.md)\n[f](gone.md) --> [g](lost.md)\n<!-- h --> [i](missing.md)\n',
     }),
-    ['4: link target missing.md does not exist'],
+    [
+      '3: link target lost.md does not exist',
+      '4: link target missing.md does not exist',
+    ],
   );
 });
 
