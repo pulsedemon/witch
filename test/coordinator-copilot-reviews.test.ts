@@ -43,7 +43,7 @@ async function setup(t: TestContext) {
   const register = orderedCleanup(t.onTestFinished);
   const source = reviewSource();
   vi.spyOn(github, 'readGitHubReviews').mockImplementation(async (pr) => {
-    assert.equal(pr.url, 'https://github.com/team/project/pull/12');
+    assert.equal(pr.url, source.pullRequest.url);
     return structuredClone(source);
   });
   vi.spyOn(github, 'reviewCommitPushed').mockImplementation(
@@ -93,7 +93,10 @@ async function setup(t: TestContext) {
 
 async function reply(f: Fixture, client: Client, source: GitHubReviews) {
   const saved = await record(f, client);
-  const batch = saved.copilotReviews![0]!.batch!;
+  const state = saved.copilotReviews!.find(
+    ({ pullRequest }) => pullRequest.url === source.pullRequest.url,
+  )!;
+  const batch = state.batch!;
   assert.ok(batch, 'the admission receipt was saved before native input');
   const packet = JSON.parse(await readFile(batch.packet, 'utf8')) as {
     source: GitHubReviews;
@@ -104,9 +107,7 @@ async function reply(f: Fixture, client: Client, source: GitHubReviews) {
   );
   const items: ReviewResult['items'] = [];
   for (const expected of batch.items) {
-    const item = saved.copilotReviews![0]!.items.find(
-      ({ id }) => id === expected.id,
-    )!;
+    const item = state.items.find(({ id }) => id === expected.id)!;
     if (item.kind === 'review') {
       items.push({
         ...expected,
@@ -952,4 +953,81 @@ test('a delayed review receives the destination runtime handoff and preserves it
     /Pending task context from a:\na: finish the migration/,
   );
   assert.equal((await record(x.f, x.a)).handoff, undefined);
+});
+
+test('review turns on a second PR settle its own receipts without changing the first PR', async (t) => {
+  const x = await setup(t);
+  autoReply(x.f, x.a, x.source);
+  await x.observe();
+  await x.handled();
+  const first = structuredClone(x.source);
+  const original = (await record(x.f, x.a)).copilotReviews![0]!;
+  const second = reviewSource();
+  second.pullRequest = {
+    ...second.pullRequest,
+    number: 13,
+    url: 'https://github.com/team/project/pull/13',
+    branch: 'feat/second-pr',
+  };
+  second.reviews[0] = {
+    ...second.reviews[0]!,
+    id: 'review-13',
+    url: `${second.pullRequest.url}#pullrequestreview-13`,
+  };
+  second.threads[0] = {
+    ...second.threads[0]!,
+    id: 'thread-13',
+    comments: [
+      {
+        ...second.threads[0]!.comments[0]!,
+        id: 'comment-13',
+        url: `${second.pullRequest.url}#discussion_r13`,
+        pullRequestReview: { id: 'review-13' },
+      },
+    ],
+  };
+  Object.assign(x.source, second);
+  await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/second-pr');
+  const repository = {
+    ...x.repository,
+    branch: x.source.pullRequest.branch,
+    pullRequest: x.source.pullRequest,
+  };
+  x.a.coordination.updateRepository(repository);
+  x.c.copilot.updateRepository(repository);
+  await x.observe();
+  await until(
+    'second PR handled',
+    async () =>
+      !x.c.snapshot.reviewing &&
+      !!(await record(x.f, x.a))
+        .copilotReviews!.find(
+          ({ pullRequest }) => pullRequest.url === second.pullRequest.url,
+        )
+        ?.items.every(({ status }) => status === 'handled'),
+  );
+  const history = (await record(x.f, x.a)).copilotReviews!;
+  assert.deepEqual(
+    history.find(
+      ({ pullRequest }) => pullRequest.url === first.pullRequest.url,
+    ),
+    original,
+  );
+  const thread = history
+    .find(({ pullRequest }) => pullRequest.url === second.pullRequest.url)!
+    .items.find(({ id }) => id === 'thread-13')!;
+  assert.deepEqual(
+    thread.receipts.map((receipt) =>
+      receipt.disposition === 'fixed' ? receipt.reply : receipt.disposition,
+    ),
+    [`${second.pullRequest.url}#discussion_response_thread-13`],
+  );
+  assert.equal(x.reviews().length, 2);
+  Object.assign(x.source, first);
+  await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
+  x.a.coordination.updateRepository(x.repository);
+  x.c.copilot.updateRepository(x.repository);
+  await x.observe();
+  assert.equal(x.c.copilot.ready(), false);
+  assert.equal(x.reviews().length, 2);
 });
