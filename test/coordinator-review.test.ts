@@ -450,7 +450,10 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
       { model: 'claude-haiku-5-5' },
       /ran on claude-haiku-5-5, not claude-opus-5-5$/,
     ],
-    [{ report: 'No findings block.' }, /did not report findings$/],
+    [
+      { report: 'No findings block.' },
+      /did not report findings: no closed json block$/,
+    ],
     [
       { status: null, code: 1, diagnostics: 'witch: EEXIST: report.md' },
       /ended without registering: witch: EEXIST: report\.md$/,

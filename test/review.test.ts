@@ -34,7 +34,7 @@ const both: Round = { number: 1, scope: 'full', runtimes: ['claude', 'codex'] };
 
 const json = (value: unknown) => `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``;
 
-test('parseFindings reads only the last json block and normalizes paths', () => {
+test('parseFindings reads only the last json block and normalizes paths, and says why it read none', () => {
   const report = (file: string) =>
     `notes\n\n${json({ findings: [{ ...finding(3, true), file }] })}\n`;
   assert.deepEqual(parseFindings(report('./plan.md'), '/w/repo', ['plan.md']), [
@@ -44,41 +44,46 @@ test('parseFindings reads only the last json block and normalizes paths', () => 
     parseFindings(report('/w/repo/plan.md'), '/w/repo', ['plan.md']),
     [finding(3, true)],
   );
+  const invalid = (report: string) => {
+    const parsed = parseFindings(report, '/w/repo', ['plan.md']);
+    assert.ok('invalid' in parsed, JSON.stringify(parsed));
+    return parsed.invalid;
+  };
   assert.equal(
-    parseFindings(report('/other/plan.md'), '/w/repo', ['plan.md']),
-    undefined,
+    invalid(report('/other/plan.md')),
+    '/other/plan.md is not a review target',
   );
   assert.equal(
-    parseFindings('Familiar reporting failed: timeout', '/w/repo', ['plan.md']),
-    undefined,
+    invalid('Familiar reporting failed: timeout'),
+    'no closed json block',
   );
-  assert.equal(
-    parseFindings(
+  assert.match(
+    invalid(
       `${json({ findings: [] })}\n\n\`\`\`json\n{"findings": [\n\`\`\`\n`,
-      '/w/repo',
-      ['plan.md'],
     ),
-    undefined,
+    /JSON/,
   );
   assert.equal(
-    parseFindings(
-      `${json({ findings: [] })}\n\n\`\`\`json\n{"findings": [\n`,
-      '/w/repo',
-      ['plan.md'],
-    ),
-    undefined,
-    'an unclosed block after a closed one',
+    invalid(`${json({ findings: [] })}\n\n\`\`\`json\n{"findings": [\n`),
+    'the last json block is unclosed',
   );
-  for (const invalid of [
-    { findings: [], error: 'could not read the targets' },
-    { findings: [{ ...finding(3, true), file: 'plan.md', severity: 'high' }] },
-    { findings: [{ ...finding(0, true), file: 'plan.md' }] },
-  ])
-    assert.equal(
-      parseFindings(json(invalid), '/w/repo', ['plan.md']),
-      undefined,
-      JSON.stringify(invalid),
-    );
+  for (const [value, reason] of [
+    [
+      { findings: [], error: 'could not read the targets' },
+      /^Unrecognized key: "error"$/,
+    ],
+    [
+      {
+        findings: [{ ...finding(3, true), file: 'plan.md', severity: 'high' }],
+      },
+      /^findings\.0: Unrecognized key: "severity"$/,
+    ],
+    [
+      { findings: [{ ...finding(0, true), file: 'plan.md' }] },
+      /^findings\.0\.line: /,
+    ],
+  ] as const)
+    assert.match(invalid(json(value)), reason);
 });
 
 test('changes counts deletions', () => {
