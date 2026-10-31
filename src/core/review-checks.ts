@@ -560,10 +560,10 @@ function slug(heading: string): string {
     .replace(/\s/g, '-');
 }
 
-/** the prose a writing rule reads: no code spans, link targets, bare URLs or autolinks. */
+/** the prose a writing rule reads: no code spans, HTML tags, link targets, bare URLs or autolinks. */
 function writable(parts: readonly Segment[]): string {
   return parts
-    .map((part) => (part.code ? ' ' : part.text))
+    .map((part) => (part.code || part.html ? ' ' : part.text))
     .join('')
     .replace(/<[a-z][\w+.-]*:[^>\s]*>/gi, ' ')
     .replace(/\]\((?:[^()]|\([^()]*\))*\)/g, ']')
