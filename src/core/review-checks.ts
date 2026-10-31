@@ -201,9 +201,10 @@ function segments(line: string): Segment[] {
     if (text) parts.push({ code: false, text, raw: text });
     text = '';
   };
-  const html = /<!--.*?(?:-->|$)|<[a-z][^>]*>/iy;
+  const html =
+    /<!--.*?(?:-->|$)|<\/?[a-z][a-z0-9-]*(?:\s+[a-z_:][\w.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/iy;
   while (index < line.length) {
-    // an HTML comment or tag that starts first keeps its backticks, as CommonMark reads it
+    // an HTML comment or tag that starts first keeps its backticks
     html.lastIndex = index;
     const raw = line[index] === '<' ? html.exec(line) : null;
     if (raw) {
