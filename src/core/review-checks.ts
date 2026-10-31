@@ -64,7 +64,7 @@ export async function checkTargets(
       const fail: Fail = (number, message) =>
         failures.push({ file, line: number, message });
       const number = index + 1;
-      const parts = segments(line);
+      const parts = segments(line.replace(/<!--.*?(?:-->|$)/g, ' '));
       for (const link of links(parts)) {
         const target = resolveLink(link.target, path, repository);
         if (!target) continue;
@@ -521,12 +521,11 @@ function slug(heading: string): string {
     .replace(/\s/g, '-');
 }
 
-/** the prose a writing rule reads: no code spans, link targets, bare URLs, autolinks or inline HTML comments. */
+/** the prose a writing rule reads: no code spans, link targets, bare URLs or autolinks. */
 function writable(parts: readonly Segment[]): string {
   return parts
     .map((part) => (part.code ? ' ' : part.text))
     .join('')
-    .replace(/<!--.*?-->/g, ' ')
     .replace(/<[a-z][\w+.-]*:[^>\s]*>/gi, ' ')
     .replace(/\]\([^)]*\)/g, ']')
     .replace(/\b[a-z][\w+.-]*:\/\/\S+/gi, ' ');
