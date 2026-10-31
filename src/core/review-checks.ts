@@ -60,11 +60,12 @@ export async function checkTargets(
     const lines = text.split('\n');
     const prose = proseLines(lines);
     for (const [index, line] of lines.entries()) {
-      if (!prose[index]) continue;
+      const visible = prose[index];
+      if (visible === undefined) continue;
       const fail: Fail = (number, message) =>
         failures.push({ file, line: number, message });
       const number = index + 1;
-      const parts = segments(line.replace(/<!--.*?(?:-->|$)/g, ' '));
+      const parts = segments(visible);
       for (const link of links(parts)) {
         const target = resolveLink(link.target, path, repository);
         if (!target) continue;
@@ -123,46 +124,55 @@ export async function checkTargets(
   return failures;
 }
 
-/** a line is prose outside fenced code, front matter and HTML comments; indented lines stay prose, since nested list items use them. */
-function proseLines(lines: readonly string[]): boolean[] {
-  const prose: boolean[] = [];
+/** each line's prose with its HTML comments blanked; undefined in fenced code, front matter or a comment that leaves nothing visible. indented lines stay prose, since nested list items use them. */
+function proseLines(lines: readonly string[]): (string | undefined)[] {
+  const prose: (string | undefined)[] = [];
   let fence: { mark: string; length: number } | undefined;
   let front = lines[0] === '---';
   let comment = false;
   for (const [index, line] of lines.entries()) {
     if (front) {
-      prose.push(false);
+      prose.push(undefined);
       if (index > 0 && line === '---') front = false;
       continue;
     }
+    let text = line;
     if (comment) {
-      prose.push(false);
-      if (line.includes('-->')) comment = false;
-      continue;
+      const close = line.indexOf('-->');
+      if (close === -1) {
+        prose.push(undefined);
+        continue;
+      }
+      comment = false;
+      text = ' '.repeat(close + 3) + line.slice(close + 3);
+    } else {
+      const opening = /^\s*(`{3,}|~{3,})/.exec(line);
+      if (fence) {
+        prose.push(undefined);
+        if (
+          opening?.[1]![0] === fence.mark &&
+          opening[1].length >= fence.length &&
+          !line.slice(opening[0].length).trim()
+        )
+          fence = undefined;
+        continue;
+      }
+      if (opening) {
+        fence = { mark: opening[1]![0]!, length: opening[1]!.length };
+        prose.push(undefined);
+        continue;
+      }
     }
-    const opening = /^\s*(`{3,}|~{3,})/.exec(line);
-    if (fence) {
-      prose.push(false);
-      if (
-        opening?.[1]![0] === fence.mark &&
-        opening[1].length >= fence.length &&
-        !line.slice(opening[0].length).trim()
-      )
-        fence = undefined;
-      continue;
-    }
-    if (opening) {
-      fence = { mark: opening[1]![0]!, length: opening[1]!.length };
-      prose.push(false);
-      continue;
-    }
-    const start = line.lastIndexOf('<!--');
-    if (start !== -1 && !line.includes('-->', start)) {
+    const bare = text.replace(/<!--.*?-->/g, (match) =>
+      ' '.repeat(match.length),
+    );
+    const start = bare.indexOf('<!--');
+    if (start === -1) prose.push(bare);
+    else {
       comment = true;
-      prose.push(line.slice(0, start).trim() !== '');
-      continue;
+      const before = bare.slice(0, start);
+      prose.push(before.trim() ? before : undefined);
     }
-    prose.push(true);
   }
   return prose;
 }
@@ -481,8 +491,7 @@ function before(text: string, index: number): number {
 
 /** GitHub's heading anchors, plus HTML id and name attributes, from a markdown file's prose. */
 function anchors(text: string): Set<string> {
-  const lines = text.split('\n');
-  const prose = proseLines(lines);
+  const prose = proseLines(text.split('\n'));
   const found = new Set<string>();
   const counts = new Map<string, number>();
   const add = (heading: string) => {
@@ -491,14 +500,13 @@ function anchors(text: string): Set<string> {
     counts.set(base, seen + 1);
     found.add(seen ? `${base}-${seen}` : base);
   };
-  for (const [index, line] of lines.entries()) {
-    if (!prose[index]) continue;
+  for (const [index, line] of prose.entries()) {
+    if (line === undefined) continue;
     const atx = /^ {0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$/.exec(line);
     if (atx) add(atx[1]!);
-    const above = lines[index - 1];
+    const above = prose[index - 1];
     if (
       /^ {0,3}(=+|-+)\s*$/.test(line) &&
-      prose[index - 1] &&
       above?.trim() &&
       !/^ {0,3}(#|[-*+]\s|\d+[.)]\s|>)/.test(above)
     )
