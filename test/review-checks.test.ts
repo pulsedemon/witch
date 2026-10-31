@@ -111,6 +111,33 @@ test('a link inside an HTML comment is not checked, and one beside it is', async
   );
 });
 
+test('a comment delimiter in a code span opens no comment', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md': 'Use `<!--` to open a comment.\n[a](missing.md)\n',
+    }),
+    ['2: link target missing.md does not exist'],
+  );
+});
+
+test('an id quoted in a code span is not an anchor, and one in a tag is', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#example) [b](#real)\n\nUse `id="example"` here. <a id="real"></a>\n',
+    }),
+    ['1: no heading in plan.md has the anchor #example'],
+  );
+});
+
+test('a git failure other than a missing repository or origin stops the checks', async () => {
+  const root = await scratch('witch-review-checks-');
+  await execute('git', ['init', '-q'], { cwd: root });
+  await writeFile(join(root, '.git', 'config'), '[core\n');
+  await writeFile(join(root, 'plan.md'), 'x\n');
+  await assert.rejects(checkTargets(root, ['plan.md']), /bad config/);
+});
+
 test('a target that is not markdown gets no checks', async () => {
   assert.deepEqual(
     await check({ 'plan.ts': '// a — PR, see [b](missing.md)\n' }, 'plan.ts'),
