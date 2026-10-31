@@ -5,7 +5,7 @@ import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
-import { NativeStop } from '../src/agents/shutdown.js';
+import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
 import { reviewerCommand } from '../src/core/review.js';
 import { Reviewers } from '../src/core/reviewers.js';
 import type { Reviewer } from '../src/core/reviewers.js';
@@ -245,6 +245,45 @@ test('cleanup waits while macOS answers EPERM for an exiting group', async () =>
     assert.deepEqual(sent, ['SIGKILL', 0, 0, 0, 0]);
   } finally {
     spy.mockRestore();
+  }
+});
+
+test('a reviewer that outlives the stop deadline ends the run at the deadline', async () => {
+  const root = await scratch('witch-reviewers-');
+  const kill = process.kill.bind(process);
+  const groups = new Set<number>();
+  // group signals never arrive, as for a wrapper that survives them
+  const spy = vi
+    .spyOn(process, 'kill')
+    .mockImplementation((pid: number, signal?: string | number) => {
+      if (pid >= 0) return kill(pid, signal);
+      groups.add(-pid);
+      return true;
+    });
+  try {
+    const controller = new AbortController();
+    const running = new Reviewers(() => {}).run({
+      cwd: root,
+      reviewers: [
+        {
+          name: 'r',
+          runtime: 'claude',
+          command: 'exec sleep 30',
+          reportFile: join(root, 'report.md'),
+        },
+      ],
+      signal: controller.signal,
+    });
+    const deadline = performance.now() + 1500;
+    controller.abort(new NativeStop({ deadline }));
+    await assert.rejects(
+      within(running, 3000, 'the missed stop'),
+      NativeStopTimeout,
+    );
+    assert.ok(performance.now() <= deadline + 100, 'ended by the deadline');
+  } finally {
+    spy.mockRestore();
+    for (const group of groups) kill(-group, 'SIGKILL');
   }
 });
 

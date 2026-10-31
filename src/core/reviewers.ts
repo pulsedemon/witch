@@ -124,6 +124,8 @@ export class Reviewers {
         }),
     );
     let stopping: Promise<void> | undefined;
+    // a stop that misses its deadline ends the run even while a command still hasn't exited
+    const missed = Promise.withResolvers<never>();
     const abort = () => {
       stopping ??= stopGroups(
         groups,
@@ -131,12 +133,11 @@ export class Reviewers {
           ? stopDeadline(signal.reason.options.deadline)
           : stopDeadline(),
       );
-      // awaited below once the commands exit; this keeps an early failure from going unhandled meanwhile
-      stopping.catch(() => {});
+      stopping.catch(missed.reject);
     };
     signal.addEventListener('abort', abort, { once: true });
     try {
-      const codes = await Promise.all(exits);
+      const codes = await Promise.race([Promise.all(exits), missed.promise]);
       // a wrapper killed outright leaves its native CLI in the group
       for (const group of groups) signalGroup(group, 'SIGKILL');
       if (stopping) await stopping;
@@ -207,14 +208,13 @@ function signalGroup(group: number, signal: NodeJS.Signals | 0): boolean {
   }
 }
 
-/** resolves once no group has a member, polling no later than the deadline. */
+/** resolves once no group has a member, rejecting when one still has a member at the deadline. */
 async function gone(
   groups: readonly number[],
   deadline: number,
 ): Promise<void> {
-  while (
-    groups.some((group) => signalGroup(group, 0)) &&
-    performance.now() < deadline
-  )
+  while (groups.some((group) => signalGroup(group, 0))) {
+    if (performance.now() >= deadline) throw new NativeStopTimeout();
     await delay(25);
+  }
 }
