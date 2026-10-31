@@ -173,6 +173,27 @@ test('a blob link to a missing path fails and an unreadable revision is skipped'
   );
 });
 
+test('a blob revision that looks like an option reads nothing and writes nothing', async () => {
+  const root = await scratch('witch-review-checks-');
+  await execute('git', ['-C', root, 'init', '-q']);
+  await execute('git', [
+    '-C',
+    root,
+    'remote',
+    'add',
+    'origin',
+    'https://github.com/owner/repo',
+  ]);
+  await writeFile(
+    join(root, 'plan.md'),
+    '[a](https://github.com/owner/repo/blob/--output=written/x.ts)\n',
+  );
+  assert.deepEqual(await checkTargets(root, ['plan.md']), []);
+  await assert.rejects(readFile(join(root, 'written:x.ts')), {
+    code: 'ENOENT',
+  });
+});
+
 test('blob link to this repository reads the cited revision', async () => {
   const root = await scratch('witch-review-checks-');
   await execute('git', ['-C', root, 'init', '-q']);

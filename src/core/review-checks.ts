@@ -578,7 +578,7 @@ async function show(
   try {
     const { stdout } = await execute(
       'git',
-      ['-C', cwd, 'show', `${revision}:${path}`],
+      ['-C', cwd, 'show', '--end-of-options', `${revision}:${path}`],
       { maxBuffer: 64 * 1024 * 1024 },
     );
     return { text: stdout };
