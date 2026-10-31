@@ -930,3 +930,26 @@ test('absent feedback retains pending history without entering a packet until it
     1,
   );
 });
+
+test('a delayed review receives the destination runtime handoff and preserves it for the next user turn', async (t) => {
+  const x = await setup(t);
+  await x.c.send('implement the approved task');
+  await x.c.selectModel({ agent: 'b', id: 'b-model' });
+  const handoff = (await record(x.f, x.a)).handoff;
+  assert.equal(x.a.b.inputs.length, 0);
+  autoReply(x.f, x.a, x.source);
+  await x.observe();
+  await x.handled();
+  assert.equal(x.a.b.inputs[0]!.author, 'witch');
+  assert.match(
+    x.a.b.inputs[0]!.context!,
+    /Pending task context from a:\na: finish the migration/,
+  );
+  assert.deepEqual((await record(x.f, x.a)).handoff, handoff);
+  await x.c.send('continue the user task');
+  assert.match(
+    x.a.b.inputs[1]!.context!,
+    /Pending task context from a:\na: finish the migration/,
+  );
+  assert.equal((await record(x.f, x.a)).handoff, undefined);
+});

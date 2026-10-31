@@ -991,7 +991,7 @@ export class Coordinator {
       const command = kind === 'turn' ? shellCommand(prompt) : undefined;
       const handoff = conversation.handoff;
       const pendingHandoff =
-        !automatic && handoff?.activated && handoff.to === conversation.agent
+        !answer && handoff?.activated && handoff.to === conversation.agent
           ? handoff
           : undefined;
       const coordination = await this.coordination?.context();
@@ -1112,7 +1112,7 @@ export class Coordinator {
               input.instructionsRevision;
           recordDelivery(reference, input);
         }
-        if (pendingHandoff === conversation.handoff)
+        if (!automatic && pendingHandoff === conversation.handoff)
           delete conversation.handoff;
       }
       if (kind === 'turn')
