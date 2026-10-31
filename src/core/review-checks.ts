@@ -573,7 +573,12 @@ async function repositoryOf(cwd: string): Promise<Repository> {
   const git = (...args: string[]) =>
     execute('git', ['-C', cwd, ...args]).then(
       ({ stdout }) => stdout.trim(),
-      () => undefined,
+      (error: { stderr?: unknown }) => {
+        // outside a repository or without an origin, links resolve as plain paths
+        if (/not a git repository|No such remote/.test(String(error.stderr)))
+          return undefined;
+        throw error;
+      },
     );
   const [root, origin] = await Promise.all([
     git('rev-parse', '--show-toplevel'),
