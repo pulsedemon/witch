@@ -130,7 +130,7 @@ test('a backtick inside an HTML comment or tag starts no code span, and one afte
   );
 });
 
-test("a comment delimiter or a > quoted in a tag's attribute doesn't end the tag", async () => {
+test("a comment delimiter or a > quoted in a tag's attribute opens no comment and doesn't end the tag", async () => {
   assert.deepEqual(
     await check({
       'plan.md':
@@ -157,6 +157,29 @@ test('an escaped backtick opens no code span', async () => {
   assert.deepEqual(await check({ 'plan.md': '\\` [a](missing.md) `ok`\n' }), [
     '1: link target missing.md does not exist',
   ]);
+});
+
+test('a link target with balanced parentheses is read whole, in links and writing rules', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](src/app/(auth)/page.tsx) [b](docs/(archive)/CI.md) [c](src/(gone)/x.ts)\n',
+      'src/app/(auth)/page.tsx': 'x\n',
+      'docs/(archive)/CI.md': 'x\n',
+    }),
+    ['1: link target src/(gone)/x.ts does not exist'],
+  );
+});
+
+test("a heading's slug drops a whole link target and inline tags", async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#guide) [b](#overview) [c](#custom)\n\n## [Guide](docs/Guide_(draft).md)\n\n## <a name="custom"></a>Overview\n',
+      'docs/Guide_(draft).md': 'x\n',
+    }),
+    [],
+  );
 });
 
 test('a protocol-relative link is not a local path', async () => {
@@ -582,6 +605,13 @@ test('an indented fence under a list item is code', async () => {
   assert.deepEqual(
     await check({ 'plan.md': '- a\n  ```\n  — here\n  ```\n' }),
     [],
+  );
+});
+
+test('a leading rule with no closing one is not front matter', async () => {
+  assert.deepEqual(
+    await check({ 'plan.md': '---\n# Plan\n[a](missing.md)\n' }),
+    ['3: link target missing.md does not exist'],
   );
 });
 
