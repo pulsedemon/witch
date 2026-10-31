@@ -171,6 +171,11 @@ export async function nativePrompt({
     ...(reviewWatch && !requests
       ? [
           `Copilot review watch: ${reviewWatch.pullRequest.url}, ${reviewWatch.items.filter(({ present, status }) => present && status === 'handled').length} handled, ${reviewWatch.items.filter(({ present, status }) => present && status !== 'handled').length} outstanding. Keep this task claimed while its open pull request remains watched; verify feedback against current code and existing replies.`,
+          ...(reviewWatch.batch?.verifying
+            ? [
+                `GitHub verification of the previous review result is pending. Reconcile ${reviewWatch.batch.result} against current replies before further review work. Correct a receipt whose reply URL is wrong, or record a blocked disposition if its reply was deleted. Keep the result unchanged while the evidence may be delayed, and do not repeat an uncertain post.`,
+              ]
+            : []),
         ]
       : []),
     ...(pendingMerges.length ? [mergeContext(pendingMerges)] : []),

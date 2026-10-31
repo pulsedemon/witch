@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import * as commands from '../src/core/command.js';
+import { recordTaskAssignment } from '../src/core/github-assignment.js';
 import { callControl } from '../src/persistence/control.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import type { GitHubReviews } from '../src/core/github-reviews.js';
@@ -272,4 +273,25 @@ test('a solo PR suggestion binds only after the requested claim promotion', asyn
   const bound = await a.coordination.reviews.bind(source.pullRequest, []);
   assert.equal(bound!.claim.id, context.snapshot.ownClaim!.id);
   assert.equal(bound!.claim.suggestion, undefined);
+});
+
+test('an assignment receipt failure preserves the claim and reports the actual error', async (t) => {
+  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const a = await f.start('A');
+  const claimed = await a.claim('https://github.com/team/project/issues/4');
+  assert.ok(claimed.kind === 'claimed');
+  const result = await recordTaskAssignment(
+    claimed.claim,
+    a.coordinator.snapshot.conversation!.cwd,
+    Date.now() + 10_000,
+    async () => ({ assigned: claimed.claim.references }),
+    async () => {
+      throw new Error('receipt-lock-denied');
+    },
+  );
+  assert.equal(result.claim, claimed.claim);
+  assert.match(
+    result.warning!,
+    /receipt could not be saved.*receipt-lock-denied/,
+  );
 });

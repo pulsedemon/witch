@@ -413,9 +413,12 @@ export class CopilotReviewController {
     const pending = items.length - handled - blocked.length;
     const reasons = [
       ...new Set(
-        [state.batch?.reason, ...blocked.map(({ reason }) => reason)].filter(
-          Boolean,
-        ),
+        [
+          state.batch?.verifying &&
+            'Waiting for GitHub to verify the previous review replies. Send a prompt to reconcile the recorded result if that evidence stays missing.',
+          state.batch?.reason,
+          ...blocked.map(({ reason }) => reason),
+        ].filter(Boolean),
       ),
     ];
     const signature = JSON.stringify([

@@ -97,19 +97,22 @@ export async function recordTaskAssignment(
     deadline - 2000,
   );
   let recorded = claim;
+  const warnings = failure
+    ? [
+        `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${failure}`,
+      ]
+    : [];
   if (assigned.length) {
     try {
       recorded = (await record(claim.id, assigned, deadline - 1000)) ?? claim;
-    } catch {
-      // an unrecorded assignment repeats on the next claim
+    } catch (error) {
+      warnings.push(
+        `GitHub assignment succeeded, but its local receipt could not be saved. Repeat --claim to retry. ${errorMessage(error)}`,
+      );
     }
   }
   return {
     claim: recorded,
-    ...(failure
-      ? {
-          warning: `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${failure}`,
-        }
-      : {}),
+    ...(warnings.length ? { warning: warnings.join('\n') } : {}),
   };
 }

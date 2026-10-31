@@ -101,7 +101,7 @@ export class CopilotReviewWatch {
         const failure = errorMessage(error);
         if (failure !== this.failure)
           this.notice(
-            `Copilot review watch could not read #${pr.number}: ${failure}`,
+            `Copilot review watch could not update #${pr.number}: ${failure}`,
           );
         this.failure = failure;
       }

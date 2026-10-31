@@ -1223,3 +1223,199 @@ test('review turns on a second PR settle its own receipts without changing the f
   assert.equal(x.c.copilot.ready(), false);
   assert.equal(x.reviews().length, 2);
 });
+
+for (const revoke of ['branch', 'CLOSED', 'MERGED'] as const) {
+  test(`${revoke} review revocation preserves automatic peer answers`, async (t) => {
+    const x = await setup(t);
+    const b = await x.f.start('B');
+    await b.claim('task:asker');
+    const gate = new TurnGate();
+    x.a.a.gate = gate;
+    await x.observe();
+    await within(gate.entered, 5000, 'review dispatch');
+    const asked = await callControl(await b.binding(), {
+      kind: 'ask',
+      claim: x.a.coordination.snapshot.ownClaim!.id,
+      message: 'Report the current task status.',
+    });
+    assert.ok(asked.kind === 'peer-request');
+    await x.a.coordination.context();
+    x.a.a.gate = undefined;
+    if (revoke === 'branch') {
+      await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/other-work');
+      x.c.copilot.updateRepository({
+        ...x.repository,
+        branch: 'other-work',
+        pullRequest: undefined,
+      });
+    } else {
+      x.source.pullRequest.state = revoke;
+      await x.observe();
+    }
+    const binding = await b.binding();
+    const answer = () =>
+      callControl(binding, {
+        kind: 'peer-request',
+        request: asked.request.id,
+      });
+    await until('persisted peer answer after review revocation', async () => {
+      const result = await answer();
+      return result.kind === 'peer-request' && result.status === 'answered';
+    });
+    const result = await answer();
+    assert.ok(result.kind === 'peer-request');
+    assert.equal(result.request.answer?.message, 'Done.');
+    assert.equal(
+      x.a.a.inputs.filter(({ prompt }) => prompt === answerInstruction).length,
+      1,
+    );
+    assert.equal(
+      x.a.a.inputs.filter(({ prompt }) =>
+        prompt.startsWith('Witch started this turn to handle Copilot'),
+      ).length,
+      1,
+    );
+    gate.open();
+  });
+}
+
+test('ordinary prompts show present review counts only while the PR is bound', async (t) => {
+  const x = await setup(t);
+  autoReply(x.f, x.a, x.source);
+  await x.c.interrupt();
+  await x.observe();
+  await x.c.send('pending review status');
+  await x.handled();
+  const pending = x.a.a.inputs.find(
+    ({ prompt }) => prompt === 'pending review status',
+  )!;
+  assert.ok(
+    pending.context?.includes(
+      `${x.source.pullRequest.url}, 0 handled, 2 outstanding.`,
+    ),
+  );
+  await x.c.send('handled review status');
+  assert.ok(
+    x.a.a.inputs
+      .at(-1)!
+      .context?.includes(
+        `${x.source.pullRequest.url}, 2 handled, 0 outstanding.`,
+      ),
+  );
+  x.source.threads = [];
+  await x.observe();
+  await x.c.send('present review status');
+  assert.ok(
+    x.a.a.inputs
+      .at(-1)!
+      .context?.includes(
+        `${x.source.pullRequest.url}, 1 handled, 0 outstanding.`,
+      ),
+  );
+  await git('-C', x.cwd, 'symbolic-ref', 'HEAD', 'refs/heads/other-work');
+  x.c.copilot.updateRepository({
+    ...x.repository,
+    branch: 'other-work',
+    pullRequest: undefined,
+  });
+  await x.c.send('other branch status');
+  assert.ok(!x.a.a.inputs.at(-1)!.context?.includes('Copilot review watch:'));
+});
+
+test('a failed post-turn GitHub read retains the result and recovers without another native attempt', async (t) => {
+  const x = await setup(t);
+  autoReply(x.f, x.a, x.source);
+  vi.mocked(github.readGitHubReviews)
+    .mockImplementationOnce(async () => structuredClone(x.source))
+    .mockRejectedValueOnce(new Error('after-turn-github-down'));
+  await x.observe();
+  await until(
+    'saved GitHub read failure',
+    async () =>
+      x.c.snapshot.phase === 'idle' &&
+      (await record(x.f, x.a)).copilotReviews![0]!.batch?.reason ===
+        'after-turn-github-down',
+  );
+  const failed = (await record(x.f, x.a)).copilotReviews![0]!;
+  assert.ok(failed.items.every(({ status }) => status === 'blocked'));
+  assert.ok(
+    x.c.snapshot.items.some(({ text }) =>
+      text.includes('after-turn-github-down'),
+    ),
+  );
+  await x.observe();
+  await x.handled();
+  assert.equal((await record(x.f, x.a)).copilotReviews![0]!.batch, undefined);
+  assert.equal(x.reviews().length, 1);
+});
+
+test('an ordinary turn can reconcile a missing reply receipt before later feedback runs', async (t) => {
+  const x = await setup(t);
+  const session = x.a.a.sessions.at(-1)!.session;
+  const send = session.send;
+  session.send = async (...args) => {
+    if (args[3] === 'pr-review') {
+      await reply(x.f, x.a, x.source);
+      x.source.threads[0]!.comments.pop();
+    }
+    return send(...args);
+  };
+  await x.observe();
+  await until(
+    'waiting receipt',
+    async () =>
+      x.c.snapshot.phase === 'idle' &&
+      !!(await record(x.f, x.a)).copilotReviews![0]!.batch?.verifying,
+  );
+  const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
+  assert.ok(
+    x.c.snapshot.items.some(({ text }) => text.includes('Waiting for GitHub')),
+  );
+  session.send = async (...args) => {
+    if (args[0] === 'reconcile the previous review result') {
+      assert.ok(args[2]?.includes(batch.result));
+      await writeFile(
+        batch.result,
+        JSON.stringify({
+          batch: batch.id,
+          items: batch.items.map((item) => ({
+            ...item,
+            disposition: 'blocked',
+            reason: 'The recorded reply does not exist.',
+          })),
+        } satisfies ReviewResult),
+      );
+    } else if (args[3] === 'pr-review') await reply(x.f, x.a, x.source);
+    return send(...args);
+  };
+  await x.c.send('reconcile the previous review result');
+  await x.observe();
+  const reconciled = (await record(x.f, x.a)).copilotReviews![0]!;
+  assert.equal(reconciled.batch, undefined);
+  assert.ok(reconciled.items.every(({ status }) => status === 'blocked'));
+  assert.equal(x.reviews().length, 1);
+  const original = x.source.threads[0]!;
+  x.source.threads.push({
+    ...original,
+    id: 'later-thread',
+    comments: [
+      {
+        ...original.comments[0]!,
+        id: 'later-comment',
+        body: 'Inspect later feedback.',
+        url: `${x.source.pullRequest.url}#discussion_later`,
+      },
+    ],
+  });
+  await x.observe();
+  await until(
+    'later feedback handled',
+    async () =>
+      x.c.snapshot.phase === 'idle' &&
+      (await record(x.f, x.a)).copilotReviews![0]!.items.find(
+        ({ id }) => id === 'later-thread',
+      )?.status === 'handled',
+  );
+  assert.equal(x.reviews().length, 2);
+  assert.equal(x.source.threads[0]!.comments.length, 1);
+});

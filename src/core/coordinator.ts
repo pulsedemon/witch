@@ -143,7 +143,7 @@ export class Coordinator {
     },
     changed: () => this.drainAfter(),
     run: (batch) => this.reviewCopilot(batch),
-    interrupt: () => this.interrupt(),
+    interrupt: () => this.stopCurrent(),
   });
   private readonly compaction = new Compaction({
     state: () => ({
@@ -211,12 +211,10 @@ export class Coordinator {
       if (!this.snapshot.queue.length) this.drainAfter();
     });
   }
-
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-
   async initialize(directory: string, options: Launch = {}): Promise<void> {
     this.task = this.load(directory, options);
     try {
@@ -228,7 +226,6 @@ export class Coordinator {
       this.drainAfter();
     }
   }
-
   private async load(directory: string, options: Launch): Promise<void> {
     await this.memory.initialize();
     const cwd = await realpath(directory);
@@ -419,7 +416,6 @@ export class Coordinator {
   private get replied(): boolean {
     return this.snapshot.phase === 'running' && !!this.session?.replied;
   }
-
   private drainAfter(releasedHold = false): void {
     if (this.closed || this.deliveryHeld || this.halted()) return;
     if (this.draining && !this.replied) {
@@ -484,7 +480,7 @@ export class Coordinator {
     }
   }
 
-  /** what each turn Witch starts from the queue or for peer requests goes through, including pre-turn compaction; a delivery hold stops only a queued turn, since an admitted answer has used its one attempt. */
+  /** admitted automatic turns have already spent their attempt, so only queued user input waits behind delivery holds. */
   private async runTurn(
     prompt: string,
     kind: 'turn' | 'answer' | 'review',
@@ -737,13 +733,17 @@ export class Coordinator {
     };
   }
 
-  async interrupt(options: AgentStopOptions = {}): Promise<void> {
+  interrupt(options: AgentStopOptions = {}): Promise<void> {
+    this.automaticHeld = true;
+    return this.stopCurrent(options);
+  }
+
+  private async stopCurrent(options: AgentStopOptions = {}): Promise<void> {
     const stop = { ...options, deadline: stopDeadline(options.deadline) };
     const refresh =
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
-    this.automaticHeld = true;
     this.compaction.cancel();
     this.publish({
       requests: this.snapshot.requests.filter(
