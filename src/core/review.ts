@@ -30,7 +30,7 @@ export function parseFindings(
   );
   if (!last) return { invalid: 'no closed json block' };
   if (report.includes('```json', last.index + last[0].length))
-    return { invalid: 'the last json block is unclosed' };
+    return { invalid: 'a json block opens after the last closed one' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(last[1]!);
