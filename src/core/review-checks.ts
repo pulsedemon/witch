@@ -208,7 +208,7 @@ function segments(line: string): Segment[] {
       index += raw[0].length;
       continue;
     }
-    if (line[index] !== '`') {
+    if (line[index] !== '`' || escaped(line, index)) {
       text += line[index++];
       continue;
     }
@@ -248,6 +248,13 @@ function segments(line: string): Segment[] {
   }
   flush();
   return parts;
+}
+
+/** whether an odd run of backslashes escapes the character at `index`. */
+function escaped(line: string, index: number): boolean {
+  let at = index;
+  while (line[at - 1] === '\\') at--;
+  return (index - at) % 2 === 1;
 }
 
 interface Link {
