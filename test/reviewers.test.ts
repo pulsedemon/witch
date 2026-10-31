@@ -196,6 +196,36 @@ test('late updates never reopen a finished reviewer', () => {
   return running;
 });
 
+test('a repeated registration is acknowledged once, and another run cannot take its name', () => {
+  const events: string[] = [];
+  const reviewers = new Reviewers(({ subagent }) =>
+    events.push(`${subagent.run} ${subagent.status}`),
+  );
+  const controller = new AbortController();
+  const running = reviewers.run({
+    cwd: '/',
+    reviewers: [{ name: 'r', command: 'sleep 5', reportFile: '/x' }],
+    signal: controller.signal,
+  });
+  const run = randomUUID();
+  const register = (id: string) =>
+    reviewers.report({
+      kind: 'familiar-register',
+      run: id,
+      name: 'r',
+      runtime: 'claude',
+    });
+  assert.deepEqual(register(run), { kind: 'familiar-registered' });
+  assert.deepEqual(register(run), { kind: 'familiar-registered' });
+  const other = randomUUID();
+  assert.throws(() => register(other), /already registered/);
+  assert.deepEqual(events, [`${run} running`]);
+  assert.ok(reviewers.owns(`claude-familiar/${run}`));
+  assert.ok(!reviewers.owns(`claude-familiar/${other}`));
+  controller.abort();
+  return running;
+});
+
 test("a command's stderr and a report read error come back as its diagnostics", async () => {
   const root = await scratch('witch-reviewers-');
   const [result] = await new Reviewers(() => {}).run({
