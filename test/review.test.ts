@@ -65,7 +65,7 @@ test('parseFindings reads only the last json block and normalizes paths, and say
   );
   assert.equal(
     invalid(`${json({ findings: [] })}\n\n\`\`\`json\n{"findings": [\n`),
-    'the last json block is unclosed',
+    'a json block opens after the last closed one',
   );
   for (const [value, reason] of [
     [

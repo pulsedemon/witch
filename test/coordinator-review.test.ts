@@ -469,8 +469,10 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
       .notices()
       .slice(before)
       .find((text) => text.startsWith('Review stopped'));
-    assert.match(stop!, /^Review stopped: review-[0-9a-f]{8}-1-claude-0 /);
-    assert.match(stop!, reason);
+    const [text, report] = stop!.split(' · report ');
+    assert.match(text!, /^Review stopped: review-[0-9a-f]{8}-1-claude-0 /);
+    assert.match(text!, reason);
+    assert.match(report!, /\/review-[0-9a-f]{8}-1-claude-0\.md$/);
   }
   assert.equal(h.correctionPrompts().length, 0);
   assert.equal(h.notice('Review finished'), undefined);
