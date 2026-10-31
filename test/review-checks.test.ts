@@ -198,6 +198,23 @@ test('writing rules skip HTML tags', async () => {
   ]);
 });
 
+test('an empty fragment and #top need no heading', async () => {
+  assert.deepEqual(
+    await check({ 'plan.md': '# Plan\n\n[a](#) [b](#top) [c](#Top)\n' }),
+    [],
+  );
+});
+
+test("a heading's character references slug as the characters they stand for, outside code spans", async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '[a](#a--b) [b](#x-amp-y) [c](#c-d)\n\n## A &amp; B\n\n## `x &amp; y`\n\n## C&#32;D\n',
+    }),
+    [],
+  );
+});
+
 test('a protocol-relative link is not a local path', async () => {
   assert.deepEqual(await check({ 'plan.md': '[a](//example.com/docs)\n' }), []);
 });
