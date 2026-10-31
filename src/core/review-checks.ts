@@ -547,13 +547,19 @@ function anchors(text: string): Set<string> {
   return new Set([...headings, ...ids]);
 }
 
-/** GitHub's slug of a heading's rendered text. */
+/** GitHub's slug of a heading's rendered text; code spans keep their text verbatim. */
 function slug(heading: string): string {
-  return heading
+  const code: string[] = [];
+  return segments(heading)
+    .map((part) =>
+      part.code ? `\uE000${code.push(part.text) - 1}\uE001` : part.raw,
+    )
+    .join('')
     .replace(/!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
     .replace(/<\/?[a-z][^>]*>/gi, '')
-    .replace(/[`*]/g, '')
+    .replace(/\*/g, '')
     .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
+    .replace(/\uE000(\d+)\uE001/g, (_, index: string) => code[Number(index)]!)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}_\s-]/gu, '')
     .trim()
