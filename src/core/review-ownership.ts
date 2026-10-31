@@ -120,6 +120,7 @@ export class ReviewOwnership {
           !ledger.claims.some(
             (current) =>
               current.id === claim.id &&
+              current.summary === claim.summary &&
               !current.suggestion &&
               current.owner.conversation === scope.owner.conversation &&
               current.owner.project === scope.owner.project,

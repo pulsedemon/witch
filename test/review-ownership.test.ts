@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
+import * as commands from '../src/core/command.js';
 import { callControl } from '../src/persistence/control.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import type { GitHubReviews } from '../src/core/github-reviews.js';
@@ -68,6 +69,55 @@ test('binding an issue claim adds the PR alias and records assignment without re
     ({ id }) => id === claimed.claim.id,
   )!;
   assert.deepEqual(saved.references, [
+    'github:team/project#4',
+    'github:team/project#12',
+  ]);
+});
+
+test('binding refuses a stale summary and retries with the current claim', async (t) => {
+  const f = await coordinationFixture(
+    orderedCleanup(t.onTestFinished),
+    async (references) => ({ assigned: references }),
+  );
+  const a = await f.start('A');
+  const source = reviewSource();
+  await attach(f, a, source);
+  await a.claim(source.closingIssues[0]!, 'old summary');
+  const entered = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const run = commands.runCommand;
+  let held = false;
+  vi.spyOn(commands, 'runCommand').mockImplementation(
+    async (command, args, options) => {
+      if (command === 'git' && args.includes('symbolic-ref') && !held) {
+        held = true;
+        entered.resolve();
+        await released.promise;
+      }
+      return run(command, args, options);
+    },
+  );
+  const binding = a.coordination.reviews.bind(
+    source.pullRequest,
+    source.closingIssues,
+  );
+  const rejected = assert.rejects(binding, /ownership changed/);
+  await entered.promise;
+  try {
+    await a.claim(source.closingIssues[0]!, 'new summary');
+  } finally {
+    released.resolve();
+  }
+  await rejected;
+  const saved = (await f.registry.claims())[0]!;
+  assert.equal(saved.summary, 'new summary');
+  assert.deepEqual(saved.references, ['github:team/project#4']);
+  const fresh = await a.coordination.reviews.bind(
+    source.pullRequest,
+    source.closingIssues,
+  );
+  assert.equal(fresh!.claim.summary, 'new summary');
+  assert.deepEqual(fresh!.claim.references, [
     'github:team/project#4',
     'github:team/project#12',
   ]);
