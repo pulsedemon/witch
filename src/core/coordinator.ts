@@ -136,9 +136,11 @@ export class Coordinator {
   private automaticHeld = false;
   readonly copilot = new CopilotReviewController({
     record: () => this.record,
-    snapshot: () => this.snapshot,
     coordination: () => this.coordination,
-    ready: () => this.automaticReady() && !this.snapshot.queue.length,
+    ready: () =>
+      this.automaticReady() &&
+      !this.snapshot.queue.length &&
+      !this.answerReady(),
     save: () => this.save(),
     notice: (text) => {
       if (!this.closed && this.record) this.notice(text);
@@ -219,7 +221,6 @@ export class Coordinator {
     return () => this.listeners.delete(listener);
   }
 
-  /** opens the `conversation` it names, or with `continue` the most recent one in `directory`, or a new one there. */
   async initialize(directory: string, options: Launch = {}): Promise<void> {
     this.task = this.load(directory, options);
     try {
@@ -446,7 +447,6 @@ export class Coordinator {
     return !!this.snapshot.error || this.turnFailed;
   }
 
-  /** queued prompts run first; with none, waiting peer requests get one answer turn. */
   private async drain(): Promise<void> {
     if (this.draining) return;
     const draining = (this.draining = Promise.withResolvers<void>());
@@ -454,9 +454,11 @@ export class Coordinator {
       while (!this.deliveryHeld && this.snapshot.phase === 'idle') {
         if (!this.snapshot.queue.length) {
           if (!this.automaticReady()) return;
-          const ran = this.answerReady()
+          const answering = this.answerReady();
+          const ran = answering
             ? await this.answerPeers()
             : await this.copilot.run();
+          if (!ran && !answering && this.answerReady()) continue;
           if (ran ? this.halted() : !this.snapshot.queue.length) return;
           continue;
         }
@@ -551,7 +553,6 @@ export class Coordinator {
     return result;
   }
 
-  /** runs once `answerReady` holds; true when it admitted requests, which used their one answer attempt. */
   private async answerPeers(): Promise<boolean> {
     let ran = false;
     this.publish({ answering: true });
@@ -966,7 +967,6 @@ export class Coordinator {
     );
   }
 
-  /** an answer turn has no user request: it sends Witch's instruction and leaves pending user context for the next turn. */
   private async performTurn(
     prompt: string,
     kind: 'turn' | 'handoff' | 'answer' | 'review',

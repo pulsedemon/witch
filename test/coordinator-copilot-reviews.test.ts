@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -541,4 +541,200 @@ test('waiting peer answers run before a pending Copilot review', async (t) => {
     ),
     ['peer', 'review'],
   );
+});
+
+test('a closed native session reconnects without revoking the retained review claim', async (t) => {
+  const x = await setup(t);
+  await x.a.a.sessions.at(-1)!.session.close();
+  const connect = x.a.a.connect.bind(x.a.a);
+  vi.spyOn(x.a.a, 'connect').mockImplementation(async (options) => {
+    const session = await connect(options);
+    autoReply(x.f, x.a, x.source);
+    return session;
+  });
+  await x.observe();
+  await x.handled();
+  assert.equal(x.reviews().length, 1);
+  assert.equal(x.a.a.sessions.length, 2);
+  assert.ok(
+    !x.c.snapshot.items.some(({ text }) =>
+      text.includes('branch or task ownership changed'),
+    ),
+  );
+});
+
+test('a final ownership check that proves input unsent leaves feedback pending for a later observation', async (t) => {
+  const x = await setup(t);
+  let withdrawn = false;
+  vi.spyOn(
+    x.a.a.sessions.at(-1)!.session,
+    'contextUsage',
+  ).mockImplementationOnce(async () => {
+    x.a.coordination.updateRepository({
+      ...x.repository,
+      pullRequest: undefined,
+    });
+    withdrawn = true;
+    return undefined;
+  });
+  await x.observe();
+  await until('proven unsent review settlement', async () => {
+    const state = (await record(x.f, x.a)).copilotReviews!;
+    return (
+      withdrawn &&
+      x.c.snapshot.phase === 'idle' &&
+      !x.c.snapshot.reviewing &&
+      !state.batch &&
+      state.items.every(({ status }) => status === 'pending')
+    );
+  });
+  assert.equal(x.reviews().length, 0);
+  assert.ok(
+    !x.c.snapshot.items.some(({ text }) =>
+      text.includes('outcome is uncertain'),
+    ),
+  );
+  x.a.coordination.updateRepository(x.repository);
+  autoReply(x.f, x.a, x.source);
+  await x.observe();
+  await x.handled();
+  assert.equal(x.reviews().length, 1);
+});
+
+test('a peer arriving during the review read retains priority without losing the review batch', async (t) => {
+  const x = await setup(t);
+  const b = await x.f.start('B');
+  await b.claim('task:asker');
+  autoReply(x.f, x.a, x.source);
+  vi.mocked(github.readGitHubReviews).mockImplementationOnce(async () => {
+    const result = await callControl(await b.binding(), {
+      kind: 'ask',
+      claim: x.a.coordination.snapshot.ownClaim!.id,
+      message: 'What did this task find?',
+    });
+    assert.equal(result.kind, 'peer-request');
+    await x.a.coordination.context();
+    return structuredClone(x.source);
+  });
+  await x.observe();
+  await x.handled();
+  assert.deepEqual(
+    x.a.a.inputs.map(({ prompt }) =>
+      prompt === answerInstruction ? 'peer' : 'review',
+    ),
+    ['peer', 'review'],
+  );
+});
+
+test('an uncertain batch with new feedback does not cause admission reads before a user prompt', async (t) => {
+  const x = await setup(t);
+  const gate = new TurnGate();
+  x.a.a.gate = gate;
+  await x.observe();
+  await within(gate.entered, 5000, 'review dispatch');
+  await x.c.interrupt();
+  gate.open();
+  await until(
+    'uncertain review settlement',
+    async () =>
+      !x.c.snapshot.reviewing &&
+      (await record(x.f, x.a)).copilotReviews!.items.every(
+        ({ status }) => status === 'blocked',
+      ),
+  );
+  x.source.threads.push({ ...x.source.threads[0]!, id: 'thread-2' });
+  vi.mocked(github.readGitHubReviews).mockClear();
+  await x.observe();
+  await x.a.coordination.context();
+  assert.equal(x.c.copilot.ready(), false);
+  assert.equal(vi.mocked(github.readGitHubReviews).mock.calls.length, 0);
+  assert.equal(x.reviews().length, 1);
+  assert.equal(
+    (await record(x.f, x.a)).copilotReviews!.items.find(
+      ({ id }) => id === 'thread-2',
+    )!.status,
+    'pending',
+  );
+});
+
+test('an unrelated user prompt does not retry dispositions explicitly blocked for authorization', async (t) => {
+  const x = await setup(t);
+  const session = x.a.a.sessions.at(-1)!.session;
+  const send = session.send;
+  vi.spyOn(session, 'send').mockImplementation(async (...args) => {
+    if (args[3] === 'witch') {
+      const batch = (await record(x.f, x.a)).copilotReviews!.batch!;
+      await writeFile(
+        batch.result,
+        JSON.stringify({
+          batch: batch.id,
+          items: batch.items.map((item) => ({
+            ...item,
+            disposition: 'blocked',
+            reason: 'Needs new authorization.',
+          })),
+        }),
+      );
+    }
+    return send(...args);
+  });
+  await x.observe();
+  await until(
+    'blocked dispositions',
+    async () =>
+      !x.c.snapshot.reviewing &&
+      (await record(x.f, x.a)).copilotReviews!.items.every(
+        ({ status }) => status === 'blocked',
+      ),
+  );
+  await x.c.send('an unrelated question');
+  await x.observe();
+  assert.equal(x.c.copilot.ready(), false);
+  assert.equal(x.reviews().length, 1);
+  const state = (await record(x.f, x.a)).copilotReviews!;
+  assert.equal(state.batch, undefined);
+  assert.ok(
+    state.items.every(
+      ({ status, reason }) =>
+        status === 'blocked' && reason === 'Needs new authorization.',
+    ),
+  );
+});
+
+test('a missing result after restart stays blocked until a user prompt reconciles the existing reply', async (t) => {
+  const x = await setup(t);
+  const gate = new TurnGate();
+  x.a.a.gate = gate;
+  autoReply(x.f, x.a, x.source);
+  await x.observe();
+  await within(gate.entered, 5000, 'review dispatch');
+  const id = x.c.snapshot.conversation!.id;
+  const oldBatch = (await record(x.f, x.a)).copilotReviews!.batch!;
+  await unlink(oldBatch.result);
+  const replies = structuredClone(x.source.threads[0]!.comments);
+  await x.c.close({ restart: true });
+  const reopened = await x.f.start('A', { conversation: id });
+  reopened.coordination.updateRepository(x.repository);
+  reopened.coordinator.copilot.updateRepository(x.repository);
+  await reopened.coordinator.copilot.observe(structuredClone(x.source));
+  const blocked = (await record(x.f, reopened)).copilotReviews!;
+  assert.equal(blocked.batch!.id, oldBatch.id);
+  assert.ok(blocked.items.every(({ status }) => status === 'blocked'));
+  assert.equal(reopened.a.inputs.length, 0);
+  autoReply(x.f, reopened, x.source);
+  await reopened.coordinator.send('reconcile the interrupted review');
+  await until(
+    'reconciled existing replies',
+    async () =>
+      !reopened.coordinator.snapshot.reviewing &&
+      (await record(x.f, reopened)).copilotReviews!.items.every(
+        ({ status }) => status === 'handled',
+      ),
+  );
+  assert.equal(
+    reopened.a.inputs.filter(({ author }) => author === 'witch').length,
+    1,
+  );
+  assert.deepEqual(x.source.threads[0]!.comments, replies);
+  assert.equal((await record(x.f, reopened)).copilotReviews!.batch, undefined);
 });

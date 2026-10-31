@@ -18,6 +18,7 @@ interface ReviewScope {
 }
 
 interface ReviewOwnershipPort {
+  observed(): boolean;
   context(): Promise<{ snapshot: CoordinationSnapshot }>;
   current(): ReviewScope;
   claim(
@@ -36,6 +37,10 @@ interface ReviewOwnershipPort {
 
 export class ReviewOwnership {
   constructor(private readonly port: ReviewOwnershipPort) {}
+
+  get observed(): boolean {
+    return this.port.observed();
+  }
 
   get owner(): ClaimOwner {
     return this.port.current().owner;
@@ -95,37 +100,36 @@ export class ReviewOwnership {
     if (!found) return;
     const { scope, claim } = found;
     const reference = taskReference(pr.url, scope.owner.project);
+    if (claim.references.includes(reference)) return { claim };
     const alias = closingIssues.find((url) =>
       claim.references.includes(taskReference(url, scope.owner.project)),
     );
-    if (!claim.references.includes(reference) && !alias) return;
+    if (!alias) return;
     const deadline = Date.now() + 30_000;
-    const bound = claim.references.includes(reference)
-      ? claim
-      : await this.port.claim(
-          scope.owner,
-          {
-            reference: pr.url,
-            aliases: alias ? [alias] : [],
-            summary: claim.summary,
-          },
-          deadline,
-          async (ledger) => {
-            if (
-              !this.matches(scope, pr) ||
-              !ledger.claims.some(
-                (current) =>
-                  current.id === claim.id &&
-                  !current.suggestion &&
-                  current.owner.conversation === scope.owner.conversation &&
-                  current.owner.project === scope.owner.project,
-              )
-            )
-              throw new Error(
-                'Pull request ownership changed before review admission.',
-              );
-          },
-        );
+    const bound = await this.port.claim(
+      scope.owner,
+      {
+        reference: pr.url,
+        aliases: [alias],
+        summary: claim.summary,
+      },
+      deadline,
+      async (ledger) => {
+        if (
+          !this.matches(scope, pr) ||
+          !ledger.claims.some(
+            (current) =>
+              current.id === claim.id &&
+              !current.suggestion &&
+              current.owner.conversation === scope.owner.conversation &&
+              current.owner.project === scope.owner.project,
+          )
+        )
+          throw new Error(
+            'Pull request ownership changed before review admission.',
+          );
+      },
+    );
     if (!this.matches(scope, pr)) return;
     return recordTaskAssignment(
       bound,

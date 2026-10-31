@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { callControl } from '../src/persistence/control.js';
+import { selectionTurn } from './fixtures/task-selection.js';
 import type { GitHubReviews } from '../src/core/github-reviews.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { reviewSource } from './fixtures/github-reviews.js';
@@ -130,13 +132,16 @@ test('fresh Git state rejects a changed branch even while the displayed status i
   );
 });
 
-test('failed GitHub assignment leaves a visible warning and a usable local ownership binding', async (t) => {
+test('failed GitHub assignment leaves usable ownership and retries only on an explicit claim', async (t) => {
+  let writes = 0;
   const f = await coordinationFixture(
     orderedCleanup(t.onTestFinished),
-    async (references) =>
-      references.includes('github:team/project#12')
+    async (references) => {
+      writes++;
+      return references.includes('github:team/project#12')
         ? { assigned: [], failure: 'GitHub unavailable' }
-        : { assigned: references },
+        : { assigned: references };
+    },
   );
   const a = await f.start('A');
   const source = reviewSource();
@@ -152,6 +157,15 @@ test('failed GitHub assignment leaves a visible warning and a usable local owner
     true,
   );
   assert.deepEqual(result!.claim.assigned, ['github:team/project#4']);
+  const before = writes;
+  const reread = await a.coordination.reviews.bind(
+    source.pullRequest,
+    source.closingIssues,
+  );
+  assert.equal(reread!.warning, undefined);
+  assert.equal(writes, before);
+  assert.equal((await a.claim(source.pullRequest.url)).kind, 'claimed');
+  assert.equal(writes, before + 1);
 });
 
 test('closed PRs do not bind even if the local status still says open', async (t) => {
@@ -170,4 +184,42 @@ test('closed PRs do not bind even if the local status still says open', async (t
   assert.deepEqual((await f.registry.claims())[0]!.references, [
     'github:team/project#4',
   ]);
+});
+
+test('a solo PR suggestion binds only after the requested claim promotion', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup, async (references) => ({
+    assigned: references,
+  }));
+  const a = await f.start('A');
+  const source = reviewSource();
+  await attach(f, a, source);
+  const selecting = await selectionTurn(cleanup, a);
+  const { ticket } = await selecting.select();
+  const suggested = await callControl(await a.binding(), {
+    kind: 'recommend',
+    selection: ticket.id,
+    input: { reference: source.pullRequest.url, summary: 'Review this PR' },
+  });
+  assert.equal(suggested.kind, 'claimed');
+  await selecting.finish();
+  const context = await a.coordination.context();
+  assert.deepEqual(context.snapshot.peers, []);
+  assert.ok(context.snapshot.ownClaim!.suggestion);
+  assert.match(
+    context.context,
+    /Open pull requests still need an active claim/,
+  );
+  assert.match(
+    context.instructions,
+    /Promote its suggestion to an active claim for Copilot watching/,
+  );
+  assert.equal(
+    await a.coordination.reviews.bind(source.pullRequest, []),
+    undefined,
+  );
+  assert.equal((await a.claim(source.pullRequest.url)).kind, 'claimed');
+  const bound = await a.coordination.reviews.bind(source.pullRequest, []);
+  assert.equal(bound!.claim.id, context.snapshot.ownClaim!.id);
+  assert.equal(bound!.claim.suggestion, undefined);
 });

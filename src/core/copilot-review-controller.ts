@@ -16,12 +16,10 @@ import { readGitHubReviews, reviewCommitPushed } from './github-reviews.js';
 import type { GitHubReviews } from './github-reviews.js';
 import type { SessionCoordination } from './coordination.js';
 import type { Repository } from './repository.js';
-import type { Snapshot } from './snapshot.js';
 import type { ConversationRecord } from './state.js';
 
 interface ReviewHost {
   record(): ConversationRecord | undefined;
-  snapshot(): Snapshot;
   coordination(): SessionCoordination | undefined;
   ready(): boolean;
   save(): Promise<void>;
@@ -79,6 +77,7 @@ export class CopilotReviewController {
             (this.repository.pullRequest.url !== batch.pullRequest.url ||
               this.repository.pullRequest.state !== 'OPEN')))) ||
       (scope &&
+        this.host.coordination()!.reviews.observed &&
         !scope.error &&
         (scope.ownClaim?.id !== batch.claim ||
           (scope.ownClaim &&
@@ -213,11 +212,23 @@ export class CopilotReviewController {
       state.pullRequest.state === 'OPEN' &&
       !!state.claim &&
       this.host.coordination()?.snapshot.ownClaim?.id === state.claim &&
-      state.items.some(
-        ({ status }) =>
-          status === 'pending' || (this.retry && status === 'blocked'),
-      )
+      (!state.batch || this.retry) &&
+      (state.items.some(({ status }) => status === 'pending') ||
+        (this.retry && !!state.batch))
     );
+  }
+
+  private resetBatch(state: CopilotReviewState): void {
+    for (const item of state.items)
+      if (
+        state.batch?.items.some(
+          ({ id, version }) => id === item.id && version === item.version,
+        )
+      ) {
+        item.status = 'pending';
+        delete item.reason;
+      }
+    delete state.batch;
   }
 
   async run(): Promise<boolean> {
@@ -252,11 +263,7 @@ export class CopilotReviewController {
       batch = await this.serial(async () => {
         if (!this.matches(record, fresh) || !this.host.ready()) return;
         const state = record.copilotReviews!;
-        if (this.retry) {
-          for (const item of state.items)
-            if (item.status === 'blocked') item.status = 'pending';
-          delete state.batch;
-        }
+        if (this.retry) this.resetBatch(state);
         this.retry = false;
         if (state.batch) return;
         const items = state.items.filter(({ status }) => status === 'pending');
@@ -286,14 +293,7 @@ export class CopilotReviewController {
       if (!this.matches(record, fresh) || !this.host.ready()) {
         await this.serial(async () => {
           if (this.host.record() !== record) return;
-          for (const item of record.copilotReviews!.items)
-            if (
-              batch!.items.some(
-                ({ id, version }) => id === item.id && version === item.version,
-              )
-            )
-              item.status = 'pending';
-          delete record.copilotReviews!.batch;
+          this.resetBatch(record.copilotReviews!);
           await this.host.save();
         });
         return false;
@@ -302,6 +302,15 @@ export class CopilotReviewController {
       const result = await this.host.run(batch);
       this.executing = undefined;
       if (this.host.record() !== record) return true;
+      if (result?.inputUnsent) {
+        await this.serial(async () => {
+          if (this.host.record() !== record) return;
+          this.resetBatch(record.copilotReviews!);
+          await this.host.save();
+          this.show(record);
+        });
+        return false;
+      }
       const after = await this.read(
         batch.pullRequest,
         record.cwd,

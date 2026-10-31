@@ -77,7 +77,6 @@ interface Activation {
 /** lock holders and process exits change no file, so the tick rereads them this often. */
 const rereadInterval = 60_000;
 
-/** what changes when Git rewrites a config file. */
 function configStamp(file: string | undefined): string {
   if (!file) return 'none';
   try {
@@ -115,6 +114,7 @@ export class SessionCoordination {
   private repository?: Repository;
   readonly events: ConversationEvents;
   readonly reviews = new ReviewOwnership({
+    observed: () => !!this.active?.accepting && !!this.ledger,
     context: () => this.context(),
     current: () => {
       const active = this.admit();
