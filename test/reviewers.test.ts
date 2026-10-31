@@ -196,7 +196,7 @@ test('late updates never reopen a finished reviewer', () => {
   return running;
 });
 
-test('a repeated registration is acknowledged once, and another run cannot take its name', () => {
+test('a repeated registration is acknowledged again but published once, and another run cannot take its name', () => {
   const events: string[] = [];
   const reviewers = new Reviewers(({ subagent }) =>
     events.push(`${subagent.run} ${subagent.status}`),

@@ -478,6 +478,18 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
   assert.equal(h.notice('Review finished'), undefined);
 });
 
+test('every failed reviewer in a round is named in the stop notice', async (t) => {
+  const h = await harness(t);
+  h.state.outcome = (_round, { runtime }) => ({
+    status: 'failed',
+    diagnostics: `witch: ${runtime} broke`,
+  });
+  assert.equal(await h.coordinator.review('plan.md'), false);
+  const stop = h.notice('Review stopped')!;
+  assert.match(stop, /-claude-0 ended failed: witch: claude broke · report /);
+  assert.match(stop, /-codex-0 ended failed: witch: codex broke · report /);
+});
+
 test('a refused route stops the review', async (t) => {
   const h = await harness(t);
   h.coordination.router = async () => ({
