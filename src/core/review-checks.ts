@@ -201,7 +201,16 @@ function segments(line: string): Segment[] {
     if (text) parts.push({ code: false, text, raw: text });
     text = '';
   };
+  const html = /<!--.*?(?:-->|$)|<[a-z][^>]*>/iy;
   while (index < line.length) {
+    // an HTML comment or tag that starts first keeps its backticks, as CommonMark reads it
+    html.lastIndex = index;
+    const raw = line[index] === '<' ? html.exec(line) : null;
+    if (raw) {
+      text += raw[0];
+      index += raw[0].length;
+      continue;
+    }
     if (line[index] !== '`') {
       text += line[index++];
       continue;
@@ -574,7 +583,7 @@ async function repositoryOf(cwd: string): Promise<Repository> {
     execute('git', ['-C', cwd, ...args]).then(
       ({ stdout }) => stdout.trim(),
       (error: { stderr?: unknown }) => {
-        // outside a repository or without an origin, links resolve as plain paths
+        // with no repository, root-relative links resolve from cwd; with no origin, blob links go unchecked
         if (/not a git repository|No such remote/.test(String(error.stderr)))
           return undefined;
         throw error;
