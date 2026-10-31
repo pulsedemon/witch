@@ -10,27 +10,33 @@ const servers = z.object({
   nextCursor: z.string().nullish(),
 });
 
-function readProfile(value: unknown): Record<string, unknown> {
+function readProfile(
+  value: unknown,
+  requestFile?: string,
+): Record<string, unknown> {
   const profile = object.parse(value);
   const filesystem = object.parse(profile.filesystem ?? {});
   return {
     ...profile,
     ...(profile.extends === ':workspace' ? { extends: ':read-only' } : {}),
-    filesystem: Object.fromEntries(
-      Object.entries(filesystem).map(([path, access]) => [
-        path,
-        access === 'write'
-          ? 'read'
-          : typeof access === 'object' && access !== null
-            ? Object.fromEntries(
-                Object.entries(object.parse(access)).map(([scope, mode]) => [
-                  scope,
-                  mode === 'write' ? 'read' : mode,
-                ]),
-              )
-            : access,
-      ]),
-    ),
+    filesystem: {
+      ...Object.fromEntries(
+        Object.entries(filesystem).map(([path, access]) => [
+          path,
+          access === 'write'
+            ? 'read'
+            : typeof access === 'object' && access !== null
+              ? Object.fromEntries(
+                  Object.entries(object.parse(access)).map(([scope, mode]) => [
+                    scope,
+                    mode === 'write' ? 'read' : mode,
+                  ]),
+                )
+              : access,
+        ]),
+      ),
+      ...(requestFile ? { [requestFile]: 'read' } : {}),
+    },
     network: { ...object.parse(profile.network ?? {}), enabled: false },
   };
 }
@@ -38,6 +44,7 @@ function readProfile(value: unknown): Record<string, unknown> {
 export async function answerConfiguration(
   rpc: JsonRpc,
   cwd: string,
+  requestFile: string,
   profile?: string,
 ): Promise<{
   config: Record<string, unknown>;
@@ -72,7 +79,7 @@ export async function answerConfiguration(
     config.permissions = Object.fromEntries(
       Object.entries(profiles).map(([name, value]) => [
         name,
-        readProfile(value),
+        readProfile(value, name === profile ? requestFile : undefined),
       ]),
     );
   }

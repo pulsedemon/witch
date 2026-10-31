@@ -21,6 +21,7 @@ import {
 } from './fixtures/codex-adapter.js';
 import { launcher as claude } from './fixtures/claude-adapter.js';
 import { until } from './fixtures/within.js';
+import { scratch } from './fixtures/scratch.js';
 
 async function input(cwd: string) {
   const requests = ['First private question', 'Second private question'].map(
@@ -56,6 +57,7 @@ async function answer(session: AgentSession, cwd: string) {
       message: `Read: ${message}`,
     })),
   );
+  return batch;
 }
 
 for (const history of [false, true]) {
@@ -183,58 +185,61 @@ for (const history of [false, true]) {
   });
 }
 
-test('Codex preserves named read boundaries and inherited denies while removing writes and network', async (t) => {
-  const { session, cwd } = await codex(
-    (event) => {
-      if (event.type === 'request')
-        session.respond(event.request.id, { decision: 'accept' });
-    },
-    { mode: 'named-profile' },
-  );
-  t.onTestFinished(() => session.close());
-  await writeFile(
-    join(cwd, 'config.json'),
-    JSON.stringify({
-      permissions: {
-        owner: {
-          extends: 'base',
-          filesystem: {
-            '/project': 'write',
-            '/secret': 'deny',
-            ':workspace': { cache: 'write', denied: 'deny' },
+for (const builtin of [undefined, ':workspace']) {
+  test(`Codex permits the request file and preserves named boundaries${builtin ? ' with a builtin parent' : ''}`, async (t) => {
+    const { session, cwd } = await codex(
+      (event) => {
+        if (event.type === 'request')
+          session.respond(event.request.id, { decision: 'accept' });
+      },
+      { mode: 'named-profile' },
+    );
+    t.onTestFinished(() => session.close());
+    await writeFile(
+      join(cwd, 'config.json'),
+      JSON.stringify({
+        permissions: {
+          owner: {
+            extends: 'base',
+            filesystem: {
+              '/project': 'write',
+              '/secret': 'deny',
+              ':workspace_roots': { cache: 'write', denied: 'deny' },
+            },
+            network: { enabled: true, allowed_domains: ['example.com'] },
           },
-          network: { enabled: true, allowed_domains: ['example.com'] },
+          base: {
+            extends: builtin,
+            filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
+          },
         },
-        base: {
-          extends: ':workspace',
-          filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
+      }),
+    );
+    const batch = await answer(session, await scratch('private-requests-'));
+    const { params } = JSON.parse(
+      await readFile(join(cwd, 'answer-connect.json'), 'utf8'),
+    ) as { params: Record<string, unknown> };
+    assert.equal(params.permissions, 'owner');
+    assert.equal(params.sandbox, undefined);
+    assert.deepEqual((params.config as Record<string, unknown>).permissions, {
+      owner: {
+        extends: 'base',
+        filesystem: {
+          [batch.file]: 'read',
+          '/project': 'read',
+          '/secret': 'deny',
+          ':workspace_roots': { cache: 'read', denied: 'deny' },
         },
+        network: { enabled: false, allowed_domains: ['example.com'] },
       },
-    }),
-  );
-  await answer(session, cwd);
-  const { params } = JSON.parse(
-    await readFile(join(cwd, 'answer-connect.json'), 'utf8'),
-  ) as { params: Record<string, unknown> };
-  assert.equal(params.permissions, 'owner');
-  assert.equal(params.sandbox, undefined);
-  assert.deepEqual((params.config as Record<string, unknown>).permissions, {
-    owner: {
-      extends: 'base',
-      filesystem: {
-        '/project': 'read',
-        '/secret': 'deny',
-        ':workspace': { cache: 'read', denied: 'deny' },
+      base: {
+        ...(builtin ? { extends: ':read-only' } : {}),
+        filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
+        network: { enabled: false },
       },
-      network: { enabled: false, allowed_domains: ['example.com'] },
-    },
-    base: {
-      extends: ':read-only',
-      filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
-      network: { enabled: false },
-    },
+    });
   });
-});
+}
 
 test('Codex answers follow changed and cleared native permission profiles', async (t) => {
   const f = await controlledFixture('identity');

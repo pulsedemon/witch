@@ -444,6 +444,7 @@ class CodexSession implements AgentSession {
       (await answerConfiguration(
         this.rpc,
         this.options.cwd,
+        this.options.answer.requestFile,
         this.options.answer.permissionProfile,
       ));
     const parameters = {
