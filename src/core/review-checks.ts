@@ -492,13 +492,19 @@ function before(text: string, index: number): number {
 /** GitHub's heading anchors, plus HTML id and name attributes, from a markdown file's prose. */
 function anchors(text: string): Set<string> {
   const prose = proseLines(text.split('\n'));
-  const found = new Set<string>();
+  const headings = new Set<string>();
+  const ids = new Set<string>();
   const counts = new Map<string, number>();
+  // github-slugger numbers a repeat past every anchor already taken, including a heading that reads like a numbered one
   const add = (heading: string) => {
     const base = slug(heading);
-    const seen = counts.get(base) ?? 0;
-    counts.set(base, seen + 1);
-    found.add(seen ? `${base}-${seen}` : base);
+    let anchor = base;
+    while (headings.has(anchor)) {
+      const seen = (counts.get(base) ?? 0) + 1;
+      counts.set(base, seen);
+      anchor = `${base}-${seen}`;
+    }
+    headings.add(anchor);
   };
   for (const [index, line] of prose.entries()) {
     if (line === undefined) continue;
@@ -512,9 +518,9 @@ function anchors(text: string): Set<string> {
     )
       add(above.trim());
     for (const match of line.matchAll(/\b(?:id|name)="([^"]+)"/g))
-      found.add(match[1]!);
+      ids.add(match[1]!);
   }
-  return found;
+  return new Set([...headings, ...ids]);
 }
 
 /** GitHub's slug of a heading's rendered text. */
