@@ -221,6 +221,7 @@ export async function runReview(
     const results = await host.reviewers.run({ cwd, reviewers, signal });
     if (signal.aborted) return stopped(incomplete);
     const reviews: Review[] = [];
+    const failed: string[] = [];
     for (const [index, result] of results.entries()) {
       const { route, name, reportFile } = reviewers[index]!;
       const findings = parseFindings(result.report, cwd, files);
@@ -237,11 +238,12 @@ export async function runReview(
                 ? `did not report findings: ${findings.invalid}`
                 : undefined;
       if (reason || 'invalid' in findings)
-        return stopped(
+        failed.push(
           `${name} ${reason}${result.diagnostics ? `: ${result.diagnostics}` : ''} · report ${reportFile}`,
         );
-      reviews.push({ runtime: route.runtime, findings });
+      else reviews.push({ runtime: route.runtime, findings });
     }
+    if (failed.length) return stopped(failed.join('; '));
     if (!same(await read(), texts))
       return stopped('the targets changed while reviewers read them');
     const round = {
