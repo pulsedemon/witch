@@ -136,6 +136,18 @@ export class Reviewers {
       stopping.catch(missed.reject);
     };
     signal.addEventListener('abort', abort, { once: true });
+    /** ends a reviewer that never reported its own end, so a failed or stopped run leaves none running. */
+    const finish = (name: string) => {
+      const run = this.runs.get(this.expected.get(name)?.run ?? '');
+      if (run?.subagent.status === 'running') {
+        run.subagent = {
+          ...run.subagent,
+          status: signal.aborted ? 'stopped' : 'failed',
+        };
+        this.publish({ type: 'subagent', subagent: run.subagent });
+      }
+      return run;
+    };
     try {
       const codes = await Promise.race([Promise.all(exits), missed.promise]);
       // a wrapper killed outright leaves its native CLI in the group
@@ -147,14 +159,7 @@ export class Reviewers {
       }
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
-          const run = this.runs.get(this.expected.get(name)?.run ?? '');
-          if (run?.subagent.status === 'running') {
-            run.subagent = {
-              ...run.subagent,
-              status: signal.aborted ? 'stopped' : 'failed',
-            };
-            this.publish({ type: 'subagent', subagent: run.subagent });
-          }
+          const run = finish(name);
           return {
             name,
             code: codes[index]!,
@@ -171,6 +176,7 @@ export class Reviewers {
     } finally {
       signal.removeEventListener('abort', abort);
       for (const { name } of reviewers) {
+        finish(name);
         const run = this.expected.get(name)?.run;
         if (run) this.runs.delete(run);
         this.expected.delete(name);

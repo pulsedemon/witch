@@ -719,7 +719,7 @@ export class Coordinator {
     this.cleanupCancellation?.abort();
     this.reviewCancellation?.abort(new NativeStop(stop));
     const results = await Promise.allSettled([
-      this.cleanupCancellation ? this.task : undefined,
+      (this.cleanupCancellation ?? this.reviewCancellation) && this.task,
       this.coordination?.endTurn(),
       (async () => {
         if (refresh && !this.closed) return;

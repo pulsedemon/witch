@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { TestContext } from 'vitest';
-import { NativeStop } from '../src/agents/shutdown.js';
+import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
 import type { Usage } from '../src/agents/types.js';
 import { router } from '../src/core/router.js';
 import type { Reviewer, ReviewerResult } from '../src/core/reviewers.js';
@@ -482,12 +482,13 @@ test('Escape while reviewers run aborts them with the native stop deadline', asy
   const reviewing = h.coordinator.review('plan.md');
   await until('the reviewers', () => h.rounds.length === 1, 500);
   const deadline = performance.now() + 2000;
-  await h.coordinator.interrupt({ deadline });
+  const interrupting = h.coordinator.interrupt({ deadline });
   const { signal } = h.rounds[0]!;
-  assert.ok(signal.aborted);
+  await until('the abort', () => signal.aborted, 500);
   assert.ok(signal.reason instanceof NativeStop);
   assert.equal(signal.reason.options.deadline, deadline);
   held.resolve();
+  await interrupting;
   assert.equal(await reviewing, false);
   assert.equal(h.correctionPrompts().length, 0);
   assert.equal(h.notice('Review finished'), undefined);
@@ -505,6 +506,26 @@ test('closing Witch during a review aborts its reviewers', async (t) => {
   held.resolve();
   await closing;
   assert.equal(await reviewing, false);
+});
+
+test('closing Witch fails when a reviewer outlives the stop deadline', async (t) => {
+  const h = await harness(t);
+  let started = false;
+  h.coordinator.reviewers.run = ({ signal }) => {
+    started = true;
+    return new Promise((_, reject) =>
+      signal.addEventListener('abort', () => reject(new NativeStopTimeout()), {
+        once: true,
+      }),
+    );
+  };
+  const reviewing = h.coordinator.review('plan.md').then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  await until('the reviewers', () => started, 500);
+  await assert.rejects(h.coordinator.close(), NativeStopTimeout);
+  assert.ok((await reviewing) instanceof NativeStopTimeout);
 });
 
 test('Escape during routing launches no reviewer', async (t) => {
