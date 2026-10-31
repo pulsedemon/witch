@@ -159,15 +159,13 @@ export async function runReview(
     const delta = reviewed ? changes(reviewed, texts) : undefined;
     const scope = scopeFor(next, delta?.ratio ?? 0);
     if (signal.aborted) return stopped(incomplete);
+    const cancelled = Promise.withResolvers<undefined>();
+    const cancel = () => cancelled.resolve(undefined);
+    signal.addEventListener('abort', cancel, { once: true });
     const reply = await Promise.race([
       router(action, signal),
-      new Promise<undefined>((settle) => {
-        if (signal.aborted) settle(undefined);
-        signal.addEventListener('abort', () => settle(undefined), {
-          once: true,
-        });
-      }),
-    ]);
+      cancelled.promise,
+    ]).finally(() => signal.removeEventListener('abort', cancel));
     if (!reply || signal.aborted) return stopped(incomplete);
     if (reply.kind === 'error') return stopped(reply.message);
     if (reply.kind !== 'route') return stopped('unexpected route reply');
