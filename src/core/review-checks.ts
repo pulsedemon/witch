@@ -302,7 +302,7 @@ function resolveLink(
       `${blob[1]}/${blob[2]}`.toLowerCase()
       ? { revision: blob[3]!, path: decode(blob[4]!) }
       : undefined;
-  if (/^[a-z][\w+.-]*:/i.test(target)) return;
+  if (/^[a-z][\w+.-]*:|^\/\//i.test(target)) return;
   const path = decode(target.replace(/\?.*$/, ''));
   if (!path) return { path: from };
   return {
