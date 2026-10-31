@@ -93,7 +93,6 @@ export async function runReview(
     text: `/review ${argument}`,
     cwd,
   });
-  const prefix = coordination.commandPrefixes().familiar;
   const model = conversation.sessions[conversation.agent]?.model;
   const action = {
     kind: 'route' as const,
@@ -197,6 +196,8 @@ export async function runReview(
         known,
       }),
     );
+    // a correction that reconnects the session activates coordination anew, with a new familiar prefix
+    const prefix = coordination.commandPrefixes().familiar;
     const counts = new Map<string, number>();
     const reviewers: (Reviewer & { route: Routed })[] = routes.map((route) => {
       const index = counts.get(route.runtime) ?? 0;

@@ -288,6 +288,18 @@ test('a killed reviewer gets a terminal event and no survivor', async (t) => {
   const [result] = await within(running, 10_000, 'the killed reviewer');
   assert.equal(result!.status, 'failed');
   assert.equal(alive(pid), false);
+  assert.equal(
+    coordinator.snapshot.subagents.find(({ name }) => name === killed.name)
+      ?.status,
+    'failed',
+  );
+  assert.ok(
+    coordinator.snapshot.items.some(
+      (item) =>
+        item.title?.startsWith('Familiar failed') &&
+        item.title.includes(killed.name),
+    ),
+  );
 });
 
 test("a native session closing leaves Witch's reviewers running", async (t) => {

@@ -260,6 +260,28 @@ test('a single-harness change brings the quiet harness back', async (t) => {
   );
 });
 
+test("each round's reviewers use the familiar prefix current when it starts", async (t) => {
+  const h = await harness(t);
+  const prefixes = h.coordination.commandPrefixes.bind(h.coordination);
+  let familiar = '/before';
+  h.coordination.commandPrefixes = () => ({ ...prefixes(), familiar });
+  h.state.outcome = (round, { runtime }) =>
+    round === 1 && runtime === 'claude'
+      ? { findings: [{ line: 5, blocking: true }] }
+      : {};
+  h.corrections.push(async () => {
+    familiar = '/after';
+    await h.setLines({ 5: 'fixed five' });
+  });
+  assert.equal(await h.coordinator.review('plan.md'), true);
+  assert.deepEqual(
+    h.rounds.map(({ reviewers }) =>
+      reviewers.map(({ command }) => command.split(' ')[0]),
+    ),
+    [['/before', '/before'], ['/after'], ['/after', '/after']],
+  );
+});
+
 test('blockers in the previous corrections stop the review', async (t) => {
   const h = await harness(t);
   h.state.outcome = (_round, { runtime }) =>

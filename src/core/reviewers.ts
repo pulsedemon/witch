@@ -200,8 +200,9 @@ function signalGroup(group: number, signal: NodeJS.Signals | 0): boolean {
     return true;
   } catch (error) {
     const { code } = error as NodeJS.ErrnoException;
-    // macOS can answer EPERM for a dying group that has no member left to signal
-    if (code === 'ESRCH' || code === 'EPERM') return false;
+    // macOS answers EPERM while the group's last members are still exiting, so they count until ESRCH
+    if (code === 'EPERM') return true;
+    if (code === 'ESRCH') return false;
     throw error;
   }
 }
