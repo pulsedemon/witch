@@ -72,6 +72,7 @@ export const conversationRecordSchema = conversationSchema.extend({
     .optional(),
   process: processIdentity.optional(),
   usageProcess: processIdentity.optional(),
+  answerProcess: processIdentity.optional(),
   // the shell of a running `!` command Witch runs for Claude
   shell: processIdentity.optional(),
   activity: z

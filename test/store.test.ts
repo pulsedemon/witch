@@ -447,59 +447,63 @@ test('a claim that cannot stop the recorded process still kills the recorded she
   }
 });
 
-for (const main of [false, true]) {
-  test(`a claim stops the recorded usage helper${main ? ' and main process' : ' without a main process'}`, async () => {
-    const store = await StateStore.open(await scratch('witch-usage-claim-'));
-    const children = Array.from({ length: main ? 2 : 1 }, () =>
-      spawn('/bin/sleep', ['30'], { stdio: 'ignore' }),
-    );
+for (const field of ['usageProcess', 'answerProcess'] as const) {
+  for (const main of [false, true]) {
+    test(`a claim stops the recorded ${field}${main ? ' and main process' : ' without a main process'}`, async () => {
+      const store = await StateStore.open(await scratch('witch-usage-claim-'));
+      const children = Array.from({ length: main ? 2 : 1 }, () =>
+        spawn('/bin/sleep', ['30'], { stdio: 'ignore' }),
+      );
+      try {
+        const files = await store.create(conversation('usage'));
+        await files.save({
+          ...files.record,
+          [field]: await identifyProcess(children[0]!.pid!),
+          ...(main
+            ? { process: await identifyProcess(children[1]!.pid!) }
+            : {}),
+        });
+        await files.close();
+        const closed = children.map((child) => once(child, 'close'));
+        const recovered = await store.claim('usage');
+        await Promise.all(closed);
+        assert.equal(recovered.record.process, undefined);
+        assert.equal(recovered.record[field], undefined);
+        await recovered.close();
+        const saved = JSON.parse(
+          await readFile(
+            join(store.root, 'conversations', 'usage', 'state.json'),
+            'utf8',
+          ),
+        ) as Partial<Record<typeof field | 'process', unknown>>;
+        assert.equal(saved.process, undefined);
+        assert.equal(saved[field], undefined);
+      } finally {
+        for (const child of children) child.kill('SIGKILL');
+      }
+    });
+  }
+
+  test(`a claim does not signal a process that reused the ${field} pid`, async () => {
+    const store = await StateStore.open(await scratch('witch-usage-reused-'));
+    const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
     try {
-      const files = await store.create(conversation('usage'));
+      const files = await store.create(conversation('reused-usage'));
       await files.save({
         ...files.record,
-        usageProcess: await identifyProcess(children[0]!.pid!),
-        ...(main ? { process: await identifyProcess(children[1]!.pid!) } : {}),
+        [field]: { pid: child.pid!, started: 'Thu Jan  1 00:00:00 1970' },
       });
       await files.close();
-      const closed = children.map((child) => once(child, 'close'));
-      const recovered = await store.claim('usage');
-      await Promise.all(closed);
-      assert.equal(recovered.record.process, undefined);
-      assert.equal(recovered.record.usageProcess, undefined);
+      const recovered = await store.claim('reused-usage');
+      assert.equal(child.exitCode, null);
+      assert.equal(child.signalCode, null);
+      assert.equal(recovered.record[field], undefined);
       await recovered.close();
-      const saved = JSON.parse(
-        await readFile(
-          join(store.root, 'conversations', 'usage', 'state.json'),
-          'utf8',
-        ),
-      ) as { usageProcess?: unknown; process?: unknown };
-      assert.equal(saved.process, undefined);
-      assert.equal(saved.usageProcess, undefined);
     } finally {
-      for (const child of children) child.kill('SIGKILL');
+      child.kill('SIGKILL');
     }
   });
 }
-
-test('a claim does not signal a process that reused the usage helper pid', async () => {
-  const store = await StateStore.open(await scratch('witch-usage-reused-'));
-  const child = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
-  try {
-    const files = await store.create(conversation('reused-usage'));
-    await files.save({
-      ...files.record,
-      usageProcess: { pid: child.pid!, started: 'Thu Jan  1 00:00:00 1970' },
-    });
-    await files.close();
-    const recovered = await store.claim('reused-usage');
-    assert.equal(child.exitCode, null);
-    assert.equal(child.signalCode, null);
-    assert.equal(recovered.record.usageProcess, undefined);
-    await recovered.close();
-  } finally {
-    child.kill('SIGKILL');
-  }
-});
 
 test('a failed main stop retains the recovery lock until the usage helper stop settles', async () => {
   const store = await StateStore.open(await scratch('witch-usage-stop-'));

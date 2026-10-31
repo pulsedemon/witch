@@ -71,6 +71,124 @@ test('concurrent writers keep every change', async () => {
   for (const request of stored.values()) assert.ok(request.attemptedAt);
 });
 
+test('batch answers validate every addressee before committing any answer', async () => {
+  const [store] = await stores();
+  const claimB = await claim(store!, b, 'b');
+  const claimC = await claim(store!, c, 'c');
+  const first = await store!.askPeer(a, claimB.id, 'first', deadline(), verify);
+  const second = await store!.askPeer(
+    a,
+    claimB.id,
+    'second',
+    deadline(),
+    verify,
+  );
+  const foreign = await store!.askPeer(
+    a,
+    claimC.id,
+    'foreign',
+    deadline(),
+    verify,
+  );
+  await assert.rejects(
+    store!.answerPeers(
+      'b',
+      [
+        { id: first.id, message: 'first answer' },
+        { id: foreign.id, message: 'wrong owner' },
+      ],
+      deadline(),
+    ),
+    /not addressed/,
+  );
+  assert.ok(
+    (await store!.peerRequests(project, 'a')).every(
+      (request) => !request.answer,
+    ),
+  );
+  await store!.answerPeers(
+    'b',
+    [
+      { id: second.id, message: 'second answer' },
+      { id: first.id, message: 'first answer' },
+    ],
+    deadline(),
+  );
+  const stored = new Map(
+    (await store!.peerRequests(project, 'a')).map((request) => [
+      request.id,
+      request.answer?.message,
+    ]),
+  );
+  assert.equal(stored.get(first.id), 'first answer');
+  assert.equal(stored.get(second.id), 'second answer');
+  assert.equal(stored.get(foreign.id), undefined);
+});
+
+test('automatic batches preserve existing replies while validating every pending answer', async () => {
+  const [store] = await stores();
+  const claimB = await claim(store!, b, 'b');
+  const claimC = await claim(store!, c, 'c');
+  const first = await store!.askPeer(a, claimB.id, 'first', deadline(), verify);
+  const second = await store!.askPeer(
+    a,
+    claimB.id,
+    'second',
+    deadline(),
+    verify,
+  );
+  const foreign = await store!.askPeer(
+    a,
+    claimC.id,
+    'foreign',
+    deadline(),
+    verify,
+  );
+  await store!.attemptPeerRequests(project, 'b', deadline(), verify);
+  const manual = await store!.answerPeer(
+    'b',
+    first.id,
+    'manual answer',
+    deadline(),
+  );
+  const answers = [
+    { id: first.id, message: 'automatic first' },
+    { id: second.id, message: 'automatic second' },
+  ];
+  await assert.rejects(
+    store!.answerPeers(
+      'b',
+      [...answers, { id: foreign.id, message: 'wrong owner' }],
+      deadline(),
+      true,
+    ),
+    /not addressed/,
+  );
+  assert.equal(
+    (await store!.peerRequests(project, 'a')).find(
+      ({ id }) => id === second.id,
+    )!.answer,
+    undefined,
+  );
+  const published = await store!.answerPeers('b', answers, deadline(), true);
+  assert.deepEqual(
+    published.map(({ id }) => id),
+    [second.id],
+  );
+  const stored = new Map(
+    (await store!.peerRequests(project, 'a')).map((request) => [
+      request.id,
+      request,
+    ]),
+  );
+  assert.deepEqual(stored.get(first.id), manual);
+  assert.equal(stored.get(second.id)!.answer?.message, 'automatic second');
+  await assert.rejects(
+    store!.answerPeer('b', first.id, 'replacement', deadline()),
+    /already has an answer/,
+  );
+});
+
 test('a repeated ask matches the asker, the claim and the text', async () => {
   const [store] = await stores();
   const claimB = await claim(store!, b, 'b');

@@ -1,11 +1,9 @@
 import { settleMemory } from './memory-settlement.js';
 import { handoff } from './handoff.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
-import { reviewInstruction } from './copilot-reviews.js';
-import type { ReviewBatch } from './copilot-reviews.js';
+import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction } from './compaction.js';
-import { initialSnapshot } from './snapshot.js';
-import type { Snapshot } from './snapshot.js';
+import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -53,17 +51,21 @@ import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
-import { ModelCatalog, modelEffort } from './models.js';
+import { ModelCatalog, modelEffort, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
-import type { ModelSelection } from './models.js';
 import type { Conflict, PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
   answerInstruction,
   answerNotice,
   watchPeerRequestNotices,
+  type PeerRequest,
 } from './peer-requests.js';
-import type { PeerRequest } from './peer-requests.js';
+import {
+  preparePeerAnswers,
+  recordPeerAnswers,
+  peerAnswerOutputSchema,
+} from './peer-answers.js';
 import {
   agentDisplay,
   agentWorking,
@@ -74,33 +76,27 @@ import {
   recordDelivery,
   recordSession,
   untitled,
-} from './state.js';
-import type {
-  Conversation,
-  ConversationRecord,
-  DisplayUpdate,
-  Phase,
+  type Conversation,
+  type ConversationRecord,
+  type DisplayUpdate,
+  type Phase,
 } from './state.js';
 
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
-
 interface Launch {
   continue?: boolean;
   conversation?: string;
 }
-
 interface TurnOptions {
   delivered?: () => void;
   queued?: boolean;
   requests?: readonly PeerRequest[];
   review?: ReviewBatch;
 }
-
 /** another operation holds the phase, so nothing ran and nothing failed. */
 class Refusal extends Error {}
-
 export class Coordinator {
   readonly pentacle = new PentacleActivity();
   snapshot: Snapshot;
@@ -983,6 +979,7 @@ export class Coordinator {
     if (!session || this.cancelled) return { status: 'interrupted', text: '' };
     if (!answer) this.coordination?.beginTurn(activity.id);
     try {
+      const batch = requests && (await preparePeerAnswers(requests));
       this.publish({
         subagents: this.snapshot.subagents.filter(
           ({ status }) => status === 'running',
@@ -1018,7 +1015,7 @@ export class Coordinator {
                 }
               : undefined,
           merges: this.coordination?.events.mergeEvents(conversation.id),
-          requests,
+          requests: batch,
           answers:
             kind === 'turn'
               ? this.coordination?.events.answered(conversation.id)
@@ -1037,7 +1034,6 @@ export class Coordinator {
           )))
       )
         return { status: 'interrupted', text: '', inputUnsent: true };
-      // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
       if (this.cancelled || session.closed || (queued && this.deliveryHeld))
         return { status: 'interrupted', text: '' };
       if (kind === 'turn' && conversation.title === untitled)
@@ -1072,7 +1068,11 @@ export class Coordinator {
               input.prompt,
               skillCall(prompt, this.snapshot.skills),
               input.context,
-              automatic ? 'witch' : 'user',
+              automatic ? (answer ? 'peer-answer' : 'pr-review') : 'user',
+              batch && {
+                outputSchema: peerAnswerOutputSchema,
+                requestFile: batch.file,
+              },
             );
             const stopPolicy = watchClaimPolicy(
               this.coordination,
@@ -1087,6 +1087,8 @@ export class Coordinator {
             // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
             if (queued && command === undefined) steering = this.steerQueued();
             result = await sending.finally(stopPolicy);
+            if (requests)
+              await recordPeerAnswers(result, requests, this.coordination!);
           }
         }
       } catch (error) {
@@ -1103,13 +1105,11 @@ export class Coordinator {
         this.retainContext(conversation.id, pendingContext);
       this.retainContext(conversation.id, result.unreadContext);
       await this.finishActivity(activity, this.compaction.failure ?? result);
-      if (result.status === 'completed') {
+      if (result.status === 'completed' && !answer) {
         if (generation === this.contextGeneration) {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
-          if (!answer)
-            reference.deliveredInstructionsRevision =
-              input.instructionsRevision;
+          reference.deliveredInstructionsRevision = input.instructionsRevision;
           recordDelivery(reference, input);
         }
         if (!automatic && pendingHandoff === conversation.handoff)

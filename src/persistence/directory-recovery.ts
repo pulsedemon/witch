@@ -219,8 +219,11 @@ async function admission(
     report.blockers.push(
       `${open.size} conversation(s) are open. Close all Witches using this state directory before applying recovery.`,
     );
-  const identities = records.flatMap(({ process, usageProcess, shell }) =>
-    [process, usageProcess, shell].filter((identity) => identity !== undefined),
+  const identities = records.flatMap(
+    ({ process, usageProcess, answerProcess, shell }) =>
+      [process, usageProcess, answerProcess, shell].filter(
+        (identity) => identity !== undefined,
+      ),
   );
   const running = await identifyProcesses(identities.map(({ pid }) => pid));
   if (

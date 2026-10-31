@@ -75,14 +75,6 @@ export function coordinationInstructions(
   ].join('\n');
 }
 
-/** an answer turn reads and answers peer requests and changes nothing else. */
-export function answerInstructions(command: string): string {
-  return [
-    `Control command: ${command}`,
-    'Use --peers --json to inspect sessions. Read and answer peer requests with --peer-request and --answer.',
-  ].join('\n');
-}
-
 export function watchClaimPolicy(
   coordination: SessionCoordination | undefined,
   initial: CoordinationSnapshot | undefined,

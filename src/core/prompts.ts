@@ -16,6 +16,7 @@ import { mergeContext } from './merge-events.js';
 import type { MergeEvent } from './merge-events.js';
 import { answerContext, requestContext } from './peer-requests.js';
 import type { PeerRequest } from './peer-requests.js';
+import type { PeerAnswerBatch } from './peer-answers.js';
 import { conflictContext } from './pr-conflicts.js';
 import type { Conflict } from './repository.js';
 import type { CopilotReviewState } from './copilot-reviews.js';
@@ -95,7 +96,7 @@ export async function nativePrompt({
   };
   merges?: readonly MergeEvent[];
   /** an answer turn's requests. */
-  requests?: readonly PeerRequest[];
+  requests?: PeerAnswerBatch;
   answers?: readonly PeerRequest[];
   conflict?: Conflict;
   /** the account usage line, sent with every turn outside the fixed instructions. */
@@ -155,7 +156,7 @@ export async function nativePrompt({
   // an answer turn gets only what answering needs, and leaves the fixed instructions undelivered
   const context = [
     ...(requests
-      ? [witch, directories, ...(coordination ? [coordination.answering] : [])]
+      ? [witch, directories]
       : reference.deliveredInstructionsRevision === instructionsRevision
         ? []
         : [instructions]),

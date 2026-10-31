@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { test } from 'vitest';
 import { CodexSchema } from './fixtures/codex-schema.js';
 import { CodexAdapter } from '../src/agents/codex.js';
@@ -19,6 +20,15 @@ import type {
 } from '../src/agents/types.js';
 import { until, within } from './fixtures/within.js';
 import { untimed } from './fixtures/limits.js';
+import {
+  peerAnswerOutputSchema,
+  preparePeerAnswers,
+  parsePeerAnswers,
+} from '../src/core/peer-answers.js';
+import {
+  answerInstruction,
+  requestContext,
+} from '../src/core/peer-requests.js';
 
 const schema = JSON.parse(
   readFileSync(
@@ -292,10 +302,54 @@ for (const [prompt, method, response] of [
   });
 }
 
+test('a restricted Codex fork and its structured reply use the generated native contract', async () => {
+  const contract = new CodexSchema(schema);
+  const f = await fixture(undefined, {
+    resume: 'native-thread',
+    onClient(message) {
+      if (message.method) {
+        contract.client(message);
+        requests.push(message);
+      }
+    },
+  });
+  try {
+    const request = {
+      id: randomUUID(),
+      claim: randomUUID(),
+      project: 'project',
+      from: 'asker',
+      to: 'owner',
+      reference: 'task:contract',
+      message: 'Private contract question',
+      askedAt: '2026-10-30T00:00:00Z',
+    };
+    const batch = await preparePeerAnswers([request], f.cwd);
+    const result = await f.session.send(
+      answerInstruction,
+      undefined,
+      requestContext(batch),
+      'peer-answer',
+      { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
+    );
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(parsePeerAnswers(result.text, [request]), [
+      { id: request.id, message: 'Read: Private contract question' },
+    ]);
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
 test('every Codex request method in production is covered by the native schema and an exercised call', () => {
   const methods = new CodexSchema(schema).methods();
   const exercised = new Set(requests.map(({ method }) => method));
-  for (const file of ['codex.ts', 'codex-commands.ts']) {
+  for (const file of [
+    'codex.ts',
+    'codex-commands.ts',
+    'codex-answer.ts',
+    'codex-models.ts',
+  ]) {
     const source = ts.createSourceFile(
       file,
       readFileSync(new URL(`../src/agents/${file}`, import.meta.url), 'utf8'),

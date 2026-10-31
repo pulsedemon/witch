@@ -1,3 +1,4 @@
+import { peerAnswer } from './peer-answer.mjs';
 import { setInterval, clearInterval, setTimeout } from 'node:timers';
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
@@ -233,8 +234,35 @@ const finish = () => {
     if (mode === 'exit-when-idle') exitBeforeGrandchild(1);
   }
 };
+const finishPeerAnswer = () => {
+  assistant('Reading requests.');
+  const output = JSON.parse(peerAnswer(lastPrompt));
+  assistant('', [
+    {
+      type: 'tool_use',
+      id: 'answer-output',
+      name: 'StructuredOutput',
+      input: output,
+    },
+  ]);
+  toolResult('answer-output', 'Valid output.');
+  result({ structured_output: output });
+  state('idle');
+};
 for await (const line of lines) {
   const message = JSON.parse(line);
+  if (
+    mode === 'peer-answer' &&
+    message.type === 'control_response' &&
+    message.response.request_id === 'answer-approval'
+  ) {
+    writeFileSync(
+      join(process.cwd(), 'answer-response.json'),
+      JSON.stringify(message.response),
+    );
+    finishPeerAnswer();
+    continue;
+  }
   if (mode === 'background' || mode === 'catalog' || mode === 'mcp')
     appendFileSync(join(process.cwd(), 'wire.jsonl'), `${line}\n`);
   if (mode === 'pending-model' && message.type === 'user')
@@ -609,6 +637,25 @@ for await (const line of lines) {
       ...(mode === 'init-effort' ? { effort: 'max' } : {}),
     });
     state('running');
+    if (mode === 'peer-answer') {
+      if (existsSync(join(process.cwd(), 'answer-approval'))) {
+        send({
+          type: 'control_request',
+          request_id: 'answer-approval',
+          request: {
+            subtype: 'can_use_tool',
+            tool_name: 'Read',
+            input: {
+              file_path:
+                readFileSync(join(process.cwd(), 'answer-approval'), 'utf8') ||
+                '/denied',
+            },
+            tool_use_id: 'denied-read',
+          },
+        });
+      } else finishPeerAnswer();
+      continue;
+    }
     if (mode === 'background') {
       if (!sessionState) {
         assistant('Working.');

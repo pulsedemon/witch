@@ -29,7 +29,10 @@ export async function launcher(
   }[] = [];
   const adapter = new ClaudeAdapter((options) => {
     // side queries include the latest-model read, which leaves every settings file out
-    if (options.args.includes('--no-session-persistence')) {
+    if (
+      options.args.includes('--no-session-persistence') &&
+      !options.args.includes('--tools=Read,Grep,Glob')
+    ) {
       const directory = join(cwd, `usage-${usageChildren.length}`);
       mkdirSync(directory);
       const executable =
@@ -55,7 +58,13 @@ export async function launcher(
     envs.push(options.env);
     const child = spawn(
       process.execPath,
-      [claude, mode ?? '', ...(!sessionState ? ['--no-session-state'] : [])],
+      [
+        claude,
+        options.args.includes('--tools=Read,Grep,Glob')
+          ? 'peer-answer'
+          : (mode ?? ''),
+        ...(!sessionState ? ['--no-session-state'] : []),
+      ],
       { cwd, stdio: 'pipe', signal: options.signal },
     );
     children.push(child);

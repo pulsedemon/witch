@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ import { untitled } from '../src/core/state.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { NotificationSchedule } from '../src/persistence/notifications.js';
+import { identifyProcess } from '../src/persistence/process.js';
 import { watchTerminal } from '../src/ui/terminal.js';
 import { TurnGate } from './fixtures/agent.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
@@ -29,6 +31,7 @@ import {
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { scratch } from './fixtures/scratch.js';
+import { readRecord } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 
 type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
@@ -98,7 +101,7 @@ const listed = (context = ''): string[] => {
   const paragraph = context
     .split('\n\n')
     .find((text) =>
-      text.startsWith('Task owners in other Witch sessions answered'),
+      text.startsWith('These peer requests have recorded answers'),
     );
   return paragraph
     ? (
@@ -123,13 +126,63 @@ async function holds(
   assert.equal(seen.answering, false);
 }
 
+test('answer process registration preserves the owner identity and ignores reports after close', async (t) => {
+  const { f, b } = await owners(t.onTestFinished);
+  const helper = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  const id = b.coordinator.snapshot.conversation!.id;
+  const report = b.a.sessions[0]!.options.onAnswerProcess!;
+  try {
+    const before = await readRecord(f.root, id);
+    assert.ok(before.process);
+    assert.notEqual(helper.pid, before.process.pid);
+    await report(helper.pid);
+    const registered = await readRecord(f.root, id);
+    assert.deepEqual(
+      registered.answerProcess,
+      await identifyProcess(helper.pid!),
+    );
+    assert.deepEqual(registered.process, before.process);
+    await report(undefined);
+    const cleared = await readRecord(f.root, id);
+    assert.equal(cleared.answerProcess, undefined);
+    assert.deepEqual(cleared.process, before.process);
+    await b.coordinator.close();
+    await report(helper.pid);
+    assert.equal((await readRecord(f.root, id)).answerProcess, undefined);
+  } finally {
+    await report(undefined);
+    const closed = once(helper, 'close');
+    helper.kill('SIGKILL');
+    await closed;
+  }
+});
+
 test('idle owner answers in one attributed turn', async (t) => {
-  const { a, b, claim } = await owners(t.onTestFinished);
+  const { f, a, b, claim } = await owners(t.onTestFinished);
+  b.a.peerReply = (requests) =>
+    JSON.stringify({
+      answers: requests.map(({ id }) => ({
+        id,
+        message: `Port 4000 ${secret}`,
+      })),
+    });
   const request = await ask(a, claim, `Which port? ${secret}`);
   await refreshed(b);
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
   const [input] = answerTurns(b);
   assert.equal(input!.prompt, answerInstruction);
+  assert.ok(
+    input!.context!.includes(JSON.stringify(input!.answer!.requestFile)),
+  );
+  const supplied = JSON.parse(
+    await readFile(input!.answer!.requestFile, 'utf8'),
+  ) as PeerRequest[];
+  assert.equal(supplied[0]!.id, request.id);
+  assert.equal(supplied[0]!.message, `Which port? ${secret}`);
+  assert.equal(
+    b.coordinator.snapshot.conversation!.sessions.a!.deliveredRevision,
+    undefined,
+  );
   assert.ok(input!.context!.includes(request.id));
   for (const absent of [
     secret,
@@ -140,10 +193,7 @@ test('idle owner answers in one attributed turn', async (t) => {
     'Selection turn:',
   ])
     assert.ok(!input!.context!.includes(absent), absent);
-  assert.match(
-    input!.context!,
-    /Read and answer peer requests with --peer-request and --answer\./,
-  );
+  assert.match(input!.context!, /Read their messages from /);
   const items = b.coordinator.snapshot.items;
   assert.deepEqual(
     items.filter(({ kind }) => kind === 'user'),
@@ -166,7 +216,10 @@ test('idle owner answers in one attributed turn', async (t) => {
       `Peer request ${request.id} from session ${asker} about task:b-work: Which port?`,
     ),
   );
-  await answer(b, request, `Port 4000 ${secret}`);
+  assert.equal(
+    (await stored(f, request)).answer?.message,
+    `Port 4000 ${secret}`,
+  );
   await refreshed(a);
   assert.equal(
     notice(a, `peer-answer/${request.id}`)!.text,
@@ -180,7 +233,9 @@ test('idle owner answers in one attributed turn', async (t) => {
   assert.ok(!a.a.inputs.at(-1)!.context!.includes(request.id));
   await b.coordinator.send('owner work');
   const user = b.a.inputs.at(-1)!;
+  assert.match(user.context!, /Accepted shared memory/);
   assert.equal(user.author, undefined);
+  assert.deepEqual(listed(user.context), [request.id]);
   for (const present of [
     "To ask the owner of another session's claimed task",
     'Before starting a new task',
@@ -209,7 +264,14 @@ test('a delivery hold taken during admission still runs the admitted answer turn
 });
 
 test('pending requests to one owner coalesce into one answer turn', async (t) => {
-  const { a, b, claim } = await owners(t.onTestFinished);
+  const { f, a, b, claim } = await owners(t.onTestFinished);
+  b.a.peerReply = (requests) =>
+    JSON.stringify({
+      answers: requests.map(({ id, message }) => ({
+        id,
+        message: message === 'First?' ? 'Answer one' : 'Answer two',
+      })),
+    });
   const gate = new TurnGate();
   b.a.gate = gate;
   const working = b.coordinator.send('working');
@@ -224,6 +286,8 @@ test('pending requests to one owner coalesce into one answer turn', async (t) =>
   const [input] = answerTurns(b);
   assert.ok(input!.context!.includes(first.id));
   assert.ok(input!.context!.includes(second.id));
+  assert.equal((await stored(f, first)).answer?.message, 'Answer one');
+  assert.equal((await stored(f, second)).answer?.message, 'Answer two');
   assert.ok(
     b.coordinator.snapshot.items.some(
       ({ text }) =>
@@ -628,7 +692,7 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
     'Pending task context from',
     'These commands already ran before an interrupt',
     'Witch observed these project merges',
-    'Task owners in other Witch sessions answered',
+    'These peer requests have recorded answers',
   ];
   const answered = b.b.inputs.find(({ author }) => author === 'witch')!;
   for (const paragraph of paragraphs)
@@ -640,12 +704,20 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   assert.equal(b.b.compactions.length, 1);
 });
 
-test('an answer turn reads and answers requests but cannot ask or change claims', async (t) => {
+test('control requests stay scoped while an automatic answer is in flight', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const other = await claimed(a, 'a-work');
+  b.a.peerReply = (requests) =>
+    JSON.stringify({
+      answers: requests.map(({ id, message }) => ({
+        id,
+        message: `Automatic: ${message}`,
+      })),
+    });
   const gate = new TurnGate();
   b.a.gate = gate;
   const request = await ask(a, claim, 'Hold on?');
+  const second = await ask(a, claim, 'Second question');
   await refreshed(b);
   await gate.entered;
   assert.equal(b.coordinator.snapshot.answering, true);
@@ -674,6 +746,13 @@ test('an answer turn reads and answers requests but cannot ask or change claims'
   }
   gate.open();
   await until('owner settled', () => settled(b));
+  assert.equal((await stored(f, request)).answer?.message, 'Mid-turn');
+  assert.equal(
+    (await stored(f, second)).answer?.message,
+    'Automatic: Second question',
+  );
+  await refreshed(b);
+  assert.equal(answerTurns(b).length, 1);
   assert.equal((await b.query()).ownClaim?.id, claim.id);
 });
 
@@ -783,6 +862,13 @@ test('peer notices escape peer text', async (t) => {
     t.onTestFinished,
     '[x](https://example.com)',
   );
+  b.a.peerReply = (requests) =>
+    JSON.stringify({
+      answers: requests.map(({ id }) => ({
+        id,
+        message: 'see [y](https://example.com)\nnext',
+      })),
+    });
   const request = await ask(
     a,
     claim,
@@ -795,12 +881,28 @@ test('peer notices escape peer text', async (t) => {
     notice(b, `peer-request/${request.id}`)!.text,
     `Peer request ${request.id} from session ${request.from} ${about}: line one line two \\[x\\](https://example.com)`,
   );
-  await answer(b, request, 'see [y](https://example.com)\nnext');
   await refreshed(a);
   assert.equal(
     notice(a, `peer-answer/${request.id}`)!.text,
     `Answer to peer request ${request.id} from session ${request.to} ${about}: see \\[y\\](https://example.com) next`,
   );
+});
+
+test('invalid native answers publish nothing and consume their one automatic attempt', async (t) => {
+  const { a, b, claim, f } = await owners(t.onTestFinished);
+  b.a.peerReply = () => '{"answers":[]}';
+  const request = await ask(a, claim, 'Malformed?');
+  await refreshed(b);
+  await until('failed answer', () => answerTurns(b).length === 1 && settled(b));
+  const stored = await f.registry.peerRequests(request.project, request.to);
+  assert.ok(stored.find(({ id }) => id === request.id)?.attemptedAt);
+  assert.equal(stored.find(({ id }) => id === request.id)?.answer, undefined);
+  assert.equal(
+    b.coordinator.snapshot.conversation!.sessions.a!.deliveredRevision,
+    undefined,
+  );
+  await refreshed(b);
+  assert.equal(answerTurns(b).length, 1);
 });
 
 test('a failed admission clears and retries', async (t) => {
@@ -952,6 +1054,12 @@ async function nativeOwner(
     name === 'codex'
       ? new CodexAdapter((_, __, signal) => launch(signal))
       : new ClaudeAdapter((options) => {
+          if (options.args.includes('--tools=Read,Grep,Glob'))
+            return spawn(process.execPath, [executable, 'peer-answer'], {
+              cwd,
+              stdio: 'pipe',
+              signal: options.signal,
+            });
           if (!options.args.includes('--no-session-persistence'))
             return launch(options.signal);
           const directory = join(cwd, 'usage');

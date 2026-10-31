@@ -159,14 +159,14 @@ function autoReply(
   const session = agent.sessions.at(-1)!.session;
   const send = session.send;
   vi.spyOn(session, 'send').mockImplementation(
-    async (prompt, skill, context, author) => {
+    async (prompt, skill, context, purpose, answer) => {
       if (
-        author === 'witch' &&
+        purpose === 'pr-review' &&
         prompt.startsWith('Witch started this turn to handle Copilot') &&
         enabled()
       )
         await reply(f, client, source);
-      return send(prompt, skill, context, author);
+      return send(prompt, skill, context, purpose, answer);
     },
   );
 }
@@ -183,7 +183,6 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
   assert.deepEqual(after.lastTurn, before.lastTurn);
   assert.equal(after.title, before.title);
   assert.equal(x.c.snapshot.completedTurn, completion);
-  assert.equal(x.c.snapshot.native?.permissionMode, 'default');
   assert.equal(x.reviews().length, 1);
   assert.equal(after.copilotReviews![0]!.batch, undefined);
   assert.equal(
@@ -436,7 +435,7 @@ for (const kind of ['thread', 'reply']) {
     const session = x.a.a.sessions.at(-1)!.session;
     const send = session.send;
     session.send = async (...args) => {
-      if (args[3] === 'witch') {
+      if (args[3] === 'pr-review') {
         await reply(x.f, x.a, x.source);
         complete = structuredClone(x.source);
         if (kind === 'thread') x.source.threads = [];
@@ -725,7 +724,7 @@ test('an unrelated user prompt does not retry dispositions explicitly blocked fo
   const session = x.a.a.sessions.at(-1)!.session;
   const send = session.send;
   vi.spyOn(session, 'send').mockImplementation(async (...args) => {
-    if (args[3] === 'witch') {
+    if (args[3] === 'pr-review') {
       const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
       await writeFile(
         batch.result,
