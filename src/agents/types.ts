@@ -37,6 +37,7 @@ export interface SessionInfo {
   agent: string;
   model: string;
   permissionMode: string;
+  permissionProfile?: string;
   hasHistory: boolean;
   /** the requested effort in force; undefined when none was requested. */
   effort?: string;
@@ -240,6 +241,7 @@ export interface AgentSession {
     skill?: SkillCall,
     context?: string,
     author?: 'user' | 'witch',
+    outputSchema?: Record<string, unknown>,
   ): Promise<TurnResult>;
   /**
    * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to
@@ -287,6 +289,10 @@ export interface CommandMark {
 }
 
 export interface SessionOptions {
+  answer?: {
+    outputSchema?: Record<string, unknown>;
+    permissionProfile?: string;
+  };
   familiarBinding?: ControlBinding;
   commandPrefixes?: CommandPrefixes;
   cwd: string;
@@ -299,6 +305,7 @@ export interface SessionOptions {
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
   onProcess(pid: number | undefined): Promise<void>;
+  onAnswerProcess?(pid: number | undefined): Promise<void>;
   /** the end report follows successful registration and closure of the separate usage process. */
   onUsageProcess?(pid: number | undefined): Promise<void>;
   /**

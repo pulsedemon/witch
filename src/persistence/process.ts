@@ -102,7 +102,8 @@ export function processReports(
   track: (pid: number) => void,
 ) {
   const identify =
-    (key: 'process' | 'usageProcess' | 'shell') => async (pid?: number) => {
+    (key: 'process' | 'usageProcess' | 'answerProcess' | 'shell') =>
+    async (pid?: number) => {
       const id = pid === undefined ? undefined : await identifyProcess(pid);
       if (files.closed) return;
       conversation[key] = id;
@@ -111,6 +112,7 @@ export function processReports(
   return {
     onProcess: identify('process'),
     onUsageProcess: identify('usageProcess'),
+    onAnswerProcess: identify('answerProcess'),
     // a `!cmd &` shell can exit before the next read, so its group goes over at spawn
     onShell: async (pid?: number) => {
       if (pid !== undefined) track(pid);

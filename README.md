@@ -132,6 +132,8 @@ The recorder creates synthetic projects, requests only their named command appro
 
 Inspect every normalized stream before copying it into `test/fixtures/native/<runtime>/`. Update the manifest from the successful `capture.json` records, including the SDK version, model, launch arguments and capture date. Copy only the complete generated `codex_app_server_protocol.schemas.json` to `codex/protocol.schema.json`, byte for byte, and record its SHA-256 in the manifest. Compare the stable and experimental definitions against the adapter's consumed interfaces to refresh the inventory above. Review schema and trace diffs before changing expected results; never fill missing native events by hand. Rerun the focused tests and the normal verification below. Keep raw captures out of Git and remove owned scratch after checking its processes and open files.
 
+For changes to [automatic peer-answer isolation](docs/rules.md#session-coordination), run disposable owner/asker conversations with each real runtime. Retain native input and tool output, attempt a local marker write and a fake connected-tool mutation, verify no prompt or target change, and confirm the answer is stored. Check a subsequent normal owner write, interruption during answer startup, and cleanup of the separate process. A model declining an action without invoking a tool does not establish native enforcement; use the native tool result or verified absence of the mutation capability. Keep synthetic targets and captures under Witch scratch, and never use real connected-service writes for this check.
+
 ### Final verification before publication
 
 Before a planned push, verify against a freshly fetched main. Keep this work local; the existing hosted workflow and required checks still run normally.

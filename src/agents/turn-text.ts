@@ -12,4 +12,8 @@ export class TurnText {
   get text(): string {
     return [...this.messages.values()].join('\n\n');
   }
+
+  get last(): string {
+    return [...this.messages.values()].at(-1) ?? '';
+  }
 }

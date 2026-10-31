@@ -1,3 +1,6 @@
+import { AnswerTurn } from './answer-turn.js';
+import { answerConfiguration, checkAnswerTools } from './codex-answer.js';
+import { readModels } from './codex-models.js';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
@@ -65,18 +68,7 @@ const nativeSession = z.object({
   approvalPolicy: z.unknown(),
   approvalsReviewer: z.string().optional(),
   reasoningEffort: z.string().nullish(),
-});
-const modelPage = z.object({
-  data: z.array(
-    z.object({
-      id: z.string(),
-      displayName: z.string(),
-      supportedReasoningEfforts: z.array(
-        z.object({ reasoningEffort: z.string() }),
-      ),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
+  activePermissionProfile: z.object({ id: z.string() }).nullish(),
 });
 const skillList = z.object({
   data: z.array(
@@ -286,27 +278,6 @@ async function initializeRpc(rpc: JsonRpc): Promise<void> {
   rpc.notify('initialized');
 }
 
-async function readModels(rpc: JsonRpc): Promise<Model[]> {
-  const models: Model[] = [];
-  let cursor: string | null = null;
-  do {
-    const page = modelPage.parse(
-      await rpc.request('model/list', { cursor, limit: 100 }),
-    );
-    models.push(
-      ...page.data.map((model) => ({
-        id: model.id,
-        label: model.displayName,
-        efforts: model.supportedReasoningEfforts.map(
-          (effort) => effort.reasoningEffort,
-        ),
-      })),
-    );
-    cursor = page.nextCursor;
-  } while (cursor);
-  return models;
-}
-
 export class CodexAdapter implements AgentAdapter {
   readonly id = 'codex';
   readonly label = 'Codex';
@@ -349,7 +320,9 @@ export class CodexAdapter implements AgentAdapter {
   async connect(options: SessionOptions): Promise<AgentSession> {
     const child = this.start(options.executable, options.cwd, options.signal);
     const rpc = new JsonRpc(child);
-    const session = new CodexSession(rpc, options);
+    const session = new CodexSession(rpc, options, (answer) =>
+      this.connect(answer),
+    );
     try {
       await options.onProcess(child.pid);
       await session.initialize();
@@ -365,6 +338,7 @@ export class CodexAdapter implements AgentAdapter {
 }
 
 class CodexSession implements AgentSession {
+  private readonly answers: AnswerTurn;
   info: SessionInfo;
   usage: Usage = {};
   closed = false;
@@ -422,7 +396,9 @@ class CodexSession implements AgentSession {
   constructor(
     private readonly rpc: JsonRpc,
     private readonly options: SessionOptions,
+    connect: (options: SessionOptions) => Promise<AgentSession>,
   ) {
+    this.answers = new AnswerTurn(options, connect);
     this.info = {
       id: options.resume ?? '',
       agent: 'codex',
@@ -462,7 +438,16 @@ class CodexSession implements AgentSession {
 
   async initialize(): Promise<void> {
     await initializeRpc(this.rpc);
+    const answer =
+      this.options.answer &&
+      (await answerConfiguration(
+        this.rpc,
+        this.options.cwd,
+        this.options.answer.permissionProfile,
+      ));
     const parameters = {
+      ...answer,
+      ...(answer && this.options.resume ? { excludeTurns: true } : {}),
       cwd: this.options.cwd,
       model: this.options.model,
       // an omitted selection restores the thread's saved workspace roots
@@ -470,21 +455,29 @@ class CodexSession implements AgentSession {
         ...new Set([this.options.cwd, ...this.options.memoryDirectories]),
       ],
       // in the thread's config, so app-server's own children stay unmarked
-      config: Object.fromEntries(
-        Object.entries(this.options.mark?.environment ?? {}).map(
-          ([key, value]) => [`shell_environment_policy.set.${key}`, value],
+      config: {
+        ...answer?.config,
+        ...Object.fromEntries(
+          Object.entries(this.options.mark?.environment ?? {}).map(
+            ([key, value]) => [`shell_environment_policy.set.${key}`, value],
+          ),
         ),
-      ),
+      },
       ...(this.options.resume ? { threadId: this.options.resume } : {}),
     };
     this.updateInfo(
       await this.rpc.request(
-        this.options.resume ? 'thread/resume' : 'thread/start',
+        this.options.resume
+          ? answer
+            ? 'thread/fork'
+            : 'thread/resume'
+          : 'thread/start',
         parameters,
       ),
     );
+    if (answer) await checkAnswerTools(this.rpc, this.info.id);
     this.connected = true;
-    void this.readLimits();
+    if (!answer) void this.readLimits();
   }
 
   models(): Promise<Model[]> {
@@ -520,7 +513,7 @@ class CodexSession implements AgentSession {
 
   /** Codex can't clear its thread's effort, so `null` only stops requesting one. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
-    if (this.turn)
+    if (this.turn || this.answers.busy)
       throw new Error('Stop the current turn before changing models');
     // Codex notifies only when the settings change
     if (
@@ -552,7 +545,8 @@ class CodexSession implements AgentSession {
   private beginTurn(): NonNullable<CodexSession['turn']> {
     if (this.closed || this.closing)
       throw new Error('The Codex session is closed');
-    if (this.turn) throw new Error('This agent is already running');
+    if (this.turn || this.answers.busy)
+      throw new Error('This agent is already running');
     const turn = {
       started: Promise.withResolvers<string>(),
       finished: Promise.withResolvers<TurnResult>(),
@@ -567,7 +561,13 @@ class CodexSession implements AgentSession {
     prompt: string,
     skill?: SkillCall,
     context?: string,
+    author: 'user' | 'witch' = 'user',
+    outputSchema?: Record<string, unknown>,
   ): Promise<TurnResult> {
+    if (author === 'witch' && !this.options.answer) {
+      if (this.turn) throw new Error('This agent is already running');
+      return this.answers.run(this.info, prompt, context, outputSchema);
+    }
     const path =
       skill && this.spellIndex.find(({ name }) => name === skill.name)?.path;
     const turn = this.beginTurn();
@@ -600,6 +600,9 @@ class CodexSession implements AgentSession {
               : []),
           ],
           effort: this.info.effort,
+          ...(this.options.answer?.outputSchema
+            ? { outputSchema: this.options.answer.outputSchema }
+            : {}),
         }),
       );
       turn.started.resolve(response.turn.id);
@@ -677,6 +680,7 @@ class CodexSession implements AgentSession {
   }
 
   interrupt(options: AgentStopOptions = {}): Promise<void> {
+    if (this.answers.busy) return this.answers.interrupt(options);
     const turn = this.turn;
     if (!turn) return Promise.resolve();
     if (this.interrupting) return this.interrupting;
@@ -792,6 +796,7 @@ class CodexSession implements AgentSession {
   ): Promise<void> {
     try {
       const stopped = (async () => {
+        await this.answers.interrupt(options);
         await this.commands.close();
         await this.interrupt(options);
       })();
@@ -833,6 +838,7 @@ class CodexSession implements AgentSession {
       model: data.model,
       nativeEffort: this.native.effort,
       permissionMode: `${policy}${data.approvalsReviewer ? ` / ${data.approvalsReviewer}` : ''}`,
+      permissionProfile: data.activePermissionProfile?.id,
     };
     this.options.onEvent({ type: 'info', info: this.info });
   }
@@ -1101,6 +1107,9 @@ class CodexSession implements AgentSession {
           ...this.info,
           model: this.native.model,
           nativeEffort: this.native.effort,
+          permissionProfile: nativeSession.shape.activePermissionProfile.parse(
+            settings.activePermissionProfile,
+          )?.id,
         };
         this.options.onEvent({ type: 'info', info: this.info });
         this.settings?.resolve();
@@ -1321,6 +1330,13 @@ class CodexSession implements AgentSession {
   }
 
   private requestInput(message: RpcMessage): void {
+    if (this.options.answer) {
+      this.rpc.reject(
+        message.id!,
+        'Peer answers cannot request user input or approval.',
+      );
+      return;
+    }
     let request;
     try {
       request = this.parseRequest(message);
@@ -1468,7 +1484,11 @@ class CodexSession implements AgentSession {
     }
     turn?.finished.resolve({
       status,
-      text: turn.compaction ? '' : turn.messages.text,
+      text: turn.compaction
+        ? ''
+        : this.options.answer
+          ? turn.messages.last
+          : turn.messages.text,
       ...(error ? { error } : {}),
     });
   }

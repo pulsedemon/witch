@@ -1,3 +1,5 @@
+import { AnswerTurn } from './answer-turn.js';
+import { toolRequest } from './claude-permissions.js';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -18,11 +20,12 @@ import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
 import type { UsageSource } from './claude-usage.js';
-import { proposedDiff, reportedDiff } from './claude-diff.js';
+import { reportedDiff } from './claude-diff.js';
 import { errorMessage, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
 import {
   beforeDeadline,
+  NativeStop,
   NativeStopTimeout,
   stopDeadline,
   terminateChild,
@@ -78,15 +81,6 @@ const commandLifecycle = z.object({
     'discarded',
     'refused',
   ]),
-});
-const questions = z.object({
-  questions: z.array(
-    z.object({
-      question: z.string(),
-      multiSelect: z.boolean().optional(),
-      options: z.array(z.object({ label: z.string() })).optional(),
-    }),
-  ),
 });
 
 function modelsOf(models: readonly ModelInfo[]): Model[] {
@@ -151,12 +145,17 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {
-    const session = new ClaudeSession(options, this.start);
+    const session = new ClaudeSession(options, this.start, (answer) =>
+      this.connect(answer),
+    );
     try {
       await session.initialize();
       return session;
     } catch (error) {
-      await session.close();
+      const reason: unknown = options.signal?.reason;
+      await session.close(
+        reason instanceof NativeStop ? reason.options : undefined,
+      );
       throw error;
     }
   }
@@ -188,6 +187,7 @@ interface Turn {
 }
 
 class ClaudeSession implements AgentSession {
+  private readonly answers: AnswerTurn;
   info: SessionInfo;
   usage: Usage = {};
   closed = false;
@@ -242,7 +242,9 @@ class ClaudeSession implements AgentSession {
   constructor(
     private readonly options: SessionOptions,
     start: ClaudeLaunch,
+    connect: (options: SessionOptions) => Promise<AgentSession>,
   ) {
+    this.answers = new AnswerTurn(options, connect);
     options.signal?.addEventListener('abort', this.cancelConnection, {
       once: true,
     });
@@ -270,6 +272,24 @@ class ClaudeSession implements AgentSession {
           : {}),
         additionalDirectories: options.memoryDirectories,
         settingSources: ['user', 'project', 'local'],
+        ...(options.answer
+          ? {
+              forkSession: !!options.resume,
+              persistSession: false,
+              tools: ['Read', 'Grep', 'Glob'],
+              strictMcpConfig: true,
+              mcpServers: {},
+              settings: { disableAllHooks: true },
+              ...(options.answer.outputSchema
+                ? {
+                    outputFormat: {
+                      type: 'json_schema' as const,
+                      schema: options.answer.outputSchema,
+                    },
+                  }
+                : {}),
+            }
+          : {}),
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
         // a familiar's last message is its report, which the sidebar and transcript show
@@ -302,38 +322,24 @@ class ClaudeSession implements AgentSession {
           return child;
         },
         canUseTool: async (toolName, input, context) => {
-          const request: UserRequest = {
-            id: context.toolUseID,
-            kind: 'approval',
-            title: toolName,
-            detail: JSON.stringify(input, null, 2),
-          };
-          if (toolName === 'AskUserQuestion') {
-            request.kind = 'question';
-            request.questions = questions
-              .parse(input)
-              .questions.map((question) => ({
-                id: question.question,
-                title: question.question,
-                options: question.options?.map((option) => option.label) ?? [],
-                multiple: question.multiSelect,
-              }));
-          }
-          if (toolName === 'Edit' || toolName === 'Write') {
-            const diff = await proposedDiff(
-              toolName,
-              input,
-              options.cwd,
-              context.signal,
-            );
-            if (context.signal.aborted || this.closed)
-              return {
-                behavior: 'deny',
-                message: 'Request cancelled',
-                interrupt: true,
-              };
-            if (diff) request.diff = diff;
-          }
+          if (options.answer)
+            return {
+              behavior: 'deny',
+              message: 'Peer answers cannot request approval.',
+            };
+          const request = await toolRequest(
+            toolName,
+            input,
+            context.toolUseID,
+            options.cwd,
+            context.signal,
+          );
+          if (context.signal.aborted || this.closed)
+            return {
+              behavior: 'deny',
+              message: 'Request cancelled',
+              interrupt: true,
+            };
           const response = await this.ask(request, context.signal);
           if (response.decision !== 'accept')
             return {
@@ -357,6 +363,7 @@ class ClaudeSession implements AgentSession {
           };
         },
         onElicitation: async (request, context) => {
+          if (options.answer) return { action: 'decline' };
           const response = await this.ask(
             {
               id: randomUUID(),
@@ -409,8 +416,10 @@ class ClaudeSession implements AgentSession {
     }
     this.connected = true;
     await this.registered;
-    this.readUsage();
-    this.refreshMcpStatus();
+    if (!this.options.answer) {
+      this.readUsage();
+      this.refreshMcpStatus();
+    }
   }
 
   private refreshMcpStatus(): void {
@@ -482,7 +491,7 @@ class ClaudeSession implements AgentSession {
 
   /** an omitted effort leaves `effortLevel` unsent, which keeps the effort in force. */
   async selectModel(model: string, effort?: string | null): Promise<void> {
-    if (this.turn && !this.replied)
+    if (this.answers.busy || (this.turn && !this.replied))
       throw new Error('Stop the current turn before changing models');
     const level = effort == null ? effort : effortLevel.parse(effort);
     await this.query.setModel(model);
@@ -505,7 +514,12 @@ class ClaudeSession implements AgentSession {
     skill?: SkillCall,
     context?: string,
     author: 'user' | 'witch' = 'user',
+    outputSchema?: Record<string, unknown>,
   ): Promise<TurnResult> {
+    if (author === 'witch' && !this.options.answer) {
+      if (this.turn) throw new Error('This agent is already running');
+      return this.answers.run(this.info, prompt, context, outputSchema);
+    }
     const turn = this.beginTurn();
     const records = this.records;
     const input =
@@ -556,6 +570,7 @@ class ClaudeSession implements AgentSession {
   }
 
   private beginTurn(): Turn {
+    if (this.answers.busy) throw new Error('This agent is already running');
     if (this.closed) throw new Error('The Claude session is closed');
     if (this.turn) throw new Error('This agent is already running');
     const turn: Turn = {
@@ -752,6 +767,7 @@ class ClaudeSession implements AgentSession {
   };
 
   interrupt(options: AgentStopOptions = {}): Promise<void> {
+    if (this.answers.busy) return this.answers.interrupt(options);
     this.command?.controller.abort();
     const turn = this.turn;
     if (!turn) return Promise.resolve();
@@ -835,6 +851,11 @@ class ClaudeSession implements AgentSession {
     void usageClosed.catch(() => {});
     const stopped = (async () => {
       let cleanupError: unknown;
+      try {
+        await this.answers.interrupt({ deadline });
+      } catch (error) {
+        cleanupError = error;
+      }
       try {
         await this.commands.close();
       } catch (error) {
@@ -1257,7 +1278,9 @@ class ClaudeSession implements AgentSession {
         status: success ? 'completed' : 'failed',
         text:
           message.subtype === 'success'
-            ? message.result
+            ? this.options.answer?.outputSchema
+              ? (JSON.stringify(message.structured_output) ?? '')
+              : message.result
             : this.turn.messages.text,
         ...(!success
           ? {
@@ -1327,6 +1350,7 @@ class ClaudeSession implements AgentSession {
   }
 
   private readUsage(): void {
+    if (this.options.answer) return;
     void this.contextUsage();
     this.usageReader.refresh();
   }

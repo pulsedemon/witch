@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import type { Memory } from '../memory/memory.js';
 import { checkDeadline } from '../persistence/coordination.js';
 import type { CoordinationStore, Ledger } from '../persistence/coordination.js';
@@ -159,4 +160,14 @@ export function projectDiscovery(
     reservations,
     unregistered: discovery.unregistered.get(project) ?? [],
   };
+}
+
+export function configStamp(file: string | undefined): string {
+  if (!file) return 'none';
+  try {
+    const { mtimeNs, ino, size } = statSync(file, { bigint: true });
+    return `${mtimeNs}:${ino}:${size}`;
+  } catch {
+    return 'missing';
+  }
 }
