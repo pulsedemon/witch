@@ -389,6 +389,7 @@ test('a killed reviewer gets a terminal event and no survivor', async (t) => {
     if (member !== pid) process.kill(member, 'SIGKILL');
   const [result] = await within(running, 10_000, 'the killed reviewer');
   assert.equal(result!.status, 'failed');
+  assert.match(result!.diagnostics ?? '', /^killed by SIGKILL$/m);
   assert.equal(alive(pid), false);
   assert.equal(
     coordinator.snapshot.subagents.find(({ name }) => name === killed.name)
