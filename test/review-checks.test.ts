@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'vitest';
@@ -356,6 +356,15 @@ test('a citation path that does not exist is skipped', async () => {
     await check({ 'plan.md': 'at `localhost:3000` from `10:00-11:00`\n' }),
     [],
   );
+});
+
+test('a cited file that cannot be read stops the checks', async () => {
+  const root = await scratch('witch-review-checks-');
+  await mkdir(join(root, 'src'));
+  await writeFile(join(root, 'plan.md'), '`close()` at `src/x.ts:2`\n');
+  await writeFile(join(root, 'src/x.ts'), 'one\nclosed();\n');
+  await chmod(join(root, 'src/x.ts'), 0o000);
+  await assert.rejects(checkTargets(root, ['plan.md']), { code: 'EACCES' });
 });
 
 test('identifier missing from its cited line fails', async () => {

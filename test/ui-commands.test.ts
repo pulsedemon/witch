@@ -398,3 +398,38 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     await c.close();
   }
 });
+
+test('/review hands its files to the coordinator, and a failed review cancels the commands after it', async () => {
+  const { app, coordinator, calls } = fake({});
+  const results = [false, true];
+  Object.assign(coordinator, {
+    review: async (argument: string) => {
+      calls.push(['review', argument]);
+      return results.shift();
+    },
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(70);
+    await submit(ui, '/review a.md docs/b.md /clear');
+    await until('the canceled batch', () =>
+      calls.some(
+        ([name, text]) =>
+          name === 'notice' &&
+          text ===
+            'Commands canceled. Retry explicitly: /review a.md docs/b.md; /clear',
+      ),
+    );
+    assert.ok(!calls.some(([name]) => name === 'clear'));
+    await submit(ui, '/review a.md /clear');
+    await until('the next batch', () =>
+      calls.some(([name]) => name === 'clear'),
+    );
+    assert.deepEqual(
+      calls.filter(([name]) => name === 'review' || name === 'clear'),
+      [['review', 'a.md docs/b.md'], ['review', 'a.md'], ['clear']],
+    );
+  } finally {
+    ui.unmount();
+  }
+});

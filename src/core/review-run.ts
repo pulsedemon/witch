@@ -72,7 +72,8 @@ export async function runReview(
   }
   const files: string[] = [];
   for (const file of named) {
-    const path = resolve(cwd, file);
+    // file completion inserts `@path`
+    const path = resolve(cwd, file.replace(/^@/, ''));
     const inside = relative(cwd, path);
     const exists = await stat(path).then(
       (entry) => entry.isFile(),
@@ -112,8 +113,15 @@ export async function runReview(
     );
   const same = (a: Texts, b: Texts) =>
     files.every((file) => a[file] === b[file]);
-  const identity = (failure: CheckFailure, texts: Texts) =>
-    `${failure.file}\0${failure.message}\0${texts[failure.file]?.split('\n')[failure.line - 1] ?? ''}`;
+  const identities = (failures: CheckFailure[], texts: Texts) => {
+    const lines = new Map(
+      files.map((file) => [file, texts[file]!.split('\n')]),
+    );
+    return failures.map(
+      (failure) =>
+        `${failure.file}\0${failure.message}\0${lines.get(failure.file)?.[failure.line - 1] ?? ''}`,
+    );
+  };
   let known: CheckFailure[] = [];
   let knownIdentities = new Set<string>();
   let reviewed: Texts | undefined;
@@ -134,8 +142,9 @@ export async function runReview(
     const incomplete = `round ${number} did not complete`;
     let texts = await read();
     let failures = await checkTargets(cwd, files);
+    const seen = identities(failures, texts);
     const fresh = failures.filter(
-      (failure) => !knownIdentities.has(identity(failure, texts)),
+      (_, index) => !knownIdentities.has(seen[index]!),
     );
     if (fresh.length) {
       if (!(await host.turn(correctionPrompt({ failures: fresh }))))
@@ -144,9 +153,7 @@ export async function runReview(
       failures = await checkTargets(cwd, files);
     }
     known = failures;
-    knownIdentities = new Set(
-      failures.map((failure) => identity(failure, texts)),
-    );
+    knownIdentities = new Set(identities(failures, texts));
     const delta = reviewed ? changes(reviewed, texts) : undefined;
     const scope = scopeFor(next, delta?.ratio ?? 0);
     if (signal.aborted) return stopped(incomplete);
@@ -167,6 +174,7 @@ export async function runReview(
       ({ runtime }) => !out.has(runtime),
     );
     if (!routes.length) routes = reply.routes;
+    if (!routes.length) return stopped('no reviewer was routed');
     const dropped = sittingOut.filter(
       ({ runtime }) =>
         reply.routes.some((route) => route.runtime === runtime) &&

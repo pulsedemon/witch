@@ -339,6 +339,9 @@ test('an empty or bad target refuses', async (t) => {
     assert.ok(h.notice(message), message);
   }
   assert.equal(h.rounds.length, 0);
+  assert.equal(await h.coordinator.review('@plan.md'), true, 'file completion');
+  assert.equal(h.rounds.length, 1);
+  h.rounds.length = 0;
   assert.equal(h.correctionPrompts().length, 0);
   const runs = batches(h);
   runs.submit([
@@ -397,6 +400,11 @@ test('a refused route stops the review', async (t) => {
   assert.equal(await h.coordinator.review('plan.md'), false);
   assert.equal(h.rounds.length, 0);
   assert.ok(h.notice('Review stopped: no runtime'));
+  h.coordination.router = async () => ({ kind: 'route', routes: [] });
+  assert.equal(await h.coordinator.review('plan.md'), false);
+  assert.equal(h.rounds.length, 0);
+  assert.ok(h.notice('Review stopped: no reviewer was routed'));
+  assert.equal(h.notice('Review finished'), undefined);
 });
 
 test('targets changed while reviewers ran stop the review', async (t) => {
@@ -499,20 +507,25 @@ test('a cancelled route posts nothing later', async (t) => {
   const h = await harness(t);
   const held = Promise.withResolvers<void>();
   let reading = false;
-  h.coordination.router = router(h.coordinator, {
+  const route = router(h.coordinator, {
     read: async () => {
       reading = true;
       await held.promise;
       return { shiftAt: null, families: {}, work: {} };
     },
   });
+  let routed: ReturnType<typeof route> | undefined;
+  h.coordination.router = (action, signal) => (routed = route(action, signal));
   const reviewing = h.coordinator.review('plan.md');
   await until('the policy read', () => reading, 500);
   await h.coordinator.interrupt();
   assert.equal(await within(reviewing, 3000, 'the review'), false);
   await h.coordinator.newConversation();
   held.resolve();
-  await new Promise((settle) => setTimeout(settle, 3500));
+  assert.equal(
+    (await within(routed!, 5000, 'the cancelled route')).kind,
+    'error',
+  );
   assert.ok(
     !h.notices().some((text) => /^Route|^Routed/.test(text)),
     h.notices().join('\n'),
@@ -595,8 +608,13 @@ test('a correction turn compacts first when context is high', async (t) => {
   const h = await harness(t, { usage: { context: 95 } });
   h.state.outcome = (_round, { runtime }) =>
     runtime === 'claude' ? { findings: [{ line: 5, blocking: false }] } : {};
-  h.corrections.push(() => h.setLines({ 5: 'tidied' }));
+  let compactedBefore: number | undefined;
+  h.corrections.push(() => {
+    compactedBefore = h.claude.compactions.length;
+    return h.setLines({ 5: 'tidied' });
+  });
   assert.equal(await h.coordinator.review('plan.md'), true);
+  assert.equal(compactedBefore, 1);
   assert.equal(h.claude.compactions.length, 1);
 });
 

@@ -199,7 +199,9 @@ function signalGroup(group: number, signal: NodeJS.Signals | 0): boolean {
     process.kill(-group, signal);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    const { code } = error as NodeJS.ErrnoException;
+    // macOS can answer EPERM for a dying group that has no member left to signal
+    if (code === 'ESRCH' || code === 'EPERM') return false;
     throw error;
   }
 }

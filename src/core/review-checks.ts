@@ -591,12 +591,15 @@ async function show(
   }
 }
 
+/** undefined for a missing path or a directory; other read failures throw, so no check passes unread. */
 async function readText(path: string): Promise<string | undefined> {
   try {
     if (!(await stat(path)).isFile()) return;
     return await readFile(path, 'utf8');
-  } catch {
-    return;
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return;
+    throw error;
   }
 }
 

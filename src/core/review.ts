@@ -5,9 +5,9 @@ import { quote } from '../shell.js';
 import type { CheckFailure } from './review-checks.js';
 import type { Routed } from './routing.js';
 
-export const findingsSchema = z.object({
+export const findingsSchema = z.strictObject({
   findings: z.array(
-    z.object({
+    z.strictObject({
       file: z.string(),
       line: z.number().int().positive(),
       blocking: z.boolean(),
@@ -18,16 +18,17 @@ export const findingsSchema = z.object({
 });
 export type Finding = z.infer<typeof findingsSchema>['findings'][number];
 
-/** the findings in a report's last fenced json block, with each file normalized to a listed target; undefined when that block is missing, invalid or names another file. */
+/** the findings in a report's last fenced json block, with each file normalized to a listed target; undefined when that block is missing, unclosed, invalid or names another file. */
 export function parseFindings(
   report: string,
   cwd: string,
   files: readonly string[],
 ): Finding[] | undefined {
-  const block = [...report.matchAll(/```json[^\n]*\n([\s\S]*?)\n\s*```/g)].at(
+  const last = [...report.matchAll(/```json[^\n]*\n([\s\S]*?)\n\s*```/g)].at(
     -1,
-  )?.[1];
-  if (block === undefined) return;
+  );
+  if (!last || report.includes('```json', last.index + last[0].length)) return;
+  const block = last[1]!;
   let parsed: unknown;
   try {
     parsed = JSON.parse(block);
@@ -292,6 +293,9 @@ export function reviewerCommand({
           'Glob',
           '--permission-prompts',
           'none',
+          '--permission-mode',
+          'dontAsk',
+          '--strict-mcp-config',
         ]
       : [
           '-c',

@@ -60,6 +60,25 @@ test('parseFindings reads only the last json block and normalizes paths', () => 
     ),
     undefined,
   );
+  assert.equal(
+    parseFindings(
+      `${json({ findings: [] })}\n\n\`\`\`json\n{"findings": [\n`,
+      '/w/repo',
+      ['plan.md'],
+    ),
+    undefined,
+    'an unclosed block after a closed one',
+  );
+  for (const invalid of [
+    { findings: [], error: 'could not read the targets' },
+    { findings: [{ ...finding(3, true), file: 'plan.md', severity: 'high' }] },
+    { findings: [{ ...finding(0, true), file: 'plan.md' }] },
+  ])
+    assert.equal(
+      parseFindings(json(invalid), '/w/repo', ['plan.md']),
+      undefined,
+      JSON.stringify(invalid),
+    );
 });
 
 test('changes counts deletions', () => {
@@ -309,6 +328,9 @@ test("reviewerCommand builds each wrapper's command", () => {
     'Glob',
     '--permission-prompts',
     'none',
+    '--permission-mode',
+    'dontAsk',
+    '--strict-mcp-config',
   ]);
   assert.equal(claude.rest.trim(), "< '/s/review dir/brief.md'");
   const codex = words(
