@@ -560,7 +560,10 @@ function slug(heading: string): string {
     .replace(/!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
     .replace(/<\/?[a-z][^>]*>/gi, '')
     .replace(/\*/g, '')
-    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
+    .replace(
+      /(?<![\p{L}\p{N}_])(_+)(?=\S)(.+?)(?<=\S)\1(?![\p{L}\p{N}_])/gu,
+      '$2',
+    )
     .replace(/&[#\w]+;/g, (reference) => decodeHTMLStrict(reference))
     .replace(/\uE000(\d+)\uE001/g, (_, index: string) => code[Number(index)]!)
     .toLowerCase()
