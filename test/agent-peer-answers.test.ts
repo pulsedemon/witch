@@ -15,7 +15,10 @@ import {
   answerInstruction,
   requestContext,
 } from '../src/core/peer-requests.js';
-import { fixture as codex } from './fixtures/codex-adapter.js';
+import {
+  fixture as codex,
+  controlledFixture,
+} from './fixtures/codex-adapter.js';
 import { launcher as claude } from './fixtures/claude-adapter.js';
 import { until } from './fixtures/within.js';
 
@@ -231,6 +234,54 @@ test('Codex preserves named read boundaries and inherited denies while removing 
       network: { enabled: false },
     },
   });
+});
+
+test('Codex answers follow changed and cleared native permission profiles', async (t) => {
+  const f = await controlledFixture('identity');
+  t.onTestFinished(() => f.session.close());
+  await writeJson(join(f.cwd, 'config.json'), {
+    permissions: {
+      updated: {
+        filesystem: { ':root': 'read', '/updated-secret': 'deny' },
+        network: { enabled: false },
+      },
+    },
+  });
+  for (const expected of [
+    { profile: { id: 'updated' }, permissions: 'updated', sandbox: undefined },
+    { profile: null, permissions: undefined, sandbox: 'read-only' },
+  ]) {
+    await f.emit({
+      method: 'thread/settings/updated',
+      params: {
+        threadId: 'native-thread',
+        threadSettings: {
+          activePermissionProfile: expected.profile,
+          model: 'model-a',
+          effort: 'low',
+          cwd: f.cwd,
+          approvalPolicy: 'on-request',
+          approvalsReviewer: 'user',
+          modelProvider: 'openai',
+          sandboxPolicy: { type: 'readOnly', networkAccess: false },
+          collaborationMode: {
+            mode: 'default',
+            settings: {
+              model: 'model-a',
+              reasoning_effort: 'low',
+              developer_instructions: null,
+            },
+          },
+        },
+      },
+    });
+    await answer(f.session, f.cwd);
+    const { params } = JSON.parse(
+      await readFile(join(f.cwd, 'answer-connect.json'), 'utf8'),
+    ) as { params: Record<string, unknown> };
+    assert.equal(params.permissions, expected.permissions);
+    assert.equal(params.sandbox, expected.sandbox);
+  }
 });
 
 for (const reason of ['missing profile', 'exposed tool', 'registration']) {
