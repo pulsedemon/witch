@@ -196,12 +196,15 @@ test('Codex preserves named read boundaries and inherited denies while removing 
           extends: 'base',
           filesystem: {
             '/project': 'write',
-            '/secret': 'none',
-            ':workspace': { '/cache': 'write', '/denied': 'none' },
+            '/secret': 'deny',
+            ':workspace': { '/cache': 'write', '/denied': 'deny' },
           },
           network: { enabled: true, allowed_domains: ['example.com'] },
         },
-        base: { extends: ':workspace', filesystem: { '/readable': 'read' } },
+        base: {
+          extends: ':workspace',
+          filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
+        },
       },
     }),
   );
@@ -216,14 +219,14 @@ test('Codex preserves named read boundaries and inherited denies while removing 
       extends: 'base',
       filesystem: {
         '/project': 'read',
-        '/secret': 'none',
-        ':workspace': { '/cache': 'read', '/denied': 'none' },
+        '/secret': 'deny',
+        ':workspace': { '/cache': 'read', '/denied': 'deny' },
       },
       network: { enabled: false, allowed_domains: ['example.com'] },
     },
     base: {
       extends: ':read-only',
-      filesystem: { '/readable': 'read' },
+      filesystem: { '/readable': 'read', '/inherited-secret': 'deny' },
       network: { enabled: false },
     },
   });
