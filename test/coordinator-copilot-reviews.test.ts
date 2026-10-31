@@ -312,6 +312,141 @@ test('delivery holds and pending questions block review turns without consuming 
   assert.equal(x.reviews().length, 1);
 });
 
+for (const mode of ['edited', 'interrupted']) {
+  test(`a malformed ${mode} review result retains its diagnostic`, async (t) => {
+    const x = await setup(t);
+    const session = x.a.a.sessions.at(-1)!.session;
+    const send = session.send;
+    vi.spyOn(session, 'send').mockImplementation(async (...args) => {
+      if (args[3] === 'pr-review') {
+        const state = (await record(x.f, x.a)).copilotReviews![0]!;
+        if (mode === 'edited') {
+          x.source.reviews[0]!.body = 'Updated summary.';
+          x.source.threads[0]!.comments[0]!.body = 'Updated finding.';
+        }
+        await writeFile(state.batch!.result, '{invalid json');
+      }
+      const result = await send(...args);
+      return mode === 'interrupted'
+        ? { status: 'interrupted', text: '' }
+        : result;
+    });
+    await x.observe();
+    await until('persisted recovery failure', async () => {
+      const state = (await record(x.f, x.a)).copilotReviews?.[0];
+      return (
+        !x.c.snapshot.reviewing &&
+        !!state?.batch?.reason?.includes('could not be verified')
+      );
+    });
+    const diagnostic = (await record(x.f, x.a)).copilotReviews![0]!.batch!
+      .reason!;
+    assert.match(diagnostic, /JSON|property name|Unexpected/);
+    assert.ok(x.c.snapshot.items.some(({ text }) => text.includes(diagnostic)));
+    if (mode === 'edited')
+      assert.ok(
+        (await record(x.f, x.a)).copilotReviews![0]!.items.every(
+          ({ status }) => status === 'pending',
+        ),
+      );
+    const notices = x.c.snapshot.items.length;
+    await x.observe();
+    assert.equal(x.c.snapshot.items.length, notices);
+    assert.equal(x.reviews().length, 1);
+    assert.equal(x.c.copilot.ready(), false);
+  });
+}
+
+test('an uncertain content version stays blocked after a newer version is handled', async (t) => {
+  const x = await setup(t);
+  x.source.reviews = [];
+  const original = x.source.threads[0]!.comments[0]!.body;
+  const session = x.a.a.sessions.at(-1)!.session;
+  const send = session.send;
+  let respond = false;
+  vi.spyOn(session, 'send').mockImplementation(async (...args) => {
+    if (args[3] === 'pr-review' && respond) {
+      const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
+      const url = `${x.source.pullRequest.url}#discussion_r2`;
+      x.source.threads[0]!.comments.push({
+        ...x.source.threads[0]!.comments[0]!,
+        id: 'response-2',
+        url,
+        author: { __typename: 'User', login: 'owner' },
+        body: 'acknowledged',
+      });
+      await writeFile(
+        batch.result,
+        JSON.stringify({
+          batch: batch.id,
+          items: batch.items.map((item) => ({
+            ...item,
+            disposition: 'acknowledged',
+            reply: url,
+            reason: 'verified',
+          })),
+        }),
+      );
+    }
+    return send(...args);
+  });
+  await x.observe();
+  await until(
+    'uncertain first version',
+    async () =>
+      !!(await record(x.f, x.a)).copilotReviews?.[0]?.items.every(
+        ({ status }) => status === 'blocked',
+      ),
+  );
+  x.source.threads[0]!.comments[0]!.body = 'New version.';
+  await x.observe();
+  respond = true;
+  await x.c.send('reconcile the current feedback');
+  await x.handled();
+  x.source.threads[0]!.comments[0]!.body = original;
+  await x.observe();
+  const item = (await record(x.f, x.a)).copilotReviews![0]!.items[0]!;
+  assert.equal(item.status, 'blocked');
+  assert.equal(item.receipts.length, 2);
+  assert.equal(x.c.copilot.ready(), false);
+  await x.observe();
+  assert.equal(x.reviews().length, 2);
+});
+
+for (const state of ['CLOSED', 'MERGED'] as const) {
+  test(`a ${state} GitHub observation stops an active review despite stale repository metadata`, async (t) => {
+    const x = await setup(t);
+    const gate = new TurnGate();
+    x.a.a.gate = gate;
+    await x.observe();
+    await within(gate.entered, 5000, 'review dispatch');
+    x.source.pullRequest.state = state;
+    await x.observe();
+    await until('closed review settlement', async () => {
+      const saved = (await record(x.f, x.a)).copilotReviews![0]!;
+      return (
+        x.c.snapshot.phase === 'idle' &&
+        !x.c.snapshot.reviewing &&
+        saved.items.every(({ status }) => status === 'blocked')
+      );
+    });
+    const saved = (await record(x.f, x.a)).copilotReviews![0]!;
+    assert.equal(saved.pullRequest.state, state);
+    assert.ok(saved.batch);
+    assert.ok(
+      x.c.snapshot.items.some(({ text }) =>
+        text.includes(`#12 is ${state.toLowerCase()}`),
+      ),
+    );
+    gate.open();
+    x.a.a.gate = undefined;
+    await x.c.send('continue the task');
+    await x.observe();
+    assert.equal(x.c.copilot.ready(), false);
+    assert.equal(x.reviews().length, 1);
+  });
+}
+
 for (const kind of ['branch', 'claim', 'project']) {
   test(`confirmed ${kind} loss interrupts a running review and retains its uncertain receipt`, async (t) => {
     const x = await setup(t);

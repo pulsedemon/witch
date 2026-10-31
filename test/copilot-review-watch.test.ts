@@ -89,6 +89,46 @@ test('a newly completed check triggers another read for delayed review publicati
   assert.deepEqual(published, [0, 1, 1]);
 });
 
+for (const state of ['CLOSED', 'MERGED'] as const) {
+  test(`a ${state} observation stops polling even when a completed check requests another read`, async (t) => {
+    vi.useFakeTimers();
+    t.onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const source = reviewSource();
+    source.checks = [
+      {
+        id: 1,
+        name: 'copilot-pull-request-reviewer',
+        status: 'completed',
+        conclusion: 'success',
+        head_sha: source.pullRequest.commit,
+      },
+    ];
+    const observations: string[] = [];
+    let reads = 0;
+    const watch = new CopilotReviewWatch(
+      '/checkout',
+      async (value) => {
+        observations.push(value.pullRequest.state);
+        return true;
+      },
+      assert.fail,
+      async () => {
+        reads++;
+        return { ...source, pullRequest: { ...source.pullRequest, state } };
+      },
+    );
+    t.onTestFinished(() => watch.close());
+    watch.update(source.pullRequest);
+    await vi.advanceTimersByTimeAsync(180_000);
+    watch.refresh();
+    await vi.advanceTimersByTimeAsync(180_000);
+    assert.deepEqual(observations, [state]);
+    assert.equal(reads, 1);
+  });
+}
+
 test.each(['switch', 'close'])(
   'an old read cannot publish after %s',
   async (kind) => {

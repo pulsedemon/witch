@@ -41,6 +41,7 @@ export const reviewBatchSchema = z.object({
   packet: z.string(),
   result: z.string(),
   verifying: z.boolean().optional(),
+  reason: z.string().optional(),
 });
 
 const feedbackSchema = itemIdentity.extend({
@@ -125,12 +126,13 @@ export function observeReviews(
 ): CopilotReviewState {
   const current = feedback(source);
   const present = new Set(current.map(({ id }) => id));
+  const previous = new Map(state?.items.map((item) => [item.id, item]));
   return {
     ...state,
     pullRequest: source.pullRequest,
     items: [
       ...current.map((item): CopilotReviewState['items'][number] => {
-        const old = state?.items.find(({ id }) => id === item.id);
+        const old = previous.get(item.id);
         if (old?.version === item.version)
           return { ...old, ...item, present: true };
         const receipt = old?.receipts.find(
@@ -307,7 +309,7 @@ export async function reconcileReviews(
     }
   }
   if (waiting.size) {
-    state.batch = { ...batch, verifying: true };
+    state.batch = { ...batch, verifying: true, reason: undefined };
     for (const item of state.items)
       if (waiting.has(item.id) && admitted.get(item.id) === item.version) {
         item.status = 'attempted';
@@ -323,14 +325,29 @@ export function blockReviewBatch(
 ): CopilotReviewState {
   return {
     ...state,
-    ...(state.batch ? { batch: { ...state.batch, verifying: false } } : {}),
-    items: state.items.map((item) =>
-      state.batch?.items.some(
-        ({ id, version }) => id === item.id && version === item.version,
-      )
-        ? { ...item, status: 'blocked', reason }
-        : item,
-    ),
+    ...(state.batch
+      ? { batch: { ...state.batch, verifying: false, reason } }
+      : {}),
+    items: state.items.map((item) => {
+      const admitted = state.batch?.items.find(({ id }) => id === item.id);
+      if (!admitted) return item;
+      const prior = item.receipts.find(
+        ({ version }) => version === admitted.version,
+      );
+      if (prior && prior.disposition !== 'blocked') return item;
+      return {
+        ...item,
+        ...(item.version === admitted.version
+          ? { status: 'blocked' as const, reason }
+          : {}),
+        receipts: [
+          ...item.receipts.filter(
+            ({ version }) => version !== admitted.version,
+          ),
+          { ...admitted, disposition: 'blocked' as const, reason },
+        ],
+      };
+    }),
   };
 }
 

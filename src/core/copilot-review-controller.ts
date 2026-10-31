@@ -41,11 +41,7 @@ export class CopilotReviewController {
   private noticeState?: string;
   private abort = new AbortController();
 
-  constructor(
-    private readonly host: ReviewHost,
-    private readonly read = readGitHubReviews,
-    private readonly pushed = reviewCommitPushed,
-  ) {}
+  constructor(private readonly host: ReviewHost) {}
 
   activate(): void {
     this.abort.abort();
@@ -149,7 +145,12 @@ export class CopilotReviewController {
       const result = await readJson(batch.result, reviewResultSchema);
       if (result)
         return await reconcileReviews(state, batch, result, source, (commit) =>
-          this.pushed(source.pullRequest, commit, cwd, this.abort.signal),
+          reviewCommitPushed(
+            source.pullRequest,
+            commit,
+            cwd,
+            this.abort.signal,
+          ),
         );
       return blockReviewBatch(
         state,
@@ -282,7 +283,7 @@ export class CopilotReviewController {
       return false;
     let batch: ReviewBatch | undefined;
     try {
-      const fresh = await this.read(
+      const fresh = await readGitHubReviews(
         source.pullRequest,
         record.cwd,
         this.abort.signal,
@@ -355,7 +356,7 @@ export class CopilotReviewController {
         });
         return false;
       }
-      const after = await this.read(
+      const after = await readGitHubReviews(
         batch.pullRequest,
         record.cwd,
         this.abort.signal,
@@ -367,7 +368,11 @@ export class CopilotReviewController {
           after,
         );
         state = await this.recover(state, after, record.cwd);
-        if (result?.status !== 'completed' && state.batch)
+        if (
+          result?.status !== 'completed' &&
+          state.batch &&
+          !state.batch.reason
+        )
           state = blockReviewBatch(
             state,
             result?.error ??
@@ -406,13 +411,21 @@ export class CopilotReviewController {
     const handled = items.filter(({ status }) => status === 'handled').length;
     const blocked = items.filter(({ status }) => status === 'blocked');
     const pending = items.length - handled - blocked.length;
+    const reasons = [
+      ...new Set(
+        [state.batch?.reason, ...blocked.map(({ reason }) => reason)].filter(
+          Boolean,
+        ),
+      ),
+    ];
     const signature = JSON.stringify([
       record.id,
       state.pullRequest.url,
       state.pullRequest.state,
       handled,
       pending,
-      blocked.map(({ id, reason }) => [id, reason]),
+      blocked.map(({ id }) => id),
+      reasons,
     ]);
     if (signature === this.noticeState) return;
     this.noticeState = signature;
@@ -420,12 +433,7 @@ export class CopilotReviewController {
       state.pullRequest.state !== 'OPEN'
         ? `Copilot review watching stopped: #${state.pullRequest.number} is ${state.pullRequest.state.toLowerCase()}.`
         : `Watching Copilot on #${state.pullRequest.number}: ${handled} handled, ${pending} pending, ${blocked.length} blocked.${
-            blocked.length
-              ? ` ${blocked
-                  .map(({ reason }) => reason)
-                  .filter(Boolean)
-                  .join(' ')}`
-              : ''
+            reasons.length ? ` ${reasons.join(' ')}` : ''
           }`,
     );
   }
