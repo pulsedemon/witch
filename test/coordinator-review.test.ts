@@ -440,6 +440,14 @@ test('an empty or bad target refuses', async (t) => {
   assert.deepEqual(runs.ran, ['review', 'review', 'review', 'clear']);
 });
 
+test('quotes or a backslash keep a space inside a target name', async (t) => {
+  const h = await harness(t);
+  for (const name of ['a b.md', 'c d.md', 'e f.md'])
+    await writeFile(join(h.cwd, name), 'x\n');
+  assert.equal(await h.coordinator.review(`"a b.md" c\\ d.md @'e f.md'`), true);
+  assert.match(h.rounds[0]!.brief, /^- a b\.md\n- c d\.md\n- e f\.md$/m);
+});
+
 test('a target Witch cannot stat stops the review with the error', async (t) => {
   const h = await harness(t);
   const locked = join(h.cwd, 'locked');
