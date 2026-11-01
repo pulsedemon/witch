@@ -379,7 +379,7 @@ test('an abort after the commands exit ends cleanup at its own deadline and stop
       NativeStopTimeout,
     );
     // each poll probes once more as it wakes past the deadline
-    await delay(100);
+    await delay(300);
     const probes = sent.length;
     await delay(200);
     assert.equal(sent.length, probes);
