@@ -118,6 +118,33 @@ test('Codex does not accept another compaction item as its own completion', asyn
   }
 });
 
+test('Codex compaction that runs out of usage reports exhaustion', async () => {
+  const f = await scripted();
+  try {
+    const pending = await f.compact();
+    const error = {
+      message: 'Error running remote compact task: usage limit reached',
+      codexErrorInfo: 'usageLimitExceeded',
+    };
+    await f.emit(turn('turn/started', 'compact-1', 'inProgress'), {
+      method: 'turn/completed',
+      params: {
+        threadId: 'native-thread',
+        turn: { id: 'compact-1', status: 'failed', error },
+      },
+    });
+    assert.deepEqual(await within(pending.result, 2000, 'compaction'), {
+      status: 'failed',
+      text: '',
+      error: error.message,
+      exhausted: true,
+    });
+  } finally {
+    await writeFile(join(f.cwd, 'exit'), '');
+    await close(f.session, f.cwd);
+  }
+});
+
 test('Codex replacement is reported even when a later hook interrupts the compact turn', async () => {
   const f = await scripted();
   try {

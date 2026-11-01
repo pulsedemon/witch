@@ -100,11 +100,16 @@ export class Compaction {
     return request.finished.promise;
   }
 
-  automatic(operation: () => Promise<boolean>): Promise<boolean> {
-    const running = operation();
-    this.running = running;
-    return running.finally(() => {
-      if (this.running === running) this.running = undefined;
+  /** a request that joins learns only whether it completed; the caller's own handling reports a throw. */
+  automatic(operation: () => Promise<TurnResult>): Promise<TurnResult> {
+    const result = operation();
+    const completed = result.then(
+      ({ status }) => status === 'completed',
+      () => false,
+    );
+    this.running = completed;
+    return result.finally(() => {
+      if (this.running === completed) this.running = undefined;
     });
   }
 

@@ -331,6 +331,39 @@ for (const status of [false, true]) {
   });
 }
 
+test('Claude compaction rejected for usage reports exhaustion', async () => {
+  const f = await scripted();
+  try {
+    const pending = await f.compact();
+    await f.emit(
+      {
+        type: 'rate_limit_event',
+        rate_limit_info: {
+          status: 'rejected',
+          rateLimitType: 'seven_day',
+          resetsAt: Date.now() / 1000 + 3600,
+        },
+      },
+      {
+        type: 'system',
+        subtype: 'status',
+        status: null,
+        compact_result: 'failed',
+      },
+      result(pending.uuid),
+      idle,
+    );
+    assert.deepEqual(await within(pending.result, 2000, 'compaction'), {
+      status: 'failed',
+      text: '',
+      error: 'Claude compaction failed',
+      exhausted: true,
+    });
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('Claude reports automatic main-session replacement without admitting child boundaries', async () => {
   const f = await scripted();
   try {
