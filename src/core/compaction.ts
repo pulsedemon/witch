@@ -33,19 +33,20 @@ export async function compactSession(
   notice: (text: string) => void,
 ): Promise<TurnResult> {
   const interrupted: TurnResult = { status: 'interrupted', text: '' };
+  let result = interrupted;
   try {
     const session = await connect();
-    if (cancelled() || session.closed) return interrupted;
-    if (!session.info.hasHistory) {
-      notice('No conversation history to compact');
-      return { status: 'completed', text: '' };
-    }
-    const result = await session.compact();
-    return cancelled() ? interrupted : result;
+    if (!cancelled() && !session.closed)
+      if (session.info.hasHistory) result = await session.compact();
+      else {
+        notice('No conversation history to compact');
+        result = { status: 'completed', text: '' };
+      }
   } catch (error) {
-    if (cancelled()) return interrupted;
-    return { status: 'failed', text: '', error: errorMessage(error) };
+    result = { status: 'failed', text: '', error: errorMessage(error) };
   }
+  // a snapshot listener can cancel from inside the notice
+  return cancelled() ? interrupted : result;
 }
 
 /** a manual request blocks delivery until native completion and the next command's admission window. */
