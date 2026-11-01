@@ -1381,22 +1381,27 @@ test('reports context, the 5H and 7D limits and lines once the session is idle',
     if (event.type === 'usage') reported.push(event.usage);
   });
   try {
-    await until('the usage at connect', () => !!session.usage.limits);
+    await until('the usage at connect', () => !!session.usage.account?.limits);
     assert.equal((await session.send('hello')).status, 'completed');
     await until(
       'the usage after the turn',
       () => session.usage.lines?.added === 4,
     );
     assert.deepEqual(
-      { ...session.usage, limits: untimed(session.usage.limits) },
+      {
+        ...session.usage,
+        account: { limits: untimed(session.usage.account?.limits) },
+      },
       {
         context: 12.5,
         contextWindow: 200000,
         lines: { added: 4, removed: 1 },
-        limits: [
-          { window: '5H', percent: 23.5, resetsAt: 2000000000 },
-          { window: '7D', percent: 61 },
-        ],
+        account: {
+          limits: [
+            { window: '5H', percent: 23.5, resetsAt: 2000000000 },
+            { window: '7D', percent: 61 },
+          ],
+        },
       },
     );
     assert.deepEqual(reported.at(-1), session.usage);

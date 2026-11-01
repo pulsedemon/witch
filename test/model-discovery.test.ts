@@ -118,10 +118,15 @@ test('standalone Claude catalogs preserve settings without prompts or history', 
 test('standalone Codex limits read the account without opening a thread', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const probe = await discovery(cleanup, 'codex');
-  assert.deepEqual(untimed(await probe.adapter.limits(probe.options, [])), [
-    { window: '5H', percent: 12, resetsAt: 2000000000 },
-    { window: '7D', percent: 40, resetsAt: 2000500000 },
-  ]);
+  assert.deepEqual(
+    untimed(
+      (await probe.adapter.accountUsage(probe.options, { limits: [] })).limits,
+    ),
+    [
+      { window: '5H', percent: 12, resetsAt: 2000000000 },
+      { window: '7D', percent: 40, resetsAt: 2000500000 },
+    ],
+  );
   assert.deepEqual(
     (await probe.wire()).map((frame) => frame.method),
     ['initialize', 'initialized', 'account/rateLimits/read'],
@@ -134,10 +139,9 @@ test('a Codex limits read keeps each previous window its report leaves out, past
   const probe = await discovery(cleanup, 'codex', 'sparse-limits');
   const weekly = { window: '7D', percent: 99, resetsAt: 1, observedAt: 5 };
   const before = Date.now();
-  const limits = await probe.adapter.limits(probe.options, [
-    { window: '5H', percent: 1, observedAt: 4 },
-    weekly,
-  ]);
+  const { limits } = await probe.adapter.accountUsage(probe.options, {
+    limits: [{ window: '5H', percent: 1, observedAt: 4 }, weekly],
+  });
   assert.deepEqual(untimed(limits.slice(0, 1)), [
     { window: '5H', percent: 12, resetsAt: 2000000000 },
   ]);
@@ -148,14 +152,19 @@ test('a Codex limits read keeps each previous window its report leaves out, past
 test('standalone Claude limits read the account without a turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const probe = await discovery(cleanup, 'claude');
-  assert.deepEqual(untimed(await probe.adapter.limits(probe.options, [])), [
-    {
-      window: '5H',
-      percent: 23.5,
-      resetsAt: Date.parse('2033-05-18T03:33:20Z') / 1000,
-    },
-    { window: '7D', percent: 61 },
-  ]);
+  assert.deepEqual(
+    untimed(
+      (await probe.adapter.accountUsage(probe.options, { limits: [] })).limits,
+    ),
+    [
+      {
+        window: '5H',
+        percent: 23.5,
+        resetsAt: Date.parse('2033-05-18T03:33:20Z') / 1000,
+      },
+      { window: '7D', percent: 61 },
+    ],
+  );
   assert.ok(probe.args[0]!.includes('--setting-sources=user,project,local'));
   assert.deepEqual(
     (await probe.wire()).map((frame) => frame.request?.subtype),
@@ -168,7 +177,11 @@ test('Claude limits a runtime reports unavailable read as none', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const probe = await discovery(cleanup, 'claude', 'no-limits');
   const previous = [{ window: '5H', percent: 1, observedAt: 1 }];
-  assert.deepEqual(await probe.adapter.limits(probe.options, previous), []);
+  assert.deepEqual(
+    (await probe.adapter.accountUsage(probe.options, { limits: previous }))
+      .limits,
+    [],
+  );
 });
 
 test('the latest Claude models ignore native model pins', async (t) => {

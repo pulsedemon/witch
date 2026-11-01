@@ -101,21 +101,21 @@ test('a review with no rule answers a route for each runtime and shows each in t
 
 test('a runtime over the level shifts work to one with room, and a stale reading is read again first', async (t) => {
   const f = await start(t.onTestFinished);
-  await until('the connect read of b', () => f.b.limitReads.length === 1);
+  await until('the connect read of b', () => f.b.accountReads.length === 1);
   // past the connect read's back-off
   const now = Date.now() + USAGE_CURRENT_MS + 1;
   vi.spyOn(Date, 'now').mockReturnValue(now);
   t.onTestFinished(() => {
     vi.restoreAllMocks();
   });
-  f.coordinator.accountUsage.report('a', [window(92, now)]);
-  f.coordinator.accountUsage.report('b', [
-    window(40, now - USAGE_CURRENT_MS - 1),
-  ]);
-  f.b.accountLimits = [window(40, now)];
+  f.coordinator.accountUsage.report('a', { limits: [window(92, now)] });
+  f.coordinator.accountUsage.report('b', {
+    limits: [window(40, now - USAGE_CURRENT_MS - 1)],
+  });
+  f.b.accountReading = { limits: [window(40, now)] };
   const reply = await f.route();
   vi.restoreAllMocks();
-  assert.equal(f.b.limitReads.length, 2);
+  assert.equal(f.b.accountReads.length, 2);
   assert.equal(reply.kind, 'route');
   if (reply.kind !== 'route') return;
   assert.deepEqual(reply.routes, [
@@ -129,10 +129,10 @@ test('a runtime over the level shifts work to one with room, and a stale reading
 
 test('a route after an empty read starts no new one, and says the reading is missing', async (t) => {
   const f = await start(t.onTestFinished);
-  await until('the connect read of b', () => f.b.limitReads.length === 1);
-  f.coordinator.accountUsage.report('a', [window(95)]);
+  await until('the connect read of b', () => f.b.accountReads.length === 1);
+  f.coordinator.accountUsage.report('a', { limits: [window(95)] });
   const reply = await f.route();
-  assert.equal(f.b.limitReads.length, 1);
+  assert.equal(f.b.accountReads.length, 1);
   assert.equal(reply.kind, 'route');
   if (reply.kind === 'route')
     assert.equal(
@@ -141,27 +141,81 @@ test('a route after an empty read starts no new one, and says the reading is mis
     );
 });
 
+for (const missing of ['stale credits', 'missing credit access'] as const)
+  test(`a route refreshes ${missing} beside current full windows and uses the returned capacity`, async (t) => {
+    const f = await start(t.onTestFinished);
+    await until(
+      'the initial account read',
+      () => f.b.accountReads.length === 1,
+    );
+    const now = Date.now() + USAGE_CURRENT_MS + 1;
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const funding = {
+        kind: 'credits' as const,
+        balance: missing === 'stale credits' ? '0' : '27.123400',
+        unlimited: false,
+        available: missing !== 'stale credits',
+        observedAt:
+          missing === 'stale credits' ? now - USAGE_CURRENT_MS - 1 : now,
+      };
+      f.coordinator.accountUsage.report('a', { limits: [window(100, now)] });
+      f.coordinator.accountUsage.report('b', {
+        limits: [window(100, now)],
+        funding,
+      });
+      f.b.accountReading = {
+        limits: [window(100, now)],
+        funding: {
+          ...funding,
+          balance: '27.123400',
+          available: true,
+          observedAt: now,
+        },
+        creditAccess: { state: 'available', observedAt: now },
+      };
+      const result = await f.route();
+      assert.equal(result.kind, 'route');
+      if (result.kind !== 'route') assert.fail(JSON.stringify(result));
+      assert.deepEqual(result.routes, [
+        {
+          runtime: 'b',
+          model: 'b-3-model',
+          reason:
+            'a 7D 100% is at or over 90%, and b 7D 100%, 27.123400 credits has usable credits',
+        },
+      ]);
+      assert.deepEqual(
+        f.coordinator.snapshot.accounts.b!.funding,
+        f.b.accountReading.funding,
+      );
+      assert.equal(f.b.accountReads.length, 2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
 test('a read slower than the wait still gets a reply, routed on what is current', async (t) => {
   const f = await start(t.onTestFinished);
-  await until('the connect read of b', () => f.b.limitReads.length === 1);
+  await until('the connect read of b', () => f.b.accountReads.length === 1);
   const now = Date.now() + USAGE_CURRENT_MS + 1;
   vi.spyOn(Date, 'now').mockReturnValue(now);
   t.onTestFinished(() => {
     vi.restoreAllMocks();
   });
-  f.coordinator.accountUsage.report('a', [window(95, now)]);
-  f.coordinator.accountUsage.report('b', [
-    window(10, now - USAGE_CURRENT_MS - 1),
-  ]);
+  f.coordinator.accountUsage.report('a', { limits: [window(95, now)] });
+  f.coordinator.accountUsage.report('b', {
+    limits: [window(10, now - USAGE_CURRENT_MS - 1)],
+  });
   // like a native probe, it ends only when aborted
-  f.b.limitsRead = ({ signal }) =>
+  f.b.accountRead = ({ signal }) =>
     new Promise((_, reject) =>
       signal!.addEventListener('abort', () => reject(signal!.reason)),
     );
   const started = performance.now();
   const reply = await f.route();
   vi.restoreAllMocks();
-  assert.equal(f.b.limitReads.length, 2);
+  assert.equal(f.b.accountReads.length, 2);
   assert.ok(performance.now() - started >= 2900);
   assert.equal(reply.kind, 'route');
   if (reply.kind === 'route') {

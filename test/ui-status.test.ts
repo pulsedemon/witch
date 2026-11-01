@@ -851,15 +851,17 @@ for (const [key, label] of [
 test("the sidebar lists every runtime's usage under the pentacle, and the status line leaves it out", async () => {
   const now = Date.now();
   const { app } = fake({
-    limits: {
-      a: [
-        {
-          window: '5H',
-          percent: 20,
-          resetsAt: now / 1000 + 2 * 3600 + 18 * 60 + 30,
-          observedAt: now,
-        },
-      ],
+    accounts: {
+      a: {
+        limits: [
+          {
+            window: '5H',
+            percent: 20,
+            resetsAt: now / 1000 + 2 * 3600 + 18 * 60 + 30,
+            observedAt: now,
+          },
+        ],
+      },
     },
   });
   const ui = show(
@@ -896,9 +898,9 @@ test('a terminal too short for the usage block leaves usage to the status line',
     observedAt: now,
   });
   const { app } = fake({
-    limits: {
-      a: [window('5H', 20), window('7D', 75)],
-      b: [window('5H', 12), window('7D', 40)],
+    accounts: {
+      a: { limits: [window('5H', 20), window('7D', 75)] },
+      b: { limits: [window('5H', 12), window('7D', 40)] },
     },
   });
   const ui = show(
@@ -922,8 +924,12 @@ test('a usage window turns dim with its age once it stops being current, without
   });
   const now = Date.now();
   const { app } = fake({
-    limits: {
-      a: [{ window: '7D', percent: 40, observedAt: now - 10 * 60_000 + 2000 }],
+    accounts: {
+      a: {
+        limits: [
+          { window: '7D', percent: 40, observedAt: now - 10 * 60_000 + 2000 },
+        ],
+      },
     },
   });
   const ui = show(

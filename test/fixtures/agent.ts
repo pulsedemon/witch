@@ -8,7 +8,7 @@ import type {
   AgentSession,
   AgentStopOptions,
   AnswerInput,
-  Limit,
+  AccountReading,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -112,13 +112,13 @@ export class FixtureAgent implements AgentAdapter {
   beforeConnect?: (options: SessionOptions) => Promise<void>;
   /** runs as each turn is sent, after its input is recorded, as an agent's edits during the turn would. */
   onSend?: (prompt: string) => Promise<void>;
-  /** what `limits()` returns unless `limitsRead` answers; its reads are kept apart from `discoveries`. */
-  accountLimits: Limit[] = [];
-  limitsRead?: (
+  /** account reads are kept apart from model discovery. */
+  accountReading: AccountReading = { limits: [] };
+  accountRead?: (
     options: ModelDiscoveryOptions,
-    previous: readonly Limit[],
-  ) => Promise<Limit[]>;
-  readonly limitReads: ModelDiscoveryOptions[] = [];
+    previous: AccountReading,
+  ) => Promise<AccountReading>;
+  readonly accountReads: ModelDiscoveryOptions[] = [];
   /** set to give the runtime family aliases, as Claude's adapter has. */
   latest?: (options: ModelDiscoveryOptions) => Promise<Record<string, string>>;
 
@@ -137,15 +137,15 @@ export class FixtureAgent implements AgentAdapter {
     return this.catalog;
   }
 
-  async limits(
+  async accountUsage(
     options: ModelDiscoveryOptions,
-    previous: readonly Limit[],
-  ): Promise<Limit[]> {
-    this.limitReads.push(options);
+    previous: AccountReading,
+  ): Promise<AccountReading> {
+    this.accountReads.push(options);
     options.signal?.throwIfAborted();
-    return this.limitsRead
-      ? this.limitsRead(options, previous)
-      : this.accountLimits;
+    return this.accountRead
+      ? this.accountRead(options, previous)
+      : this.accountReading;
   }
 
   async connect(options: SessionOptions): Promise<AgentSession> {

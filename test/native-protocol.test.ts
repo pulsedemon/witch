@@ -82,25 +82,22 @@ for (const runtime of ['codex', 'claude'] as const) {
       if (scenario === 'basic') {
         const limits = events
           .filter((event) => event.type === 'usage')
-          .map((event) => untimed(event.usage.limits))
+          .map((event) => untimed(event.usage.account?.limits))
           .filter((value) => value !== undefined);
-        assert.deepEqual(
-          limits[0],
+        const expected =
           runtime === 'codex'
             ? [{ window: '7D', percent: 37, resetsAt: 1793820572 }]
             : [
                 { window: '5H', percent: 8, resetsAt: 1793298599.822 },
                 { window: '7D', percent: 71, resetsAt: 1793483999.822 },
-              ],
-        );
-        if (runtime === 'claude')
-          assert.deepEqual(
-            limits.find((value) => value[0]?.percent === 7),
-            [
-              { window: '5H', percent: 7, resetsAt: 1793298600 },
-              { window: '7D', percent: 71, resetsAt: 1793484000 },
-            ],
-          );
+              ];
+        assert.deepEqual(limits[0], expected);
+        if (runtime === 'claude') {
+          // later cached replies omit native rows and cannot replace the complete account reading.
+          assert.ok(limits.length > 1);
+          for (const reading of limits.slice(1))
+            assert.deepEqual(reading, expected);
+        }
       }
       if (runtime === 'codex') {
         const contract = new CodexSchema(schema);

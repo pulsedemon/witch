@@ -102,7 +102,7 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       subagents: [],
       backgroundCommands: [],
       usage: {},
-      limits: {},
+      accounts: {},
       latest: {},
       agents: ['a', 'b'].map((id) => ({ id, label: id, installed: true })),
       conversation: {
