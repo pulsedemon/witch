@@ -32,13 +32,9 @@ async function setup(register: Parameters<typeof orderedCleanup>[0]) {
     join(bin, 'claude'),
   );
   await chmod(join(bin, 'claude'), 0o700);
-  await copyFile(
-    fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url)),
-    join(root, 'codex.mjs'),
-  );
   await writeFile(
     join(bin, 'codex'),
-    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, 'codex.mjs'))} "$@"\n`,
+    `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url)))} "$@"\n`,
   );
   await chmod(join(bin, 'codex'), 0o700);
   const prefix = coordination.commandPrefixes().familiar;
@@ -166,6 +162,7 @@ test('a familiar request fails the reviewer', async (t) => {
   );
   assert.notEqual(result!.code, 0);
   assert.equal(result!.status, 'failed');
+  assert.match(result!.report, /runs read-only and cannot ask for anything/);
 });
 
 test('late updates never reopen a finished reviewer', () => {
