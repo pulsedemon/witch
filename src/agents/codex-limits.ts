@@ -39,7 +39,7 @@ function windowMinutes(name: string): number {
   return Number.parseInt(name) * (name.endsWith('D') ? 1440 : 60);
 }
 
-export async function readRateLimits(rpc: JsonRpc): Promise<{
+async function readRateLimits(rpc: JsonRpc): Promise<{
   rateLimits: z.infer<typeof rateLimits>;
   accountId?: string | null;
 }> {
@@ -150,6 +150,39 @@ export class CodexAccount {
   private windows: { primary?: ObservedWindow; secondary?: ObservedWindow } =
     {};
   private reading: AccountReading = { limits: [] };
+
+  /** a reply cannot replace observations delivered while its request was pending. */
+  async read(rpc: JsonRpc): Promise<AccountReading | undefined> {
+    const previous = this.reading;
+    const before = { ...this.windows };
+    const { rateLimits, accountId } = await readRateLimits(rpc);
+    const current = this.reading;
+    const windows = { ...this.windows };
+    const reading = this.update(rateLimits, true, accountId);
+    if (!reading || (current.identity && current.identity !== reading.identity))
+      return reading;
+    this.windows = {
+      primary:
+        windows.primary === before.primary
+          ? this.windows.primary
+          : windows.primary,
+      secondary:
+        windows.secondary === before.secondary
+          ? this.windows.secondary
+          : windows.secondary,
+    };
+    this.reading = {
+      ...reading,
+      limits: windowLimits([this.windows.primary, this.windows.secondary]),
+      ...(current.funding !== previous.funding
+        ? { funding: current.funding }
+        : {}),
+      ...(current.creditAccess !== previous.creditAccess
+        ? { creditAccess: current.creditAccess }
+        : {}),
+    };
+    return this.reading;
+  }
 
   update(
     update: z.infer<typeof rateLimits>,

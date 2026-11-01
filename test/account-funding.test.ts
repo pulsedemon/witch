@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createElement } from 'react';
 import { test, vi } from 'vitest';
@@ -14,7 +14,7 @@ import {
 } from '../src/core/usage.js';
 import { App } from '../src/ui/app.js';
 import { accountRows } from '../src/ui/status-line.js';
-import { close, controlledFixture } from './fixtures/codex-adapter.js';
+import { appears, close, controlledFixture } from './fixtures/codex-adapter.js';
 import { fake, show } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
@@ -237,6 +237,111 @@ test('a rolling update retains the credit timestamp, ignores another quota, and 
     );
     assert.equal(f.session.usage.account!.funding?.kind, 'credits');
     assert.notEqual(f.session.usage.account!.funding, initial.funding);
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('a delayed account reply preserves newer native fields and accepts untouched fields', async () => {
+  const f = await controlledFixture();
+  const response = {
+    accountId: 'one',
+    rateLimits: {
+      limitId: 'codex',
+      primary: {
+        usedPercent: 10,
+        windowDurationMins: 300,
+        resetsAt: 2000000000,
+      },
+      secondary: {
+        usedPercent: 35,
+        windowDurationMins: 10080,
+        resetsAt: 2000500000,
+      },
+      credits: { hasCredits: true, unlimited: false, balance: '123.456' },
+      spendControlReached: false,
+      rateLimitReachedType: null,
+    },
+  };
+  try {
+    await f.session.readAccountUsage!();
+    await writeFile(
+      join(f.cwd, 'account-usage.json'),
+      JSON.stringify(response),
+    );
+    await f.session.readAccountUsage!();
+    await writeFile(join(f.cwd, 'hold-account'), 'yes');
+    const pending = f.session.readAccountUsage!();
+    await appears(join(f.cwd, 'account-1.json'));
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: {
+        rateLimits: {
+          limitId: 'codex',
+          primary: { ...response.rateLimits.primary, usedPercent: 100 },
+          credits: { hasCredits: false, unlimited: false, balance: '0' },
+          spendControlReached: true,
+        },
+      },
+    });
+    const newer = f.session.usage.account!;
+    response.rateLimits.secondary.usedPercent = 41;
+    await f.reply(1, { result: response }, 'account');
+    await pending;
+    const reading = f.session.usage.account!;
+    assert.equal(reading.funding, newer.funding);
+    assert.equal(reading.creditAccess, newer.creditAccess);
+    assert.equal(creditCapacity(reading, Date.now()), 'unavailable');
+    assert.deepEqual(
+      reading.limits.find(({ window }) => window === '5H'),
+      newer.limits.find(({ window }) => window === '5H'),
+    );
+    assert.equal(
+      reading.limits.find(({ window }) => window === '7D')?.percent,
+      41,
+    );
+
+    const next = f.session.readAccountUsage!();
+    await appears(join(f.cwd, 'account-2.json'));
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: {
+        rateLimits: {
+          limitId: 'other',
+          rateLimitReachedType: 'workspace_member_credits_depleted',
+        },
+      },
+    });
+    const denial = f.session.usage.account!.creditAccess;
+    response.rateLimits.credits.balance = '789.012';
+    await f.reply(2, { result: response }, 'account');
+    await next;
+    assert.equal(
+      fundingText(f.session.usage.account!.funding!),
+      '789.012 credits',
+    );
+    assert.equal(f.session.usage.account!.creditAccess, denial);
+
+    await rm(join(f.cwd, 'hold-account'));
+    await f.session.readAccountUsage!();
+    assert.equal(
+      creditCapacity(f.session.usage.account, Date.now()),
+      'available',
+    );
+    await writeFile(join(f.cwd, 'hold-account'), 'yes');
+    const switched = f.session.readAccountUsage!();
+    await appears(join(f.cwd, 'account-3.json'));
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: { rateLimits: { limitId: 'codex', spendControlReached: true } },
+    });
+    await f.reply(3, { result: { ...response, accountId: 'two' } }, 'account');
+    await switched;
+    assert.equal(f.session.usage.account!.identity, 'two:codex');
+    assert.equal(
+      creditCapacity(f.session.usage.account, Date.now()),
+      'available',
+    );
   } finally {
     await close(f.session, f.cwd);
   }

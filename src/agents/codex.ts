@@ -8,12 +8,7 @@ import { JsonRpc } from './json-rpc.js';
 import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
-import {
-  CodexAccount,
-  probeAccountUsage,
-  rateLimits,
-  readRateLimits,
-} from './codex-limits.js';
+import { CodexAccount, probeAccountUsage, rateLimits } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { mergeCasts } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
@@ -1428,8 +1423,7 @@ class CodexSession implements AgentSession {
   /** the status line leaves out what Codex can't report, such as limits on an API key. */
   private async readLimitsOnce(): Promise<void> {
     try {
-      const { rateLimits, accountId } = await readRateLimits(this.rpc);
-      const account = this.account.update(rateLimits, true, accountId);
+      const account = await this.account.read(this.rpc);
       if (account) this.report({ account });
     } catch {
       // limits stay unreported

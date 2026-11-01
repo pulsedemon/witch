@@ -192,6 +192,7 @@ const skill = (name, fields) => ({
 let brewTurn = 0;
 let terminalReads = 0;
 let threadReads = 0;
+let accountReads = 0;
 let questionTurn = 0;
 const finishQuestion = () => {
   notify('item/completed', {
@@ -478,6 +479,11 @@ for await (const line of lines) {
       id: request.id,
       error: { message: 'rate limits need a ChatGPT login' },
     });
+  else if (
+    request.method === 'account/rateLimits/read' &&
+    existsSync(file('hold-account'))
+  )
+    deferReply('account', ++accountReads, request);
   else if (
     request.method === 'account/rateLimits/read' &&
     existsSync(file('account-usage.json'))
