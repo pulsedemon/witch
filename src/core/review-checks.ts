@@ -280,6 +280,7 @@ function links(parts: readonly Segment[]): Link[] {
   for (const match of masked.matchAll(
     /\[([^\]]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))*)>?(?:\s+"[^"]*")?\s*\)/g,
   )) {
+    if (escaped(masked, match.index)) continue;
     const start = match.index + 1;
     const whole = decodeHTMLStrict(match[2]!);
     const hash = whole.indexOf('#');
