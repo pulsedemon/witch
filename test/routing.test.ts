@@ -540,7 +540,7 @@ test('a runtime over the level stays when no other runtime is installed, and the
   );
 });
 
-test('with no rule, review goes to every runtime, and a reviewer over the level shifts even onto the producer', () => {
+test('with no rule, review goes to every runtime, and a reviewer over the level merges into the route of the runtime it shifts onto', () => {
   const of = { runtime: 'claude', model: 'claude-opus-5-5' };
   const reason = 'review of claude work goes to every runtime';
   assert.deepEqual(ask({ work: 'review', of }), [
@@ -553,20 +553,33 @@ test('with no rule, review goes to every runtime, and a reviewer over the level 
       of,
       limits: { claude: [window('7D', 40)], codex: [window('7D', 92)] },
     }),
-    [
-      { runtime: 'claude', model: 'claude-opus-5-5', reason },
-      {
-        runtime: 'claude',
-        model: 'claude-opus-5-5',
-        reason: 'codex 7D 92% is at or over 90%, and claude 7D 40% has room',
-      },
-    ],
+    {
+      runtime: 'claude',
+      model: 'claude-opus-5-5',
+      reason: `${reason}; codex 7D 92% is at or over 90%, and claude 7D 40% has room`,
+    },
   );
   assert.deepEqual(ask({ work: 'review', of, installed: ['claude'] }), {
     runtime: 'claude',
     model: 'claude-opus-5-5',
     reason,
   });
+});
+
+test("a review whose first runtime is over the level merges its shift into the next runtime's route", () => {
+  assert.deepEqual(
+    ask({
+      work: 'review',
+      of: { runtime: 'claude', model: 'claude-opus-5-5' },
+      limits: { claude: [window('7D', 95)], codex: [window('7D', 40)] },
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason:
+        'claude 7D 95% is at or over 90%, and codex 7D 40% has room; review of claude work goes to every runtime',
+    },
+  );
 });
 
 test('a rule that names a model or family shifts to the comparable model on a runtime with room, and stays when there is none', () => {

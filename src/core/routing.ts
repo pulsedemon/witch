@@ -315,7 +315,13 @@ export function route({
     for (const runtime of installed) {
       const placed = place(runtime, `${subject} goes to every runtime`, true);
       if ('refused' in placed) return placed;
-      routes.push(placed);
+      // a shift can land on a runtime that has its own route; one familiar per model is enough
+      const same = routes.find(
+        (routed) =>
+          routed.runtime === placed.runtime && routed.model === placed.model,
+      );
+      if (same) same.reason += `; ${placed.reason}`;
+      else routes.push(placed);
     }
     return { routes };
   }

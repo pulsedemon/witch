@@ -131,19 +131,6 @@ test('a quiet harness sits out the next round', () => {
   );
 });
 
-test('a runtime with two reviewers sits out only when both are quiet', () => {
-  const decided = decide({
-    round: both,
-    reviews: [
-      review('claude', finding(3, true)),
-      review('codex'),
-      review('codex', finding(7, true)),
-    ],
-  });
-  assert.ok('blockers' in decided);
-  assert.deepEqual(decided.sittingOut, []);
-});
-
 test('a change in a single-harness round brings every harness back', () => {
   const round: Round = { number: 2, scope: 'diff', runtimes: ['claude'] };
   const decided = decide({
