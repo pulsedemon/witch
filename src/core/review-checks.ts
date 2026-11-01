@@ -278,11 +278,15 @@ function links(parts: readonly Segment[]): Link[] {
   const raw = parts.map((part) => part.raw).join('');
   const found: Link[] = [];
   for (const match of masked.matchAll(
-    /\[([^\]]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))*)>?(?:\s+"[^"]*")?\s*\)/g,
+    /\[([^\]]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))*)>?(?:\s+"[^"]*")?\s*\)/dg,
   )) {
     if (escaped(masked, match.index)) continue;
     const start = match.index + 1;
-    const whole = decodeHTMLStrict(match[2]!);
+    // masking hides an angle-bracketed destination, which reads as a tag, so it comes from the line
+    const [from, to] = match.indices![2]!;
+    const whole = decodeHTMLStrict(
+      raw.slice(from, to).replace(/^<(.*)>$/, '$1'),
+    );
     const hash = whole.indexOf('#');
     found.push({
       text: raw.slice(start, start + match[1]!.length),
