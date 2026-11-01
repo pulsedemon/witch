@@ -8,6 +8,10 @@ Witch is a full-screen Ink terminal app that drives the installed Codex and Clau
 
 Setup, local checks and focused test commands are in [README.md](README.md#development).
 
+Scope local checks to the change and leave the full suite to [ci](.github/workflows/ci.yml). For a change confined to source and tests, run `pnpm typecheck` and `pnpm exec vitest related --run <changed files>`; the [pre-commit hook](.husky/pre-commit) runs `pnpm lint`. `vitest related` follows imports, not spawned processes, and exits 0 when it selects nothing; that is not a pass, so run the tests that exercise the change by name. Run the full `pnpm check` locally when the change touches configuration, dependencies or the build, or macOS-only behavior that Linux ci can't exercise (locks, process identity, `sips`), or when the affected scope is uncertain.
+
+Run each check once, capturing its exit code and complete log, and never rerun it to recover output. After a failure, rerun the failed step, the steps after it and any earlier step whose inputs the fix changed.
+
 `pnpm dev` opens this repo, takes the same arguments as `witch`, and needs an interactive terminal. Confirm before running `pnpm test:integration`.
 
 ## Architecture
