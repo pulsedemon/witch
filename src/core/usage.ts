@@ -55,6 +55,7 @@ export function due(account: AccountReading | undefined, now: number): boolean {
     account.limits.some((limit) => !current(limit, now)) ||
     !account.funding ||
     !current(account.funding, now) ||
+    (account.funding.kind === 'credits' && !account.creditAccess) ||
     (account.creditAccess !== undefined && !current(account.creditAccess, now))
   );
 }

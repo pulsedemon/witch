@@ -141,54 +141,59 @@ test('a route after an empty read starts no new one, and says the reading is mis
     );
 });
 
-test('a route refreshes stale credits beside current full windows and uses the returned balance', async (t) => {
-  const f = await start(t.onTestFinished);
-  await until('the initial account read', () => f.b.accountReads.length === 1);
-  const now = Date.now() + USAGE_CURRENT_MS + 1;
-  vi.spyOn(Date, 'now').mockReturnValue(now);
-  try {
-    const stale = {
-      kind: 'credits' as const,
-      balance: '0',
-      unlimited: false,
-      available: false,
-      observedAt: now - USAGE_CURRENT_MS - 1,
-    };
-    f.coordinator.accountUsage.report('a', { limits: [window(100, now)] });
-    f.coordinator.accountUsage.report('b', {
-      limits: [window(100, now)],
-      funding: stale,
-    });
-    f.b.accountReading = {
-      limits: [window(100, now)],
-      funding: {
-        ...stale,
-        balance: '27.123400',
-        available: true,
-        observedAt: now,
-      },
-      creditAccess: { state: 'available', observedAt: now },
-    };
-    const result = await f.route();
-    assert.equal(result.kind, 'route');
-    if (result.kind !== 'route') assert.fail(JSON.stringify(result));
-    assert.deepEqual(result.routes, [
-      {
-        runtime: 'b',
-        model: 'b-3-model',
-        reason:
-          'a 7D 100% is at or over 90%, and b 7D 100%, 27.123400 credits has usable credits',
-      },
-    ]);
-    assert.deepEqual(
-      f.coordinator.snapshot.accounts.b!.funding,
-      f.b.accountReading.funding,
+for (const missing of ['stale credits', 'missing credit access'] as const)
+  test(`a route refreshes ${missing} beside current full windows and uses the returned capacity`, async (t) => {
+    const f = await start(t.onTestFinished);
+    await until(
+      'the initial account read',
+      () => f.b.accountReads.length === 1,
     );
-    assert.equal(f.b.accountReads.length, 2);
-  } finally {
-    vi.restoreAllMocks();
-  }
-});
+    const now = Date.now() + USAGE_CURRENT_MS + 1;
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const funding = {
+        kind: 'credits' as const,
+        balance: missing === 'stale credits' ? '0' : '27.123400',
+        unlimited: false,
+        available: missing !== 'stale credits',
+        observedAt:
+          missing === 'stale credits' ? now - USAGE_CURRENT_MS - 1 : now,
+      };
+      f.coordinator.accountUsage.report('a', { limits: [window(100, now)] });
+      f.coordinator.accountUsage.report('b', {
+        limits: [window(100, now)],
+        funding,
+      });
+      f.b.accountReading = {
+        limits: [window(100, now)],
+        funding: {
+          ...funding,
+          balance: '27.123400',
+          available: true,
+          observedAt: now,
+        },
+        creditAccess: { state: 'available', observedAt: now },
+      };
+      const result = await f.route();
+      assert.equal(result.kind, 'route');
+      if (result.kind !== 'route') assert.fail(JSON.stringify(result));
+      assert.deepEqual(result.routes, [
+        {
+          runtime: 'b',
+          model: 'b-3-model',
+          reason:
+            'a 7D 100% is at or over 90%, and b 7D 100%, 27.123400 credits has usable credits',
+        },
+      ]);
+      assert.deepEqual(
+        f.coordinator.snapshot.accounts.b!.funding,
+        f.b.accountReading.funding,
+      );
+      assert.equal(f.b.accountReads.length, 2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
 
 test('a read slower than the wait still gets a reply, routed on what is current', async (t) => {
   const f = await start(t.onTestFinished);

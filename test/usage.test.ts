@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import { NativeStop } from '../src/agents/shutdown.js';
+import { CodexAccount } from '../src/agents/codex-limits.js';
 import type {
   AccountReading,
   AgentSession,
@@ -9,6 +10,7 @@ import type {
 } from '../src/agents/types.js';
 import {
   AccountUsage,
+  creditCapacity,
   current,
   due,
   headroom,
@@ -170,6 +172,43 @@ test('a report that arrives during a probe keeps its value when the probe finish
   read.settle([window('7D', 40, { observedAt: Date.now() - 1 })]);
   await probing;
   assert.equal(published.at(-1)!.b!.limits, reported);
+});
+
+test('fresh rolling credits without access retry a failed read after the attempt throttle', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+  try {
+    const { b, usage, published } = readings();
+    b.accountRead = async () => {
+      throw new Error('initial account read failed');
+    };
+    await usage.refresh('b', '/w');
+    const native = new CodexAccount();
+    const update = {
+      limitId: 'codex',
+      primary: {
+        usedPercent: 100,
+        windowDurationMins: 10080,
+        resetsAt: null,
+      },
+      credits: { hasCredits: true, unlimited: false, balance: '27.123400' },
+      spendControlReached: false,
+      rateLimitReachedType: null,
+    };
+    usage.report('b', native.update(update));
+    b.accountRead = async () => native.update(update, true)!;
+    await usage.refresh('b', '/w');
+    assert.equal(b.accountReads.length, 1);
+    assert.equal(creditCapacity(published.at(-1)!.b, now), 'unknown');
+
+    const later = now + USAGE_CURRENT_MS + 1;
+    clock.mockReturnValue(later);
+    usage.report('b', native.update(update));
+    await usage.refresh('b', '/w');
+    assert.equal(b.accountReads.length, 2);
+    assert.equal(creditCapacity(published.at(-1)!.b, later), 'available');
+  } finally {
+    vi.restoreAllMocks();
+  }
 });
 
 test('a window a report leaves out keeps its earlier reading, and the same report again publishes nothing', () => {
