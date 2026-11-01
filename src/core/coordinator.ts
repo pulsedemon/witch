@@ -719,25 +719,25 @@ export class Coordinator {
     return this.operations === operations && !this.cancelled && !this.halted();
   }
 
+  /** a session started here starts on the choice, so a stored model that fails to connect can be replaced; if the choice is refused, it closes and the stored model stays. */
   private async changeModel(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
-    const { agent, id } = selection;
-    if (!this.live(conversation.agent)) {
-      // so a model that fails to connect can be replaced. the effort waits for the session to accept it, since a stored one every connect rejects can't be replaced
-      conversation.sessions[conversation.agent] = {
-        id: '',
-        hasHistory: false,
-        ...conversation.sessions[conversation.agent],
-        model: id,
-        requestedModel: id,
-      };
+    const kept = conversation.sessions[selection.agent];
+    const starting = !this.live(selection.agent);
+    const session = await this.connect(selection.agent, undefined, selection);
+    try {
+      conversation.sessions[selection.agent] = await this.runtimes.applyModel(
+        session,
+        selection,
+      );
+    } catch (error) {
+      if (!starting) throw error;
+      if (kept) conversation.sessions[selection.agent] = kept;
+      else delete conversation.sessions[selection.agent];
+      await this.disconnect();
       await this.save();
+      throw error;
     }
-    const session = await this.connect();
-    conversation.sessions[agent] = await this.runtimes.applyModel(
-      session,
-      selection,
-    );
     await this.save();
     this.publish({ conversation, native: session.info });
   }

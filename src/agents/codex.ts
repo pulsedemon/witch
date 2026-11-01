@@ -376,6 +376,8 @@ class CodexSession implements AgentSession {
   /** every enabled skill, whose SKILL.md a skill input names. */
   private spellIndex: { name: string; path: string }[] = [];
   private castIndex = new Map<string, string>();
+  /** the picker's last list, checked before a selection reads the hidden models too. */
+  private listed: Model[] = [];
   /** each turn's latest diff count, since a turn's diff grows as it edits. */
   private readonly turnLines = new Map<
     string,
@@ -472,8 +474,9 @@ class CodexSession implements AgentSession {
     if (!answer) void this.readAccountUsage();
   }
 
-  models(): Promise<Model[]> {
-    return readModels(this.rpc);
+  async models(): Promise<Model[]> {
+    this.listed = await readModels(this.rpc);
+    return this.listed;
   }
 
   /** enabled skills, first per name, as the TUI offers them. */
@@ -507,6 +510,10 @@ class CodexSession implements AgentSession {
   async selectModel(model: string, effort?: string | null): Promise<void> {
     if (this.turn || this.answers.busy)
       throw new Error('Stop the current turn before changing models');
+    // Codex accepts any id here and only its backend refuses one, at the next turn
+    const offered = (models: Model[]) => models.some(({ id }) => id === model);
+    if (!offered(this.listed) && !offered(await readModels(this.rpc, true)))
+      throw new Error(`Codex has no model ${model}.`);
     // Codex notifies only when the settings change
     if (
       model !== this.native.model ||

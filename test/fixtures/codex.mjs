@@ -406,6 +406,18 @@ for await (const line of lines) {
             { reasoningEffort: second ? 'high' : 'low' },
           ],
         },
+        // the scripted ids are hidden too, so a selection reaches their handlers
+        ...(second && request.params.includeHidden
+          ? ['model-hidden', 'exit', 'held', 'bad-settings', 'parent-next'].map(
+              (id) => ({
+                id,
+                model: id,
+                displayName: id,
+                description: 'fixture',
+                supportedReasoningEfforts: [],
+              }),
+            )
+          : []),
       ],
       nextCursor: second ? null : 'page-2',
     });
