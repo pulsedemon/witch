@@ -21,12 +21,10 @@ import type { StateStore } from '../persistence/store.js';
 import {
   conversationSummarySchema,
   taskActivity,
-} from './coordination-state.js';
-import type {
-  CoordinationSnapshot,
-  SessionPresence,
-  SelectionScope,
-  TransferTarget,
+  type CoordinationSnapshot,
+  type SessionPresence,
+  type SelectionScope,
+  type TransferTarget,
 } from './coordination-state.js';
 import type { Reviewers } from './reviewers.js';
 import type { router } from './router.js';
