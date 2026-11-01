@@ -83,7 +83,16 @@ async function runReview(
     host.notice('This Witch cannot route work.');
     return;
   }
-  const named = argument.split(/\s+/).filter(Boolean);
+  // quotes or a backslash keep a space inside one name
+  const named = [
+    ...argument.matchAll(/(?:[^\s"'\\]|\\.|"[^"]*"|'[^']*')+/g),
+  ].map(([name]) =>
+    name.replace(
+      /\\(.)|"([^"]*)"|'([^']*)'/g,
+      (_, escaped?: string, double?: string, single?: string) =>
+        escaped ?? double ?? single!,
+    ),
+  );
   if (!named.length) {
     host.notice('Use /review <files>.');
     return;
