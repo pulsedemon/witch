@@ -69,7 +69,7 @@ export class Workspace {
   private readonly branch: string;
 
   constructor(
-    private readonly memory: Memory,
+    readonly memory: Memory,
     readonly root: string,
     private readonly id: string,
   ) {
@@ -134,14 +134,19 @@ export class Workspace {
     return exists(resolve(this.root, path.trim()));
   }
 
-  /** creates both scope directories, which git drops once their last note goes. */
+  /** reads a checkout's scope and creates its directories. */
   async scope(cwd: string): Promise<MemoryScope> {
     const paths = await this.memory.scopePaths(cwd);
-    for (const directory of [paths.global, paths.project])
+    await this.prepare(paths);
+    return paths;
+  }
+
+  /** creates both scope directories, which git drops once their last note goes. */
+  async prepare(scope: MemoryScope): Promise<void> {
+    for (const directory of [scope.global, scope.project])
       await mkdir(await this.checkedPath(directory, 'directory'), {
         recursive: true,
       });
-    return paths;
   }
 
   /** the scope directories an agent is given, global first. */
@@ -167,8 +172,8 @@ export class Workspace {
     );
   }
 
-  /** publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, and returns the revision and scope the turn starts from. */
-  async begin(cwd: string): Promise<{ revision: string; scope: MemoryScope }> {
+  /** publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, and returns the revision the turn starts from. */
+  async begin(scope: MemoryScope): Promise<string> {
     if (await this.isDirty())
       throw new Error('Resolve pending memory before running another task');
     if ((await this.publish()) !== 'published')
@@ -177,7 +182,7 @@ export class Workspace {
       );
     for (let attempt = 1; ; attempt++) {
       await this.git(['merge', '--ff-only', '--quiet', main]);
-      const scope = await this.scope(cwd);
+      await this.prepare(scope);
       const moved = await this.adopt(scope).catch(async (error: unknown) => {
         await this.discardPending().catch((rollback: unknown) => {
           throw new Error(
@@ -188,7 +193,7 @@ export class Workspace {
         throw error;
       });
       if (!moved || (await this.publish()) === 'published')
-        return { revision: await this.revision(), scope };
+        return this.revision();
       // discarding this derived move loses no accepted notes
       await this.git(['reset', '--hard', '--quiet', main]);
       if (attempt === 5)
@@ -199,9 +204,9 @@ export class Workspace {
   }
 
   /** begins outside a turn to take in the notes keyed by the checkout's path, unless pending or unpublished memory waits for settling. */
-  async adoptCheckout(cwd: string): Promise<void> {
+  async adoptCheckout(scope: MemoryScope): Promise<void> {
     if (!(await this.exists()) || (await this.isDirty())) return;
-    if (await this.isAncestor('HEAD', main)) await this.begin(cwd);
+    if (await this.isAncestor('HEAD', main)) await this.begin(scope);
   }
 
   /** merges the notes keyed by a checkout's path into its origin's project as a commit of its own, and says whether that key held notes. */

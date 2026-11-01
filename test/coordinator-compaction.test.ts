@@ -504,8 +504,11 @@ test('a resumed native context sample schedules compaction and a model with no s
     f.a.connectUsage = { context: 80 };
     const reopened = await f.reopen();
     try {
+      const reads = vi.spyOn(f.memory, 'scopePaths');
       await reopened.send('resumed');
       assert.deepEqual(f.a.compactions, [id]);
+      // the compaction begins from the scope its turn read
+      assert.equal(reads.mock.calls.length, 1);
       assert.equal(f.a.inputs.at(-1)!.session, id);
       const native = f.a.sessions.at(-1)!.session;
       const select = native.selectModel.bind(native);

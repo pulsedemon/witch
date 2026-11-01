@@ -4,7 +4,11 @@ import * as commands from '../src/core/command.js';
 import { callControl } from '../src/persistence/control.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import type { GitHubReviews } from '../src/core/github-reviews.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import {
+  coordinationFixture,
+  git,
+  pauseDiscovery,
+} from './fixtures/coordination.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 
@@ -272,4 +276,28 @@ test('a solo PR suggestion binds only after the requested claim promotion', asyn
   const bound = await a.coordination.reviews.bind(source.pullRequest, []);
   assert.equal(bound!.claim.id, context.snapshot.ownClaim!.id);
   assert.equal(bound!.claim.suggestion, undefined);
+});
+
+test("an ownership check given the turn's project reads no scope", async (t) => {
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const a = await f.start('A');
+  const source = reviewSource();
+  const cwd = await attach(f, a, source);
+  const claimed = await a.claim(source.pullRequest.url, 'review fixes');
+  assert.equal(claimed.kind, 'claimed');
+  if (claimed.kind !== 'claimed') assert.fail();
+  const { project } = await f.memory.scopePaths(cwd);
+  const reads = vi.spyOn(f.memory, 'scopePaths');
+  const { reviews } = a.coordination;
+  assert.equal(
+    await reviews.owns(claimed.claim.id, source.pullRequest, project),
+    true,
+  );
+  assert.equal(reads.mock.calls.length, 0);
+  assert.equal(await reviews.owns(claimed.claim.id, source.pullRequest), true);
+  assert.deepEqual(
+    reads.mock.calls.map(([directory]) => directory),
+    [cwd],
+  );
 });

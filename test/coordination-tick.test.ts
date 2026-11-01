@@ -439,3 +439,28 @@ test('a repository created after activation is followed at the minute reread', a
         ?.project === project,
   );
 });
+
+test("a turn's project read stands in for the context's only while it matches and no read failed", async (t) => {
+  const f = await idle(orderedCleanup(t.onTestFinished));
+  const coordination = f.a.coordination;
+  const reads = vi.spyOn(f.memory, 'scopePaths');
+  await coordination.context(f.own.project);
+  assert.equal(reads.mock.calls.length, 0);
+  await coordination.context('projects/elsewhere');
+  assert.equal(reads.mock.calls.length, 1);
+  assert.equal(coordination['active']!.project, f.own.project);
+  reads.mockRejectedValueOnce(new Error('git failed'));
+  await git(
+    '-C',
+    join(f.root, 'A'),
+    'remote',
+    'set-url',
+    'origin',
+    join(f.root, 'other'),
+  );
+  await tick(coordination);
+  assert.match(coordination.snapshot.error ?? '', /git failed/);
+  await coordination.context(f.own.project);
+  assert.equal(coordination.snapshot.error, undefined);
+  assert.notEqual(coordination['active']!.project, f.own.project);
+});

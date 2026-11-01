@@ -9,7 +9,7 @@ import { passThrough } from './fixtures/git.js';
 import { fixture, save, git, repository } from './fixtures/memory.js';
 
 test('a subdirectory of a repository shares its project memory, and its notes move once the repository has an origin', async () => {
-  const { memory, open, project } = await fixture();
+  const { memory, open, project, begin } = await fixture();
   await git(project, 'init', '--quiet');
   const src = join(project, 'src');
   await mkdir(src);
@@ -19,19 +19,19 @@ test('a subdirectory of a repository shares its project memory, and its notes mo
     project: `projects/project-${createHash('sha256').update(project).digest('hex').slice(0, 16)}`,
   });
   const { workspace } = await open('a');
-  const begun = await workspace.begin(src);
+  const begun = await begin(workspace, src);
   await save(workspace, { [`${begun.scope.project}/x.md`]: 'X.\n' });
   await workspace.publish();
   await git(project, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
-  const moved = await workspace.begin(src);
+  const moved = await begin(workspace, src);
   assert.equal(await memory.read(main, `${moved.scope.project}/x.md`), 'X.\n');
 });
 
 test('checkout adoption preserves unpublished notes until they are published', async () => {
-  const { memory, open, project } = await fixture();
+  const { memory, open, project, begin } = await fixture();
   await git(project, 'init', '--quiet');
   const { workspace } = await open('a');
-  const before = await workspace.begin(project);
+  const before = await begin(workspace, project);
   const original = `${before.scope.project}/private.md`;
   await save(workspace, { [original]: 'Private note.\n' });
   const unpublished = await workspace.revision();
@@ -43,7 +43,7 @@ test('checkout adoption preserves unpublished notes until they are published', a
   const migrated = `${scope.project}/private.md`;
   assert.notEqual(original, migrated);
 
-  await workspace.adoptCheckout(project);
+  await workspace.adoptCheckout(await memory.scopePaths(project));
   assert.equal(await memory.resolve(main), accepted);
   assert.equal(await workspace.revision(), unpublished);
   assert.equal(
@@ -56,7 +56,7 @@ test('checkout adoption preserves unpublished notes until they are published', a
   assert.equal(await workspace.isDirty(), false);
 
   await workspace.publish();
-  await workspace.adoptCheckout(project);
+  await workspace.adoptCheckout(await memory.scopePaths(project));
   assert.equal(await memory.read(main, migrated), 'Private note.\n');
   await assert.rejects(readFile(join(workspace.root, original)), {
     code: 'ENOENT',
@@ -66,13 +66,13 @@ test('checkout adoption preserves unpublished notes until they are published', a
 });
 
 test("a turn merges the notes keyed by a checkout's path into its origin's project, keeping both versions of a note", async () => {
-  const { memory, open, root, project } = await fixture();
+  const { memory, open, root, project, begin: start } = await fixture();
   const begin = async (
     workspace: Workspace,
     cwd: string,
     notes: Record<string, string> = {},
   ) => {
-    const begun = await workspace.begin(cwd);
+    const begun = await start(workspace, cwd);
     await save(
       workspace,
       Object.fromEntries(
@@ -198,18 +198,18 @@ test("a turn merges the notes keyed by a checkout's path into its origin's proje
 });
 
 test('migration keeps links to literal filenames that retain their names', async () => {
-  const { memory, open, root } = await fixture();
+  const { memory, open, root, begin } = await fixture();
   const origin = 'https://example.org/team/project.git';
   const upstream = await repository(root, 'upstream', origin);
   const copy = await repository(root, 'copy');
   const { workspace } = await open('a');
-  const target = (await workspace.begin(upstream)).scope.project;
+  const target = (await begin(workspace, upstream)).scope.project;
   await save(workspace, {
     [`${target}/deploy.md`]: 'Upstream base.\n',
     [`${target}/deploy.md#same`]: 'Shared fragment.\n',
     [`${target}/deploy.md?raw=2`]: 'Shared query.\n',
   });
-  const source = (await workspace.begin(copy)).scope.project;
+  const source = (await begin(workspace, copy)).scope.project;
   const index =
     '[new fragment](./deploy.md#new)\n[new query](<deploy.md?raw=1>)\n' +
     '[shared fragment](deploy.md#same)\n[shared query](<./deploy.md?raw=2>)\n';
@@ -223,7 +223,7 @@ test('migration keeps links to literal filenames that retain their names', async
   });
   await workspace.publish();
   await git(copy, 'remote', 'add', 'origin', origin);
-  await workspace.begin(copy);
+  await begin(workspace, copy);
   assert.equal(await memory.read(main, `${target}/MEMORY.md`), index);
   for (const [note, text] of [
     ['deploy.md', 'Upstream base.\n'],
@@ -237,17 +237,17 @@ test('migration keeps links to literal filenames that retain their names', async
 });
 
 test('migration normalizes literal note directories before preserving link suffixes', async () => {
-  const { memory, open, root } = await fixture();
+  const { memory, open, root, begin } = await fixture();
   const origin = 'https://example.org/team/project.git';
   const upstream = await repository(root, 'upstream', origin);
   const copy = await repository(root, 'copy');
   const { workspace } = await open('a');
-  const target = (await workspace.begin(upstream)).scope.project;
+  const target = (await begin(workspace, upstream)).scope.project;
   await save(workspace, {
     [`${target}/folder#tag/note.md`]: 'Upstream hash.\n',
     [`${target}/folder?tag/note.md`]: 'Upstream query.\n',
   });
-  const source = (await workspace.begin(copy)).scope.project;
+  const source = (await begin(workspace, copy)).scope.project;
   const parent = 'folder#tag/../'.repeat(16_000);
   await save(workspace, {
     [`${source}/MEMORY.md`]:
@@ -260,7 +260,7 @@ test('migration normalizes literal note directories before preserving link suffi
   await workspace.publish();
   await git(copy, 'remote', 'add', 'origin', origin);
   const started = performance.now();
-  await workspace.begin(copy);
+  await begin(workspace, copy);
   const elapsed = performance.now() - started;
   assert.equal(
     await memory.read(main, `${target}/MEMORY.md`),
@@ -280,9 +280,9 @@ test('migration normalizes literal note directories before preserving link suffi
 });
 
 test("a move that loses to another clone's move is made again on the newer main", async () => {
-  const { memory, open, root, project, hook } = await fixture();
+  const { memory, open, root, project, hook, begin: start } = await fixture();
   const begin = async (workspace: Workspace, cwd: string, note?: string) => {
-    const begun = await workspace.begin(cwd);
+    const begun = await start(workspace, cwd);
     if (note) await save(workspace, { [`${begun.scope.project}/x.md`]: note });
     await workspace.publish();
     return begun;
@@ -311,11 +311,11 @@ test("a move that loses to another clone's move is made again on the newer main"
       command[1] === '-z'
     ) {
       raced = true;
-      await first.begin(project);
+      await begin(first, project);
     }
     return run();
   };
-  const merged = await second.begin(copy);
+  const merged = await begin(second, copy);
   assert.ok(raced);
   assert.equal(merged.revision, await memory.resolve(main));
   const target = merged.scope.project;
@@ -327,10 +327,10 @@ test("a move that loses to another clone's move is made again on the newer main"
 });
 
 test('a move that keeps losing to other clones gives up on main, so it never waits to publish', async () => {
-  const { memory, open, root } = await fixture();
+  const { memory, open, root, begin } = await fixture();
   const { workspace } = await open('a');
   const copy = await repository(root, 'copy');
-  const key = (await workspace.begin(copy)).scope.project;
+  const key = (await begin(workspace, copy)).scope.project;
   await save(workspace, { [`${key}/x.md`]: 'X.\n' });
   await workspace.publish();
   await git(copy, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
@@ -341,7 +341,7 @@ test('a move that keeps losing to other clones gives up on main, so it never wai
     publishes++
       ? { paths: [`${key}/x.md`], diff: `+X. in ${key}/x.md` }
       : publish();
-  await assert.rejects(workspace.begin(copy), /kept losing/);
+  await assert.rejects(begin(workspace, copy), /kept losing/);
   assert.equal(
     (await git(workspace.root, 'rev-parse', 'HEAD')).trim(),
     await memory.resolve(main),
@@ -349,22 +349,22 @@ test('a move that keeps losing to other clones gives up on main, so it never wai
 });
 
 test("a note with no free path in the project stays under the checkout's key", async () => {
-  const { memory, open, root } = await fixture();
+  const { memory, open, root, begin } = await fixture();
   const { workspace } = await open('a');
   const origin = 'https://github.com/o/r.git';
   const upstream = await repository(root, 'upstream', origin);
-  const target = (await workspace.begin(upstream)).scope.project;
+  const target = (await begin(workspace, upstream)).scope.project;
   await save(workspace, {
     [`${target}/x.md/note.md`]: 'A directory.\n',
     [`${target}/(app)`]: 'A file.\n',
   });
   await workspace.publish();
   const app = await repository(root, 'app');
-  const key = (await workspace.begin(app)).scope.project;
+  const key = (await begin(workspace, app)).scope.project;
   await save(workspace, { [`${key}/x.md`]: 'Stays.\n' });
   await workspace.publish();
   await git(app, 'remote', 'add', 'origin', origin);
-  await workspace.begin(app);
+  await begin(workspace, app);
   assert.equal(await memory.read(main, `${key}/x.md`), 'Stays.\n');
 });
 
@@ -373,10 +373,10 @@ describe('a failed memory move preserves its error and reports a failed rollback
     test(
       rollbackFails ? 'failed rollback' : 'successful rollback',
       async () => {
-        const { memory, open, root, hook } = await fixture();
+        const { memory, open, root, hook, begin } = await fixture();
         const copy = await repository(root, 'copy');
         const { workspace } = await open('a');
-        const source = (await workspace.begin(copy)).scope.project;
+        const source = (await begin(workspace, copy)).scope.project;
         await save(workspace, { [`${source}/note.md`]: 'Original.\n' });
         await workspace.publish();
         const accepted = await memory.resolve(main);
@@ -396,7 +396,7 @@ describe('a failed memory move preserves its error and reports a failed rollback
           return run();
         };
         try {
-          await assert.rejects(workspace.begin(copy), (error: unknown) => {
+          await assert.rejects(begin(workspace, copy), (error: unknown) => {
             if (rollbackFails) {
               assert.ok(error instanceof Error);
               assert.equal(
@@ -432,10 +432,11 @@ describe('a failed memory move preserves its error and reports a failed rollback
 });
 
 test('a move that fails on an OS error fails the turn and leaves every note where it was', async () => {
-  const { memory, open, root, hook } = await fixture();
+  const { memory, open, root, hook, begin } = await fixture();
   const first = (await open('a')).workspace;
   const target = (
-    await first.begin(
+    await begin(
+      first,
       await repository(root, 'upstream', 'https://github.com/o/r.git'),
     )
   ).scope.project;
@@ -443,7 +444,7 @@ test('a move that fails on an OS error fails the turn and leaves every note wher
   await first.publish();
   const copy = await repository(root, 'copy');
   const second = (await open('b')).workspace;
-  const key = (await second.begin(copy)).scope.project;
+  const key = (await begin(second, copy)).scope.project;
   await save(second, { [`${key}/a.md`]: 'A.\n', [`${key}/d/x.md`]: 'X.\n' });
   await second.publish();
   await git(copy, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
@@ -458,7 +459,7 @@ test('a move that fails on an OS error fails the turn and leaves every note wher
     return run();
   };
   try {
-    await assert.rejects(second.begin(copy), /EACCES/);
+    await assert.rejects(begin(second, copy), /EACCES/);
   } finally {
     await chmod(locked, 0o755);
   }
@@ -471,10 +472,10 @@ test(
   "a third version of a note from another checkout of the same name takes the next copy number, in the index's line endings",
   { timeout: 20_000 },
   async () => {
-    const { memory, open, root } = await fixture();
+    const { memory, open, root, begin: start } = await fixture();
     const { workspace } = await open('a');
     const begin = async (cwd: string, notes: Record<string, string> = {}) => {
-      const { scope } = await workspace.begin(cwd);
+      const { scope } = await start(workspace, cwd);
       await save(
         workspace,
         Object.fromEntries(
@@ -531,19 +532,19 @@ describe('index migration preserves duplicate, empty and newline cases', () => {
     ],
   ] as const) {
     test(name, async () => {
-      const { memory, root, open } = await fixture();
+      const { memory, root, open, begin } = await fixture();
       const origin = 'https://example.org/team/project.git';
       const upstream = await repository(root, 'upstream', origin);
       const copy = await repository(root, 'copy');
       const { workspace } = await open('a');
-      const target = (await workspace.begin(upstream)).scope.project;
+      const target = (await begin(workspace, upstream)).scope.project;
       await save(workspace, { [`${target}/MEMORY.md`]: index });
-      const source = (await workspace.begin(copy)).scope.project;
+      const source = (await begin(workspace, copy)).scope.project;
       await save(workspace, { [`${source}/MEMORY.md`]: added });
       await workspace.publish();
       await git(copy, 'remote', 'add', 'origin', origin);
       const started = performance.now();
-      await workspace.begin(copy);
+      await begin(workspace, copy);
       const elapsed = performance.now() - started;
       assert.equal(await memory.read(main, `${target}/MEMORY.md`), expected);
       if (name === 'long blank run')

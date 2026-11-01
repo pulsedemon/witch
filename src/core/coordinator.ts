@@ -7,7 +7,7 @@ import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
-import { aborted, errorMessage } from '../agents/stderr.js';
+import { aborted, errorMessage, failureOf } from '../agents/stderr.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,
@@ -257,8 +257,9 @@ export class Coordinator {
         ? (await this.store.conversations(cwd))[0]?.id
         : undefined);
     const report = await recoverConversations(this.store, this.memory, id);
+    let scope: MemoryScope;
     try {
-      await this.openConversation(
+      scope = await this.openConversation(
         id
           ? { id }
           : { create: await launchRecord(this.store, this.agents, cwd) },
@@ -268,14 +269,11 @@ export class Coordinator {
       throw new Error(`${errorMessage(error)}\n\n${report}`, { cause: error });
     }
     // a failed connect leaves the conversation open, as a failed send does
-    const failure = await this.connect().then(() => undefined, errorMessage);
-    const adoption = await this.workspace!.adoptCheckout(cwd).then(
-      () => undefined,
-      errorMessage,
-    );
+    const failure = await failureOf(this.connect(undefined, scope));
+    const adoption = await failureOf(this.workspace!.adoptCheckout(scope));
     const missing = await missingDirectoryNotice(this.store);
     if (missing) this.notice(missing, undefined, false);
-    // a failed scope read fails both, so its message shows once
+    // a scope directory that can't be created can fail both, so its message shows once
     await this.settle(
       [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
         undefined,
@@ -285,7 +283,7 @@ export class Coordinator {
   /** claims the target first, so a failed claim leaves the current conversation untouched. */
   private async openConversation(
     target: { id: string } | { create: Conversation },
-  ): Promise<void> {
+  ): Promise<MemoryScope> {
     this.opening = true;
     try {
       // pending admissions still belong to this conversation and can block the switch.
@@ -335,11 +333,9 @@ export class Coordinator {
         completedTurn: undefined,
       });
       if (failure !== undefined) this.report(failure);
-      if (this.coordination)
-        await this.coordination.activate(
-          this.record,
-          (await this.memory.scopePaths(this.record.cwd)).project,
-        );
+      const scope = await this.memory.scopePaths(this.record.cwd);
+      await this.coordination?.activate(this.record, scope.project);
+      return scope;
     } finally {
       this.opening = false;
     }
@@ -511,7 +507,9 @@ export class Coordinator {
     options: TurnOptions,
   ): Promise<TurnResult | undefined> {
     try {
-      const session = await this.connectForTurn();
+      const scope = await this.memory.scopePaths(this.current().cwd);
+      const session =
+        this.live(this.current().agent) ?? (await this.connectForTurn(scope));
       if (!session) return;
       const usage = session.info.hasHistory
         ? await session.contextUsage()
@@ -520,12 +518,12 @@ export class Coordinator {
       if (options.queued && this.deliveryHeld) return;
       if (usage !== undefined && usage >= compactAt) {
         this.publish({ phase: 'compacting' });
-        const compacted = await this.performCompaction();
+        const compacted = await this.performCompaction(scope);
         if (compacted.status !== 'completed') return compacted;
         this.publish({ phase: 'running' });
       }
       if (options.queued && this.deliveryHeld) return;
-      return await this.performTurn(prompt, kind, options);
+      return await this.performTurn(prompt, kind, options, scope);
     } catch (error) {
       this.report(error);
     }
@@ -604,10 +602,10 @@ export class Coordinator {
       const source = this.current();
       const chosen = agent ?? source.agent;
       this.catalog.installed(chosen);
-      await this.openConversation({
+      const scope = await this.openConversation({
         create: createConversation(source.cwd, chosen, source),
       });
-      await this.connect();
+      await this.connect(undefined, scope);
     });
   }
 
@@ -649,8 +647,7 @@ export class Coordinator {
   async selectConversation(id: string): Promise<void> {
     if (id === this.record?.id) return;
     await this.operate('starting', async () => {
-      await this.openConversation({ id });
-      await this.connect();
+      await this.connect(undefined, await this.openConversation({ id }));
     });
   }
 
@@ -830,11 +827,10 @@ export class Coordinator {
 
   async editMemory(path?: string): Promise<void> {
     await this.operate('editing', async () => {
-      const note =
-        path ??
-        `${(await this.memory.scopePaths(this.current().cwd)).project}/${indexNote}`;
+      const scope = await this.memory.scopePaths(this.current().cwd);
+      const note = path ?? `${scope.project}/${indexNote}`;
       this.notice(`Memory edit: ${noticeText(note)}`, this.workspace!.root);
-      await this.beginActivity('memory-edit');
+      await this.beginActivity('memory-edit', scope);
       const abort = (this.editorCancellation = new AbortController());
       if (this.cancelled) abort.abort();
       const saved = await editNote(
@@ -986,6 +982,7 @@ export class Coordinator {
     prompt: string,
     kind: 'turn' | 'handoff' | 'answer' | 'review',
     { delivered, queued = false, requests, silent, review }: TurnOptions = {},
+    read?: MemoryScope,
   ): Promise<TurnResult> {
     const conversation = this.current();
     const answer = kind === 'answer';
@@ -993,6 +990,7 @@ export class Coordinator {
     if (kind === 'turn') this.publish({ completedTurn: undefined });
     const { activity, scope } = await this.beginActivity(
       automatic ? 'turn' : kind,
+      read,
     );
     const session = await this.connectForTurn(scope);
     if (!session || this.cancelled) return { status: 'interrupted', text: '' };
@@ -1010,7 +1008,7 @@ export class Coordinator {
         !answer && handoff?.activated && handoff.to === conversation.agent
           ? handoff
           : undefined;
-      const coordination = await this.coordination?.context();
+      const coordination = await this.coordination?.context(scope.project);
       const pendingContext = automatic
         ? undefined
         : this.pendingContext.get(conversation.id);
@@ -1050,6 +1048,7 @@ export class Coordinator {
           !(await this.coordination?.reviews.owns(
             review.claim,
             review.pullRequest,
+            scope.project,
           )))
       )
         return { status: 'interrupted', text: '', inputUnsent: true };
@@ -1154,12 +1153,12 @@ export class Coordinator {
     return this.compaction.start();
   }
 
-  private performCompaction(): Promise<TurnResult> {
-    return this.compaction.automatic(() => this.compactActivity());
+  private performCompaction(read?: MemoryScope): Promise<TurnResult> {
+    return this.compaction.automatic(() => this.compactActivity(read));
   }
 
-  private async compactActivity(): Promise<TurnResult> {
-    const { activity, scope } = await this.beginActivity('turn');
+  private async compactActivity(read?: MemoryScope): Promise<TurnResult> {
+    const { activity, scope } = await this.beginActivity('turn', read);
     const result = await compactSession(
       () => this.connect(undefined, scope),
       () => this.cancelled,
@@ -1187,8 +1186,9 @@ export class Coordinator {
     if (completed) this.accountUsage.others(activity.agent, conversation.cwd);
   }
 
-  private async beginActivity(kind: Activity['kind']) {
-    const begun = await startActivity(this.workspace!, this.current(), kind);
+  private async beginActivity(kind: Activity['kind'], scope?: MemoryScope) {
+    const workspace = this.workspace!;
+    const begun = await startActivity(workspace, this.current(), kind, scope);
     await this.save();
     return begun;
   }
@@ -1201,23 +1201,22 @@ export class Coordinator {
       : undefined;
   }
 
-  private async connectForTurn(turnScope?: MemoryScope) {
+  private async connectForTurn(scope?: MemoryScope) {
     try {
-      return await this.connect(this.current().agent, turnScope);
+      return await this.connect(this.current().agent, scope);
     } catch (error) {
       if (!this.cancelled || !aborted(error)) throw error;
     }
   }
 
-  /** reuses the live session unless `turnScope` names project memory it was never granted. */
+  /** reuses the live session unless `scope` names project memory it was never granted. */
   private async connect(
     agent = this.current().agent,
-    turnScope?: MemoryScope,
+    scope?: MemoryScope,
     selection?: ModelSelection,
   ): Promise<AgentSession> {
     const live = this.live(agent);
-    if (live && (!turnScope || turnScope.project === this.sessionProject))
-      return live;
+    if (live && (!scope || scope.project === this.sessionProject)) return live;
     // an initial connect keeps the activation published when its conversation opened
     await this.disconnect(!this.session, agent === this.current().agent);
     const conversation = this.current();
@@ -1226,7 +1225,8 @@ export class Coordinator {
     const { adapter, executable } = this.catalog.installed(agent);
     const workspace = this.workspace!;
     await workspace.ensureWorktree();
-    const scope = turnScope ?? (await workspace.scope(conversation.cwd));
+    if (scope) await workspace.prepare(scope);
+    else scope = await workspace.scope(conversation.cwd);
     await this.coordination?.activate(conversation, scope.project);
     const stored = conversation.sessions[agent];
     this.connecting = new AbortController();

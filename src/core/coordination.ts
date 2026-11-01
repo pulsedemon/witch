@@ -21,6 +21,7 @@ import type { StateStore } from '../persistence/store.js';
 import {
   conversationSummarySchema,
   checkTaskRelease,
+  emptySnapshot,
   taskActivity,
   type CoordinationSnapshot,
   type SessionPresence,
@@ -86,12 +87,6 @@ interface RequestState {
   discovery?: { revision: number; promise: Promise<Discovery> };
 }
 
-const emptySnapshot: CoordinationSnapshot = {
-  peers: [],
-  reservations: [],
-  unregistered: [],
-};
-
 /** one conversation owns mutations until quiesced; presence disappears only while its conversation lock is held. */
 export class SessionCoordination {
   snapshot: CoordinationSnapshot = emptySnapshot;
@@ -103,7 +98,7 @@ export class SessionCoordination {
   readonly events: ConversationEvents;
   readonly reviews = new ReviewOwnership({
     observed: () => !!this.active?.accepting && !!this.ledger,
-    context: () => this.context(),
+    context: (project) => this.context(project),
     current: () => {
       const active = this.admit();
       return {
@@ -605,7 +600,7 @@ export class SessionCoordination {
     }
   }
 
-  async context(): Promise<{
+  async context(project?: string): Promise<{
     instructions: string;
     context: string;
     snapshot: CoordinationSnapshot;
@@ -614,7 +609,9 @@ export class SessionCoordination {
     let moved: string[] = [];
     try {
       await this.serialize(async () => {
-        await this.refreshProject(active);
+        // a turn's own read stands in for another while it matches and no read failed
+        if (project !== active.project || this.failures.has('project'))
+          await this.refreshProject(active);
         const state: RequestState = {};
         await this.retireProject(active, state);
         moved = movedNotices(

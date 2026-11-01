@@ -19,7 +19,7 @@ interface ReviewScope {
 
 interface ReviewOwnershipPort {
   observed(): boolean;
-  context(): Promise<{ snapshot: CoordinationSnapshot }>;
+  context(project?: string): Promise<{ snapshot: CoordinationSnapshot }>;
   current(): ReviewScope;
   claim(
     owner: ClaimOwner,
@@ -59,8 +59,8 @@ export class ReviewOwnership {
     );
   }
 
-  private async inspect(pr: PullRequest) {
-    const { snapshot } = await this.port.context();
+  private async inspect(pr: PullRequest, project?: string) {
+    const { snapshot } = await this.port.context(project);
     if (snapshot.error) throw new Error(snapshot.error);
     const scope = this.port.current();
     const claim = snapshot.ownClaim;
@@ -81,8 +81,9 @@ export class ReviewOwnership {
     return { scope, claim };
   }
 
-  async owns(id: string, pr: PullRequest): Promise<boolean> {
-    const found = await this.inspect(pr);
+  /** `project` is the one the caller's turn just read, which saves reading it again. */
+  async owns(id: string, pr: PullRequest, project?: string): Promise<boolean> {
+    const found = await this.inspect(pr, project);
     return (
       !!found &&
       found.claim.id === id &&
