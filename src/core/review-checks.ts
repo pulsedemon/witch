@@ -269,9 +269,11 @@ interface Link {
 
 /** inline links in prose outside code spans; a link's text may hold a code span. */
 function links(parts: readonly Segment[]): Link[] {
-  // code span contents are masked so brackets in them start no link, and offsets still map onto the line
+  // code spans and HTML tags are masked so brackets in them start no link, and offsets still map onto the line
   const masked = parts
-    .map((part) => (part.code ? part.raw.replace(/[^`]/g, 'x') : part.raw))
+    .map((part) =>
+      part.code || part.html ? part.raw.replace(/[^`]/g, 'x') : part.raw,
+    )
     .join('');
   const raw = parts.map((part) => part.raw).join('');
   const found: Link[] = [];
