@@ -23,6 +23,8 @@ import type { RegisterCleanup } from './cleanup.js';
 
 const execute = promisify(execFile);
 export const git = (...args: string[]) => execute('git', args);
+// a local origin costs every project read three more git processes to follow its repository
+const origin = 'https://example.com/witch/origin.git';
 const entry = fileURLToPath(new URL('../../src/cli.tsx', import.meta.url));
 
 /** keeps mailbox polling live while tests control periodic session discovery. */
@@ -89,14 +91,15 @@ export async function coordinationFixture(
   }),
 ) {
   const root = await scratch('witch-coordination-');
-  await git('init', '--bare', join(root, 'origin'));
+  /** a checkout in A and B's project. */
+  const checkout = async (name: string) => {
+    await git('init', '--quiet', join(root, name));
+    await git('-C', join(root, name), 'remote', 'add', 'origin', origin);
+  };
+  await checkout('A');
+  await checkout('B');
   await git('init', '--bare', join(root, 'other'));
-  for (const name of ['A', 'B', 'C'])
-    await git(
-      'clone',
-      join(root, name === 'C' ? 'other' : 'origin'),
-      join(root, name),
-    );
+  await git('clone', join(root, 'other'), join(root, 'C'));
   const store = await StateStore.open(join(root, 'state'));
   const memory = new Memory(join(store.root, 'memory.git'));
   const registry = await CoordinationStore.open(store);
@@ -165,5 +168,5 @@ export async function coordinationFixture(
   };
   const ledger = () =>
     readFile(join(store.root, 'coordination', 'claims.json'), 'utf8');
-  return { root, store, memory, registry, start, ledger };
+  return { root, store, memory, registry, start, ledger, checkout };
 }

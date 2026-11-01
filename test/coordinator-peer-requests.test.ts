@@ -913,8 +913,13 @@ test('a failed admission clears and retries', async (t) => {
   ).mockRejectedValueOnce(new Error('Peer requests unreadable'));
   const request = await ask(a, claim, 'Retry?');
   await refreshed(b);
-  await until('admission failure', () =>
-    (b.coordination.snapshot.error ?? '').includes('Peer requests unreadable'),
+  // a refresh during the failed drain is dropped, and the paused tick would be what renotifies
+  await until(
+    'admission failure',
+    () =>
+      (b.coordination.snapshot.error ?? '').includes(
+        'Peer requests unreadable',
+      ) && settled(b),
   );
   assert.deepEqual(answerTurns(b), []);
   await refreshed(b);
