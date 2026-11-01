@@ -39,7 +39,6 @@ import {
   ranCommand,
   nativePrompt,
   questionReply,
-  memoryAttribution,
 } from './prompts.js';
 import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
 import type { JobWatch } from './jobs.js';
@@ -49,6 +48,7 @@ import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
+import { endActivity, startActivity, type Activity } from './activity.js';
 import { runHandoff } from './handoff.js';
 import { finished, runReview } from './review-run.js';
 import type { ReviewOutcome } from './review-run.js';
@@ -89,7 +89,6 @@ import type {
 
 const compactAt = 80;
 const localActivity = Symbol('local activity');
-type Activity = NonNullable<ConversationRecord['activity']>;
 
 interface Launch {
   continue?: boolean;
@@ -1152,39 +1151,20 @@ export class Coordinator {
     result: TurnResult,
   ): Promise<void> {
     const conversation = this.current();
-    const workspace = this.workspace!;
+    const completed = result.status === 'completed';
     await this.files!.flush();
-    if (result.status === 'completed') {
-      await workspace.commit(
-        `chore(memory): save ${activity.agent} notes\n\n${memoryAttribution(conversation.id, activity.id)}`,
-      );
-      delete conversation.activity;
-      this.accountUsage.others(activity.agent, conversation.cwd);
-    } else {
+    if (!completed) {
       this.notice(result.error ?? 'Turn interrupted');
       if (result.status === 'failed') this.turnFailed = true;
-      if (!(await workspace.isDirty())) delete conversation.activity;
     }
+    await endActivity(this.workspace!, conversation, activity, completed);
+    if (completed) this.accountUsage.others(activity.agent, conversation.cwd);
   }
 
-  private async beginActivity(kind: Activity['kind']): Promise<{
-    activity: Activity;
-    scope: MemoryScope;
-  }> {
-    const conversation = this.current();
-    const workspace = this.workspace!;
-    await workspace.ensureWorktree();
-    const begun = await workspace.begin(conversation.cwd);
-    const activity = {
-      id: randomUUID(),
-      agent: conversation.agent,
-      kind,
-      baseRevision: begun.revision,
-      startedAt: new Date().toISOString(),
-    };
-    conversation.activity = activity;
+  private async beginActivity(kind: Activity['kind']) {
+    const begun = await startActivity(this.workspace!, this.current(), kind);
     await this.save();
-    return { activity, scope: begun.scope };
+    return begun;
   }
 
   private live(agent: string): AgentSession | undefined {
