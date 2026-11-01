@@ -397,18 +397,21 @@ export function App({
       ? 1 + Number(!!diffHint)
       : 0;
   const listFirst = Math.max(0, listSelected - listRows + 1);
-  // the composer grows with its text until it would take half the body
+  const controlsRows =
+    3 + listRows + Number(working) + Number(state.pendingCompaction);
+  const minimumTranscriptRows = 2;
+  // leave the transcript's minimum height intact when the footer squeezes the body.
   const composerRows = Math.min(
-    Math.max(1, Math.floor(bodyHeight / 2)),
+    Math.max(
+      1,
+      Math.min(
+        Math.floor(bodyHeight / 2),
+        bodyHeight - controlsRows - minimumTranscriptRows,
+      ),
+    ),
     inputRows(buffer.value, composerWidth, true),
   );
-  const freeRows =
-    bodyHeight -
-    composerRows -
-    3 -
-    listRows -
-    (working ? 1 : 0) -
-    Number(state.pendingCompaction);
+  const freeRows = bodyHeight - composerRows - controlsRows;
   // each shows one row, so a long paste is cleaned once and cut to it rather than on every render
   const queued = useMemo(
     () => state.queue.map((prompt) => oneLine(prompt).slice(0, width)),
@@ -422,9 +425,11 @@ export function App({
       read.conversation === state.conversation?.id &&
       read.items !== state.items;
     const rows = freeRows - Number(newMessages);
-    // the transcript keeps two rows
-    const queueRows = Math.max(0, Math.min(state.queue.length, rows - 2));
-    const availableRows = Math.max(2, rows - queueRows);
+    const queueRows = Math.max(
+      0,
+      Math.min(state.queue.length, rows - minimumTranscriptRows),
+    );
+    const availableRows = Math.max(minimumTranscriptRows, rows - queueRows);
     const row = anchor === null ? Infinity : transcript.rowOf(anchor);
     // decide before the notice takes a row, so hiding the last old row cannot turn it off
     const unpinnedTop = Math.min(

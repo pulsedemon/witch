@@ -15,7 +15,7 @@ import {
 import { App } from '../src/ui/app.js';
 import { accountRows } from '../src/ui/status-line.js';
 import { appears, close, controlledFixture } from './fixtures/codex-adapter.js';
-import { fake, show } from './fixtures/ui.js';
+import { ENTER, fake, show } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
 test('native Codex credit states reach both rendered layouts beside a full weekly window', async () => {
@@ -612,7 +612,7 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
 
 test('a tiny terminal preserves the composer and live balance beside two accounts and a long error', async () => {
   const now = Date.now();
-  const { app, coordinator } = fake({
+  const { app, coordinator, calls } = fake({
     error:
       'A long error which wraps onto several rows in a narrow terminal. '.repeat(
         3,
@@ -693,6 +693,9 @@ test('a tiny terminal preserves the composer and live balance beside two account
       assert.equal(ui.text().split('\n').length, 12);
       assert.match(ui.text(), /Ask the agent/);
     }
+    const draft = 'first line\nsecond line\nthird line\nfourth line';
+    ui.stdin.write(`\u001b[200~${draft}\u001b[201~`);
+    await until('multiline draft', () => ui.text().includes('fourth line'));
     for (const [phase, pendingCompaction] of [
       ['idle', false],
       ['running', false],
@@ -729,8 +732,20 @@ test('a tiny terminal preserves the composer and live balance beside two account
         );
       });
       assert.equal(ui.text().split('\n').length, 12);
-      assert.match(ui.text(), /Ask the agent/);
+      assert.match(ui.text(), /^ ┃ fourth line\s+┃$/m);
+      assert.match(ui.text(), /^ ┗━+┛$/m);
+      if (pendingCompaction) assert.match(ui.text(), /^ Pending: \/compact$/m);
     }
+    coordinator.publish({ phase: 'idle', pendingCompaction: false });
+    await until('idle composer', () => ui.text().startsWith('IDLE'));
+    ui.stdin.write(ENTER);
+    await until('complete draft sent', () =>
+      calls.some(([method]) => method === 'send'),
+    );
+    assert.deepEqual(
+      calls.find(([method]) => method === 'send'),
+      ['send', draft],
+    );
   } finally {
     ui.unmount();
   }
