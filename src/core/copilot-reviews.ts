@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { isCopilot } from './github-reviews.js';
-import type { GitHubReviews, ReviewComment } from './github-reviews.js';
+import type { GitHubReviews } from './github-reviews.js';
 import { pullRequestSchema } from './repository.js';
 
 const itemIdentity = z.object({ id: z.string(), version: z.string() });
@@ -246,10 +246,10 @@ export async function reconcileReviews(
         failure =
           'The review summary still has findings without verified dispositions.';
     } else {
-      const replies: ReviewComment[] =
+      const replies =
         item.kind === 'thread'
           ? (source.threads.find(({ id }) => id === item.id)?.comments ?? [])
-          : source.comments;
+          : [...source.comments, ...source.reviews];
       const reply = replies.find(
         ({ url, author }) =>
           url === entry.reply &&
@@ -261,6 +261,7 @@ export async function reconcileReviews(
         entry.reply.startsWith(`${source.pullRequest.url}#`) &&
         ![
           ...source.comments,
+          ...source.reviews,
           ...source.threads.flatMap(({ comments }) => comments),
         ].some(({ url }) => url === entry.reply)
       ) {

@@ -175,30 +175,44 @@ test.each([
   },
 );
 
-test.each(['not pushed', 'no commit link', 'wrong author', 'wrong thread'])(
-  'an unverifiable fix remains blocked: %s',
-  async (kind) => {
-    const f = fixture();
-    if (kind === 'no commit link') f.response.body = 'fixed';
-    if (kind === 'wrong author') f.response.author.login = 'someone-else';
-    if (kind === 'wrong thread') {
-      f.source.threads[0]!.comments.pop();
-      f.source.comments.push(f.response);
-    }
-    const result = await reconcileReviews(
-      f.state,
-      f.batch,
-      f.result,
-      f.source,
-      async () => kind !== 'not pushed',
-    );
-    assert.deepEqual(
-      result.items.map(({ status }) => status),
-      ['blocked', 'blocked'],
-    );
-    assert.ok(result.items[1]!.reason);
-  },
-);
+test.each([
+  'not pushed',
+  'no commit link',
+  'wrong author',
+  'wrong thread',
+  'review response',
+])('an unverifiable fix remains blocked: %s', async (kind) => {
+  const f = fixture();
+  if (kind === 'no commit link') f.response.body = 'fixed';
+  if (kind === 'wrong author') f.response.author.login = 'someone-else';
+  if (kind === 'wrong thread') {
+    f.source.threads[0]!.comments.pop();
+    f.source.comments.push(f.response);
+  }
+  if (kind === 'review response') {
+    f.source.threads[0]!.comments.pop();
+    f.response.url = `${f.source.pullRequest.url}#pullrequestreview-2`;
+    f.result.items[1] = {
+      ...f.batch.items[1]!,
+      disposition: 'fixed',
+      reply: f.response.url,
+      commit: f.commit,
+    };
+    f.source.reviews.push({ ...f.source.reviews[0]!, ...f.response });
+  }
+  const result = await reconcileReviews(
+    f.state,
+    f.batch,
+    f.result,
+    f.source,
+    async () => kind !== 'not pushed',
+  );
+  assert.deepEqual(
+    result.items.map(({ status }) => status),
+    ['blocked', 'blocked'],
+  );
+  assert.ok(result.items[1]!.reason);
+});
 
 test('an existing thread response can be acknowledged without another post', async () => {
   const f = fixture();
@@ -253,6 +267,43 @@ test('a summary response must link its own source, even when the reply is on the
   );
   assert.equal(result.items[0]!.status, 'handled');
 });
+
+test.each([
+  { login: 'owner', status: 'handled' },
+  { login: 'someone-else', status: 'blocked' },
+])(
+  'a submitted review response by $login settles as $status',
+  async ({ login, status }) => {
+    const f = fixture();
+    const response = {
+      ...f.source.reviews[0]!,
+      id: 'response-review',
+      body: `acknowledged: ${f.source.reviews[0]!.url}`,
+      url: `${f.source.pullRequest.url}#pullrequestreview-2`,
+      author: { __typename: 'User', login },
+    };
+    f.source.reviews.push(response);
+    f.result.items[0] = {
+      ...f.batch.items[0]!,
+      disposition: 'acknowledged',
+      reply: response.url,
+      reason: 'the summary has a submitted review response',
+    };
+    const result = await reconcileReviews(
+      f.state,
+      f.batch,
+      f.result,
+      f.source,
+      async () => true,
+    );
+    assert.equal(result.items[0]!.status, status);
+    assert.equal(
+      result.items[0]!.receipts[0]!.disposition,
+      status === 'handled' ? 'acknowledged' : 'blocked',
+    );
+    assert.equal(result.batch, undefined);
+  },
+);
 
 test.each(['another batch', 'unknown item', 'duplicate item'])(
   'foreign or ambiguous results refuse settlement: %s',

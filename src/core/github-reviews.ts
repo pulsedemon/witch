@@ -63,8 +63,6 @@ export interface GitHubReviews {
   threads: z.infer<typeof thread>[];
 }
 
-export type ReviewComment = z.infer<typeof comment>;
-
 export function isCopilot(
   author: z.infer<typeof requested>['requestedReviewer'],
 ): boolean {
