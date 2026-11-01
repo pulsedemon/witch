@@ -361,11 +361,13 @@ for (const mode of ['edited', 'interrupted']) {
         : result;
     });
     await x.observe();
-    await until('persisted recovery failure', async () => {
-      const state = (await record(x.f, x.a)).copilotReviews?.[0];
+    await until('persisted recovery failure and its notice', async () => {
+      const reason = (await record(x.f, x.a)).copilotReviews?.[0]?.batch
+        ?.reason;
       return (
         !x.c.snapshot.reviewing &&
-        !!state?.batch?.reason?.includes('could not be verified')
+        !!reason?.includes('could not be verified') &&
+        x.c.snapshot.items.some(({ text }) => text.includes(reason))
       );
     });
     const diagnostic = (await record(x.f, x.a)).copilotReviews![0]!.batch!
@@ -1169,6 +1171,10 @@ test('a delayed review receives the destination runtime handoff and preserves it
   );
   assert.deepEqual((await record(x.f, x.a)).handoff, handoff);
   await x.c.send('continue the user task');
+  await until(
+    'the next user turn',
+    () => x.a.b.inputs.length === 2 && x.c.snapshot.phase === 'idle',
+  );
   assert.match(
     x.a.b.inputs[1]!.context!,
     /Pending task context from a:\na: finish the migration/,
