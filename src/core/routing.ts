@@ -52,13 +52,13 @@ export function ruleFor(policy: Policy, kind: Work): string {
 
 /** families of comparable capability, per each catalog's own descriptions; a shift lands on a runtime's first listed family. */
 const tiers: readonly Readonly<Record<string, readonly string[]>>[] = [
-  { claude: ['opus'], codex: ['astra'] },
+  { claude: ['opus', 'fable'], codex: ['astra'] },
   { claude: ['sonnet'], codex: ['sol', 'terra'] },
   { claude: ['haiku'], codex: ['luna'] },
 ];
 
 /** the family on `to` comparable to a model or family on `from`, matched by a name segment such as `astra` in `gpt-6-astra`. */
-function comparable(
+export function comparable(
   from: string,
   name: string,
   to: string,

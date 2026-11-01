@@ -173,6 +173,12 @@ const shellItem = (method, command, fields) =>
       ...fields,
     },
   });
+// prompt: [turn status, codexErrorInfo]
+const limitTurns = {
+  'usage-limit': ['failed', 'usageLimitExceeded'],
+  'rate-limit': ['failed', 'rateLimitExceeded'],
+  'interrupted usage-limit': ['interrupted', 'usageLimitExceeded'],
+};
 const finishShell = (status) =>
   notify('turn/completed', {
     threadId: 'native-thread',
@@ -956,6 +962,15 @@ for await (const line of lines) {
     }
     if (prompt === 'failed') {
       finish('failed', { message: 'native failure' });
+      continue;
+    }
+    if (prompt in limitTurns) {
+      const [status, codexErrorInfo] = limitTurns[prompt];
+      finish(status, {
+        message: 'limit reached',
+        codexErrorInfo,
+        additionalDetails: null,
+      });
       continue;
     }
     if (prompt === 'reroute') {

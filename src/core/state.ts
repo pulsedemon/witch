@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AgentEvent, SessionInfo } from '../agents/types.js';
+import type { AgentEvent, SessionInfo, TurnResult } from '../agents/types.js';
 import { copilotReviewStateSchema } from './copilot-reviews.js';
 
 const session = z.object({
@@ -119,6 +119,8 @@ export const displayUpdateSchema = z.object({
   contextCleared: z.literal(true).optional(),
   // a spell cast, animated while new
   cast: z.literal(true).optional(),
+  // a prompt the agent never read, which the queue sends again
+  unread: z.literal(true).optional(),
   // when Witch received the update; history from before it was recorded has none
   at: z.string().optional(),
 });
@@ -128,6 +130,27 @@ export type ConversationRecord = z.infer<typeof conversationRecordSchema>;
 export type ProcessIdentity = z.infer<typeof processIdentity>;
 export type DisplayUpdate = z.infer<typeof displayUpdateSchema>;
 export type DisplayItem = Omit<DisplayUpdate, 'replace'>;
+
+/** the newest unmarked user row of each prompt the agent never read: those `result` left unread, and the turn's own `shown` prompt when its input went unwritten. */
+export function unreadRows(
+  items: readonly DisplayItem[],
+  shown: readonly string[],
+  { inputUnsent, unread = [] }: Pick<TurnResult, 'inputUnsent' | 'unread'>,
+): DisplayItem[] {
+  const rows: DisplayItem[] = [];
+  for (const prompt of [...(inputUnsent ? shown : []), ...unread]) {
+    const row = items.findLast(
+      (item) =>
+        item.kind === 'user' &&
+        // a steered spell goes without the leading whitespace its row keeps
+        (item.text === prompt || item.text.trimStart() === prompt) &&
+        !item.unread &&
+        !rows.includes(item),
+    );
+    if (row) rows.push(row);
+  }
+  return rows;
+}
 
 export function contextStart(items: readonly DisplayItem[]): number {
   return items.findLastIndex((item) => item.contextCleared) + 1;

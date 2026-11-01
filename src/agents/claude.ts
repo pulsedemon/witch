@@ -35,6 +35,7 @@ import { claudeTitle } from './tool-title.js';
 import { acknowledged, skillCasts, skillsOf } from './claude-spells.js';
 import { mergeCasts } from './familiar-report.js';
 import { bashRecord, runShell } from './user-shell.js';
+import { RateLimit } from './claude-limits.js';
 import type {
   AgentAdapter,
   AgentSession,
@@ -213,6 +214,7 @@ class ClaudeSession implements AgentSession {
   >();
   private currentMessage = '';
   private turn?: Turn;
+  private readonly rateLimit = new RateLimit<Turn>();
   private compaction?: ClaudeCompaction;
   /** the user's `!` command until its record and process reports settle. */
   private command?: { controller: AbortController; finished: Promise<void> };
@@ -1262,6 +1264,8 @@ class ClaudeSession implements AgentSession {
           ...(diff ? { diff } : {}),
         });
       }
+    } else if (message.type === 'rate_limit_event') {
+      this.rateLimit.report(message.rate_limit_info, this.turn);
     } else if (message.type === 'result') {
       if (!this.turn) return;
       if (this.turn.compaction) return;
@@ -1449,16 +1453,21 @@ class ClaudeSession implements AgentSession {
           text: 'Claude did not report session state; Witch finished the turn after its result and tracked work settled.',
         });
       }
-      this.finish(
-        turn,
-        turn.inputError !== undefined
+      this.finish(turn, {
+        ...(turn.inputError !== undefined
           ? {
               status: 'failed',
               text: turn.result?.text ?? '',
               error: turn.inputError,
             }
-          : turn.result!,
-      );
+          : turn.result!),
+        // only the current turn's failed result confirms a rejection
+        ...(turn.result?.status === 'failed' &&
+        !turn.interrupted &&
+        this.rateLimit.rejects(turn, this.info.model)
+          ? { exhausted: true }
+          : {}),
+      });
       this.readUsage();
     }
   }
@@ -1480,6 +1489,8 @@ class ClaudeSession implements AgentSession {
       });
       this.compaction = undefined;
     }
+    if (!turn.interrupted && result.status === 'completed')
+      this.rateLimit.clear();
     turn.finished.resolve(
       turn.interrupted ? { ...result, status: 'interrupted' } : result,
     );

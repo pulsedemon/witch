@@ -1,5 +1,5 @@
 import { settleMemory } from './memory-settlement.js';
-import { handoff } from './handoff.js';
+import { RuntimeSwitch } from './runtime-switch.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction, compactSession } from './compaction.js';
@@ -77,6 +77,7 @@ import {
   createConversation,
   recordDelivery,
   recordSession,
+  unreadRows,
   untitled,
   type Conversation,
   type ConversationRecord,
@@ -124,7 +125,6 @@ export class Coordinator {
   private closed = false;
   /** a model change accepted after the reply can outlive the native turn. */
   private changingModel?: Promise<void>;
-  private selectingModel = false;
   private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
   readonly accountUsage: AccountUsage;
@@ -149,6 +149,24 @@ export class Coordinator {
     changed: () => this.drainAfter(),
     run: (batch) => this.reviewCopilot(batch),
     interrupt: () => this.stopCurrent(),
+  });
+  private readonly runtimes = new RuntimeSwitch({
+    conversation: () => this.current(),
+    snapshot: () => this.snapshot,
+    memory: () => this.memory,
+    coordination: () => this.coordination,
+    usage: () => this.accountUsage,
+    cancelled: () => this.cancelled,
+    closed: () => this.closed,
+    session: () => this.session,
+    send: (prompt, kind) => this.performTurn(prompt, kind),
+    connect: (choice) => this.connect(choice.agent, undefined, choice),
+    disconnect: () => this.disconnect(),
+    save: () => this.save(),
+    publish: (update) => this.publish(update),
+    notice: (text) => this.notice(text),
+    operate: (operation) => this.operate('switching', operation),
+    failed: (failed) => (this.turnFailed = failed),
   });
   private readonly compaction = new Compaction({
     state: () => ({
@@ -428,7 +446,7 @@ export class Coordinator {
     draining.catch((error: unknown) => this.report(error));
   }
 
-  /** a report or failed turn stays on screen, and the composer takes back what is queued; after an interrupt it runs. */
+  /** a report or failed turn stays on screen, and the composer takes back what is queued; after an interrupt it runs, unless the interrupt stopped a switch after usage exhaustion. */
   private halted(): boolean {
     return !!this.snapshot.error || this.turnFailed;
   }
@@ -436,6 +454,7 @@ export class Coordinator {
   private async drain(): Promise<void> {
     if (this.draining) return;
     const draining = (this.draining = Promise.withResolvers<void>());
+    this.runtimes.beginStep();
     try {
       while (!this.deliveryHeld && this.snapshot.phase === 'idle') {
         if (!this.snapshot.queue.length) {
@@ -455,9 +474,10 @@ export class Coordinator {
         );
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
+        let result = undefined as TurnResult | undefined;
         try {
           await this.operate('running', async () => {
-            await this.runTurn(batch.join('\n'), 'turn', {
+            result = await this.runTurn(batch.join('\n'), 'turn', {
               delivered: () => (delivered = true),
               queued: true,
             });
@@ -466,6 +486,16 @@ export class Coordinator {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
         }
+        if (
+          delivered &&
+          result?.status === 'failed' &&
+          result.exhausted &&
+          // an Escape as the turn fails stops the switch too
+          !this.cancelled &&
+          (await this.runtimes.continueAfterExhaustion()) &&
+          !this.halted()
+        )
+          continue;
         if (!delivered || this.halted()) return;
       }
     } finally {
@@ -661,7 +691,7 @@ export class Coordinator {
     if (selection.agent !== this.current().agent)
       return this.operate('switching', async () => {
         this.catalog.installed(selection.agent);
-        await this.handoff(selection);
+        await this.runtimes.handoff(selection);
       });
     if (!this.replied && !(await this.settled()))
       throw new Refusal('Model change canceled');
@@ -703,28 +733,12 @@ export class Coordinator {
       await this.save();
     }
     const session = await this.connect();
-    conversation.sessions[agent] = await this.applyModel(session, selection);
+    conversation.sessions[agent] = await this.runtimes.applyModel(
+      session,
+      selection,
+    );
     await this.save();
     this.publish({ conversation, native: session.info });
-  }
-
-  private async applyModel(session: AgentSession, selection: ModelSelection) {
-    const { agent, id } = selection;
-    this.selectingModel = true;
-    try {
-      await session.selectModel(
-        id,
-        modelEffort(selection, this.snapshot.models),
-      );
-    } finally {
-      this.selectingModel = false;
-    }
-    return {
-      ...this.current().sessions[agent]!,
-      model: session.info.model,
-      requestedModel: id,
-      effort: session.info.effort,
-    };
   }
 
   interrupt(options: AgentStopOptions = {}): Promise<void> {
@@ -739,6 +753,7 @@ export class Coordinator {
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
     this.compaction.cancel();
+    this.runtimes.stop();
     this.publish({
       requests: this.snapshot.requests.filter(
         (request) => !request.replyAsPrompt,
@@ -760,7 +775,7 @@ export class Coordinator {
         else {
           const session = this.session;
           await session?.interrupt(stop);
-          if (this.changingModel || this.selectingModel)
+          if (this.changingModel || this.runtimes.selecting)
             await session?.close(stop);
         }
       })(),
@@ -789,13 +804,15 @@ export class Coordinator {
 
   async recoverMemory(decision: 'accept' | 'discard' | 'keep'): Promise<void> {
     const kind = this.snapshot.recovery?.kind;
-    await this.operate(
-      'editing',
-      async () => {
-        await recoverMemory(this.workspace!, this.current(), kind, decision);
-        await this.save();
-      },
-      'recovery',
+    await this.runtimes.recovered(
+      this.operate(
+        'editing',
+        async () => {
+          await recoverMemory(this.workspace!, this.current(), kind, decision);
+          await this.save();
+        },
+        'recovery',
+      ),
     );
   }
 
@@ -962,27 +979,6 @@ export class Coordinator {
     await this.coordination.takeTask(reference);
   }
 
-  private handoff(selection: ModelSelection): Promise<void> {
-    return handoff(
-      {
-        conversation: this.current(),
-        snapshot: this.snapshot,
-        memory: this.memory,
-        coordination: this.coordination,
-        cancelled: () => this.cancelled,
-        closed: () => this.closed,
-        session: () => this.session,
-        send: (prompt, kind) => this.performTurn(prompt, kind),
-        connect: (choice) => this.connect(choice.agent, undefined, choice),
-        select: (session, choice) => this.applyModel(session, choice),
-        disconnect: () => this.disconnect(),
-        save: () => this.save(),
-        publish: (update) => this.publish(update),
-      },
-      selection,
-    );
-  }
-
   private async performTurn(
     prompt: string,
     kind: 'turn' | 'handoff' | 'answer' | 'review',
@@ -1123,6 +1119,9 @@ export class Coordinator {
       if (command === undefined && !result.inputUnsent) delivered?.();
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
+      const shown = kind === 'turn' && !silent ? [prompt] : [];
+      for (const row of unreadRows(this.snapshot.items, shown, result))
+        this.display({ ...row, text: '', unread: true });
       if (result.inputUnsent)
         this.retainContext(conversation.id, pendingContext);
       this.retainContext(conversation.id, result.unreadContext);
