@@ -142,7 +142,8 @@ export function unreadRows(
     const row = items.findLast(
       (item) =>
         item.kind === 'user' &&
-        item.text === prompt &&
+        // a steered spell goes without the leading whitespace its row keeps
+        (item.text === prompt || item.text.trimStart() === prompt) &&
         !item.unread &&
         !rows.includes(item),
     );

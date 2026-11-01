@@ -172,6 +172,17 @@ test('an unread prompt marks only its own newest row, so an earlier identical re
     ),
     ['u2'],
   );
+  assert.deepEqual(
+    unreadRows(
+      [
+        { id: 'u1', kind: 'user', text: '/review', cwd: '/w' },
+        { id: 'u2', kind: 'user', text: '  /review', cwd: '/w' },
+      ],
+      [],
+      { unread: ['/review'] },
+    ).map(({ id }) => id),
+    ['u2'],
+  );
 });
 
 test('a newest row over the limit keeps its start instead of leaving no context', () => {
