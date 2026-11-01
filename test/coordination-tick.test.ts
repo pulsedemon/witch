@@ -427,8 +427,7 @@ test('a repository created after activation is followed at the minute reread', a
   const id = d.coordinator.snapshot.conversation!.id;
   // a presence write landing inside the minute's ticks would start a refresh that skips the minute
   await quiesce(f, id, d.coordination);
-  await git('-C', cwd, 'init', '--quiet');
-  await git('-C', cwd, 'remote', 'add', 'origin', join(f.root, 'origin'));
+  await f.checkout('D');
   const { project } = await f.memory.scopePaths(cwd);
   await tick(d.coordination, 60_000);
   await until('config found', () => !!d.coordination['active']?.config);

@@ -469,7 +469,7 @@ test('queue and suggestion rows preserve task links and detailed native phase', 
 test('task selection advances live and suggested ownership stays visible at narrow width', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);
-  await git('clone', join(f.root, 'origin'), join(f.root, 'D'));
+  await f.checkout('D');
   const a = await f.start(),
     b = await f.start('B'),
     c = await f.start('D');
