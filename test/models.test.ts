@@ -200,6 +200,16 @@ test('a latest read that has not answered in time is stopped and reported, and t
   assert.deepEqual(catalog.latest, { a: {} });
 });
 
+// the other runtime comes first, so a lost active-runtime preference picks it
+const catalog = {
+  models: [
+    { agent: 'claude', id: 'only-claude', label: 'Only', efforts: [] },
+    { agent: 'claude', id: 'shared', label: 'Shared', efforts: [] },
+    { agent: 'codex', id: 'shared', label: 'Shared', efforts: [] },
+  ],
+  latest: { claude: { sonnet: 'claude-sonnet-x' } },
+};
+
 test('explicit targets parse registered prefixes and retain native IDs containing colons', () => {
   for (const [text, expected] of [
     ['haiku', { agent: 'codex', id: 'haiku' }],
@@ -207,9 +217,24 @@ test('explicit targets parse registered prefixes and retain native IDs containin
     ['vendor:model', { agent: 'codex', id: 'vendor:model' }],
     ['claude:vendor:model', { agent: 'claude', id: 'vendor:model' }],
   ] as const)
-    assert.deepEqual(modelTarget(text, 'codex', ['codex', 'claude']), expected);
+    assert.deepEqual(
+      modelTarget(text, 'codex', ['codex', 'claude'], catalog),
+      expected,
+    );
   assert.throws(
-    () => modelTarget('claude:', 'codex', ['codex', 'claude']),
+    () => modelTarget('claude:', 'codex', ['codex', 'claude'], catalog),
     /Choose a model ID/,
   );
+});
+
+test('unprefixed IDs go to the runtime whose models or alias targets list them, preferring the active one', () => {
+  for (const [text, agent] of [
+    ['only-claude', 'claude'],
+    ['claude-sonnet-x', 'claude'],
+    ['shared', 'codex'],
+  ] as const)
+    assert.deepEqual(modelTarget(text, 'codex', ['codex', 'claude'], catalog), {
+      agent,
+      id: text,
+    });
 });

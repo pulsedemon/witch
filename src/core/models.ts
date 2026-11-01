@@ -1,6 +1,7 @@
 import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
 import type { AgentSession, Model } from '../agents/types.js';
+import type { Catalog } from './routing.js';
 
 export interface ModelChoice extends Model {
   agent: string;
@@ -29,15 +30,31 @@ export function modelKey(model: Pick<ModelChoice, 'agent' | 'id'>): string {
   return `${model.agent}:${model.id}`;
 }
 
+/** an unprefixed ID goes to a runtime whose models or alias targets include it, preferring the active one; an unlisted ID stays on the active runtime as written. */
 export function modelTarget(
   text: string,
   activeAgent: string,
   agentIds: readonly string[],
+  catalog: Catalog,
 ): Pick<ModelSelection, 'agent' | 'id'> {
   const colon = text.indexOf(':');
   const agent = text.slice(0, colon);
-  if (colon < 0 || !agentIds.includes(agent))
-    return { agent: activeAgent, id: text };
+  if (colon < 0 || !agentIds.includes(agent)) {
+    const listed = [
+      ...catalog.models
+        .filter((model) => model.id === text)
+        .map((model) => model.agent),
+      ...Object.entries(catalog.latest)
+        .filter(([, aliases]) => Object.values(aliases).includes(text))
+        .map(([runtime]) => runtime),
+    ];
+    return {
+      agent: listed.includes(activeAgent)
+        ? activeAgent
+        : (listed[0] ?? activeAgent),
+      id: text,
+    };
+  }
   const id = text.slice(colon + 1);
   if (!id) throw new Error('Choose a model ID.');
   return { agent, id };
