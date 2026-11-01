@@ -3,10 +3,52 @@ import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
 import type { Limit } from '../src/agents/types.js';
-import { statusLines } from '../src/ui/status-line.js';
+import { statusFooter, statusLines } from '../src/ui/status-line.js';
 
 const now = Date.parse('2026-10-13T12:00:00Z');
 const seconds = now / 1000;
+
+test('tiny footer errors leave the full raw-unit funding height and reserved body rows', () => {
+  for (const [bodyRows, expectedErrors] of [
+    [6, 2],
+    [7, 1],
+    [8, 0],
+  ] as const) {
+    const { lines, errors } = statusFooter(
+      {
+        usage: {},
+        cwd: '/work',
+        account: {
+          limits: [],
+          funding: {
+            kind: 'extra-usage',
+            enabled: false,
+            used: 651,
+            limit: 10000,
+            currency: 'USD',
+            decimalPlaces: null,
+            observedAt: now,
+          },
+        },
+      },
+      now,
+      {
+        width: 28,
+        height: 12,
+        bodyRows,
+        error: 'A long error which wraps across several rows. '.repeat(3),
+      },
+    );
+    assert.deepEqual(lines, [
+      'extra off: USD 651 minor',
+      'units spent / USD 10000',
+      'minor units cap',
+    ]);
+    assert.equal(errors.length, expectedErrors);
+    assert.equal(1 + lines.length + errors.length + bodyRows, 12);
+    if (expectedErrors) assert.match(errors.at(-1)!, /more rows$/);
+  }
+});
 
 test('the status line shows reported fields with the context capacity beside its percentage', () => {
   const [first, second] = statusLines(

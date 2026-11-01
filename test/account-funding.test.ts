@@ -657,6 +657,44 @@ test('a tiny terminal preserves the composer and live balance beside two account
       assert.equal(ui.text().split('\n').length, 12);
       assert.match(ui.text(), /Ask the agent/);
     }
+    for (const [phase, pendingCompaction] of [
+      ['idle', false],
+      ['running', false],
+      ['running', true],
+    ] as const) {
+      coordinator.publish({
+        phase,
+        pendingCompaction,
+        native: { ...coordinator.snapshot.native!, agent: 'claude' },
+        accounts: {
+          ...coordinator.snapshot.accounts,
+          claude: {
+            limits: [],
+            funding: {
+              kind: 'extra-usage',
+              enabled: false,
+              used: 651,
+              limit: 10000,
+              currency: 'USD',
+              decimalPlaces: null,
+              observedAt: now,
+            },
+          },
+        },
+      });
+      await until('live raw-unit spending', () => {
+        const text = ui.text();
+        return (
+          text.startsWith(phase.toUpperCase()) &&
+          text.includes('Pending: /compact') === pendingCompaction &&
+          /extra off: USD 651 minor\s+units spent \/ USD 10000\s+minor units cap/.test(
+            text,
+          )
+        );
+      });
+      assert.equal(ui.text().split('\n').length, 12);
+      assert.match(ui.text(), /Ask the agent/);
+    }
   } finally {
     ui.unmount();
   }

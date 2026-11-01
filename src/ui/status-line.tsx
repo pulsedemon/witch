@@ -246,23 +246,28 @@ export function statusFooter(
   const funding =
     status.account?.funding ||
     status.others?.some(({ reading }) => reading?.funding);
+  const minimumStatusRows = funding
+    ? statusLines(status, now, width, 2).length
+    : 2;
   const errorLimit = Math.max(
-    1,
+    0,
     Math.min(
       Math.floor(height / 3),
-      funding ? height - 3 - bodyRows : Infinity,
+      funding ? height - 1 - minimumStatusRows - bodyRows : Infinity,
     ),
   );
   const errorLines = error
     ? wrapLines(linkify(plain(error), status.cwd), width)
     : [];
   const errors =
-    errorLines.length > errorLimit
-      ? [
-          ...errorLines.slice(0, errorLimit - 1),
-          `+${errorLines.length - errorLimit + 1} more rows`,
-        ]
-      : errorLines;
+    errorLimit === 0
+      ? []
+      : errorLines.length > errorLimit
+        ? [
+            ...errorLines.slice(0, errorLimit - 1),
+            `+${errorLines.length - errorLimit + 1} more rows`,
+          ]
+        : errorLines;
   return {
     errors,
     lines: statusLines(
