@@ -165,6 +165,23 @@ test('a familiar request fails the reviewer', async (t) => {
   assert.match(result!.report, /runs read-only and cannot ask for anything/);
 });
 
+test('a reviewer that cannot spawn ends the run with its launch error', async () => {
+  const root = await scratch('witch-reviewers-');
+  const [result] = await within(
+    new Reviewers(() => {}).run({
+      cwd: join(root, 'missing'),
+      reviewers: [
+        { name: 'r', command: 'true', reportFile: join(root, 'report.md') },
+      ],
+      signal: new AbortController().signal,
+    }),
+    5000,
+    'the failed spawn',
+  );
+  assert.equal(result!.code, null);
+  assert.match(result!.diagnostics ?? '', /spawn \/bin\/sh ENOENT/);
+});
+
 test('late updates never reopen a finished reviewer', () => {
   const events: string[] = [];
   const reviewers = new Reviewers(({ subagent }) =>
