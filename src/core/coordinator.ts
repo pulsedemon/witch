@@ -182,7 +182,7 @@ export class Coordinator {
     idle: async () => {
       let success = false;
       await this.operate('compacting', async () => {
-        success = await this.performCompaction();
+        success = (await this.performCompaction()).status === 'completed';
       });
       return success;
     },
@@ -486,8 +486,8 @@ export class Coordinator {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
         }
+        // a pre-turn compaction that ran out left the batch requeued above, for the destination to run
         if (
-          delivered &&
           result?.status === 'failed' &&
           result.exhausted &&
           // an Escape as the turn fails stops the switch too
@@ -520,7 +520,8 @@ export class Coordinator {
       if (options.queued && this.deliveryHeld) return;
       if (usage !== undefined && usage >= compactAt) {
         this.publish({ phase: 'compacting' });
-        if (!(await this.performCompaction())) return;
+        const compacted = await this.performCompaction();
+        if (compacted.status !== 'completed') return compacted;
         this.publish({ phase: 'running' });
       }
       if (options.queued && this.deliveryHeld) return;
@@ -1151,11 +1152,11 @@ export class Coordinator {
     return this.compaction.start();
   }
 
-  private performCompaction(): Promise<boolean> {
+  private performCompaction(): Promise<TurnResult> {
     return this.compaction.automatic(() => this.compactActivity());
   }
 
-  private async compactActivity(): Promise<boolean> {
+  private async compactActivity(): Promise<TurnResult> {
     const { activity, scope } = await this.beginActivity('turn');
     const result = await compactSession(
       () => this.connect(undefined, scope),
@@ -1166,7 +1167,7 @@ export class Coordinator {
     await this.finishActivity(activity, result);
     await this.save();
     this.turnFailed ||= this.cancelled;
-    return !this.turnFailed;
+    return this.cancelled ? { status: 'interrupted', text: '' } : result;
   }
 
   private async finishActivity(

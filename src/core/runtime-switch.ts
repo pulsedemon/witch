@@ -121,7 +121,7 @@ export class RuntimeSwitch {
     );
   }
 
-  /** after a delivered ordinary turn fails exhausted; true when the conversation continues on another runtime. */
+  /** after an ordinary turn, or the compaction before it, fails exhausted; true when the conversation continues on another runtime. */
   continueAfterExhaustion(): Promise<boolean> {
     this.exhaustedAt.set(this.host.conversation().agent, Date.now());
     return this.attempt();
