@@ -52,6 +52,10 @@ test('policy overrides survive fixed-instruction caching and ignore other projec
     );
     assert.equal(input.context!.includes('New work needs no claim'), !required);
     assert.equal(input.context!.includes('--claim'), fixed);
+    assert.equal(
+      input.context!.includes('has no current verified usable credits'),
+      required && fixed,
+    );
   };
   await send('First solo request', false, true);
   await send('Second solo request', false, false);

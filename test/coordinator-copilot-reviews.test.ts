@@ -1367,7 +1367,7 @@ test('a failed post-turn GitHub read retains the result and recovers without ano
   );
   const failed = (await record(x.f, x.a)).copilotReviews![0]!;
   assert.ok(failed.items.every(({ status }) => status === 'blocked'));
-  assert.ok(
+  await until('post-turn GitHub failure notice', () =>
     x.c.snapshot.items.some(({ text }) =>
       text.includes('after-turn-github-down'),
     ),
@@ -1397,7 +1397,7 @@ test('an ordinary turn can reconcile a missing reply receipt before later feedba
       !!(await record(x.f, x.a)).copilotReviews![0]!.batch?.verifying,
   );
   const batch = (await record(x.f, x.a)).copilotReviews![0]!.batch!;
-  assert.ok(
+  await until('GitHub verification notice', () =>
     x.c.snapshot.items.some(({ text }) => text.includes('Waiting for GitHub')),
   );
   session.send = async (...args) => {

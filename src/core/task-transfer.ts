@@ -7,6 +7,7 @@ import type {
   TransferField,
 } from './coordination-state.js';
 import type { Snapshot } from './snapshot.js';
+import { creditCapacity } from './usage.js';
 
 /** keeps the previous owner from continuing work after its claim moves. */
 export function movedNotices(ledger: Ledger, conversation: string): string[] {
@@ -43,9 +44,13 @@ export function transferRefusal(
     return `It is ${state?.phase ?? 'starting'}. Wait for it to go idle or stop its turn there, then run /task take again.`;
   if (taskActivity(state).running)
     return 'It has running familiars or brews. Stop them there, then run /task take again.';
+  const runtime = state.native?.agent ?? state.conversation?.agent;
+  const account = runtime ? state.accounts[runtime] : undefined;
+  if (automatic && creditCapacity(account, now) === 'available')
+    return 'It has current usable credits. Use /task take for a manual transfer.';
   if (
     automatic &&
-    !state.usage.limits?.some(
+    !state.usage.account?.limits.some(
       ({ percent, resetsAt }) => percent >= 100 && (resetsAt ?? 0) > now / 1000,
     )
   )

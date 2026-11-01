@@ -46,7 +46,7 @@ function fixture(
     backgroundCommands: [],
     agents: [],
     usage: {},
-    limits: {},
+    accounts: {},
     latest: {},
     ...initial,
   });

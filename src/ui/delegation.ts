@@ -1,4 +1,4 @@
-import type { Limit } from '../agents/types.js';
+import type { AccountReading } from '../agents/types.js';
 import { family, resolve, ruleFor, work } from '../core/routing.js';
 import type { Catalog, Policy } from '../core/routing.js';
 import { defaultPolicy } from '../core/routing.js';
@@ -57,7 +57,7 @@ export function changeDelegation(
 export function delegationPage(
   policy: Policy,
   catalog: Catalog,
-  limits: Readonly<Record<string, readonly Limit[]>>,
+  accounts: Readonly<Record<string, AccountReading>>,
   installed: readonly string[],
   now: number,
 ): string {
@@ -69,7 +69,8 @@ export function delegationPage(
   });
   const usage = installed.map(
     (runtime) =>
-      describeReading(runtime, limits[runtime], now) ?? `${runtime} no reading`,
+      describeReading(runtime, accounts[runtime], now) ??
+      `${runtime} no reading`,
   );
   return [
     'Work goes where its rule sends it; with no rule, review goes to every runtime and other work stays on the runtime asking.',
@@ -120,7 +121,7 @@ export async function delegation(
   return delegationPage(
     current,
     catalog,
-    snapshot.limits,
+    snapshot.accounts,
     installed,
     Date.now(),
   );

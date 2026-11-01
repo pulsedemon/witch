@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import type { Limit } from '../src/agents/types.js';
+import type { AccountReading, Limit } from '../src/agents/types.js';
 import type { Catalog, Policy, Route, Work } from '../src/core/routing.js';
 import { defaultPolicy, family, resolve, route } from '../src/core/routing.js';
 import { USAGE_CURRENT_MS } from '../src/core/usage.js';
@@ -57,6 +57,7 @@ function ask(
     named?: { runtime: string; model: string };
     policy?: Partial<Policy>;
     limits?: Record<string, Limit[]>;
+    accounts?: Record<string, AccountReading>;
     catalog?: Catalog;
     installed?: string[];
   } = {},
@@ -70,11 +71,92 @@ function ask(
       policy: { ...defaultPolicy, ...fields.policy },
       installed: fields.installed ?? installed,
       catalog: fields.catalog ?? catalog,
-      limits: fields.limits ?? fresh,
+      accounts:
+        fields.accounts ??
+        Object.fromEntries(
+          Object.entries(fields.limits ?? fresh).map(([id, limits]) => [
+            id,
+            { limits },
+          ]),
+        ),
       now,
     }),
   );
 }
+
+test('credit capacity supplies a destination at full weekly usage and preserves included-headroom priority', () => {
+  const funded: AccountReading = {
+    limits: [window('7D', 100)],
+    funding: {
+      kind: 'credits',
+      balance: '12345.678900',
+      unlimited: false,
+      available: true,
+      observedAt: now,
+    },
+    creditAccess: { state: 'available', observedAt: now },
+  };
+  const accounts = { claude: { limits: [window('7D', 100)] }, codex: funded };
+  assert.deepEqual(ask({ accounts }), {
+    runtime: 'codex',
+    model: 'gpt-6.1-sol',
+    reason:
+      'claude 7D 100% is at or over 90%, and codex 7D 100%, 12345.678900 credits has usable credits',
+  });
+  assert.equal(
+    (
+      ask({
+        caller: 'codex',
+        accounts: { ...accounts, claude: { limits: [window('7D', 40)] } },
+      }) as { runtime: string }
+    ).runtime,
+    'claude',
+  );
+  assert.equal(
+    (ask({ caller: 'codex', accounts }) as { runtime: string }).runtime,
+    'codex',
+  );
+  assert.equal(
+    (
+      ask({
+        accounts,
+        named: { runtime: 'claude', model: 'claude-opus-5-5' },
+      }) as { runtime: string }
+    ).runtime,
+    'claude',
+  );
+  for (const creditAccess of [
+    { state: 'unavailable' as const, observedAt: now },
+    { state: 'unknown' as const, observedAt: now },
+    { state: 'available' as const, observedAt: now - USAGE_CURRENT_MS - 1 },
+  ]) {
+    assert.equal(
+      (
+        ask({
+          accounts: { ...accounts, codex: { ...funded, creditAccess } },
+        }) as { runtime: string }
+      ).runtime,
+      'claude',
+    );
+  }
+  assert.equal(
+    (
+      ask({
+        accounts: {
+          ...accounts,
+          codex: {
+            ...funded,
+            funding: {
+              ...funded.funding!,
+              observedAt: now - USAGE_CURRENT_MS - 1,
+            },
+          },
+        },
+      }) as { runtime: string }
+    ).runtime,
+    'claude',
+  );
+});
 
 test('a versioned model runs as named, even absent from the catalog, and the reason says when usage is not current', () => {
   assert.deepEqual(

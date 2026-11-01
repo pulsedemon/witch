@@ -3,10 +3,52 @@ import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
 import type { Limit } from '../src/agents/types.js';
-import { statusLines } from '../src/ui/status-line.js';
+import { statusFooter, statusLines } from '../src/ui/status-line.js';
 
 const now = Date.parse('2026-10-13T12:00:00Z');
 const seconds = now / 1000;
+
+test('tiny footer errors leave the full raw-unit funding height and reserved body rows', () => {
+  for (const [bodyRows, expectedErrors] of [
+    [6, 2],
+    [7, 1],
+    [8, 0],
+  ] as const) {
+    const { lines, errors } = statusFooter(
+      {
+        usage: {},
+        cwd: '/work',
+        account: {
+          limits: [],
+          funding: {
+            kind: 'extra-usage',
+            enabled: false,
+            used: 651,
+            limit: 10000,
+            currency: 'USD',
+            decimalPlaces: null,
+            observedAt: now,
+          },
+        },
+      },
+      now,
+      {
+        width: 28,
+        height: 12,
+        bodyRows,
+        error: 'A long error which wraps across several rows. '.repeat(3),
+      },
+    );
+    assert.deepEqual(lines, [
+      'extra off: USD 651 minor',
+      'units spent / USD 10000',
+      'minor units cap',
+    ]);
+    assert.equal(errors.length, expectedErrors);
+    assert.equal(1 + lines.length + errors.length + bodyRows, 12);
+    if (expectedErrors) assert.match(errors.at(-1)!, /more rows$/);
+  }
+});
 
 test('the status line shows reported fields with the context capacity beside its percentage', () => {
   const [first, second] = statusLines(
@@ -18,20 +60,22 @@ test('the status line shows reported fields with the context capacity beside its
         contextWindow: 828400,
         lines: { added: 12, removed: 3 },
       },
-      limits: [
-        {
-          window: '5H',
-          percent: 23.4,
-          resetsAt: seconds + 2 * 3600 + 600,
-          observedAt: now,
-        },
-        {
-          window: '7D',
-          percent: 41,
-          resetsAt: seconds + 3 * 86_400 + 7200,
-          observedAt: now,
-        },
-      ],
+      account: {
+        limits: [
+          {
+            window: '5H',
+            percent: 23.4,
+            resetsAt: seconds + 2 * 3600 + 600,
+            observedAt: now,
+          },
+          {
+            window: '7D',
+            percent: 41,
+            resetsAt: seconds + 3 * 86_400 + 7200,
+            observedAt: now,
+          },
+        ],
+      },
       openedAt: now - (65 * 60 + 59) * 1000,
       cwd: '/work/witch',
       repository: {
@@ -116,16 +160,18 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its 
   const [first] = statusLines(
     {
       usage: {},
-      limits: [
-        { window: '5H', percent: 69.4, observedAt: now },
-        {
-          window: '7D',
-          percent: 69.6,
-          resetsAt: seconds - 60,
-          observedAt: now,
-        },
-        { window: '30D', percent: 90, observedAt: now },
-      ],
+      account: {
+        limits: [
+          { window: '5H', percent: 69.4, observedAt: now },
+          {
+            window: '7D',
+            percent: 69.6,
+            resetsAt: seconds - 60,
+            observedAt: now,
+          },
+          { window: '30D', percent: 90, observedAt: now },
+        ],
+      },
       cwd: '/w',
     },
     now,
@@ -139,7 +185,7 @@ test('limits turn yellow at 70% and red at 90%, a past reset shows dim with its 
   const [yellow] = statusLines(
     {
       usage: {},
-      limits: [{ window: '7D', percent: 70, observedAt: now }],
+      account: { limits: [{ window: '7D', percent: 70, observedAt: now }] },
       cwd: '/w',
     },
     now,
@@ -210,21 +256,25 @@ test('other runtimes follow the live one as percents, dim when not current, and 
     {
       usage: {},
       cwd: '/w',
-      limits: [
-        {
-          window: '7D',
-          percent: 49,
-          resetsAt: seconds + 86_400,
-          observedAt: now,
-        },
-      ],
+      account: {
+        limits: [
+          {
+            window: '7D',
+            percent: 49,
+            resetsAt: seconds + 86_400,
+            observedAt: now,
+          },
+        ],
+      },
       others: [
         {
           id: 'claude',
-          limits: [
-            { window: '5H', percent: 20, observedAt: now - 11 * 60_000 },
-            { window: '7D', percent: 75, observedAt: now },
-          ],
+          reading: {
+            limits: [
+              { window: '5H', percent: 20, observedAt: now - 11 * 60_000 },
+              { window: '7D', percent: 75, observedAt: now },
+            ],
+          },
         },
         { id: 'other' },
       ],
@@ -253,9 +303,12 @@ test('a first row that would overflow drops the live reset times, so the other r
         usage: {},
         cwd: '/w',
         openedAt: now - 83 * 60_000,
-        limits: codex,
+        account: { limits: codex },
         others: [
-          { id: 'claude', limits: [window('5H', 20), window('7D', 75)] },
+          {
+            id: 'claude',
+            reading: { limits: [window('5H', 20), window('7D', 75)] },
+          },
         ],
       },
       now,

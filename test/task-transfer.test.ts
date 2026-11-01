@@ -5,6 +5,8 @@ import { callControl } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import type { TransferField } from '../src/core/coordination-state.js';
 import { transferRefusal } from '../src/core/task-transfer.js';
+import { USAGE_CURRENT_MS } from '../src/core/usage.js';
+import type { Snapshot } from '../src/core/snapshot.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import {
   coordinationFixture,
@@ -241,14 +243,16 @@ async function automatic(t: TestContext, ids = ['claude', 'codex']) {
   emit({
     type: 'usage',
     usage: {
-      limits: [
-        {
-          window: '5H',
-          percent: 100,
-          resetsAt: Date.now() / 1000 + 3600,
-          observedAt: 0,
-        },
-      ],
+      account: {
+        limits: [
+          {
+            window: '5H',
+            percent: 100,
+            resetsAt: Date.now() / 1000 + 3600,
+            observedAt: 0,
+          },
+        ],
+      },
     },
   });
   const requested = (field: TransferField = 'automaticTransfer') =>
@@ -310,6 +314,82 @@ for (const ids of [
     );
   });
 
+test('merged credits veto automatic transfer after a sparse reconnect, while manual transfer still moves the claim', async (t) => {
+  const f = await automatic(t, ['codex', 'claude']);
+  const account = f.owner.coordinator.snapshot.accounts.codex!;
+  f.owner.coordinator.accountUsage.report('codex', {
+    ...account,
+    funding: {
+      kind: 'credits',
+      balance: '123.456',
+      unlimited: false,
+      available: true,
+      observedAt: Date.now(),
+    },
+    creditAccess: { state: 'available', observedAt: Date.now() },
+  });
+  assert.equal(f.owner.coordinator.snapshot.usage.account!.funding, undefined);
+  const result = await f.attempt();
+  assert.equal(result.kind, 'conflict');
+  assert.match(
+    transferRefusal(f.owner.coordinator.snapshot, true)!,
+    /current usable credits/,
+  );
+  assert.equal(
+    (await f.registry.claims())[0]!.owner.conversation,
+    f.original.owner.conversation,
+  );
+  await Promise.all([
+    f.requester.coordination.takeTask('task:shared'),
+    f.answer('transfer'),
+  ]);
+  assert.equal(
+    (await f.registry.claims())[0]!.owner.conversation,
+    f.requester.coordinator.snapshot.conversation!.id,
+  );
+});
+
+test('another runtime credits cannot veto an exhausted owner transfer', async (t) => {
+  const f = await automatic(t);
+  f.owner.coordinator.accountUsage.report('codex', {
+    limits: [],
+    funding: {
+      kind: 'credits',
+      balance: '321',
+      unlimited: false,
+      available: true,
+      observedAt: Date.now(),
+    },
+    creditAccess: { state: 'available', observedAt: Date.now() },
+  });
+  assert.equal((await f.attempt()).kind, 'claimed');
+  assert.equal(
+    (await f.registry.claims())[0]!.owner.conversation,
+    f.requester.coordinator.snapshot.conversation!.id,
+  );
+});
+
+test('expired funding cannot veto automatic transfer while its access observation is current', async (t) => {
+  const f = await automatic(t, ['codex', 'claude']);
+  const now = Date.now();
+  f.owner.coordinator.accountUsage.report('codex', {
+    ...f.owner.coordinator.snapshot.accounts.codex!,
+    funding: {
+      kind: 'credits',
+      balance: '123.456',
+      unlimited: false,
+      available: true,
+      observedAt: now - USAGE_CURRENT_MS - 1,
+    },
+    creditAccess: { state: 'available', observedAt: now },
+  });
+  assert.equal((await f.attempt()).kind, 'claimed');
+  assert.equal(
+    (await f.registry.claims())[0]!.owner.conversation,
+    f.requester.coordinator.snapshot.conversation!.id,
+  );
+});
+
 test('automatic transfer requires an exhausted window whose reported reset is still ahead', async (t) => {
   const f = await automatic(t);
   const now = 2_000_000_000_000;
@@ -345,10 +425,10 @@ test('automatic transfer requires an exhausted window whose reported reset is st
       true,
     ],
   ] as const) {
-    const state = {
+    const state: Snapshot = {
       ...f.owner.coordinator.snapshot,
       error: 'Usage limit reached',
-      usage: { limits: limits ? [...limits] : undefined },
+      usage: limits ? { account: { limits: [...limits] } } : {},
     };
     assert.equal(
       transferRefusal(state, true, now) === undefined,
@@ -426,7 +506,9 @@ for (const change of ['report', 'reset'] as const)
     f.emit({
       type: 'usage',
       usage: {
-        limits: [{ window: '5H', percent: 100, resetsAt, observedAt: 0 }],
+        account: {
+          limits: [{ window: '5H', percent: 100, resetsAt, observedAt: 0 }],
+        },
       },
     });
     const original = CoordinationStore.prototype.handOver;
@@ -451,9 +533,11 @@ for (const change of ['report', 'reset'] as const)
               f.emit({
                 type: 'usage',
                 usage: {
-                  limits: [
-                    { window: '5H', percent: 20, resetsAt, observedAt: 0 },
-                  ],
+                  account: {
+                    limits: [
+                      { window: '5H', percent: 20, resetsAt, observedAt: 0 },
+                    ],
+                  },
                 },
               });
             else vi.spyOn(Date, 'now').mockReturnValue(resetsAt * 1000);
@@ -493,14 +577,16 @@ for (const alias of ['task:ALIAS', 'https://github.com/acme/queue/pull/7'])
     f.emit({
       type: 'usage',
       usage: {
-        limits: [
-          {
-            window: '5H',
-            percent: 25,
-            resetsAt: Date.now() / 1000 + 3600,
-            observedAt: 0,
-          },
-        ],
+        account: {
+          limits: [
+            {
+              window: '5H',
+              percent: 25,
+              resetsAt: Date.now() / 1000 + 3600,
+              observedAt: 0,
+            },
+          ],
+        },
       },
     });
     const [result] = await Promise.all([

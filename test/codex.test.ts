@@ -1302,18 +1302,23 @@ test("reports context, lines summed over the thread's turns and limits merged fr
     if (event.type === 'usage') reported.push(event.usage);
   });
   try {
-    await until('the limits', () => !!session.usage.limits);
+    await until('the limits', () => !!session.usage.account?.limits);
     assert.equal((await session.send('usage')).status, 'completed');
     assert.deepEqual(
-      { ...session.usage, limits: untimed(session.usage.limits) },
+      {
+        ...session.usage,
+        account: { limits: untimed(session.usage.account?.limits) },
+      },
       {
         context: 25,
         contextWindow: 256000,
         lines: { added: 4, removed: 2 },
-        limits: [
-          { window: '5H', percent: 15, resetsAt: 2000000100 },
-          { window: '7D', percent: 40, resetsAt: 2000500000 },
-        ],
+        account: {
+          limits: [
+            { window: '5H', percent: 15, resetsAt: 2000000100 },
+            { window: '7D', percent: 40, resetsAt: 2000500000 },
+          ],
+        },
       },
     );
     assert.deepEqual(reported.at(-1), session.usage);
@@ -1363,12 +1368,15 @@ test('reading limits again joins the read in flight', async () => {
     },
   });
   try {
-    assert.ok(session.readLimits);
-    await until('the read connect starts', () => !!session.usage.limits);
+    assert.ok(session.readAccountUsage);
+    await until(
+      'the read connect starts',
+      () => !!session.usage.account?.limits,
+    );
     assert.equal(reads.length, 1);
-    await Promise.all([session.readLimits(), session.readLimits()]);
+    await Promise.all([session.readAccountUsage(), session.readAccountUsage()]);
     assert.equal(reads.length, 2);
-    await session.readLimits();
+    await session.readAccountUsage();
     assert.equal(reads.length, 3);
   } finally {
     await close(session, cwd);
