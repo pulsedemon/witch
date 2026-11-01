@@ -265,6 +265,8 @@ export async function runReview(
     if (findings.length && !(await host.turn(correctionPrompt({ findings }))))
       return stopped(incomplete);
     nonBlocking += findings.filter(({ blocking }) => !blocking).length;
+    // read before settling, so a correction that removed a target fails the review
+    const corrected = await read();
     const remaining = async () =>
       findings.length ? (await checkTargets(cwd, files)).length : known.length;
     if ('stop' in decided)
@@ -274,7 +276,7 @@ export async function runReview(
       blockers: decided.blockers.length,
       sittingOut: decided.sittingOut,
       ...(decided.stopAfter ? { stopAfter: decided.stopAfter } : {}),
-      changedDuring: !same(await read(), texts),
+      changedDuring: !same(corrected, texts),
     });
     if ('stop' in after) {
       if (!after.ok) return stopped(after.stop);
