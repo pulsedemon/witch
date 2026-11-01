@@ -84,7 +84,7 @@ function ask(
   );
 }
 
-test('credit capacity supplies a destination at full weekly usage and preserves included-headroom priority', () => {
+test('credit capacity keeps a runtime at full weekly usage ahead of another runtime with headroom, and supplies a destination', () => {
   const funded: AccountReading = {
     limits: [window('7D', 100)],
     funding: {
@@ -103,14 +103,17 @@ test('credit capacity supplies a destination at full weekly usage and preserves 
     reason:
       'claude 7D 100% is at or over 90%, and codex 7D 100%, 12345.678900 credits has usable credits',
   });
-  assert.equal(
-    (
-      ask({
-        caller: 'codex',
-        accounts: { ...accounts, claude: { limits: [window('7D', 40)] } },
-      }) as { runtime: string }
-    ).runtime,
-    'claude',
+  assert.deepEqual(
+    ask({
+      caller: 'codex',
+      accounts: { ...accounts, claude: { limits: [window('7D', 40)] } },
+    }),
+    {
+      runtime: 'codex',
+      model: 'gpt-6.1-sol',
+      reason:
+        'implementation stays on codex; codex 7D 100%, 12345.678900 credits has usable credits',
+    },
   );
   assert.equal(
     (ask({ caller: 'codex', accounts }) as { runtime: string }).runtime,
@@ -134,6 +137,18 @@ test('credit capacity supplies a destination at full weekly usage and preserves 
       (
         ask({
           accounts: { ...accounts, codex: { ...funded, creditAccess } },
+        }) as { runtime: string }
+      ).runtime,
+      'claude',
+    );
+    assert.equal(
+      (
+        ask({
+          caller: 'codex',
+          accounts: {
+            claude: { limits: [window('7D', 40)] },
+            codex: { ...funded, creditAccess },
+          },
         }) as { runtime: string }
       ).runtime,
       'claude',
