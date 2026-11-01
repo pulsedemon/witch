@@ -217,6 +217,25 @@ for (const [typed, call] of [
     }
   });
 
+test('/model with an ID only another runtime lists selects that runtime', async () => {
+  const { app, calls } = fake({
+    models: [{ agent: 'b', id: 'x', label: 'X', efforts: [] }],
+  });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('/model x');
+    await delay(30);
+    ui.stdin.write(ENTER);
+    await until('the call', () => calls.length > 0);
+    assert.deepEqual(calls, [
+      ['selectModel', { agent: 'b', id: 'x', effort: undefined }],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 for (const effort of ['low', undefined])
   test(`duplicate model IDs select the chosen runtime with ${effort ?? 'omitted'} effort`, async () => {
     const { app, calls } = fake({
