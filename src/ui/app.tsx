@@ -682,12 +682,10 @@ export function App({
         setView({ kind: 'coordination', mode: 'peers' });
         break;
       case 'task':
-        if (argument === 'release') {
+        if (argument === 'release')
           return changeTask(coordinator.releaseTask());
-        }
-        if (/^take\s+\S/.test(argument)) {
+        if (/^take\s+\S/.test(argument))
           return changeTask(coordinator.takeTask(argument.slice(4).trim()));
-        }
         if (argument) {
           coordinator.notice(
             'Use /task, /task release or /task take <reference>.',
