@@ -129,7 +129,7 @@ export async function checkTargets(
 /** each line's prose with its HTML comments blanked; undefined where nothing visible is left: fenced code, front matter, comments and blank lines. indented lines stay prose, since nested list items use them. */
 function proseLines(lines: readonly string[]): (string | undefined)[] {
   const prose: (string | undefined)[] = [];
-  let fence: { mark: string; length: number } | undefined;
+  let fence: { mark: string; length: number; depth: number } | undefined;
   let front = lines[0] === '---' && lines.indexOf('---', 1) !== -1;
   let comment = false;
   for (const [index, line] of lines.entries()) {
@@ -148,20 +148,25 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
       comment = false;
       text = ' '.repeat(close + 3) + line.slice(close + 3);
     } else {
+      // a fence can sit in a blockquote, and ends when its quote does
+      const quote = /^(?:\s*>)*/.exec(line)![0];
+      const depth = quote.split('>').length - 1;
+      const rest = line.slice(quote.length);
       // a backtick fence's info string has no backticks, so ```x``` is a code span
-      const opening = /^\s*(`{3,}(?!.*`)|~{3,})/.exec(line);
+      const opening = /^\s*(`{3,}(?!.*`)|~{3,})/.exec(rest);
+      if (fence && depth < fence.depth) fence = undefined;
       if (fence) {
         prose.push(undefined);
         if (
           opening?.[1]![0] === fence.mark &&
           opening[1].length >= fence.length &&
-          !line.slice(opening[0].length).trim()
+          !rest.slice(opening[0].length).trim()
         )
           fence = undefined;
         continue;
       }
       if (opening) {
-        fence = { mark: opening[1]![0]!, length: opening[1]!.length };
+        fence = { mark: opening[1]![0]!, length: opening[1]!.length, depth };
         prose.push(undefined);
         continue;
       }
