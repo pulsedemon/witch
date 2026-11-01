@@ -116,6 +116,8 @@ export class FixtureAgent implements AgentAdapter {
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
+  /** runs before checkModel decides. */
+  beforeCheck?: () => Promise<void>;
   /** runs as each turn is sent, after its input is recorded, as an agent's edits during the turn would. */
   onSend?: (prompt: string) => Promise<void>;
   /** account reads are kept apart from model discovery. */
@@ -245,6 +247,7 @@ export class FixtureAgent implements AgentAdapter {
         return this.catalog;
       },
       checkModel: async (model) => {
+        await this.beforeCheck?.();
         if (model === this.invalidModel) throw new Error('Unknown model');
       },
       selectModel: async (model, effort) => {

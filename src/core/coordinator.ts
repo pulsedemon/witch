@@ -726,17 +726,19 @@ export class Coordinator {
     const starting = !this.live(selection.agent);
     try {
       const session = await this.connect(selection.agent, undefined, selection);
-      conversation.sessions[selection.agent] = await this.runtimes.applyModel(
-        session,
-        selection,
-      );
+      const selected = await this.runtimes.applyModel(session, selection);
+      if (this.cancelled || session.closed)
+        throw new Refusal('Model change canceled');
+      conversation.sessions[selection.agent] = selected;
       await this.save();
       this.publish({ conversation, native: session.info });
     } catch (error) {
       if (!starting) throw error;
       if (kept) conversation.sessions[selection.agent] = kept;
       else delete conversation.sessions[selection.agent];
-      await this.disconnect(true, true);
+      await this.disconnect(true, true).catch((closing: unknown) =>
+        this.notice(errorMessage(closing)),
+      );
       await this.save();
       throw error;
     }
@@ -1468,11 +1470,9 @@ export class Coordinator {
       }
       // the selector reports its failure; the original operation still needs to settle
       await this.changingModel?.catch(() => {});
-      try {
-        await this.settle();
-      } catch (error) {
+      await this.settle().catch((error: unknown) => {
         throw this.enterError(error);
-      }
+      });
       if (failure !== undefined) throw failure;
     })();
     try {
