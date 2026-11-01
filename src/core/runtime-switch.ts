@@ -48,8 +48,8 @@ export class RuntimeSwitch {
   private pending = false;
   /** when each runtime last ran out in this process; only evidence observed later shows it has recovered. */
   private readonly exhaustedAt = new Map<string, number>();
-  /** the prompts the exhausted turn left unread, which the queue delivers on the destination. */
-  private unread: readonly string[] = [];
+  /** the prompts the last turn left unread, which the queue delivers again, so a transcript handoff leaves out their rows. */
+  unread: readonly string[] = [];
   private continuation?: TurnResult;
   private stopping?: PromiseWithResolvers<void>;
 
@@ -119,14 +119,13 @@ export class RuntimeSwitch {
         },
       },
       selection,
-      notice === undefined ? {} : { summarize: false, unread: this.unread },
+      { summarize: notice === undefined, unread: this.unread },
     );
   }
 
   /** after a delivered ordinary turn fails exhausted; true when the conversation continues on another runtime. */
-  continueAfterExhaustion(unread: readonly string[] = []): Promise<boolean> {
+  continueAfterExhaustion(): Promise<boolean> {
     this.exhaustedAt.set(this.host.conversation().agent, Date.now());
-    this.unread = unread;
     return this.attempt();
   }
 

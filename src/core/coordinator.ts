@@ -491,7 +491,7 @@ export class Coordinator {
           result.exhausted &&
           // an Escape as the turn fails stops the switch too
           !this.cancelled &&
-          (await this.runtimes.continueAfterExhaustion(result.unread)) &&
+          (await this.runtimes.continueAfterExhaustion()) &&
           !this.halted()
         )
           continue;
@@ -1118,6 +1118,8 @@ export class Coordinator {
       if (command === undefined && !result.inputUnsent) delivered?.();
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
+      if (kind === 'turn' || kind === 'review')
+        this.runtimes.unread = result.unread ?? [];
       if (result.inputUnsent)
         this.retainContext(conversation.id, pendingContext);
       this.retainContext(conversation.id, result.unreadContext);

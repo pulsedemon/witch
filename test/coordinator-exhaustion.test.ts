@@ -212,6 +212,44 @@ test('a steered prompt the exhausted turn left unread reaches the destination on
   }
 });
 
+test('a /model switch whose summary fails leaves out a steered prompt the failed turn left unread', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  const gate = new TurnGate();
+  try {
+    const { session } = claude.sessions.at(-1)!;
+    const send = session.send.bind(session);
+    vi.spyOn(session, 'send').mockImplementationOnce(async (...args) => ({
+      ...(await send(...args)),
+      status: 'failed',
+      error: 'connection lost',
+      unread: ['Steered'],
+    }));
+    claude.gate = gate;
+    const sending = coordinator.send('First');
+    await within(gate.entered, 2000, 'the failing turn');
+    await coordinator.send('Steered');
+    assert.deepEqual(claude.steers, ['Steered']);
+    gate.open();
+    await sending;
+    assert.deepEqual(coordinator.snapshot.queue, ['Steered']);
+    claude.exhaust = (prompt) => prompt.includes('handoff summary');
+    await coordinator.selectModel({ agent: 'codex', id: 'gpt-6.1-astra' });
+    await until('the steered prompt on codex', () => codex.inputs.length === 2);
+    assert.deepEqual(
+      codex.inputs.map(({ prompt }) => prompt),
+      [continuation, 'Steered'],
+    );
+    assert.match(codex.inputs[0]!.context!, /User: First/);
+    const sent = codex.inputs
+      .flatMap(({ prompt, context }) => [prompt, context ?? ''])
+      .join('\n');
+    assert.equal(sent.split('Steered').length - 1, 1);
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
 test('a destination at 100% with verified credits qualifies once a forced refresh renews its due reading', async () => {
   let funded = false;
   const { coordinator, claude, codex } = await exhaustion((_, codex) => {
