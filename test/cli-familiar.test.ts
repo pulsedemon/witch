@@ -295,14 +295,17 @@ for (const kind of ['permission', 'malformed'] as const)
   });
 
 test('an explicit reporting rejection stops its child and exits failed', async () => {
-  const f = await fixture('ignore-term', async (request) =>
-    request.action.kind === 'familiar-register'
-      ? { kind: 'familiar-registered' }
-      : { kind: 'error', message: 'This native session closed.' },
-  );
+  const reject = Promise.withResolvers<void>();
+  const f = await fixture('ignore-term', async (request) => {
+    if (request.action.kind === 'familiar-register')
+      return { kind: 'familiar-registered' };
+    await reject.promise;
+    return { kind: 'error', message: 'This native session closed.' };
+  });
   try {
     await f.ready();
     const launch = await f.launch();
+    reject.resolve();
     assert.equal(await within(f.closed, 4000, 'rejected reporter cleanup'), 1);
     assert.match(
       await readFile(join(f.root, 'report.txt'), 'utf8'),
@@ -311,6 +314,7 @@ test('an explicit reporting rejection stops its child and exits failed', async (
     assert.equal(await identifyProcess(launch.pid), undefined);
     assert.equal(f.updates().length, 1);
   } finally {
+    reject.resolve();
     await f.close();
   }
 });

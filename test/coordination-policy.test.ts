@@ -14,23 +14,22 @@ import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until } from './fixtures/within.js';
 
-test('solo context omits claims and retains selection', async (t) => {
+test('solo context retains PR claims and selection without requiring other task claims', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start } = await coordinationFixture(cleanup);
   const a = await start();
   const choosing = await selectionTurn(cleanup, a);
   const input = a.a.inputs.at(-1)!;
   assert.equal(input.prompt, 'Choose the next task');
-  assert.doesNotMatch(
-    input.context!,
-    /--claim|--release|Before starting a new task/,
-  );
+  assert.doesNotMatch(input.context!, /--release|Before starting a new task/);
   assert.match(
     input.context!,
     /New work needs no claim or pre-task peer query/,
   );
   for (const command of ['--select-next', '--recommend', '--cancel-selection'])
     assert.ok(input.context!.includes(command));
+  assert.match(input.context!, /--claim/);
+  assert.match(input.context!, /Open pull requests still need an active claim/);
   assert.match(input.context!, /Control command:/);
   assert.match(input.context!, /Session coordination:/);
   assert.ok(input.context!.includes(`Selection turn: ${choosing.turn}`));
@@ -52,7 +51,7 @@ test('policy overrides survive fixed-instruction caching and ignore other projec
       required,
     );
     assert.equal(input.context!.includes('New work needs no claim'), !required);
-    assert.equal(input.context!.includes('--claim'), required && fixed);
+    assert.equal(input.context!.includes('--claim'), fixed);
     assert.equal(
       input.context!.includes('has no current verified usable credits'),
       required && fixed,
@@ -168,7 +167,11 @@ for (const owned of ['active claim', 'recorded suggestion']) {
       input.instructions,
       /--cancel-selection removes only its selection ticket/,
     );
-    assert.doesNotMatch(input.instructions, /--claim|use .* to promote it/);
+    assert.match(input.instructions, /--claim/);
+    assert.match(
+      input.instructions,
+      /Promote its suggestion to an active claim for Copilot watching/,
+    );
     assert.match(input.context, /New work needs no claim/);
     assert.deepEqual(await registry.claims(), before);
     await a.coordinator.releaseTask();

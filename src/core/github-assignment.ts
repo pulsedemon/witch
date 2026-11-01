@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
 import { runCommand } from './command.js';
+import type { TaskClaim } from './coordination-state.js';
 
 /** resolves the references GitHub confirmed and any failure so the caller can warn while retaining ownership. */
 export async function assignGitHubTask(
@@ -74,4 +75,44 @@ export async function assignGitHubTask(
   return failures.length
     ? { assigned, failure: failures.join('\n') }
     : { assigned };
+}
+
+/** assignment failure leaves the local claim intact, including when saving the receipt fails. */
+export async function recordTaskAssignment(
+  claim: TaskClaim,
+  cwd: string,
+  deadline: number,
+  assign: typeof assignGitHubTask,
+  record: (
+    id: string,
+    references: string[],
+    deadline: number,
+  ) => Promise<TaskClaim | undefined>,
+): Promise<{ claim: TaskClaim; warning?: string }> {
+  const { assigned, failure } = await assign(
+    claim.references.filter(
+      (reference) => !claim.assigned?.includes(reference),
+    ),
+    cwd,
+    deadline - 2000,
+  );
+  let recorded = claim;
+  const warnings = failure
+    ? [
+        `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${failure}`,
+      ]
+    : [];
+  if (assigned.length) {
+    try {
+      recorded = (await record(claim.id, assigned, deadline - 1000)) ?? claim;
+    } catch (error) {
+      warnings.push(
+        `GitHub assignment succeeded, but its local receipt could not be saved. Repeat --claim to retry. ${errorMessage(error)}`,
+      );
+    }
+  }
+  return {
+    claim: recorded,
+    ...(warnings.length ? { warning: warnings.join('\n') } : {}),
+  };
 }

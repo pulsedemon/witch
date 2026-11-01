@@ -45,6 +45,8 @@ export interface Snapshot {
   completedTurn?: string;
   /** a Witch-started turn answering peer requests holds the phase. */
   answering?: boolean;
+  /** a Witch-started turn handling Copilot feedback holds the phase. */
+  reviewing?: boolean;
   recovery?: Recovery;
   error?: string;
 }

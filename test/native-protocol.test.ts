@@ -326,7 +326,7 @@ test('a restricted Codex fork and its structured reply use the generated native 
       answerInstruction,
       undefined,
       requestContext(batch),
-      'witch',
+      'peer-answer',
       { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
     );
     assert.equal(result.status, 'completed');

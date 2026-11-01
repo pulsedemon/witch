@@ -39,6 +39,7 @@ import type {
   SkillCall,
   Subagent,
   TurnResult,
+  TurnPurpose,
   Usage,
   UserRequest,
   UserResponse,
@@ -552,10 +553,10 @@ class CodexSession implements AgentSession {
     prompt: string,
     skill?: SkillCall,
     context?: string,
-    author: 'user' | 'witch' = 'user',
+    purpose: TurnPurpose = 'user',
     answer?: AnswerInput,
   ): Promise<TurnResult> {
-    if (author === 'witch' && !this.options.answer) {
+    if (purpose === 'peer-answer' && !this.options.answer) {
       if (this.closed || this.closing)
         throw new Error('The Codex session is closed');
       if (this.turn) throw new Error('This agent is already running');

@@ -50,6 +50,7 @@ import type {
   SkillCall,
   Subagent,
   TurnResult,
+  TurnPurpose,
   Usage,
   UserRequest,
   UserResponse,
@@ -517,10 +518,10 @@ class ClaudeSession implements AgentSession {
     prompt: string,
     skill?: SkillCall,
     context?: string,
-    author: 'user' | 'witch' = 'user',
+    purpose: TurnPurpose = 'user',
     answer?: AnswerInput,
   ): Promise<TurnResult> {
-    if (author === 'witch' && !this.options.answer) {
+    if (purpose === 'peer-answer' && !this.options.answer) {
       if (this.closed) throw new Error('The Claude session is closed');
       if (this.turn) throw new Error('This agent is already running');
       return this.answers.run(this.info, prompt, context, answer);
@@ -530,7 +531,7 @@ class ClaudeSession implements AgentSession {
     const input =
       context === undefined
         ? prompt
-        : `${context}\n\n${author === 'witch' ? 'Witch' : 'User'} request:\n${prompt}`;
+        : `${context}\n\n${purpose === 'user' ? 'User' : 'Witch'} request:\n${prompt}`;
     const uuid = this.push(
       this.content(input, skill),
       !skill && prompt.trim().startsWith('/'),
