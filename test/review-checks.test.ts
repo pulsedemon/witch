@@ -193,6 +193,19 @@ test('an angle-bracketed link destination is read as the path inside it', async 
   );
 });
 
+test('a fence inside a blockquote is code until its quote ends', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '> ```md\n> [example](missing.md)\n> ```\n> [quoted](gone.md)\n\n> ```\n> [open](away.md)\n\n[after](lost.md)\n',
+    }),
+    [
+      '4: link target gone.md does not exist',
+      '9: link target lost.md does not exist',
+    ],
+  );
+});
+
 test('a link target with balanced parentheses is read whole, in links and writing rules', async () => {
   assert.deepEqual(
     await check({
