@@ -50,7 +50,7 @@ interface Outcome {
 
 const target = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
 
-/** the runtime a reviewer's name carries, as `review-<run>-<round>-<runtime>-<index>`. */
+/** the runtime a reviewer's name carries, as `review-<run>-<round>-<runtime>`. */
 const runtimeOf = ({ name }: Reviewer) => name.split('-')[3]!;
 
 async function harness(
@@ -369,7 +369,7 @@ test('a final correction that removes a target the checks skip fails the review'
 test('sitting out never empties a round', async (t) => {
   const h = await harness(t);
   h.state.routes = (round) =>
-    round === 1 ? [claudeRoute, codexRoute] : [codexRoute, codexRoute];
+    round === 1 ? [claudeRoute, codexRoute] : [codexRoute];
   h.state.outcome = (round, { runtime }) =>
     round === 1 && runtime === 'claude'
       ? { findings: [{ line: 5, blocking: true }] }
@@ -378,8 +378,8 @@ test('sitting out never empties a round', async (t) => {
   assert.equal(await h.coordinator.review('plan.md'), true);
   assert.deepEqual(h.rounds.map(names), [
     ['claude', 'codex'],
-    ['codex', 'codex'],
-    ['codex', 'codex'],
+    ['codex'],
+    ['codex'],
   ]);
   assert.doesNotMatch(h.notice('Review round 2')!, /sits out/);
   assert.match(
@@ -501,9 +501,9 @@ test('a reviewer that fails, stops, exits non-zero, reports another model or wri
       .slice(before)
       .find((text) => text.startsWith('Review stopped'));
     const [text, report] = stop!.split(' · report ');
-    assert.match(text!, /^Review stopped: review-[0-9a-f]{8}-1-claude-0 /);
+    assert.match(text!, /^Review stopped: review-[0-9a-f]{8}-1-claude /);
     assert.match(text!, reason);
-    assert.match(report!, /\/review-[0-9a-f]{8}-1-claude-0\.md$/);
+    assert.match(report!, /\/review-[0-9a-f]{8}-1-claude\.md$/);
   }
   assert.equal(h.correctionPrompts().length, 0);
   assert.equal(h.notice('Review finished'), undefined);
@@ -517,8 +517,8 @@ test('every failed reviewer in a round is named in the stop notice', async (t) =
   });
   assert.equal(await h.coordinator.review('plan.md'), false);
   const stop = h.notice('Review stopped')!;
-  assert.match(stop, /-claude-0 ended failed: witch: claude broke · report /);
-  assert.match(stop, /-codex-0 ended failed: witch: codex broke · report /);
+  assert.match(stop, /-claude ended failed: witch: claude broke · report /);
+  assert.match(stop, /-codex ended failed: witch: codex broke · report /);
 });
 
 test('a refused route stops the review', async (t) => {

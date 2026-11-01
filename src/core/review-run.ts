@@ -233,11 +233,8 @@ async function runReview(
         known: reported,
       }),
     );
-    const counts = new Map<string, number>();
     const reviewers: (Reviewer & { route: Routed })[] = routes.map((route) => {
-      const index = counts.get(route.runtime) ?? 0;
-      counts.set(route.runtime, index + 1);
-      const name = `review-${run}-${number}-${route.runtime}-${index}`;
+      const name = `review-${run}-${number}-${route.runtime}`;
       const reportFile = join(directory, `${name}.md`);
       return {
         name,
@@ -283,7 +280,7 @@ async function runReview(
     const round = {
       number,
       scope,
-      runtimes: [...new Set(routes.map(({ runtime }) => runtime))],
+      runtimes: routes.map(({ runtime }) => runtime),
     };
     const decided = decide({
       round,
