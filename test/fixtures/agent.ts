@@ -98,6 +98,8 @@ export class FixtureAgent implements AgentAdapter {
   interruptNext = false;
   /** the next turn fails once its gate opens, as a native error ends one. */
   failNext = false;
+  /** a turn whose prompt it matches fails once its gate opens, with confirmed usage exhaustion. */
+  exhaust?: (prompt: string) => boolean;
   peerReply?: (requests: PeerRequest[]) => string;
   gate?: TurnGate;
   /** what a session reports as its usage when it connects. */
@@ -344,6 +346,13 @@ export class FixtureAgent implements AgentAdapter {
           this.failNext = false;
           result = { status: 'failed', text: '', error: 'Overloaded' };
         }
+        if (!result && this.exhaust?.(prompt))
+          result = {
+            status: 'failed',
+            text: '',
+            error: 'Usage limit reached',
+            exhausted: true,
+          };
         if (!result) {
           let text = prompt.includes('handoff summary')
             ? `${this.id}: finish the migration`

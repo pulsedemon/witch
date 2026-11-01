@@ -893,3 +893,57 @@ test('a prompt sent during a handoff waits and goes to the destination', async (
     await coordinator.close();
   }
 });
+
+test('a /model switch whose summary fails activates with transcript context and delivers a prompt sent during it', async () => {
+  const { coordinator, a, b } = await handoffFixture();
+  const gate = new TurnGate();
+  a.gate = gate;
+  try {
+    a.failNext = true;
+    const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    await within(gate.entered, 2000, 'the summary turn');
+    await coordinator.send('During');
+    gate.open();
+    await within(switching, 2000, 'the handoff');
+    await until('the queued prompt', () => b.inputs.length === 1);
+    assert.equal(b.inputs[0]!.prompt, 'During');
+    assert.match(b.inputs[0]!.context!, /could not summarize/);
+    assert.match(b.inputs[0]!.context!, /User: Start the migration/);
+    assert.equal(coordinator.snapshot.conversation!.agent, 'b');
+    assert.ok(
+      !coordinator.snapshot.items.some(({ text }) =>
+        text.includes('out of usage'),
+      ),
+    );
+  } finally {
+    gate.open();
+    await coordinator.close();
+  }
+});
+
+test('a /model switch whose failed summary leaves memory pending keeps the source', async () => {
+  const { coordinator, a, b } = await handoffFixture();
+  try {
+    const { session, options } = a.sessions.at(-1)!;
+    const send = session.send.bind(session);
+    vi.spyOn(session, 'send').mockImplementation(async (prompt, ...rest) => {
+      if (!prompt.includes('handoff summary')) return send(prompt, ...rest);
+      await writeFile(
+        join(options.memoryDirectories[1]!, 'notes.md'),
+        'half written',
+      );
+      return { status: 'failed', text: '', error: 'Overloaded' };
+    });
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'b', id: 'b-model' }),
+      /Overloaded/,
+    );
+    assert.equal(coordinator.snapshot.conversation!.agent, 'a');
+    assert.equal(coordinator.snapshot.conversation!.handoff, undefined);
+    assert.equal(coordinator.snapshot.phase, 'recovery');
+    assert.equal(b.sessions.length, 0);
+  } finally {
+    vi.restoreAllMocks();
+    await coordinator.close();
+  }
+});

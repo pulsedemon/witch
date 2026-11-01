@@ -222,14 +222,16 @@ export class AccountUsage {
       if (adapter.id !== live) void this.refresh(adapter.id, cwd);
   }
 
-  refresh(agent: string, cwd: string): Promise<void> {
+  /** `force` skips only the attempt throttle, for a decision that can't wait for it. */
+  refresh(agent: string, cwd: string, { force = false } = {}): Promise<void> {
     const running = this.reads.get(agent);
     if (running) return running;
     const now = Date.now();
     if (
       this.closed ||
       !due(this.accounts[agent], now) ||
-      now - (this.attempts.get(agent) ?? -Infinity) <= USAGE_CURRENT_MS
+      (!force &&
+        now - (this.attempts.get(agent) ?? -Infinity) <= USAGE_CURRENT_MS)
     )
       return Promise.resolve();
     const live =

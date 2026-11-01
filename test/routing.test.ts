@@ -574,6 +574,8 @@ test('a rule that names a model or family shifts to the comparable model on a ru
   const codexHot = { claude: [window('7D', 1)], codex: [window('7D', 99)] };
   for (const [rule, limits, model, from] of [
     ['claude:claude-opus-5', claudeHot, 'gpt-6-astra', 'claude-opus-5'],
+    ['claude:fable', claudeHot, 'gpt-6-astra', 'fable'],
+    ['codex:astra', codexHot, 'claude-opus-5-5', 'astra'],
     ['claude:sonnet', claudeHot, 'gpt-6.1-sol', 'sonnet'],
     ['codex:gpt-6.1-terra', codexHot, 'claude-sonnet-5-5', 'gpt-6.1-terra'],
     ['codex:luna', codexHot, 'claude-haiku-5-5', 'luna'],
