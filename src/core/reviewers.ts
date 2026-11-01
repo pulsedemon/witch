@@ -137,7 +137,7 @@ export class Reviewers {
         }),
     );
     let stopping: Promise<void> | undefined;
-    // a stop that misses its deadline ends the run even while a command still hasn't exited
+    // a stop that misses its deadline ends the run even while a command or its group is still running
     const missed = Promise.withResolvers<never>();
     const abort = () => {
       stopping ??= stopGroups(
@@ -168,7 +168,10 @@ export class Reviewers {
       if (stopping) await stopping;
       else {
         const deadline = stopDeadline();
-        await beforeDeadline(gone(groups, deadline), deadline);
+        await Promise.race([
+          beforeDeadline(gone(groups, deadline), deadline),
+          missed.promise,
+        ]);
       }
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
