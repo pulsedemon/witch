@@ -98,6 +98,13 @@ test('a link shown in fenced code or an inline code span is not checked', async 
   );
 });
 
+test('a line opening with a code span in triple backticks opens no fence', async () => {
+  assert.deepEqual(
+    await check({ 'plan.md': '```example```\n[a](missing.md)\n' }),
+    ['2: link target missing.md does not exist'],
+  );
+});
+
 test('a link inside an HTML comment is not checked, and one beside it is', async () => {
   assert.deepEqual(
     await check({
@@ -232,6 +239,13 @@ test("a heading's unpaired underscores stay in its slug", async () => {
       'plan.md':
         '[a](#_id) [b](#the-_id-field) [c](#__dirname) [d](#bold-text)\n\n## _id\n\n## The _id field\n\n## __dirname\n\n## __bold__ text\n',
     }),
+    [],
+  );
+});
+
+test('the space an emoji leaves at the start of a heading stays in its slug', async () => {
+  assert.deepEqual(
+    await check({ 'plan.md': '[a](#-unicode-emoji)\n\n# 😄 unicode emoji\n' }),
     [],
   );
 });
