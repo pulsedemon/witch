@@ -478,6 +478,11 @@ for await (const line of lines) {
       id: request.id,
       error: { message: 'rate limits need a ChatGPT login' },
     });
+  else if (
+    request.method === 'account/rateLimits/read' &&
+    existsSync(file('account-usage.json'))
+  )
+    reply(JSON.parse(readFileSync(file('account-usage.json'), 'utf8')));
   else if (request.method === 'account/rateLimits/read')
     reply({
       rateLimits: {

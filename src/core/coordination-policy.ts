@@ -68,7 +68,7 @@ export function coordinationInstructions(
     'Another --select-next releases the old suggestion and joins the tail. Cancel with --cancel-selection <ticket-id> when redirected or when no suitable work remains. Do not infer permission from a failed or timed-out command; query peers to reconcile its result.',
     ...(required
       ? [
-          'Before starting a new task, query the other sessions and claim its reference. Claim any unclaimed task already underway before continuing it. For unnumbered work, compare existing task summaries and reuse a matching reference. A claim can move automatically when its idle owner reports an exhausted usage limit that has not reset and has no unresolved memory recovery, running familiars or brews. A returned conflict means stop that task and report its owner and the /task take command the conflict names; do not rename the task to get around the conflict. Refresh before changing scope, including after a steered request.',
+          'Before starting a new task, query the other sessions and claim its reference. Claim any unclaimed task already underway before continuing it. For unnumbered work, compare existing task summaries and reuse a matching reference. A claim can move automatically when its idle owner reports an exhausted usage limit that has not reset, has no current verified usable credits, and has no unresolved memory recovery, running familiars or brews. A returned conflict means stop that task and report its owner and the /task take command the conflict names; do not rename the task to get around the conflict. Refresh before changing scope, including after a steered request.',
         ]
       : []),
   ].join('\n');

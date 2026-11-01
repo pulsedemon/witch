@@ -1,0 +1,479 @@
+import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { createElement } from 'react';
+import { test, vi } from 'vitest';
+import { accountReading } from '../src/agents/claude-usage.js';
+import type { AccountReading } from '../src/agents/types.js';
+import {
+  AccountUsage,
+  creditCapacity,
+  fundingText,
+  usageContext,
+  USAGE_CURRENT_MS,
+} from '../src/core/usage.js';
+import { App } from '../src/ui/app.js';
+import { accountRows } from '../src/ui/status-line.js';
+import { close, controlledFixture } from './fixtures/codex-adapter.js';
+import { fake, show } from './fixtures/ui.js';
+import { until } from './fixtures/within.js';
+
+test('native Codex credit states reach both rendered layouts beside a full weekly window', async () => {
+  const f = await controlledFixture();
+  const { app, coordinator } = fake({
+    agents: [
+      { id: 'codex', label: 'Codex', installed: true },
+      { id: 'claude', label: 'Claude', installed: true },
+    ],
+    accounts: {},
+    native: {
+      id: 's',
+      agent: 'codex',
+      model: 'gpt-6.1-sol',
+      permissionMode: 'read-only',
+      hasHistory: false,
+    },
+  });
+  const store = new AccountUsage([], (accounts) =>
+    coordinator.publish({ accounts }),
+  );
+  store.report(
+    'claude',
+    accountReading(
+      {
+        rate_limits_available: true,
+        rate_limits: {
+          limits: [],
+          extra_usage: {
+            is_enabled: false,
+            used_credits: 651,
+            monthly_limit: 10000,
+            currency: 'USD',
+            decimal_places: 2,
+          },
+        },
+      },
+      { limits: [] },
+    ),
+  );
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    115,
+    40,
+  );
+  try {
+    await f.session.readAccountUsage!();
+    for (const [credits, expected, capacity] of [
+      [
+        { hasCredits: true, unlimited: false, balance: '12345.678900' },
+        '12345.678900 credits',
+        'available',
+      ],
+      [
+        { hasCredits: true, unlimited: false, balance: '9876.543210' },
+        '9876.543210 credits',
+        'available',
+      ],
+      [
+        { hasCredits: false, unlimited: false, balance: '0' },
+        '0 credits',
+        'unavailable',
+      ],
+      [
+        { hasCredits: false, unlimited: true, balance: null },
+        'unlimited credits',
+        'available',
+      ],
+      [
+        { hasCredits: true, unlimited: false, balance: null },
+        'credits available; balance unavailable',
+        'available',
+      ],
+      [
+        { hasCredits: false, unlimited: false, balance: null },
+        'no credits',
+        'unavailable',
+      ],
+      [null, 'credits unavailable', 'unknown'],
+    ] as const) {
+      await writeFile(
+        join(f.cwd, 'account-usage.json'),
+        JSON.stringify({
+          accountId: 'test-account',
+          rateLimits: {
+            limitId: 'codex',
+            primary: {
+              usedPercent: 100,
+              windowDurationMins: 10080,
+              resetsAt: 2000000000,
+            },
+            secondary: null,
+            credits,
+            spendControlReached: false,
+            rateLimitReachedType: 'rate_limit_reached',
+          },
+        }),
+      );
+      await f.session.readAccountUsage!();
+      const account = f.session.usage.account!;
+      store.report('codex', account);
+      assert.equal(creditCapacity(account, Date.now()), capacity);
+      assert.equal(fundingText(account.funding!), expected);
+      for (const width of [115, 80]) {
+        ui.resize(width);
+        await until(
+          expected,
+          () =>
+            expected.split('; ').every((part) => ui.text().includes(part)) &&
+            ui.text().split('\n')[0]!.includes('┃') === (width === 115),
+        );
+        assert.match(ui.text(), /7D 100%/);
+        const accountText = ui
+          .text()
+          .split('\n')
+          .map((line) =>
+            width === 115 ? line.slice(line.lastIndexOf('┃') + 1) : line,
+          )
+          .join(' ')
+          .replace(/\s+/g, ' ');
+        assert.match(
+          accountText,
+          /CLAUDE extra off: USD 6.51 spent \/ USD 100.00 cap/,
+        );
+        for (const old of ['12345.678900', '9876.543210'])
+          if (old !== credits?.balance) assert.ok(!ui.text().includes(old));
+        assert.equal(ui.text().split('\n').length, 40);
+      }
+    }
+  } finally {
+    ui.unmount();
+    await close(f.session, f.cwd);
+  }
+});
+
+test('a rolling update retains the credit timestamp, ignores another quota, and cannot erase a spending denial', async () => {
+  const f = await controlledFixture();
+  try {
+    await f.session.readAccountUsage!();
+    await writeFile(
+      join(f.cwd, 'account-usage.json'),
+      JSON.stringify({
+        accountId: 'one',
+        rateLimits: {
+          limitId: 'codex',
+          credits: { hasCredits: true, unlimited: false, balance: '123.456' },
+          spendControlReached: false,
+          rateLimitReachedType: null,
+        },
+      }),
+    );
+    await f.session.readAccountUsage!();
+    const initial = f.session.usage.account!;
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: {
+        rateLimits: {
+          limitId: 'codex',
+          credits: null,
+          primary: {
+            usedPercent: 100,
+            windowDurationMins: 10080,
+            resetsAt: 2000000000,
+          },
+        },
+      },
+    });
+    assert.equal(f.session.usage.account!.funding, initial.funding);
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: {
+        rateLimits: {
+          limitId: 'other',
+          credits: { hasCredits: false, unlimited: false, balance: '0' },
+        },
+      },
+    });
+    assert.equal(f.session.usage.account!.funding, initial.funding);
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: {
+        rateLimits: {
+          limitId: 'other',
+          rateLimitReachedType: 'workspace_member_credits_depleted',
+        },
+      },
+    });
+    assert.equal(f.session.usage.account!.funding, initial.funding);
+    assert.equal(
+      creditCapacity(f.session.usage.account!, Date.now()),
+      'unavailable',
+    );
+    await f.session.readAccountUsage!();
+    assert.equal(
+      creditCapacity(f.session.usage.account!, Date.now()),
+      'available',
+    );
+
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: { rateLimits: { limitId: 'codex', spendControlReached: true } },
+    });
+    assert.equal(
+      creditCapacity(f.session.usage.account, Date.now()),
+      'unavailable',
+    );
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: {
+        rateLimits: {
+          limitId: 'codex',
+          credits: { hasCredits: true, unlimited: false, balance: '200.000' },
+        },
+      },
+    });
+    assert.equal(
+      creditCapacity(f.session.usage.account, Date.now()),
+      'unavailable',
+    );
+    assert.equal(f.session.usage.account!.funding?.kind, 'credits');
+    assert.notEqual(f.session.usage.account!.funding, initial.funding);
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('Claude spend keeps native units and disabled state, and a cached failure cannot refresh it', () => {
+  const now = 2000000000000;
+  vi.spyOn(Date, 'now').mockReturnValue(now);
+  try {
+    const raw = {
+      rate_limits_available: true,
+      rate_limits: {
+        seven_day: { utilization: 100, resets_at: null },
+        limits: [],
+        extra_usage: {
+          is_enabled: false,
+          monthly_limit: 10000,
+          used_credits: 651,
+          currency: 'USD',
+          decimal_places: 2,
+        },
+      },
+    };
+    const first = accountReading(raw, { limits: [] })!;
+    assert.deepEqual(first.funding, {
+      kind: 'extra-usage',
+      enabled: false,
+      used: 651,
+      limit: 10000,
+      currency: 'USD',
+      decimalPlaces: 2,
+      observedAt: now - 60000,
+    });
+    assert.equal(creditCapacity(first, now), 'unavailable');
+    vi.spyOn(Date, 'now').mockReturnValue(now + USAGE_CURRENT_MS + 1);
+    const failed = accountReading(
+      { ...raw, rate_limits: { ...raw.rate_limits, limits: undefined } },
+      first,
+    )!;
+    assert.equal(failed.limits, first.limits);
+    assert.equal(failed.funding, first.funding);
+    assert.equal(failed.creditAccess, first.creditAccess);
+    assert.equal(creditCapacity(failed, Date.now()), 'unknown');
+    const malformed = accountReading(
+      {
+        ...raw,
+        rate_limits: {
+          ...raw.rate_limits,
+          extra_usage: { is_enabled: 'invalid' },
+        },
+      },
+      first,
+    )!;
+    assert.equal(malformed.funding, first.funding);
+    assert.equal(malformed.limits[0]!.percent, 100);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+test('credit access expires independently of newly observed windows', () => {
+  const now = 2000000000000;
+  const account: AccountReading = {
+    limits: [{ window: '7D', percent: 100, observedAt: now }],
+    funding: {
+      kind: 'credits',
+      balance: '123.00',
+      available: true,
+      unlimited: false,
+      observedAt: now,
+    },
+    creditAccess: {
+      state: 'available',
+      observedAt: now - USAGE_CURRENT_MS - 1,
+    },
+  };
+  assert.equal(creditCapacity(account, now), 'unknown');
+});
+
+test('currency formatting preserves minor-unit precision, zero-decimal units, and unlimited caps', () => {
+  for (const [amount, currency, decimalPlaces, expected] of [
+    [651, 'USD', 2, 'USD 6.51'],
+    [651.7, 'USD', 2, 'USD 6.517'],
+    [651, 'JPY', 0, 'JPY 651'],
+    [0, 'USD', 2, 'USD 0.00'],
+    [1e-7, 'USD', 2, 'USD 0.000000001'],
+    [651, 'KWD', 2, 'KWD 6.51'],
+    [651, 'USD', null, 'USD 651 minor units'],
+  ] as const) {
+    assert.equal(
+      fundingText({
+        kind: 'extra-usage',
+        enabled: true,
+        used: amount,
+        limit: null,
+        currency,
+        decimalPlaces,
+        observedAt: 1,
+      }),
+      `extra on: ${expected} spent / unlimited cap`,
+    );
+  }
+});
+
+test('credit-only stale readings retain the full amount and age at wide, narrow and short terminal sizes', async () => {
+  const now = Date.now();
+  const reading: AccountReading = {
+    limits: [],
+    funding: {
+      kind: 'credits',
+      balance: '42886.6046410000',
+      available: true,
+      unlimited: false,
+      observedAt: now - 11 * 60000,
+    },
+    creditAccess: { state: 'available', observedAt: now - 11 * 60000 },
+  };
+  const { app } = fake({
+    agents: [{ id: 'codex', label: 'Codex', installed: true }],
+    native: {
+      id: 's',
+      agent: 'codex',
+      model: 'gpt-6.1-sol',
+      permissionMode: 'read-only',
+      hasHistory: false,
+    },
+    accounts: { codex: reading },
+  });
+  for (const [width, height] of [
+    [115, 40],
+    [80, 40],
+    [115, 15],
+    [30, 20],
+  ] as const) {
+    const ui = show(
+      createElement(App, { coordinator: app, onExit() {} }),
+      width,
+      height,
+    );
+    try {
+      await until(
+        'complete stale credits',
+        () =>
+          ui.text().includes('42886.6046410000 credits') &&
+          /11M\s+OLD/.test(ui.text()),
+      );
+      assert.equal(ui.text().split('\n').length, height);
+      assert.match(ui.text(), /CTX/);
+    } finally {
+      ui.unmount();
+    }
+  }
+  assert.equal(
+    usageContext({ codex: reading }, [{ id: 'codex', label: 'Codex' }], now),
+    'Account usage: Codex 42886.6046410000 credits, not current (11 minutes old), credit execution unknown. A reading older than 10 minutes or past its reset is not current.',
+  );
+});
+
+test('a tiny terminal preserves the composer and live balance beside two accounts and a long error', async () => {
+  const now = Date.now();
+  const { app } = fake({
+    error:
+      'A long error which wraps onto several rows in a narrow terminal. '.repeat(
+        3,
+      ),
+    agents: [
+      { id: 'codex', label: 'Codex', installed: true },
+      { id: 'claude', label: 'Claude', installed: true },
+    ],
+    native: {
+      id: 's',
+      agent: 'codex',
+      model: 'gpt-6.1-sol',
+      effort: 'high',
+      permissionMode: 'read-only',
+      hasHistory: false,
+    },
+    accounts: {
+      codex: {
+        limits: [{ window: '7D', percent: 100, observedAt: now }],
+        funding: {
+          kind: 'credits',
+          balance: '42886.6046410000',
+          available: true,
+          unlimited: false,
+          observedAt: now,
+        },
+      },
+      claude: {
+        limits: [],
+        funding: {
+          kind: 'extra-usage',
+          enabled: false,
+          used: 651,
+          limit: 10000,
+          currency: 'USD',
+          decimalPlaces: 2,
+          observedAt: now,
+        },
+      },
+    },
+  });
+  const ui = show(
+    createElement(App, { coordinator: app, onExit() {} }),
+    30,
+    12,
+  );
+  try {
+    await until('live balance', () =>
+      ui.text().includes('42886.6046410000 credits'),
+    );
+    assert.equal(ui.text().split('\n').length, 12);
+    assert.match(ui.text(), /Ask the agent/);
+    assert.match(ui.text(), /\/delegation/);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('an unlimited grant still displays a native spending denial', () => {
+  const now = Date.now();
+  assert.deepEqual(
+    accountRows(
+      {
+        limits: [],
+        funding: {
+          kind: 'credits',
+          balance: null,
+          available: false,
+          unlimited: true,
+          observedAt: now,
+        },
+        creditAccess: { state: 'unavailable', observedAt: now },
+      },
+      now,
+      false,
+    ),
+    ['unlimited credits', 'credit spending blocked'],
+  );
+});

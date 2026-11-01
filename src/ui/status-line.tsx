@@ -2,25 +2,26 @@ import { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { basename } from 'node:path';
 import stringWidth from 'string-width';
-import type { Limit, Usage } from '../agents/types.js';
-import { current } from '../core/usage.js';
+import type { AccountReading, Funding, Limit, Usage } from '../agents/types.js';
+import { creditCapacity, current, fundingText } from '../core/usage.js';
 import type { Repository } from '../core/repository.js';
-import { hyperlink, oneLine, plain } from './links.js';
+import { hyperlink, linkify, oneLine, plain } from './links.js';
 import { colors, piped } from './theme.js';
+import { wrapLines } from './wrap.js';
 
 export interface Account {
   id: string;
   /** `undefined` until a reading arrives. */
-  limits?: readonly Limit[];
+  reading?: AccountReading;
 }
 
 export interface Status {
   model?: string;
   effort?: string;
   usage: Usage;
-  /** the live runtime's account limits; absent while the sidebar shows every runtime's. */
-  limits?: readonly Limit[];
-  /** each other runtime's limits, in runtime order. */
+  /** absent while the sidebar shows every runtime's account reading. */
+  account?: AccountReading;
+  /** other runtimes in installed order. */
   others?: readonly Account[];
   /** epoch milliseconds. */
   openedAt?: number;
@@ -83,6 +84,30 @@ export function windowText(limit: Limit, now: number, reset: boolean): string {
   return `${limit.window} ${limitColor(percent)(`${percent}%`)}${reset ? untilReset(limit.resetsAt, now) : ''}`;
 }
 
+export function fundingRow(funding: Funding, now: number): string {
+  const text = plain(fundingText(funding));
+  return current(funding, now)
+    ? text
+    : colors.dim(`${text} ${duration(now - funding.observedAt)} OLD`);
+}
+
+export function accountRows(
+  account: AccountReading | undefined,
+  now: number,
+  reset: boolean,
+): string[] {
+  const rows =
+    account?.limits.map((limit) => windowText(limit, now, reset)) ?? [];
+  if (account?.funding) rows.push(fundingRow(account.funding, now));
+  if (
+    account?.funding?.kind === 'credits' &&
+    (account.funding.available || account.funding.unlimited) &&
+    creditCapacity(account, now) === 'unavailable'
+  )
+    rows.push('credit spending blocked');
+  return rows.length ? rows : ['?'];
+}
+
 function limitColor(percent: number): (text: string) => string {
   return percent >= 90
     ? colors.red
@@ -135,25 +160,21 @@ export function statusLines(
   status: Status,
   now: number,
   width = Infinity,
-): [string, string] {
+  maxRows = Infinity,
+): [string, string, ...string[]] {
   const { usage, repository } = status;
   const context = Math.floor(usage.context ?? 0);
   const capacity =
     usage.contextWindow === undefined
       ? ''
       : ` (${tokenCount.format(usage.contextWindow)})`;
-  const others = (status.others ?? []).map(({ id, limits }) =>
-    [
-      id.toUpperCase(),
-      ...(limits?.length
-        ? limits.map((limit) => windowText(limit, now, false))
-        : ['?']),
-    ].join(' '),
+  const others = (status.others ?? []).map(({ id, reading }) =>
+    [id.toUpperCase(), ...accountRows(reading, now, false)].join(' '),
   );
   const first = (reset: boolean) => {
-    const limits = (status.limits ?? [])
-      .map((limit) => windowText(limit, now, reset))
-      .join(' ');
+    const limits = status.account
+      ? accountRows(status.account, now, reset).join(' ')
+      : '';
     return piped([
       white(plain(status.model || '?').toUpperCase()),
       plain(status.effort || 'default').toUpperCase(),
@@ -164,9 +185,13 @@ export function statusLines(
     ]);
   };
   const full = first(true);
+  const compact = stringWidth(full) > width ? first(false) : full;
+  const hasFunding =
+    status.account?.funding ||
+    status.others?.some(({ reading }) => reading?.funding);
   const request = repository && pullRequest(repository);
-  return [
-    stringWidth(full) > width ? first(false) : full,
+  const lines: [string, string, ...string[]] = [
+    compact,
     piped([
       `${white('CTX')} ${context}%${capacity} ${bar(context)}`,
       white(hyperlink(oneLine(basename(status.cwd)), status.cwd, status.cwd)),
@@ -175,18 +200,86 @@ export function statusLines(
       `${usage.lines?.added ?? 0}+/${usage.lines?.removed ?? 0}-`,
     ]),
   ];
+  if (hasFunding) lines.splice(0, 1, ...wrapLines(compact, width, true));
+  if (hasFunding && lines.length > maxRows) {
+    const live = status.account?.funding;
+    const text = live
+      ? fundingText(live) + (current(live, now) ? '' : ' OLD')
+      : accountRows(status.account, now, false).join(' ');
+    const balance = wrapLines(plain(text), width, true);
+    const compact: [string, string, ...string[]] = [
+      balance[0]!,
+      balance[1] ?? 'Details: /delegation',
+      ...balance.slice(2),
+    ];
+    if (compact.length < maxRows)
+      compact.unshift(
+        piped([
+          plain(status.model || '?').toUpperCase(),
+          plain(status.effort || 'default').toUpperCase(),
+        ]),
+      );
+    return compact;
+  }
+  return lines;
+}
+
+/** errors and account details share the footer budget without taking the composer's reserved rows. */
+export function statusFooter(
+  status: Status,
+  now: number,
+  {
+    width,
+    height,
+    error,
+    bodyRows,
+  }: { width: number; height: number; error?: string; bodyRows: number },
+): { lines: string[]; errors: string[] } {
+  const funding =
+    status.account?.funding ||
+    status.others?.some(({ reading }) => reading?.funding);
+  const errorLimit = Math.max(
+    1,
+    Math.min(
+      Math.floor(height / 3),
+      funding ? height - 3 - bodyRows : Infinity,
+    ),
+  );
+  const errorLines = error
+    ? wrapLines(linkify(plain(error), status.cwd), width)
+    : [];
+  const errors =
+    errorLines.length > errorLimit
+      ? [
+          ...errorLines.slice(0, errorLimit - 1),
+          `+${errorLines.length - errorLimit + 1} more rows`,
+        ]
+      : errorLines;
+  return {
+    errors,
+    lines: statusLines(
+      status,
+      now,
+      width,
+      Math.max(2, height - 1 - errors.length - bodyRows),
+    ),
+  };
 }
 
 /** redrawn every 5 seconds, as Claude Code refreshes a status line, so the duration and resets keep time. */
-export function StatusLine(status: Status & { width: number }) {
+export function useStatusTime(): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(timer);
   }, []);
+  return now;
+}
+
+export function StatusLine({ lines }: { lines: readonly string[] }) {
   return (
-    <Box flexDirection="column" height={2} paddingX={1}>
-      {statusLines(status, now, status.width - 2).map((line, row) => (
+    <Box flexDirection="column" height={lines.length} paddingX={1}>
+      {lines.map((line, row) => (
         <Text key={row} wrap="truncate-end">
           {line}
         </Text>

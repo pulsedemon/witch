@@ -13,7 +13,7 @@ import type {
 import { z } from 'zod';
 import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
-import { accountLimits, ClaudeUsage } from './claude-usage.js';
+import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
 import { sideQuery, startupFailure } from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
@@ -40,7 +40,7 @@ import type {
   AgentSession,
   AgentStopOptions,
   AnswerInput,
-  Limit,
+  AccountReading,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -104,20 +104,20 @@ export class ClaudeAdapter implements AgentAdapter {
     );
   }
 
-  limits(
+  accountUsage(
     options: ModelDiscoveryOptions,
-    previous: readonly Limit[],
-  ): Promise<Limit[]> {
+    previous: AccountReading,
+  ): Promise<AccountReading> {
     return sideQuery(this.start, options, async (query) => {
-      const limits = accountLimits(
+      const account = accountReading(
         await query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
           skipBehaviors: true,
         }),
         previous,
       );
-      if (!limits)
+      if (!account)
         throw new Error('Claude Code sent an unreadable usage report.');
-      return limits;
+      return account;
     });
   }
 
@@ -1370,8 +1370,11 @@ class ClaudeSession implements AgentSession {
         removed: session.data.session.total_lines_removed,
       };
     }
-    const limits = accountLimits(report, this.usage.limits ?? []);
-    if (limits) update.limits = limits;
+    const account = accountReading(
+      report,
+      this.usage.account ?? { limits: [] },
+    );
+    if (account) update.account = account;
     if (Object.keys(update).length) this.report(update);
   }
 

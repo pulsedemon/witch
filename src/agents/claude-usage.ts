@@ -14,7 +14,11 @@ import {
   terminateChild,
   terminationReserveMs,
 } from './shutdown.js';
-import type { AgentStopOptions, Limit, SessionOptions } from './types.js';
+import type {
+  AccountReading,
+  AgentStopOptions,
+  SessionOptions,
+} from './types.js';
 
 export type UsageSource = 'main' | 'usage';
 
@@ -26,30 +30,53 @@ const limitWindow = z
   .nullish();
 const accountUsage = z.object({
   rate_limits_available: z.boolean(),
-  // percentages of 0 to 100
   rate_limits: z
-    .object({ five_hour: limitWindow, seven_day: limitWindow })
+    .object({
+      five_hour: limitWindow,
+      seven_day: limitWindow,
+      limits: z.array(z.unknown()).nullish(),
+      extra_usage: z
+        .object({
+          is_enabled: z.boolean(),
+          monthly_limit: z.number().nullable(),
+          used_credits: z.number().nullable(),
+          decimal_places: z.number().int().min(0).nullish(),
+          currency: z
+            .string()
+            .regex(/^[A-Za-z]{3}$/)
+            .nullish(),
+        })
+        .nullish()
+        .catch(undefined),
+    })
     .nullable(),
 });
 /** undefined for a report that doesn't parse; a window the report leaves null keeps its previous entry, time included. */
-export function accountLimits(
+export function accountReading(
   report: unknown,
-  previous: readonly Limit[],
-): Limit[] | undefined {
+  previous: AccountReading,
+): AccountReading | undefined {
   const account = accountUsage.safeParse(report);
   if (!account.success) return;
   const { rate_limits: limits, rate_limits_available: available } =
     account.data;
-  if (!available) return [];
-  const observedAt = Date.now();
-  return (
+  if (!available)
+    return {
+      limits: [],
+      funding: { kind: 'unavailable', observedAt: Date.now() },
+      creditAccess: { state: 'unknown', observedAt: Date.now() },
+    };
+  // seeded failures omit native rows, so neither windows nor funding can acquire a new observation.
+  if (!Array.isArray(limits?.limits)) return previous;
+  const observedAt = Date.now() - 60_000;
+  const windows = (
     [
       ['5H', limits?.five_hour],
       ['7D', limits?.seven_day],
     ] as const
   ).flatMap(([name, limit]) =>
     limit?.utilization == null
-      ? previous.filter((entry) => entry.window === name)
+      ? previous.limits.filter((entry) => entry.window === name)
       : [
           {
             window: name,
@@ -61,6 +88,28 @@ export function accountLimits(
           },
         ],
   );
+  const extra = limits?.extra_usage;
+  if (extra === undefined) return { ...previous, limits: windows };
+  return {
+    ...previous,
+    limits: windows,
+    funding: extra
+      ? {
+          kind: 'extra-usage',
+          enabled: extra.is_enabled,
+          used: extra.used_credits,
+          limit: extra.monthly_limit,
+          currency: extra.currency ?? null,
+          decimalPlaces: extra.decimal_places ?? null,
+          observedAt,
+        }
+      : { kind: 'unavailable', observedAt },
+    // enabled spending does not establish funding or selected-model permission.
+    creditAccess: {
+      state: extra?.is_enabled === false ? 'unavailable' : 'unknown',
+      observedAt,
+    },
+  };
 }
 
 interface Helper {
@@ -129,7 +178,7 @@ export class ClaudeUsage {
             if (!this.closed) this.onReport(report, source);
           }
         } catch {
-          // a failed optional read leaves the last valid snapshot visible until another refresh.
+          // a failed optional read leaves the last valid snapshot visible until another refresh
         }
         source = 'main';
       } while (this.requested && !this.closed);

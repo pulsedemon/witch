@@ -423,6 +423,7 @@ for await (const line of lines) {
           mode === 'no-limits'
             ? null
             : {
+                limits: [],
                 five_hour: {
                   utilization: 23.5,
                   resets_at: '2033-05-18T03:33:20Z',

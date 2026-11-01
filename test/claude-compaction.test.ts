@@ -373,6 +373,12 @@ test('Claude awaits a fresh context read without waiting for account usage and r
         () => false,
       ),
     );
+    // drain the post-turn sample before the fixture can hold a different request.
+    await within(
+      f.session.contextUsage(),
+      2000,
+      'context with account usage held',
+    );
     await writeFile(join(f.cwd, 'hold-context'), '');
     let settled = false;
     const stale = f.session.contextUsage().then((value) => {

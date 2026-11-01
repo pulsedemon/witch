@@ -182,8 +182,8 @@ export class Coordinator {
     this.catalog = new ModelCatalog(agents, (error) =>
       this.notice(errorMessage(error), undefined, false),
     );
-    this.accountUsage = new AccountUsage(agents, (limits) =>
-      this.publish({ limits }),
+    this.accountUsage = new AccountUsage(agents, (accounts) =>
+      this.publish({ accounts }),
     );
     this.snapshot = initialSnapshot(agents);
     this.coordination?.attach(() => this.session);
@@ -1350,7 +1350,7 @@ export class Coordinator {
     } else if (event.type === 'skills') {
       if (this.live(agent)) this.publish({ skills: event.skills });
     } else if (event.type === 'usage') {
-      this.accountUsage.report(agent, event.usage.limits);
+      this.accountUsage.report(agent, event.usage.account);
       if (this.live(agent)) this.publish({ usage: event.usage });
     } else if (event.type === 'subagent' || event.type === 'command') {
       if (this.live(agent)) this.background(event, conversation.cwd);

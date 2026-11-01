@@ -44,7 +44,7 @@ export function router(
         models: coordinator.snapshot.models,
         latest: coordinator.snapshot.latest,
       },
-      limits: coordinator.snapshot.limits,
+      accounts: coordinator.snapshot.accounts,
       now: Date.now(),
     });
     if ('refused' in decision) return refuse(decision.refused);

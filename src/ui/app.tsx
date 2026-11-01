@@ -47,7 +47,7 @@ import { castTitle, useCasting } from './cast.js';
 import { Sidebar, sidebarWidth, usagePlacement } from './sidebar.js';
 import { delegation } from './delegation.js';
 import { coordinationText } from './peers.js';
-import { StatusLine } from './status-line.js';
+import { StatusLine, statusFooter, useStatusTime } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
 import { accent, colors, piped, potion } from './theme.js';
 import { wrapLines } from './wrap.js';
@@ -152,6 +152,7 @@ export function App({
     [coordinator],
   );
   const state = useSyncExternalStore(subscription, () => coordinator.snapshot);
+  const model = state.native?.model;
   const repositoryStatus = useSyncExternalStore(
     repository?.subscribe ?? unwatched,
     () => repository?.snapshot,
@@ -174,7 +175,8 @@ export function App({
   /** inside the composer's border and paddingX. */
   const composerWidth = bodyWidth - 4;
   const height = Math.max(12, size.rows);
-  const usage = usagePlacement(state, sidebar, height);
+  const statusTime = useStatusTime();
+  const usage = usagePlacement(state, sidebar, height, statusTime);
   // the compiler needs the native fallback's string type to memoize its consumers.
   const cwd = state.conversation?.cwd ?? String(process.cwd());
   const [view, viewRef, setView] = useLiveState<View>({ kind: 'chat' });
@@ -290,20 +292,31 @@ export function App({
     // a diff row's offset counts rows, not characters, so it leaves no room for the row above
     return trimmed < 0 ? '\n' : ' '.repeat(trimmed);
   };
-  const errorLimit = Math.max(1, Math.floor(height / 3));
-  // an error can quote an agent-written note name
-  const errorLines = state.error
-    ? wrapLines(linkify(plain(state.error), cwd), width - 2)
-    : [];
-  const errorRows =
-    errorLines.length > errorLimit
-      ? [
-          ...errorLines.slice(0, errorLimit - 1),
-          `+${errorLines.length - errorLimit + 1} more rows`,
-        ]
-      : errorLines;
-  // the phase row above, the status line's two below
-  const bodyHeight = height - 3 - errorRows.length;
+  const { lines: status, errors: errorRows } = statusFooter(
+    {
+      ...usage.status,
+      model:
+        state.models.find(
+          ({ id, agent }) =>
+            id === model &&
+            agent === (state.native?.agent ?? state.conversation?.agent),
+        )?.label ?? model,
+      effort: state.native?.effort ?? state.native?.nativeEffort,
+      usage: state.usage,
+      openedAt: state.openedAt,
+      cwd,
+      repository: repositoryStatus,
+    },
+    statusTime,
+    {
+      width: width - 2,
+      height,
+      error: state.error,
+      bodyRows:
+        6 + Number(agentWorking(state.phase)) + Number(state.pendingCompaction),
+    },
+  );
+  const bodyHeight = height - 1 - status.length - errorRows.length;
   /** a draft belongs to its conversation, so typing waits for the load or a switch to open one. */
   const composerOpen = (snapshot: Snapshot, leaving: string | undefined) =>
     !!snapshot.conversation &&
@@ -1160,7 +1173,6 @@ export function App({
     }
   });
 
-  const model = state.native?.model;
   let body;
   if (request)
     body = (
@@ -1464,22 +1476,7 @@ export function App({
             <Text color="red">{errorRows.join('\n')}</Text>
           </Box>
         )}
-        <StatusLine
-          width={width}
-          {...usage.status}
-          model={
-            state.models.find(
-              ({ id, agent }) =>
-                id === model &&
-                agent === (state.native?.agent ?? state.conversation?.agent),
-            )?.label ?? model
-          }
-          effort={state.native?.effort ?? state.native?.nativeEffort}
-          usage={state.usage}
-          openedAt={state.openedAt}
-          cwd={cwd}
-          repository={repositoryStatus}
-        />
+        <StatusLine lines={status} />
       </Box>
       {sidebar && (
         <Sidebar
@@ -1488,7 +1485,7 @@ export function App({
           brews={state.backgroundCommands}
           subagents={state.subagents}
           peers={coordination?.peers}
-          accounts={usage.sidebar}
+          usage={usage.sidebar}
         />
       )}
     </Box>

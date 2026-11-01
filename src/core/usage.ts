@@ -1,15 +1,24 @@
 import type { AgentRegistration } from '../agents/registry.js';
 import { NativeStop } from '../agents/shutdown.js';
-import type { AgentSession, AgentStopOptions, Limit } from '../agents/types.js';
+import type {
+  AccountReading,
+  AgentSession,
+  AgentStopOptions,
+  Funding,
+  Limit,
+} from '../agents/types.js';
 
-/** a chosen bound: usage within a window only grows, so an older reading can hide a limit already reached. */
+/** older account observations cannot establish current capacity. */
 export const USAGE_CURRENT_MS = 10 * 60_000;
 
 /** a probe that hasn't answered by then is stopped, so a hung CLI doesn't hold its runtime's read. */
 export const USAGE_PROBE_MS = 30_000;
 
 /** observed within `USAGE_CURRENT_MS` and, when the window has a reset, before it. */
-export function current(limit: Limit, now: number): boolean {
+export function current(
+  limit: Pick<Limit, 'observedAt' | 'resetsAt'>,
+  now: number,
+): boolean {
   return (
     now - limit.observedAt <= USAGE_CURRENT_MS &&
     (limit.resetsAt === undefined || limit.resetsAt * 1000 > now)
@@ -38,38 +47,100 @@ export function over(
   );
 }
 
-/** no window, or one that isn't current, so another read could change a decision. */
-export function due(limits: readonly Limit[], now: number): boolean {
-  return limits.length === 0 || limits.some((limit) => !current(limit, now));
+/** refresh windows, funding and eligibility independently within the existing attempt throttle. */
+export function due(account: AccountReading | undefined, now: number): boolean {
+  return (
+    !account ||
+    account.limits.length === 0 ||
+    account.limits.some((limit) => !current(limit, now)) ||
+    !account.funding ||
+    !current(account.funding, now) ||
+    (account.creditAccess !== undefined && !current(account.creditAccess, now))
+  );
 }
 
-/** `Codex 7D 49%`, with the oldest window's age when one isn't current; `undefined` with no window. */
+export function creditCapacity(
+  account: AccountReading | undefined,
+  now: number,
+): 'available' | 'unavailable' | 'unknown' {
+  const access = account?.creditAccess;
+  return access && current(access, now) ? access.state : 'unknown';
+}
+
+function money(
+  amount: number | null,
+  currency: string | null,
+  decimals: number | null | undefined,
+): string {
+  if (amount === null) return '?';
+  if (decimals == null || !currency)
+    return `${currency ? `${currency} ` : ''}${amount} minor units`;
+  const [coefficient, exponent = '0'] = Math.abs(amount).toString().split('e');
+  const [whole = '', fraction = ''] = coefficient!.split('.');
+  const point = whole.length + Number(exponent) - decimals;
+  const digits = whole + fraction;
+  const integer = point > 0 ? digits.slice(0, point).padEnd(point, '0') : '0';
+  const remainder =
+    point < 0 ? '0'.repeat(-point) + digits : digits.slice(point);
+  const tail = remainder.padEnd(decimals, '0');
+  return `${currency} ${amount < 0 ? '-' : ''}${integer}${tail ? `.${tail}` : ''}`;
+}
+
+export function fundingText(funding: Funding): string {
+  if (funding.kind === 'unavailable') return 'credits unavailable';
+  if (funding.kind === 'extra-usage')
+    return `extra ${funding.enabled ? 'on' : 'off'}: ${money(funding.used, funding.currency, funding.decimalPlaces)} spent / ${funding.limit === null ? 'unlimited' : money(funding.limit, funding.currency, funding.decimalPlaces)} cap`;
+  if (funding.unlimited) return 'unlimited credits';
+  if (funding.balance !== null) return `${funding.balance} credits`;
+  return funding.available
+    ? 'credits available; balance unavailable'
+    : 'no credits';
+}
+
+/** window and funding ages remain separate so a new window cannot renew an old balance. */
 export function describeReading(
   name: string,
-  reading: readonly Limit[] | undefined,
+  account: AccountReading | undefined,
   now: number,
 ): string | undefined {
-  if (!reading?.length) return;
+  if (!account || (!account.limits.length && !account.funding)) return;
+  const reading = account.limits;
   const windows = reading
     .map(({ window, percent }) => `${window} ${Math.round(percent)}%`)
     .join(', ');
-  if (reading.every((limit) => current(limit, now)))
-    return `${name} ${windows}`;
-  const age = Math.floor(
-    (now - Math.min(...reading.map(({ observedAt }) => observedAt))) / 60_000,
-  );
-  return `${name} ${windows}, not current (${age} minutes old)`;
+  const parts: string[] = [];
+  const describe = (
+    text: string,
+    observed: readonly { observedAt: number; resetsAt?: number }[],
+  ) => {
+    if (observed.every((entry) => current(entry, now))) return text;
+    const age = Math.floor(
+      (now - Math.min(...observed.map(({ observedAt }) => observedAt))) /
+        60_000,
+    );
+    return `${text}, not current (${age} minutes old)`;
+  };
+  if (windows) parts.push(describe(windows, reading));
+  if (account.funding)
+    parts.push(describe(fundingText(account.funding), [account.funding]));
+  return `${name} ${parts.join(', ')}`;
 }
 
-/** one context line for the agent; a runtime with no window is left out, and none at all leaves no line. */
+/** dynamic account observations for the next turn. */
 export function usageContext(
-  limits: Readonly<Record<string, readonly Limit[]>>,
+  accounts: Readonly<Record<string, AccountReading>>,
   agents: readonly { id: string; label: string }[],
   now: number,
 ): string | undefined {
   const readings = agents.flatMap(({ id, label }) => {
-    const reading = describeReading(label, limits[id], now);
-    return reading ? [reading] : [];
+    const reading = describeReading(label, accounts[id], now);
+    if (!reading) return [];
+    const access = accounts[id]?.creditAccess;
+    return [
+      access
+        ? `${reading}, credit execution ${creditCapacity(accounts[id], now)}`
+        : reading,
+    ];
   });
   return readings.length
     ? `Account usage: ${readings.join('; ')}. A reading older than ${USAGE_CURRENT_MS / 60_000} minutes or past its reset is not current.`
@@ -78,9 +149,7 @@ export function usageContext(
 
 /** each runtime's latest reading, and the reads Witch starts for it; one read per runtime runs at a time. */
 export class AccountUsage {
-  private limits: Record<string, Limit[]> = {};
-  /** counts each runtime's reports, so a probe that started before a newer one doesn't replace it. */
-  private readonly reports = new Map<string, number>();
+  private accounts: Record<string, AccountReading> = {};
   private readonly attempts = new Map<string, number>();
   private readonly reads = new Map<string, Promise<void>>();
   private readonly probes = new Map<AbortController, Promise<void>>();
@@ -89,31 +158,45 @@ export class AccountUsage {
 
   constructor(
     private readonly agents: readonly AgentRegistration[],
-    private readonly publish: (limits: Record<string, Limit[]>) => void,
+    private readonly publish: (
+      accounts: Record<string, AccountReading>,
+    ) => void,
   ) {}
 
-  /** what a runtime reported; a report without limits leaves its reading alone, and an empty one clears it. */
-  report(agent: string, limits: Limit[] | undefined): void {
-    if (!limits) return;
-    const previous = this.limits[agent];
+  /** omitted account fields retain their observation; an empty window list clears windows. */
+  report(agent: string, account: AccountReading | undefined): void {
+    if (!account) return;
+    const stored = this.accounts[agent];
+    const previous =
+      account.identity && account.identity !== stored?.identity
+        ? undefined
+        : stored;
+    const { limits } = account;
     // a session's first report knows only its own windows, so one it leaves out keeps the earlier reading
     const kept = limits.length
-      ? (previous ?? []).filter(
+      ? (previous?.limits ?? []).filter(
           ({ window }) => !limits.some((limit) => limit.window === window),
         )
       : [];
     const reading = kept.length ? [...limits, ...kept] : limits;
-    if (
-      previous?.length === reading.length &&
-      reading.every((limit, index) => limit === previous[index])
-    )
-      return;
-    this.reports.set(agent, (this.reports.get(agent) ?? 0) + 1);
-    this.limits = { ...this.limits, [agent]: reading };
-    this.publish(this.limits);
+    this.store(agent, { ...previous, ...account, limits: reading });
   }
 
-  /** a live session reads its own limits as it connects, which counts as that runtime's attempt; later reads go through its `readLimits`, or wait on its own polling without one. */
+  private store(agent: string, next: AccountReading): void {
+    const previous = this.accounts[agent];
+    if (
+      previous?.limits.length === next.limits.length &&
+      next.limits.every((limit, index) => limit === previous.limits[index]) &&
+      previous.funding === next.funding &&
+      previous.creditAccess === next.creditAccess &&
+      previous.identity === next.identity
+    )
+      return;
+    this.accounts = { ...this.accounts, [agent]: next };
+    this.publish(this.accounts);
+  }
+
+  /** a live session's connect read counts as its first attempt; later reads use its method or existing polling. */
   connected(session: AgentSession, cwd: string): void {
     this.session = session;
     this.attempts.set(session.info.agent, Date.now());
@@ -123,7 +206,7 @@ export class AccountUsage {
   context(
     agents: readonly { id: string; label: string }[],
   ): string | undefined {
-    return usageContext(this.limits, agents, Date.now());
+    return usageContext(this.accounts, agents, Date.now());
   }
 
   others(live: string, cwd: string): void {
@@ -137,7 +220,7 @@ export class AccountUsage {
     const now = Date.now();
     if (
       this.closed ||
-      !due(this.limits[agent] ?? [], now) ||
+      !due(this.accounts[agent], now) ||
       now - (this.attempts.get(agent) ?? -Infinity) <= USAGE_CURRENT_MS
     )
       return Promise.resolve();
@@ -145,7 +228,7 @@ export class AccountUsage {
       this.session?.info.agent === agent && !this.session.closed
         ? this.session
         : undefined;
-    const read = live ? live.readLimits?.() : this.probe(agent, cwd);
+    const read = live ? live.readAccountUsage?.() : this.probe(agent, cwd);
     if (!read) return Promise.resolve();
     this.attempts.set(agent, now);
     const settled = read.finally(() => this.reads.delete(agent));
@@ -170,15 +253,56 @@ export class AccountUsage {
       USAGE_PROBE_MS,
     );
     timer.unref();
-    const reports = this.reports.get(agent) ?? 0;
+    const previous = this.accounts[agent];
     const probe = registration.adapter
-      .limits(
+      .accountUsage(
         { cwd, executable: registration.executable!, signal: abort.signal },
-        this.limits[agent] ?? [],
+        previous ?? { limits: [] },
       )
-      .then((limits) => {
-        if (!this.closed && (this.reports.get(agent) ?? 0) === reports)
-          this.report(agent, limits);
+      .then((reading) => {
+        if (this.closed) return;
+        const current = this.accounts[agent];
+        if (current?.identity !== previous?.identity) return;
+        if (
+          current === previous ||
+          (reading.identity && reading.identity !== current?.identity)
+        ) {
+          this.report(agent, reading);
+          return;
+        }
+        const changed = (window: string) =>
+          current?.limits.find((entry) => entry.window === window) !==
+          previous?.limits.find((entry) => entry.window === window);
+        const limits = reading.limits.length
+          ? reading.limits.flatMap((limit) => {
+              if (!changed(limit.window)) return [limit];
+              const newer = current?.limits.find(
+                (entry) => entry.window === limit.window,
+              );
+              return newer ? [newer] : [];
+            })
+          : (current?.limits ?? []).filter((limit) => changed(limit.window));
+        this.store(agent, {
+          ...current,
+          ...reading,
+          limits: reading.limits.length
+            ? [
+                ...limits,
+                ...(current?.limits ?? []).filter(
+                  (entry) =>
+                    !reading.limits.some(
+                      (limit) => limit.window === entry.window,
+                    ),
+                ),
+              ]
+            : limits,
+          ...(current?.funding !== previous?.funding
+            ? { funding: current?.funding }
+            : {}),
+          ...(current?.creditAccess !== previous?.creditAccess
+            ? { creditAccess: current?.creditAccess }
+            : {}),
+        });
       })
       // a failed read leaves the reading to age until the next attempt
       .catch(() => {})

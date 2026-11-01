@@ -51,8 +51,7 @@ export interface Usage {
   context?: number;
   /** the native agent's context capacity in tokens. */
   contextWindow?: number;
-  /** the account's usage limits, shortest window first. */
-  limits?: Limit[];
+  account?: AccountReading;
   /** lines the session's edits added and removed. */
   lines?: { added: number; removed: number };
 }
@@ -65,6 +64,40 @@ export interface Limit {
   resetsAt?: number;
   /** epoch ms when the adapter last received this window's value; a report that omits the window keeps it. */
   observedAt: number;
+}
+
+export type Funding = (
+  | {
+      kind: 'credits';
+      balance: string | null;
+      unlimited: boolean;
+      available: boolean;
+    }
+  | {
+      kind: 'extra-usage';
+      enabled: boolean;
+      used: number | null;
+      limit: number | null;
+      currency: string | null;
+      /** native currency exponent; absence retains the reported minor units. */
+      decimalPlaces?: number | null;
+    }
+  | { kind: 'unavailable' }
+) & {
+  /** source observation time, conservatively bounded when native caching hides its exact age. */
+  observedAt: number;
+};
+
+export interface AccountReading {
+  limits: readonly Limit[];
+  funding?: Funding;
+  /** permission to spend account credits, independent of model access. */
+  creditAccess?: {
+    state: 'available' | 'unavailable' | 'unknown';
+    observedAt: number;
+  };
+  /** native account and quota identity, when reported. */
+  identity?: string;
 }
 
 export const taskStatuses = [
@@ -226,8 +259,8 @@ export interface AgentSession {
   };
   readonly info: SessionInfo;
   readonly usage: Usage;
-  /** reads the account's limits again, joining a read already in flight; the result arrives as a `usage` event. */
-  readLimits?(): Promise<void>;
+  /** reads the account again, joining a read already in flight; the result arrives as a `usage` event. */
+  readAccountUsage?(): Promise<void>;
   readonly closed: boolean;
   /** the turn in flight has replied and stays open only while familiars or workflows run, as Claude Code's does. it then takes a command or a model change. */
   readonly replied: boolean;
@@ -330,11 +363,11 @@ export interface AgentAdapter {
   label: string;
   /** discovers the native catalog without a conversation; joins child shutdown before settling. */
   models(options: ModelDiscoveryOptions): Promise<Model[]>;
-  /** reads the account's limits without a conversation, keeping each `previous` window the report leaves out; empty when the runtime reports none. */
-  limits(
+  /** reads native account usage without a conversation; omitted observations keep their previous timestamp. */
+  accountUsage(
     options: ModelDiscoveryOptions,
-    previous: readonly Limit[],
-  ): Promise<Limit[]>;
+    previous: AccountReading,
+  ): Promise<AccountReading>;
   /** each family alias's current concrete model, read past native model pins. */
   latest?(options: ModelDiscoveryOptions): Promise<Record<string, string>>;
   /** cancellation rejects with an `Error` named `AbortError`. */

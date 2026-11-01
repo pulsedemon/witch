@@ -9,12 +9,11 @@ import type { RpcMessage } from './json-rpc.js';
 import { TurnText } from './turn-text.js';
 import { CodexCommands } from './codex-commands.js';
 import {
-  probeLimits,
+  CodexAccount,
+  probeAccountUsage,
   rateLimits,
   readRateLimits,
-  windowLimits,
 } from './codex-limits.js';
-import type { ObservedWindow } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { mergeCasts } from './familiar-report.js';
 import { wholeFile } from './file-diff.js';
@@ -31,12 +30,12 @@ import { castIndex, castSkills } from './codex-spells.js';
 import type { CommandPrefixes, ToolTitle } from './tool-title.js';
 import type {
   AgentAdapter,
+  AccountReading,
   AgentSession,
   AgentStopOptions,
   AnswerInput,
   FileDiff,
   Hunk,
-  Limit,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -300,16 +299,16 @@ export class CodexAdapter implements AgentAdapter {
     }
   }
 
-  async limits(
+  async accountUsage(
     options: ModelDiscoveryOptions,
-    previous: readonly Limit[],
-  ): Promise<Limit[]> {
+    previous: AccountReading,
+  ): Promise<AccountReading> {
     const rpc = new JsonRpc(
       this.start(options.executable, options.cwd, options.signal),
     );
     try {
       await initializeRpc(rpc);
-      return await probeLimits(rpc, previous);
+      return await probeAccountUsage(rpc, previous);
     } finally {
       const reason: unknown = options.signal?.reason;
       await rpc.close(
@@ -386,12 +385,7 @@ class CodexSession implements AgentSession {
     string,
     { added: number; removed: number }
   >();
-  /** the account limit the windows belong to, and its windows by slot, which a sparse update merges into. */
-  private limitId?: string;
-  private readonly windows: {
-    primary?: ObservedWindow;
-    secondary?: ObservedWindow;
-  } = {};
+  private readonly account = new CodexAccount();
   private limitsRead?: Promise<void>;
 
   constructor(
@@ -479,7 +473,7 @@ class CodexSession implements AgentSession {
     );
     if (answer) await checkAnswerTools(this.rpc, this.info.id);
     this.connected = true;
-    if (!answer) void this.readLimits();
+    if (!answer) void this.readAccountUsage();
   }
 
   models(): Promise<Model[]> {
@@ -1274,9 +1268,11 @@ class CodexSession implements AgentSession {
         });
         break;
       }
-      case 'account/rateLimits/updated':
-        this.mergeLimits(rateLimits.parse(object.parse(data.rateLimits)));
+      case 'account/rateLimits/updated': {
+        const account = this.account.update(rateLimits.parse(data.rateLimits));
+        if (account) this.report({ account });
         break;
+      }
       case 'turn/completed': {
         const turn = object.parse(data.turn);
         if (this.turn?.compaction && turn.id !== this.turn.id) break;
@@ -1423,7 +1419,7 @@ class CodexSession implements AgentSession {
     this.options.onEvent({ type: 'usage', usage: this.usage });
   }
 
-  readLimits(): Promise<void> {
+  readAccountUsage(): Promise<void> {
     return (this.limitsRead ??= this.readLimitsOnce().finally(() => {
       this.limitsRead = undefined;
     }));
@@ -1432,26 +1428,12 @@ class CodexSession implements AgentSession {
   /** the status line leaves out what Codex can't report, such as limits on an API key. */
   private async readLimitsOnce(): Promise<void> {
     try {
-      this.mergeLimits(await readRateLimits(this.rpc));
+      const { rateLimits, accountId } = await readRateLimits(this.rpc);
+      const account = this.account.update(rateLimits, true, accountId);
+      if (account) this.report({ account });
     } catch {
       // limits stay unreported
     }
-  }
-
-  /** an update for another limit is left out, and a window it leaves null keeps its last value. */
-  private mergeLimits(update: z.infer<typeof rateLimits>): void {
-    if (update.limitId) {
-      if (this.limitId && update.limitId !== this.limitId) return;
-      this.limitId = update.limitId;
-    }
-    const observedAt = Date.now();
-    if (update.primary)
-      this.windows.primary = { ...update.primary, observedAt };
-    if (update.secondary)
-      this.windows.secondary = { ...update.secondary, observedAt };
-    this.report({
-      limits: windowLimits([this.windows.primary, this.windows.secondary]),
-    });
   }
 
   private finish(

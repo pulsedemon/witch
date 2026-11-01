@@ -1,7 +1,13 @@
 import { z } from 'zod';
-import type { Limit } from '../agents/types.js';
+import type { AccountReading } from '../agents/types.js';
 import type { ModelChoice } from './models.js';
-import { current, describeReading, headroom, over } from './usage.js';
+import {
+  creditCapacity,
+  current,
+  describeReading,
+  headroom,
+  over,
+} from './usage.js';
 
 export const work = z.enum([
   'review',
@@ -139,14 +145,17 @@ export function family(
 
 function reading(
   runtime: string,
-  limits: readonly Limit[] | undefined,
+  account: AccountReading | undefined,
   now: number,
 ): string {
-  if (!limits?.length) return `${runtime} has no usage reading`;
-  const stale = limits.filter((limit) => !current(limit, now));
+  const limits = account?.limits;
+  if (!limits?.length && !account?.funding)
+    return `${runtime} has no usage reading`;
+  if (account?.funding) return describeReading(runtime, account, now)!;
+  const stale = (limits ?? []).filter((limit) => !current(limit, now));
   return stale.length
     ? `${runtime}'s ${stale.map(({ window }) => window).join(' and ')} reading is not current`
-    : describeReading(runtime, limits, now)!;
+    : describeReading(runtime, account, now)!;
 }
 
 export function route({
@@ -157,7 +166,7 @@ export function route({
   policy,
   installed,
   catalog,
-  limits,
+  accounts,
   now,
 }: {
   work: Work;
@@ -170,13 +179,14 @@ export function route({
   policy: Policy;
   installed: readonly string[];
   catalog: Catalog;
-  limits: Readonly<Record<string, readonly Limit[]>>;
+  accounts: Readonly<Record<string, AccountReading>>;
   now: number;
 }): Route {
   const evidence = (runtime: string) => {
-    const state = reading(runtime, limits[runtime], now);
-    return limits[runtime]?.every((limit) => current(limit, now)) &&
-      limits[runtime].length
+    const state = reading(runtime, accounts[runtime], now);
+    return accounts[runtime]?.limits.every((limit) => current(limit, now)) &&
+      accounts[runtime].limits.length &&
+      !accounts[runtime].funding
       ? ''
       : `; ${state}`;
   };
@@ -230,7 +240,10 @@ export function route({
     const chosen = choose(runtime);
     if ('refused' in chosen) return chosen;
     const { shiftAt } = policy;
-    if (shiftAt === null || !over(limits[runtime] ?? [], shiftAt, now))
+    if (
+      shiftAt === null ||
+      !over(accounts[runtime]?.limits ?? [], shiftAt, now)
+    )
       return {
         runtime,
         model: chosen.model,
@@ -238,9 +251,11 @@ export function route({
       };
     const hot = describeReading(
       runtime,
-      limits[runtime]!.filter(
-        (limit) => current(limit, now) && limit.percent >= shiftAt,
-      ),
+      {
+        limits: accounts[runtime]!.limits.filter(
+          (limit) => current(limit, now) && limit.percent >= shiftAt,
+        ),
+      },
       now,
     )!;
     const blocked: string[] = [];
@@ -249,30 +264,44 @@ export function route({
       !mixed && work === 'review' && of?.runtime !== runtime
         ? of?.runtime
         : undefined;
-    for (const id of installed) {
-      if (id === runtime) continue;
-      if (id === producer) {
-        blocked.push(`${id} produced the work`);
-        continue;
+    for (const credits of [false, true]) {
+      if (credits && creditCapacity(accounts[runtime], now) === 'available')
+        return {
+          runtime,
+          model: chosen.model,
+          reason: `${why}; ${reading(runtime, accounts[runtime], now)} has usable credits`,
+        };
+      for (const id of installed) {
+        if (id === runtime) continue;
+        if (id === producer) {
+          if (!credits) blocked.push(`${id} produced the work`);
+          continue;
+        }
+        if (
+          credits
+            ? creditCapacity(accounts[id], now) !== 'available'
+            : !headroom(accounts[id]?.limits ?? [], shiftAt, now)
+        ) {
+          if (credits) continue;
+          blocked.push(
+            accounts[id]?.limits.length &&
+              accounts[id].limits.every((limit) => current(limit, now))
+              ? `${id} is at ${shiftAt}% or more too`
+              : reading(id, accounts[id], now),
+          );
+          continue;
+        }
+        const shifted = choose(id);
+        if ('refused' in shifted) {
+          if (!credits) blocked.push(shifted.refused);
+          continue;
+        }
+        return {
+          runtime: id,
+          model: shifted.model,
+          reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, accounts[id], now)} has ${credits ? 'usable credits' : 'room'}${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
+        };
       }
-      if (!headroom(limits[id] ?? [], shiftAt, now)) {
-        blocked.push(
-          limits[id]?.length && limits[id].every((limit) => current(limit, now))
-            ? `${id} is at ${shiftAt}% or more too`
-            : reading(id, limits[id], now),
-        );
-        continue;
-      }
-      const shifted = choose(id);
-      if ('refused' in shifted) {
-        blocked.push(shifted.refused);
-        continue;
-      }
-      return {
-        runtime: id,
-        model: shifted.model,
-        reason: `${hot} is at or over ${shiftAt}%, and ${reading(id, limits[id], now)} has room${pinned ? `; ${shifted.model} is comparable to ${pinned}` : ''}`,
-      };
     }
     return {
       runtime,

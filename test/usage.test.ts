@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import { NativeStop } from '../src/agents/shutdown.js';
 import type {
+  AccountReading,
   AgentSession,
   Limit,
   ModelDiscoveryOptions,
@@ -77,14 +78,25 @@ test('a current window at the level is over even beside a stale one, and a stale
 });
 
 test('a reading is due when it has no window or any window is not current', () => {
-  assert.equal(due([], now), true);
-  assert.equal(due([window('5H', 20), window('7D', 40)], now), false);
+  assert.equal(due({ limits: [] }, now), true);
   assert.equal(
     due(
-      [
-        window('5H', 20),
-        window('7D', 40, { observedAt: now - USAGE_CURRENT_MS - 1 }),
-      ],
+      {
+        limits: [window('5H', 20), window('7D', 40)],
+        funding: { kind: 'unavailable', observedAt: now },
+      },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    due(
+      {
+        limits: [
+          window('5H', 20),
+          window('7D', 40, { observedAt: now - USAGE_CURRENT_MS - 1 }),
+        ],
+      },
       now,
     ),
     true,
@@ -93,7 +105,7 @@ test('a reading is due when it has no window or any window is not current', () =
 
 function readings() {
   const b = new FixtureAgent('b');
-  const published: Record<string, Limit[]>[] = [];
+  const published: Record<string, AccountReading>[] = [];
   const usage = new AccountUsage([{ adapter: b, executable: 'b' }], (limits) =>
     published.push(limits),
   );
@@ -102,14 +114,16 @@ function readings() {
 
 function pending() {
   let settle!: (limits: Limit[]) => void;
-  const promise = new Promise<Limit[]>((resolve) => (settle = resolve));
+  const promise = new Promise<AccountReading>(
+    (resolve) => (settle = (limits) => resolve({ limits })),
+  );
   return { promise, settle };
 }
 
 test('a reading is read once while due, and a read in flight is joined', async () => {
   const { b, usage, published } = readings();
   const read = pending();
-  b.limitsRead = () => read.promise;
+  b.accountRead = () => read.promise;
   const first = usage.refresh('b', '/w');
   let joined = false;
   const second = usage.refresh('b', '/w').then(() => (joined = true));
@@ -117,54 +131,57 @@ test('a reading is read once while due, and a read in flight is joined', async (
   assert.equal(joined, false);
   read.settle([window('7D', 40, { observedAt: Date.now() })]);
   await Promise.all([first, second]);
-  assert.equal(b.limitReads.length, 1);
-  assert.equal(published.at(-1)!.b![0]!.percent, 40);
+  assert.equal(b.accountReads.length, 1);
+  assert.equal(published.at(-1)!.b!.limits[0]!.percent, 40);
   await usage.refresh('b', '/w');
-  assert.equal(b.limitReads.length, 1);
+  assert.equal(b.accountReads.length, 1);
 });
 
 for (const outcome of ['empty', 'failed'] as const)
   test(`an ${outcome} read is not repeated until the bound has passed`, async (t) => {
     const { b, usage, published } = readings();
-    b.limitsRead = () =>
+    b.accountRead = () =>
       outcome === 'empty'
-        ? Promise.resolve([])
+        ? Promise.resolve({ limits: [] })
         : Promise.reject(new Error('limits need a login'));
     await usage.refresh('b', '/w');
     await usage.refresh('b', '/w');
-    assert.equal(b.limitReads.length, 1);
-    assert.deepEqual(published, outcome === 'empty' ? [{ b: [] }] : []);
+    assert.equal(b.accountReads.length, 1);
+    assert.deepEqual(
+      published,
+      outcome === 'empty' ? [{ b: { limits: [] } }] : [],
+    );
     const later = Date.now() + USAGE_CURRENT_MS + 1;
     vi.spyOn(Date, 'now').mockReturnValue(later);
     t.onTestFinished(() => {
       vi.restoreAllMocks();
     });
     await usage.refresh('b', '/w');
-    assert.equal(b.limitReads.length, 2);
+    assert.equal(b.accountReads.length, 2);
   });
 
 test('a report that arrives during a probe keeps its value when the probe finishes', async () => {
   const { b, usage, published } = readings();
   const read = pending();
-  b.limitsRead = () => read.promise;
+  b.accountRead = () => read.promise;
   const probing = usage.refresh('b', '/w');
   const reported = [window('7D', 95, { observedAt: Date.now() })];
-  usage.report('b', reported);
+  usage.report('b', { limits: reported });
   read.settle([window('7D', 40, { observedAt: Date.now() - 1 })]);
   await probing;
-  assert.equal(published.at(-1)!.b, reported);
+  assert.equal(published.at(-1)!.b!.limits, reported);
 });
 
 test('a window a report leaves out keeps its earlier reading, and the same report again publishes nothing', () => {
   const { usage, published } = readings();
   const weekly = window('7D', 95);
-  usage.report('b', [window('5H', 30), weekly]);
+  usage.report('b', { limits: [window('5H', 30), weekly] });
   const sparse = [window('5H', 31)];
-  usage.report('b', sparse);
-  usage.report('b', sparse);
+  usage.report('b', { limits: sparse });
+  usage.report('b', { limits: sparse });
   assert.equal(published.length, 2);
-  assert.deepEqual(published.at(-1)!.b, [sparse[0], weekly]);
-  assert.equal(over(published.at(-1)!.b!, 90, now), true);
+  assert.deepEqual(published.at(-1)!.b!.limits, [sparse[0], weekly]);
+  assert.equal(over(published.at(-1)!.b!.limits, 90, now), true);
 });
 
 test('a probe receives the reading it may extend, and an empty report clears headroom', async () => {
@@ -172,20 +189,24 @@ test('a probe receives the reading it may extend, and an empty report clears hea
   const kept = [
     window('7D', 99, { observedAt: Date.now() - USAGE_CURRENT_MS - 1 }),
   ];
-  usage.report('b', kept);
+  usage.report('b', { limits: kept });
   let previous: readonly Limit[] | undefined;
-  b.limitsRead = async (_options, last) => {
-    previous = last;
-    return [];
+  b.accountRead = async (_options, last) => {
+    previous = last.limits;
+    return { limits: [] };
   };
   await usage.refresh('b', '/w');
   assert.equal(previous, kept);
-  assert.deepEqual(published.at(-1)!.b, []);
-  assert.equal(headroom(published.at(-1)!.b!, 90, Date.now()), false);
+  assert.deepEqual(published.at(-1)!.b!.limits, []);
+  assert.equal(headroom(published.at(-1)!.b!.limits, 90, Date.now()), false);
 });
 
-const live = (agent: string, readLimits?: () => Promise<void>) =>
-  ({ info: { agent }, closed: false, readLimits }) as unknown as AgentSession;
+const live = (agent: string, readAccountUsage?: () => Promise<void>) =>
+  ({
+    info: { agent },
+    closed: false,
+    readAccountUsage,
+  }) as unknown as AgentSession;
 
 test('the live runtime reads through its session once its connect read ages, and a session that cannot read starts nothing', async () => {
   const { b, usage } = readings();
@@ -202,9 +223,9 @@ test('the live runtime reads through its session once its connect read ages, and
   try {
     await usage.refresh('b', '/w');
     assert.equal(reads, 1);
-    assert.equal(b.limitReads.length, 0);
+    assert.equal(b.accountReads.length, 0);
     await other.refresh('b', '/w');
-    assert.equal(silent.limitReads.length, 0);
+    assert.equal(silent.accountReads.length, 0);
   } finally {
     vi.restoreAllMocks();
   }
@@ -214,13 +235,13 @@ test('a connect reads the other runtimes', async () => {
   const { b, usage } = readings();
   usage.connected(live('a'), '/w');
   await Promise.resolve();
-  assert.equal(b.limitReads.length, 1);
+  assert.equal(b.accountReads.length, 1);
 });
 
 test('a probe that never answers is stopped at its bound, so a later read starts again', async () => {
   const { b, usage } = readings();
   let signal: AbortSignal | undefined;
-  b.limitsRead = (options: ModelDiscoveryOptions) => {
+  b.accountRead = (options: ModelDiscoveryOptions) => {
     signal = options.signal;
     return new Promise((_, reject) =>
       options.signal!.addEventListener('abort', () =>
@@ -241,9 +262,9 @@ test('a probe that never answers is stopped at its bound, so a later read starts
   }
   vi.spyOn(Date, 'now').mockReturnValue(Date.now() + USAGE_CURRENT_MS + 1);
   try {
-    b.limitsRead = undefined;
+    b.accountRead = undefined;
     await usage.refresh('b', '/w');
-    assert.equal(b.limitReads.length, 2);
+    assert.equal(b.accountReads.length, 2);
   } finally {
     vi.restoreAllMocks();
   }
@@ -252,7 +273,7 @@ test('a probe that never answers is stopped at its bound, so a later read starts
 test('close stops a probe in flight with the stop options, and later reads start nothing', async () => {
   const { b, usage, published } = readings();
   let signal: AbortSignal | undefined;
-  b.limitsRead = (options: ModelDiscoveryOptions) => {
+  b.accountRead = (options: ModelDiscoveryOptions) => {
     signal = options.signal;
     return new Promise((_, reject) =>
       options.signal!.addEventListener('abort', () =>
@@ -272,7 +293,7 @@ test('close stops a probe in flight with the stop options, and later reads start
   } finally {
     vi.restoreAllMocks();
   }
-  assert.equal(b.limitReads.length, 1);
+  assert.equal(b.accountReads.length, 1);
   assert.deepEqual(published, []);
 });
 
@@ -286,13 +307,134 @@ test('the usage line leaves out runtimes without a window and marks one that is 
   assert.equal(
     usageContext(
       {
-        claude: [window('5H', 23.5), window('7D', 61)],
-        codex: [window('7D', 49, { observedAt: now - 14 * 60_000 })],
-        other: [],
+        claude: { limits: [window('5H', 23.5), window('7D', 61)] },
+        codex: {
+          limits: [window('7D', 49, { observedAt: now - 14 * 60_000 })],
+        },
+        other: { limits: [] },
       },
       agents,
       now,
     ),
     'Account usage: Claude Code 5H 24%, 7D 61%; Codex 7D 49%, not current (14 minutes old). A reading older than 10 minutes or past its reset is not current.',
   );
+});
+
+test('stale funding admits one read beside current windows, and the attempt throttle still applies', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(now);
+  try {
+    const { b, usage, published } = readings();
+    const windows = [window('7D', 100)];
+    const funding = {
+      kind: 'credits' as const,
+      balance: '10.00',
+      unlimited: false,
+      available: true,
+      observedAt: now - USAGE_CURRENT_MS - 1,
+    };
+    usage.report('b', { limits: windows, funding });
+    const pending = Promise.withResolvers<AccountReading>();
+    b.accountRead = () => pending.promise;
+    const first = usage.refresh('b', '/w');
+    const joined = usage.refresh('b', '/w');
+    const updated = { ...funding, balance: '27.123400', observedAt: now };
+    pending.resolve({ limits: windows, funding: updated });
+    await Promise.all([first, joined]);
+    assert.equal(b.accountReads.length, 1);
+    assert.deepEqual(published.at(-1)!.b!.funding, updated);
+    usage.report('b', { limits: windows, funding });
+    await usage.refresh('b', '/w');
+    assert.equal(b.accountReads.length, 1);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+test('a newer window does not discard a probe credit update, but newer credits do', async () => {
+  const { b, usage, published } = readings();
+  const before = {
+    kind: 'credits' as const,
+    balance: '10',
+    unlimited: false,
+    available: true,
+    observedAt: 1,
+  };
+  usage.report('b', { limits: [window('7D', 50)], funding: before });
+  const pending = Promise.withResolvers<AccountReading>();
+  b.accountRead = () => pending.promise;
+  const probe = usage.refresh('b', '/w');
+  const newerWindow = window('7D', 99);
+  usage.report('b', { limits: [newerWindow] });
+  const balance = { ...before, balance: '30', observedAt: Date.now() };
+  pending.resolve({ limits: [window('7D', 60)], funding: balance });
+  await probe;
+  assert.equal(published.at(-1)!.b!.limits[0], newerWindow);
+  assert.equal(published.at(-1)!.b!.funding, balance);
+
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + USAGE_CURRENT_MS + 1);
+  try {
+    const later = Promise.withResolvers<AccountReading>();
+    b.accountRead = () => later.promise;
+    const reading = usage.refresh('b', '/w');
+    const zero = {
+      ...balance,
+      balance: '0',
+      available: false,
+      observedAt: Date.now(),
+    };
+    usage.report('b', { limits: [newerWindow], funding: zero });
+    later.resolve({
+      limits: [newerWindow],
+      funding: { ...balance, balance: '40', observedAt: Date.now() },
+    });
+    await reading;
+    assert.equal(published.at(-1)!.b!.funding, zero);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+test('a new native account identity cannot inherit another account credits', () => {
+  const { usage, published } = readings();
+  usage.report('b', {
+    identity: 'first',
+    limits: [window('7D', 100)],
+    funding: {
+      kind: 'credits',
+      balance: '50',
+      unlimited: false,
+      available: true,
+      observedAt: now,
+    },
+    creditAccess: { state: 'available', observedAt: now },
+  });
+  usage.report('b', { identity: 'second', limits: [window('7D', 30)] });
+  assert.equal(published.at(-1)!.b!.funding, undefined);
+  assert.equal(published.at(-1)!.b!.creditAccess, undefined);
+  assert.equal(published.at(-1)!.b!.limits[0]!.percent, 30);
+});
+
+test('an empty probe clears unchanged windows while retaining concurrent credit and window observations', async () => {
+  for (const changed of [false, true]) {
+    const { b, usage, published } = readings();
+    const before = window('7D', 100);
+    const five = window('5H', 90);
+    usage.report('b', { limits: [before, five] });
+    const pending = Promise.withResolvers<AccountReading>();
+    b.accountRead = () => pending.promise;
+    const reading = usage.refresh('b', '/w');
+    const newer = window('5H', 50, { observedAt: Date.now() });
+    const funding = {
+      kind: 'credits' as const,
+      balance: '20',
+      available: true,
+      unlimited: false,
+      observedAt: Date.now(),
+    };
+    usage.report('b', { limits: [before, changed ? newer : five], funding });
+    pending.resolve({ limits: [] });
+    await reading;
+    assert.deepEqual(published.at(-1)!.b!.limits, changed ? [newer] : []);
+    assert.equal(published.at(-1)!.b!.funding, funding);
+  }
 });
