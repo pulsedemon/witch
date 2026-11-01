@@ -2,7 +2,7 @@ import { settleMemory } from './memory-settlement.js';
 import { handoff } from './handoff.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
-import { Compaction } from './compaction.js';
+import { Compaction, compactSession } from './compaction.js';
 import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
@@ -41,7 +41,6 @@ import {
   ranCommand,
   nativePrompt,
   questionReply,
-  memoryAttribution,
 } from './prompts.js';
 import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
 import type { JobWatch } from './jobs.js';
@@ -51,6 +50,9 @@ import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
+import { endActivity, startActivity, type Activity } from './activity.js';
+import { runReviewCommand } from './review-run.js';
+import { Reviewers } from './reviewers.js';
 import { ModelCatalog, modelEffort, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { Conflict, PullRequest } from './repository.js';
@@ -84,7 +86,6 @@ import {
 
 const compactAt = 80;
 const localActivity = Symbol('local activity');
-type Activity = NonNullable<ConversationRecord['activity']>;
 interface Launch {
   continue?: boolean;
   conversation?: string;
@@ -93,6 +94,8 @@ interface TurnOptions {
   delivered?: () => void;
   queued?: boolean;
   requests?: readonly PeerRequest[];
+  /** a turn Witch composed, such as a /review correction, adds no user row and doesn't title the conversation. */
+  silent?: boolean;
   review?: ReviewBatch;
 }
 /** another operation holds the phase, so nothing ran and nothing failed. */
@@ -128,6 +131,8 @@ export class Coordinator {
   private draining?: PromiseWithResolvers<void>;
   private deliveryHolds = 0;
   private admissions = 0;
+  /** the familiars Witch launches itself, which the familiar mailbox consults before the live session. */
+  readonly reviewers = new Reviewers((event) => this.background(event));
   /** a stop holds automatic turns until the user's next send or another conversation. */
   private automaticHeld = false;
   readonly copilot = new CopilotReviewController({
@@ -167,9 +172,7 @@ export class Coordinator {
       this.publish({});
       this.drainAfter();
     },
-    failed: () => {
-      this.turnFailed = true;
-    },
+    failed: () => (this.turnFailed = true),
     notice: (text) => this.notice(text),
     report: (error) => this.report(error),
   });
@@ -178,6 +181,7 @@ export class Coordinator {
   private connecting?: AbortController;
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
+  private reviewCancellation?: AbortController;
   constructor(
     private readonly store: StateStore,
     readonly memory: Memory,
@@ -292,12 +296,10 @@ export class Coordinator {
         if (this.record)
           await this.coordination
             ?.releaseConversation(this.record.id)
-            .catch((error: unknown) => {
-              failure ??= error;
-            });
-        await this.files?.close().catch((error: unknown) => {
-          failure ??= error;
-        });
+            .catch((error: unknown) => (failure ??= error));
+        await this.files
+          ?.close()
+          .catch((error: unknown) => (failure ??= error));
       }
       this.files = files;
       this.record = files.record;
@@ -387,18 +389,11 @@ export class Coordinator {
       this.halted()
     )
       return false;
-    const row = () =>
-      this.display({
-        id: randomUUID(),
-        kind: 'user',
-        text: prompt,
-        cwd: this.current().cwd,
-      });
     const command = shellCommand(prompt);
     if (command !== undefined) {
       if (!this.replied) return false;
       // shown first, since a command's output streams as soon as it starts
-      row();
+      this.userRow(prompt);
       return session.steer(`${prompt}\n\n${ranCommand}`, { command });
     }
     const skill = skillCall(prompt, this.snapshot.skills);
@@ -408,7 +403,7 @@ export class Coordinator {
         : session.steer(prompt)))
     )
       return false;
-    row();
+    this.userRow(prompt);
     return true;
   }
 
@@ -461,12 +456,12 @@ export class Coordinator {
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
         try {
-          await this.operate('running', () =>
-            this.runTurn(batch.join('\n'), 'turn', {
+          await this.operate('running', async () => {
+            await this.runTurn(batch.join('\n'), 'turn', {
               delivered: () => (delivered = true),
               queued: true,
-            }),
-          );
+            });
+          });
         } finally {
           if (!delivered)
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
@@ -753,8 +748,9 @@ export class Coordinator {
     this.catalog.cancel(new NativeStop(stop));
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
+    this.reviewCancellation?.abort(new NativeStop(stop));
     const results = await Promise.allSettled([
-      this.cleanupCancellation ? this.task : undefined,
+      (this.cleanupCancellation ?? this.reviewCancellation) && this.task,
       this.coordination?.endTurn(),
       (async () => {
         if (refresh && !this.closed) return;
@@ -786,13 +782,7 @@ export class Coordinator {
     if (questions && response.decision === 'accept') {
       const text = questionReply(questions, response);
       if (replyAsPrompt) await this.send(text);
-      else
-        this.display({
-          id: randomUUID(),
-          kind: 'user',
-          text,
-          cwd: this.current().cwd,
-        });
+      else this.userRow(text);
     }
     if (response.decision === 'cancel') await this.interrupt();
   }
@@ -862,6 +852,37 @@ export class Coordinator {
       }
     });
     return acted;
+  }
+
+  /** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
+  async review(argument: string): Promise<boolean> {
+    const conversation = this.current();
+    const abort = new AbortController();
+    // a call operate refuses leaves the running review's controller in place
+    this.reviewCancellation ??= abort;
+    return runReviewCommand(argument, {
+      conversation,
+      coordination: this.coordination,
+      reviewers: this.reviewers,
+      agents: this.snapshot.agents,
+      signal: abort.signal,
+      notice: (text) => this.notice(text),
+      display: (update) => this.display(update),
+      retain: (text) => this.retainContext(conversation.id, [text]),
+      turn: async (prompt) => {
+        const done = await this.runTurn(prompt, 'turn', { silent: true });
+        if (done?.status !== 'completed' || this.cancelled) return false;
+        if (this.halted() || conversation.activity) return false;
+        const { recovery, failure } = await settleMemory(this.workspace!);
+        if (failure) this.notice(`Memory publication failed: ${failure}`);
+        return !recovery && !failure;
+      },
+      operate: (rounds) => this.operate('running', rounds),
+      idle: () => !this.snapshot.error && this.snapshot.phase === 'idle',
+    }).finally(() => {
+      if (this.reviewCancellation === abort)
+        this.reviewCancellation = undefined;
+    });
   }
 
   async restoreMemory(path: string, revision: string): Promise<void> {
@@ -965,7 +986,7 @@ export class Coordinator {
   private async performTurn(
     prompt: string,
     kind: 'turn' | 'handoff' | 'answer' | 'review',
-    { delivered, queued = false, requests, review }: TurnOptions = {},
+    { delivered, queued = false, requests, silent, review }: TurnOptions = {},
   ): Promise<TurnResult> {
     const conversation = this.current();
     const answer = kind === 'answer';
@@ -1036,18 +1057,19 @@ export class Coordinator {
       // a stop during an awaited check must prevent native input.
       if (this.cancelled || session.closed || (queued && this.deliveryHeld))
         return { status: 'interrupted', text: '' };
-      if (kind === 'turn' && conversation.title === untitled)
+      if (kind === 'turn' && !silent && conversation.title === untitled)
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
-      this.display({
-        id: randomUUID(),
-        kind: kind === 'turn' ? 'user' : 'notice',
-        text: requests
-          ? answerNotice(requests)
-          : review
-            ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
-            : prompt,
-        cwd: conversation.cwd,
-      });
+      if (!silent)
+        this.display({
+          id: randomUUID(),
+          kind: kind === 'turn' ? 'user' : 'notice',
+          text: requests
+            ? answerNotice(requests)
+            : review
+              ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
+              : prompt,
+          cwd: conversation.cwd,
+        });
       this.persist(this.save());
       if (command !== undefined) delivered?.();
       let result: TurnResult;
@@ -1135,22 +1157,12 @@ export class Coordinator {
   }
 
   private async compactActivity(): Promise<boolean> {
-    const conversation = this.current();
     const { activity, scope } = await this.beginActivity('turn');
-    let result: TurnResult = { status: 'interrupted', text: '' };
-    try {
-      const session = await this.connect(conversation.agent, scope);
-      if (!this.cancelled && !session.closed) {
-        if (session.info.hasHistory) result = await session.compact();
-        else {
-          this.notice('No conversation history to compact');
-          result = { status: 'completed', text: '' };
-        }
-      }
-    } catch (error) {
-      result = { status: 'failed', text: '', error: errorMessage(error) };
-    }
-    if (this.cancelled) result = { status: 'interrupted', text: '' };
+    const result = await compactSession(
+      () => this.connect(undefined, scope),
+      () => this.cancelled,
+      (text) => this.notice(text),
+    );
     this.turnFailed = result.status !== 'completed';
     await this.finishActivity(activity, result);
     await this.save();
@@ -1163,39 +1175,20 @@ export class Coordinator {
     result: TurnResult,
   ): Promise<void> {
     const conversation = this.current();
-    const workspace = this.workspace!;
+    const completed = result.status === 'completed';
     await this.files!.flush();
-    if (result.status === 'completed') {
-      await workspace.commit(
-        `chore(memory): save ${activity.agent} notes\n\n${memoryAttribution(conversation.id, activity.id)}`,
-      );
-      delete conversation.activity;
-      this.accountUsage.others(activity.agent, conversation.cwd);
-    } else {
+    if (!completed) {
       this.notice(result.error ?? 'Turn interrupted');
       if (result.status === 'failed') this.turnFailed = true;
-      if (!(await workspace.isDirty())) delete conversation.activity;
     }
+    await endActivity(this.workspace!, conversation, activity, completed);
+    if (completed) this.accountUsage.others(activity.agent, conversation.cwd);
   }
 
-  private async beginActivity(kind: Activity['kind']): Promise<{
-    activity: Activity;
-    scope: MemoryScope;
-  }> {
-    const conversation = this.current();
-    const workspace = this.workspace!;
-    await workspace.ensureWorktree();
-    const begun = await workspace.begin(conversation.cwd);
-    const activity = {
-      id: randomUUID(),
-      agent: conversation.agent,
-      kind,
-      baseRevision: begun.revision,
-      startedAt: new Date().toISOString(),
-    };
-    conversation.activity = activity;
+  private async beginActivity(kind: Activity['kind']) {
+    const begun = await startActivity(this.workspace!, this.current(), kind);
     await this.save();
-    return { activity, scope: begun.scope };
+    return begun;
   }
 
   private live(agent: string): AgentSession | undefined {
@@ -1297,12 +1290,14 @@ export class Coordinator {
     const conversationId = this.record?.id;
     const session = this.session;
     this.session = undefined;
-    for (const event of stoppedActivity(this.snapshot)) this.background(event);
+    const owned = this.reviewers.owns;
+    for (const event of stoppedActivity(this.snapshot, owned))
+      this.background(event);
     this.publish({
       native: undefined,
       usage: {},
       skills: [],
-      subagents: [],
+      subagents: this.snapshot.subagents.filter(({ id }) => owned(id)),
       requests: keepQuestions
         ? this.snapshot.requests.filter((request) => request.replyAsPrompt)
         : [],
@@ -1342,7 +1337,7 @@ export class Coordinator {
       if (this.cancelled && event.request.replyAsPrompt) return;
       this.publish({ requests: [...this.snapshot.requests, event.request] });
     } else if (event.type === 'closed') {
-      for (const event of stoppedActivity(this.snapshot))
+      for (const event of stoppedActivity(this.snapshot, this.reviewers.owns))
         this.background(event);
       this.publish({
         native: undefined,
@@ -1393,6 +1388,11 @@ export class Coordinator {
     const stamped = { ...update, at: new Date().toISOString() };
     this.publish({ items: applyDisplayUpdate(this.snapshot.items, stamped) });
     if (save) this.persist(this.files!.append(stamped));
+  }
+
+  private userRow(text: string): void {
+    const { cwd } = this.current();
+    this.display({ id: randomUUID(), kind: 'user', text, cwd });
   }
 
   /** transient notices must not make an unused conversation resumable. */

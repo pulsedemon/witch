@@ -16,6 +16,11 @@ const catalog = [
     label: 'Where delegated work goes, and when usage shifts it',
     takesArguments: true,
   },
+  {
+    id: 'review',
+    label: 'Review files in rounds Witch runs',
+    takesArguments: true,
+  },
   { id: 'compact', label: 'Compact the conversation' },
   { id: 'clear', label: 'Clear agent context' },
   { id: 'memory', label: 'Browse shared memory' },
