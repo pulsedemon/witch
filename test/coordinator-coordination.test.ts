@@ -268,6 +268,24 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
   assert.deepEqual((await owner.query()).ownClaim, before);
 });
 
+test('a model refused while disconnected keeps the exclusive claim', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
+  const owner = await f.start('A');
+  const peer = await f.start('B');
+  assert.equal((await owner.claim('task:model')).kind, 'claimed');
+  const before = (await owner.query()).ownClaim;
+  assert.ok(before);
+  await owner.a.sessions.at(-1)!.session.close();
+  owner.a.invalidModel = 'a-typo';
+  await assert.rejects(
+    owner.coordinator.selectModel({ agent: 'a', id: 'a-typo' }),
+    /Unknown model/,
+  );
+  assert.equal((await peer.claim('task:model')).kind, 'conflict');
+  assert.deepEqual((await owner.query()).ownClaim, before);
+});
+
 test('bound tool titles use the delivered prefixes, refresh on reconnect and survive results and reopening', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);

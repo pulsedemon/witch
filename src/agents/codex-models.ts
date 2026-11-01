@@ -15,12 +15,20 @@ const modelPage = z.object({
   nextCursor: z.string().nullable(),
 });
 
-export async function readModels(rpc: JsonRpc): Promise<Model[]> {
+/** hidden models run but stay out of Codex's own picker. */
+export async function readModels(
+  rpc: JsonRpc,
+  includeHidden?: true,
+): Promise<Model[]> {
   const models: Model[] = [];
   let cursor: string | null = null;
   do {
     const page = modelPage.parse(
-      await rpc.request('model/list', { cursor, limit: 100 }),
+      await rpc.request('model/list', {
+        cursor,
+        limit: 100,
+        ...(includeHidden && { includeHidden }),
+      }),
     );
     models.push(
       ...page.data.map((model) => ({

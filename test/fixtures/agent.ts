@@ -93,6 +93,8 @@ export class FixtureAgent implements AgentAdapter {
   readonly catalog: Model[];
   /** an effort connect and selectModel reject, as Claude Code rejects one outside its levels. */
   invalidEffort?: string;
+  /** a model connect accepts and checkModel rejects, as Codex does one missing from its catalog. */
+  invalidModel?: string;
   failClose = false;
   failInterrupt = false;
   interruptNext = false;
@@ -114,6 +116,8 @@ export class FixtureAgent implements AgentAdapter {
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
+  /** runs before checkModel decides. */
+  beforeCheck?: () => Promise<void>;
   /** runs as each turn is sent, after its input is recorded, as an agent's edits during the turn would. */
   onSend?: (prompt: string) => Promise<void>;
   /** account reads are kept apart from model discovery. */
@@ -241,6 +245,10 @@ export class FixtureAgent implements AgentAdapter {
           options.onEvent({ type: 'usage', usage });
         }
         return this.catalog;
+      },
+      checkModel: async (model) => {
+        await this.beforeCheck?.();
+        if (model === this.invalidModel) throw new Error('Unknown model');
       },
       selectModel: async (model, effort) => {
         if (effort && effort === this.invalidEffort)

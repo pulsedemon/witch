@@ -719,27 +719,29 @@ export class Coordinator {
     return this.operations === operations && !this.cancelled && !this.halted();
   }
 
+  /** a session started here starts on the choice, so a stored model that fails to connect can be replaced; if it fails to connect or refuses the choice, it closes and the stored model stays. */
   private async changeModel(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
-    const { agent, id } = selection;
-    if (!this.live(conversation.agent)) {
-      // so a model that fails to connect can be replaced. the effort waits for the session to accept it, since a stored one every connect rejects can't be replaced
-      conversation.sessions[conversation.agent] = {
-        id: '',
-        hasHistory: false,
-        ...conversation.sessions[conversation.agent],
-        model: id,
-        requestedModel: id,
-      };
+    const kept = conversation.sessions[selection.agent];
+    const starting = !this.live(selection.agent);
+    try {
+      const session = await this.connect(selection.agent, undefined, selection);
+      const selected = await this.runtimes.applyModel(session, selection);
+      if (this.cancelled || session.closed)
+        throw new Refusal('Model change canceled');
+      conversation.sessions[selection.agent] = selected;
       await this.save();
+      this.publish({ conversation, native: session.info });
+    } catch (error) {
+      if (!starting) throw error;
+      if (kept) conversation.sessions[selection.agent] = kept;
+      else delete conversation.sessions[selection.agent];
+      await this.disconnect(true, true).catch((closing: unknown) =>
+        this.notice(errorMessage(closing)),
+      );
+      await this.save();
+      throw error;
     }
-    const session = await this.connect();
-    conversation.sessions[agent] = await this.runtimes.applyModel(
-      session,
-      selection,
-    );
-    await this.save();
-    this.publish({ conversation, native: session.info });
   }
 
   interrupt(options: AgentStopOptions = {}): Promise<void> {
@@ -1468,11 +1470,9 @@ export class Coordinator {
       }
       // the selector reports its failure; the original operation still needs to settle
       await this.changingModel?.catch(() => {});
-      try {
-        await this.settle();
-      } catch (error) {
+      await this.settle().catch((error: unknown) => {
         throw this.enterError(error);
-      }
+      });
       if (failure !== undefined) throw failure;
     })();
     try {

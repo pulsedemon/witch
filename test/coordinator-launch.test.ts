@@ -714,6 +714,106 @@ test('a failed first connect keeps the remembered model, and a model chosen next
   }
 });
 
+test('a model the agent rejects while disconnected keeps the stored one, so the next turn connects with it', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+    a.invalidModel = 'a-typo';
+    await a.sessions.at(-1)!.session.close();
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'a', id: 'a-typo' }),
+      /Unknown model/,
+    );
+    const id = coordinator.snapshot.conversation!.id;
+    const saved = (await readRecord(root, id)).sessions.a;
+    assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
+    const opened = a.sessions.length;
+    await coordinator.send('Continue');
+    assert.equal(a.sessions.length, opened + 1);
+    assert.equal(a.sessions.at(-1)!.options.model, 'a-big');
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('an interrupt while a chosen model connects keeps the stored one', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+    await a.sessions.at(-1)!.session.close();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    a.beforeConnect = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    const selecting = coordinator.selectModel({ agent: 'a', id: 'a-new' });
+    await within(entered.promise, 3000, 'the connect');
+    const interrupting = coordinator.interrupt();
+    release.resolve();
+    await assert.rejects(selecting);
+    await interrupting;
+    const id = coordinator.snapshot.conversation!.id;
+    const saved = (await readRecord(root, id)).sessions.a;
+    assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('an interrupt while a reconnected session checks the choice keeps the stored one', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+    await a.sessions.at(-1)!.session.close();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    a.beforeCheck = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    const selecting = coordinator.selectModel({ agent: 'a', id: 'a-new' });
+    await within(entered.promise, 3000, 'the model check');
+    const interrupting = coordinator.interrupt();
+    release.resolve();
+    await assert.rejects(selecting, /Model change canceled/);
+    await interrupting;
+    const id = coordinator.snapshot.conversation!.id;
+    const saved = (await readRecord(root, id)).sessions.a;
+    assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a rollback whose close fails still keeps the stored model and reports the refusal', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+    await a.sessions.at(-1)!.session.close();
+    a.invalidModel = 'a-typo';
+    // only the session the rollback closes fails, not the one the reconnect replaces
+    a.beforeCheck = async () => {
+      a.failClose = true;
+    };
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'a', id: 'a-typo' }),
+      /Unknown model/,
+    );
+    const id = coordinator.snapshot.conversation!.id;
+    const saved = (await readRecord(root, id)).sessions.a;
+    assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
+    assert.ok(
+      coordinator.snapshot.items.some(
+        (item) => item.kind === 'notice' && item.text === 'Close failed',
+      ),
+    );
+  } finally {
+    a.failClose = false;
+    await coordinator.close();
+  }
+});
+
 test('/new copies this conversation for its own agent, starts another agent on its default, and refuses an uninstalled one', async () => {
   const { coordinator, a, b, store, project } = await fixture();
   try {
