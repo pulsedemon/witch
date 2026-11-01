@@ -51,7 +51,7 @@ import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { endActivity, startActivity, type Activity } from './activity.js';
-import { review } from './review-run.js';
+import { runReviewCommand } from './review-run.js';
 import { Reviewers } from './reviewers.js';
 import { ModelCatalog, modelEffort, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
@@ -862,7 +862,7 @@ export class Coordinator {
   async review(argument: string): Promise<boolean> {
     const conversation = this.current();
     const abort = (this.reviewCancellation = new AbortController());
-    return review(argument, {
+    return runReviewCommand(argument, {
       conversation,
       coordination: this.coordination,
       reviewers: this.reviewers,

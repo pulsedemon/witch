@@ -53,7 +53,7 @@ interface ReviewOutcome {
 }
 
 /** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
-export async function review(
+export async function runReviewCommand(
   argument: string,
   host: ReviewHost,
 ): Promise<boolean> {
