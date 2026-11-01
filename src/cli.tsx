@@ -242,6 +242,8 @@ if (familiar) {
     );
     const policy = await DelegationStore.open(join(store.root, 'delegation'));
     coordination.router = router(coordinator, policy);
+    coordination.ownFamiliars = (action) =>
+      coordinator.reviewers.report(action);
     // straight to the terminal, since the link screen would read image data as printed text
     const graphics = new Graphics((data) => process.stdout.write(data));
     /** frees the images while the alternate screen that holds them is still active. */

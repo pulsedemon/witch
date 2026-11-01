@@ -26,6 +26,29 @@ interface Owner {
   report(error: unknown): void;
 }
 
+/** compacts the session's history, interrupted when cancelled meanwhile; a session with none completes without compacting. */
+export async function compactSession(
+  connect: () => Promise<AgentSession>,
+  cancelled: () => boolean,
+  notice: (text: string) => void,
+): Promise<TurnResult> {
+  const interrupted: TurnResult = { status: 'interrupted', text: '' };
+  let result = interrupted;
+  try {
+    const session = await connect();
+    if (!cancelled() && !session.closed)
+      if (session.info.hasHistory) result = await session.compact();
+      else {
+        notice('No conversation history to compact');
+        result = { status: 'completed', text: '' };
+      }
+  } catch (error) {
+    result = { status: 'failed', text: '', error: errorMessage(error) };
+  }
+  // a snapshot listener can cancel from inside the notice
+  return cancelled() ? interrupted : result;
+}
+
 /** a manual request blocks delivery until native completion and the next command's admission window. */
 export class Compaction {
   private request?: Request;

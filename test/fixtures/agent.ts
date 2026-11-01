@@ -112,6 +112,8 @@ export class FixtureAgent implements AgentAdapter {
   turnUsage?: Usage;
   /** runs before a connect does anything else. */
   beforeConnect?: (options: SessionOptions) => Promise<void>;
+  /** runs as each turn is sent, after its input is recorded, as an agent's edits during the turn would. */
+  onSend?: (prompt: string) => Promise<void>;
   /** account reads are kept apart from model discovery. */
   accountReading: AccountReading = { limits: [] };
   accountRead?: (
@@ -316,6 +318,7 @@ export class FixtureAgent implements AgentAdapter {
           ...(purpose === 'user' ? {} : { author: 'witch' as const }),
           ...(answer ? { answer } : {}),
         });
+        if (this.onSend) await this.onSend(prompt);
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere
         const note = /remember:(\S+)/.exec(prompt)?.[1];
         if (note)

@@ -8,11 +8,14 @@ import type { DisplayUpdate } from './state.js';
 type BackgroundState = Pick<Snapshot, 'subagents' | 'backgroundCommands'>;
 type BackgroundEvent = Extract<AgentEvent, { type: 'subagent' | 'command' }>;
 
-/** the events that mark every running familiar and brew stopped once their session closes. */
-export function stoppedActivity(state: BackgroundState): BackgroundEvent[] {
+/** the events that mark every running familiar and brew stopped once their session closes; `owned` familiars belong to Witch, not the session. */
+export function stoppedActivity(
+  state: BackgroundState,
+  owned: (id: string) => boolean,
+): BackgroundEvent[] {
   return [
     ...state.subagents
-      .filter(({ status }) => status === 'running')
+      .filter(({ id, status }) => status === 'running' && !owned(id))
       .map((subagent): BackgroundEvent => ({
         type: 'subagent',
         subagent: { ...subagent, status: 'stopped' },

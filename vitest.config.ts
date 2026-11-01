@@ -30,7 +30,7 @@ export default defineConfig({
       ...configDefaults.forceRerunTriggers,
       '**/test/fixtures/**',
     ],
-    maxWorkers: Math.min(4, availableParallelism()),
+    maxWorkers: Math.min(8, availableParallelism()),
     environment: 'node',
     pool: 'forks',
     isolate: true,
