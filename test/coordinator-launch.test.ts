@@ -15,7 +15,6 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
-import { Memory } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import { recoverDirectory } from '../src/persistence/directory-recovery.js';
@@ -29,6 +28,7 @@ import {
 } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 import { within } from './fixtures/within.js';
 
 async function relocatedFixture() {
@@ -251,7 +251,7 @@ async function sweepFixture() {
   await mkdir(project);
   await mkdir(fresh);
   const store = await StateStore.open(join(root, 'state'));
-  const memory = new Memory(join(root, 'state', 'memory.git'));
+  const memory = await seededMemory(join(root, 'state', 'memory.git'));
   const a = new FixtureAgent('a');
   const launch = async () => {
     const coordinator = new Coordinator(store, memory, [

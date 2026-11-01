@@ -6,7 +6,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentSession, TurnResult } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import {
   content,
@@ -15,13 +14,14 @@ import {
   launcher,
 } from './fixtures/claude-adapter.js';
 import { holdSettlement, readRecord } from './fixtures/coordinator.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 import { until, within } from './fixtures/within.js';
 
 async function claudeCoordinator(mode: string) {
   const launched = await launcher(mode);
   const { adapter, cwd } = launched;
   const store = await StateStore.open(join(cwd, 'state'));
-  const memory = new Memory(join(cwd, 'state', 'memory.git'));
+  const memory = await seededMemory(join(cwd, 'state', 'memory.git'));
   const coordinator = new Coordinator(store, memory, [
     { adapter, executable: '/fake/claude' },
   ]);

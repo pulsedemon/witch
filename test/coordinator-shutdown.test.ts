@@ -8,12 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import { appears, settled } from './fixtures/codex-adapter.js';
 import { fixture } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 import { within } from './fixtures/within.js';
 
 for (const restart of [false, true])
@@ -54,7 +54,7 @@ for (const discovery of [false, true])
     const project = join(root, 'project');
     await mkdir(project);
     const store = await StateStore.open(join(root, 'state'));
-    const memory = new Memory(join(root, 'state', 'memory.git'));
+    const memory = await seededMemory(join(root, 'state', 'memory.git'));
     let child: ChildProcessWithoutNullStreams | undefined;
     const codex = new CodexAdapter(
       (_, cwd, signal) =>

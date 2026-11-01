@@ -21,7 +21,6 @@ import type {
   Subagent,
 } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import { Memory } from '../src/memory/memory.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
@@ -30,6 +29,7 @@ import { jsonLines, launcher } from './fixtures/claude-adapter.js';
 import { readRecord, fixture } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 import { until, within } from './fixtures/within.js';
 
 test('the pentacle follows foreground work and every running local task', async () => {
@@ -297,7 +297,7 @@ describe('Codex brew events keep the coordinator active after its reply', () => 
       const cwd = join(root, 'project');
       await mkdir(cwd);
       const store = await StateStore.open(join(root, 'state'));
-      const memory = new Memory(join(root, 'state', 'memory.git'));
+      const memory = await seededMemory(join(root, 'state', 'memory.git'));
       const executable = fileURLToPath(
         new URL('fixtures/codex.mjs', import.meta.url),
       );
@@ -1205,7 +1205,7 @@ for (const stop of ['interrupt', 'close'] as const)
 test('interrupting a pending replied model change preserves unread Claude prompts', async () => {
   const { cwd, children, connect, adapter } = await launcher('pending-model');
   const store = await StateStore.open(join(cwd, 'state'));
-  const memory = new Memory(join(cwd, 'state', 'memory.git'));
+  const memory = await seededMemory(join(cwd, 'state', 'memory.git'));
   let session: AgentSession | undefined;
   const coordinator = new Coordinator(store, memory, [
     {

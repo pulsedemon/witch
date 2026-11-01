@@ -6,11 +6,11 @@ import { promisify } from 'node:util';
 import type { AgentSession } from '../../src/agents/types.js';
 import { Coordinator } from '../../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../../src/core/state.js';
-import { Memory } from '../../src/memory/memory.js';
 import { ConversationStore, StateStore } from '../../src/persistence/store.js';
 import { FixtureAgent } from './agent.js';
 import { hookedGit, passThrough } from './git.js';
 import { scratch } from './scratch.js';
+import { seededMemory } from './seeded-memory.js';
 
 export function record(id: string, cwd: string, agent = 'a'): Conversation {
   return {
@@ -85,7 +85,10 @@ export async function fixture(
   await mkdir(project);
   const store = await StateStore.open(join(root, 'state'));
   const hook = { current: passThrough };
-  const memory = new Memory(join(root, 'state', 'memory.git'), hookedGit(hook));
+  const memory = await seededMemory(
+    join(root, 'state', 'memory.git'),
+    hookedGit(hook),
+  );
   const a = new FixtureAgent('a');
   const b = new FixtureAgent('b');
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));

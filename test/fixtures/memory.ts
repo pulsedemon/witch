@@ -2,10 +2,10 @@ import { execFile } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { Memory } from '../../src/memory/memory.js';
 import type { Workspace } from '../../src/memory/workspace.js';
 import { hookedGit, passThrough } from './git.js';
 import { scratch } from './scratch.js';
+import { seededMemory } from './seeded-memory.js';
 
 // a developer's `url.<base>.insteadOf` would rewrite the origins these tests key
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
@@ -18,8 +18,7 @@ export async function fixture() {
   const project = join(root, 'project');
   await mkdir(project);
   const hook = { current: passThrough };
-  const memory = new Memory(join(root, 'memory.git'), hookedGit(hook));
-  await memory.initialize();
+  const memory = await seededMemory(join(root, 'memory.git'), hookedGit(hook));
   const open = async (id: string) => {
     const directory = join(root, 'conversations', id);
     await mkdir(directory, { recursive: true });
