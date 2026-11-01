@@ -249,6 +249,12 @@ export function route({
         model: chosen.model,
         reason: `${why}${evidence(runtime)}`,
       };
+    if (creditCapacity(accounts[runtime], now) === 'available')
+      return {
+        runtime,
+        model: chosen.model,
+        reason: `${why}; ${reading(runtime, accounts[runtime], now)} has usable credits`,
+      };
     const hot = describeReading(
       runtime,
       {
@@ -265,12 +271,6 @@ export function route({
         ? of?.runtime
         : undefined;
     for (const credits of [false, true]) {
-      if (credits && creditCapacity(accounts[runtime], now) === 'available')
-        return {
-          runtime,
-          model: chosen.model,
-          reason: `${why}; ${reading(runtime, accounts[runtime], now)} has usable credits`,
-        };
       for (const id of installed) {
         if (id === runtime) continue;
         if (id === producer) {
