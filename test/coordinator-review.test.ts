@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { getEventListeners } from 'node:events';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import type { TestContext } from 'vitest';
 import { NativeStop, NativeStopTimeout } from '../src/agents/shutdown.js';
 import type { Usage } from '../src/agents/types.js';
@@ -11,6 +11,7 @@ import { router } from '../src/core/router.js';
 import type { Reviewer, ReviewerResult } from '../src/core/reviewers.js';
 import type { Routed } from '../src/core/routing.js';
 import { main } from '../src/memory/memory.js';
+import { ConversationStore } from '../src/persistence/store.js';
 import { CommandBatches } from '../src/ui/command-batches.js';
 import type { WitchCommand } from '../src/ui/commands.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
@@ -630,6 +631,29 @@ test('a review refused while another runs leaves Escape able to stop the first',
   held.resolve();
   await interrupting;
   assert.equal(await reviewing, false);
+});
+
+test('Escape while a review settles fails it without a finished notice', async (t) => {
+  const h = await harness(t);
+  const settling = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  const flush = ConversationStore.prototype.flush;
+  h.state.during = async () => {
+    vi.spyOn(ConversationStore.prototype, 'flush').mockImplementation(
+      async function (this: ConversationStore) {
+        settling.resolve();
+        await held.promise;
+        return flush.call(this);
+      },
+    );
+  };
+  const reviewing = h.coordinator.review('plan.md');
+  await within(settling.promise, 3000, 'settlement');
+  const interrupting = h.coordinator.interrupt();
+  held.resolve();
+  await interrupting;
+  assert.equal(await reviewing, false);
+  assert.equal(h.notice('Review finished'), undefined);
 });
 
 test('closing Witch during a review aborts its reviewers', async (t) => {
