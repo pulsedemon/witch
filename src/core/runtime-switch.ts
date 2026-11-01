@@ -48,8 +48,6 @@ export class RuntimeSwitch {
   private pending = false;
   /** when each runtime last ran out in this process; only evidence observed later shows it has recovered. */
   private readonly exhaustedAt = new Map<string, number>();
-  /** the prompts the last turn left unread, which the queue delivers again, so a transcript handoff leaves out their rows. */
-  unread: readonly string[] = [];
   private continuation?: TurnResult;
   private stopping?: PromiseWithResolvers<void>;
 
@@ -119,7 +117,7 @@ export class RuntimeSwitch {
         },
       },
       selection,
-      { summarize: notice === undefined, unread: this.unread },
+      { summarize: notice === undefined },
     );
   }
 

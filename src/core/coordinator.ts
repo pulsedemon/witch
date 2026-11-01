@@ -77,6 +77,7 @@ import {
   createConversation,
   recordDelivery,
   recordSession,
+  unreadRows,
   untitled,
   type Conversation,
   type ConversationRecord,
@@ -1118,8 +1119,9 @@ export class Coordinator {
       if (command === undefined && !result.inputUnsent) delivered?.();
       if (result.unread?.length)
         this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
-      if (kind === 'turn' || kind === 'review')
-        this.runtimes.unread = result.unread ?? [];
+      const shown = kind === 'turn' && !silent ? [prompt] : [];
+      for (const row of unreadRows(this.snapshot.items, shown, result))
+        this.display({ ...row, text: '', unread: true });
       if (result.inputUnsent)
         this.retainContext(conversation.id, pendingContext);
       this.retainContext(conversation.id, result.unreadContext);

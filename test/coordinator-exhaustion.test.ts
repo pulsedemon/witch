@@ -250,6 +250,33 @@ test('a /model switch whose summary fails leaves out a steered prompt the failed
   }
 });
 
+test('a /model switch whose summary fails leaves out a queued prompt whose input was never written', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  try {
+    await coordinator.send('Zero');
+    const { session } = claude.sessions.at(-1)!;
+    vi.spyOn(session, 'send').mockResolvedValueOnce({
+      status: 'failed',
+      text: '',
+      error: 'write failed',
+      inputUnsent: true,
+    });
+    await coordinator.send('First');
+    assert.deepEqual(coordinator.snapshot.queue, ['First']);
+    claude.exhaust = (prompt) => prompt.includes('handoff summary');
+    await coordinator.selectModel({ agent: 'codex', id: 'gpt-6.1-astra' });
+    await until('the queued prompt on codex', () => codex.inputs.length === 2);
+    assert.deepEqual(
+      codex.inputs.map(({ prompt }) => prompt),
+      [continuation, 'First'],
+    );
+    assert.match(codex.inputs[0]!.context!, /User: Zero/);
+    assert.doesNotMatch(codex.inputs[0]!.context!, /User: First/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a destination at 100% with verified credits qualifies once a forced refresh renews its due reading', async () => {
   let funded = false;
   const { coordinator, claude, codex } = await exhaustion((_, codex) => {

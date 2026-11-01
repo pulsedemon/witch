@@ -30,17 +30,15 @@ interface HandoffHost {
   activated?(): void;
 }
 
-export interface HandoffOptions {
+interface HandoffOptions {
   /** false skips asking the source, which usage exhaustion leaves unable to answer. */
   summarize?: boolean;
-  /** prompts the last turn shown but left unread, which go again from the queue. */
-  unread?: readonly string[];
 }
 
 export async function handoff(
   host: HandoffHost,
   selection: ModelSelection,
-  { summarize = true, unread = [] }: HandoffOptions = {},
+  { summarize = true }: HandoffOptions = {},
 ): Promise<void> {
   const { agent } = selection;
   const { conversation } = host;
@@ -53,7 +51,7 @@ export async function handoff(
     let summary = '';
     const { items } = host.snapshot;
     const context = items.slice(contextStart(items));
-    if (context.some((item) => item.kind === 'user')) {
+    if (context.some((item) => item.kind === 'user' && !item.unread)) {
       const result = summarize
         ? await host.send(
             'Produce a concise handoff summary: objective, constraints, verified decisions, changed files, completed checks, and remaining work. Only summarize. Do not run tools or change files.',
@@ -66,7 +64,7 @@ export async function handoff(
         !result ||
         (result.status === 'failed' && !conversation.activity)
       )
-        summary = transcriptContext(context, unread);
+        summary = transcriptContext(context);
       else throw new Error(result.error ?? 'Handoff was interrupted');
     }
     conversation.handoff = { from, to: agent, summary, activated: false };
@@ -112,19 +110,10 @@ export async function handoff(
   }
 }
 
-/** handoff context rebuilt from the transcript when the source can't summarize. an unread prompt's newest row is left out, since the queue delivers it again. */
-export function transcriptContext(
-  items: readonly DisplayItem[],
-  unread: readonly string[],
-): string {
-  const skipped = [...unread];
+/** handoff context rebuilt from the transcript when the source can't summarize. unread prompts are left out, since the queue sends them again. */
+export function transcriptContext(items: readonly DisplayItem[]): string {
   const rows = items.toReversed().flatMap((item) => {
-    if (item.kind === 'user') {
-      const at = skipped.indexOf(item.text);
-      if (at < 0) return [`User: ${item.text}`];
-      skipped.splice(at, 1);
-      return [];
-    }
+    if (item.kind === 'user') return item.unread ? [] : [`User: ${item.text}`];
     if (item.kind === 'assistant')
       return [`${item.title ?? 'Assistant'}: ${item.text}`];
     if (item.kind === 'tool')

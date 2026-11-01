@@ -4,6 +4,7 @@ import type { AgentSession, TurnResult } from '../src/agents/types.js';
 import { handoff, transcriptContext } from '../src/core/handoff.js';
 import type { Memory } from '../src/memory/memory.js';
 import { initialSnapshot } from '../src/core/snapshot.js';
+import { unreadRows } from '../src/core/state.js';
 import type { ConversationRecord, DisplayItem } from '../src/core/state.js';
 import { record } from './fixtures/coordinator.js';
 
@@ -82,7 +83,7 @@ test('a failed summary activates with transcript context and announces activatio
   });
   await handoff(host, selection);
   assert.equal(conversation.agent, 'codex');
-  assert.equal(conversation.handoff?.summary, transcriptContext(items, []));
+  assert.equal(conversation.handoff?.summary, transcriptContext(items));
   assert.deepEqual(events.slice(-4), [
     'save true',
     'activated',
@@ -98,7 +99,7 @@ test('without summarizing, the source is never asked', async () => {
   });
   await handoff(host, selection, { summarize: false });
   assert.ok(!events.includes('send handoff'));
-  assert.equal(conversation.handoff?.summary, transcriptContext(items, []));
+  assert.equal(conversation.handoff?.summary, transcriptContext(items));
   assert.equal(conversation.agent, 'codex');
 });
 
@@ -116,22 +117,25 @@ test('a summary that leaves memory pending, or is interrupted, keeps the source'
 });
 
 test('transcript context keeps the newest rows, tool titles and paths with their state, and skips an unread prompt', () => {
-  const context = transcriptContext(
-    [
-      ...items,
-      {
-        id: 't2',
-        kind: 'tool',
-        title: 'Bash git push',
-        text: 'partial',
-        done: false,
-        cwd: '/w',
-      },
-      { id: 'n1', kind: 'notice', text: 'a notice', cwd: '/w' },
-      { id: 'u2', kind: 'user', text: 'also update docs', cwd: '/w' },
-    ],
-    ['also update docs'],
-  );
+  const context = transcriptContext([
+    ...items,
+    {
+      id: 't2',
+      kind: 'tool',
+      title: 'Bash git push',
+      text: 'partial',
+      done: false,
+      cwd: '/w',
+    },
+    { id: 'n1', kind: 'notice', text: 'a notice', cwd: '/w' },
+    {
+      id: 'u2',
+      kind: 'user',
+      text: 'also update docs',
+      cwd: '/w',
+      unread: true,
+    },
+  ]);
   assert.equal(
     context,
     [
@@ -149,47 +153,33 @@ test('transcript context keeps the newest rows, tool titles and paths with their
     text: `${index} ${'x'.repeat(2000)}`,
     cwd: '/w',
   }));
-  const capped = transcriptContext(long, []);
+  const capped = transcriptContext(long);
   assert.ok(capped.length <= 60_000 + 200);
   assert.match(capped, /Earlier rows are omitted\./);
   assert.ok(capped.endsWith(long.at(-1)!.text));
   assert.ok(!capped.includes(`User: 0 x`));
 });
 
-test('an unread prompt skips only its own newest row, so an earlier identical request stays', () => {
-  const context = transcriptContext(
-    [
-      { id: 'u1', kind: 'user', text: 'run the migration', cwd: '/w' },
-      {
-        id: 'a1',
-        kind: 'assistant',
-        title: 'claude',
-        text: 'on it',
-        cwd: '/w',
-      },
-      { id: 'u2', kind: 'user', text: 'run the migration', cwd: '/w' },
-    ],
-    ['run the migration'],
-  );
-  assert.equal(
-    context,
-    [
-      'The previous runtime could not summarize, so Witch rebuilt this from the conversation transcript.',
-      'User: run the migration',
-      'claude: on it',
-    ].join('\n\n'),
+test('an unread prompt marks only its own newest row, so an earlier identical request stays', () => {
+  const items: DisplayItem[] = [
+    { id: 'u1', kind: 'user', text: 'run the migration', cwd: '/w' },
+    { id: 'a1', kind: 'assistant', title: 'claude', text: 'on it', cwd: '/w' },
+    { id: 'u2', kind: 'user', text: 'run the migration', cwd: '/w' },
+  ];
+  assert.deepEqual(
+    unreadRows(items, [], { unread: ['run the migration'] }).map(
+      ({ id }) => id,
+    ),
+    ['u2'],
   );
 });
 
 test('a newest row over the limit keeps its start instead of leaving no context', () => {
   const paste = `migrate the store ${'x'.repeat(70_000)}`;
-  const context = transcriptContext(
-    [
-      { id: 'u1', kind: 'user', text: 'earlier', cwd: '/w' },
-      { id: 'u2', kind: 'user', text: paste, cwd: '/w' },
-    ],
-    [],
-  );
+  const context = transcriptContext([
+    { id: 'u1', kind: 'user', text: 'earlier', cwd: '/w' },
+    { id: 'u2', kind: 'user', text: paste, cwd: '/w' },
+  ]);
   assert.match(
     context,
     /Earlier rows are omitted\.\n\nUser: migrate the store x/,
