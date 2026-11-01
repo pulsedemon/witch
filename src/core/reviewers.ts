@@ -137,7 +137,7 @@ export class Reviewers {
         }),
     );
     let stopping: Promise<void> | undefined;
-    // a stop that misses its deadline ends the run even while a command or its group is still running
+    // a stop that misses its deadline ends the run even while a command still hasn't exited
     const missed = Promise.withResolvers<never>();
     const abort = () => {
       stopping ??= stopGroups(
@@ -165,14 +165,11 @@ export class Reviewers {
       const codes = await Promise.race([Promise.all(exits), missed.promise]);
       // a wrapper killed outright leaves its native CLI in the group
       for (const group of groups) signalGroup(group, 'SIGKILL');
-      if (stopping) await stopping;
-      else {
+      if (!stopping) {
         const deadline = stopDeadline();
-        await Promise.race([
-          beforeDeadline(gone(groups, deadline), deadline),
-          missed.promise,
-        ]);
+        await beforeDeadline(gone(groups, deadline, signal), deadline);
       }
+      if (stopping) await stopping;
       return await Promise.all(
         reviewers.map(async ({ name, reportFile }, index) => {
           const run = finish(name);
@@ -244,12 +241,13 @@ function signalGroup(group: number, signal: NodeJS.Signals | 0): boolean {
   }
 }
 
-/** resolves once no group has a member, rejecting when one still has a member at the deadline. */
+/** resolves once no group has a member or an abort's stop takes over the wait, rejecting when one still has a member at the deadline. */
 async function gone(
   groups: readonly number[],
   deadline: number,
+  signal?: AbortSignal,
 ): Promise<void> {
-  while (groups.some((group) => signalGroup(group, 0))) {
+  while (!signal?.aborted && groups.some((group) => signalGroup(group, 0))) {
     if (performance.now() >= deadline) throw new NativeStopTimeout();
     await delay(25);
   }
