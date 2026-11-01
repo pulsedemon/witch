@@ -5,6 +5,7 @@ import { callControl } from '../src/persistence/control.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import type { TransferField } from '../src/core/coordination-state.js';
 import { transferRefusal } from '../src/core/task-transfer.js';
+import { USAGE_CURRENT_MS } from '../src/core/usage.js';
 import type { Snapshot } from '../src/core/snapshot.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import {
@@ -360,6 +361,27 @@ test('another runtime credits cannot veto an exhausted owner transfer', async (t
       observedAt: Date.now(),
     },
     creditAccess: { state: 'available', observedAt: Date.now() },
+  });
+  assert.equal((await f.attempt()).kind, 'claimed');
+  assert.equal(
+    (await f.registry.claims())[0]!.owner.conversation,
+    f.requester.coordinator.snapshot.conversation!.id,
+  );
+});
+
+test('expired funding cannot veto automatic transfer while its access observation is current', async (t) => {
+  const f = await automatic(t, ['codex', 'claude']);
+  const now = Date.now();
+  f.owner.coordinator.accountUsage.report('codex', {
+    ...f.owner.coordinator.snapshot.accounts.codex!,
+    funding: {
+      kind: 'credits',
+      balance: '123.456',
+      unlimited: false,
+      available: true,
+      observedAt: now - USAGE_CURRENT_MS - 1,
+    },
+    creditAccess: { state: 'available', observedAt: now },
   });
   assert.equal((await f.attempt()).kind, 'claimed');
   assert.equal(

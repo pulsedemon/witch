@@ -65,7 +65,14 @@ export function creditCapacity(
   now: number,
 ): 'available' | 'unavailable' | 'unknown' {
   const access = account?.creditAccess;
-  return access && current(access, now) ? access.state : 'unknown';
+  if (!access || !current(access, now)) return 'unknown';
+  if (access.state !== 'available') return access.state;
+  const funding = account?.funding;
+  return funding?.kind === 'credits' &&
+    current(funding, now) &&
+    (funding.available || funding.unlimited)
+    ? 'available'
+    : 'unknown';
 }
 
 function money(

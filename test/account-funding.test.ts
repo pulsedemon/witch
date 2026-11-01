@@ -495,6 +495,42 @@ test('credit access expires independently of newly observed windows', () => {
   assert.equal(creditCapacity(account, now), 'unknown');
 });
 
+test('funding retained during an account read expires before its later access observation', async () => {
+  const f = await controlledFixture();
+  try {
+    await f.session.readAccountUsage!();
+    await writeFile(join(f.cwd, 'hold-account'), 'yes');
+    const pending = f.session.readAccountUsage!();
+    await appears(join(f.cwd, 'account-1.json'));
+    const now = 2_000_000_000_000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const rateLimits = {
+      limitId: 'codex',
+      credits: { hasCredits: true, unlimited: false, balance: '123.456' },
+      spendControlReached: false,
+      rateLimitReachedType: null,
+    };
+    await f.emit({
+      method: 'account/rateLimits/updated',
+      params: { rateLimits },
+    });
+    clock.mockReturnValue(now + 1000);
+    await f.reply(1, { result: { rateLimits } }, 'account');
+    await pending;
+    const reading = f.session.usage.account!;
+    assert.equal(reading.funding!.observedAt, now);
+    assert.equal(reading.creditAccess!.observedAt, now + 1000);
+    assert.equal(creditCapacity(reading, now + USAGE_CURRENT_MS), 'available');
+    assert.equal(
+      creditCapacity(reading, now + USAGE_CURRENT_MS + 1),
+      'unknown',
+    );
+  } finally {
+    vi.restoreAllMocks();
+    await close(f.session, f.cwd);
+  }
+});
+
 test('currency formatting preserves minor-unit precision, zero-decimal units, and unlimited caps', () => {
   for (const [amount, currency, decimalPlaces, expected] of [
     [651, 'USD', 2, 'USD 6.51'],

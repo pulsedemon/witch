@@ -139,6 +139,23 @@ test('credit capacity supplies a destination at full weekly usage and preserves 
       'claude',
     );
   }
+  assert.equal(
+    (
+      ask({
+        accounts: {
+          ...accounts,
+          codex: {
+            ...funded,
+            funding: {
+              ...funded.funding!,
+              observedAt: now - USAGE_CURRENT_MS - 1,
+            },
+          },
+        },
+      }) as { runtime: string }
+    ).runtime,
+    'claude',
+  );
 });
 
 test('a versioned model runs as named, even absent from the catalog, and the reason says when usage is not current', () => {
