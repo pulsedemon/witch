@@ -16,12 +16,12 @@ import { render } from 'ink-testing-library';
 import stripAnsi from 'strip-ansi';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 import { show, forgedLink, fake, ENTER, openCommand } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
@@ -31,7 +31,7 @@ async function conversation() {
   const cwd = join(root, 'project');
   await mkdir(cwd);
   const store = await StateStore.open(join(root, 'state'));
-  const memory = new Memory(join(root, 'state', 'memory.git'));
+  const memory = await seededMemory(join(root, 'state', 'memory.git'));
   const coordinator = new Coordinator(store, memory, [
     { adapter: new CodexAdapter() },
   ]);
@@ -363,8 +363,11 @@ async function memoryApp(
   const cwd = join(root, 'project');
   await mkdir(cwd);
   const hook = { current: passThrough };
-  const memory = new Memory(join(root, 'state', 'memory.git'), hookedGit(hook));
-  await memory.initialize();
+  const store = await StateStore.open(join(root, 'state'));
+  const memory = await seededMemory(
+    join(root, 'state', 'memory.git'),
+    hookedGit(hook),
+  );
   const directory = join(root, 'state', 'conversations', 'seed');
   await mkdir(directory, { recursive: true });
   const seed = memory.workspace(directory, 'seed');
@@ -373,7 +376,7 @@ async function memoryApp(
   await seed.commit('chore(memory): save seed notes');
   await seed.publish();
   const coordinator = new Coordinator(
-    await StateStore.open(join(root, 'state')),
+    store,
     memory,
     // uninstalled, so opening the conversation builds no worktree
     [{ adapter: new FixtureAgent('a') }],

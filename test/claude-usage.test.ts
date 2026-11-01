@@ -18,10 +18,10 @@ import type {
   SessionOptions,
 } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import { Memory } from '../src/memory/memory.js';
 import { StateStore } from '../src/persistence/store.js';
 import { App } from '../src/ui/app.js';
 import { frameWriter, jsonLines, launcher } from './fixtures/claude-adapter.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 import { show } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
 import { untimed } from './fixtures/limits.js';
@@ -853,7 +853,7 @@ test(
         },
       }));
     const store = await StateStore.open(join(f.cwd, 'state'));
-    const memory = new Memory(join(f.cwd, 'state', 'memory.git'));
+    const memory = await seededMemory(join(f.cwd, 'state', 'memory.git'));
     const coordinator = new Coordinator(store, memory, [
       { adapter: f.adapter, executable: '/fake/claude' },
     ]);

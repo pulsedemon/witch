@@ -6,7 +6,6 @@ import type { TestContext } from 'vitest';
 import type { AccountReading } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import * as github from '../src/core/github-reviews.js';
-import { Memory } from '../src/memory/memory.js';
 import { callControl } from '../src/persistence/control.js';
 import { StateStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
@@ -19,6 +18,7 @@ import {
 import { hookedGit, passThrough } from './fixtures/git.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { scratch } from './fixtures/scratch.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 import { until, within } from './fixtures/within.js';
 
 const continuation =
@@ -41,7 +41,10 @@ async function exhaustion(
   await mkdir(project);
   const store = await StateStore.open(join(root, 'state'));
   const hook = { current: passThrough };
-  const memory = new Memory(join(root, 'state', 'memory.git'), hookedGit(hook));
+  const memory = await seededMemory(
+    join(root, 'state', 'memory.git'),
+    hookedGit(hook),
+  );
   const claude = new FixtureAgent('claude');
   const codex = new FixtureAgent('codex');
   claude.catalog.splice(
