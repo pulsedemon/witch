@@ -84,11 +84,22 @@ export function windowText(limit: Limit, now: number, reset: boolean): string {
   return `${limit.window} ${limitColor(percent)(`${percent}%`)}${reset ? untilReset(limit.resetsAt, now) : ''}`;
 }
 
-export function fundingRow(funding: Funding, now: number): string {
+function fundingRow(funding: Funding, now: number): string {
   const text = plain(fundingText(funding));
   return current(funding, now)
     ? text
     : colors.dim(`${text} ${duration(now - funding.observedAt)} OLD`);
+}
+
+function spendingBlocked(
+  account: AccountReading | undefined,
+  now: number,
+): boolean {
+  return (
+    account?.funding?.kind === 'credits' &&
+    (account.funding.available || account.funding.unlimited) &&
+    creditCapacity(account, now) === 'unavailable'
+  );
 }
 
 export function accountRows(
@@ -99,12 +110,7 @@ export function accountRows(
   const rows =
     account?.limits.map((limit) => windowText(limit, now, reset)) ?? [];
   if (account?.funding) rows.push(fundingRow(account.funding, now));
-  if (
-    account?.funding?.kind === 'credits' &&
-    (account.funding.available || account.funding.unlimited) &&
-    creditCapacity(account, now) === 'unavailable'
-  )
-    rows.push('credit spending blocked');
+  if (spendingBlocked(account, now)) rows.push('credit spending blocked');
   return rows.length ? rows : ['?'];
 }
 
@@ -155,7 +161,7 @@ function pullRequest({
   ].join(' ');
 }
 
-/** the live runtime's reset times drop when the first row would overflow `width`, so the others stay visible. */
+/** tiny footers keep the live balance and spending denial ahead of other account details. */
 export function statusLines(
   status: Status,
   now: number,
@@ -204,7 +210,9 @@ export function statusLines(
   if (hasFunding && lines.length > maxRows) {
     const live = status.account?.funding;
     const text = live
-      ? fundingText(live) + (current(live, now) ? '' : ' OLD')
+      ? fundingText(live) +
+        (current(live, now) ? '' : ' OLD') +
+        (spendingBlocked(status.account, now) ? ' BLOCKED' : '')
       : accountRows(status.account, now, false).join(' ');
     const balance = wrapLines(plain(text), width, true);
     const compact: [string, string, ...string[]] = [

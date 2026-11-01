@@ -502,7 +502,7 @@ test('credit-only stale readings retain the full amount and age at wide, narrow 
 
 test('a tiny terminal preserves the composer and live balance beside two accounts and a long error', async () => {
   const now = Date.now();
-  const { app } = fake({
+  const { app, coordinator } = fake({
     error:
       'A long error which wraps onto several rows in a narrow terminal. '.repeat(
         3,
@@ -556,6 +556,33 @@ test('a tiny terminal preserves the composer and live balance beside two account
     assert.equal(ui.text().split('\n').length, 12);
     assert.match(ui.text(), /Ask the agent/);
     assert.match(ui.text(), /\/delegation/);
+    for (const [funding, expected] of [
+      [
+        { balance: '42886.6046410000', available: true, unlimited: false },
+        '42886.6046410000 credits',
+      ],
+      [
+        { balance: null, available: false, unlimited: true },
+        'unlimited credits',
+      ],
+    ] as const) {
+      coordinator.publish({
+        accounts: {
+          ...coordinator.snapshot.accounts,
+          codex: {
+            limits: [{ window: '7D', percent: 100, observedAt: now }],
+            funding: { kind: 'credits', ...funding, observedAt: now },
+            creditAccess: { state: 'unavailable', observedAt: now },
+          },
+        },
+      });
+      await until(
+        'blocked live balance',
+        () => ui.text().includes(expected) && ui.text().includes('BLOCKED'),
+      );
+      assert.equal(ui.text().split('\n').length, 12);
+      assert.match(ui.text(), /Ask the agent/);
+    }
   } finally {
     ui.unmount();
   }
