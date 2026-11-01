@@ -99,6 +99,9 @@ export class RuntimeSwitch {
         session: () => host.session(),
         send: async (prompt, kind) => {
           const result = await host.send(prompt, kind);
+          // a `/model` summary can exhaust its source too, and returning there needs later evidence
+          if (result.status === 'failed' && result.exhausted)
+            this.exhaustedAt.set(host.conversation().agent, Date.now());
           if (kind === 'turn') this.continuation = result;
           return result;
         },
@@ -211,10 +214,9 @@ export class RuntimeSwitch {
     }
     await this.handoff(chosen.selection, chosen.notice);
     if (this.continuation?.status === 'failed' && this.continuation.exhausted) {
-      const to = chosen.selection.agent;
-      this.exhaustedAt.set(to, Date.now());
+      const to = this.label(chosen.selection.agent);
       host.notice(
-        `${this.label(to)} is also out of usage. The conversation stays on ${this.label(to)}.`,
+        `${to} is also out of usage. The conversation stays on ${to}.`,
       );
     }
   }

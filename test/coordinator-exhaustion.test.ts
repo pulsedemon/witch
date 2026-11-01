@@ -316,6 +316,31 @@ test('a reading from before a runtime ran out does not qualify it', async () => 
   }
 });
 
+test('a /model summary that runs out of usage also requires a later reading before switching back', async () => {
+  const before = Date.now() - 1000;
+  const { coordinator, claude, codex } = await exhaustion((claude) => {
+    claude.accountRead = async () => ({
+      limits: [{ window: '7D', percent: 10, observedAt: before }],
+    });
+  });
+  try {
+    await coordinator.send('First');
+    claude.exhaust = (prompt) => prompt.includes('handoff summary');
+    await coordinator.selectModel({ agent: 'codex', id: 'gpt-6.1-astra' });
+    assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
+    codex.exhaust = (prompt) => prompt.includes('Second');
+    await coordinator.send('Second');
+    assert.ok(
+      notices(coordinator).includes(
+        'codex is out of usage and no other runtime can continue: claude has no reading since it ran out. The conversation stays on codex.',
+      ),
+    );
+    assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('with memory pending, the switch runs once recovery settles, and a prompt sent during it reaches the destination', async () => {
   const { coordinator, claude, codex } = await exhaustion();
   const gate = new TurnGate();
