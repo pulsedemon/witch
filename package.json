@@ -23,7 +23,7 @@
     "lint:eslint": "eslint .",
     "lint:compiler": "babel src/ui --extensions .ts,.tsx --out-file /dev/null --env-name lint",
     "lint": "pnpm lint:eslint && pnpm lint:compiler && prettier --check .",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && node dist/cli.js --help",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && node dist/cli.js --help > /dev/null && echo check passed",
     "format": "prettier --write ."
   },
   "pnpm": {
