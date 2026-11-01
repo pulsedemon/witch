@@ -176,6 +176,13 @@ test('a link written inside an HTML attribute is not checked, and one beside the
   );
 });
 
+test('an escaped opening bracket starts no link, and an escaped backslash before one does', async () => {
+  assert.deepEqual(
+    await check({ 'plan.md': '\\[sample](missing.md)\n\\\\[real](gone.md)\n' }),
+    ['2: link target gone.md does not exist'],
+  );
+});
+
 test('a link target with balanced parentheses is read whole, in links and writing rules', async () => {
   assert.deepEqual(
     await check({
