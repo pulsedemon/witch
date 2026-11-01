@@ -329,7 +329,7 @@ function quoted(text: string): string | undefined {
   return name && identifier.test(name) ? name : undefined;
 }
 
-/** the identifier quoted just before a citation, as `` `name` at `path:12` `` or `` `name` (`path:12`) ``. */
+/** the identifier quoted just before a citation, as `` `name` at `path:12` ``, `` `name` in `path:12` `` or `` `name` (`path:12`) ``. */
 function citedName(
   parts: readonly Segment[],
   position: number,
