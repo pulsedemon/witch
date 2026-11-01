@@ -146,7 +146,8 @@ export async function probeAccountUsage(
 
 /** merges native account slots without borrowing observations from another account or quota. */
 export class CodexAccount {
-  private limitId?: string;
+  // account reads select codex; an earlier notification can belong to another quota.
+  private limitId = 'codex';
   private windows: { primary?: ObservedWindow; secondary?: ObservedWindow } =
     {};
   private reading: AccountReading = { limits: [] };
@@ -194,11 +195,11 @@ export class CodexAccount {
       : undefined;
     if (identity && identity !== this.reading.identity) {
       this.windows = {};
-      this.limitId = undefined;
+      this.limitId = update.limitId ?? 'codex';
       this.reading = { limits: [], identity };
     }
     if (update.limitId) {
-      if (this.limitId && update.limitId !== this.limitId) {
+      if (update.limitId !== this.limitId) {
         if (workspaceDenied(update.rateLimitReachedType)) {
           this.reading = {
             ...this.reading,

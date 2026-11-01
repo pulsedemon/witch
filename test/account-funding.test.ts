@@ -347,6 +347,80 @@ test('a delayed account reply preserves newer native fields and accepts untouche
   }
 });
 
+for (const [name, limitId, accountId, minutes, denial, expectedPercent] of [
+  ['ignores another quota', 'codex_other', 'one', 60, null, 10],
+  ['ignores another quota without identity', 'codex_other', null, 60, null, 10],
+  ['keeps its own newer window', 'codex', 'one', 300, null, 70],
+  [
+    'keeps workspace denial without borrowing quota windows',
+    'codex_other',
+    'one',
+    60,
+    'workspace_member_credits_depleted',
+    10,
+  ],
+] as const)
+  test(`the first account read ${name}`, async () => {
+    const f = await controlledFixture('initial-account');
+    try {
+      const pending = f.session.readAccountUsage!();
+      await appears(join(f.cwd, 'account-1.json'));
+      await f.emit({
+        method: 'account/rateLimits/updated',
+        params: {
+          rateLimits: {
+            limitId,
+            primary: {
+              usedPercent: 70,
+              windowDurationMins: minutes,
+              resetsAt: 2000000000,
+            },
+            credits: null,
+            spendControlReached: null,
+            rateLimitReachedType: denial,
+          },
+        },
+      });
+      await f.reply(
+        1,
+        {
+          result: {
+            accountId,
+            rateLimits: {
+              limitId: 'codex',
+              primary: {
+                usedPercent: 10,
+                windowDurationMins: 300,
+                resetsAt: 2000000000,
+              },
+              credits: {
+                hasCredits: true,
+                unlimited: false,
+                balance: '123.456',
+              },
+              spendControlReached: false,
+              rateLimitReachedType: null,
+            },
+          },
+        },
+        'account',
+      );
+      await pending;
+      const reading = f.session.usage.account!;
+      assert.deepEqual(
+        reading.limits.map(({ window, percent }) => ({ window, percent })),
+        [{ window: '5H', percent: expectedPercent }],
+      );
+      assert.equal(fundingText(reading.funding!), '123.456 credits');
+      assert.equal(
+        creditCapacity(reading, Date.now()),
+        denial ? 'unavailable' : 'available',
+      );
+    } finally {
+      await close(f.session, f.cwd);
+    }
+  });
+
 test('Claude spend keeps native units and disabled state, and a cached failure cannot refresh it', () => {
   const now = 2000000000000;
   vi.spyOn(Date, 'now').mockReturnValue(now);

@@ -227,7 +227,15 @@ const deferReply = (kind, index, request) => {
     writeFileSync(file(`${kind}-replied-${index}`), '');
   })();
 };
-if (['brews', 'identity', 'file-approvals', 'compaction'].includes(mode))
+if (
+  [
+    'brews',
+    'identity',
+    'file-approvals',
+    'compaction',
+    'initial-account',
+  ].includes(mode)
+)
   void (async () => {
     for (let index = 1; ; index++) {
       await waitFor(`events-${index}.json`);
@@ -481,7 +489,7 @@ for await (const line of lines) {
     });
   else if (
     request.method === 'account/rateLimits/read' &&
-    existsSync(file('hold-account'))
+    (mode === 'initial-account' || existsSync(file('hold-account')))
   )
     deferReply('account', ++accountReads, request);
   else if (
