@@ -482,6 +482,31 @@ test('a recovery that fails and stays in recovery does not switch, and the next 
   }
 });
 
+test('Escape while recovery applies stops the switch it was holding', async () => {
+  const { coordinator, claude, codex, hook } = await exhaustion();
+  try {
+    claude.exhaust = (prompt) => prompt.includes('remember-port');
+    await coordinator.send('remember-port');
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    hook.current = async (_, run) => {
+      hook.current = passThrough;
+      entered.resolve();
+      await release.promise;
+      return run();
+    };
+    const recovering = coordinator.recoverMemory('accept');
+    await within(entered.promise, 2000, 'the recovery');
+    await coordinator.interrupt();
+    release.resolve();
+    await recovering;
+    assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
+    assert.equal(codex.sessions.length, 0);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('pending commands make the switch yield with a notice', async () => {
   const { coordinator, claude, codex } = await exhaustion();
   const gate = new TurnGate();

@@ -136,7 +136,8 @@ export class RuntimeSwitch {
     } finally {
       const pending = this.pending && this.host.snapshot().phase === 'idle';
       if (pending) this.pending = false;
-      if (pending && succeeded) {
+      // the switch's own operation clears the stop, so one pressed while recovery applied is read here
+      if (pending && succeeded && !this.host.cancelled()) {
         this.hopped = false;
         await this.attempt();
       }
