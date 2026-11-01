@@ -57,7 +57,8 @@ export async function checkTargets(
     if (extname(file) !== '.md') continue;
     const path = resolve(cwd, file);
     const text = await local(path);
-    if (text === undefined) continue;
+    if (text === undefined)
+      throw new Error(`review target ${file} is no longer a file`);
     const lines = text.split('\n');
     const prose = proseLines(lines);
     for (const [index, line] of lines.entries()) {
