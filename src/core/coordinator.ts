@@ -172,9 +172,7 @@ export class Coordinator {
       this.publish({});
       this.drainAfter();
     },
-    failed: () => {
-      this.turnFailed = true;
-    },
+    failed: () => (this.turnFailed = true),
     notice: (text) => this.notice(text),
     report: (error) => this.report(error),
   });
@@ -298,12 +296,10 @@ export class Coordinator {
         if (this.record)
           await this.coordination
             ?.releaseConversation(this.record.id)
-            .catch((error: unknown) => {
-              failure ??= error;
-            });
-        await this.files?.close().catch((error: unknown) => {
-          failure ??= error;
-        });
+            .catch((error: unknown) => (failure ??= error));
+        await this.files
+          ?.close()
+          .catch((error: unknown) => (failure ??= error));
       }
       this.files = files;
       this.record = files.record;
@@ -861,7 +857,7 @@ export class Coordinator {
   /** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
   async review(argument: string): Promise<boolean> {
     const conversation = this.current();
-    const abort = (this.reviewCancellation = new AbortController());
+    const abort = new AbortController();
     return runReviewCommand(argument, {
       conversation,
       coordination: this.coordination,
@@ -879,9 +875,13 @@ export class Coordinator {
         if (failure) this.notice(`Memory publication failed: ${failure}`);
         return !recovery && !failure;
       },
-      operate: (rounds) => this.operate('running', rounds),
+      operate: (rounds) =>
+        this.operate('running', () => {
+          this.reviewCancellation = abort;
+          return rounds().finally(() => (this.reviewCancellation = undefined));
+        }),
       idle: () => !this.snapshot.error && this.snapshot.phase === 'idle',
-    }).finally(() => (this.reviewCancellation = undefined));
+    });
   }
 
   async restoreMemory(path: string, revision: string): Promise<void> {
