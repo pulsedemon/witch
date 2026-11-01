@@ -5,7 +5,6 @@ import type { AgentSession } from '../agents/types.js';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import {
-  ClaimConflict,
   CoordinationStore,
   checkDeadline,
 } from '../persistence/coordination.js';
@@ -19,14 +18,12 @@ import type {
 import { identifyProcess, sameProcess } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import {
-  conversationSummarySchema,
   checkTaskRelease,
   emptySnapshot,
   taskActivity,
   type CoordinationSnapshot,
   type SessionPresence,
   type SelectionScope,
-  type TransferTarget,
 } from './coordination-state.js';
 import type { Reviewers } from './reviewers.js';
 import type { router } from './router.js';
@@ -36,24 +33,18 @@ import {
   coordinationInstructions,
 } from './coordination-policy.js';
 import { configStamp, discover, projectDiscovery } from './discovery.js';
-import {
-  awaitTransfer,
-  movedNotices,
-  takeReference,
-  transferRefusal,
-  TransferUnavailable,
-} from './task-transfer.js';
+import { movedNotices, transferRefusal } from './task-transfer.js';
 import type { Discovery } from './discovery.js';
-import { assignGitHubTask, recordTaskAssignment } from './github-assignment.js';
+import { assignGitHubTask } from './github-assignment.js';
 import { ReviewOwnership } from './review-ownership.js';
 import type { Repository } from './repository.js';
 import { ConversationEvents } from './conversation-events.js';
-import { checkAnswering, isPeerAction, peerOutcome } from './peer-requests.js';
+import { dispatchControl, type DispatchHost } from './control-dispatch.js';
 import type { PeerRequest } from './peer-requests.js';
 import type { PeerAnswer } from './peer-answers.js';
 import type { Conversation, ProcessIdentity } from './state.js';
 
-interface Activation {
+export interface Activation {
   conversation: Conversation;
   project: string;
   binding: ControlBinding;
@@ -76,12 +67,12 @@ interface Activation {
 /** lock holders and process exits change no file, so the tick rereads them this often. */
 const rereadInterval = 60_000;
 
-interface LedgerView {
+export interface LedgerView {
   revision: number;
   ledger: Ledger;
 }
 
-interface RequestState {
+export interface RequestState {
   deadline?: number;
   ledger?: LedgerView;
   discovery?: { revision: number; promise: Promise<Discovery> };
@@ -96,6 +87,7 @@ export class SessionCoordination {
   private branch?: string;
   private repository?: Repository;
   readonly events: ConversationEvents;
+  private readonly control: DispatchHost;
   readonly reviews = new ReviewOwnership({
     observed: () => !!this.active?.accepting && !!this.ledger,
     context: (project) => this.context(project),
@@ -177,6 +169,24 @@ export class SessionCoordination {
     private readonly process: ProcessIdentity,
     private readonly assign: typeof assignGitHubTask,
   ) {
+    this.control = {
+      registry,
+      store,
+      process,
+      assign,
+      state: () => this.state,
+      turn: () => this.turn,
+      presenceFailure: () => this.failures.get('presence'),
+      failed: (error) => this.fail('selection', error),
+      admit: (request) => this.admit(request),
+      readLedger: (state) => this.readLedger(state),
+      change: (state, work, verify) => this.change(state, work, verify),
+      observe: (state) => this.observe(state),
+      requestSnapshot: (active, state) => this.requestSnapshot(active, state),
+      refreshProject: (active, deadline) =>
+        this.refreshProject(active, deadline),
+      retireProject: (active, state) => this.retireProject(active, state),
+    };
     this.events = new ConversationEvents(
       registry,
       {
@@ -642,7 +652,8 @@ export class SessionCoordination {
         (entry) => entry.owner.conversation === active.conversation.id,
       );
       if (!claim) return;
-      await this.dispatch(
+      await dispatchControl(
+        this.control,
         {
           id: randomUUID(),
           version: 1,
@@ -665,7 +676,8 @@ export class SessionCoordination {
       );
     this.failures.delete('control');
     await this.serialize(() =>
-      this.dispatch(
+      dispatchControl(
+        this.control,
         {
           id: randomUUID(),
           version: 1,
@@ -941,304 +953,7 @@ export class SessionCoordination {
       if (!this.router) throw new Error('This Witch cannot route work.');
       return this.router(request.action);
     }
-    return this.serialize(() => this.dispatch(request, human));
-  }
-
-  private selectionScope(active: Activation, turn?: string): SelectionScope {
-    const scope = this.turn;
-    if (
-      !scope ||
-      scope.activation !== active.binding.activation ||
-      scope.owner.project !== active.project ||
-      (turn !== undefined && scope.turn !== turn)
-    )
-      throw new Error('This selection turn is no longer current.');
-    return scope;
-  }
-
-  private async dispatch(
-    request: ControlRequest,
-    human: boolean,
-    state: RequestState = {},
-  ): Promise<ControlOutcome> {
-    const active = this.admit(request);
-    state.deadline = request.deadline;
-    let outcome: ControlOutcome | undefined;
-    try {
-      const action = request.action;
-      if (isFamiliarAction(action) || action.kind === 'route')
-        throw new Error('This action is answered before dispatch.');
-      checkAnswering(this.state?.answering, action);
-      if (action.kind === 'peers') {
-        const snapshot = await this.requestSnapshot(active, state);
-        if (snapshot.error) throw new Error(snapshot.error);
-        return (outcome = { kind: 'peers', snapshot });
-      }
-      if (action.kind === 'take' && !human)
-        throw new Error(
-          'Only the user can request an unconditional transfer. Use --claim to request a transfer when the owner is out of usage.',
-        );
-      if (action.kind === 'release') {
-        const claim = (await this.readLedger(state)).ledger.claims.find(
-          (entry) => entry.id === action.claim,
-        );
-        await this.change(
-          state,
-          (verify) =>
-            this.registry.release(
-              {
-                conversation: active.conversation.id,
-                project: claim?.owner.project ?? active.project,
-              },
-              action.claim,
-              request.deadline,
-              verify,
-            ),
-          async () => {
-            this.admit(request);
-            checkTaskRelease(this.state, human);
-          },
-        );
-        return { kind: 'released' };
-      }
-      await this.refreshProject(active, request.deadline);
-      await this.retireProject(active, state);
-      const owner = {
-        conversation: active.conversation.id,
-        project: active.project,
-      };
-      if (isPeerAction(action))
-        return await peerOutcome(action, {
-          registry: this.registry,
-          owner,
-          deadline: request.deadline,
-          change: (work, verify) => this.change(state, work, verify),
-          peers: async (ledger) => {
-            this.admit(request);
-            return projectDiscovery(
-              active.conversation.id,
-              active.project,
-              await this.observe(state),
-              ledger,
-            ).peers;
-          },
-          claims: async () => (await this.readLedger(state)).ledger.claims,
-        });
-      const scope =
-        action.kind === 'claim' || action.kind === 'take'
-          ? undefined
-          : this.selectionScope(
-              active,
-              action.kind === 'select-next' ? action.turn : undefined,
-            );
-      const verify = async (ledger: Ledger) => {
-        await this.refreshProject(active, request.deadline);
-        const snapshot = projectDiscovery(
-          active.conversation.id,
-          active.project,
-          await this.observe(state),
-          ledger,
-        );
-        this.admit(request);
-        if (owner.project !== active.project)
-          throw new Error(
-            'The project changed. Query peers before claiming again.',
-          );
-        if (scope && this.selectionScope(active) !== scope)
-          throw new Error('This selection turn is no longer current.');
-        if (this.failures.get('presence'))
-          throw new Error(this.failures.get('presence'));
-        if (snapshot.unregistered.length)
-          throw new Error(
-            `Restart or close these unregistered Witch sessions before claiming: ${snapshot.unregistered.map((entry) => `${entry.title} (${entry.id}, ${entry.cwd})`).join('; ')}`,
-          );
-        if (
-          snapshot.ownClaim &&
-          snapshot.ownClaim.owner.project !== active.project
-        )
-          throw new Error(
-            'Release the existing task in its original project before claiming in this project.',
-          );
-        if (action.kind === 'select-next') {
-          const older = snapshot.peers.filter(
-            (peer) => !peer.presence.selectionQueue,
-          );
-          if (older.length)
-            throw new Error(
-              `Restart or close these Witch sessions before selecting: ${older.map((peer) => `${peer.presence.title} (${peer.presence.id})`).join('; ')}`,
-            );
-        }
-        if (
-          action.kind === 'select-next' ||
-          action.kind === 'recommend' ||
-          (action.kind === 'claim' && snapshot.ownSelection)
-        )
-          checkTaskRelease(this.state, false);
-      };
-      if (action.kind === 'claim' || action.kind === 'take') {
-        const transfer = async (target: TransferTarget) => {
-          const { activation } = active.binding;
-          const { claim, view } = await awaitTransfer({
-            conversation: owner.conversation,
-            activation,
-            reference: action.input.reference,
-            field: target.field,
-            deadline: request.deadline,
-            request: (expires) =>
-              this.change(
-                state,
-                (check) =>
-                  this.registry.requestTransfer(
-                    owner,
-                    target,
-                    { activation, process: this.process, expires },
-                    request.deadline,
-                    check,
-                  ),
-                verify,
-              ),
-            title: async (id) => (await this.record(id))?.title,
-            admit: () => this.admit(),
-            read: (deadline) => this.readLedger({ deadline }),
-            withdraw: (id) => {
-              state.ledger = undefined;
-              return this.change(state, (check) =>
-                this.registry.withdrawTransfer(
-                  activation,
-                  id,
-                  Date.now() + 1000,
-                  check,
-                  target.field,
-                ),
-              );
-            },
-          });
-          state.ledger = view;
-          return { kind: 'claimed' as const, claim };
-        };
-        if (action.kind === 'take')
-          return await transfer({ field: 'transfer', ...action.input });
-        let claim;
-        try {
-          claim = await this.change(
-            state,
-            (check) =>
-              this.registry.claim(
-                owner,
-                action.input,
-                this.process,
-                request.deadline,
-                check,
-              ),
-            verify,
-          );
-        } catch (error) {
-          if (!(error instanceof ClaimConflict) || error.claim.suggestion)
-            throw error;
-          return await transfer({
-            field: 'automaticTransfer',
-            claim: error.claim,
-          });
-        }
-        return {
-          kind: 'claimed',
-          ...(await recordTaskAssignment(
-            claim,
-            active.conversation.cwd,
-            request.deadline,
-            this.assign,
-            (id, references, deadline) =>
-              this.change(state, (check) =>
-                this.registry.recordAssignment(id, references, deadline, check),
-              ),
-          )),
-        };
-      }
-      if (action.kind === 'recommend')
-        return {
-          kind: 'claimed',
-          claim: await this.change(
-            state,
-            (check) =>
-              this.registry.recommend(
-                scope!,
-                action.selection,
-                action.input,
-                this.process,
-                request.deadline,
-                check,
-              ),
-            verify,
-          ),
-        };
-      if (action.kind === 'cancel-selection') {
-        await this.change(
-          state,
-          (check) =>
-            this.registry.cancelSelection(
-              scope!,
-              action.selection,
-              request.deadline,
-              check,
-            ),
-          verify,
-        );
-        return { kind: 'selection-cancelled', selection: action.selection };
-      }
-      const selection = await this.change(
-        state,
-        (check) =>
-          action.kind === 'select-next'
-            ? this.registry.beginSelection(scope!, request.deadline, check)
-            : this.registry.selection(
-                scope!,
-                action.selection,
-                request.deadline,
-                check,
-              ),
-        verify,
-      );
-      return (outcome = {
-        kind: 'selection',
-        selection,
-        snapshot: await this.requestSnapshot(active, state),
-      });
-    } catch (error) {
-      const conflict =
-        request.action.kind === 'claim' &&
-        error instanceof TransferUnavailable &&
-        error.claim
-          ? new ClaimConflict(error.claim)
-          : error;
-      if (!(conflict instanceof ClaimConflict)) throw error;
-      const owner = await this.record(conflict.claim.owner.conversation);
-      return {
-        kind: 'conflict',
-        claim: conflict.claim,
-        message:
-          request.action.kind === 'claim'
-            ? `${conflict.message} The user can move it here with /task take ${takeReference(request.action.input, conflict.claim, active.project)} once its owner is idle.`
-            : conflict.message,
-        ...(owner ? { owner: conversationSummarySchema.parse(owner) } : {}),
-      };
-    } finally {
-      await this.retireProject(active, state).catch((error: unknown) =>
-        this.fail('selection', error),
-      );
-      await this.requestSnapshot(active, state).then(
-        (snapshot) => {
-          if (outcome?.kind === 'peers' || outcome?.kind === 'selection')
-            outcome.snapshot = snapshot;
-        },
-        () => {},
-      );
-    }
-  }
-
-  private async record(conversation: string) {
-    return (await this.store.records([conversation])).records.find(
-      (entry) => entry.id === conversation,
-    );
+    return this.serialize(() => dispatchControl(this.control, request, human));
   }
 
   /** the owner's Witch answers a transfer request without a model turn. */
