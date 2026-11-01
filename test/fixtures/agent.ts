@@ -100,6 +100,8 @@ export class FixtureAgent implements AgentAdapter {
   failNext = false;
   /** a turn whose prompt it matches fails once its gate opens, with confirmed usage exhaustion. */
   exhaust?: (prompt: string) => boolean;
+  /** the next compaction fails once its gate opens, with confirmed usage exhaustion. */
+  exhaustCompaction = false;
   peerReply?: (requests: PeerRequest[]) => string;
   gate?: TurnGate;
   /** what a session reports as its usage when it connects. */
@@ -205,6 +207,15 @@ export class FixtureAgent implements AgentAdapter {
         const held = this.gate ? await this.gate.hold(turn.promise) : undefined;
         turn = undefined;
         if (held) return held;
+        if (this.exhaustCompaction) {
+          this.exhaustCompaction = false;
+          return {
+            status: 'failed',
+            text: '',
+            error: 'Usage limit reached',
+            exhausted: true,
+          };
+        }
         if (this.failNext) {
           this.failNext = false;
           return { status: 'failed', text: '', error: 'Compaction failed' };

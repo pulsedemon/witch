@@ -180,6 +180,59 @@ test('a continuation that fails without exhaustion keeps the queued prompt held'
   }
 });
 
+test('a prompt whose pre-turn compaction runs out of usage continues on the destination and reaches it once', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  try {
+    claude.turnUsage = { context: 80 };
+    await coordinator.send('Seed');
+    claude.exhaustCompaction = true;
+    await coordinator.send('Migrate the store');
+    assert.equal(claude.compactions.length, 1);
+    assert.deepEqual(
+      claude.inputs.map(({ prompt }) => prompt),
+      ['Seed'],
+    );
+    // Seed completed, so the handoff sends no continuation and the held prompt carries its context
+    assert.deepEqual(
+      codex.inputs.map(({ prompt }) => prompt),
+      ['Migrate the store'],
+    );
+    assert.match(codex.inputs[0]!.context!, /could not summarize/);
+    assert.match(codex.inputs[0]!.context!, /User: Seed/);
+    assert.doesNotMatch(codex.inputs[0]!.context!, /User: Migrate the store/);
+    assert.deepEqual(codex.compactions, []);
+    assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    assert.ok(notices(coordinator).includes('Usage limit reached'));
+    assert.ok(
+      notices(coordinator).includes(
+        'claude is out of usage. Continuing on codex · gpt-6.1-astra: codex 7D 40% has room',
+      ),
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('a pre-turn compaction that fails without exhaustion stays on the source and returns the prompt to the composer', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  try {
+    claude.turnUsage = { context: 80 };
+    await coordinator.send('Seed');
+    claude.failNext = true;
+    await coordinator.send('Migrate the store');
+    assert.equal(coordinator.snapshot.conversation!.agent, 'claude');
+    assert.deepEqual(codex.inputs, []);
+    assert.deepEqual(
+      claude.inputs.map(({ prompt }) => prompt),
+      ['Seed'],
+    );
+    assert.deepEqual(coordinator.snapshot.queue, ['Migrate the store']);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('a steered prompt the exhausted turn left unread reaches the destination once', async () => {
   const { coordinator, claude, codex } = await exhaustion();
   const gate = new TurnGate();
