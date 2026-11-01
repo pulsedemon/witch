@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
 import type { FamiliarAction } from '../src/agents/familiar-report.js';
@@ -353,7 +354,7 @@ test('a reviewer that outlives the stop deadline ends the run at the deadline', 
   }
 });
 
-test('an abort after the commands exit ends cleanup at its own deadline', async () => {
+test('an abort after the commands exit ends cleanup at its own deadline and stops probing', async () => {
   const root = await scratch('witch-reviewers-');
   const kill = process.kill.bind(process);
   const sent: (string | number | undefined)[] = [];
@@ -380,6 +381,11 @@ test('an abort after the commands exit ends cleanup at its own deadline', async 
       within(running, 3000, 'the missed stop'),
       NativeStopTimeout,
     );
+    // each poll probes once more as it wakes past the deadline
+    await delay(100);
+    const probes = sent.length;
+    await delay(200);
+    assert.equal(sent.length, probes);
   } finally {
     spy.mockRestore();
   }
