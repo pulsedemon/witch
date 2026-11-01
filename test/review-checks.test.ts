@@ -183,6 +183,16 @@ test('an escaped opening bracket starts no link, and an escaped backslash before
   );
 });
 
+test('an angle-bracketed link destination is read as the path inside it', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md': '[license](<LICENSE>) [gone](<GONE>)\n',
+      LICENSE: 'x\n',
+    }),
+    ['1: link target GONE does not exist'],
+  );
+});
+
 test('a link target with balanced parentheses is read whole, in links and writing rules', async () => {
   assert.deepEqual(
     await check({
