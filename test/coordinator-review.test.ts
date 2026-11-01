@@ -343,15 +343,25 @@ test("a settling round's non-blocking findings get a final turn", async (t) => {
   assert.match(h.notice('Review finished')!, /1 non-blocking findings sent/);
 });
 
-test('a final correction that removes its target fails the review', async (t) => {
+test('a final correction that removes a target the checks skip fails the review', async (t) => {
   const h = await harness(t);
+  const finding = {
+    file: 'plan.ts',
+    line: 1,
+    blocking: false,
+    summary: 'issue on line 1',
+    correction: 'fix line 1',
+  };
+  await writeFile(join(h.cwd, 'plan.ts'), 'export {};\n');
   h.state.outcome = (_round, { runtime }) =>
-    runtime === 'claude' ? { findings: [{ line: 7, blocking: false }] } : {};
-  h.corrections.push(() => rm(join(h.cwd, 'plan.md')));
-  await assert.rejects(
-    h.coordinator.review('plan.md'),
-    /review target plan\.md is no longer a file/,
-  );
+    runtime === 'claude'
+      ? {
+          report: `\`\`\`json\n${JSON.stringify({ findings: [finding] })}\n\`\`\``,
+        }
+      : {};
+  h.corrections.push(() => rm(join(h.cwd, 'plan.ts')));
+  await assert.rejects(h.coordinator.review('plan.ts'), { code: 'ENOENT' });
+  assert.equal(h.correctionPrompts().length, 1);
   assert.ok(!h.notice('Review finished'), h.notices().join('\n'));
 });
 
