@@ -20,9 +20,7 @@ import type { StateStore } from '../persistence/store.js';
 import {
   checkTaskRelease,
   emptySnapshot,
-  taskActivity,
   type CoordinationSnapshot,
-  type SessionPresence,
   type SelectionScope,
 } from './coordination-state.js';
 import type { Reviewers } from './reviewers.js';
@@ -40,6 +38,7 @@ import { ReviewOwnership } from './review-ownership.js';
 import type { Repository } from './repository.js';
 import { ConversationEvents } from './conversation-events.js';
 import { dispatchControl, type DispatchHost } from './control-dispatch.js';
+import { PresencePublisher } from './presence.js';
 import type { PeerRequest } from './peer-requests.js';
 import type { PeerAnswer } from './peer-answers.js';
 import type { Conversation, ProcessIdentity } from './state.js';
@@ -84,10 +83,10 @@ export class SessionCoordination {
   private listeners = new Set<() => void>();
   private active?: Activation;
   private state?: Snapshot;
-  private branch?: string;
   private repository?: Repository;
   readonly events: ConversationEvents;
   private readonly control: DispatchHost;
+  private readonly presence: PresencePublisher;
   readonly reviews = new ReviewOwnership({
     observed: () => !!this.active?.accepting && !!this.ledger,
     context: (project) => this.context(project),
@@ -126,11 +125,6 @@ export class SessionCoordination {
   router?: ReturnType<typeof router>;
   ownFamiliars?: Reviewers['report'];
   private timer?: ReturnType<typeof setInterval>;
-  private scheduled?: ReturnType<typeof setTimeout>;
-  private pending?: SessionPresence;
-  private projected?: SessionPresence;
-  private writing: Promise<void> = Promise.resolve();
-  private retrying?: Promise<void>;
   private operations: Promise<void> = Promise.resolve();
   private refreshing?: {
     active: Activation;
@@ -169,6 +163,21 @@ export class SessionCoordination {
     private readonly process: ProcessIdentity,
     private readonly assign: typeof assignGitHubTask,
   ) {
+    this.presence = new PresencePublisher({
+      registry,
+      process,
+      state: () => this.state,
+      branch: () => this.repository?.branch,
+      active: () => this.active,
+      closed: () => this.closed,
+      ending: () => this.ending,
+      failed: (error) => this.fail('presence', error),
+      written: () => {
+        this.failures.delete('presence');
+        this.publish(this.snapshot);
+      },
+      failure: () => this.failures.has('presence'),
+    });
     this.control = {
       registry,
       store,
@@ -352,9 +361,7 @@ export class SessionCoordination {
           this.claimReleases.add(claim.owner.conversation);
       }
       await this.retireProject(active);
-      const presence = this.presence(active);
-      this.projected = presence;
-      await this.write(presence);
+      await this.presence.publish(active);
       if (this.ending || this.closed)
         throw new Error('Coordination is closing.');
       active.accepting = true;
@@ -380,13 +387,11 @@ export class SessionCoordination {
     if (!active) return;
     const quiescing = Promise.all([this.endTurn(), this.quiesce()]);
     active.publishing = false;
-    clearTimeout(this.scheduled);
-    this.scheduled = undefined;
-    this.pending = undefined;
+    this.presence.cancel();
     let failure: unknown;
     try {
       await quiescing;
-      await this.writing;
+      await this.presence.idle();
       const error = this.failures.get('presence');
       if (error) failure = new Error(error);
     } catch (error) {
@@ -404,7 +409,7 @@ export class SessionCoordination {
         failure ??= error;
       });
       if (this.active === active) this.active = undefined;
-      this.projected = undefined;
+      this.presence.reset();
     }
     if (failure !== undefined) throw failure;
   }
@@ -422,35 +427,11 @@ export class SessionCoordination {
       snapshot.conversation?.id !== active.conversation.id
     )
       return;
-    const presence = this.presence(active);
-    const projected = this.projected;
-    const keys = Object.keys(presence) as (keyof SessionPresence)[];
-    if (
-      projected &&
-      keys.length === Object.keys(projected).length &&
-      keys.every(
-        (key) =>
-          key === 'updatedAt' ||
-          (Object.hasOwn(projected, key) && presence[key] === projected[key]),
-      )
-    )
-      return;
-    this.projected = presence;
-    this.pending = presence;
-    if (this.scheduled) return;
-    this.scheduled = setTimeout(() => {
-      this.scheduled = undefined;
-      const pending = this.pending;
-      this.pending = undefined;
-      if (pending && active.publishing && this.active === active)
-        void this.write(pending);
-    }, 100);
-    this.scheduled.unref();
+    this.presence.schedule(active);
   }
 
   updateRepository(repository: Repository | undefined): void {
     this.repository = repository;
-    this.branch = repository?.branch;
     if (this.state) this.update(this.state);
     const active = this.active;
     const pullRequest = repository?.pullRequest;
@@ -710,72 +691,6 @@ export class SessionCoordination {
         this.projecting?.promise,
       ]);
     }
-  }
-
-  private presence(active: Activation): SessionPresence {
-    const state = this.state;
-    const { familiars, brews } = taskActivity(state);
-    const { id, title, cwd, agent } = active.conversation;
-    return {
-      id,
-      title,
-      cwd,
-      agent,
-      version: 1,
-      selectionQueue: 1,
-      peerRequests: 1,
-      project: active.project,
-      activation: active.binding.activation,
-      process: this.process,
-      phase:
-        state?.phase === 'compacting'
-          ? 'running'
-          : (state?.phase ?? 'starting'),
-      requests: state?.requests.length ?? 0,
-      familiars,
-      brews,
-      ...(this.branch ? { branch: this.branch } : {}),
-      openedAt: active.openedAt,
-      updatedAt: Date.now(),
-    };
-  }
-
-  private write(presence: SessionPresence): Promise<void> {
-    const written = this.writing.then(() => this.registry.publish(presence));
-    this.writing = written.then(
-      () => {
-        this.failures.delete('presence');
-        this.publish(this.snapshot);
-      },
-      (error: unknown) => this.fail('presence', error),
-    );
-    return written;
-  }
-
-  private retryPresence(): Promise<void> {
-    if (this.closed || !this.failures.has('presence')) return Promise.resolve();
-    const active = this.active;
-    const writing = this.writing;
-    this.retrying ??= writing
-      .then(async () => {
-        if (
-          this.closed ||
-          this.ending ||
-          !active?.accepting ||
-          !active.publishing ||
-          this.active !== active ||
-          this.scheduled ||
-          this.writing !== writing ||
-          !this.failures.has('presence')
-        )
-          return;
-        await this.write(this.presence(active));
-      })
-      .catch(() => {})
-      .finally(() => {
-        this.retrying = undefined;
-      });
-    return this.retrying;
   }
 
   private admit(request?: ControlRequest): Activation {
@@ -1048,7 +963,7 @@ export class SessionCoordination {
   /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
   private tick(): void {
     void this.maintain();
-    void this.retryPresence();
+    void this.presence.retry();
     void this.events.publishMerges();
     const active = this.active;
     if (!active?.publishing || this.closed) return;
