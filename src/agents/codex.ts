@@ -1273,14 +1273,15 @@ class CodexSession implements AgentSession {
         const turn = object.parse(data.turn);
         if (this.turn?.compaction && turn.id !== this.turn.id) break;
         const status = stringValue.parse(turn.status);
-        const error =
-          turn.error == null ? undefined : object.parse(turn.error).message;
+        const error = turn.error == null ? undefined : object.parse(turn.error);
         const completed = turnId.safeParse(data).data?.turn.id;
         if (['completed', 'interrupted', 'failed'].includes(status))
           this.finish(
             status as TurnResult['status'],
-            typeof error === 'string' ? error : undefined,
+            typeof error?.message === 'string' ? error.message : undefined,
             completed,
+            // rateLimitExceeded and sessionBudgetExceeded are separate members and don't count
+            error?.codexErrorInfo === 'usageLimitExceeded',
           );
         else
           this.finish(
@@ -1435,6 +1436,7 @@ class CodexSession implements AgentSession {
     status: TurnResult['status'],
     error?: string,
     completedTurnId = this.turn?.id,
+    exhausted = false,
   ): void {
     const turn = this.turn;
     if (turn?.interrupted && (turn.compaction || this.reportedStopTimeout))
@@ -1470,6 +1472,7 @@ class CodexSession implements AgentSession {
           ? turn.messages.last
           : turn.messages.text,
       ...(error ? { error } : {}),
+      ...(exhausted && status === 'failed' ? { exhausted } : {}),
     });
   }
 }

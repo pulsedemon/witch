@@ -833,3 +833,84 @@ test('native exit settles a turn with unacknowledged input', async () => {
     await f.session.close();
   }
 });
+
+/** a native frame, a steered prompt that starts and fails, an interrupt or a killed CLI. */
+type Step = object | 'steer' | 'interrupt' | 'kill';
+const week = { rateLimitType: 'seven_day', resetsAt: Date.now() / 1000 + 3600 };
+const limit = (info: object = {}) => ({
+  type: 'rate_limit_event',
+  rate_limit_info: { status: 'rejected', ...week, ...info },
+});
+const failed = { type: 'result', is_error: true, result: 'API Error: 429' };
+const idle = {
+  type: 'system',
+  subtype: 'session_state_changed',
+  state: 'idle',
+};
+const failure = [failed, idle];
+
+/** the last scripted turn's `exhausted` on a sonnet session, once that turn failed or was interrupted. */
+async function exhausted(...turns: Step[][]) {
+  const events: AgentEvent[] = [];
+  const f = await fixture((event) => events.push(event), 'background');
+  const reported = (name: string) =>
+    events.some((e) => e.type === 'skills' && e.skills[0]?.name === name);
+  const emit = frameWriter(f.cwd, reported, f.child);
+  try {
+    await f.session.selectModel('claude-sonnet-4-5');
+    let result;
+    for (const [index, steps] of turns.entries()) {
+      const turn = f.session.send('limited');
+      if (!index) await until('initial reply', () => reported('result-1'));
+      for (const step of steps)
+        if (step === 'kill') f.child.kill();
+        else if (step === 'interrupt') await f.session.interrupt();
+        else if (step !== 'steer') await emit(step);
+        else {
+          assert.equal(await f.session.steer('also'), true);
+          let id = '';
+          await until('steered input', async () => {
+            const [, input] = await jsonLines(join(f.cwd, 'inputs.jsonl'));
+            id = (input as SDKUserMessage | undefined)?.uuid ?? '';
+            return !!id;
+          });
+          await emit(
+            { type: 'command_lifecycle', command_uuid: id, state: 'started' },
+            { ...failed, user_message_uuids: [id] },
+          );
+        }
+      result = await turn;
+    }
+    const interrupted = turns.at(-1)!.includes('interrupt');
+    assert.equal(result!.status, interrupted ? 'interrupted' : 'failed');
+    return result!.exhausted;
+  } finally {
+    await f.session.close();
+  }
+}
+
+test('Claude confirms exhaustion from a current rejection behind a failed result', async () => {
+  const cases: Step[][][] = [
+    [[limit(), ...failure]],
+    [[limit(), ...failure], failure], // a rejection in an earlier turn
+    [[limit({ resetsAt: undefined }), ...failure]],
+    [[limit({ rateLimitType: undefined }), 'steer', idle]],
+    [[limit({ rateLimitType: 'seven_day_sonnet' }), ...failure]],
+  ];
+  for (const turns of cases)
+    assert.equal(await exhausted(...turns), true, JSON.stringify(turns));
+});
+
+test('Claude leaves exhaustion unset without a current rejection behind a failed result', async () => {
+  const cases: Step[][][] = [
+    [failure], // a plain 429
+    [[limit(), ...failure], [{ type: 'result' }, idle], failure],
+    [[limit({ resetsAt: Date.now() / 1000 - 60 }), ...failure]],
+    [[limit({ overageInUse: true }), ...failure]],
+    [[limit({ rateLimitType: 'seven_day_opus' }), ...failure]],
+    [[limit(), 'interrupt']],
+    [[limit(), 'kill']],
+  ];
+  for (const turns of cases)
+    assert.equal(await exhausted(...turns), undefined, JSON.stringify(turns));
+});

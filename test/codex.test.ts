@@ -748,17 +748,21 @@ test('a malformed settings notification fails the model change', async () => {
   }
 });
 
-for (const [prompt, error] of [
-  ['null-turn', /turn\/completed/],
-  ['in-progress', /status inProgress/],
-  ['failed', /^native failure$/],
+for (const [prompt, status, error, exhausted] of [
+  ['null-turn', 'failed', /turn\/completed/, undefined],
+  ['in-progress', 'failed', /status inProgress/, undefined],
+  ['failed', 'failed', /^native failure$/, undefined],
+  ['usage-limit', 'failed', /^limit reached$/, true],
+  ['rate-limit', 'failed', /^limit reached$/, undefined],
+  ['interrupted usage-limit', 'interrupted', /^limit reached$/, undefined],
 ] as const) {
-  test(`a turn completed as ${prompt} fails only that turn`, async () => {
+  test(`a turn completed as ${prompt} ends only that turn${exhausted ? ', exhausted' : ''}`, async () => {
     const { session, cwd } = await fixture();
     try {
       const result = await within(session.send(prompt), 2000, `${prompt} turn`);
-      assert.equal(result.status, 'failed');
+      assert.equal(result.status, status);
       assert.match(result.error ?? '', error);
+      assert.equal(result.exhausted, exhausted);
       assert.equal(session.closed, false);
     } finally {
       await close(session, cwd);
