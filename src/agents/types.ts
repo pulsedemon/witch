@@ -220,6 +220,8 @@ export interface AnswerInput {
   requestFile: string;
 }
 
+export type TurnPurpose = 'user' | 'peer-answer' | 'pr-review';
+
 export interface AgentSession {
   familiar?: {
     report(action: FamiliarAction, deadline: number): Promise<FamiliarOutcome>;
@@ -240,12 +242,12 @@ export interface AgentSession {
   compact(): Promise<TurnResult>;
   /** queues native compaction within an ordinary turn without interrupting it; undefined refuses delivery. */
   compactDuringTurn?(): Promise<TurnResult> | undefined;
-  /** generated context never replaces the user's request in native authorization evidence; a `witch` prompt is Witch's own instruction for a turn with no user request. */
+  /** generated context never replaces the user's request in native authorization evidence; an automatic prompt is Witch's instruction for a turn with no new user request. */
   send(
     prompt: string,
     skill?: SkillCall,
     context?: string,
-    author?: 'user' | 'witch',
+    purpose?: TurnPurpose,
     answer?: AnswerInput,
   ): Promise<TurnResult>;
   /**

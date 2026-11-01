@@ -1,7 +1,9 @@
 import { settleMemory } from './memory-settlement.js';
+import { handoff } from './handoff.js';
+import { CopilotReviewController } from './copilot-review-controller.js';
+import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction } from './compaction.js';
-import { initialSnapshot } from './snapshot.js';
-import type { Snapshot } from './snapshot.js';
+import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { AgentRegistration } from '../agents/registry.js';
@@ -49,17 +51,16 @@ import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
-import { ModelCatalog, modelEffort } from './models.js';
+import { ModelCatalog, modelEffort, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
-import type { ModelSelection } from './models.js';
 import type { Conflict, PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
 import {
   answerInstruction,
   answerNotice,
   watchPeerRequestNotices,
+  type PeerRequest,
 } from './peer-requests.js';
-import type { PeerRequest } from './peer-requests.js';
 import {
   preparePeerAnswers,
   recordPeerAnswers,
@@ -71,37 +72,31 @@ import {
   applyDisplayUpdate,
   clearConversationContext,
   clearDelivery,
-  contextStart,
   createConversation,
   recordDelivery,
   recordSession,
   untitled,
-} from './state.js';
-import type {
-  Conversation,
-  ConversationRecord,
-  DisplayUpdate,
-  Phase,
+  type Conversation,
+  type ConversationRecord,
+  type DisplayUpdate,
+  type Phase,
 } from './state.js';
 
 const compactAt = 80;
 const localActivity = Symbol('local activity');
 type Activity = NonNullable<ConversationRecord['activity']>;
-
 interface Launch {
   continue?: boolean;
   conversation?: string;
 }
-
 interface TurnOptions {
   delivered?: () => void;
   queued?: boolean;
   requests?: readonly PeerRequest[];
+  review?: ReviewBatch;
 }
-
 /** another operation holds the phase, so nothing ran and nothing failed. */
 class Refusal extends Error {}
-
 export class Coordinator {
   readonly pentacle = new PentacleActivity();
   snapshot: Snapshot;
@@ -133,8 +128,23 @@ export class Coordinator {
   private draining?: PromiseWithResolvers<void>;
   private deliveryHolds = 0;
   private admissions = 0;
-  /** a stop holds answer turns until the user's next send or another conversation. */
-  private answersHeld = false;
+  /** a stop holds automatic turns until the user's next send or another conversation. */
+  private automaticHeld = false;
+  readonly copilot = new CopilotReviewController({
+    record: () => this.record,
+    coordination: () => this.coordination,
+    ready: () =>
+      this.automaticReady() &&
+      !this.snapshot.queue.length &&
+      !this.answerReady(),
+    save: () => this.save(),
+    notice: (text) => {
+      if (!this.closed && this.record) this.notice(text);
+    },
+    changed: () => this.drainAfter(),
+    run: (batch) => this.reviewCopilot(batch),
+    interrupt: () => this.stopCurrent(),
+  });
   private readonly compaction = new Compaction({
     state: () => ({
       conversation: this.record?.id,
@@ -196,18 +206,15 @@ export class Coordinator {
           if (!this.closed) this.display(notice);
         },
       );
-    // requests that arrive during work wait for the drain that follows it
     coordination?.subscribe(() => {
+      this.copilot.checkBinding();
       if (!this.snapshot.queue.length) this.drainAfter();
     });
   }
-
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-
-  /** opens the `conversation` it names, or with `continue` the most recent one in `directory`, or a new one there. */
   async initialize(directory: string, options: Launch = {}): Promise<void> {
     this.task = this.load(directory, options);
     try {
@@ -219,7 +226,6 @@ export class Coordinator {
       this.drainAfter();
     }
   }
-
   private async load(directory: string, options: Launch): Promise<void> {
     await this.memory.initialize();
     const cwd = await realpath(directory);
@@ -260,8 +266,7 @@ export class Coordinator {
   ): Promise<void> {
     this.opening = true;
     try {
-      // a queued prompt belongs to the conversation it was sent in, so none is taken until the next one opens,
-      // including one sent just before the switch whose admission is still pending
+      // pending admissions still belong to this conversation and can block the switch.
       await this.admitting;
       if (this.snapshot.queue.length)
         throw new Error('Prompts are still queued for this conversation');
@@ -296,7 +301,8 @@ export class Coordinator {
       }
       this.files = files;
       this.record = files.record;
-      this.answersHeld = false;
+      this.automaticHeld = false;
+      this.copilot.activate();
       this.workspace = workspace;
       if (!this.record.handoff?.activated) delete this.record.handoff;
       this.publish({
@@ -327,7 +333,8 @@ export class Coordinator {
     if (this.opening) throw new Error('Wait for the next conversation to open');
     // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
     const during = this.snapshot.phase !== 'idle';
-    this.answersHeld = false;
+    this.automaticHeld = false;
+    this.copilot.resume();
     this.admissions++;
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting
@@ -373,6 +380,7 @@ export class Coordinator {
     if (
       this.snapshot.phase !== 'running' ||
       this.snapshot.answering ||
+      this.snapshot.reviewing ||
       this.cancelled ||
       !session ||
       this.deliveryHeld ||
@@ -407,7 +415,6 @@ export class Coordinator {
   private get replied(): boolean {
     return this.snapshot.phase === 'running' && !!this.session?.replied;
   }
-
   private drainAfter(releasedHold = false): void {
     if (this.closed || this.deliveryHeld || this.halted()) return;
     if (this.draining && !this.replied) {
@@ -417,7 +424,11 @@ export class Coordinator {
         });
       return;
     }
-    if (!this.snapshot.queue.length && !this.answerReady()) return;
+    if (
+      !this.snapshot.queue.length &&
+      !(this.automaticReady() && (this.answerReady() || this.copilot.ready()))
+    )
+      return;
     const draining = this.replied ? this.steerQueued() : this.drain();
     draining.catch((error: unknown) => this.report(error));
   }
@@ -427,15 +438,18 @@ export class Coordinator {
     return !!this.snapshot.error || this.turnFailed;
   }
 
-  /** queued prompts run first; with none, waiting peer requests get one answer turn. */
   private async drain(): Promise<void> {
     if (this.draining) return;
     const draining = (this.draining = Promise.withResolvers<void>());
     try {
       while (!this.deliveryHeld && this.snapshot.phase === 'idle') {
         if (!this.snapshot.queue.length) {
-          if (!this.answerReady()) return;
-          const ran = await this.answerPeers();
+          if (!this.automaticReady()) return;
+          const answering = this.answerReady();
+          const ran = answering
+            ? await this.answerPeers()
+            : await this.copilot.run();
+          if (!ran && !answering && this.answerReady()) continue;
           if (ran ? this.halted() : !this.snapshot.queue.length) return;
           continue;
         }
@@ -465,12 +479,12 @@ export class Coordinator {
     }
   }
 
-  /** what each turn Witch starts from the queue or for peer requests goes through, including pre-turn compaction; a delivery hold stops only a queued turn, since an admitted answer has used its one attempt. */
+  /** admitted automatic turns have already spent their attempt, so only queued user input waits behind delivery holds. */
   private async runTurn(
     prompt: string,
-    kind: 'turn' | 'answer',
+    kind: 'turn' | 'answer' | 'review',
     options: TurnOptions,
-  ): Promise<void> {
+  ): Promise<TurnResult | undefined> {
     try {
       const session = await this.connectForTurn();
       if (!session) return;
@@ -485,14 +499,13 @@ export class Coordinator {
         this.publish({ phase: 'running' });
       }
       if (options.queued && this.deliveryHeld) return;
-      await this.performTurn(prompt, kind, options);
+      return await this.performTurn(prompt, kind, options);
     } catch (error) {
       this.report(error);
     }
   }
 
-  /** an answer turn starts only when nothing the user started or must decide is waiting. */
-  private answerReady(): boolean {
+  private automaticReady(): boolean {
     return (
       this.snapshot.phase === 'idle' &&
       !this.task &&
@@ -502,13 +515,35 @@ export class Coordinator {
       !this.opening &&
       !this.closed &&
       !this.snapshot.requests.length &&
-      !this.answersHeld &&
-      !!this.record &&
-      !!this.coordination?.events.answerable(this.record.id)
+      !this.automaticHeld &&
+      !!this.record
     );
   }
 
-  /** runs once `answerReady` holds; true when it admitted requests, which used their one answer attempt. */
+  private answerReady(): boolean {
+    return (
+      this.automaticReady() &&
+      !!this.coordination?.events.answerable(this.current().id)
+    );
+  }
+
+  private async reviewCopilot(
+    batch: ReviewBatch,
+  ): Promise<TurnResult | undefined> {
+    let result: TurnResult | undefined;
+    this.publish({ reviewing: true });
+    try {
+      await this.operate('running', async () => {
+        result = await this.runTurn(reviewInstruction(batch), 'review', {
+          review: batch,
+        });
+      });
+    } finally {
+      this.publish({ reviewing: false });
+    }
+    return result;
+  }
+
   private async answerPeers(): Promise<boolean> {
     let ran = false;
     this.publish({ answering: true });
@@ -542,7 +577,7 @@ export class Coordinator {
     await this.operate('starting', async () => {
       const source = this.current();
       const chosen = agent ?? source.agent;
-      this.registration(chosen);
+      this.catalog.installed(chosen);
       await this.openConversation({
         create: createConversation(source.cwd, chosen, source),
       });
@@ -630,7 +665,7 @@ export class Coordinator {
       throw new Refusal('Stop the current operation first');
     if (selection.agent !== this.current().agent)
       return this.operate('switching', async () => {
-        this.registration(selection.agent);
+        this.catalog.installed(selection.agent);
         await this.handoff(selection);
       });
     if (!this.replied && !(await this.settled()))
@@ -697,13 +732,17 @@ export class Coordinator {
     };
   }
 
-  async interrupt(options: AgentStopOptions = {}): Promise<void> {
+  interrupt(options: AgentStopOptions = {}): Promise<void> {
+    this.automaticHeld = true;
+    return this.stopCurrent(options);
+  }
+
+  private async stopCurrent(options: AgentStopOptions = {}): Promise<void> {
     const stop = { ...options, deadline: stopDeadline(options.deadline) };
     const refresh =
       this.snapshot.phase === 'starting' ? this.modelRefresh : undefined;
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
-    this.answersHeld = true;
     this.compaction.cancel();
     this.publish({
       requests: this.snapshot.requests.filter(
@@ -849,6 +888,7 @@ export class Coordinator {
   async close(options: { restart?: boolean } = {}): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.copilot.close();
     const stop = { ...options, deadline: stopDeadline() };
     this.coordination?.attach(undefined);
     const quiescing = this.coordination?.quiesce();
@@ -865,6 +905,7 @@ export class Coordinator {
         await this.disconnect(false, false, stop).catch(() => {});
       }
       await this.task?.catch(() => {});
+      await this.draining?.promise;
       // settle() returns early once closed, so an accepted recovery is published here
       if (
         (await this.workspace?.exists()) &&
@@ -900,83 +941,38 @@ export class Coordinator {
     await this.coordination.takeTask(reference);
   }
 
-  private async handoff(selection: ModelSelection): Promise<void> {
-    const { agent } = selection;
-    const conversation = this.current();
-    const { agent: from, handoff: previousHandoff } = conversation;
-    const outcome = conversation.lastTurn?.status;
-    const unfinished = outcome === 'interrupted' || outcome === 'failed';
-    const previous = conversation.sessions[agent];
-    let activated = false;
-    try {
-      let summary = '';
-      if (
-        this.snapshot.items
-          .slice(contextStart(this.snapshot.items))
-          .some((item) => item.kind === 'user')
-      ) {
-        const result = await this.performTurn(
-          'Produce a concise handoff summary: objective, constraints, verified decisions, changed files, completed checks, and remaining work. Only summarize. Do not run tools or change files.',
-          'handoff',
-        );
-        if (result.status !== 'completed')
-          throw new Error(result.error ?? 'Handoff was interrupted');
-        summary = result.text;
-      }
-      conversation.handoff = { from, to: agent, summary, activated: false };
-      await this.save();
-      if (this.cancelled) throw new Error('Handoff was interrupted');
-      const session = await this.connect(agent, undefined, selection);
-      const selected = await this.applyModel(session, selection);
-      if (this.cancelled) throw new Error('Handoff was interrupted');
-      conversation.agent = agent;
-      conversation.sessions[agent] = selected;
-      conversation.handoff.activated = true;
-      await this.save();
-      activated = true;
-      this.publish({ conversation, native: this.session?.info });
-      if (summary && unfinished)
-        await this.performTurn(
-          'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
-          'turn',
-        );
-      else if (!summary) delete conversation.handoff;
-      await this.save();
-    } catch (error) {
-      if (!activated) {
-        conversation.agent = from;
-        if (conversation.handoff !== previousHandoff)
-          delete conversation.handoff;
-        await this.disconnect().catch(() => {});
-        if (previous) conversation.sessions[agent] = previous;
-        else delete conversation.sessions[agent];
-      }
-      await this.save();
-      this.publish({
-        conversation,
-        native: this.session?.info,
-        usage: this.session?.usage ?? {},
-      });
-      if (!activated && this.coordination) {
-        const { project } = await this.memory.scopePaths(conversation.cwd);
-        if (!this.closed)
-          await this.coordination.activate(conversation, project);
-      }
-      throw error;
-    }
+  private handoff(selection: ModelSelection): Promise<void> {
+    return handoff(
+      {
+        conversation: this.current(),
+        snapshot: this.snapshot,
+        memory: this.memory,
+        coordination: this.coordination,
+        cancelled: () => this.cancelled,
+        closed: () => this.closed,
+        session: () => this.session,
+        send: (prompt, kind) => this.performTurn(prompt, kind),
+        connect: (choice) => this.connect(choice.agent, undefined, choice),
+        select: (session, choice) => this.applyModel(session, choice),
+        disconnect: () => this.disconnect(),
+        save: () => this.save(),
+        publish: (update) => this.publish(update),
+      },
+      selection,
+    );
   }
 
-  /** an answer turn has no user request: it sends Witch's instruction and leaves pending user context for the next turn. */
   private async performTurn(
     prompt: string,
-    kind: 'turn' | 'handoff' | 'answer',
-    { delivered, queued = false, requests }: TurnOptions = {},
+    kind: 'turn' | 'handoff' | 'answer' | 'review',
+    { delivered, queued = false, requests, review }: TurnOptions = {},
   ): Promise<TurnResult> {
     const conversation = this.current();
     const answer = kind === 'answer';
+    const automatic = answer || kind === 'review';
     if (kind === 'turn') this.publish({ completedTurn: undefined });
     const { activity, scope } = await this.beginActivity(
-      answer ? 'turn' : kind,
+      automatic ? 'turn' : kind,
     );
     const session = await this.connectForTurn(scope);
     if (!session || this.cancelled) return { status: 'interrupted', text: '' };
@@ -995,7 +991,7 @@ export class Coordinator {
           ? handoff
           : undefined;
       const coordination = await this.coordination?.context();
-      const pendingContext = answer
+      const pendingContext = automatic
         ? undefined
         : this.pendingContext.get(conversation.id);
       const context = () =>
@@ -1025,9 +1021,19 @@ export class Coordinator {
               : undefined,
           conflict: this.conflict,
           usage: this.accountUsage.context(this.snapshot.agents),
+          reviewWatch: this.copilot.context(),
         });
       let input = await context();
-      // no await from here to the command or the send, so a Ctrl+C before them never reaches the agent
+      if (
+        review &&
+        (review.owner !== conversation.id ||
+          !(await this.coordination?.reviews.owns(
+            review.claim,
+            review.pullRequest,
+          )))
+      )
+        return { status: 'interrupted', text: '', inputUnsent: true };
+      // a stop during an awaited check must prevent native input.
       if (this.cancelled || session.closed || (queued && this.deliveryHeld))
         return { status: 'interrupted', text: '' };
       if (kind === 'turn' && conversation.title === untitled)
@@ -1035,7 +1041,11 @@ export class Coordinator {
       this.display({
         id: randomUUID(),
         kind: kind === 'turn' ? 'user' : 'notice',
-        text: requests ? answerNotice(requests) : prompt,
+        text: requests
+          ? answerNotice(requests)
+          : review
+            ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
+            : prompt,
         cwd: conversation.cwd,
       });
       this.persist(this.save());
@@ -1052,13 +1062,13 @@ export class Coordinator {
           if (this.cancelled || session.closed)
             result = { status: 'interrupted', text: '' };
           else {
-            if (!answer) this.pendingContext.delete(conversation.id);
+            if (!automatic) this.pendingContext.delete(conversation.id);
             generation = this.contextGeneration;
             const sending = session.send(
               input.prompt,
               skillCall(prompt, this.snapshot.skills),
               input.context,
-              answer ? 'witch' : 'user',
+              automatic ? (answer ? 'peer-answer' : 'pr-review') : 'user',
               batch && {
                 outputSchema: peerAnswerOutputSchema,
                 requestFile: batch.file,
@@ -1102,7 +1112,7 @@ export class Coordinator {
           reference.deliveredInstructionsRevision = input.instructionsRevision;
           recordDelivery(reference, input);
         }
-        if (pendingHandoff === conversation.handoff)
+        if (!automatic && pendingHandoff === conversation.handoff)
           delete conversation.handoff;
       }
       if (kind === 'turn')
@@ -1218,7 +1228,7 @@ export class Coordinator {
     const conversation = this.current();
     const files = this.files!;
     const tools = new Map<string, string>();
-    const { adapter, executable } = this.registration(agent);
+    const { adapter, executable } = this.catalog.installed(agent);
     const workspace = this.workspace!;
     await workspace.ensureWorktree();
     const scope = turnScope ?? (await workspace.scope(conversation.cwd));
@@ -1409,15 +1419,6 @@ export class Coordinator {
     return this.record;
   }
 
-  private registration(id: string): AgentRegistration {
-    const registration = this.agents.find(({ adapter }) => adapter.id === id);
-    if (!registration?.executable)
-      throw new Error(
-        `${registration?.adapter.label ?? id} is not installed. Install its native CLI and sign in before using it.`,
-      );
-    return registration;
-  }
-
   private async settle(report?: string): Promise<void> {
     if (this.closed) return;
     await this.files!.flush();
@@ -1437,7 +1438,7 @@ export class Coordinator {
 
   private async operate(
     phase: Phase,
-    operation: () => Promise<void>,
+    operation: () => Promise<unknown>,
     expected: 'idle' | 'recovery' = 'idle',
   ): Promise<void> {
     if (this.snapshot.phase !== expected) {
