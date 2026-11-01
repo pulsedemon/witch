@@ -858,6 +858,8 @@ export class Coordinator {
   async review(argument: string): Promise<boolean> {
     const conversation = this.current();
     const abort = new AbortController();
+    // a call operate refuses leaves the running review's controller in place
+    this.reviewCancellation ??= abort;
     return runReviewCommand(argument, {
       conversation,
       coordination: this.coordination,
@@ -875,12 +877,11 @@ export class Coordinator {
         if (failure) this.notice(`Memory publication failed: ${failure}`);
         return !recovery && !failure;
       },
-      operate: (rounds) =>
-        this.operate('running', () => {
-          this.reviewCancellation = abort;
-          return rounds().finally(() => (this.reviewCancellation = undefined));
-        }),
+      operate: (rounds) => this.operate('running', rounds),
       idle: () => !this.snapshot.error && this.snapshot.phase === 'idle',
+    }).finally(() => {
+      if (this.reviewCancellation === abort)
+        this.reviewCancellation = undefined;
     });
   }
 
