@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { getEventListeners } from 'node:events';
 import { join } from 'node:path';
 import { test } from 'vitest';
@@ -341,6 +341,18 @@ test("a settling round's non-blocking findings get a final turn", async (t) => {
   assert.equal(h.rounds.length, 1);
   assert.equal(h.correctionPrompts().length, 1);
   assert.match(h.notice('Review finished')!, /1 non-blocking findings sent/);
+});
+
+test('a final correction that removes its target fails the review', async (t) => {
+  const h = await harness(t);
+  h.state.outcome = (_round, { runtime }) =>
+    runtime === 'claude' ? { findings: [{ line: 7, blocking: false }] } : {};
+  h.corrections.push(() => rm(join(h.cwd, 'plan.md')));
+  await assert.rejects(
+    h.coordinator.review('plan.md'),
+    /review target plan\.md is no longer a file/,
+  );
+  assert.ok(!h.notice('Review finished'), h.notices().join('\n'));
 });
 
 test('sitting out never empties a round', async (t) => {
