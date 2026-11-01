@@ -386,18 +386,11 @@ export class Coordinator {
       this.halted()
     )
       return false;
-    const row = () =>
-      this.display({
-        id: randomUUID(),
-        kind: 'user',
-        text: prompt,
-        cwd: this.current().cwd,
-      });
     const command = shellCommand(prompt);
     if (command !== undefined) {
       if (!this.replied) return false;
       // shown first, since a command's output streams as soon as it starts
-      row();
+      this.userRow(prompt);
       return session.steer(`${prompt}\n\n${ranCommand}`, { command });
     }
     const skill = skillCall(prompt, this.snapshot.skills);
@@ -407,7 +400,7 @@ export class Coordinator {
         : session.steer(prompt)))
     )
       return false;
-    row();
+    this.userRow(prompt);
     return true;
   }
 
@@ -755,13 +748,7 @@ export class Coordinator {
     if (questions && response.decision === 'accept') {
       const text = questionReply(questions, response);
       if (replyAsPrompt) await this.send(text);
-      else
-        this.display({
-          id: randomUUID(),
-          kind: 'user',
-          text,
-          cwd: this.current().cwd,
-        });
+      else this.userRow(text);
     }
     if (response.decision === 'cancel') await this.interrupt();
   }
@@ -1354,6 +1341,11 @@ export class Coordinator {
     const stamped = { ...update, at: new Date().toISOString() };
     this.publish({ items: applyDisplayUpdate(this.snapshot.items, stamped) });
     if (save) this.persist(this.files!.append(stamped));
+  }
+
+  private userRow(text: string): void {
+    const { cwd } = this.current();
+    this.display({ id: randomUUID(), kind: 'user', text, cwd });
   }
 
   /** transient notices must not make an unused conversation resumable. */
