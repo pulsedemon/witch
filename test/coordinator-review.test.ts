@@ -574,6 +574,23 @@ test('failed mechanical checks get one correction turn before any reviewer', asy
   assert.match(h.notice('Review finished')!, /1 mechanical failures remain/);
 });
 
+test('a failure the mechanical correction introduces gets its own correction', async (t) => {
+  const h = await harness(t, {
+    plan: `${['one', 'two — dash', ...target.slice(2)].join('\n')}\n`,
+  });
+  h.corrections.push(
+    () => h.setLines({ 2: 'two, see [x](missing.md)' }),
+    () => h.setLines({ 2: 'two' }),
+  );
+  assert.equal(await h.coordinator.review('plan.md'), true);
+  const [dash, link, ...others] = h.correctionPrompts();
+  assert.match(dash!, /plan\.md:2: em dash in prose/);
+  assert.match(link!, /plan\.md:2: link target missing\.md does not exist/);
+  assert.deepEqual(others, []);
+  assert.equal(h.rounds.length, 1);
+  assert.match(h.notice('Review finished')!, /0 mechanical failures remain/);
+});
+
 test('Escape while reviewers run aborts them with the native stop deadline', async (t) => {
   const h = await harness(t);
   const held = Promise.withResolvers<void>();
