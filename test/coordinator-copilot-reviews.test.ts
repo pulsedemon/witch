@@ -1171,6 +1171,10 @@ test('a delayed review receives the destination runtime handoff and preserves it
   );
   assert.deepEqual((await record(x.f, x.a)).handoff, handoff);
   await x.c.send('continue the user task');
+  await until(
+    'the next user turn',
+    () => x.a.b.inputs.length === 2 && x.c.snapshot.phase === 'idle',
+  );
   assert.match(
     x.a.b.inputs[1]!.context!,
     /Pending task context from a:\na: finish the migration/,
