@@ -223,6 +223,41 @@ test('manual compaction without native history sends nothing', async () => {
   }
 });
 
+test('an interrupt from the no-history notice keeps hook memory pending for recovery', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('seed');
+    f.a.sessions.at(-1)!.session.info.hasHistory = false;
+    const begin = Workspace.prototype.begin;
+    vi.spyOn(Workspace.prototype, 'begin').mockImplementation(async function (
+      this: Workspace,
+      ...args: Parameters<Workspace['begin']>
+    ) {
+      const result = await begin.apply(this, args);
+      await writeFile(
+        join(f.workspace().root, await f.note()),
+        'Pending hook memory.',
+      );
+      return result;
+    });
+    const unsubscribe = f.coordinator.subscribe(() => {
+      if (
+        f.coordinator.snapshot.items.some(
+          ({ text }) => text === 'No conversation history to compact',
+        )
+      ) {
+        unsubscribe();
+        void f.coordinator.interrupt();
+      }
+    });
+    await f.coordinator.compact();
+    assert.equal(f.coordinator.snapshot.recovery?.kind, 'pending');
+    assert.match(f.coordinator.snapshot.recovery!.diff, /Pending hook memory/);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 test('an interrupt before compaction delivery sends nothing', async () => {
   const f = await fixture();
   try {
