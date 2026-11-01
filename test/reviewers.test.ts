@@ -353,6 +353,38 @@ test('a reviewer that outlives the stop deadline ends the run at the deadline', 
   }
 });
 
+test('an abort after the commands exit ends cleanup at its own deadline', async () => {
+  const root = await scratch('witch-reviewers-');
+  const kill = process.kill.bind(process);
+  const sent: (string | number | undefined)[] = [];
+  // the group outlives every signal, as for a member stuck in the kernel
+  const spy = vi
+    .spyOn(process, 'kill')
+    .mockImplementation((pid: number, signal?: string | number) => {
+      if (pid >= 0) return kill(pid, signal);
+      sent.push(signal);
+      return true;
+    });
+  try {
+    const controller = new AbortController();
+    const running = new Reviewers(() => {}).run({
+      cwd: root,
+      reviewers: [
+        { name: 'r', command: 'true', reportFile: join(root, 'report.md') },
+      ],
+      signal: controller.signal,
+    });
+    await until('the cleanup wait', () => sent.includes(0));
+    controller.abort(new NativeStop({ deadline: performance.now() + 500 }));
+    await assert.rejects(
+      within(running, 3000, 'the missed stop'),
+      NativeStopTimeout,
+    );
+  } finally {
+    spy.mockRestore();
+  }
+});
+
 test('abort stops every reviewer', async (t) => {
   const { coordinator, root, reviewer } = await setup(t.onTestFinished);
   const first = await reviewer('review-a1-1-claude-0', 'claude', 'gated');
