@@ -1,5 +1,6 @@
 import { settleMemory } from './memory-settlement.js';
 import { RuntimeSwitch } from './runtime-switch.js';
+import { SessionLink } from './session-link.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction, compactSession } from './compaction.js';
@@ -11,7 +12,6 @@ import { aborted, errorMessage, failureOf } from '../agents/stderr.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,
-  AgentSession,
   AgentStopOptions,
   TurnResult,
   UserResponse,
@@ -20,12 +20,7 @@ import { indexNote, noticeText } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
-import { processReports } from '../persistence/process.js';
-import {
-  stoppedActivity,
-  updateBackgroundActivity,
-} from './background-activity.js';
-import { castRow } from './spells.js';
+import { updateBackgroundActivity } from './background-activity.js';
 import {
   launchRecord,
   missingDirectoryNotice,
@@ -53,7 +48,7 @@ import { PentacleActivity } from './pentacle-activity.js';
 import { endActivity, startActivity, type Activity } from './activity.js';
 import { runReviewCommand } from './review-run.js';
 import { Reviewers } from './reviewers.js';
-import { ModelCatalog, modelEffort, type ModelSelection } from './models.js';
+import { ModelCatalog, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { Conflict, PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
@@ -69,11 +64,9 @@ import {
   peerAnswerOutputSchema,
 } from './peer-answers.js';
 import {
-  agentDisplay,
   agentWorking,
   applyDisplayUpdate,
   clearConversationContext,
-  clearDelivery,
   createConversation,
   recordDelivery,
   recordSession,
@@ -108,11 +101,7 @@ export class Coordinator {
   private record?: ConversationRecord;
   private files?: ConversationStore;
   private workspace?: Workspace;
-  private session?: AgentSession;
-  private contextGeneration = 0;
   private readonly pendingContext = new Map<string, string[]>();
-  /** the project memory the live session may write; native permissions are fixed at connect. */
-  private sessionProject?: string;
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
@@ -127,6 +116,7 @@ export class Coordinator {
   private changingModel?: Promise<void>;
   private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
+  private readonly link: SessionLink;
   readonly accountUsage: AccountUsage;
   private draining?: PromiseWithResolvers<void>;
   private deliveryHolds = 0;
@@ -158,10 +148,10 @@ export class Coordinator {
     usage: () => this.accountUsage,
     cancelled: () => this.cancelled,
     closed: () => this.closed,
-    session: () => this.session,
+    session: () => this.link.session,
     send: (prompt, kind) => this.performTurn(prompt, kind),
-    connect: (choice) => this.connect(choice.agent, undefined, choice),
-    disconnect: () => this.disconnect(),
+    connect: (choice) => this.link.connect(choice.agent, undefined, choice),
+    disconnect: () => this.link.disconnect(),
     save: () => this.save(),
     publish: (update) => this.publish(update),
     notice: (text) => this.notice(text),
@@ -177,7 +167,7 @@ export class Coordinator {
       replied: this.replied,
       parent: this.task,
       draining: this.draining?.promise,
-      session: this.session,
+      session: this.link.session,
     }),
     idle: async () => {
       let success = false;
@@ -196,7 +186,6 @@ export class Coordinator {
   });
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
-  private connecting?: AbortController;
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
   private reviewCancellation?: AbortController;
@@ -217,8 +206,30 @@ export class Coordinator {
     this.accountUsage = new AccountUsage(agents, (accounts) =>
       this.publish({ accounts }),
     );
+    this.link = new SessionLink(
+      {
+        conversation: () => this.current(),
+        record: () => this.record,
+        files: () => this.files!,
+        workspace: () => this.workspace!,
+        snapshot: () => this.snapshot,
+        cancelled: () => this.cancelled,
+        publish: (update) => this.publish(update),
+        display: (update) => this.display(update),
+        notice: (text, cwd, save) => this.notice(text, cwd, save),
+        background: (event, cwd) => this.background(event, cwd),
+        save: () => this.save(),
+        persist: (operation) => this.persist(operation),
+        retain: (id, context) => this.retainContext(id, context),
+      },
+      this.catalog,
+      this.accountUsage,
+      this.reviewers,
+      coordination,
+      jobs,
+    );
     this.snapshot = initialSnapshot(agents);
-    this.coordination?.attach(() => this.session);
+    this.coordination?.attach(() => this.link.session);
     this.publish({});
     for (const watch of [watchMergeNotices, watchPeerRequestNotices])
       watch(
@@ -269,7 +280,7 @@ export class Coordinator {
       throw new Error(`${errorMessage(error)}\n\n${report}`, { cause: error });
     }
     // a failed connect leaves the conversation open, as a failed send does
-    const failure = await failureOf(this.connect(undefined, scope));
+    const failure = await failureOf(this.link.connect(undefined, scope));
     const adoption = await failureOf(this.workspace!.adoptCheckout(scope));
     const missing = await missingDirectoryNotice(this.store);
     if (missing) this.notice(missing, undefined, false);
@@ -305,7 +316,7 @@ export class Coordinator {
       }
       let failure: unknown;
       try {
-        await this.disconnect();
+        await this.link.disconnect();
       } catch (error) {
         failure = error;
       } finally {
@@ -392,7 +403,7 @@ export class Coordinator {
   }
 
   private async steer(prompt: string): Promise<boolean> {
-    const session = this.session;
+    const session = this.link.session;
     if (
       this.snapshot.phase !== 'running' ||
       this.snapshot.answering ||
@@ -422,14 +433,14 @@ export class Coordinator {
   }
 
   private get replied(): boolean {
-    return this.snapshot.phase === 'running' && !!this.session?.replied;
+    return this.snapshot.phase === 'running' && !!this.link.session?.replied;
   }
   private drainAfter(releasedHold = false): void {
     if (this.closed || this.deliveryHeld || this.halted()) return;
     if (this.draining && !this.replied) {
       if (releasedHold)
         void this.draining.promise.then(() => {
-          if (!this.cancelled && !this.session?.closed) this.drainAfter();
+          if (!this.cancelled && !this.link.session?.closed) this.drainAfter();
         });
       return;
     }
@@ -466,7 +477,7 @@ export class Coordinator {
         const queue = this.snapshot.queue;
         const batch = nextTurn(
           queue,
-          this.session ? this.snapshot.skills : undefined,
+          this.link.session ? this.snapshot.skills : undefined,
         );
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
@@ -509,12 +520,14 @@ export class Coordinator {
     try {
       const scope = await this.memory.scopePaths(this.current().cwd);
       const session =
-        this.live(this.current().agent) ?? (await this.connectForTurn(scope));
+        this.link.live(this.current().agent) ??
+        (await this.connectForTurn(scope));
       if (!session) return;
       const usage = session.info.hasHistory
         ? await session.contextUsage()
         : undefined;
-      if (this.cancelled || session.closed || this.session !== session) return;
+      if (this.cancelled || session.closed || this.link.session !== session)
+        return;
       if (options.queued && this.deliveryHeld) return;
       if (usage !== undefined && usage >= compactAt) {
         this.publish({ phase: 'compacting' });
@@ -605,7 +618,7 @@ export class Coordinator {
       const scope = await this.openConversation({
         create: createConversation(source.cwd, chosen, source),
       });
-      await this.connect(undefined, scope);
+      await this.link.connect(undefined, scope);
     });
   }
 
@@ -615,8 +628,8 @@ export class Coordinator {
       if (this.snapshot.queue.length)
         throw new Error('Prompts are still queued for this conversation');
       const conversation = this.current();
-      const info = this.live(conversation.agent)?.info;
-      await this.disconnect();
+      const info = this.link.live(conversation.agent)?.info;
+      await this.link.disconnect();
       if (this.cancelled) return;
       clearConversationContext(conversation, info);
       this.pendingContext.delete(conversation.id);
@@ -632,7 +645,7 @@ export class Coordinator {
       await this.files!.flush();
       if (this.cancelled) return;
       const stored = conversation.sessions[conversation.agent]!;
-      const session = await this.connect();
+      const session = await this.link.connect();
       if (this.cancelled || session.closed) return;
       if (stored.model) {
         // restore the resolved model without changing the saved alias
@@ -647,7 +660,7 @@ export class Coordinator {
   async selectConversation(id: string): Promise<void> {
     if (id === this.record?.id) return;
     await this.operate('starting', async () => {
-      await this.connect(undefined, await this.openConversation({ id }));
+      await this.link.connect(undefined, await this.openConversation({ id }));
     });
   }
 
@@ -669,7 +682,11 @@ export class Coordinator {
         this.modelRefresh = refresh;
         const { cwd, agent } = this.current();
         try {
-          const models = await this.catalog.read(cwd, this.live(agent), true);
+          const models = await this.catalog.read(
+            cwd,
+            this.link.live(agent),
+            true,
+          );
           if (!refresh.cancelled)
             this.publish({ models, latest: this.catalog.latest });
         } catch (error) {
@@ -720,9 +737,13 @@ export class Coordinator {
   private async changeModel(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
     const kept = conversation.sessions[selection.agent];
-    const starting = !this.live(selection.agent);
+    const starting = !this.link.live(selection.agent);
     try {
-      const session = await this.connect(selection.agent, undefined, selection);
+      const session = await this.link.connect(
+        selection.agent,
+        undefined,
+        selection,
+      );
       const selected = await this.runtimes.applyModel(session, selection);
       if (this.cancelled || session.closed)
         throw new Refusal('Model change canceled');
@@ -733,9 +754,9 @@ export class Coordinator {
       if (!starting) throw error;
       if (kept) conversation.sessions[selection.agent] = kept;
       else delete conversation.sessions[selection.agent];
-      await this.disconnect(true, true).catch((closing: unknown) =>
-        this.notice(errorMessage(closing)),
-      );
+      await this.link
+        .disconnect(true, true)
+        .catch((closing: unknown) => this.notice(errorMessage(closing)));
       await this.save();
       throw error;
     }
@@ -759,7 +780,7 @@ export class Coordinator {
         (request) => !request.replyAsPrompt,
       ),
     });
-    this.connecting?.abort(new NativeStop(stop));
+    this.link.connecting?.abort(new NativeStop(stop));
     this.catalog.cancel(new NativeStop(stop));
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
@@ -770,10 +791,10 @@ export class Coordinator {
       (async () => {
         if (refresh && !this.closed) return;
         // a session that is still starting has no turn to interrupt, so stopping it closes it
-        if (this.snapshot.phase === 'starting' || this.connecting)
-          await this.session?.close(stop);
+        if (this.snapshot.phase === 'starting' || this.link.connecting)
+          await this.link.session?.close(stop);
         else {
-          const session = this.session;
+          const session = this.link.session;
           await session?.interrupt(stop);
           if (this.changingModel || this.runtimes.selecting)
             await session?.close(stop);
@@ -792,7 +813,7 @@ export class Coordinator {
       this.publish({
         requests: this.snapshot.requests.filter((request) => request.id !== id),
       });
-    else this.session?.respond(id, response);
+    else this.link.session?.respond(id, response);
     // the request view closes on answering, so the transcript keeps what was asked and chosen
     if (questions && response.decision === 'accept') {
       const text = questionReply(questions, response);
@@ -939,7 +960,7 @@ export class Coordinator {
       } catch (error) {
         failure = error;
         // Codex's close() interrupts again and would rethrow, so the session ends here
-        await this.disconnect(false, false, stop).catch(() => {});
+        await this.link.disconnect(false, false, stop).catch(() => {});
       }
       await this.task?.catch(() => {});
       await this.draining?.promise;
@@ -954,7 +975,7 @@ export class Coordinator {
     } finally {
       try {
         await this.accountUsage.close(stop);
-        await this.disconnect(false, false, stop);
+        await this.link.disconnect(false, false, stop);
       } finally {
         try {
           await this.coordination?.close(options);
@@ -1072,18 +1093,18 @@ export class Coordinator {
       if (command !== undefined) delivered?.();
       let result: TurnResult;
       let steering: Promise<void> | undefined;
-      let generation = this.contextGeneration;
+      let generation = this.link.generation;
       try {
         const ran =
           command === undefined ? undefined : await session.shell(command);
         if (ran && ran.status !== 'completed') result = ran;
         else {
-          if (generation !== this.contextGeneration) input = await context();
+          if (generation !== this.link.generation) input = await context();
           if (this.cancelled || session.closed)
             result = { status: 'interrupted', text: '' };
           else {
             if (!automatic) this.pendingContext.delete(conversation.id);
-            generation = this.contextGeneration;
+            generation = this.link.generation;
             const sending = session.send(
               input.prompt,
               skillCall(prompt, this.snapshot.skills),
@@ -1099,8 +1120,8 @@ export class Coordinator {
               kind === 'turn' ? coordination?.snapshot : undefined,
               (text) =>
                 !this.cancelled &&
-                this.session === session &&
-                generation === this.contextGeneration
+                this.link.session === session &&
+                generation === this.link.generation
                   ? session.steer(text, { contextOnly: true })
                   : Promise.resolve(false),
             );
@@ -1129,7 +1150,7 @@ export class Coordinator {
       this.retainContext(conversation.id, result.unreadContext);
       await this.finishActivity(activity, this.compaction.failure ?? result);
       if (result.status === 'completed' && !answer) {
-        if (generation === this.contextGeneration) {
+        if (generation === this.link.generation) {
           const reference = conversation.sessions[activity.agent]!;
           reference.deliveredRevision = activity.baseRevision;
           reference.deliveredInstructionsRevision = input.instructionsRevision;
@@ -1160,7 +1181,7 @@ export class Coordinator {
   private async compactActivity(read?: MemoryScope): Promise<TurnResult> {
     const { activity, scope } = await this.beginActivity('turn', read);
     const result = await compactSession(
-      () => this.connect(undefined, scope),
+      () => this.link.connect(undefined, scope),
       () => this.cancelled,
       (text) => this.notice(text),
     );
@@ -1193,87 +1214,11 @@ export class Coordinator {
     return begun;
   }
 
-  private live(agent: string): AgentSession | undefined {
-    return this.session &&
-      !this.session.closed &&
-      this.session.info.agent === agent
-      ? this.session
-      : undefined;
-  }
-
   private async connectForTurn(scope?: MemoryScope) {
     try {
-      return await this.connect(this.current().agent, scope);
+      return await this.link.connect(this.current().agent, scope);
     } catch (error) {
       if (!this.cancelled || !aborted(error)) throw error;
-    }
-  }
-
-  /** reuses the live session unless `scope` names project memory it was never granted. */
-  private async connect(
-    agent = this.current().agent,
-    scope?: MemoryScope,
-    selection?: ModelSelection,
-  ): Promise<AgentSession> {
-    const live = this.live(agent);
-    if (live && (!scope || scope.project === this.sessionProject)) return live;
-    // an initial connect keeps the activation published when its conversation opened
-    await this.disconnect(!this.session, agent === this.current().agent);
-    const conversation = this.current();
-    const files = this.files!;
-    const tools = new Map<string, string>();
-    const { adapter, executable } = this.catalog.installed(agent);
-    const workspace = this.workspace!;
-    await workspace.ensureWorktree();
-    if (scope) await workspace.prepare(scope);
-    else scope = await workspace.scope(conversation.cwd);
-    await this.coordination?.activate(conversation, scope.project);
-    const stored = conversation.sessions[agent];
-    this.connecting = new AbortController();
-    try {
-      const session = await adapter.connect({
-        cwd: conversation.cwd,
-        executable: executable!,
-        resume: stored?.hasHistory ? stored.id : undefined,
-        model: selection?.id ?? stored?.requestedModel,
-        effort: selection
-          ? (modelEffort(selection, this.snapshot.models, stored?.effort) ??
-            undefined)
-          : stored?.effort,
-        memoryDirectories: workspace.directories(scope),
-        signal: this.connecting.signal,
-        onEvent: (event) => {
-          if (!files.closed) this.receive(conversation, agent, event, tools);
-        },
-        ...processReports(conversation, files, (pid) => this.jobs?.track(pid)),
-        mark: this.jobs,
-        familiarBinding: this.coordination?.familiarBinding(),
-        commandPrefixes: this.coordination?.commandPrefixes(),
-      });
-      this.session = session;
-      this.sessionProject = scope.project;
-      recordSession(conversation, agent, session.info);
-      await this.save();
-      if (this.connecting.signal.aborted)
-        throw new DOMException('Connection was interrupted', 'AbortError');
-      const models = await this.catalog.read(conversation.cwd, session);
-      // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
-      const skills = await session.skills().catch((error: unknown) => {
-        this.notice(errorMessage(error), undefined, false);
-        return [];
-      });
-      const live = this.live(agent);
-      this.publish({
-        native: live?.info,
-        usage: live?.usage ?? {},
-        models,
-        latest: this.catalog.latest,
-        skills,
-      });
-      this.accountUsage.connected(session, conversation.cwd);
-      return session;
-    } finally {
-      this.connecting = undefined;
     }
   }
 
@@ -1281,97 +1226,6 @@ export class Coordinator {
     if (!context?.length) return;
     const pending = this.pendingContext.get(id) ?? [];
     this.pendingContext.set(id, [...pending, ...context]);
-  }
-
-  private async disconnect(
-    keepActivation = false,
-    keepQuestions = false,
-    stop?: AgentStopOptions,
-  ): Promise<void> {
-    if (!keepActivation && this.coordination) await this.coordination.quiesce();
-    const conversationId = this.record?.id;
-    const session = this.session;
-    this.session = undefined;
-    const owned = this.reviewers.owns;
-    for (const event of stoppedActivity(this.snapshot, owned))
-      this.background(event);
-    this.publish({
-      native: undefined,
-      usage: {},
-      skills: [],
-      subagents: this.snapshot.subagents.filter(({ id }) => owned(id)),
-      requests: keepQuestions
-        ? this.snapshot.requests.filter((request) => request.replyAsPrompt)
-        : [],
-    });
-    try {
-      await session?.close(stop);
-      if (!this.record) return;
-      delete this.record.process;
-      await this.save();
-    } finally {
-      // discard questions delivered while the old process was closing
-      if (!keepQuestions) this.publish({ requests: [] });
-      if (conversationId)
-        this.retainContext(conversationId, session?.takeUnreadContext?.());
-      if (!keepActivation) await this.coordination?.deactivate();
-    }
-  }
-
-  private receive(
-    conversation: ConversationRecord,
-    agent: string,
-    event: AgentEvent,
-    tools: Map<string, string>,
-  ): void {
-    if (event.type === 'info') {
-      recordSession(conversation, agent, event.info);
-      this.persist(this.save());
-      if (conversation.agent === agent)
-        this.publish({ native: event.info, conversation });
-    } else if (event.type === 'compacted') {
-      this.contextGeneration++;
-      const reference = conversation.sessions[agent];
-      if (reference) clearDelivery(reference);
-      this.persist(this.save());
-      this.notice('Conversation compacted');
-    } else if (event.type === 'request') {
-      if (this.cancelled && event.request.replyAsPrompt) return;
-      this.publish({ requests: [...this.snapshot.requests, event.request] });
-    } else if (event.type === 'closed') {
-      for (const event of stoppedActivity(this.snapshot, this.reviewers.owns))
-        this.background(event);
-      this.publish({
-        native: undefined,
-        usage: {},
-        requests: this.snapshot.requests.filter(
-          (request) => request.replyAsPrompt,
-        ),
-      });
-    } else if (event.type === 'request-resolved') {
-      this.publish({
-        requests: this.snapshot.requests.filter(({ id }) => id !== event.id),
-      });
-    } else if (event.type === 'notice') {
-      this.notice(event.text, undefined, !event.transient);
-    } else if (event.type === 'skills') {
-      if (this.live(agent)) this.publish({ skills: event.skills });
-    } else if (event.type === 'usage') {
-      this.accountUsage.report(agent, event.usage.account);
-      if (this.live(agent)) this.publish({ usage: event.usage });
-    } else if (event.type === 'subagent' || event.type === 'command') {
-      if (this.live(agent)) this.background(event, conversation.cwd);
-    } else if (event.type === 'spell') {
-      this.display(castRow(event.cast, conversation.cwd));
-    } else {
-      let id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
-      if (event.type === 'tool') {
-        id = tools.get(event.id) ?? id;
-        if (event.done) tools.delete(event.id);
-        else tools.set(event.id, id);
-      }
-      this.display(agentDisplay(event, id, agent, conversation.cwd));
-    }
   }
 
   private background(
