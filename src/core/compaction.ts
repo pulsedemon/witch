@@ -26,7 +26,6 @@ interface Owner {
   report(error: unknown): void;
 }
 
-/** a manual request blocks delivery until native completion and the next command's admission window. */
 /** compacts the session's history, interrupted when cancelled meanwhile; a session with none completes without compacting. */
 export async function compactSession(
   connect: () => Promise<AgentSession>,
@@ -49,6 +48,7 @@ export async function compactSession(
   }
 }
 
+/** a manual request blocks delivery until native completion and the next command's admission window. */
 export class Compaction {
   private request?: Request;
   private running?: Promise<boolean>;
