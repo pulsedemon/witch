@@ -20,6 +20,7 @@ import { identifyProcess, sameProcess } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
 import {
   conversationSummarySchema,
+  checkTaskRelease,
   taskActivity,
   type CoordinationSnapshot,
   type SessionPresence,
@@ -42,7 +43,8 @@ import {
   TransferUnavailable,
 } from './task-transfer.js';
 import type { Discovery } from './discovery.js';
-import { assignGitHubTask } from './github-assignment.js';
+import { assignGitHubTask, recordTaskAssignment } from './github-assignment.js';
+import { ReviewOwnership } from './review-ownership.js';
 import type { Repository } from './repository.js';
 import { ConversationEvents } from './conversation-events.js';
 import { checkAnswering, isPeerAction, peerOutcome } from './peer-requests.js';
@@ -99,6 +101,37 @@ export class SessionCoordination {
   private branch?: string;
   private repository?: Repository;
   readonly events: ConversationEvents;
+  readonly reviews = new ReviewOwnership({
+    observed: () => !!this.active?.accepting && !!this.ledger,
+    context: () => this.context(),
+    current: () => {
+      const active = this.admit();
+      return {
+        owner: {
+          conversation: active.conversation.id,
+          project: active.project,
+        },
+        cwd: active.conversation.cwd,
+        repository: this.repository,
+      };
+    },
+    claim: (owner, input, deadline, verify) =>
+      this.serialize(() =>
+        this.change(
+          undefined,
+          (check) =>
+            this.registry.claim(owner, input, this.process, deadline, check),
+          verify,
+        ),
+      ),
+    assign: (...args) => this.assign(...args),
+    record: (id, references, deadline) =>
+      this.serialize(() =>
+        this.change(undefined, (check) =>
+          this.registry.recordAssignment(id, references, deadline, check),
+        ),
+      ),
+  });
   private host!: ControlHost;
   private familiarHost!: ControlHost;
   private live?: () => AgentSession | undefined;
@@ -604,7 +637,7 @@ export class SessionCoordination {
 
   async releaseTask(): Promise<void> {
     const active = this.admit();
-    this.canRelease(true);
+    checkTaskRelease(this.state, true);
     this.failures.delete('control');
     await this.serialize(async () => {
       const state: RequestState = {};
@@ -751,17 +784,6 @@ export class SessionCoordination {
       );
     if (request) checkDeadline(request.deadline);
     return active;
-  }
-
-  private canRelease(human: boolean): void {
-    if (human && (this.state?.phase !== 'idle' || this.state.recovery))
-      throw new Error(
-        'Wait for idle and resolve memory recovery before releasing the task.',
-      );
-    if (taskActivity(this.state).running)
-      throw new Error(
-        'Stop the running familiars and brews before releasing the task.',
-      );
   }
 
   private serialize<T>(work: () => Promise<T>): Promise<T> {
@@ -977,7 +999,7 @@ export class SessionCoordination {
             ),
           async () => {
             this.admit(request);
-            this.canRelease(human);
+            checkTaskRelease(this.state, human);
           },
         );
         return { kind: 'released' };
@@ -1054,7 +1076,7 @@ export class SessionCoordination {
           action.kind === 'recommend' ||
           (action.kind === 'claim' && snapshot.ownSelection)
         )
-          this.canRelease(false);
+          checkTaskRelease(this.state, false);
       };
       if (action.kind === 'claim' || action.kind === 'take') {
         const transfer = async (target: TransferTarget) => {
@@ -1121,37 +1143,18 @@ export class SessionCoordination {
             claim: error.claim,
           });
         }
-        const { assigned, failure } = await this.assign(
-          claim.references.filter(
-            (reference) => !claim.assigned?.includes(reference),
-          ),
-          active.conversation.cwd,
-          // leave a second to record the assignment and another to refresh peers and write the control reply.
-          request.deadline - 2000,
-        );
-        let recorded = claim;
-        if (assigned.length)
-          try {
-            recorded =
-              (await this.change(state, (check) =>
-                this.registry.recordAssignment(
-                  claim.id,
-                  assigned,
-                  request.deadline - 1000,
-                  check,
-                ),
-              )) ?? claim;
-          } catch {
-            // an unrecorded assignment repeats on the next --claim.
-          }
         return {
           kind: 'claimed',
-          claim: recorded,
-          ...(failure
-            ? {
-                warning: `GitHub assignment failed. The local claim is retained; repeat --claim to retry. ${failure}`,
-              }
-            : {}),
+          ...(await recordTaskAssignment(
+            claim,
+            active.conversation.cwd,
+            request.deadline,
+            this.assign,
+            (id, references, deadline) =>
+              this.change(state, (check) =>
+                this.registry.recordAssignment(id, references, deadline, check),
+              ),
+          )),
         };
       }
       if (action.kind === 'recommend')

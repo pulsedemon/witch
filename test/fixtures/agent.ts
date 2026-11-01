@@ -304,7 +304,7 @@ export class FixtureAgent implements AgentAdapter {
         prompt,
         skill,
         context,
-        author = 'user',
+        purpose = 'user',
         answer,
       ): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
@@ -313,7 +313,7 @@ export class FixtureAgent implements AgentAdapter {
           prompt,
           ...(context === undefined ? {} : { context }),
           ...(skill ? { skill } : {}),
-          ...(author === 'witch' ? { author } : {}),
+          ...(purpose === 'user' ? {} : { author: 'witch' as const }),
           ...(answer ? { answer } : {}),
         });
         if (this.onSend) await this.onSend(prompt);
@@ -351,7 +351,7 @@ export class FixtureAgent implements AgentAdapter {
           let text = prompt.includes('handoff summary')
             ? `${this.id}: finish the migration`
             : 'Done.';
-          if (author === 'witch') {
+          if (purpose === 'peer-answer') {
             const path = /Read their messages from ("(?:[^"\\]|\\.)*")/.exec(
               context ?? '',
             )?.[1];

@@ -180,6 +180,20 @@ export function taskActivity(
   return { familiars, brews, running: familiars > 0 || brews > 0 };
 }
 
+export function checkTaskRelease(
+  snapshot: Snapshot | undefined,
+  human: boolean,
+): void {
+  if (human && (snapshot?.phase !== 'idle' || snapshot.recovery))
+    throw new Error(
+      'Wait for idle and resolve memory recovery before releasing the task.',
+    );
+  if (taskActivity(snapshot).running)
+    throw new Error(
+      'Stop the running familiars and brews before releasing the task.',
+    );
+}
+
 export function presenceStatus(presence: SessionPresence): string {
   if (presence.requests) return 'waiting';
   if (presence.phase === 'idle' && (presence.familiars || presence.brews))

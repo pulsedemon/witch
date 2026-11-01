@@ -22,6 +22,7 @@ import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
 import { watchConflicts } from './core/pr-conflicts.js';
 import { RepositoryWatch } from './core/repository.js';
+import { watchCopilotReviews } from './core/copilot-review-watch.js';
 import { Memory } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
 import { writeJson } from './persistence/json.js';
@@ -281,6 +282,11 @@ if (familiar) {
       coordination.updateRepository(repository.snapshot),
     );
     coordination.updateRepository(repository.snapshot);
+    const stopCopilot = watchCopilotReviews(
+      repository,
+      coordinator,
+      process.cwd(),
+    );
     const stopMerges = watchMerges(repository, coordinator, install);
     const stopConflicts = watchConflicts(repository, coordinator);
     const screen = new Screen(process.stdout);
@@ -368,6 +374,7 @@ if (familiar) {
     await application.waitUntilExit();
     stopMerges();
     stopConflicts();
+    stopCopilot();
     stopCoordinationRepository();
     repository.close();
     jobs.close();

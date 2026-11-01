@@ -46,7 +46,7 @@ async function answer(session: AgentSession, cwd: string) {
     answerInstruction,
     undefined,
     batch.context,
-    'witch',
+    'peer-answer',
     { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
   );
   assert.equal(result.status, 'completed');
@@ -58,6 +58,60 @@ async function answer(session: AgentSession, cwd: string) {
     })),
   );
   return batch;
+}
+
+for (const runtime of ['codex', 'claude']) {
+  test(`${runtime} reviews use the ordinary session without peer-answer restrictions`, async (t) => {
+    const processes: (number | undefined)[] = [];
+    const requests: string[] = [];
+    const onAnswerProcess = async (pid: number | undefined) => {
+      processes.push(pid);
+    };
+    const onEvent = (event: AgentEvent) => {
+      if (event.type === 'request') {
+        requests.push(event.request.kind);
+        session.respond(event.request.id, { decision: 'accept' });
+      }
+    };
+    const f =
+      runtime === 'codex'
+        ? await codex(onEvent, { onAnswerProcess })
+        : await claude();
+    const session: AgentSession =
+      'session' in f
+        ? f.session
+        : await f.connect({ onAnswerProcess, onEvent });
+    t.onTestFinished(() => session.close());
+    assert.equal((await session.send('normal')).status, 'completed');
+    const id = session.info.id;
+    requests.length = 0;
+    assert.equal(
+      (
+        await session.send(
+          'normal review',
+          undefined,
+          'task context',
+          'pr-review',
+        )
+      ).status,
+      'completed',
+    );
+    assert.equal(session.info.id, id);
+    assert.deepEqual(processes, []);
+    if ('session' in f) {
+      const frame = JSON.parse(
+        await readFile(join(f.cwd, 'prompt.json'), 'utf8'),
+      ) as { params: Record<string, unknown> };
+      assert.equal(frame.params.threadId, id);
+      assert.equal(frame.params.outputSchema, undefined);
+      assert.ok(requests.includes('approval'));
+    } else {
+      const content = await readFile(join(f.cwd, 'content.json'), 'utf8');
+      assert.match(content, /Witch request/);
+      assert.equal(f.children.length, 1);
+    }
+    assert.equal((await session.send('normal afterward')).status, 'completed');
+  });
 }
 
 for (const history of [false, true]) {
@@ -355,7 +409,7 @@ test('Claude allows its exact request file when the native read needs approval',
     answerInstruction,
     undefined,
     batch.context,
-    'witch',
+    'peer-answer',
     { outputSchema: peerAnswerOutputSchema, requestFile: batch.file },
   );
   assert.equal(result.status, 'completed');
@@ -512,7 +566,7 @@ for (const runtime of ['codex', 'claude'] as const) {
       const closing = session.close();
       if (phase === 'closed') await closing;
       const rejected = assert.rejects(
-        session.send(answerInstruction, undefined, '', 'witch', {
+        session.send(answerInstruction, undefined, '', 'peer-answer', {
           outputSchema: peerAnswerOutputSchema,
           requestFile: batch.file,
         }),
@@ -546,10 +600,16 @@ for (const runtime of ['codex', 'claude'] as const) {
       await session.close();
     });
     const batch = await input(f.cwd);
-    const sending = session.send(answerInstruction, undefined, '', 'witch', {
-      outputSchema: peerAnswerOutputSchema,
-      requestFile: batch.file,
-    });
+    const sending = session.send(
+      answerInstruction,
+      undefined,
+      '',
+      'peer-answer',
+      {
+        outputSchema: peerAnswerOutputSchema,
+        requestFile: batch.file,
+      },
+    );
     await entered.promise;
     const stopping = session.interrupt();
     registered.resolve();

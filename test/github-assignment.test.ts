@@ -238,7 +238,7 @@ test('a refreshed claim calls GitHub only for references it has not confirmed', 
   assert.deepEqual(await f.registry.claims(), [extended.claim]);
 });
 
-test('a confirmed assignment the ledger cannot record keeps the claim without a warning, and the next claim assigns again', async (t) => {
+test('a confirmed assignment the ledger cannot record warns and keeps the claim, and the next claim assigns again', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await fixture(cleanup);
   const binding = await (await f.start()).binding();
@@ -248,7 +248,10 @@ test('a confirmed assignment the ledger cannot record keeps the claim without a 
   ).mockRejectedValueOnce(new Error('Injected record failure'));
   const claimed = await callControl(binding, { kind: 'claim', input });
   if (claimed.kind !== 'claimed') assert.fail(JSON.stringify(claimed));
-  assert.equal(claimed.warning, undefined);
+  assert.match(
+    claimed.warning ?? '',
+    /assignment succeeded.*receipt could not be saved.*Injected record failure/,
+  );
   assert.equal(claimed.claim.assigned, undefined);
   assert.deepEqual(await f.registry.claims(), [claimed.claim]);
   const calls = await f.calls();
