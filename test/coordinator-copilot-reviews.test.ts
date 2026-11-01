@@ -361,11 +361,13 @@ for (const mode of ['edited', 'interrupted']) {
         : result;
     });
     await x.observe();
-    await until('persisted recovery failure', async () => {
-      const state = (await record(x.f, x.a)).copilotReviews?.[0];
+    await until('persisted recovery failure and its notice', async () => {
+      const reason = (await record(x.f, x.a)).copilotReviews?.[0]?.batch
+        ?.reason;
       return (
         !x.c.snapshot.reviewing &&
-        !!state?.batch?.reason?.includes('could not be verified')
+        !!reason?.includes('could not be verified') &&
+        x.c.snapshot.items.some(({ text }) => text.includes(reason))
       );
     });
     const diagnostic = (await record(x.f, x.a)).copilotReviews![0]!.batch!
