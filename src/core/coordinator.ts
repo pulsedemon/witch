@@ -94,7 +94,7 @@ interface TurnOptions {
   delivered?: () => void;
   queued?: boolean;
   requests?: readonly PeerRequest[];
-  /** a turn Witch composed, such as a review's correction, adds no user row and doesn't title the conversation. */
+  /** a turn Witch composed, such as a /review correction, adds no user row and doesn't title the conversation. */
   silent?: boolean;
   review?: ReviewBatch;
 }
