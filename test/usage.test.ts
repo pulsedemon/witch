@@ -183,6 +183,28 @@ test('force rereads a due reading inside the attempt throttle, joins a read in f
   assert.equal(b.accountReads.length, 2);
 });
 
+test('after rereads a current reading observed before it, and leaves one observed later', async () => {
+  const { b, usage, published } = readings();
+  const at = Date.now();
+  b.accountRead = async () => ({
+    limits: [window('7D', 100, { observedAt: at - 1000 })],
+    funding: { kind: 'unavailable', observedAt: at - 1000 },
+  });
+  await usage.refresh('b', '/w');
+  assert.equal(b.accountReads.length, 1);
+  b.accountRead = async () => ({
+    limits: [window('7D', 20, { observedAt: Date.now() + 1 })],
+    funding: { kind: 'unavailable', observedAt: Date.now() + 1 },
+  });
+  await usage.refresh('b', '/w', { force: true });
+  assert.equal(b.accountReads.length, 1);
+  await usage.refresh('b', '/w', { force: true, after: at });
+  assert.equal(b.accountReads.length, 2);
+  assert.equal(published.at(-1)!.b!.limits[0]!.percent, 20);
+  await usage.refresh('b', '/w', { force: true, after: at });
+  assert.equal(b.accountReads.length, 2);
+});
+
 test('a report that arrives during a probe keeps its value when the probe finishes', async () => {
   const { b, usage, published } = readings();
   const read = pending();

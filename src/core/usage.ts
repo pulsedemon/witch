@@ -222,14 +222,25 @@ export class AccountUsage {
       if (adapter.id !== live) void this.refresh(adapter.id, cwd);
   }
 
-  /** `force` skips only the attempt throttle, for a decision that can't wait for it. */
-  refresh(agent: string, cwd: string, { force = false } = {}): Promise<void> {
+  /** `force` skips only the attempt throttle, for a decision that can't wait for it. `after` also rereads a reading with an observation from before it. */
+  refresh(
+    agent: string,
+    cwd: string,
+    { force = false, after = -Infinity } = {},
+  ): Promise<void> {
     const running = this.reads.get(agent);
     if (running) return running;
     const now = Date.now();
+    const account = this.accounts[agent];
+    const observed = [
+      ...(account?.limits ?? []),
+      account?.funding,
+      account?.creditAccess,
+    ];
     if (
       this.closed ||
-      !due(this.accounts[agent], now) ||
+      (!due(account, now) &&
+        observed.every((item) => !item || item.observedAt > after)) ||
       (!force &&
         now - (this.attempts.get(agent) ?? -Infinity) <= USAGE_CURRENT_MS)
     )
