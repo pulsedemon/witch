@@ -148,7 +148,8 @@ function proseLines(lines: readonly string[]): (string | undefined)[] {
       comment = false;
       text = ' '.repeat(close + 3) + line.slice(close + 3);
     } else {
-      const opening = /^\s*(`{3,}|~{3,})/.exec(line);
+      // a backtick fence's info string has no backticks, so ```x``` is a code span
+      const opening = /^\s*(`{3,}(?!.*`)|~{3,})/.exec(line);
       if (fence) {
         prose.push(undefined);
         if (
