@@ -618,6 +618,20 @@ test('Escape while reviewers run aborts them with the native stop deadline', asy
   assert.equal(h.notice('Review finished'), undefined);
 });
 
+test('a review refused while another runs leaves Escape able to stop the first', async (t) => {
+  const h = await harness(t);
+  const held = Promise.withResolvers<void>();
+  h.state.hold = held.promise;
+  const reviewing = h.coordinator.review('plan.md');
+  await until('the reviewers', () => h.rounds.length === 1, 500);
+  await assert.rejects(h.coordinator.review('plan.md'), /Stop the current/);
+  const interrupting = h.coordinator.interrupt();
+  await until('the abort', () => h.rounds[0]!.signal.aborted, 500);
+  held.resolve();
+  await interrupting;
+  assert.equal(await reviewing, false);
+});
+
 test('closing Witch during a review aborts its reviewers', async (t) => {
   const h = await harness(t);
   const held = Promise.withResolvers<void>();
