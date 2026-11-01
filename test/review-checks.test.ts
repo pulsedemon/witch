@@ -166,6 +166,16 @@ test('an escaped backtick opens no code span', async () => {
   ]);
 });
 
+test('a link written inside an HTML attribute is not checked, and one beside the tag is', async () => {
+  assert.deepEqual(
+    await check({
+      'plan.md':
+        '<span title="[example](missing.md)">Example</span> [real](gone.md)\n',
+    }),
+    ['1: link target gone.md does not exist'],
+  );
+});
+
 test('a link target with balanced parentheses is read whole, in links and writing rules', async () => {
   assert.deepEqual(
     await check({
