@@ -1,5 +1,5 @@
 import { settleMemory } from './memory-settlement.js';
-import { Compaction } from './compaction.js';
+import { Compaction, compactSession } from './compaction.js';
 import { initialSnapshot } from './snapshot.js';
 import type { Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
@@ -1123,22 +1123,12 @@ export class Coordinator {
   }
 
   private async compactActivity(): Promise<boolean> {
-    const conversation = this.current();
     const { activity, scope } = await this.beginActivity('turn');
-    let result: TurnResult = { status: 'interrupted', text: '' };
-    try {
-      const session = await this.connect(conversation.agent, scope);
-      if (!this.cancelled && !session.closed) {
-        if (session.info.hasHistory) result = await session.compact();
-        else {
-          this.notice('No conversation history to compact');
-          result = { status: 'completed', text: '' };
-        }
-      }
-    } catch (error) {
-      result = { status: 'failed', text: '', error: errorMessage(error) };
-    }
-    if (this.cancelled) result = { status: 'interrupted', text: '' };
+    const result = await compactSession(
+      () => this.connect(undefined, scope),
+      () => this.cancelled,
+      (text) => this.notice(text),
+    );
     this.turnFailed = result.status !== 'completed';
     await this.finishActivity(activity, result);
     await this.save();
