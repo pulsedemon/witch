@@ -1,8 +1,10 @@
 import { settleMemory } from './memory-settlement.js';
 import { RuntimeSwitch } from './runtime-switch.js';
+import { SessionLink } from './session-link.js';
+import { TurnRunner } from './turn-runner.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
-import { Compaction, compactSession } from './compaction.js';
+import { Compaction } from './compaction.js';
 import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
@@ -11,7 +13,6 @@ import { aborted, errorMessage, failureOf } from '../agents/stderr.js';
 import { NativeStop, stopDeadline } from '../agents/shutdown.js';
 import type {
   AgentEvent,
-  AgentSession,
   AgentStopOptions,
   TurnResult,
   UserResponse,
@@ -20,12 +21,7 @@ import { indexNote, noticeText } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
-import { processReports } from '../persistence/process.js';
-import {
-  stoppedActivity,
-  updateBackgroundActivity,
-} from './background-activity.js';
-import { castRow } from './spells.js';
+import { updateBackgroundActivity } from './background-activity.js';
 import {
   launchRecord,
   missingDirectoryNotice,
@@ -39,65 +35,39 @@ import {
   shellCommand,
   skillCall,
   ranCommand,
-  nativePrompt,
   questionReply,
 } from './prompts.js';
 import { joining, nextTurn, steerInOrder, waitsBehind } from './queue.js';
 import type { JobWatch } from './jobs.js';
 import type { SessionCoordination } from './coordination.js';
-import { watchClaimPolicy } from './coordination-policy.js';
 import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
-import { endActivity, startActivity, type Activity } from './activity.js';
+import { startActivity, type Activity } from './activity.js';
 import { runReviewCommand } from './review-run.js';
 import { Reviewers } from './reviewers.js';
-import { ModelCatalog, modelEffort, type ModelSelection } from './models.js';
+import { ModelCatalog, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { Conflict, PullRequest } from './repository.js';
 import { watchMergeNotices } from './merge-events.js';
+import { answerInstruction, watchPeerRequestNotices } from './peer-requests.js';
 import {
-  answerInstruction,
-  answerNotice,
-  watchPeerRequestNotices,
-  type PeerRequest,
-} from './peer-requests.js';
-import {
-  preparePeerAnswers,
-  recordPeerAnswers,
-  peerAnswerOutputSchema,
-} from './peer-answers.js';
-import {
-  agentDisplay,
   agentWorking,
   applyDisplayUpdate,
   clearConversationContext,
-  clearDelivery,
   createConversation,
-  recordDelivery,
   recordSession,
-  unreadRows,
-  untitled,
   type Conversation,
   type ConversationRecord,
   type DisplayUpdate,
   type Phase,
 } from './state.js';
 
-const compactAt = 80;
 const localActivity = Symbol('local activity');
 interface Launch {
   continue?: boolean;
   conversation?: string;
-}
-interface TurnOptions {
-  delivered?: () => void;
-  queued?: boolean;
-  requests?: readonly PeerRequest[];
-  /** a turn Witch composed, such as a /review correction, adds no user row and doesn't title the conversation. */
-  silent?: boolean;
-  review?: ReviewBatch;
 }
 /** another operation holds the phase, so nothing ran and nothing failed. */
 class Refusal extends Error {}
@@ -108,11 +78,6 @@ export class Coordinator {
   private record?: ConversationRecord;
   private files?: ConversationStore;
   private workspace?: Workspace;
-  private session?: AgentSession;
-  private contextGeneration = 0;
-  private readonly pendingContext = new Map<string, string[]>();
-  /** the project memory the live session may write; native permissions are fixed at connect. */
-  private sessionProject?: string;
   private listeners = new Set<() => void>();
   private task?: Promise<unknown>;
   private cancelled = false;
@@ -127,6 +92,8 @@ export class Coordinator {
   private changingModel?: Promise<void>;
   private modelRefresh?: { cancelled: boolean };
   private readonly catalog: ModelCatalog;
+  private readonly link: SessionLink;
+  private readonly turns: TurnRunner;
   readonly accountUsage: AccountUsage;
   private draining?: PromiseWithResolvers<void>;
   private deliveryHolds = 0;
@@ -158,10 +125,10 @@ export class Coordinator {
     usage: () => this.accountUsage,
     cancelled: () => this.cancelled,
     closed: () => this.closed,
-    session: () => this.session,
-    send: (prompt, kind) => this.performTurn(prompt, kind),
-    connect: (choice) => this.connect(choice.agent, undefined, choice),
-    disconnect: () => this.disconnect(),
+    session: () => this.link.session,
+    send: (prompt, kind) => this.turns.perform(prompt, kind),
+    connect: (choice) => this.link.connect(choice.agent, undefined, choice),
+    disconnect: () => this.link.disconnect(),
     save: () => this.save(),
     publish: (update) => this.publish(update),
     notice: (text) => this.notice(text),
@@ -177,12 +144,12 @@ export class Coordinator {
       replied: this.replied,
       parent: this.task,
       draining: this.draining?.promise,
-      session: this.session,
+      session: this.link.session,
     }),
     idle: async () => {
       let success = false;
       await this.operate('compacting', async () => {
-        success = (await this.performCompaction()).status === 'completed';
+        success = (await this.turns.compact()).status === 'completed';
       });
       return success;
     },
@@ -196,7 +163,6 @@ export class Coordinator {
   });
   private opening = false;
   private admitting: Promise<unknown> = Promise.resolve();
-  private connecting?: AbortController;
   private editorCancellation?: AbortController;
   private cleanupCancellation?: AbortController;
   private reviewCancellation?: AbortController;
@@ -217,8 +183,57 @@ export class Coordinator {
     this.accountUsage = new AccountUsage(agents, (accounts) =>
       this.publish({ accounts }),
     );
+    this.link = new SessionLink(
+      {
+        conversation: () => this.current(),
+        record: () => this.record,
+        files: () => this.files!,
+        workspace: () => this.workspace!,
+        snapshot: () => this.snapshot,
+        cancelled: () => this.cancelled,
+        publish: (update) => this.publish(update),
+        display: (update) => this.display(update),
+        notice: (text, cwd, save) => this.notice(text, cwd, save),
+        background: (event, cwd) => this.background(event, cwd),
+        save: () => this.save(),
+        persist: (operation) => this.persist(operation),
+        retain: (id, context) => this.turns.retain(id, context),
+      },
+      this.catalog,
+      this.accountUsage,
+      this.reviewers,
+      coordination,
+      jobs,
+    );
+    this.turns = new TurnRunner(
+      {
+        conversation: () => this.current(),
+        workspace: () => this.workspace!,
+        files: () => this.files!,
+        snapshot: () => this.snapshot,
+        conflict: () => this.conflict,
+        cancelled: () => this.cancelled,
+        deliveryHeld: () => this.deliveryHeld,
+        publish: (update) => this.publish(update),
+        display: (update) => this.display(update),
+        notice: (text) => this.notice(text),
+        report: (error) => this.report(error),
+        save: () => this.save(),
+        persist: (operation) => this.persist(operation),
+        beginActivity: (kind, scope) => this.beginActivity(kind, scope),
+        steerQueued: () => this.steerQueued(),
+        ended: () => (this.turnEnded = true),
+        failed: (failed) => (this.turnFailed = failed),
+      },
+      memory,
+      this.link,
+      this.compaction,
+      this.accountUsage,
+      this.copilot,
+      coordination,
+    );
     this.snapshot = initialSnapshot(agents);
-    this.coordination?.attach(() => this.session);
+    this.coordination?.attach(() => this.link.session);
     this.publish({});
     for (const watch of [watchMergeNotices, watchPeerRequestNotices])
       watch(
@@ -269,7 +284,7 @@ export class Coordinator {
       throw new Error(`${errorMessage(error)}\n\n${report}`, { cause: error });
     }
     // a failed connect leaves the conversation open, as a failed send does
-    const failure = await failureOf(this.connect(undefined, scope));
+    const failure = await failureOf(this.link.connect(undefined, scope));
     const adoption = await failureOf(this.workspace!.adoptCheckout(scope));
     const missing = await missingDirectoryNotice(this.store);
     if (missing) this.notice(missing, undefined, false);
@@ -305,7 +320,7 @@ export class Coordinator {
       }
       let failure: unknown;
       try {
-        await this.disconnect();
+        await this.link.disconnect();
       } catch (error) {
         failure = error;
       } finally {
@@ -392,7 +407,7 @@ export class Coordinator {
   }
 
   private async steer(prompt: string): Promise<boolean> {
-    const session = this.session;
+    const session = this.link.session;
     if (
       this.snapshot.phase !== 'running' ||
       this.snapshot.answering ||
@@ -422,14 +437,14 @@ export class Coordinator {
   }
 
   private get replied(): boolean {
-    return this.snapshot.phase === 'running' && !!this.session?.replied;
+    return this.snapshot.phase === 'running' && !!this.link.session?.replied;
   }
   private drainAfter(releasedHold = false): void {
     if (this.closed || this.deliveryHeld || this.halted()) return;
     if (this.draining && !this.replied) {
       if (releasedHold)
         void this.draining.promise.then(() => {
-          if (!this.cancelled && !this.session?.closed) this.drainAfter();
+          if (!this.cancelled && !this.link.session?.closed) this.drainAfter();
         });
       return;
     }
@@ -466,14 +481,14 @@ export class Coordinator {
         const queue = this.snapshot.queue;
         const batch = nextTurn(
           queue,
-          this.session ? this.snapshot.skills : undefined,
+          this.link.session ? this.snapshot.skills : undefined,
         );
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
         let result = undefined as TurnResult | undefined;
         try {
           await this.operate('running', async () => {
-            result = await this.runTurn(batch.join('\n'), 'turn', {
+            result = await this.turns.run(batch.join('\n'), 'turn', {
               delivered: () => (delivered = true),
               queued: true,
             });
@@ -497,35 +512,6 @@ export class Coordinator {
     } finally {
       this.draining = undefined;
       draining.resolve();
-    }
-  }
-
-  /** admitted automatic turns have already spent their attempt, so only queued user input waits behind delivery holds. */
-  private async runTurn(
-    prompt: string,
-    kind: 'turn' | 'answer' | 'review',
-    options: TurnOptions,
-  ): Promise<TurnResult | undefined> {
-    try {
-      const scope = await this.memory.scopePaths(this.current().cwd);
-      const session =
-        this.live(this.current().agent) ?? (await this.connectForTurn(scope));
-      if (!session) return;
-      const usage = session.info.hasHistory
-        ? await session.contextUsage()
-        : undefined;
-      if (this.cancelled || session.closed || this.session !== session) return;
-      if (options.queued && this.deliveryHeld) return;
-      if (usage !== undefined && usage >= compactAt) {
-        this.publish({ phase: 'compacting' });
-        const compacted = await this.performCompaction(scope);
-        if (compacted.status !== 'completed') return compacted;
-        this.publish({ phase: 'running' });
-      }
-      if (options.queued && this.deliveryHeld) return;
-      return await this.performTurn(prompt, kind, options, scope);
-    } catch (error) {
-      this.report(error);
     }
   }
 
@@ -558,7 +544,7 @@ export class Coordinator {
     this.publish({ reviewing: true });
     try {
       await this.operate('running', async () => {
-        result = await this.runTurn(reviewInstruction(batch), 'review', {
+        result = await this.turns.run(reviewInstruction(batch), 'review', {
           review: batch,
         });
       });
@@ -574,7 +560,7 @@ export class Coordinator {
     await this.operate('running', async () => {
       const requests = await this.coordination!.beginAnswer();
       ran = requests.length > 0;
-      if (ran) await this.runTurn(answerInstruction, 'answer', { requests });
+      if (ran) await this.turns.run(answerInstruction, 'answer', { requests });
     }).finally(() => this.publish({ answering: false }));
     return ran;
   }
@@ -605,7 +591,7 @@ export class Coordinator {
       const scope = await this.openConversation({
         create: createConversation(source.cwd, chosen, source),
       });
-      await this.connect(undefined, scope);
+      await this.link.connect(undefined, scope);
     });
   }
 
@@ -615,11 +601,11 @@ export class Coordinator {
       if (this.snapshot.queue.length)
         throw new Error('Prompts are still queued for this conversation');
       const conversation = this.current();
-      const info = this.live(conversation.agent)?.info;
-      await this.disconnect();
+      const info = this.link.live(conversation.agent)?.info;
+      await this.link.disconnect();
       if (this.cancelled) return;
       clearConversationContext(conversation, info);
-      this.pendingContext.delete(conversation.id);
+      this.turns.forget(conversation.id);
       this.publish({ completedTurn: undefined });
       await this.save();
       this.display({
@@ -632,7 +618,7 @@ export class Coordinator {
       await this.files!.flush();
       if (this.cancelled) return;
       const stored = conversation.sessions[conversation.agent]!;
-      const session = await this.connect();
+      const session = await this.link.connect();
       if (this.cancelled || session.closed) return;
       if (stored.model) {
         // restore the resolved model without changing the saved alias
@@ -647,7 +633,7 @@ export class Coordinator {
   async selectConversation(id: string): Promise<void> {
     if (id === this.record?.id) return;
     await this.operate('starting', async () => {
-      await this.connect(undefined, await this.openConversation({ id }));
+      await this.link.connect(undefined, await this.openConversation({ id }));
     });
   }
 
@@ -669,7 +655,11 @@ export class Coordinator {
         this.modelRefresh = refresh;
         const { cwd, agent } = this.current();
         try {
-          const models = await this.catalog.read(cwd, this.live(agent), true);
+          const models = await this.catalog.read(
+            cwd,
+            this.link.live(agent),
+            true,
+          );
           if (!refresh.cancelled)
             this.publish({ models, latest: this.catalog.latest });
         } catch (error) {
@@ -720,9 +710,13 @@ export class Coordinator {
   private async changeModel(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
     const kept = conversation.sessions[selection.agent];
-    const starting = !this.live(selection.agent);
+    const starting = !this.link.live(selection.agent);
     try {
-      const session = await this.connect(selection.agent, undefined, selection);
+      const session = await this.link.connect(
+        selection.agent,
+        undefined,
+        selection,
+      );
       const selected = await this.runtimes.applyModel(session, selection);
       if (this.cancelled || session.closed)
         throw new Refusal('Model change canceled');
@@ -733,9 +727,9 @@ export class Coordinator {
       if (!starting) throw error;
       if (kept) conversation.sessions[selection.agent] = kept;
       else delete conversation.sessions[selection.agent];
-      await this.disconnect(true, true).catch((closing: unknown) =>
-        this.notice(errorMessage(closing)),
-      );
+      await this.link
+        .disconnect(true, true)
+        .catch((closing: unknown) => this.notice(errorMessage(closing)));
       await this.save();
       throw error;
     }
@@ -759,7 +753,7 @@ export class Coordinator {
         (request) => !request.replyAsPrompt,
       ),
     });
-    this.connecting?.abort(new NativeStop(stop));
+    this.link.connecting?.abort(new NativeStop(stop));
     this.catalog.cancel(new NativeStop(stop));
     this.editorCancellation?.abort();
     this.cleanupCancellation?.abort();
@@ -770,10 +764,10 @@ export class Coordinator {
       (async () => {
         if (refresh && !this.closed) return;
         // a session that is still starting has no turn to interrupt, so stopping it closes it
-        if (this.snapshot.phase === 'starting' || this.connecting)
-          await this.session?.close(stop);
+        if (this.snapshot.phase === 'starting' || this.link.connecting)
+          await this.link.session?.close(stop);
         else {
-          const session = this.session;
+          const session = this.link.session;
           await session?.interrupt(stop);
           if (this.changingModel || this.runtimes.selecting)
             await session?.close(stop);
@@ -792,7 +786,7 @@ export class Coordinator {
       this.publish({
         requests: this.snapshot.requests.filter((request) => request.id !== id),
       });
-    else this.session?.respond(id, response);
+    else this.link.session?.respond(id, response);
     // the request view closes on answering, so the transcript keeps what was asked and chosen
     if (questions && response.decision === 'accept') {
       const text = questionReply(questions, response);
@@ -884,9 +878,9 @@ export class Coordinator {
       signal: abort.signal,
       notice: (text) => this.notice(text),
       display: (update) => this.display(update),
-      retain: (text) => this.retainContext(conversation.id, [text]),
+      retain: (text) => this.turns.retain(conversation.id, [text]),
       turn: async (prompt) => {
-        const done = await this.runTurn(prompt, 'turn', { silent: true });
+        const done = await this.turns.run(prompt, 'turn', { silent: true });
         if (done?.status !== 'completed' || this.cancelled) return false;
         if (this.halted() || conversation.activity) return false;
         const { recovery, failure } = await settleMemory(this.workspace!);
@@ -939,7 +933,7 @@ export class Coordinator {
       } catch (error) {
         failure = error;
         // Codex's close() interrupts again and would rethrow, so the session ends here
-        await this.disconnect(false, false, stop).catch(() => {});
+        await this.link.disconnect(false, false, stop).catch(() => {});
       }
       await this.task?.catch(() => {});
       await this.draining?.promise;
@@ -954,7 +948,7 @@ export class Coordinator {
     } finally {
       try {
         await this.accountUsage.close(stop);
-        await this.disconnect(false, false, stop);
+        await this.link.disconnect(false, false, stop);
       } finally {
         try {
           await this.coordination?.close(options);
@@ -978,212 +972,8 @@ export class Coordinator {
     await this.coordination.takeTask(reference);
   }
 
-  private async performTurn(
-    prompt: string,
-    kind: 'turn' | 'handoff' | 'answer' | 'review',
-    { delivered, queued = false, requests, silent, review }: TurnOptions = {},
-    read?: MemoryScope,
-  ): Promise<TurnResult> {
-    const conversation = this.current();
-    const answer = kind === 'answer';
-    const automatic = answer || kind === 'review';
-    if (kind === 'turn') this.publish({ completedTurn: undefined });
-    const { activity, scope } = await this.beginActivity(
-      automatic ? 'turn' : kind,
-      read,
-    );
-    const session = await this.connectForTurn(scope);
-    if (!session || this.cancelled) return { status: 'interrupted', text: '' };
-    if (!answer) this.coordination?.beginTurn(activity.id);
-    try {
-      const batch = requests && (await preparePeerAnswers(requests));
-      this.publish({
-        subagents: this.snapshot.subagents.filter(
-          ({ status }) => status === 'running',
-        ),
-      });
-      const command = kind === 'turn' ? shellCommand(prompt) : undefined;
-      const handoff = conversation.handoff;
-      const pendingHandoff =
-        !answer && handoff?.activated && handoff.to === conversation.agent
-          ? handoff
-          : undefined;
-      const coordination = await this.coordination?.context(scope.project);
-      const pendingContext = automatic
-        ? undefined
-        : this.pendingContext.get(conversation.id);
-      const context = () =>
-        nativePrompt({
-          prompt,
-          memory: this.memory,
-          workspace: this.workspace!,
-          scope,
-          revision: activity.baseRevision,
-          reference: conversation.sessions[conversation.agent]!,
-          pendingHandoff,
-          coordination,
-          pendingContext,
-          command,
-          familiarCommand:
-            session.familiar && this.coordination
-              ? {
-                  command: this.coordination.commandPrefixes().familiar,
-                  runtime: session.info.agent,
-                }
-              : undefined,
-          merges: this.coordination?.events.mergeEvents(conversation.id),
-          requests: batch,
-          answers:
-            kind === 'turn'
-              ? this.coordination?.events.answered(conversation.id)
-              : undefined,
-          conflict: this.conflict,
-          usage: this.accountUsage.context(this.snapshot.agents),
-          reviewWatch: this.copilot.context(),
-        });
-      let input = await context();
-      if (
-        review &&
-        (review.owner !== conversation.id ||
-          !(await this.coordination?.reviews.owns(
-            review.claim,
-            review.pullRequest,
-            scope.project,
-          )))
-      )
-        return { status: 'interrupted', text: '', inputUnsent: true };
-      // a stop during an awaited check must prevent native input.
-      if (this.cancelled || session.closed || (queued && this.deliveryHeld))
-        return { status: 'interrupted', text: '' };
-      if (kind === 'turn' && !silent && conversation.title === untitled)
-        conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
-      if (!silent)
-        this.display({
-          id: randomUUID(),
-          kind: kind === 'turn' ? 'user' : 'notice',
-          text: requests
-            ? answerNotice(requests)
-            : review
-              ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
-              : prompt,
-          cwd: conversation.cwd,
-        });
-      this.persist(this.save());
-      if (command !== undefined) delivered?.();
-      let result: TurnResult;
-      let steering: Promise<void> | undefined;
-      let generation = this.contextGeneration;
-      try {
-        const ran =
-          command === undefined ? undefined : await session.shell(command);
-        if (ran && ran.status !== 'completed') result = ran;
-        else {
-          if (generation !== this.contextGeneration) input = await context();
-          if (this.cancelled || session.closed)
-            result = { status: 'interrupted', text: '' };
-          else {
-            if (!automatic) this.pendingContext.delete(conversation.id);
-            generation = this.contextGeneration;
-            const sending = session.send(
-              input.prompt,
-              skillCall(prompt, this.snapshot.skills),
-              input.context,
-              automatic ? (answer ? 'peer-answer' : 'pr-review') : 'user',
-              batch && {
-                outputSchema: peerAnswerOutputSchema,
-                requestFile: batch.file,
-              },
-            );
-            const stopPolicy = watchClaimPolicy(
-              this.coordination,
-              kind === 'turn' ? coordination?.snapshot : undefined,
-              (text) =>
-                !this.cancelled &&
-                this.session === session &&
-                generation === this.contextGeneration
-                  ? session.steer(text, { contextOnly: true })
-                  : Promise.resolve(false),
-            );
-            // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
-            if (queued && command === undefined) steering = this.steerQueued();
-            result = await sending.finally(stopPolicy);
-            if (requests)
-              await recordPeerAnswers(result, requests, this.coordination!);
-          }
-        }
-      } catch (error) {
-        result = { status: 'failed', text: '', error: errorMessage(error) };
-      }
-      this.turnEnded = true;
-      // first, so the prompts the turn left unread go ahead of those a refused steer gives back
-      await steering;
-      await this.compaction.busy;
-      if (command === undefined && !result.inputUnsent) delivered?.();
-      if (result.unread?.length)
-        this.publish({ queue: [...result.unread, ...this.snapshot.queue] });
-      const shown = kind === 'turn' && !silent ? [prompt] : [];
-      for (const row of unreadRows(this.snapshot.items, shown, result))
-        this.display({ ...row, text: '', unread: true });
-      if (result.inputUnsent)
-        this.retainContext(conversation.id, pendingContext);
-      this.retainContext(conversation.id, result.unreadContext);
-      await this.finishActivity(activity, this.compaction.failure ?? result);
-      if (result.status === 'completed' && !answer) {
-        if (generation === this.contextGeneration) {
-          const reference = conversation.sessions[activity.agent]!;
-          reference.deliveredRevision = activity.baseRevision;
-          reference.deliveredInstructionsRevision = input.instructionsRevision;
-          recordDelivery(reference, input);
-        }
-        if (!automatic && pendingHandoff === conversation.handoff)
-          delete conversation.handoff;
-      }
-      if (kind === 'turn')
-        conversation.lastTurn = { id: activity.id, status: result.status };
-      await this.save();
-      if (kind === 'turn' && conversation.lastTurn?.status === 'completed')
-        this.publish({ completedTurn: conversation.lastTurn.id });
-      return result;
-    } finally {
-      await this.coordination?.endTurn(activity.id);
-    }
-  }
-
   compact(): Promise<boolean> {
     return this.compaction.start();
-  }
-
-  private performCompaction(read?: MemoryScope): Promise<TurnResult> {
-    return this.compaction.automatic(() => this.compactActivity(read));
-  }
-
-  private async compactActivity(read?: MemoryScope): Promise<TurnResult> {
-    const { activity, scope } = await this.beginActivity('turn', read);
-    const result = await compactSession(
-      () => this.connect(undefined, scope),
-      () => this.cancelled,
-      (text) => this.notice(text),
-    );
-    this.turnFailed = result.status !== 'completed';
-    await this.finishActivity(activity, result);
-    await this.save();
-    this.turnFailed ||= this.cancelled;
-    return this.cancelled ? { status: 'interrupted', text: '' } : result;
-  }
-
-  private async finishActivity(
-    activity: Activity,
-    result: TurnResult,
-  ): Promise<void> {
-    const conversation = this.current();
-    const completed = result.status === 'completed';
-    await this.files!.flush();
-    if (!completed) {
-      this.notice(result.error ?? 'Turn interrupted');
-      if (result.status === 'failed') this.turnFailed = true;
-    }
-    await endActivity(this.workspace!, conversation, activity, completed);
-    if (completed) this.accountUsage.others(activity.agent, conversation.cwd);
   }
 
   private async beginActivity(kind: Activity['kind'], scope?: MemoryScope) {
@@ -1191,187 +981,6 @@ export class Coordinator {
     const begun = await startActivity(workspace, this.current(), kind, scope);
     await this.save();
     return begun;
-  }
-
-  private live(agent: string): AgentSession | undefined {
-    return this.session &&
-      !this.session.closed &&
-      this.session.info.agent === agent
-      ? this.session
-      : undefined;
-  }
-
-  private async connectForTurn(scope?: MemoryScope) {
-    try {
-      return await this.connect(this.current().agent, scope);
-    } catch (error) {
-      if (!this.cancelled || !aborted(error)) throw error;
-    }
-  }
-
-  /** reuses the live session unless `scope` names project memory it was never granted. */
-  private async connect(
-    agent = this.current().agent,
-    scope?: MemoryScope,
-    selection?: ModelSelection,
-  ): Promise<AgentSession> {
-    const live = this.live(agent);
-    if (live && (!scope || scope.project === this.sessionProject)) return live;
-    // an initial connect keeps the activation published when its conversation opened
-    await this.disconnect(!this.session, agent === this.current().agent);
-    const conversation = this.current();
-    const files = this.files!;
-    const tools = new Map<string, string>();
-    const { adapter, executable } = this.catalog.installed(agent);
-    const workspace = this.workspace!;
-    await workspace.ensureWorktree();
-    if (scope) await workspace.prepare(scope);
-    else scope = await workspace.scope(conversation.cwd);
-    await this.coordination?.activate(conversation, scope.project);
-    const stored = conversation.sessions[agent];
-    this.connecting = new AbortController();
-    try {
-      const session = await adapter.connect({
-        cwd: conversation.cwd,
-        executable: executable!,
-        resume: stored?.hasHistory ? stored.id : undefined,
-        model: selection?.id ?? stored?.requestedModel,
-        effort: selection
-          ? (modelEffort(selection, this.snapshot.models, stored?.effort) ??
-            undefined)
-          : stored?.effort,
-        memoryDirectories: workspace.directories(scope),
-        signal: this.connecting.signal,
-        onEvent: (event) => {
-          if (!files.closed) this.receive(conversation, agent, event, tools);
-        },
-        ...processReports(conversation, files, (pid) => this.jobs?.track(pid)),
-        mark: this.jobs,
-        familiarBinding: this.coordination?.familiarBinding(),
-        commandPrefixes: this.coordination?.commandPrefixes(),
-      });
-      this.session = session;
-      this.sessionProject = scope.project;
-      recordSession(conversation, agent, session.info);
-      await this.save();
-      if (this.connecting.signal.aborted)
-        throw new DOMException('Connection was interrupted', 'AbortError');
-      const models = await this.catalog.read(conversation.cwd, session);
-      // read after models(), so a skills or usage event sent meanwhile is not replaced by an older value
-      const skills = await session.skills().catch((error: unknown) => {
-        this.notice(errorMessage(error), undefined, false);
-        return [];
-      });
-      const live = this.live(agent);
-      this.publish({
-        native: live?.info,
-        usage: live?.usage ?? {},
-        models,
-        latest: this.catalog.latest,
-        skills,
-      });
-      this.accountUsage.connected(session, conversation.cwd);
-      return session;
-    } finally {
-      this.connecting = undefined;
-    }
-  }
-
-  private retainContext(id: string, context?: readonly string[]): void {
-    if (!context?.length) return;
-    const pending = this.pendingContext.get(id) ?? [];
-    this.pendingContext.set(id, [...pending, ...context]);
-  }
-
-  private async disconnect(
-    keepActivation = false,
-    keepQuestions = false,
-    stop?: AgentStopOptions,
-  ): Promise<void> {
-    if (!keepActivation && this.coordination) await this.coordination.quiesce();
-    const conversationId = this.record?.id;
-    const session = this.session;
-    this.session = undefined;
-    const owned = this.reviewers.owns;
-    for (const event of stoppedActivity(this.snapshot, owned))
-      this.background(event);
-    this.publish({
-      native: undefined,
-      usage: {},
-      skills: [],
-      subagents: this.snapshot.subagents.filter(({ id }) => owned(id)),
-      requests: keepQuestions
-        ? this.snapshot.requests.filter((request) => request.replyAsPrompt)
-        : [],
-    });
-    try {
-      await session?.close(stop);
-      if (!this.record) return;
-      delete this.record.process;
-      await this.save();
-    } finally {
-      // discard questions delivered while the old process was closing
-      if (!keepQuestions) this.publish({ requests: [] });
-      if (conversationId)
-        this.retainContext(conversationId, session?.takeUnreadContext?.());
-      if (!keepActivation) await this.coordination?.deactivate();
-    }
-  }
-
-  private receive(
-    conversation: ConversationRecord,
-    agent: string,
-    event: AgentEvent,
-    tools: Map<string, string>,
-  ): void {
-    if (event.type === 'info') {
-      recordSession(conversation, agent, event.info);
-      this.persist(this.save());
-      if (conversation.agent === agent)
-        this.publish({ native: event.info, conversation });
-    } else if (event.type === 'compacted') {
-      this.contextGeneration++;
-      const reference = conversation.sessions[agent];
-      if (reference) clearDelivery(reference);
-      this.persist(this.save());
-      this.notice('Conversation compacted');
-    } else if (event.type === 'request') {
-      if (this.cancelled && event.request.replyAsPrompt) return;
-      this.publish({ requests: [...this.snapshot.requests, event.request] });
-    } else if (event.type === 'closed') {
-      for (const event of stoppedActivity(this.snapshot, this.reviewers.owns))
-        this.background(event);
-      this.publish({
-        native: undefined,
-        usage: {},
-        requests: this.snapshot.requests.filter(
-          (request) => request.replyAsPrompt,
-        ),
-      });
-    } else if (event.type === 'request-resolved') {
-      this.publish({
-        requests: this.snapshot.requests.filter(({ id }) => id !== event.id),
-      });
-    } else if (event.type === 'notice') {
-      this.notice(event.text, undefined, !event.transient);
-    } else if (event.type === 'skills') {
-      if (this.live(agent)) this.publish({ skills: event.skills });
-    } else if (event.type === 'usage') {
-      this.accountUsage.report(agent, event.usage.account);
-      if (this.live(agent)) this.publish({ usage: event.usage });
-    } else if (event.type === 'subagent' || event.type === 'command') {
-      if (this.live(agent)) this.background(event, conversation.cwd);
-    } else if (event.type === 'spell') {
-      this.display(castRow(event.cast, conversation.cwd));
-    } else {
-      let id = `${conversation.activity?.id ?? 'session'}/${agent}/${event.id}`;
-      if (event.type === 'tool') {
-        id = tools.get(event.id) ?? id;
-        if (event.done) tools.delete(event.id);
-        else tools.set(event.id, id);
-      }
-      this.display(agentDisplay(event, id, agent, conversation.cwd));
-    }
   }
 
   private background(

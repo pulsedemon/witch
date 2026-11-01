@@ -19,7 +19,7 @@ Run each check once, capturing its exit code and complete log, and never rerun i
 `src/cli.tsx` parses the arguments, opens the `StateStore`, builds one `Coordinator` from `Memory` and the adapters found on `PATH`, and renders `App`.
 
 - [Coordinator](src/core/coordinator.ts) owns application state for the open conversation and publishes the [Snapshot](src/core/snapshot.ts) read by `App` through `useSyncExternalStore`, batched to 40 ms. Operation admission, queued delivery and compaction follow [the canonical rules](docs/rules.md#witch-commands-and-compaction). [Compaction](src/core/compaction.ts) owns pending requests; [memory settlement](src/core/memory-settlement.ts) classifies publication and recovery after an operation.
-- `performTurn` runs each turn; its memory, recovery, handoff and Claude idle-completion rules are in [docs/rules.md](docs/rules.md).
+- [TurnRunner](src/core/turn-runner.ts) runs each turn; its memory, recovery, handoff and Claude idle-completion rules are in [docs/rules.md](docs/rules.md).
 - Adapters implement `AgentAdapter` from `src/agents/types.ts`. Codex's JSON-RPC transport is `src/agents/json-rpc.ts`. [ModelCatalog](src/core/models.ts) owns the combined picker catalog and explicit runtime/model identity.
 - The state directory's layout is owned by `src/persistence/store.ts`, `src/memory/memory.ts` and `src/cli.tsx`, which places `memory.git`, `jobs/` and `scratch/`. [instanceDirectory](src/persistence/instance.ts) owns job-report directories; [ScratchSpace](src/persistence/scratch.ts) owns scratch.
 
