@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   access,
+  lstat,
   mkdir,
   realpath,
   rename,
@@ -124,11 +125,15 @@ function decoded(run: string): string {
   }
 }
 
+const gone = (error: unknown) => {
+  const { code } = error as NodeJS.ErrnoException;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
 /** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and an origin not created yet keys as its path, as it does once created with no origin of its own. one the OS refuses to read throws. */
 async function physical(path: string): Promise<string> {
   const real = await realpath(path).catch((error: unknown) => {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+    if (!gone(error)) throw error;
   });
   if (real) return real;
   const parent = dirname(path);
@@ -332,10 +337,12 @@ export class Memory {
       [dotted, dotted],
     ] as const)
       if (
-        await read(
+        // git reads a missing form as not a gitdir, so it needs no process
+        !(await lstat(form).then(() => false, gone)) &&
+        (await read(
           ['rev-parse', '--resolve-git-dir', form],
           /not a gitdir|invalid gitfile format|too large to be a \.git file/,
-        )
+        ))
       ) {
         repository = directory;
         break;
