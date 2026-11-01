@@ -80,6 +80,52 @@ test('the fixed instructions lay out transcript replies for scanning and leave v
   }
 });
 
+test('the fixed instructions take the recommended route past a blocked step and keep working on a runtime with usage', async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+    const rule = context
+      .split('\n\n')
+      .find((paragraph) => paragraph.startsWith('When a step is blocked'));
+    assert.ok(rule, context);
+    assert.match(
+      rule,
+      /recommended route that stays within the task's authorization, take it instead of asking the user to choose/,
+    );
+    assert.match(rule, /report what you did and what remains pending/);
+    assert.match(
+      rule,
+      /works around a Witch refusal, a claim conflict or a native permission denial is outside that authorization/,
+    );
+    assert.match(rule, /not a reason to stop or to wait for its reset/);
+    assert.match(
+      rule,
+      /continue the work, verification included, on a runtime that has usage/,
+    );
+    assert.match(rule, /request a new route for delegated work/);
+    assert.match(
+      rule,
+      /leave pending only the steps that need the exhausted runtime/,
+    );
+    assert.match(rule, /a run on it is refused for its usage limit/);
+    assert.match(
+      rule,
+      /a reading shown at 100% doesn't establish that by itself, and neither do request-rate throttling or unrelated errors/,
+    );
+    assert.match(
+      rule,
+      /Ask the user only for product or scope decisions the request and evidence can't settle/,
+    );
+    assert.match(
+      rule,
+      /confirmations that native or user rules require, such as before irreversible actions/,
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 for (const revision of [undefined, '0'.repeat(64)]) {
   test(`a session with ${revision ? 'outdated' : 'missing'} instructions receives them without resending unchanged memory`, async () => {
     const f = await fixture();
