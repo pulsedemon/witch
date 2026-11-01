@@ -96,7 +96,7 @@ test('clear reapplies reported default model and effort before the next turn', a
   }
 });
 
-test('clear preserves the resolved model without replacing its saved alias', async () => {
+test("clear preserves the resolved model, even one the agent wouldn't offer, without replacing its saved alias", async () => {
   const f = await fixture();
   try {
     await f.coordinator.selectModel({
@@ -108,6 +108,8 @@ test('clear preserves the resolved model without replacing its saved alias', asy
     const resolved = { ...native.session.info, model: 'a-big' };
     Object.defineProperty(native.session, 'info', { get: () => resolved });
     native.options.onEvent({ type: 'info', info: resolved });
+    // as a Codex reroute reports a model its catalog lacks
+    f.a.invalidModel = 'a-big';
     await f.coordinator.clear();
     assert.equal(f.coordinator.snapshot.native!.model, 'a-big');
     const saved = await readRecord(

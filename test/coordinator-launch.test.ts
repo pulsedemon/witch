@@ -736,6 +736,31 @@ test('a model the agent rejects while disconnected keeps the stored one, so the 
   }
 });
 
+test('an interrupt while a chosen model connects keeps the stored one', async () => {
+  const { coordinator, a, root } = await fixture();
+  try {
+    await coordinator.selectModel({ agent: 'a', id: 'a-big' });
+    await a.sessions.at(-1)!.session.close();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    a.beforeConnect = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    const selecting = coordinator.selectModel({ agent: 'a', id: 'a-new' });
+    await within(entered.promise, 3000, 'the connect');
+    const interrupting = coordinator.interrupt();
+    release.resolve();
+    await assert.rejects(selecting);
+    await interrupting;
+    const id = coordinator.snapshot.conversation!.id;
+    const saved = (await readRecord(root, id)).sessions.a;
+    assert.deepEqual([saved?.model, saved?.requestedModel], ['a-big', 'a-big']);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('/new copies this conversation for its own agent, starts another agent on its default, and refuses an uninstalled one', async () => {
   const { coordinator, a, b, store, project } = await fixture();
   try {

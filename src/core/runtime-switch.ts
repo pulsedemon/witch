@@ -67,6 +67,7 @@ export class RuntimeSwitch {
     const { agent, id } = selection;
     this.selecting = true;
     try {
+      await session.checkModel?.(id);
       await session.selectModel(
         id,
         modelEffort(selection, this.host.snapshot().models),

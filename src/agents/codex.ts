@@ -507,13 +507,16 @@ class CodexSession implements AgentSession {
   }
 
   /** Codex can't clear its thread's effort, so `null` only stops requesting one. */
-  async selectModel(model: string, effort?: string | null): Promise<void> {
-    if (this.turn || this.answers.busy)
-      throw new Error('Stop the current turn before changing models');
-    // Codex accepts any id here and only its backend refuses one, at the next turn
+  /** Codex accepts any id at selection, and only its backend refuses one at the next turn. */
+  async checkModel(model: string): Promise<void> {
     const offered = (models: Model[]) => models.some(({ id }) => id === model);
     if (!offered(this.listed) && !offered(await readModels(this.rpc, true)))
       throw new Error(`Codex has no model ${model}.`);
+  }
+
+  async selectModel(model: string, effort?: string | null): Promise<void> {
+    if (this.turn || this.answers.busy)
+      throw new Error('Stop the current turn before changing models');
     // Codex notifies only when the settings change
     if (
       model !== this.native.model ||

@@ -391,6 +391,25 @@ test('a failed reconnect keeps queued answers and unanswered questions', async (
   }
 });
 
+test('a model refused while disconnected keeps unanswered questions', async () => {
+  const { coordinator, a } = await fixture();
+  try {
+    await coordinator.send('Start');
+    const original = a.sessions[0]!;
+    original.options.onEvent({ type: 'request', request: question('kept') });
+    await original.session.close();
+    original.options.onEvent({ type: 'closed' });
+    a.invalidModel = 'a-typo';
+    await assert.rejects(
+      coordinator.selectModel({ agent: 'a', id: 'a-typo' }),
+      /Unknown model/,
+    );
+    assert.deepEqual(coordinator.snapshot.requests, [question('kept')]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('handoff discards retained questions from the previous agent', async () => {
   const { coordinator, a, b } = await fixture();
   try {

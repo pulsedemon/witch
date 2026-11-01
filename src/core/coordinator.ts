@@ -719,27 +719,27 @@ export class Coordinator {
     return this.operations === operations && !this.cancelled && !this.halted();
   }
 
-  /** a session started here starts on the choice, so a stored model that fails to connect can be replaced; if the choice is refused, it closes and the stored model stays. */
+  /** a session started here starts on the choice, so a stored model that fails to connect can be replaced; if it fails to connect or refuses the choice, it closes and the stored model stays. */
   private async changeModel(selection: ModelSelection): Promise<void> {
     const conversation = this.current();
     const kept = conversation.sessions[selection.agent];
     const starting = !this.live(selection.agent);
-    const session = await this.connect(selection.agent, undefined, selection);
     try {
+      const session = await this.connect(selection.agent, undefined, selection);
       conversation.sessions[selection.agent] = await this.runtimes.applyModel(
         session,
         selection,
       );
+      await this.save();
+      this.publish({ conversation, native: session.info });
     } catch (error) {
       if (!starting) throw error;
       if (kept) conversation.sessions[selection.agent] = kept;
       else delete conversation.sessions[selection.agent];
-      await this.disconnect();
+      await this.disconnect(true, true);
       await this.save();
       throw error;
     }
-    await this.save();
-    this.publish({ conversation, native: session.info });
   }
 
   interrupt(options: AgentStopOptions = {}): Promise<void> {

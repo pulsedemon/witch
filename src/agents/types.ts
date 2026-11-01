@@ -311,6 +311,8 @@ export interface AgentSession {
    * unless it has `replied`.
    */
   selectModel(model: string, effort?: string | null): Promise<void>;
+  /** refuses a new choice the runtime would accept now and fail at the next turn; restoring a model the session already ran skips it. */
+  checkModel?(model: string): Promise<void>;
   respond(id: string, response: UserResponse): void;
   /**
    * does nothing with no turn or shell command in flight. the session may close
