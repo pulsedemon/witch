@@ -393,6 +393,13 @@ for await (const line of lines) {
     });
     continue;
   }
+  if (request.method === 'model/list' && existsSync(file('models-fail'))) {
+    send({
+      id: request.id,
+      error: { code: -32603, message: 'model/list failed' },
+    });
+    continue;
+  }
   if (request.method === 'model/list') {
     const second = request.params.cursor === 'page-2';
     reply({

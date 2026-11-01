@@ -475,6 +475,8 @@ class CodexSession implements AgentSession {
   }
 
   async models(): Promise<Model[]> {
+    // a failed read leaves nothing to vouch for a selection
+    this.listed = [];
     this.listed = await readModels(this.rpc);
     return this.listed;
   }
