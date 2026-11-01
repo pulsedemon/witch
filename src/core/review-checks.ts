@@ -557,6 +557,7 @@ function slug(heading: string): string {
       part.code ? `\uE000${code.push(part.text) - 1}\uE001` : part.raw,
     )
     .join('')
+    .trim()
     .replace(/!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
     .replace(/<\/?[a-z][^>]*>/gi, '')
     .replace(/\*/g, '')
@@ -568,7 +569,6 @@ function slug(heading: string): string {
     .replace(/\uE000(\d+)\uE001/g, (_, index: string) => code[Number(index)]!)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}_\s-]/gu, '')
-    .trim()
     .replace(/\s/g, '-');
 }
 
