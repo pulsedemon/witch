@@ -143,7 +143,8 @@ async function runReview(
     );
   };
   let known: CheckFailure[] = [];
-  let knownIdentities = new Set<string>();
+  /** the failures a correction turn received, so each gets one attempt. */
+  let sent = new Set<string>();
   let reviewed: Texts | undefined;
   let next = { number: 1, closing: false };
   let sittingOut: SitOut[] = [];
@@ -165,18 +166,21 @@ async function runReview(
     const incomplete = `round ${number} did not complete`;
     let texts = await read();
     let failures = await checkTargets(cwd, files);
-    const seen = identities(failures, texts);
-    const fresh = failures.filter(
-      (_, index) => !knownIdentities.has(seen[index]!),
-    );
-    if (fresh.length) {
+    // a second pass sends failures the first correction introduced
+    for (let pass = 0; pass < 2; pass++) {
+      const seen = identities(failures, texts);
+      const fresh = failures.filter((_, index) => !sent.has(seen[index]!));
+      if (!fresh.length) break;
+      for (const identity of identities(fresh, texts)) sent.add(identity);
       if (!(await host.turn(correctionPrompt({ failures: fresh }))))
         return stopped(incomplete);
       texts = await read();
       failures = await checkTargets(cwd, files);
     }
     known = failures;
-    knownIdentities = new Set(identities(failures, texts));
+    const current = identities(failures, texts);
+    sent = new Set(current.filter((identity) => sent.has(identity)));
+    const reported = failures.filter((_, index) => sent.has(current[index]!));
     const delta = reviewed ? changes(reviewed, texts) : undefined;
     const scope = scopeFor(next, delta?.ratio ?? 0);
     if (signal.aborted) return stopped(incomplete);
@@ -217,7 +221,7 @@ async function runReview(
         files,
         scope,
         ...(scope === 'diff' && delta ? { diff: delta.diff } : {}),
-        known,
+        known: reported,
       }),
     );
     const counts = new Map<string, number>();
