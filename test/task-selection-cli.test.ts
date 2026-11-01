@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import { controlPrefix, parseCommand } from '../src/cli-control.js';
 import { ControlHost, callControl } from '../src/persistence/control.js';
 import type { ControlOutcome } from '../src/persistence/control.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import { coordinationFixture } from './fixtures/coordination.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
@@ -101,7 +101,7 @@ test('a later selection uses the retained prefix and rejects the previous turn i
 test('waiting helpers leave the host responsive beyond a request deadline and start work in FIFO order', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);
-  await git('clone', join(f.root, 'origin'), join(f.root, 'D'));
+  await f.checkout('D');
   const a = await f.start(),
     b = await f.start('B'),
     c = await f.start('D');
