@@ -50,8 +50,7 @@ import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
 import { endActivity, startActivity, type Activity } from './activity.js';
 import { runHandoff } from './handoff.js';
-import { finished, runReview } from './review-run.js';
-import type { ReviewOutcome } from './review-run.js';
+import { review } from './review-run.js';
 import { Reviewers } from './reviewers.js';
 import { ModelCatalog, modelEffort } from './models.js';
 import { AccountUsage } from './usage.js';
@@ -824,33 +823,26 @@ export class Coordinator {
   async review(argument: string): Promise<boolean> {
     const conversation = this.current();
     const abort = (this.reviewCancellation = new AbortController());
-    let outcome: ReviewOutcome | undefined;
-    await this.operate('running', async () => {
-      outcome = await runReview(argument, {
-        conversation,
-        coordination: this.coordination,
-        reviewers: this.reviewers,
-        agents: this.snapshot.agents,
-        signal: abort.signal,
-        notice: (text) => this.notice(text),
-        display: (update) => this.display(update),
-        retain: (text) => this.retainContext(conversation.id, [text]),
-        turn: async (prompt) => {
-          const done = await this.runTurn(prompt, 'turn', { silent: true });
-          if (done?.status !== 'completed' || this.cancelled) return false;
-          if (this.halted() || conversation.activity) return false;
-          const { recovery, failure } = await settleMemory(this.workspace!);
-          if (failure) this.notice(`Memory publication failed: ${failure}`);
-          return !recovery && !failure;
-        },
-      });
+    return review(argument, {
+      conversation,
+      coordination: this.coordination,
+      reviewers: this.reviewers,
+      agents: this.snapshot.agents,
+      signal: abort.signal,
+      notice: (text) => this.notice(text),
+      display: (update) => this.display(update),
+      retain: (text) => this.retainContext(conversation.id, [text]),
+      turn: async (prompt) => {
+        const done = await this.runTurn(prompt, 'turn', { silent: true });
+        if (done?.status !== 'completed' || this.cancelled) return false;
+        if (this.halted() || conversation.activity) return false;
+        const { recovery, failure } = await settleMemory(this.workspace!);
+        if (failure) this.notice(`Memory publication failed: ${failure}`);
+        return !recovery && !failure;
+      },
+      operate: (rounds) => this.operate('running', rounds),
+      idle: () => !this.snapshot.error && this.snapshot.phase === 'idle',
     }).finally(() => (this.reviewCancellation = undefined));
-    if (!outcome) return false;
-    if (!outcome.ok || abort.signal.aborted || this.snapshot.error)
-      return false;
-    if (this.snapshot.phase !== 'idle') return false;
-    this.notice(finished(outcome));
-    return true;
   }
 
   async restoreMemory(path: string, revision: string): Promise<void> {

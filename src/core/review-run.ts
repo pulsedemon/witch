@@ -21,7 +21,7 @@ import type { Routed } from './routing.js';
 import { untitled } from './state.js';
 import type { ConversationRecord, DisplayUpdate } from './state.js';
 
-/** what a review needs from the coordinator, which runs it as one operation. */
+/** what a review needs from the coordinator. */
 export interface ReviewHost {
   conversation: ConversationRecord;
   coordination:
@@ -35,9 +35,13 @@ export interface ReviewHost {
   retain(text: string): void;
   /** runs a silent correction turn; false when it or its memory publication didn't settle. */
   turn(prompt: string): Promise<boolean>;
+  /** runs the rounds as one operation in the running phase. */
+  operate(rounds: () => Promise<void>): Promise<void>;
+  /** whether the operation settled without an error and left Witch idle. */
+  idle(): boolean;
 }
 
-export interface ReviewOutcome {
+interface ReviewOutcome {
   stop: string;
   /** true for a settled review or a regression stop. */
   ok: boolean;
@@ -48,13 +52,25 @@ export interface ReviewOutcome {
   directory: string;
 }
 
-/** the finish notice for a review that settled or stopped at a regression. */
-export function finished(outcome: ReviewOutcome): string {
-  return `Review finished: ${outcome.stop} · ${outcome.nonBlocking} non-blocking findings sent · ${outcome.remaining} mechanical failures remain · reports in ${outcome.directory}`;
+/** `/review`'s rounds as one operation; true once they settle or stop at a regression and the operation settles cleanly. */
+export async function review(
+  argument: string,
+  host: ReviewHost,
+): Promise<boolean> {
+  let outcome: ReviewOutcome | undefined;
+  await host.operate(async () => {
+    outcome = await runReview(argument, host);
+  });
+  if (!outcome?.ok || host.signal.aborted || !host.idle()) return false;
+  const { stop, nonBlocking, remaining, directory } = outcome;
+  host.notice(
+    `Review finished: ${stop} · ${nonBlocking} non-blocking findings sent · ${remaining} mechanical failures remain · reports in ${directory}`,
+  );
+  return true;
 }
 
 /** runs review rounds over the files `argument` names until they settle or stop; undefined when it refuses to start: no router, no files, or a name that isn't a file in the directory. */
-export async function runReview(
+async function runReview(
   argument: string,
   host: ReviewHost,
 ): Promise<ReviewOutcome | undefined> {
