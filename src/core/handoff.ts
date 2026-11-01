@@ -33,12 +33,14 @@ interface HandoffHost {
 export interface HandoffOptions {
   /** false skips asking the source, which usage exhaustion leaves unable to answer. */
   summarize?: boolean;
+  /** prompts the last turn shown but left unread, which go again from the queue. */
+  unread?: readonly string[];
 }
 
 export async function handoff(
   host: HandoffHost,
   selection: ModelSelection,
-  { summarize = true }: HandoffOptions = {},
+  { summarize = true, unread = [] }: HandoffOptions = {},
 ): Promise<void> {
   const { agent } = selection;
   const { conversation } = host;
@@ -49,7 +51,7 @@ export async function handoff(
   let activated = false;
   try {
     let summary = '';
-    const { items, queue } = host.snapshot;
+    const { items } = host.snapshot;
     const context = items.slice(contextStart(items));
     if (context.some((item) => item.kind === 'user')) {
       const result = summarize
@@ -64,7 +66,7 @@ export async function handoff(
         !result ||
         (result.status === 'failed' && !conversation.activity)
       )
-        summary = transcriptContext(context, queue);
+        summary = transcriptContext(context, unread);
       else throw new Error(result.error ?? 'Handoff was interrupted');
     }
     conversation.handoff = { from, to: agent, summary, activated: false };
@@ -110,14 +112,19 @@ export async function handoff(
   }
 }
 
-/** handoff context rebuilt from the transcript when the source can't summarize. a prompt still queued is left out, since it will be delivered itself. */
+/** handoff context rebuilt from the transcript when the source can't summarize. an unread prompt's newest row is left out, since the queue delivers it again. */
 export function transcriptContext(
   items: readonly DisplayItem[],
-  queued: readonly string[],
+  unread: readonly string[],
 ): string {
-  const rows = items.flatMap((item) => {
-    if (item.kind === 'user')
-      return queued.includes(item.text) ? [] : [`User: ${item.text}`];
+  const skipped = [...unread];
+  const rows = items.toReversed().flatMap((item) => {
+    if (item.kind === 'user') {
+      const at = skipped.indexOf(item.text);
+      if (at < 0) return [`User: ${item.text}`];
+      skipped.splice(at, 1);
+      return [];
+    }
     if (item.kind === 'assistant')
       return [`${item.title ?? 'Assistant'}: ${item.text}`];
     if (item.kind === 'tool')
@@ -128,10 +135,13 @@ export function transcriptContext(
   });
   const kept: string[] = [];
   let size = 0;
-  for (let index = rows.length - 1; index >= 0; index--) {
-    size += rows[index]!.length + 2;
-    if (size > transcriptLimit) break;
-    kept.unshift(rows[index]!);
+  for (const row of rows) {
+    size += row.length + 2;
+    if (size <= transcriptLimit) kept.unshift(row);
+    // the newest row alone can exceed the limit, and it usually states the task
+    else if (!kept.length)
+      kept.push(`${row.slice(0, transcriptLimit)} [truncated]`);
+    if (size >= transcriptLimit) break;
   }
   const omitted = kept.length < rows.length ? ' Earlier rows are omitted.' : '';
   return [

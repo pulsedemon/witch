@@ -115,7 +115,7 @@ test('a summary that leaves memory pending, or is interrupted, keeps the source'
   }
 });
 
-test('transcript context keeps the newest rows, tool titles and paths with their state, and skips prompts still queued', () => {
+test('transcript context keeps the newest rows, tool titles and paths with their state, and skips an unread prompt', () => {
   const context = transcriptContext(
     [
       ...items,
@@ -154,4 +154,46 @@ test('transcript context keeps the newest rows, tool titles and paths with their
   assert.match(capped, /Earlier rows are omitted\./);
   assert.ok(capped.endsWith(long.at(-1)!.text));
   assert.ok(!capped.includes(`User: 0 x`));
+});
+
+test('an unread prompt skips only its own newest row, so an earlier identical request stays', () => {
+  const context = transcriptContext(
+    [
+      { id: 'u1', kind: 'user', text: 'run the migration', cwd: '/w' },
+      {
+        id: 'a1',
+        kind: 'assistant',
+        title: 'claude',
+        text: 'on it',
+        cwd: '/w',
+      },
+      { id: 'u2', kind: 'user', text: 'run the migration', cwd: '/w' },
+    ],
+    ['run the migration'],
+  );
+  assert.equal(
+    context,
+    [
+      'The previous runtime could not summarize, so Witch rebuilt this from the conversation transcript.',
+      'User: run the migration',
+      'claude: on it',
+    ].join('\n\n'),
+  );
+});
+
+test('a newest row over the limit keeps its start instead of leaving no context', () => {
+  const paste = `migrate the store ${'x'.repeat(70_000)}`;
+  const context = transcriptContext(
+    [
+      { id: 'u1', kind: 'user', text: 'earlier', cwd: '/w' },
+      { id: 'u2', kind: 'user', text: paste, cwd: '/w' },
+    ],
+    [],
+  );
+  assert.match(
+    context,
+    /Earlier rows are omitted\.\n\nUser: migrate the store x/,
+  );
+  assert.ok(context.endsWith(' [truncated]'));
+  assert.ok(!context.includes('User: earlier'));
 });

@@ -496,7 +496,7 @@ export class Coordinator {
           result.exhausted &&
           // an Escape as the turn fails stops the switch too
           !this.cancelled &&
-          (await this.runtimes.continueAfterExhaustion()) &&
+          (await this.runtimes.continueAfterExhaustion(result.unread)) &&
           !this.halted()
         )
           continue;
