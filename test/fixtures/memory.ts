@@ -33,7 +33,12 @@ export async function fixture() {
       },
     };
   };
-  return { memory, root, project, hook, open };
+  /** begins from `cwd`'s scope, as a turn does after reading it. */
+  const begin = async (workspace: Workspace, cwd: string) => {
+    const scope = await memory.scopePaths(cwd);
+    return { revision: await workspace.begin(scope), scope };
+  };
+  return { memory, root, project, hook, open, begin };
 }
 
 export async function save(

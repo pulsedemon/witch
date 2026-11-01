@@ -161,6 +161,12 @@ export type RouteAction = Extract<CoordinationAction, { kind: 'route' }>;
 export type SessionPresence = z.infer<typeof sessionPresenceSchema>;
 export type CoordinationSnapshot = z.infer<typeof coordinationSnapshotSchema>;
 
+export const emptySnapshot: CoordinationSnapshot = {
+  peers: [],
+  reservations: [],
+  unregistered: [],
+};
+
 export function selectionStates(tickets: SelectionTicket[]): SelectionState[] {
   const positions = new Map<string, number>();
   return tickets.map((ticket) => {

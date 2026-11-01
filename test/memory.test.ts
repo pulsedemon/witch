@@ -162,7 +162,7 @@ test('memory works under user Git configuration with no identity, an empty templ
 });
 
 test('pending notes show in the recovery diff, block the next turn and stay out of accepted snapshots', async () => {
-  const { memory, open, project } = await fixture();
+  const { memory, open, project, begin } = await fixture();
   const { workspace, scope } = await open('a');
   await writeFile(join(scope.project, 'MEMORY.md'), 'Accepted project fact.');
   await workspace.commit('seed');
@@ -173,7 +173,7 @@ test('pending notes show in the recovery diff, block the next turn and stay out 
   assert.match(diff, /^--- projects\/[^/\n]+\/MEMORY\.md$/m);
   assert.match(diff, /^\+Unfinished project fact\.$/m);
   assert.match(diff, /pending\.md\nUnfinished new note\./);
-  await assert.rejects(workspace.begin(project), /Resolve pending memory/);
+  await assert.rejects(begin(workspace, project), /Resolve pending memory/);
   const snapshot = await memory.snapshot(
     await workspace.revision(),
     workspace.root,
@@ -424,14 +424,14 @@ test('a suffixless local origin follows a non-bare .git checkout and reports its
 });
 
 test('a project name fits the native filename limit beside its hash without splitting a character', async () => {
-  const { open, root } = await fixture();
+  const { open, root, begin } = await fixture();
   const name = async (directory: string, slug: string) => {
     const path = await repository(
       root,
       directory,
       `https://example.org/o/${slug}`,
     );
-    const { scope } = await (await open(directory)).workspace.begin(path);
+    const { scope } = await begin((await open(directory)).workspace, path);
     return basename(scope.project);
   };
   const linux = process.platform === 'linux';
@@ -925,7 +925,7 @@ test('a failed conflict preview aborts the rebase without changing either branch
 
 test('keep mine wins conflicting lines and merges every other change, and discard mine takes main', async () => {
   for (const decision of ['keep', 'discard'] as const) {
-    const { memory, open, project } = await fixture();
+    const { memory, open, project, begin } = await fixture();
     const { workspace: theirs } = await open('theirs');
     const { workspace: mine } = await open('mine');
     const base = {
@@ -934,7 +934,7 @@ test('keep mine wins conflicting lines and merges every other change, and discar
     };
     await save(theirs, base);
     await theirs.publish();
-    await mine.begin(project);
+    await begin(mine, project);
     await save(theirs, {
       'global/one.md': lines({ 1: 'theirs 1', 3: 'theirs 3' }),
       'global/two.md': lines({ 1: 'theirs 1' }),
@@ -1041,12 +1041,12 @@ for (const [name, conflictingPath, myFiles, theirFiles, keptFiles] of [
 
 test('keep mine carries no markers through a rename on either side', async () => {
   for (const renamer of ['theirs', 'mine'] as const) {
-    const { memory, open, project } = await fixture();
+    const { memory, open, project, begin } = await fixture();
     const { workspace: theirs } = await open('theirs');
     const { workspace: mine } = await open('mine');
     await save(theirs, { 'global/one.md': lines() });
     await theirs.publish();
-    await mine.begin(project);
+    await begin(mine, project);
     if (renamer === 'theirs') {
       await save(theirs, {
         'global/one.md': null,
@@ -1208,12 +1208,12 @@ for (const [name, mineChange, theirChange, expected] of [
   ['I edit, they delete', lines({ 2: 'mine 2' }), null, lines({ 2: 'mine 2' })],
 ] as const) {
   test(`keep mine when ${name}`, async () => {
-    const { memory, open, project } = await fixture();
+    const { memory, open, project, begin } = await fixture();
     const { workspace: theirs } = await open('theirs');
     const { workspace: mine } = await open('mine');
     await save(theirs, { 'global/one.md': lines(), 'global/keep.md': 'Keep.' });
     await theirs.publish();
-    await mine.begin(project);
+    await begin(mine, project);
     await save(theirs, { 'global/one.md': theirChange });
     await save(mine, { 'global/one.md': mineChange });
     await theirs.publish();
@@ -1228,12 +1228,12 @@ for (const [name, mineChange, theirChange, expected] of [
 }
 
 test('keep mine keeps their renamed copy of a note I deleted', async () => {
-  const { memory, open, project } = await fixture();
+  const { memory, open, project, begin } = await fixture();
   const { workspace: theirs } = await open('theirs');
   const { workspace: mine } = await open('mine');
   await save(theirs, { 'global/one.md': lines(), 'global/keep.md': 'Keep.' });
   await theirs.publish();
-  await mine.begin(project);
+  await begin(mine, project);
   await save(theirs, { 'global/one.md': null, 'global/renamed.md': lines() });
   await save(mine, { 'global/one.md': null });
   await theirs.publish();
@@ -1244,18 +1244,18 @@ test('keep mine keeps their renamed copy of a note I deleted', async () => {
 });
 
 test('begin recreates the project directory after its last note is deleted on main', async () => {
-  const { memory, open, project } = await fixture();
+  const { memory, open, project, begin } = await fixture();
   const { workspace: first, scope } = await open('first');
   const { workspace: second } = await open('second');
   const paths = await memory.scopePaths(project);
   await writeFile(join(scope.project, 'MEMORY.md'), 'Project note.');
   await first.commit('note');
   await first.publish();
-  await second.begin(project);
+  await begin(second, project);
   await rm(join(second.root, paths.project, 'MEMORY.md'));
   await second.commit('delete');
   await second.publish();
-  const { scope: begun } = await first.begin(project);
+  const { scope: begun } = await begin(first, project);
   assert.ok((await stat(join(first.root, begun.project))).isDirectory());
   assert.ok((await stat(join(first.root, begun.global))).isDirectory());
 });
@@ -1278,7 +1278,7 @@ test('snapshot paths point into the worktree, never the bare repository', async 
 });
 
 test('begin returns the worktree revision when main moves during it', async () => {
-  const { memory, open, hook, project } = await fixture();
+  const { memory, open, hook, project, begin } = await fixture();
   const { workspace: first } = await open('first');
   const { workspace: second } = await open('second');
   await save(second, { 'global/later.md': 'Later.' });
@@ -1290,7 +1290,7 @@ test('begin returns the worktree revision when main moves during it', async () =
     }
     return result;
   };
-  const { revision } = await first.begin(project);
+  const { revision } = await begin(first, project);
   assert.equal(revision, await first.revision());
   assert.notEqual(revision, await memory.resolve(main));
 });

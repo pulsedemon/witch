@@ -20,7 +20,11 @@ import {
 } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { frameWriter } from './fixtures/claude-adapter.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import {
+  coordinationFixture,
+  git,
+  pauseDiscovery,
+} from './fixtures/coordination.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
@@ -1168,4 +1172,51 @@ test('compaction publishes a running presence and defers behind a held native tu
     a.a.gate.open();
     await sending;
   }
+});
+
+for (const reconnect of [false, true])
+  test(`a ${reconnect ? 'reconnecting' : 'live'} turn reads its project scope once`, async (t) => {
+    pauseDiscovery(vi.spyOn);
+    const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+    const a = await f.start();
+    if (reconnect) await a.a.sessions.at(-1)!.session.close();
+    const reads = vi.spyOn(f.memory, 'scopePaths');
+    await a.coordinator.send('Inspect current exports');
+    assert.equal(a.a.inputs.length, 1);
+    assert.equal(a.a.sessions.length, reconnect ? 2 : 1);
+    assert.deepEqual(
+      reads.mock.calls.map(([directory]) => directory),
+      [join(f.root, 'A')],
+    );
+  });
+
+test('opening a conversation reads its project scope once', async (t) => {
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const reads = vi.spyOn(f.memory, 'scopePaths');
+  const a = await f.start();
+  assert.equal(a.coordinator.snapshot.phase, 'idle');
+  assert.deepEqual(
+    reads.mock.calls.map(([directory]) => directory),
+    [join(f.root, 'A')],
+  );
+});
+
+test("an idle origin change still compacts from the old session's usage before reconnecting", async (t) => {
+  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const a = await f.start();
+  await a.coordinator.send('Seed');
+  const seeded = a.a.sessions.at(-1)!.session;
+  seeded.contextUsage = async () => 80;
+  await git(
+    '-C',
+    join(f.root, 'A'),
+    'remote',
+    'set-url',
+    'origin',
+    join(f.root, 'other'),
+  );
+  await a.coordinator.send('Continue');
+  assert.deepEqual(a.a.compactions, [seeded.info.id]);
+  assert.equal(a.a.inputs.length, 2);
 });

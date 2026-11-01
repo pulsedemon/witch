@@ -207,6 +207,20 @@ test('delayed feedback runs once, verifies the reply and pushed commit, and pres
   );
 });
 
+test("a review turn's ownership check reuses the project its turn read", async (t) => {
+  const x = await setup(t);
+  const owns = vi.spyOn(x.a.coordination.reviews, 'owns');
+  autoReply(x.f, x.a, x.source);
+  await x.observe();
+  await x.handled();
+  assert.equal(x.reviews().length, 1);
+  assert.ok(
+    owns.mock.calls.some(
+      ([, , project]) => project === x.repository.pullRequestProject,
+    ),
+  );
+});
+
 test('unmatched feedback reports one blocker until a matching claim admits it', async (t) => {
   const x = await setup(t);
   await x.a.coordination.releaseTask();

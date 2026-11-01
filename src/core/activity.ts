@@ -6,23 +6,24 @@ import type { ConversationRecord } from './state.js';
 
 export type Activity = NonNullable<ConversationRecord['activity']>;
 
-/** records an activity on the conversation from the memory revision it starts at. */
+/** records an activity on the conversation from the memory revision it starts at, reading the scope unless the caller already did. */
 export async function startActivity(
   workspace: Workspace,
   conversation: ConversationRecord,
   kind: Activity['kind'],
+  scope?: MemoryScope,
 ): Promise<{ activity: Activity; scope: MemoryScope }> {
+  scope ??= await workspace.memory.scopePaths(conversation.cwd);
   await workspace.ensureWorktree();
-  const begun = await workspace.begin(conversation.cwd);
   const activity = {
     id: randomUUID(),
     agent: conversation.agent,
     kind,
-    baseRevision: begun.revision,
+    baseRevision: await workspace.begin(scope),
     startedAt: new Date().toISOString(),
   };
   conversation.activity = activity;
-  return { activity, scope: begun.scope };
+  return { activity, scope };
 }
 
 /** commits a completed activity's notes; an unfinished one stays recorded while it left notes uncommitted. */

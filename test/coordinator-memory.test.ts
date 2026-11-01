@@ -658,23 +658,15 @@ test('opening Witch on memory that conflicts with main leaves the move to recove
   }
 });
 
-test('a git read that fails as Witch opens is reported once and leaves the conversation open', async () => {
+test('a git read that fails as Witch opens rejects the open', async () => {
   const { coordinator, project, git, reopen } = await fixture();
   await git('init', '--quiet');
   await coordinator.send('Start');
-  const id = coordinator.snapshot.conversation!.id;
   await coordinator.close();
   await writeFile(join(project, '.git', 'config'), '[remote "origin"\n', {
     flag: 'a',
   });
-  const reopened = await reopen();
-  try {
-    assert.equal(reopened.snapshot.conversation!.id, id);
-    assert.equal(reopened.snapshot.phase, 'idle');
-    assert.equal(reopened.snapshot.error?.match(/bad config/g)?.length, 1);
-  } finally {
-    await reopened.close();
-  }
+  await assert.rejects(reopen(), /bad config/);
 });
 
 describe('an interrupted moved-project reconnect leaves the prompt queued without an error', () => {
