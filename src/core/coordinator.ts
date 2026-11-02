@@ -3,6 +3,11 @@ import { RuntimeSwitch } from './runtime-switch.js';
 import { SessionLink } from './session-link.js';
 import { TurnRunner } from './turn-runner.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
+import {
+  ConflictRepair,
+  repairInstruction,
+  type Repair,
+} from './pr-conflicts.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction } from './compaction.js';
 import { Attachments, imagePaste } from './attachments.js';
@@ -110,7 +115,8 @@ export class Coordinator {
     ready: () =>
       this.automaticReady() &&
       !this.snapshot.queue.length &&
-      !this.answerReady(),
+      !this.answerReady() &&
+      !this.repair.ready(),
     save: () => this.save(),
     notice: (text) => {
       if (!this.closed && this.record) this.notice(text);
@@ -119,6 +125,20 @@ export class Coordinator {
     run: (batch) => this.reviewCopilot(batch),
     interrupt: () => this.stopCurrent(),
   });
+  readonly repair = new ConflictRepair({
+    record: () => this.record,
+    coordination: () => this.coordination,
+    ready: () => this.automaticReady() && !this.snapshot.queue.length,
+    queued: () => !!this.snapshot.queue.length,
+    notice: (text) => {
+      if (!this.closed && this.record) this.notice(text);
+    },
+    changed: () => this.drainAfter(),
+    run: (repair, refused) => this.repairConflict(repair, refused),
+    interrupt: () => this.stopCurrent(),
+  });
+  /** a repair turn takes no steering, so prompts sent during it queue. */
+  private repairing = false;
   private readonly runtimes = new RuntimeSwitch({
     conversation: () => this.current(),
     snapshot: () => this.snapshot,
@@ -253,6 +273,7 @@ export class Coordinator {
       );
     coordination?.subscribe(() => {
       this.copilot.checkBinding();
+      this.repair.checkBinding();
       if (!this.snapshot.queue.length) this.drainAfter();
     });
   }
@@ -344,6 +365,7 @@ export class Coordinator {
       this.record = files.record;
       this.automaticHeld = false;
       this.copilot.activate();
+      this.repair.resume();
       this.workspace = workspace;
       if (!this.record.handoff?.activated) delete this.record.handoff;
       this.publish({
@@ -374,6 +396,7 @@ export class Coordinator {
     const during = this.snapshot.phase !== 'idle';
     this.automaticHeld = false;
     this.copilot.resume();
+    this.repair.resume();
     this.admissions++;
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting
@@ -451,6 +474,7 @@ export class Coordinator {
       this.snapshot.phase === 'running' &&
       !this.snapshot.answering &&
       !this.snapshot.reviewing &&
+      !this.repairing &&
       !this.cancelled &&
       !this.deliveryHeld &&
       !this.halted()
@@ -484,7 +508,10 @@ export class Coordinator {
     }
     if (
       !this.snapshot.queue.length &&
-      !(this.automaticReady() && (this.answerReady() || this.copilot.ready()))
+      !(
+        this.automaticReady() &&
+        (this.answerReady() || this.repair.ready() || this.copilot.ready())
+      )
     )
       return;
     const draining = this.replied ? this.steerQueued() : this.drain();
@@ -500,16 +527,27 @@ export class Coordinator {
     if (this.draining) return;
     const draining = (this.draining = Promise.withResolvers<void>());
     this.runtimes.beginStep();
+    // an admission that didn't run isn't retried in this drain until its candidate changes. repairs need no entry:
+    // one that doesn't run either recorded its key or found its candidate changed
+    const tried = new Set<string>();
     try {
       while (!this.deliveryHeld && this.snapshot.phase === 'idle') {
         if (!this.snapshot.queue.length) {
           if (!this.automaticReady()) return;
-          const answering = this.answerReady();
-          const ran = answering
-            ? await this.answerPeers()
-            : await this.copilot.run();
-          if (!ran && !answering && this.answerReady()) continue;
-          if (ran ? this.halted() : !this.snapshot.queue.length) return;
+          const answers = `answer ${this.answerable().join(' ')}`;
+          let ran: boolean;
+          if (this.answerReady() && !tried.has(answers)) {
+            tried.add(answers);
+            ran = await this.answerPeers();
+          } else if (this.repair.ready()) ran = await this.repair.run();
+          else if (!tried.has('copilot') && this.copilot.ready()) {
+            tried.add('copilot');
+            ran = await this.copilot.run();
+          } else return;
+          if (ran) {
+            if (this.halted()) return;
+            tried.clear();
+          }
           continue;
         }
         const queue = this.snapshot.queue;
@@ -542,10 +580,13 @@ export class Coordinator {
         )
           continue;
         if (!delivered || this.halted()) return;
+        tried.clear();
       }
     } finally {
       this.draining = undefined;
       draining.resolve();
+      // a repair that became ready while this drain ran had its wake dropped
+      if (this.repair.ready()) this.drainAfter();
     }
   }
 
@@ -564,11 +605,12 @@ export class Coordinator {
     );
   }
 
+  private answerable(): string[] {
+    return this.coordination?.events.answerable(this.current().id) ?? [];
+  }
+
   private answerReady(): boolean {
-    return (
-      this.automaticReady() &&
-      !!this.coordination?.events.answerable(this.current().id)
-    );
+    return this.automaticReady() && this.answerable().length > 0;
   }
 
   private async reviewCopilot(
@@ -584,6 +626,25 @@ export class Coordinator {
       });
     } finally {
       this.publish({ reviewing: false });
+    }
+    return result;
+  }
+
+  private async repairConflict(
+    repair: Repair,
+    refused: (error: string) => void,
+  ): Promise<TurnResult | undefined> {
+    let result: TurnResult | undefined;
+    this.repairing = true;
+    try {
+      await this.operate('running', async () => {
+        result = await this.turns.run(repairInstruction(repair), 'repair', {
+          repair,
+          refused,
+        });
+      });
+    } finally {
+      this.repairing = false;
     }
     return result;
   }

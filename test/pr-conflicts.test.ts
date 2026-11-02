@@ -50,6 +50,7 @@ function fixture(
   const listeners = new Set<() => void>();
   const coordinationListeners = new Set<() => void>();
   const notices: { text: string; save: boolean | undefined }[] = [];
+  const observed: (Repository | undefined)[] = [];
   let events: MergeEvent[] = [];
   const coordinator = {
     snapshot: {
@@ -57,6 +58,10 @@ function fixture(
       items: [],
     } as unknown as Snapshot,
     conflict: undefined as Conflict | undefined,
+    repair: {
+      observe: (repository: Repository | undefined) =>
+        observed.push(repository),
+    },
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -93,7 +98,7 @@ function fixture(
       coordinator as unknown as Parameters<typeof watchConflicts>[1],
     ),
   );
-  return { coordinator, notices, publish, merged };
+  return { coordinator, notices, observed, publish, merged };
 }
 
 function stubRepository() {
@@ -117,13 +122,15 @@ function stubRepository() {
 
 test('a conflict reaches the coordinator with one unsaved notice per conversation, outlasts a failed status read and clears on a fresh one', async (t) => {
   const stub = stubRepository();
-  const { coordinator, notices, publish } = fixture(
+  const { coordinator, notices, observed, publish } = fixture(
     t.onTestFinished,
     stub.repository,
   );
   const conflict = { pullRequest: pr({ mergeable: 'CONFLICTING' }) };
-  await stub.publish(status({ pullRequest: conflict.pullRequest, conflict }));
+  const conflicted = status({ pullRequest: conflict.pullRequest, conflict });
+  await stub.publish(conflicted);
   assert.deepEqual(coordinator.conflict, conflict);
+  assert.equal(observed.at(-1), conflicted);
   assert.deepEqual(notices, [
     {
       text: 'Pull request conflict: [#7](https://github.com/o/r/pull/7) at a1b2c3 conflicts with main.',
@@ -132,13 +139,18 @@ test('a conflict reaches the coordinator with one unsaved notice per conversatio
   ]);
   await stub.publish(status({ pullRequest: conflict.pullRequest, conflict }));
   assert.equal(notices.length, 1);
+  observed.length = 0;
   publish({ conversation: { id: 'd', cwd: '/w' } as never, items: [] });
   await tick();
   assert.equal(notices.length, 2, 'a newly opened conversation');
+  assert.deepEqual(observed, [conflicted], 'a coordinator publication');
   await stub.publish(undefined);
   assert.deepEqual(coordinator.conflict, conflict);
-  await stub.publish(status({ pullRequest: pr({ mergeable: 'MERGEABLE' }) }));
+  assert.equal(observed.at(-1), undefined);
+  const mergeable = status({ pullRequest: pr({ mergeable: 'MERGEABLE' }) });
+  await stub.publish(mergeable);
   assert.equal(coordinator.conflict, undefined);
+  assert.equal(observed.at(-1), mergeable);
 });
 
 test('a merge into the pull request base reads it again, and a pull request that turns conflicting reaches the coordinator', async (t) => {

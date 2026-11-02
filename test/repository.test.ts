@@ -604,7 +604,7 @@ function conflictWatch(options: {
   return { watch, reads };
 }
 
-test("a conflicting read records its base's tip, and only a fresh read that no longer describes that conflict clears it", async () => {
+test("a conflicting read records its base's tip, and only a mergeable or closed read clears it", async () => {
   vi.useFakeTimers({
     toFake: ['setInterval', 'clearInterval', 'Date'],
     now: 0,
@@ -647,20 +647,19 @@ test("a conflicting read records its base's tip, and only a fresh read that no l
     assert.equal(conflict()?.baseTip, 'f00');
     assert.equal(reads.tips.length, 1);
     await read({ mergeable: 'UNKNOWN', headRefOid: 'd4e5f6' });
-    assert.equal(conflict(), undefined);
+    assert.equal(conflict()?.pullRequest.commit, 'a1b2c3', 'a pushed head');
     tip = new Error('not found');
     await read({ mergeable: 'CONFLICTING' });
     assert.ok(conflict());
     assert.equal(conflict()?.baseTip, undefined);
     await read({ mergeable: 'UNKNOWN', baseRefName: 'main' });
-    assert.equal(conflict(), undefined);
-    await read({ mergeable: 'CONFLICTING' });
+    assert.equal(conflict()?.pullRequest.base, 'develop', 'a new base');
     await read({ mergeable: 'MERGEABLE' });
     assert.equal(conflict(), undefined);
     await read({ mergeable: 'CONFLICTING' });
     await read({ state: 'MERGED' });
     assert.equal(conflict(), undefined);
-    assert.equal(reads.tips.length, 4);
+    assert.equal(reads.tips.length, 3);
   } finally {
     watch.close();
   }

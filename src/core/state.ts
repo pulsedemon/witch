@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentEvent, SessionInfo, TurnResult } from '../agents/types.js';
 import { copilotReviewStateSchema } from './copilot-reviews.js';
+import { pullRequestSchema } from './repository.js';
 
 const session = z.object({
   id: z.string(),
@@ -63,6 +64,10 @@ export const conversationRecordSchema = conversationSchema.extend({
       z.array(copilotReviewStateSchema),
       copilotReviewStateSchema.transform((state) => [state]),
     ])
+    .optional(),
+  // each pull request head and base an automatic conflict repair was started for, so none is repaired twice
+  conflictRepairs: z
+    .array(pullRequestSchema.pick({ url: true, commit: true, base: true }))
     .optional(),
   lastTurn: z
     .object({
