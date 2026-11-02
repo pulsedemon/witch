@@ -132,7 +132,8 @@ export class Workspace {
   /** reads the worktree's `.git` file instead of spawning git, since every turn checks twice. */
   async rebaseStopped(): Promise<boolean> {
     const gitfile = join(this.root, '.git');
-    const gitdir = /^gitdir: (.+?)\s*$/.exec(
+    // like git, keep line breaks inside the path and trim only trailing ones
+    const gitdir = /^gitdir: (.+?)[\r\n]*$/s.exec(
       await readFile(gitfile, 'utf8'),
     )?.[1];
     if (!gitdir) throw new Error(`Not a worktree's .git file: ${gitfile}`);
