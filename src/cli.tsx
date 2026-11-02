@@ -107,7 +107,12 @@ if (familiar) {
 } else if (values.help) {
   process.stdout.write(usage);
 } else {
-  const { runWitch } = await import('./witch.js');
+  // React picks its slower development build when loaded without this, and agents inherit the environment, so it lasts only the load
+  const production = process.env.NODE_ENV === undefined;
+  if (production) process.env.NODE_ENV = 'production';
+  const { runWitch } = await import('./witch.js').finally(() => {
+    if (production) delete process.env.NODE_ENV;
+  });
   await runWitch(
     command,
     resolve(values['state-dir'] ?? defaultState),
