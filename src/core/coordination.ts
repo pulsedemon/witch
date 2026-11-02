@@ -151,6 +151,13 @@ export class SessionCoordination {
   private claimReleases = new Set<string>();
   private maintaining?: Promise<void>;
   private handing?: Promise<void>;
+  /** a recipient's pause writes, each for the conversation that made it; ticks and deactivation flush them until stored. */
+  private pauseWrites: {
+    conversation: string;
+    kind: 'confirm' | 'resume';
+    pauses: string[];
+  }[] = [];
+  private flushingPauses?: Promise<void>;
   private ending = false;
   private closed = false;
 
@@ -391,6 +398,7 @@ export class SessionCoordination {
     let failure: unknown;
     try {
       await quiescing;
+      await this.flushPauseWrites();
       await this.presence.idle();
       const error = this.failures.get('presence');
       if (error) failure = new Error(error);
@@ -409,6 +417,7 @@ export class SessionCoordination {
         failure ??= error;
       });
       if (this.active === active) this.active = undefined;
+      this.events.forgetPauses();
       this.presence.reset();
     }
     if (failure !== undefined) throw failure;
@@ -497,6 +506,44 @@ export class SessionCoordination {
       );
       await this.refreshEvents();
     });
+  }
+
+  /** takes the conversation from the caller, since `/clear` and runtime switches leave coordination briefly inactive. */
+  confirmPause(conversation: string, pause: string): void {
+    this.queuePauseWrite({ conversation, kind: 'confirm', pauses: [pause] });
+  }
+
+  resumePauses(conversation: string, pauses: string[]): void {
+    this.queuePauseWrite({ conversation, kind: 'resume', pauses });
+  }
+
+  private queuePauseWrite(write: SessionCoordination['pauseWrites'][number]) {
+    this.pauseWrites.push(write);
+    void this.flushPauseWrites();
+  }
+
+  /** runs while closing too, without admission, so a resume made just before /restart is stored. */
+  private flushPauseWrites(): Promise<void> {
+    if (!this.pauseWrites.length) return Promise.resolve();
+    this.flushingPauses ??= this.serialize(async () => {
+      while (this.pauseWrites.length) {
+        const { conversation, kind, pauses } = this.pauseWrites[0]!;
+        const deadline = Date.now() + 1000;
+        if (kind === 'resume')
+          await this.registry.resumeByUser(conversation, pauses, deadline);
+        else
+          for (const pause of pauses)
+            await this.registry.confirmPause(conversation, pause, deadline);
+        this.pauseWrites.shift();
+      }
+      this.failures.delete('pause-writes');
+      this.publish(this.snapshot);
+    })
+      .catch((error: unknown) => this.fail('pause-writes', error))
+      .finally(() => {
+        this.flushingPauses = undefined;
+      });
+    return this.flushingPauses;
   }
 
   beginTurn(turn: string): void {
@@ -963,6 +1010,7 @@ export class SessionCoordination {
   /** starts its refreshes synchronously, so a caller can read `refreshing` as soon as it returns. */
   private tick(): void {
     void this.maintain();
+    void this.flushPauseWrites();
     void this.presence.retry();
     void this.events.publishMerges();
     const active = this.active;
@@ -996,9 +1044,14 @@ export class SessionCoordination {
       signature !== undefined &&
       signature === active.observed &&
       !minute &&
-      !['discovery', 'ledger', 'merge-events', 'peer-requests'].some((key) =>
-        this.failures.has(key),
-      )
+      ![
+        'discovery',
+        'ledger',
+        'merge-events',
+        'peer-requests',
+        'pauses',
+        'pause-writes',
+      ].some((key) => this.failures.has(key))
     )
       return;
     active.observed = signature;

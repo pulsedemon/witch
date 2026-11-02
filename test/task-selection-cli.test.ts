@@ -421,3 +421,38 @@ test('peer request commands pair --message with --ask or --answer', () => {
   ])
     assert.throws(() => action(pair), /Choose exactly one control action/);
 });
+
+test('pause commands take --to only with --pause', () => {
+  const pause = randomUUID();
+  const binding = [
+    '--control-dir',
+    '/private/control',
+    '--control-conversation',
+    'conversation',
+    '--control-activation',
+    randomUUID(),
+  ];
+  const action = (args: string[]) =>
+    parseCommand([...binding, ...args]).control!.action;
+  assert.deepEqual(action(['--pause']), { kind: 'pause', to: undefined });
+  assert.deepEqual(action(['--pause', '--to', 'b', '--to', 'c']), {
+    kind: 'pause',
+    to: ['b', 'c'],
+  });
+  assert.deepEqual(action(['--resume', pause]), { kind: 'resume', pause });
+  assert.deepEqual(action(['--pause-status', pause]), {
+    kind: 'pause-status',
+    pause,
+  });
+  for (const args of [
+    ['--to', 'b'],
+    ['--resume', pause, '--to', 'b'],
+  ])
+    assert.throws(() => action(args), /--to requires --pause|exactly one/);
+  for (const pair of [
+    ['--pause', '--peers'],
+    ['--resume', pause, '--pause-status', pause],
+  ])
+    assert.throws(() => action(pair), /Choose exactly one control action/);
+  assert.throws(() => action(['--resume', 'not-a-uuid']), { name: 'ZodError' });
+});

@@ -25,6 +25,7 @@ import {
   peerRequestSchema,
   peerRequestStatusSchema,
 } from '../core/peer-requests.js';
+import { pauseSchema, pauseStatusSchema } from '../core/pauses.js';
 import { ClaimConflict, checkDeadline } from './coordination.js';
 import { writeJson } from './json.js';
 
@@ -84,6 +85,11 @@ const controlOutcomeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('peer-request'),
     request: peerRequestSchema,
     status: peerRequestStatusSchema,
+  }),
+  z.object({
+    kind: z.literal('pause'),
+    pause: pauseSchema,
+    statuses: z.record(z.string(), pauseStatusSchema),
   }),
   z.object({
     kind: z.literal('conflict'),

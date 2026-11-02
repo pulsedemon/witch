@@ -117,6 +117,7 @@ export class PresencePublisher {
       version: 1,
       selectionQueue: 1,
       peerRequests: 1,
+      pauses: 1,
       project: active.project,
       activation: active.binding.activation,
       process: this.host.process,
