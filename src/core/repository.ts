@@ -455,7 +455,7 @@ export class RepositoryWatch {
       });
   }
 
-  /** an `UNKNOWN` read at the same head and base keeps the conflict, since GitHub is still computing it. */
+  /** an `UNKNOWN` read of the same pull request keeps the conflict, even at a pushed head or a new base, until GitHub confirms mergeability. */
   private async conflicted(
     branch: string,
     value: PullRequest,
@@ -468,12 +468,9 @@ export class RepositoryWatch {
       };
     }
     const known = this.conflict;
-    const { url, commit, base } = known?.conflict.pullRequest ?? {};
     return value.mergeable === 'UNKNOWN' &&
       known?.branch === branch &&
-      value.url === url &&
-      value.commit === commit &&
-      value.base === base
+      value.url === known.conflict.pullRequest.url
       ? known
       : undefined;
   }

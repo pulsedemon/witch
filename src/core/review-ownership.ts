@@ -9,6 +9,7 @@ import type {
 import { recordTaskAssignment } from './github-assignment.js';
 import type { assignGitHubTask } from './github-assignment.js';
 import type { Ledger } from '../persistence/coordination.js';
+import type { SessionCoordination } from './coordination.js';
 import type { PullRequest, Repository } from './repository.js';
 
 interface ReviewScope {
@@ -33,6 +34,37 @@ interface ReviewOwnershipPort {
     references: string[],
     deadline: number,
   ): Promise<TaskClaim | undefined>;
+}
+
+/** what a Witch-started pull request turn was admitted for. */
+export interface PullRequestBinding {
+  owner: string;
+  claim: string;
+  pullRequest: PullRequest;
+}
+
+/** a missing repository or pull request read, or a coordination error, leaves the binding in place. */
+export function bindingChanged(
+  binding: PullRequestBinding,
+  conversation: string | undefined,
+  repository: Repository | undefined,
+  coordination: SessionCoordination | undefined,
+): boolean {
+  const scope = coordination?.snapshot;
+  return (
+    conversation !== binding.owner ||
+    (!!repository &&
+      (repository.branch !== binding.pullRequest.branch ||
+        (!!repository.pullRequest &&
+          (repository.pullRequest.url !== binding.pullRequest.url ||
+            repository.pullRequest.state !== 'OPEN')))) ||
+    (!!scope &&
+      coordination.reviews.observed &&
+      !scope.error &&
+      (scope.ownClaim?.id !== binding.claim ||
+        (!!scope.ownClaim &&
+          scope.ownClaim.owner.project !== coordination.reviews.owner.project)))
+  );
 }
 
 export class ReviewOwnership {

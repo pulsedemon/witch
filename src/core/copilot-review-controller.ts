@@ -16,6 +16,7 @@ import { readGitHubReviews, reviewCommitPushed } from './github-reviews.js';
 import type { GitHubReviews } from './github-reviews.js';
 import type { SessionCoordination } from './coordination.js';
 import type { Repository } from './repository.js';
+import { bindingChanged } from './review-ownership.js';
 import type { ConversationRecord } from './state.js';
 
 interface ReviewHost {
@@ -63,23 +64,14 @@ export class CopilotReviewController {
     const batch = this.executing;
     if (!batch || this.revoked === batch.id || this.abort.signal.aborted)
       return;
-    const scope = this.host.coordination()?.snapshot;
-    const record = this.host.record();
-    const changed =
-      record?.id !== batch.owner ||
-      (this.repository &&
-        (this.repository.branch !== batch.pullRequest.branch ||
-          (this.repository.pullRequest &&
-            (this.repository.pullRequest.url !== batch.pullRequest.url ||
-              this.repository.pullRequest.state !== 'OPEN')))) ||
-      (scope &&
-        this.host.coordination()!.reviews.observed &&
-        !scope.error &&
-        (scope.ownClaim?.id !== batch.claim ||
-          (scope.ownClaim &&
-            scope.ownClaim.owner.project !==
-              this.host.coordination()!.reviews.owner.project)));
-    if (changed) {
+    if (
+      bindingChanged(
+        batch,
+        this.host.record()?.id,
+        this.repository,
+        this.host.coordination(),
+      )
+    ) {
       this.revoked = batch.id;
       this.host.notice(
         'Copilot review handling stopped because its branch or task ownership changed.',

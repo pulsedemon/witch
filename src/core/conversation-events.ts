@@ -121,7 +121,8 @@ export class ConversationEvents {
     return answered(this.peerRequests(conversation), conversation);
   }
 
-  answerable(conversation: string): number {
+  /** the ids of the requests this conversation can answer. */
+  answerable(conversation: string): string[] {
     const scope = this.scope(conversation);
     return scope
       ? answerable(
@@ -129,8 +130,8 @@ export class ConversationEvents {
           conversation,
           scope.project,
           this.host.claims(),
-        ).length
-      : 0;
+        ).map(({ id }) => id)
+      : [];
   }
 
   /** records requests a transaction read, such as an answer turn's admission. */
@@ -175,7 +176,7 @@ export class ConversationEvents {
           read,
           changed ||
             (requests.status === 'fulfilled' &&
-              !!this.answerable(conversation)),
+              this.answerable(conversation).length > 0),
         );
       })
       .finally(() => {
