@@ -256,6 +256,38 @@ watching(
 );
 
 watching(
+  'a change whose event is lost is read a minute after the last read',
+  async (t) => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'performance'],
+    });
+    t.onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const work = await workTree();
+    await quiet();
+    const { run, status } = counting();
+    const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
+    t.onTestFinished(() => watch.close());
+    await widened(status);
+    // FSEvents can drop an event under load without flagging it
+    for (const watcher of watch['watchers']!)
+      watcher.removeAllListeners('change');
+    // a read the setup's late events scheduled would see the change
+    await until(
+      'no read pending',
+      () => watch['scheduled'] === undefined && !watch['refreshing'],
+    );
+    await writeFile(join(work, 'lost.txt'), 'l\n');
+    vi.advanceTimersByTime(59_000);
+    await delay(100);
+    assert.equal(watch.snapshot?.untracked, 0);
+    vi.advanceTimersByTime(1000);
+    await until('lost change', () => watch.snapshot?.untracked === 1);
+  },
+);
+
+watching(
   'a watch opened in a subdirectory reads changes elsewhere in the work tree',
   async (t) => {
     const work = await workTree();
