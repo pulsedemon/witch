@@ -14,6 +14,7 @@ import type {
   TaskClaim,
   SelectionTicket,
 } from '../src/core/coordination-state.js';
+import { Memory } from '../src/memory/memory.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { openLocked } from '../src/persistence/lock.js';
@@ -964,14 +965,26 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
     deadline,
   );
   let closing: ReturnType<typeof a.coordinator.close> | undefined;
+  const reads = Promise.withResolvers<void>();
   try {
     await within(waiting.promise, 5000, 'request waiting on lock');
+    // project reads that crawl, as under other suites' spawn load, can't hold a closing session's refusal past the deadline
+    const scope = Memory.prototype.scopePaths;
+    vi.spyOn(Memory.prototype, 'scopePaths').mockImplementation(async function (
+      this: Memory,
+      ...args
+    ) {
+      await reads.promise;
+      return scope.apply(this, args);
+    });
     closing = a.coordinator.close();
     await lock.close();
     assert.equal((await attempt).kind, 'error');
+    reads.resolve();
     await within(closing, 5000, 'close');
     assert.deepEqual(await registry.claims(), []);
   } finally {
+    reads.resolve();
     await lock.close();
     await Promise.allSettled([attempt, closing]);
   }

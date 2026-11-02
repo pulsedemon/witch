@@ -157,6 +157,8 @@ export async function dispatchControl(
             action.kind === 'select-next' ? action.turn : undefined,
           );
     const verify = async (ledger: Ledger) => {
+      // a closing session refuses before its project read and discovery spend the request's deadline
+      host.admit(request);
       await host.refreshProject(active, request.deadline);
       const snapshot = projectDiscovery(
         active.conversation.id,
