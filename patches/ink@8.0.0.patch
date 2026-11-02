@@ -1,36 +1,49 @@
 diff --git a/build/output.js b/build/output.js
-index 10a94568e2e9fc005dd383babf36456cb31ef572..bbd626a4853ac8253a24bcb752bf7da54e4a7d01 100644
+index 10a94568e2e9fc005dd383babf36456cb31ef572..5b71a83b0efebc54b333b8a440a56421dd5fad4c 100644
 --- a/build/output.js
 +++ b/build/output.js
-@@ -27,26 +27,28 @@ const intersectClips = (outer, inner) => {
+@@ -27,26 +27,37 @@ const intersectClips = (outer, inner) => {
          y2: intersectBound(outer.y2, inner.y2, Math.min),
      };
  };
-+// The caches outlive each frame's Output, since a frame mostly redraws the text the previous one drew. A map that passes this many entries starts over, so text that scrolls away doesn't accumulate.
-+const cacheLimit = 10_000;
-+const remember = (map, key, value) => {
-+    if (map.size >= cacheLimit) {
-+        map.clear();
++// Standalone invisible Unicode characters must not occupy terminal cells.
++const parseStyledChars = (text) => styledCharsFromTokens(tokenize(text)).filter(character => !/^\p{Default_Ignorable_Code_Point}+$/u.test(character.value));
++// The caches outlive each frame's Output, since a frame mostly redraws the text the previous one drew. Each starts over once its keys pass this many characters, so text that scrolls or streams away doesn't pile up.
++const cacheBudget = 200_000;
++class Cache {
++    entries = new Map();
++    size = 0;
++    get(key) {
++        return this.entries.get(key);
 +    }
-+    map.set(key, value);
-+    return value;
-+};
++    set(key, value) {
++        if (this.size + key.length > cacheBudget) {
++            this.entries.clear();
++            this.size = 0;
++        }
++        this.entries.set(key, value);
++        this.size += key.length;
++        return value;
++    }
++}
  class OutputCaches {
-     widths = new Map();
-     blockWidths = new Map();
-     styledChars = new Map();
-+    lines = new Map();
-+    slices = new Map();
+-    widths = new Map();
+-    blockWidths = new Map();
+-    styledChars = new Map();
++    widths = new Cache();
++    blockWidths = new Cache();
++    styledChars = new Cache();
++    lines = new Cache();
++    slices = new Cache();
      getStyledChars(line) {
 -        let cached = this.styledChars.get(line);
 -        if (cached === undefined) {
-+        return (this.styledChars.get(line) ??
-             // Standalone invisible Unicode characters must not occupy terminal cells.
+-            // Standalone invisible Unicode characters must not occupy terminal cells.
 -            cached = styledCharsFromTokens(tokenize(line)).filter(character => !/^\p{Default_Ignorable_Code_Point}+$/u.test(character.value));
 -            this.styledChars.set(line, cached);
 -        }
 -        return cached;
-+            remember(this.styledChars, line, styledCharsFromTokens(tokenize(line)).filter(character => !/^\p{Default_Ignorable_Code_Point}+$/u.test(character.value))));
++        return this.styledChars.get(line) ?? this.styledChars.set(line, parseStyledChars(line));
      }
      getStringWidth(text) {
 -        let cached = this.widths.get(text);
@@ -39,26 +52,26 @@ index 10a94568e2e9fc005dd383babf36456cb31ef572..bbd626a4853ac8253a24bcb752bf7da5
 -            this.widths.set(text, cached);
 -        }
 -        return cached;
-+        return this.widths.get(text) ?? remember(this.widths, text, stringWidth(text));
++        return this.widths.get(text) ?? this.widths.set(text, stringWidth(text));
      }
      getWidestLine(text) {
          let cached = this.blockWidths.get(text);
-@@ -55,15 +57,45 @@ class OutputCaches {
+@@ -55,15 +66,45 @@ class OutputCaches {
              for (const line of text.split('\n')) {
                  lineWidth = Math.max(lineWidth, this.getStringWidth(line));
              }
 -            cached = lineWidth;
 -            this.blockWidths.set(text, cached);
-+            cached = remember(this.blockWidths, text, lineWidth);
++            cached = this.blockWidths.set(text, lineWidth);
 +        }
 +        return cached;
 +    }
-+    // Preserves styles across explicit newlines, so each line can be clipped on its own.
++    // Preserves styles across explicit newlines, so each line can be clipped on its own. A block can be a whole streaming viewport, so its characters are parsed without being kept.
 +    getLines(text) {
 +        let cached = this.lines.get(text);
 +        if (cached === undefined) {
 +            const characterLines = [[]];
-+            for (const character of this.getStyledChars(text)) {
++            for (const character of parseStyledChars(text)) {
 +                if (character.value === '\n') {
 +                    characterLines.push([]);
 +                }
@@ -66,13 +79,13 @@ index 10a94568e2e9fc005dd383babf36456cb31ef572..bbd626a4853ac8253a24bcb752bf7da5
 +                    characterLines.at(-1).push(character);
 +                }
 +            }
-+            cached = remember(this.lines, text, Object.freeze(characterLines.map(line => styledCharsToString(line))));
++            cached = this.lines.set(text, Object.freeze(characterLines.map(line => styledCharsToString(line))));
          }
          return cached;
      }
 +    getSlice(line, from, to, slice) {
 +        const key = `${from}:${to}:${line}`;
-+        return this.slices.get(key) ?? remember(this.slices, key, slice());
++        return this.slices.get(key) ?? this.slices.set(key, slice());
 +    }
  }
 +const sharedCaches = new OutputCaches();
@@ -92,7 +105,7 @@ index 10a94568e2e9fc005dd383babf36456cb31ef572..bbd626a4853ac8253a24bcb752bf7da5
      width;
      height;
      constructor(options) {
-@@ -74,17 +106,7 @@ export default class Output {
+@@ -74,17 +115,7 @@ export default class Output {
      applyWriteOperation(output, operation, clip) {
          const { text, transformers } = operation;
          let { x, y } = operation;
@@ -111,7 +124,7 @@ index 10a94568e2e9fc005dd383babf36456cb31ef572..bbd626a4853ac8253a24bcb752bf7da5
          if (clip) {
              // Two nested clips can intersect to nothing. Nothing is visible, so bail out before slicing.
              if (isClipEmpty(clip)) {
-@@ -205,6 +227,9 @@ export default class Output {
+@@ -205,6 +236,9 @@ export default class Output {
          if (from >= to) {
              return '';
          }
@@ -121,7 +134,7 @@ index 10a94568e2e9fc005dd383babf36456cb31ef572..bbd626a4853ac8253a24bcb752bf7da5
          const result = [];
          let column = 0;
          for (const character of this.caches.getStyledChars(line)) {
-@@ -231,16 +256,7 @@ export default class Output {
+@@ -231,16 +265,7 @@ export default class Output {
          // Initialize output array with a specific set of rows, so that margin/padding at the bottom is preserved
          const output = [];
          for (let y = 0; y < this.height; y++) {
@@ -139,7 +152,7 @@ index 10a94568e2e9fc005dd383babf36456cb31ef572..bbd626a4853ac8253a24bcb752bf7da5
          }
          const clips = [];
          for (const operation of this.operations) {
-@@ -255,13 +271,18 @@ export default class Output {
+@@ -255,13 +280,18 @@ export default class Output {
                  this.applyWriteOperation(output, operation, clips.at(-1));
              }
          }
