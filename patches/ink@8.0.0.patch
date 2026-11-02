@@ -1,0 +1,183 @@
+diff --git a/build/output.js b/build/output.js
+index 10a94568e2e9fc005dd383babf36456cb31ef572..9e868b58976f7ed60901550bfcf143c3006d2863 100644
+--- a/build/output.js
++++ b/build/output.js
+@@ -27,26 +27,41 @@ const intersectClips = (outer, inner) => {
+         y2: intersectBound(outer.y2, inner.y2, Math.min),
+     };
+ };
++// Standalone invisible Unicode characters must not occupy terminal cells.
++const parseStyledChars = (text) => styledCharsFromTokens(tokenize(text)).filter(character => !/^\p{Default_Ignorable_Code_Point}+$/u.test(character.value));
++// The caches outlive each frame's Output, since a frame mostly redraws the text the previous one drew. Each starts over once its keys pass this many characters, so text that scrolls or streams away doesn't pile up.
++const cacheBudget = 200_000;
++class Cache {
++    entries = new Map();
++    size = 0;
++    get(key) {
++        return this.entries.get(key);
++    }
++    set(key, value) {
++        // A key that could never fit would only evict the rest.
++        if (key.length > cacheBudget) {
++            return value;
++        }
++        if (this.size + key.length > cacheBudget) {
++            this.entries.clear();
++            this.size = 0;
++        }
++        this.entries.set(key, value);
++        this.size += key.length;
++        return value;
++    }
++}
+ class OutputCaches {
+-    widths = new Map();
+-    blockWidths = new Map();
+-    styledChars = new Map();
++    widths = new Cache();
++    blockWidths = new Cache();
++    styledChars = new Cache();
++    lines = new Cache();
++    slices = new Cache();
+     getStyledChars(line) {
+-        let cached = this.styledChars.get(line);
+-        if (cached === undefined) {
+-            // Standalone invisible Unicode characters must not occupy terminal cells.
+-            cached = styledCharsFromTokens(tokenize(line)).filter(character => !/^\p{Default_Ignorable_Code_Point}+$/u.test(character.value));
+-            this.styledChars.set(line, cached);
+-        }
+-        return cached;
++        return this.styledChars.get(line) ?? this.styledChars.set(line, parseStyledChars(line));
+     }
+     getStringWidth(text) {
+-        let cached = this.widths.get(text);
+-        if (cached === undefined) {
+-            cached = stringWidth(text);
+-            this.widths.set(text, cached);
+-        }
+-        return cached;
++        return this.widths.get(text) ?? this.widths.set(text, stringWidth(text));
+     }
+     getWidestLine(text) {
+         let cached = this.blockWidths.get(text);
+@@ -55,15 +70,45 @@ class OutputCaches {
+             for (const line of text.split('\n')) {
+                 lineWidth = Math.max(lineWidth, this.getStringWidth(line));
+             }
+-            cached = lineWidth;
+-            this.blockWidths.set(text, cached);
++            cached = this.blockWidths.set(text, lineWidth);
+         }
+         return cached;
+     }
++    // Preserves styles across explicit newlines, so each line can be clipped on its own. A block can be a whole streaming viewport, so its characters are parsed without being kept.
++    getLines(text) {
++        let cached = this.lines.get(text);
++        if (cached === undefined) {
++            const characterLines = [[]];
++            for (const character of parseStyledChars(text)) {
++                if (character.value === '\n') {
++                    characterLines.push([]);
++                }
++                else {
++                    characterLines.at(-1).push(character);
++                }
++            }
++            cached = this.lines.set(text, Object.freeze(characterLines.map(line => styledCharsToString(line))));
++        }
++        return cached;
++    }
++    getSlice(line, from, to, slice) {
++        const key = `${from}:${to}:${line}`;
++        return this.slices.get(key) ?? this.slices.set(key, slice());
++    }
+ }
++const sharedCaches = new OutputCaches();
++// Shared by every unwritten cell, so an unchanged row holds the same cells from frame to frame.
++const emptyCell = Object.freeze({
++    type: 'char',
++    value: ' ',
++    fullWidth: false,
++    styles: Object.freeze([]),
++});
++// The previous frame's rows, whose text a row with the very same cells reuses instead of building again.
++let previousRows = [];
+ export default class Output {
+     operations = [];
+-    caches = new OutputCaches();
++    caches = sharedCaches;
+     width;
+     height;
+     constructor(options) {
+@@ -74,17 +119,7 @@ export default class Output {
+     applyWriteOperation(output, operation, clip) {
+         const { text, transformers } = operation;
+         let { x, y } = operation;
+-        // Preserve styles across explicit newlines before clipping individual rows.
+-        const characterLines = [[]];
+-        for (const character of this.caches.getStyledChars(text)) {
+-            if (character.value === '\n') {
+-                characterLines.push([]);
+-            }
+-            else {
+-                characterLines.at(-1).push(character);
+-            }
+-        }
+-        let lines = characterLines.map(line => styledCharsToString(line));
++        let lines = this.caches.getLines(text);
+         if (clip) {
+             // Two nested clips can intersect to nothing. Nothing is visible, so bail out before slicing.
+             if (isClipEmpty(clip)) {
+@@ -205,6 +240,9 @@ export default class Output {
+         if (from >= to) {
+             return '';
+         }
++        return this.caches.getSlice(line, from, to, () => this.sliceStyledChars(line, from, to));
++    }
++    sliceStyledChars(line, from, to) {
+         const result = [];
+         let column = 0;
+         for (const character of this.caches.getStyledChars(line)) {
+@@ -231,16 +269,7 @@ export default class Output {
+         // Initialize output array with a specific set of rows, so that margin/padding at the bottom is preserved
+         const output = [];
+         for (let y = 0; y < this.height; y++) {
+-            const row = [];
+-            for (let x = 0; x < this.width; x++) {
+-                row.push({
+-                    type: 'char',
+-                    value: ' ',
+-                    fullWidth: false,
+-                    styles: [],
+-                });
+-            }
+-            output.push(row);
++            output.push(Array.from({ length: this.width }, () => emptyCell));
+         }
+         const clips = [];
+         for (const operation of this.operations) {
+@@ -255,13 +284,18 @@ export default class Output {
+                 this.applyWriteOperation(output, operation, clips.at(-1));
+             }
+         }
+-        const generatedOutput = output
+-            .map(line => {
++        const rows = output.map((line, y) => {
+             // See https://github.com/vadimdemedes/ink/pull/564#issuecomment-1637022742
+-            const lineWithoutEmptyItems = line.filter(item => item !== undefined);
+-            return styledCharsToString(lineWithoutEmptyItems).trimEnd();
+-        })
+-            .join('\n');
++            const cells = line.filter(item => item !== undefined);
++            const previous = previousRows[y];
++            if (previous?.cells.length === cells.length &&
++                previous.cells.every((cell, x) => cell === cells[x])) {
++                return previous;
++            }
++            return { cells, text: styledCharsToString(cells).trimEnd() };
++        });
++        previousRows = rows;
++        const generatedOutput = rows.map(row => row.text).join('\n');
+         return {
+             output: generatedOutput,
+             height: output.length,
