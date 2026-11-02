@@ -10,6 +10,7 @@ import type {
 } from '../src/core/coordination-state.js';
 import { pauseStatuses } from '../src/core/pauses.js';
 import type { Pause } from '../src/core/pauses.js';
+import { SessionCoordination } from '../src/core/coordination.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { TurnGate } from './fixtures/agent.js';
@@ -728,4 +729,30 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
   );
   assert.equal(compacted, true);
   await compacting.catch(() => {});
+});
+
+test('a prompt sent while /clear reconnects coordination still stores its resume', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  const issued = await pause(i);
+  await confirmed(f, a, issued);
+  const activate = SessionCoordination.prototype.activate;
+  let sending: Promise<void> | undefined;
+  // the prompt lands after /clear deactivated coordination and before it reactivates
+  vi.spyOn(SessionCoordination.prototype, 'activate').mockImplementationOnce(
+    function (this: SessionCoordination, ...args) {
+      sending = a.coordinator.send('resume');
+      return activate.apply(this, args);
+    },
+  );
+  await a.coordinator.clear();
+  await sending;
+  await until(
+    'resume stored',
+    async () => (await statuses(f, issued))[id(a)] === 'resumed',
+  );
 });

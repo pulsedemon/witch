@@ -427,7 +427,7 @@ export class Coordinator {
       for (const id of paused.applied)
         this.userResumed.add(`${paused.conversation}/${id}`);
       this.releasePause();
-      this.coordination?.resumePauses([...paused.applied]);
+      this.coordination?.resumePauses(paused.conversation, [...paused.applied]);
     }
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting
@@ -485,7 +485,10 @@ export class Coordinator {
     if (lifted.length) {
       for (const { id } of lifted)
         this.userResumed.add(`${conversation}/${id}`);
-      this.coordination?.resumePauses(lifted.map(({ id }) => id));
+      this.coordination?.resumePauses(
+        conversation,
+        lifted.map(({ id }) => id),
+      );
     }
     const held = holding(pauses, conversation).filter(
       ({ id }) => !this.userResumed.has(`${conversation}/${id}`),
@@ -552,7 +555,7 @@ export class Coordinator {
         !paused.confirming.has(pause.id)
       ) {
         paused.confirming.add(pause.id);
-        this.coordination?.confirmPause(pause.id);
+        this.coordination?.confirmPause(paused.conversation, pause.id);
       }
     }
   }

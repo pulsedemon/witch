@@ -507,18 +507,17 @@ export class SessionCoordination {
     });
   }
 
-  confirmPause(pause: string): void {
-    this.queuePauseWrite('confirm', [pause]);
+  /** takes the conversation from the caller, since `/clear` and runtime switches leave coordination briefly inactive. */
+  confirmPause(conversation: string, pause: string): void {
+    this.queuePauseWrite({ conversation, kind: 'confirm', pauses: [pause] });
   }
 
-  resumePauses(pauses: string[]): void {
-    this.queuePauseWrite('resume', pauses);
+  resumePauses(conversation: string, pauses: string[]): void {
+    this.queuePauseWrite({ conversation, kind: 'resume', pauses });
   }
 
-  private queuePauseWrite(kind: 'confirm' | 'resume', pauses: string[]) {
-    const conversation = this.active?.conversation.id;
-    if (!conversation) return;
-    this.pauseWrites.push({ conversation, kind, pauses });
+  private queuePauseWrite(write: SessionCoordination['pauseWrites'][number]) {
+    this.pauseWrites.push(write);
     void this.flushPauseWrites();
   }
 
