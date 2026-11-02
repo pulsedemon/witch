@@ -351,6 +351,7 @@ for await (const line of lines) {
       config: existsSync(file('config.json'))
         ? JSON.parse(readFileSync(file('config.json'), 'utf8'))
         : {},
+      origins: {},
     });
     continue;
   }

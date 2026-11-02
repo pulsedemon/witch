@@ -19,6 +19,7 @@ import {
   type PeerAnswerBatch,
 } from './peer-answers.js';
 import { nativePrompt, shellCommand, skillCall } from './prompts.js';
+import type { Repair } from './pr-conflicts.js';
 import type { Conflict } from './repository.js';
 import type { SessionLink } from './session-link.js';
 import type { Snapshot } from './snapshot.js';
@@ -40,6 +41,9 @@ interface TurnOptions {
   /** a turn Witch composed, such as a /review correction, adds no user row and doesn't title the conversation. */
   silent?: boolean;
   review?: ReviewBatch;
+  repair?: Repair;
+  /** a repair refused before native input, with the ownership check's error when it threw. */
+  refused?: (error: string) => void;
   /** saved images the turn sends as they are, as a handoff's continuation resends its unfinished turn's. */
   images?: readonly string[];
 }
@@ -88,7 +92,7 @@ export class TurnRunner {
   /** admitted automatic turns have already spent their attempt, so only queued user input waits behind delivery holds. */
   async run(
     prompt: string,
-    kind: 'turn' | 'answer' | 'review',
+    kind: 'turn' | 'answer' | 'review' | 'repair',
     options: TurnOptions,
   ): Promise<TurnResult | undefined> {
     try {
@@ -122,20 +126,22 @@ export class TurnRunner {
 
   async perform(
     prompt: string,
-    kind: 'turn' | 'handoff' | 'answer' | 'review',
+    kind: 'turn' | 'handoff' | 'answer' | 'review' | 'repair',
     {
       delivered,
       queued = false,
       requests,
       silent,
       review,
+      repair,
+      refused,
       ...options
     }: TurnOptions = {},
     read?: MemoryScope,
   ): Promise<TurnResult> {
     const conversation = this.host.conversation();
     const answer = kind === 'answer';
-    const automatic = answer || kind === 'review';
+    const automatic = answer || kind === 'review' || kind === 'repair';
     if (kind === 'turn') this.host.publish({ completedTurn: undefined });
     const { activity, scope } = await this.host.beginActivity(
       automatic ? 'turn' : kind,
@@ -188,21 +194,35 @@ export class TurnRunner {
             kind === 'turn'
               ? this.coordination?.events.answered(conversation.id)
               : undefined,
-          conflict: this.host.conflict(),
+          // the repair instruction carries it, and this context denies authorization to act on it
+          conflict: repair ? undefined : this.host.conflict(),
           usage: this.usage.context(this.host.snapshot().agents),
           reviewWatch: this.copilot.context(),
         });
       let input = await context();
-      if (
-        review &&
-        (review.owner !== conversation.id ||
-          !(await this.coordination?.reviews.owns(
-            review.claim,
-            review.pullRequest,
-            scope.project,
-          )))
-      )
-        return { status: 'interrupted', text: '' };
+      const owned = review ?? repair;
+      if (owned) {
+        let refusal: string | undefined;
+        try {
+          if (
+            owned.owner !== conversation.id ||
+            !(await this.coordination?.reviews.owns(
+              owned.claim,
+              owned.pullRequest,
+              scope.project,
+            ))
+          )
+            refusal = '';
+        } catch (error) {
+          if (!repair) throw error;
+          refusal = errorMessage(error);
+        }
+        if (refusal !== undefined) {
+          // a stop or restart also fails the check, and leaves the repair attempted
+          if (!this.host.cancelled() && !session.closed) refused?.(refusal);
+          return { status: 'interrupted', text: '' };
+        }
+      }
       // from `prompt`, since handoff text in the input can quote old markers.
       // a stop aborts a conversion, and the check below reports it as the stop it is; a stop already made would have
       // aborted an earlier controller, so a cancelled turn starts none
@@ -236,7 +256,9 @@ export class TurnRunner {
             ? answerNotice(requests)
             : review
               ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
-              : prompt,
+              : repair
+                ? `Repairing the conflict on #${repair.pullRequest.number} with ${repair.pullRequest.base}.`
+                : prompt,
           cwd: conversation.cwd,
           ...(images.length ? { images } : {}),
         });
@@ -260,7 +282,13 @@ export class TurnRunner {
               input.prompt,
               skillCall(prompt, this.host.snapshot().skills),
               input.context,
-              automatic ? (answer ? 'peer-answer' : 'pr-review') : 'user',
+              !automatic
+                ? 'user'
+                : answer
+                  ? 'peer-answer'
+                  : repair
+                    ? 'pr-repair'
+                    : 'pr-review',
               batch && {
                 outputSchema: peerAnswerOutputSchema,
                 requestFile: batch.file,

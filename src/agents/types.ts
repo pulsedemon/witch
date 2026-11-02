@@ -255,7 +255,7 @@ export interface AnswerInput {
   requestFile: string;
 }
 
-export type TurnPurpose = 'user' | 'peer-answer' | 'pr-review';
+export type TurnPurpose = 'user' | 'peer-answer' | 'pr-review' | 'pr-repair';
 
 export interface AgentSession {
   familiar?: {
