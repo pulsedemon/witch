@@ -959,23 +959,23 @@ test('a failed turn cleanup still removes the request file', async (t) => {
 
 test('a failed admission clears and retries', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-  vi.spyOn(
-    CoordinationStore.prototype,
-    'attemptPeerRequests',
-  ).mockRejectedValueOnce(new Error('Peer requests unreadable'));
+  const attempts = vi
+    .spyOn(CoordinationStore.prototype, 'attemptPeerRequests')
+    .mockRejectedValueOnce(new Error('Peer requests unreadable'));
+  // a refresh during the failed drain is dropped, but any coordination publish after it retries at once and clears the
+  // error, so the failure is caught as it's published rather than polled for
+  let failed = false;
+  b.coordination.subscribe(() => {
+    failed ||= (b.coordination.snapshot.error ?? '').includes(
+      'Peer requests unreadable',
+    );
+  });
   const request = await ask(a, claim, 'Retry?');
   await refreshed(b);
-  // a refresh during the failed drain is dropped, and the paused tick would be what renotifies
-  await until(
-    'admission failure',
-    () =>
-      (b.coordination.snapshot.error ?? '').includes(
-        'Peer requests unreadable',
-      ) && settled(b),
-  );
-  assert.deepEqual(answerTurns(b), []);
+  await until('admission failure', () => failed && settled(b));
   await refreshed(b);
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
+  assert.equal(attempts.mock.calls.length, 2);
   assert.equal(b.coordination.snapshot.error, undefined);
   assert.ok((await stored(f, request)).attemptedAt);
 });
