@@ -77,6 +77,10 @@ export const conversationRecordSchema = conversationSchema.extend({
       images: z.array(z.string()).optional(),
     })
     .optional(),
+  // sent prompts the transcript doesn't show yet, oldest first, which come back queued after a restart or crash
+  queue: z.array(z.string()).optional(),
+  // the composer's text, which comes back with the conversation
+  draft: z.string().optional(),
   process: processIdentity.optional(),
   usageProcess: processIdentity.optional(),
   answerProcess: processIdentity.optional(),

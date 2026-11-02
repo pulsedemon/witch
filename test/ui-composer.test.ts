@@ -42,7 +42,7 @@ test('Down and Enter in one read run the second matching skill', async () => {
   try {
     ui.stdin.write(`/x${DOWN}${ENTER}`);
     await until('the send', () => calls.length > 0);
-    assert.deepEqual(calls, [['send', '/x-two']]);
+    assert.deepEqual(calls, [['send', '/x-two', { composer: true }]]);
   } finally {
     ui.unmount();
   }
@@ -53,7 +53,7 @@ test('typing after Down in the same read resets the selection', async () => {
   try {
     ui.stdin.write(`/${DOWN}x${ENTER}`);
     await until('the send', () => calls.length > 0);
-    assert.deepEqual(calls, [['send', '/x-one']]);
+    assert.deepEqual(calls, [['send', '/x-one', { composer: true }]]);
   } finally {
     ui.unmount();
   }
@@ -64,7 +64,7 @@ test('a slash command nothing matches is sent as typed', async () => {
   try {
     ui.stdin.write(`/zzz${ENTER}`);
     await until('the send', () => calls.length > 0);
-    assert.deepEqual(calls, [['send', '/zzz']]);
+    assert.deepEqual(calls, [['send', '/zzz', { composer: true }]]);
   } finally {
     ui.unmount();
   }
@@ -75,7 +75,7 @@ test('Tab completes a skill and the arguments typed in the same read follow it',
   try {
     ui.stdin.write(`/x-o${TAB}arg${ENTER}`);
     await until('the send', () => calls.length > 0);
-    assert.deepEqual(calls, [['send', '/x-one arg']]);
+    assert.deepEqual(calls, [['send', '/x-one arg', { composer: true }]]);
   } finally {
     ui.unmount();
   }
@@ -154,7 +154,7 @@ test('a paste the coordinator turns into an image marker goes into the draft and
     await until('the send', () => calls.some(([name]) => name === 'send'));
     assert.deepEqual(calls, [
       ['paste', '/tmp/shot.png', 'session'],
-      ['send', 'session [Image #1]'],
+      ['send', 'session [Image #1]', { composer: true }],
     ]);
   } finally {
     ui.unmount();
@@ -397,8 +397,39 @@ test('a ! command is sent and recorded with its !, and a lone ! sends nothing an
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the send', () => calls.length > 0);
-    assert.deepEqual(calls, [['send', '!git status']]);
+    assert.deepEqual(calls, [['send', '!git status', { composer: true }]]);
     assert.deepEqual(added, [['/work', '!git status']]);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('a conversation opened with a saved draft shows it in the composer, and typing saves it with the change', async () => {
+  const { ui, drafts } = await launched({ draft: 'saved' });
+  try {
+    await until('the saved draft', () => ui.text().includes('┃ saved'));
+    ui.stdin.write('y');
+    await until('the typed draft', () => ui.text().includes('┃ savedy'));
+    assert.deepEqual(drafts.at(-1), ['c', 'savedy']);
+  } finally {
+    ui.unmount();
+  }
+});
+
+test('↑ onto an earlier prompt keeps saving the draft typed before it', async () => {
+  const { app, drafts } = fake({});
+  const { store } = prompts(['earlier']);
+  const ui = show(
+    createElement(App, { coordinator: app, store, onExit: () => {} }),
+  );
+  try {
+    await delay(60);
+    ui.stdin.write('x');
+    await until('the draft', () => ui.text().includes('┃ x'));
+    ui.stdin.write(UP);
+    await until('the earlier prompt', () => ui.text().includes('┃ earlier'));
+    assert.deepEqual(drafts.at(-1), ['c', 'x']);
+    assert.ok(!drafts.some(([, text]) => text === 'earlier'));
   } finally {
     ui.unmount();
   }

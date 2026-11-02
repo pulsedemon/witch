@@ -36,6 +36,10 @@ const compactAt = 80;
 
 interface TurnOptions {
   delivered?: () => void;
+  /** the user row is shown, just before the save that records it. */
+  showing?: () => void;
+  /** the agent never read the prompt, before the unread prompts go back to the queue. */
+  unsent?: () => void;
   queued?: boolean;
   requests?: readonly PeerRequest[];
   /** a turn Witch composed, such as a /review correction, adds no user row and doesn't title the conversation. */
@@ -129,6 +133,8 @@ export class TurnRunner {
     kind: 'turn' | 'handoff' | 'answer' | 'review' | 'repair',
     {
       delivered,
+      showing,
+      unsent,
       queued = false,
       requests,
       silent,
@@ -262,6 +268,7 @@ export class TurnRunner {
           cwd: conversation.cwd,
           ...(images.length ? { images } : {}),
         });
+      showing?.();
       this.host.persist(this.host.save());
       if (command !== undefined) delivered?.();
       let result: TurnResult;
@@ -326,9 +333,13 @@ export class TurnRunner {
       await steering;
       await this.compaction.busy;
       if (command === undefined && !result.inputUnsent) delivered?.();
-      if (result.unread?.length)
+      // a `!` command was delivered before it ran
+      const back = command === undefined && result.inputUnsent;
+      if (back) unsent?.();
+      // one publish, so the batch and the prompts it left unread are saved together
+      if (back || result.unread?.length)
         this.host.publish({
-          queue: [...result.unread, ...this.host.snapshot().queue],
+          queue: [...(result.unread ?? []), ...this.host.snapshot().queue],
         });
       const shown = kind === 'turn' && !silent ? [prompt] : [];
       for (const row of unreadRows(this.host.snapshot().items, shown, result))

@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { resolveFile, unescapePath } from '../paths.js';
+import { shellCommand } from './prompts.js';
 import type { ConversationStore } from '../persistence/store.js';
 
 export const markerPattern = /\[Image #(\d+)\]/g;
@@ -46,6 +47,13 @@ function imagePath(written: string): string | undefined {
   } catch {
     return;
   }
+}
+
+/** a marker's number names an image only in this process, so saved text keeps it unnumbered; a shell command's markers are its own text. */
+export function unnumbered(text: string): string {
+  return shellCommand(text) === undefined
+    ? text.replace(markerPattern, '[Image]')
+    : text;
 }
 
 /** the images pasted in this process, each sent as the marker that names it. */

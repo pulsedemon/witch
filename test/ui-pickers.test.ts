@@ -200,7 +200,7 @@ for (const [typed, call] of [
     '/model vendor:model',
     ['selectModel', { agent: 'a', id: 'vendor:model', effort: undefined }],
   ],
-  ['/agent b', ['send', '/agent b']],
+  ['/agent b', ['send', '/agent b', { composer: true }]],
 ] as const)
   test(`${typed} passes its arguments`, async () => {
     const { app, calls } = fake({});

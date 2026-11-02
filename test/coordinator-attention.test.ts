@@ -16,21 +16,24 @@ test('completion identifies the successful activity only after its final save', 
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const save = ConversationStore.prototype.save;
-  const saving = vi
-    .spyOn(ConversationStore.prototype, 'save')
-    .mockImplementation(function (
-      this: ConversationStore,
-      record: ConversationRecord,
-    ) {
-      if (record.activity) return save.call(this, record);
-      saving.mockRestore();
-      entered.resolve();
-      return release.promise.then(() => save.call(this, record));
-    });
+  let saving: { mockRestore(): void } | undefined;
   try {
     a.gate = gate;
     const sending = coordinator.send('remember-port');
     await within(gate.entered, 5000, 'the native turn');
+    // admitting the prompt saves the record too, so the spy starts once the turn holds its activity
+    const spy = vi
+      .spyOn(ConversationStore.prototype, 'save')
+      .mockImplementation(function (
+        this: ConversationStore,
+        record: ConversationRecord,
+      ) {
+        if (record.activity) return save.call(this, record);
+        spy.mockRestore();
+        entered.resolve();
+        return release.promise.then(() => save.call(this, record));
+      });
+    saving = spy;
     const id = coordinator.snapshot.conversation!.id;
     const activity = (await readRecord(root, id)).activity!;
     assert.equal(coordinator.snapshot.completedTurn, undefined);
@@ -46,7 +49,7 @@ test('completion identifies the successful activity only after its final save', 
     assert.deepEqual(stored.lastTurn, { id: activity.id, status: 'completed' });
     assert.equal(coordinator.snapshot.completedTurn, stored.lastTurn.id);
   } finally {
-    saving.mockRestore();
+    saving?.mockRestore();
     release.resolve();
     gate.open();
     await coordinator.close();
@@ -57,26 +60,28 @@ test('a rejected final save publishes no completion', async () => {
   const { coordinator, a } = await fixture();
   const gate = new TurnGate();
   const save = ConversationStore.prototype.save;
-  const saving = vi
-    .spyOn(ConversationStore.prototype, 'save')
-    .mockImplementation(function (
-      this: ConversationStore,
-      record: ConversationRecord,
-    ) {
-      if (record.activity) return save.call(this, record);
-      saving.mockRestore();
-      return Promise.reject(new Error('final save rejected'));
-    });
+  let saving: { mockRestore(): void } | undefined;
   try {
     a.gate = gate;
     const sending = coordinator.send('successful native result');
     await within(gate.entered, 5000, 'the native turn');
+    const spy = vi
+      .spyOn(ConversationStore.prototype, 'save')
+      .mockImplementation(function (
+        this: ConversationStore,
+        record: ConversationRecord,
+      ) {
+        if (record.activity) return save.call(this, record);
+        spy.mockRestore();
+        return Promise.reject(new Error('final save rejected'));
+      });
+    saving = spy;
     gate.open();
     await sending;
     assert.match(coordinator.snapshot.error!, /final save rejected/);
     assert.equal(coordinator.snapshot.completedTurn, undefined);
   } finally {
-    saving.mockRestore();
+    saving?.mockRestore();
     gate.open();
     await coordinator.close();
   }

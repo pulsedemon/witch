@@ -109,6 +109,12 @@ for (const unreadable of [false, true]) {
         await until('the usable composer', () =>
           ui.text().includes('still typing'),
         );
+        // a saved draft would make the new conversation resumable
+        ui.stdin.write('\u0015');
+        await until(
+          'the cleared composer',
+          () => !ui.text().includes('still typing'),
+        );
       } finally {
         ui.unmount();
         await coordinator.close();
@@ -157,7 +163,7 @@ for (const cleanup of [false, true]) {
       await delay(60);
       assert.deepEqual(
         calls.filter(([name]) => name === 'send'),
-        [['send', 'say hello']],
+        [['send', 'say hello', { composer: false }]],
       );
     } finally {
       ui.unmount();
@@ -183,8 +189,8 @@ test('a prompt sent while the load connects goes after the initial prompt, which
     coordinator.publish({ phase: 'running' });
     await delay(60);
     assert.deepEqual(calls, [
-      ['send', 'say hello'],
-      ['send', 'and then this'],
+      ['send', 'say hello', { composer: false }],
+      ['send', 'and then this', { composer: true }],
     ]);
     assert.ok(!ui.text().includes('say hello'));
   } finally {
@@ -297,10 +303,33 @@ test('queued prompts left at idle or in an error come back ahead of the draft, a
       if (covered) ui.stdin.write('\u001b');
       await until('the queued prompt', () => ui.text().includes('┃ hello'));
       assert.ok(ui.text().indexOf('┃ hello') < ui.text().indexOf('┃ newer'));
-      assert.deepEqual(calls, [['unqueue']]);
+      assert.deepEqual(calls, [['unqueue', 'hello\nnewer']]);
     } finally {
       ui.unmount();
     }
+  }
+});
+
+test('a reopened conversation puts its saved queue ahead of its saved draft, also while a view covers the composer', async () => {
+  const { app, coordinator, calls } = fake({ phase: 'starting' });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('\u0010');
+    await until('the picker', () => ui.text().includes('Commands'));
+    coordinator.publish({
+      phase: 'idle',
+      conversation: { ...coordinator.snapshot.conversation!, id: 'reopened' },
+      queue: ['p1'],
+      draft: 'x',
+    });
+    await until('the queue taken back', () => calls.length > 0);
+    assert.deepEqual(calls, [['unqueue', 'p1\nx']]);
+    ui.stdin.write('\u001b');
+    await until('the composer', () => ui.text().includes('┃ x'));
+    assert.ok(ui.text().indexOf('┃ p1') < ui.text().indexOf('┃ x'));
+  } finally {
+    ui.unmount();
   }
 });
 

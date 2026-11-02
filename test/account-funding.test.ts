@@ -744,7 +744,7 @@ test('a tiny terminal preserves the composer and live balance beside two account
     );
     assert.deepEqual(
       calls.find(([method]) => method === 'send'),
-      ['send', draft],
+      ['send', draft, { composer: true }],
     );
   } finally {
     ui.unmount();
