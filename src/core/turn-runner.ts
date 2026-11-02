@@ -273,8 +273,13 @@ export class TurnRunner {
         if (ran && ran.status !== 'completed') result = ran;
         else {
           if (generation !== this.link.generation) input = await context();
+          // a listener can stop the turn as its row publishes; the review's batch then stays retryable
           if (this.host.cancelled() || session.closed)
-            result = { status: 'interrupted', text: '' };
+            result = {
+              status: 'interrupted',
+              text: '',
+              ...(review && { inputUnsent: true }),
+            };
           else {
             if (!automatic) this.pendingContext.delete(conversation.id);
             generation = this.link.generation;

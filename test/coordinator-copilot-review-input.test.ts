@@ -8,6 +8,7 @@ for (const exit of [
   'a failed compaction',
   'an error',
   'an Escape',
+  'an Escape as its row shows',
 ] as const)
   test(`${exit} before native input leaves feedback pending for a later attempt`, async (t) => {
     const x = await setup(t);
@@ -25,6 +26,16 @@ for (const exit of [
       if (exit === 'a closed session') await session.close();
       if (exit === 'an error') throw new Error('Context usage unavailable');
       if (exit === 'an Escape') await x.c.interrupt();
+      if (exit === 'an Escape as its row shows') {
+        const stop = x.c.subscribe(() => {
+          if (
+            x.c.snapshot.items.some(({ text }) => text.startsWith('Handling'))
+          ) {
+            stop();
+            void x.c.interrupt();
+          }
+        });
+      }
       if (exit === 'a failed compaction') {
         x.a.a.failNext = true;
         return 85;
