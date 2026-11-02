@@ -54,6 +54,7 @@ const metadata = {
   headRefName: 'feat/reviews',
   headRefOid: 'fresh-head',
   baseRefName: 'main',
+  isDraft: false,
 };
 
 function fixture() {
@@ -108,6 +109,30 @@ function fixture() {
         result = tails.get(`${id}/${cursor}`);
         assert.ok(result, `unexpected page ${id}/${cursor}`);
       } else result = { data: { node: final } };
+    } else if (args[3]!.startsWith('repos/team/project/rules/')) {
+      assert.equal(
+        args[3],
+        'repos/team/project/rules/branches/main?per_page=100',
+      );
+      assert.deepEqual(args.slice(4), ['--paginate', '--slurp']);
+      result = [
+        [
+          { type: 'deletion' },
+          {
+            type: 'copilot_code_review',
+            parameters: {
+              review_on_push: true,
+              review_draft_pull_requests: false,
+            },
+          },
+        ],
+        [
+          {
+            type: 'pull_request',
+            parameters: { required_approving_review_count: 0 },
+          },
+        ],
+      ];
     } else {
       assert.equal(
         args[3],
@@ -143,6 +168,10 @@ test('submitted feedback survives removal of the request and preserves source re
   const result = await f.read();
   assert.equal(result.pullRequest.commit, 'fresh-head');
   assert.equal(result.viewer, 'owner');
+  assert.equal(result.draft, false);
+  assert.deepEqual(result.copilotRules, [
+    { review_on_push: true, review_draft_pull_requests: false },
+  ]);
   assert.deepEqual(result.requested, []);
   assert.deepEqual(
     result.reviews.map(({ id }) => id),

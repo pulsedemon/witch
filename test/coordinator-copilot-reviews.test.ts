@@ -874,7 +874,7 @@ for (const change of ['edit', 'addition']) {
     );
     let admitted: ReviewBatch | undefined;
     autoReply(x.f, x.a, x.source, () => {
-      admitted = x.c.copilot.context()!.batch;
+      admitted = x.c.copilot.context()!.state.batch;
       return true;
     });
     await x.observe();
@@ -946,10 +946,10 @@ for (const outcome of ['handled', 'uncertain']) {
     )!;
     assert.deepEqual(restored.items, original.items);
     assert.equal(
-      x.c.copilot.context()!.pullRequest.url,
+      x.c.copilot.context()!.state.pullRequest.url,
       x.source.pullRequest.url,
     );
-    assert.equal(x.c.copilot.context()!.batch?.id, original.batch?.id);
+    assert.equal(x.c.copilot.context()!.state.batch?.id, original.batch?.id);
     const id = x.c.snapshot.conversation!.id;
     await x.c.close({ restart: true });
     const reopened = await x.f.start('A', { conversation: id });
@@ -976,7 +976,7 @@ test('absent feedback retains pending history without entering a packet until it
   await x.observe();
   let admitted: ReviewBatch | undefined;
   autoReply(x.f, x.a, x.source, () => {
-    admitted = x.c.copilot.context()!.batch;
+    admitted = x.c.copilot.context()!.state.batch;
     return true;
   });
   hold();
@@ -996,7 +996,7 @@ test('absent feedback retains pending history without entering a packet until it
   assert.equal(x.c.copilot.ready(), false);
   const absent = x.c.copilot
     .context()!
-    .items.find(({ id }) => id === 'review-1')!;
+    .state.items.find(({ id }) => id === 'review-1')!;
   assert.equal(absent.present, false);
   assert.equal(absent.status, 'pending');
   x.source.reviews[0]!.body = body;
@@ -1215,6 +1215,46 @@ test('ordinary prompts show present review counts only while the PR is bound', a
   });
   await x.c.send('other branch status');
   assert.ok(!x.a.a.inputs.at(-1)!.context?.includes('Copilot review watch:'));
+});
+
+test('a head GitHub never asks Copilot to review reports that no review is pending until one arrives', async (t) => {
+  const x = await setup(t);
+  const review = x.source.reviews;
+  x.source.reviews = [];
+  x.source.threads = [];
+  const missing = "GitHub hasn't asked Copilot to review the latest push";
+  const noticed = () =>
+    x.c.snapshot.items.filter(({ text }) => text.includes(missing)).length;
+  await x.observe();
+  assert.equal(x.c.copilot.context()!.unrequested, false);
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+  t.onTestFinished(() => {
+    vi.mocked(Date.now).mockRestore();
+  });
+  x.source.draft = true;
+  await x.observe();
+  assert.equal(x.c.copilot.context()!.unrequested, false);
+  x.source.draft = false;
+  const rules = x.source.copilotRules;
+  x.source.copilotRules = [];
+  await x.observe();
+  assert.equal(x.c.copilot.context()!.unrequested, false);
+  x.source.copilotRules = rules;
+  await x.observe();
+  assert.equal(x.c.copilot.context()!.unrequested, true);
+  assert.equal(noticed(), 1);
+  await x.c.send('unreviewed status');
+  assert.ok(
+    x.a.a.inputs
+      .at(-1)!
+      .context?.includes(
+        `${x.source.pullRequest.url}, 0 handled, 0 outstanding. Keep this task claimed while its open pull request remains watched; verify feedback against current code and existing replies.\n\nNo Copilot review is pending`,
+      ),
+  );
+  x.source.reviews = review;
+  assert.equal(await x.observe(), true);
+  assert.equal(x.c.copilot.context()!.unrequested, false);
+  assert.equal(noticed(), 1);
 });
 
 test('a failed post-turn GitHub read retains the result and recovers without another native attempt', async (t) => {

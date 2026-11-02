@@ -19,7 +19,7 @@ import type { PeerRequest } from './peer-requests.js';
 import type { PeerAnswerBatch } from './peer-answers.js';
 import { conflictContext } from './pr-repair.js';
 import type { Conflict } from './repository.js';
-import type { CopilotReviewState } from './copilot-reviews.js';
+import type { ReviewWatch } from './copilot-review-controller.js';
 
 // an agent can read `!cmd` as a request to run it, which would run a git pull or a paid test run twice
 export const ranCommand =
@@ -101,7 +101,7 @@ export async function nativePrompt({
   conflict?: Conflict;
   /** the account usage line, sent with every turn outside the fixed instructions. */
   usage?: string;
-  reviewWatch?: CopilotReviewState;
+  reviewWatch?: ReviewWatch;
 }): Promise<{
   prompt: string;
   context: string | undefined;
@@ -171,10 +171,15 @@ export async function nativePrompt({
     ...(usage ? [usage] : []),
     ...(reviewWatch && !requests
       ? [
-          `Copilot review watch: ${reviewWatch.pullRequest.url}, ${reviewWatch.items.filter(({ present, status }) => present && status === 'handled').length} handled, ${reviewWatch.items.filter(({ present, status }) => present && status !== 'handled').length} outstanding. Keep this task claimed while its open pull request remains watched; verify feedback against current code and existing replies.`,
-          ...(reviewWatch.batch?.verifying
+          `Copilot review watch: ${reviewWatch.state.pullRequest.url}, ${reviewWatch.state.items.filter(({ present, status }) => present && status === 'handled').length} handled, ${reviewWatch.state.items.filter(({ present, status }) => present && status !== 'handled').length} outstanding. Keep this task claimed while its open pull request remains watched; verify feedback against current code and existing replies.`,
+          ...(reviewWatch.unrequested
             ? [
-                `GitHub verification of the previous review result is pending. Reconcile ${reviewWatch.batch.result} against current replies before further review work. Correct a receipt whose reply URL is wrong, or record a blocked disposition if its reply was deleted. Keep the result unchanged while the evidence may be delayed, and do not repeat an uncertain post.`,
+                "No Copilot review is pending: GitHub hasn't asked Copilot to review the latest push, likely because the account's Copilot credits ran out. Witch still handles a review that arrives later.",
+              ]
+            : []),
+          ...(reviewWatch.state.batch?.verifying
+            ? [
+                `GitHub verification of the previous review result is pending. Reconcile ${reviewWatch.state.batch.result} against current replies before further review work. Correct a receipt whose reply URL is wrong, or record a blocked disposition if its reply was deleted. Keep the result unchanged while the evidence may be delayed, and do not repeat an uncertain post.`,
               ]
             : []),
         ]
