@@ -124,6 +124,11 @@ export class ConversationEvents {
     return scope && same(this.halts, scope) ? this.halts!.pauses : undefined;
   }
 
+  /** a new activation reads its pauses afresh, so automatic work waits for that read rather than trusting the old one. */
+  forgetPauses(): void {
+    this.halts = undefined;
+  }
+
   /** the conversation's own requests that have answers. */
   answered(conversation: string): PeerRequest[] {
     return answered(this.peerRequests(conversation), conversation);

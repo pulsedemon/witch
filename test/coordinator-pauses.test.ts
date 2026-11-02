@@ -756,3 +756,30 @@ test('a prompt sent while /clear reconnects coordination still stores its resume
     async () => (await statuses(f, issued))[id(a)] === 'resumed',
   );
 });
+
+test('automatic work after /clear waits for the new activation to read its pauses', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  const claim = await claimed(a, 'clearing');
+  // A last read no pauses; this one and the request land before it reads again
+  await pause(i);
+  await control(i, { kind: 'ask', claim: claim.id, message: 'Paused?' });
+  const conversation = id(a);
+  const read = CoordinationStore.prototype.pauses;
+  vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
+    this: CoordinationStore,
+    recipient: string,
+  ) {
+    if (recipient === conversation)
+      return Promise.reject(new Error('pauses unreadable'));
+    return read.call(this, recipient);
+  });
+  await a.coordinator.clear();
+  await refreshed(a);
+  await delay(500);
+  assert.deepEqual(answerTurns(a), []);
+});

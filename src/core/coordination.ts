@@ -417,6 +417,7 @@ export class SessionCoordination {
         failure ??= error;
       });
       if (this.active === active) this.active = undefined;
+      this.events.forgetPauses();
       this.presence.reset();
     }
     if (failure !== undefined) throw failure;
