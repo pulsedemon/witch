@@ -11,6 +11,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { test } from 'vitest';
 import stripAnsi from 'strip-ansi';
@@ -221,24 +222,38 @@ test('holds scratch until released', async () => {
     await writeFile(join(f.root, suiteFiles[0]!), held);
     await rm(join(f.root, suiteFiles[1]!));
   }
-  const owner = async (f: typeof killed) => {
-    let value: { directory: string; pid: number } | undefined;
-    await until('held Vitest scratch', async () => {
+  // starting a nested run under load outlasts a short poll, so this waits until that run ends or holds scratch
+  const owner = async (f: typeof killed, running: ReturnType<typeof f.run>) => {
+    let ended: string | undefined;
+    void running.then(
+      (result) => {
+        ended = result.output;
+      },
+      (error: unknown) => {
+        ended = String(error);
+      },
+    );
+    for (;;) {
       const line = (await readFile(f.markers, 'utf8'))
         .split('\n')
         .find((line) => line.startsWith('held:'));
-      if (line) value = JSON.parse(line.slice('held:'.length)) as typeof value;
-      return value !== undefined;
-    });
-    return value!;
+      if (line)
+        return JSON.parse(line.slice('held:'.length)) as {
+          directory: string;
+          pid: number;
+        };
+      if (ended !== undefined)
+        assert.fail(`Vitest run ended without holding scratch:\n${ended}`);
+      await delay(20);
+    }
   };
   let dying: ReturnType<typeof killed.run> | undefined;
   let surviving: ReturnType<typeof live.run> | undefined;
   try {
     dying = killed.run();
-    const dead = await owner(killed);
+    const dead = await owner(killed, dying);
     surviving = live.run();
-    const survivor = await owner(live);
+    const survivor = await owner(live, surviving);
     process.kill(dead.pid, 'SIGKILL');
     const failed = await dying;
     assert.equal(failed.code, 1, failed.output);
