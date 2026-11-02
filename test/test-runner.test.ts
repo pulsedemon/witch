@@ -216,8 +216,11 @@ test('holds scratch until released', async () => {
   while (!existsSync('release')) await delay(20);
 });
 `;
-  for (const f of [killed, live])
+  // a sibling suite's setup would sweep the killed worker's scratch before the run checks it
+  for (const f of [killed, live]) {
     await writeFile(join(f.root, suiteFiles[0]!), held);
+    await rm(join(f.root, suiteFiles[1]!));
+  }
   const owner = async (f: typeof killed) => {
     let value: { directory: string; pid: number } | undefined;
     await until('held Vitest scratch', async () => {
@@ -229,11 +232,6 @@ test('holds scratch until released', async () => {
     });
     return value!;
   };
-  // every worker's setup sweeps dead workers' scratch, so the sibling suites must be past it before the kill
-  const settled = (f: typeof killed) =>
-    until('the sibling suite', async () =>
-      (await readFile(f.markers, 'utf8')).includes(`${suiteFiles[1]}:start\n`),
-    );
   let dying: ReturnType<typeof killed.run> | undefined;
   let surviving: ReturnType<typeof live.run> | undefined;
   try {
@@ -241,7 +239,6 @@ test('holds scratch until released', async () => {
     const dead = await owner(killed);
     surviving = live.run();
     const survivor = await owner(live);
-    await Promise.all([settled(killed), settled(live)]);
     process.kill(dead.pid, 'SIGKILL');
     const failed = await dying;
     assert.equal(failed.code, 1, failed.output);
