@@ -607,12 +607,14 @@ test('unrelated large diff lines draw within twice the cost of equally sized col
     },
   ];
   const inputs = [files(unrelated), files(before.replace('old500', 'new500'))];
+  // the drawing thread's CPU time, since wall time also counts preemption by a loaded machine
   const elapsed: number[][] = [[], []];
   for (let run = 0; run < 4; run++) {
     for (const index of run % 2 ? [1, 0] : [0, 1]) {
-      const start = performance.now();
+      const start = process.threadCpuUsage();
       const drawn = rows(inputs[index]!, 100);
-      if (run) elapsed[index]!.push(performance.now() - start);
+      const { user, system } = process.threadCpuUsage(start);
+      if (run) elapsed[index]!.push(user + system);
       assert.equal(
         drawn.filter((row) => row.includes(addedWord)).length,
         index ? 100 : 0,
@@ -626,7 +628,7 @@ test('unrelated large diff lines draw within twice the cost of equally sized col
   const medians = elapsed.map((samples) => samples.sort((a, b) => a - b)[1]!);
   assert.ok(
     medians[0]! < medians[1]! * 2,
-    `${medians[0]} ms unrelated, ${medians[1]} ms colorable`,
+    `${medians[0]} µs unrelated, ${medians[1]} µs colorable`,
   );
 });
 
@@ -705,7 +707,7 @@ test("a long line past the highlighting budget draws plain while shorter lines k
 });
 
 test('an html line opening many script tags draws quickly, with JavaScript and CSS colors and no XML comment colors', () => {
-  const started = performance.now();
+  const started = process.threadCpuUsage();
   const drawn = rows(
     [
       {
@@ -729,7 +731,8 @@ test('an html line opening many script tags draws quickly, with JavaScript and C
     60,
   );
   // reading each tag's content as both xml and handlebars takes seconds
-  assert.ok(performance.now() - started < 500);
+  const { user, system } = process.threadCpuUsage(started);
+  assert.ok(user + system < 500_000);
   const row = (code: string) =>
     drawn.find((line) => stripAnsi(line).trimEnd().endsWith(code))!;
   assert.ok(
