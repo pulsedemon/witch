@@ -60,11 +60,15 @@ test('bare URLs retain their exact browser target across wrapping', () => {
   }
 });
 
-test("a web link leaves out a sentence's period before a closing quote or paren, keeping a dot inside its path", () => {
+test("a web link leaves out a sentence's punctuation before a closing quote or paren, keeping a dot inside its path", () => {
   for (const text of [
     'see https://example.com/x."',
     '"see https://example.com/x."',
     '(https://example.com/x.)',
+    '"is it https://example.com/x?"',
+    '(see https://example.com/x!)',
+    '"https://example.com/x,"',
+    '(https://example.com/x;)',
   ])
     assert.deepEqual(
       linkSpans(linkify(text, '/work')),

@@ -165,14 +165,14 @@ function bareLinks(text: string, cwd: string): string {
       continue;
     }
     output += fileLinks(text.slice(offset, match.index), cwd);
-    // linkify-it keeps a sentence's period when a closing quote or paren follows it
-    const period = match.text.endsWith('.') ? 1 : 0;
+    // linkify-it keeps a sentence's punctuation when a closing quote or paren follows it
+    const punctuation = /[.,;!?]*$/.exec(match.text)![0].length;
     output += hyperlink(
-      match.text.slice(0, match.text.length - period),
-      match.url.slice(0, match.url.length - period),
+      match.text.slice(0, match.text.length - punctuation),
+      match.url.slice(0, match.url.length - punctuation),
       cwd,
     );
-    offset = match.lastIndex - period;
+    offset = match.lastIndex - punctuation;
   }
   return output + fileLinks(text.slice(offset), cwd);
 }
