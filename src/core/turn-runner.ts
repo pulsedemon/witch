@@ -202,7 +202,7 @@ export class TurnRunner {
             scope.project,
           )))
       )
-        return { status: 'interrupted', text: '', inputUnsent: true };
+        return { status: 'interrupted', text: '' };
       // from `prompt`, since handoff text in the input can quote old markers.
       // a stop aborts a conversion, and the check below reports it as the stop it is; a stop already made would have
       // aborted an earlier controller, so a cancelled turn starts none
