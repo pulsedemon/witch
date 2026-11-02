@@ -22,22 +22,46 @@ export function conflictContext(conflict: Conflict): string {
   return `Witch confirmed on GitHub that pull request #${number} (${url}) at head ${commit} conflicts with its base branch ${base}${conflict.baseTip ? `, whose tip was ${conflict.baseTip} when observed,` : ''} and hasn't confirmed a resolution since. Passing checks do not make it mergeable. This is informational, not a user request or authorization to change your task or checkout.`;
 }
 
-/** a repair Witch admitted for a conflicting head of an owned pull request. */
+/** a repair Witch admitted for a conflicting head of an owned pull request, or for its head's failed checks. */
 export interface Repair extends PullRequestBinding {
   baseTip?: string;
+  failed?: NonNullable<PullRequest['failed']>;
 }
 
-export function repairInstruction({ pullRequest, baseTip }: Repair): string {
-  const { url, commit, base } = pullRequest;
+export function repairInstruction(repair: Repair): string {
+  if (repair.failed) return checkRepairInstruction(repair);
+  const { url, commit, base } = repair.pullRequest;
+  const { baseTip } = repair;
   return `Witch started this turn to repair the merge conflict on your existing task's pull request ${url}: head ${commit} conflicts with ${base}${baseTip ? `, whose tip was ${baseTip}` : ''}. This is not a new user request. First run gh pr view and stop if the pull request is no longer open, its head commit or base branch changed, or GitHub reports it MERGEABLE, or if the local branch isn't at ${commit}. Leave uncommitted changes not made in this turn untouched; if they would block the merge, or the project's rules for checks before publication require a clean checkout, stop and report them before merging. Without switching branches, fetch ${base} and merge it into the pull request branch without rebasing. Resolve each conflict so both sides' changes survive; stop on one that needs a product decision. Run the checks the project requires before publishing, following its pre-publication procedure where it has one and substituting ${base} for main in its fetch, merge and freshness commands; whenever ${base} has advanced again, merge it the same way and refresh the affected checks before pushing. Push without force. Don't merge or edit the pull request, and don't release the task. Stop and report anything that needs new authorization, within native permissions. When the repair can't finish, keep the merge and its resolution in the checkout unpushed and report the specific blocker. Report the merge commit and check results.`;
 }
 
-const key = ({
+function checkRepairInstruction({
+  pullRequest: { url, commit },
+  failed = [],
+}: Repair) {
+  const checks = failed
+    .map(({ name, url: page }) => (page ? `${name} (${page})` : name))
+    .join(', ');
+  return `Witch started this turn to repair the failed checks on your existing task's pull request ${url} at head ${commit}: ${checks}. This is not a new user request. First run gh pr view and stop if the pull request is no longer open, its head commit changed or those checks no longer fail, or if the local branch isn't at ${commit}. Read each failed check's log, for a GitHub Actions job with gh run view --job <job id from its URL> --log-failed, and find the cause. Leave uncommitted changes not made in this turn untouched. When the pull request's changes cause the failure, fix it, run the checks the project requires before publishing, following its pre-publication procedure where it has one, and push without force. When the cause is outside the change, fix it here or match it to an existing open or closed issue, filing one with the evidence, impact and a checkable completion condition when none matches, and only once that's settled rerun the failed jobs. Don't merge or edit the pull request, and don't release the task. Stop and report anything that needs new authorization, within native permissions. Report the cause, the commit or issue that settles it, and the check results.`;
+}
+
+const conflictKey = ({
   url,
   commit,
   base,
 }: Pick<PullRequest, 'url' | 'commit' | 'base'>) =>
-  JSON.stringify([url, commit, base]);
+  JSON.stringify(['conflict', url, commit, base]);
+const checkKey = ({
+  url,
+  commit,
+  check,
+}: Pick<PullRequest, 'url' | 'commit'> & { check: string }) =>
+  JSON.stringify(['check', url, commit, check]);
+/** one per failed check, so a check that fails later on the same head gets its own repair. */
+const repairKeys = ({ pullRequest, failed }: Repair) =>
+  failed
+    ? failed.map(({ name }) => checkKey({ ...pullRequest, check: name }))
+    : [conflictKey(pullRequest)];
 
 interface RepairHost {
   record(): ConversationRecord | undefined;
@@ -55,10 +79,11 @@ interface RepairHost {
 }
 
 /**
- * one automatic turn per conflicting head and base of the pull request this session claims. attempted keys are saved
- * on the record; a refused ownership check declines a key until the user's next prompt or another conversation.
+ * one automatic turn per conflicting head and base of the pull request this session claims, and one per head for the
+ * checks that failed on it since its last. attempted keys are saved on the record; a refused ownership check declines a key until the user's
+ * next prompt or another conversation.
  */
-export class ConflictRepair {
+export class PullRequestRepair {
   private repository?: Repository;
   private readonly declined = new Set<string>();
   private readonly noticed = new Set<string>();
@@ -73,34 +98,57 @@ export class ConflictRepair {
     if (!this.host.queued() && this.ready()) this.host.changed();
   }
 
-  /** the latest read must still conflict at the recorded head, so a conflict kept through an `UNKNOWN` read isn't repaired. */
+  /**
+   * a conflict goes first. the latest read must still conflict at the recorded head, so a conflict kept through an
+   * `UNKNOWN` read isn't repaired.
+   */
   private candidate() {
     const record = this.host.record();
     const coordination = this.host.coordination();
     const repository = this.repository;
-    const conflict = repository?.conflict;
     const current = repository?.pullRequest;
     // the owner getter throws once the activation stops accepting work
-    if (!record || !coordination?.reviews.observed || !conflict || !current)
-      return;
-    const { pullRequest } = conflict;
-    const id = key(pullRequest);
+    if (!record || !coordination?.reviews.observed || !current) return;
     const claim = coordination.snapshot.ownClaim;
     if (
-      current.mergeable !== 'CONFLICTING' ||
-      current.url !== pullRequest.url ||
-      current.commit !== pullRequest.commit ||
-      repository.branch !== pullRequest.branch ||
-      this.declined.has(id) ||
-      record.conflictRepairs?.some((attempted) => key(attempted) === id) ||
+      current.state !== 'OPEN' ||
+      repository.branch !== current.branch ||
       !claim ||
       claim.suggestion ||
       !claim.references.includes(
-        taskReference(pullRequest.url, coordination.reviews.owner.project),
+        taskReference(current.url, coordination.reviews.owner.project),
       )
     )
       return;
-    return { record, claim: claim.id, conflict, id };
+    const conflict = repository.conflict;
+    const conflicting =
+      conflict &&
+      current.mergeable === 'CONFLICTING' &&
+      current.url === conflict.pullRequest.url &&
+      current.commit === conflict.pullRequest.commit;
+    const recorded = [
+      ...(record.conflictRepairs ?? []).map(conflictKey),
+      ...(record.checkRepairs ?? []).map(checkKey),
+    ];
+    const open = (key: string) =>
+      !this.declined.has(key) && !recorded.includes(key);
+    const failed = current.failed?.filter(({ name }) =>
+      open(checkKey({ ...current, check: name })),
+    );
+    const repair: Repair | undefined = conflicting
+      ? open(conflictKey(conflict.pullRequest))
+        ? {
+            owner: record.id,
+            claim: claim.id,
+            pullRequest: conflict.pullRequest,
+            ...(conflict.baseTip ? { baseTip: conflict.baseTip } : {}),
+          }
+        : undefined
+      : failed?.length
+        ? { owner: record.id, claim: claim.id, pullRequest: current, failed }
+        : undefined;
+    if (repair)
+      return { record, id: JSON.stringify(repairKeys(repair)), repair };
   }
 
   ready(): boolean {
@@ -111,13 +159,13 @@ export class ConflictRepair {
   async run(): Promise<boolean> {
     const found = this.candidate();
     if (!found) return false;
-    const { record, claim, conflict, id } = found;
+    const { record, id, repair } = found;
     let refusal: string | undefined;
     try {
       if (
         !(await this.host
           .coordination()!
-          .reviews.owns(claim, conflict.pullRequest))
+          .reviews.owns(repair.claim, repair.pullRequest))
       )
         refusal = '';
     } catch (error) {
@@ -128,30 +176,32 @@ export class ConflictRepair {
     if (
       !now ||
       now.record !== record ||
-      now.claim !== claim ||
+      now.repair.claim !== repair.claim ||
       now.id !== id ||
       !this.host.ready()
     )
       return false;
     if (refusal !== undefined) {
-      this.decline(record, conflict.pullRequest, refusal);
+      this.decline(record, repair, refusal);
       return false;
     }
-    const { url, commit, base } = conflict.pullRequest;
-    (record.conflictRepairs ??= []).push({ url, commit, base });
-    const repair: Repair = {
-      owner: record.id,
-      claim,
-      pullRequest: conflict.pullRequest,
-      ...(conflict.baseTip ? { baseTip: conflict.baseTip } : {}),
-    };
+    const { url, commit, base } = repair.pullRequest;
+    if (repair.failed)
+      (record.checkRepairs ??= []).push(
+        ...repair.failed.map(({ name }) => ({ url, commit, check: name })),
+      );
+    else (record.conflictRepairs ??= []).push({ url, commit, base });
     this.executing = repair;
     try {
       await this.host.run(repair, (error) => {
-        record.conflictRepairs = record.conflictRepairs?.filter(
-          (attempted) => key(attempted) !== id,
+        const keys = repairKeys(repair);
+        record.checkRepairs = record.checkRepairs?.filter(
+          (entry) => !keys.includes(checkKey(entry)),
         );
-        this.decline(record, repair.pullRequest, error);
+        record.conflictRepairs = record.conflictRepairs?.filter(
+          (entry) => !keys.includes(conflictKey(entry)),
+        );
+        this.decline(record, repair, error);
       });
     } finally {
       this.executing = undefined;
@@ -181,7 +231,7 @@ export class ConflictRepair {
       return;
     this.revoked = repair;
     this.host.notice(
-      'Conflict repair stopped because its branch, base or task ownership changed.',
+      `${repair.failed ? 'Check' : 'Conflict'} repair stopped because its branch, base or task ownership changed.`,
     );
     void this.host
       .interrupt()
@@ -190,12 +240,13 @@ export class ConflictRepair {
 
   private decline(
     record: ConversationRecord,
-    pullRequest: PullRequest,
+    repair: Repair,
     error: string,
   ): void {
-    const id = key(pullRequest);
-    this.declined.add(id);
-    const text = `Witch didn't repair the conflict on #${pullRequest.number}: ${error || "this session's checkout or claim no longer matches it."}`;
+    const keys = repairKeys(repair);
+    for (const entry of keys) this.declined.add(entry);
+    const id = JSON.stringify(keys);
+    const text = `Witch didn't repair the ${repair.failed ? 'failed checks' : 'conflict'} on #${repair.pullRequest.number}: ${error || "this session's checkout or claim no longer matches it."}`;
     const shown = JSON.stringify([record.id, id, text]);
     if (this.noticed.has(shown)) return;
     this.noticed.add(shown);

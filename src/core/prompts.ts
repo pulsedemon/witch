@@ -17,7 +17,7 @@ import type { MergeEvent } from './merge-events.js';
 import { answerContext, requestContext } from './peer-requests.js';
 import type { PeerRequest } from './peer-requests.js';
 import type { PeerAnswerBatch } from './peer-answers.js';
-import { conflictContext } from './pr-conflicts.js';
+import { conflictContext } from './pr-repair.js';
 import type { Conflict } from './repository.js';
 import type { CopilotReviewState } from './copilot-reviews.js';
 

@@ -17,6 +17,10 @@ export const pullRequestSchema = z.object({
   base: z.string(),
   /** an open pull request's checks, pending while it has none. */
   checks: z.enum(['passing', 'failing', 'pending']).optional(),
+  /** the checks that make it failing, with their details pages. */
+  failed: z
+    .array(z.object({ name: z.string(), url: z.string().optional() }))
+    .optional(),
   /** an open pull request's mergeability as GitHub last computed it, `UNKNOWN` while it computes. */
   mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']).optional(),
 });
@@ -138,10 +142,17 @@ const pullRequestView = z.object({
       z.union([
         z.object({
           __typename: z.literal('CheckRun'),
+          name: z.string(),
+          detailsUrl: z.string().nullish(),
           status: z.string(),
           conclusion: z.string().nullish(),
         }),
-        z.object({ __typename: z.literal('StatusContext'), state: z.string() }),
+        z.object({
+          __typename: z.literal('StatusContext'),
+          context: z.string(),
+          targetUrl: z.string().nullish(),
+          state: z.string(),
+        }),
       ]),
     )
     .nullish(),
@@ -168,13 +179,22 @@ export function parsePullRequest(json: string): PullRequest {
     base: baseRefName,
   };
   if (state !== 'OPEN') return pullRequest;
+  // GitHub's rollup holds each check's latest run, so a rerun in progress hides its earlier failure
   const checks = statusCheckRollup ?? [];
-  const failing = checks.some((check) =>
-    check.__typename === 'CheckRun'
-      ? check.status === 'COMPLETED' &&
-        !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(check.conclusion ?? '')
-      : ['FAILURE', 'ERROR'].includes(check.state),
+  const named = (name: string, url: string | null | undefined) => [
+    { name, ...(url ? { url } : {}) },
+  ];
+  const failed = checks.flatMap((entry) =>
+    entry.__typename === 'CheckRun'
+      ? entry.status === 'COMPLETED' &&
+        !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(entry.conclusion ?? '')
+        ? named(entry.name, entry.detailsUrl)
+        : []
+      : ['FAILURE', 'ERROR'].includes(entry.state)
+        ? named(entry.context, entry.targetUrl)
+        : [],
   );
+  const failing = failed.length > 0;
   const pending = checks.some((check) =>
     check.__typename === 'CheckRun'
       ? check.status !== 'COMPLETED'
@@ -188,6 +208,7 @@ export function parsePullRequest(json: string): PullRequest {
         : failing
           ? 'failing'
           : 'passing',
+    ...(failing ? { failed } : {}),
     mergeable,
   };
 }
