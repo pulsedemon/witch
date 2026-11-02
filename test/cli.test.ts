@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -260,6 +260,53 @@ test('an unavailable control host reports JSON failure without opening state', a
   assert.equal(JSON.parse(result.stdout).kind, 'error');
   assert.match(JSON.parse(result.stdout).message, /unavailable/);
   assert.deepEqual(result.files, []);
+});
+
+// agents run control commands constantly, and loading the app triples their startup
+test('a control command starts without loading the app', async () => {
+  const root = await scratch('witch-cli-loads-');
+  const hook = join(root, 'record-loads.mjs');
+  const loaded = join(root, 'loaded');
+  await writeFile(
+    hook,
+    `import { appendFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+registerHooks({
+  load(url, context, next) {
+    appendFileSync(${JSON.stringify(loaded)}, url + '\\n');
+    return next(url, context);
+  },
+});
+`,
+  );
+  const child = spawn(
+    process.execPath,
+    [
+      '--import',
+      hook,
+      await compiledCli(),
+      '--control-dir',
+      join(root, 'missing'),
+      '--control-conversation',
+      'a',
+      '--control-activation',
+      randomUUID(),
+      '--peers',
+      '--json',
+    ],
+    { stdio: 'ignore' },
+  );
+  const [code] = await once(child, 'close');
+  assert.equal(code, 1);
+  const urls = (await readFile(loaded, 'utf8')).split('\n');
+  assert.ok(urls.some((url) => url.endsWith('/dist/cli-control.js')));
+  assert.deepEqual(
+    urls.filter(
+      (url) =>
+        url.endsWith('/dist/witch.js') || url.includes('/node_modules/ink/'),
+    ),
+    [],
+  );
 });
 
 for (const extra of [
