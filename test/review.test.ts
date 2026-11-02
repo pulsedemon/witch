@@ -345,6 +345,7 @@ test("reviewerCommand builds each wrapper's command", () => {
     'n',
     '--report-file',
     '/s/codex.md',
+    '--without-mcp',
     '--',
     '-c',
     'model="gpt-6.1-astra"',
