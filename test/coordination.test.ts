@@ -887,7 +887,7 @@ test('unknown discovery refuses both a successful query and new ownership', asyn
 
 test('an origin change leaves a discoverable reservation in the original project until explicit release', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, ledger } = await coordinationFixture(cleanup);
+  const { root, start, ledger, registry } = await coordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const result = await a.claim();
@@ -907,6 +907,14 @@ test('an origin change leaves a discoverable reservation in the original project
   assert.equal(refused.kind, 'error');
   assert.equal(await ledger(), before);
   assert.deepEqual((await a.query()).ownClaim, result.claim);
+  // presence republishes on a 100 ms timer after the origin change
+  await until('A presence outside the original project', async () =>
+    (await registry.presences()).some(
+      (p) =>
+        p.id === result.claim.owner.conversation &&
+        p.project !== result.claim.owner.project,
+    ),
+  );
   const observer = await b.query();
   assert.deepEqual(observer.peers, []);
   assert.deepEqual(observer.reservations, [
