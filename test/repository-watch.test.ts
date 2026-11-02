@@ -288,6 +288,35 @@ watching(
 );
 
 watching(
+  'a read the minute timer starts drops a change read still waiting',
+  async (t) => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'performance'],
+    });
+    t.onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const work = await workTree();
+    await quiet();
+    const { run, status } = counting();
+    const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
+    t.onTestFinished(() => watch.close());
+    await widened(status);
+    await until(
+      'no read pending',
+      () => watch['scheduled'] === undefined && !watch['refreshing'],
+    );
+    vi.advanceTimersByTime(59_975);
+    // an event just before the minute waits the 100 ms debounce
+    watch['changed']();
+    assert.notEqual(watch['scheduled'], undefined);
+    vi.advanceTimersByTime(25);
+    assert.equal(watch['refreshing'], true);
+    assert.equal(watch['scheduled'], undefined);
+  },
+);
+
+watching(
   'a watch opened in a subdirectory reads changes elsewhere in the work tree',
   async (t) => {
     const work = await workTree();

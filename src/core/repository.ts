@@ -374,6 +374,9 @@ export class RepositoryWatch {
     if (this.refreshing) return;
     this.refreshing = true;
     this.stale = false;
+    // this read covers a change still waiting for its own, such as when the minute timer starts it first
+    clearTimeout(this.scheduled);
+    this.scheduled = undefined;
     this.startedAt = performance.now();
     let repository: Repository | undefined;
     let failure: unknown;
