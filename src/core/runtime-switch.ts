@@ -112,6 +112,12 @@ export class RuntimeSwitch {
         // a failed summary must not hold prompts sent during the handoff from the destination
         activated: () => {
           host.failed(false);
+          // the destination never asked the source's questions; a failed switch keeps them
+          host.publish({
+            requests: host
+              .snapshot()
+              .requests.filter((request) => !request.replyAsPrompt),
+          });
           if (notice === undefined) return;
           this.hopped = true;
           host.notice(notice);
