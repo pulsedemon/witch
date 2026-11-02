@@ -270,7 +270,7 @@ for (const prior of [false, true])
           'Queued during selection',
         ]);
         assert.equal(coordinator.snapshot.recovery, undefined);
-        coordinator.unqueue();
+        coordinator.unqueue('');
         await coordinator.send('Resume manually');
         assert.equal(a.inputs.at(-1)!.session, source);
       } finally {

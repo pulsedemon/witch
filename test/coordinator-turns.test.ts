@@ -304,7 +304,7 @@ describe('pending command context waits until a prompt is dispatched', () => {
             await a.sessions.at(-1)!.session.close();
             a.failConnect = true;
             await coordinator.send('blocked');
-            assert.deepEqual(coordinator.unqueue(), ['blocked']);
+            assert.deepEqual(coordinator.unqueue(''), ['blocked']);
             a.failConnect = false;
           } else if (failure === 'snapshot') {
             const snapshot = holdSnapshot(hook);
@@ -316,7 +316,7 @@ describe('pending command context waits until a prompt is dispatched', () => {
               snapshot.release();
             }
             await within(sending, 3000, 'the cancelled send');
-            assert.deepEqual(coordinator.unqueue(), ['blocked']);
+            assert.deepEqual(coordinator.unqueue(''), ['blocked']);
           } else {
             a.failNext = true;
             await coordinator.send('!fails');
@@ -594,7 +594,7 @@ test('a queued prompt taken back never runs', async () => {
     await within(gate.entered, 2000, 'the gated turn');
     a.refuseSteer = true;
     await coordinator.send('/review now');
-    assert.deepEqual(coordinator.unqueue(), ['/review now']);
+    assert.deepEqual(coordinator.unqueue(''), ['/review now']);
     assert.deepEqual(coordinator.snapshot.queue, []);
     gate.open();
     await within(sending, 2000, 'the turn');
@@ -904,7 +904,7 @@ test('a prompt whose steer is refused after a failed turn has ended stays for th
     await delay(60);
     assert.deepEqual(coordinator.snapshot.queue, ['Follow up']);
     assert.equal(a.inputs.length, 1);
-    coordinator.unqueue();
+    coordinator.unqueue('');
     await coordinator.send('Retry');
     assert.deepEqual(
       a.inputs.map(({ prompt }) => prompt),

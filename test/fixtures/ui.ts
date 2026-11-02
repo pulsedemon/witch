@@ -82,6 +82,8 @@ export function forgedLink(target: string, text: string) {
 export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
+  // the composer saves its text on every change, so these stay out of `calls`
+  const drafts: [string, string][] = [];
   let holds = 0;
   const record =
     (name: string) =>
@@ -145,8 +147,9 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       };
     },
     clear: record('clear'),
-    unqueue: () => {
-      calls.push(['unqueue']);
+    draft: (id: string, text: string) => drafts.push([id, text]),
+    unqueue: (draft: string) => {
+      calls.push(['unqueue', draft]);
       const { queue } = coordinator.snapshot;
       coordinator.publish({ queue: [] });
       return [...queue];
@@ -168,7 +171,12 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     ],
     projectFiles: async () => files,
   };
-  return { coordinator, calls, app: coordinator as unknown as Coordinator };
+  return {
+    coordinator,
+    calls,
+    drafts,
+    app: coordinator as unknown as Coordinator,
+  };
 }
 
 /** a prompt store holding `found` for the fake conversation's /work and nothing elsewhere, recording what the app adds. */

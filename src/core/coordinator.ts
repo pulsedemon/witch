@@ -10,7 +10,7 @@ import {
 } from './pr-conflicts.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction } from './compaction.js';
-import { Attachments, imagePaste } from './attachments.js';
+import { Attachments, imagePaste, unnumbered } from './attachments.js';
 import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
@@ -89,6 +89,12 @@ export class Coordinator {
   private cancelled = false;
   /** memory recovery must keep a failed turn's queue held for the composer. */
   private turnFailed = false;
+  /** prompts taken from the queue's head whose user row isn't saved yet. */
+  private taken: Pending[] = [];
+  /** prompts `send` is admitting, which neither steered nor queued yet. */
+  private arriving: Pending[] = [];
+  /** a queue saved before a restart or crash waits for the user, not for delivery. */
+  private restoredQueue = false;
   /** the operation's native turn has ended, so only its settlement holds the phase. */
   private turnEnded = false;
   /** counts admitted operations, so a waiting choice can tell another one ran. */
@@ -368,8 +374,12 @@ export class Coordinator {
       this.repair.resume();
       this.workspace = workspace;
       if (!this.record.handoff?.activated) delete this.record.handoff;
+      const queue = (this.record.queue ?? []).map(unnumbered);
+      this.restoredQueue = queue.length > 0;
       this.publish({
         conversation: this.record,
+        queue,
+        draft: this.record.draft && unnumbered(this.record.draft),
         items,
         models: [],
         native: undefined,
@@ -387,7 +397,10 @@ export class Coordinator {
   }
 
   /** steers the turn in flight, or queues the prompt for a later turn; a queued turn that never reaches the agent leaves its prompts queued. */
-  async send(prompt: string): Promise<void> {
+  async send(
+    prompt: string,
+    { composer = false }: { composer?: boolean } = {},
+  ): Promise<void> {
     if (!prompt.trim()) return;
     // only a restart leaves the error phase, so nothing would run what waits
     if (this.snapshot.phase === 'error') throw new Error(this.snapshot.error);
@@ -398,26 +411,58 @@ export class Coordinator {
     this.copilot.resume();
     this.repair.resume();
     this.admissions++;
+    const arriving = { prompt };
+    this.arriving.push(arriving);
+    // the composer clears once this returns, so the prompt leaves the draft in the same save
+    if (composer && this.record) delete this.record.draft;
+    this.saveQueue();
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting
       .then(async () => {
-        if (
+        const steered =
           !waitsBehind(this.snapshot.queue, this.snapshot.skills) &&
-          (await this.steer(prompt))
-        )
-          return true;
-        this.publish({ queue: [...this.snapshot.queue, prompt] });
-        return false;
+          (await this.steer(prompt));
+        this.arriving = without(this.arriving, [arriving]);
+        if (steered) this.saveQueue();
+        else this.publish({ queue: [...this.snapshot.queue, prompt] });
+        return steered;
       })
-      .finally(() => this.admissions--);
+      .finally(() => {
+        this.admissions--;
+        // a failed admission loses its prompt here as it does live
+        if (this.arriving.includes(arriving)) {
+          this.arriving = without(this.arriving, [arriving]);
+          this.saveQueue();
+        }
+      });
     this.admitting = admitted.catch(() => {});
-    if (!(await admitted) && !(during && this.halted())) await this.drain();
+    const steered = await admitted;
+    this.restoredQueue = false;
+    if (!steered && !(during && this.halted())) await this.drain();
   }
 
-  unqueue(): string[] {
+  /** hands the queue to the composer, saving the composer's resulting text in the same save. */
+  unqueue(draft: string): string[] {
     const queue = [...this.snapshot.queue];
+    if (!queue.length) return queue;
+    if (draft) this.record!.draft = draft;
+    else delete this.record!.draft;
     this.publish({ queue: [] });
+    if (this.restoredQueue) {
+      this.restoredQueue = false;
+      this.drainAfter(true);
+    }
     return queue;
+  }
+
+  /** saves the composer's text with its conversation; a write for another conversation, or after it closed, is dropped. */
+  draft(id: string, text: string): void {
+    const record = this.record;
+    if (record?.id !== id || this.files?.closed !== false) return;
+    if ((record.draft ?? '') === text) return;
+    if (text) record.draft = text;
+    else delete record.draft;
+    this.persist(this.save());
   }
 
   holdPromptDelivery(): () => void {
@@ -434,7 +479,9 @@ export class Coordinator {
   }
 
   private get deliveryHeld(): boolean {
-    return this.deliveryHolds > 0 || this.compaction.pending;
+    return (
+      this.deliveryHolds > 0 || this.compaction.pending || this.restoredQueue
+    );
   }
 
   private async steer(prompt: string): Promise<boolean> {
@@ -555,6 +602,8 @@ export class Coordinator {
           queue,
           this.link.session ? this.snapshot.skills : undefined,
         );
+        const taken = batch.map((prompt) => ({ prompt }));
+        this.taken.push(...taken);
         this.publish({ queue: queue.slice(batch.length) });
         let delivered = false;
         let result = undefined as TurnResult | undefined;
@@ -562,12 +611,20 @@ export class Coordinator {
           await this.operate('running', async () => {
             result = await this.turns.run(batch.join('\n'), 'turn', {
               delivered: () => (delivered = true),
+              // the save after the row carries the queue without the batch
+              showing: () => {
+                this.taken = without(this.taken, taken);
+                this.recordQueue();
+              },
+              unsent: () => this.taken.unshift(...taken),
               queued: true,
             });
           });
         } finally {
-          if (!delivered)
+          if (!delivered) {
+            this.taken = without(this.taken, taken);
             this.publish({ queue: [...batch, ...this.snapshot.queue] });
+          }
         }
         // a pre-turn compaction that ran out left the batch requeued above, for the destination to run
         if (
@@ -670,12 +727,24 @@ export class Coordinator {
     const steering = this.admitting.then(async () => {
       if (this.deliveryHeld || this.halted()) return;
       const followers = joining(this.snapshot.queue);
+      const taken = followers.map((prompt) => ({ prompt }));
+      this.taken.push(...taken);
       this.publish({ queue: this.snapshot.queue.slice(followers.length) });
+      let next = 0;
       await steerInOrder(
         followers,
         this.snapshot.skills,
-        (prompt) => this.steer(prompt),
-        (back) => this.publish({ queue: [...back, ...this.snapshot.queue] }),
+        async (prompt) => {
+          const follower = taken[next++]!;
+          if (!(await this.steer(prompt))) return false;
+          this.taken = without(this.taken, [follower]);
+          this.saveQueue();
+          return true;
+        },
+        (back) => {
+          this.taken = without(this.taken, taken);
+          this.publish({ queue: [...back, ...this.snapshot.queue] });
+        },
       );
     });
     this.admitting = steering.catch(() => {});
@@ -1134,6 +1203,31 @@ export class Coordinator {
     return this.files!.save(this.current());
   }
 
+  /** copies the prompts sent but not yet shown into the record, in the order they were sent; true when they changed. */
+  private recordQueue(): boolean {
+    const record = this.record;
+    if (!record) return false;
+    const queue = [
+      ...this.taken.map(({ prompt }) => prompt),
+      ...this.snapshot.queue,
+      ...this.arriving.map(({ prompt }) => prompt),
+    ];
+    const saved = record.queue ?? [];
+    if (
+      queue.length === saved.length &&
+      queue.every((prompt, i) => prompt === saved[i])
+    )
+      return false;
+    if (queue.length) record.queue = queue;
+    else delete record.queue;
+    return true;
+  }
+
+  private saveQueue(): void {
+    if (this.recordQueue() && this.files?.closed === false)
+      this.persist(this.save());
+  }
+
   private persist(operation: Promise<void>): void {
     void operation.catch((error: unknown) => this.enterError(error));
   }
@@ -1218,6 +1312,7 @@ export class Coordinator {
       commandsPending: this.deliveryHolds > 0,
       pendingCompaction: this.compaction.pending,
     };
+    if ('queue' in update) this.saveQueue();
     const active =
       agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running;
     this.pentacle.set(localActivity, active);
@@ -1225,4 +1320,13 @@ export class Coordinator {
     this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();
   }
+}
+
+/** a sent prompt, kept by identity so equal texts stay distinct. */
+interface Pending {
+  prompt: string;
+}
+
+function without(list: readonly Pending[], removed: readonly Pending[]) {
+  return list.filter((entry) => !removed.includes(entry));
 }

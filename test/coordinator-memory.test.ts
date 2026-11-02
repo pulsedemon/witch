@@ -252,7 +252,7 @@ for (const decision of ['accept', 'discard'] as const) {
         'queued followup',
       ]);
       assert.deepEqual(turns(a), [['remember-port', undefined]]);
-      const queued = coordinator.unqueue();
+      const queued = coordinator.unqueue('');
       assert.deepEqual(queued, ['/review', 'queued followup']);
       await coordinator.send(queued.join('\n'));
       assert.deepEqual(turns(a), [

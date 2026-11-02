@@ -1443,7 +1443,7 @@ test('batched assistant Markdown preserves typing, selection and reading positio
     );
     assert.deepEqual(
       calls.find((call) => call[0] === 'send'),
-      ['send', 'typed while streaming'],
+      ['send', 'typed while streaming', { composer: true }],
     );
   } finally {
     ui.unmount();

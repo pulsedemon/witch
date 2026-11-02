@@ -39,6 +39,7 @@ import { markdown } from './markdown.js';
 import { hyperlink, linkify, oneLine, plain } from './links.js';
 import { useKeysReady } from './keys-ready.js';
 import { useLiveState } from './live-state.js';
+import { useDrafts } from './drafts.js';
 import { useClick, usePointer, useWheel } from './mouse.js';
 import { highlight, selectedText } from './selection.js';
 import type { Point } from './selection.js';
@@ -211,12 +212,6 @@ export function App({
   const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
   const [expanded, setExpanded] = useState<Map<string, boolean>>(new Map());
   const [fullDiffs, setFullDiffs] = useState<Set<string>>(new Set());
-  // keys in one read arrive before a render, so ↑ reads the live drafts
-  const [drafts, draftsRef, setDrafts] = useLiveState<Record<string, string>>(
-    {},
-  );
-  const setDraft = (id: string, value: string) =>
-    setDrafts((previous) => ({ ...previous, [id]: value }));
   const [leaving, leavingRef, setLeaving] = useLiveState<string | undefined>(
     undefined,
   );
@@ -225,6 +220,10 @@ export function App({
   // this directory's prompts, newest first
   const [prompts, history, setHistory] = useLiveState<string[]>([]);
   const [browsing, recall, setRecall] = useLiveState(unbrowsed);
+  const { drafts, draftOf, draftToAppend, merged, setDraft } = useDrafts(
+    coordinator,
+    recall,
+  );
   const [buffer, bufferRef, setBuffer] = useLiveState<InputBuffer>({
     value: '',
     cursor: 0,
@@ -770,7 +769,8 @@ export function App({
     if (store) run(store.addPrompt(cwd, text));
   };
 
-  const submit = (text: string): boolean => {
+  /** `composer` marks a submission the composer clears once it returns. */
+  const submit = (text: string, composer = false): boolean => {
     // Enter while tools are focused toggles a tool, and one the composer would refuse keeps the draft, even in the
     // same read as the Tab or switch before it. a lone `!` has no command to run
     if (
@@ -791,30 +791,20 @@ export function App({
     pendingPrompt.current = undefined;
     if (initial !== undefined) submit(initial);
     remember(text);
-    run(coordinator.send(text));
+    run(coordinator.send(text, { composer }));
     return true;
   };
 
-  const draftToAppend = () => {
-    const { index, texts } = recall.current;
-    return (
-      (index === -1
-        ? draftsRef.current[coordinator.snapshot.conversation?.id ?? '']
-        : texts.get(-1)) ?? ''
-    );
-  };
   const draft =
-    (browsing.index === -1
-      ? drafts[state.conversation?.id ?? '']
-      : browsing.texts.get(-1)) ?? '';
+    (browsing.index === -1 ? draftOf(drafts, state) : browsing.texts.get(-1)) ??
+    '';
   const draftEmpty = draft.length === 0;
 
   /** puts text back ahead of the draft, with the cursor after the text while the composer shows; it ends browsing, so the draft is the one typed before it. */
   const prepend = (text: string) => {
     const id = state.conversation?.id ?? '';
-    const draft = draftToAppend();
+    const value = merged(text);
     setRecall(unbrowsed());
-    const value = draft ? `${text}\n${draft}` : text;
     if (composer.current) composer.current.set({ value, cursor: text.length });
     else setDraft(id, value);
   };
@@ -829,7 +819,9 @@ export function App({
         !safeQueueMerge(snapshot.queue, draftToAppend(), snapshot.skills))
     )
       return false;
-    prepend(coordinator.unqueue().join('\n'));
+    const text = snapshot.queue.join('\n');
+    coordinator.unqueue(merged(text));
+    prepend(text);
     return true;
   };
   /** shows the next older or newer prompt, keeping the composer's text for when browsing comes back to its place. */
@@ -909,6 +901,7 @@ export function App({
       open
         ? `/${open.items[selectedIn(open, listIndexRef.current)]!.name}`
         : text,
+      true,
     );
     if (accepted) setRecall(unbrowsed());
     return accepted;
@@ -1400,7 +1393,7 @@ export function App({
             shell
             active={!toolFocus && composerPhase}
             ref={composer}
-            initialValue={drafts[state.conversation?.id ?? ''] ?? ''}
+            initialValue={draftOf(drafts, state) ?? ''}
             placeholder={
               state.queue.length
                 ? !state.commandsPending &&

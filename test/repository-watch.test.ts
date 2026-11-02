@@ -52,6 +52,19 @@ function counting(hold?: (started: number) => Promise<void> | undefined) {
 const widened = (status: { finished: number }) =>
   until('read after the watch widens', () => status.finished >= 2);
 
+/** waits until no status read has started for `window` ms; a watch that polls or wakes itself never gets there. */
+async function settled(status: { started: number }, window = 300) {
+  let reads = status.started;
+  let since = performance.now();
+  await until('status reads to stop', () => {
+    if (status.started !== reads) {
+      reads = status.started;
+      since = performance.now();
+    }
+    return performance.now() - since >= window;
+  });
+}
+
 watching(
   'a quiet work tree runs no status reads between changes, and a change is read promptly',
   async (t) => {
@@ -61,8 +74,8 @@ watching(
     const watch = new RepositoryWatch(work, run, undefined, { interval: 50 });
     t.onTestFinished(() => watch.close());
     await widened(status);
-    await delay(300);
-    assert.equal(status.started, 2);
+    // macOS can still report the new tree's setup after the watch opens, which is a change to read
+    await settled(status);
     await writeFile(join(work, 'new.txt'), 'n\n');
     await until('untracked file', () => watch.snapshot?.untracked === 1);
   },
