@@ -12,6 +12,7 @@ import { ClaudeAdapter } from '../src/agents/claude.js';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { boundCommandTitle } from '../src/agents/tool-title.js';
 import { Coordinator } from '../src/core/coordinator.js';
+import { Workspace } from '../src/memory/workspace.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import {
@@ -288,6 +289,26 @@ test('a model refused while disconnected keeps the exclusive claim', async (t) =
   );
   assert.equal((await peer.claim('task:model')).kind, 'conflict');
   assert.deepEqual((await owner.query()).ownClaim, before);
+});
+
+test('a reconnect that fails before activating keeps the activation and claim', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
+  const owner = await f.start('A');
+  assert.equal((await owner.claim('task:reconnect')).kind, 'claimed');
+  const binding = await owner.binding();
+  const claim = (await owner.query()).ownClaim;
+  assert.ok(claim);
+  await owner.a.sessions.at(-1)!.session.close();
+  vi.spyOn(Workspace.prototype, 'ensureWorktree').mockRejectedValueOnce(
+    new Error('Worktree unavailable'),
+  );
+  await assert.rejects(
+    owner.coordinator.selectModel({ agent: 'a', id: 'a-big' }),
+    /Worktree unavailable/,
+  );
+  assert.deepEqual(await owner.binding(), binding);
+  assert.deepEqual((await owner.query()).ownClaim, claim);
 });
 
 test('bound tool titles use the delivered prefixes, refresh on reconnect and survive results and reopening', async (t) => {

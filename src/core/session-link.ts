@@ -98,19 +98,20 @@ export class SessionLink {
   ): Promise<AgentSession> {
     const live = this.live(agent);
     if (live && (!scope || scope.project === this.sessionProject)) return live;
-    // an initial connect keeps the activation published when its conversation opened
-    await this.disconnect(
-      !this.connected,
-      agent === this.host.conversation().agent,
-    );
     const conversation = this.host.conversation();
     const files = this.host.files();
     const tools = new Map<string, string>();
     const { adapter, executable } = this.catalog.installed(agent);
     const workspace = this.host.workspace();
+    // prepared before the old session closes, so a failure here leaves the activation in place
     await workspace.ensureWorktree();
     if (scope) await workspace.prepare(scope);
     else scope = await workspace.scope(conversation.cwd);
+    // an initial connect keeps the activation published when its conversation opened
+    await this.disconnect(
+      !this.connected,
+      agent === this.host.conversation().agent,
+    );
     await this.coordination?.activate(conversation, scope.project);
     const stored = conversation.sessions[agent];
     this.aborter = new AbortController();
