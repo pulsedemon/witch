@@ -1,5 +1,10 @@
 import { AnswerTurn } from './answer-turn.js';
-import { answerConfiguration, checkAnswerTools } from './codex-answer.js';
+import {
+  answerConfiguration,
+  checkNoMcpTools,
+  readConfig,
+  withoutMcp,
+} from './codex-answer.js';
 import { readModels } from './codex-models.js';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -280,31 +285,27 @@ export class CodexAdapter implements AgentAdapter {
 
   constructor(private readonly start: Launch = launch) {}
 
-  async models(options: ModelDiscoveryOptions): Promise<Model[]> {
-    const rpc = new JsonRpc(
-      this.start(options.executable, options.cwd, options.signal),
-    );
-    try {
-      await initializeRpc(rpc);
-      return await readModels(rpc);
-    } finally {
-      const reason: unknown = options.signal?.reason;
-      await rpc.close(
-        reason instanceof NativeStop ? reason.options : undefined,
-      );
-    }
+  models(options: ModelDiscoveryOptions): Promise<Model[]> {
+    return this.probe(options, readModels);
   }
 
-  async accountUsage(
+  accountUsage(
     options: ModelDiscoveryOptions,
     previous: AccountReading,
   ): Promise<AccountReading> {
+    return this.probe(options, (rpc) => probeAccountUsage(rpc, previous));
+  }
+
+  private async probe<T>(
+    options: ModelDiscoveryOptions,
+    read: (rpc: JsonRpc) => Promise<T>,
+  ): Promise<T> {
     const rpc = new JsonRpc(
       this.start(options.executable, options.cwd, options.signal),
     );
     try {
       await initializeRpc(rpc);
-      return await probeAccountUsage(rpc, previous);
+      return await read(rpc);
     } finally {
       const reason: unknown = options.signal?.reason;
       await rpc.close(
@@ -439,6 +440,7 @@ class CodexSession implements AgentSession {
         this.options.answer.requestFile,
         this.options.answer.permissionProfile,
       ));
+    const isolated = !answer && this.options.withoutMcp;
     const parameters = {
       ...answer,
       ...(answer && this.options.resume ? { excludeTurns: true } : {}),
@@ -451,6 +453,8 @@ class CodexSession implements AgentSession {
       // in the thread's config, so app-server's own children stay unmarked
       config: {
         ...answer?.config,
+        ...(isolated &&
+          withoutMcp(await readConfig(this.rpc, this.options.cwd))),
         ...Object.fromEntries(
           Object.entries(this.options.mark?.environment ?? {}).map(
             ([key, value]) => [`shell_environment_policy.set.${key}`, value],
@@ -469,7 +473,8 @@ class CodexSession implements AgentSession {
         parameters,
       ),
     );
-    if (answer) await checkAnswerTools(this.rpc, this.info.id);
+    const holder = answer ? 'a peer answer' : isolated && 'a familiar';
+    if (holder) await checkNoMcpTools(this.rpc, this.info.id, holder);
     this.connected = true;
     if (!answer) void this.readAccountUsage();
   }

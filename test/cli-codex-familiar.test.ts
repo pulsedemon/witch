@@ -36,6 +36,9 @@ async function fixture(
     waitForResponse?: boolean;
     reject?: boolean;
     existing?: boolean;
+    withoutMcp?: boolean;
+    config?: Record<string, unknown>;
+    tools?: unknown[];
   } = {},
   beforeReply?: (request: ControlRequest) => Promise<void>,
 ) {
@@ -83,6 +86,13 @@ syncBuiltinESMExports();
     preload.push('--import', hook);
   }
   if (options.existing) await writeFile(report, 'Retain me');
+  if (options.config)
+    await writeFile(join(root, 'config.json'), JSON.stringify(options.config));
+  if (options.tools)
+    await writeFile(
+      join(root, 'answer-tools.json'),
+      JSON.stringify(options.tools),
+    );
   const binding = {
     directory: join(root, 'control'),
     conversation: 'owner',
@@ -135,6 +145,7 @@ syncBuiltinESMExports();
       'implementation',
       '--report-file',
       report,
+      ...(options.withoutMcp ? ['--without-mcp'] : []),
       '--',
       '-c',
       'model="requested-alias"',
@@ -634,6 +645,82 @@ test('Codex familiar arguments keep configuration but reject a different transpo
   assert.throws(() =>
     parseCommand([...args, '--familiar-claude', 'other', '--']),
   );
+  const claude = args.map((arg) =>
+    arg === '--familiar-codex' ? '--familiar-claude' : arg,
+  );
+  assert.throws(() => parseCommand([...claude, '--without-mcp', '--']));
+  assert.throws(() => parseCommand(['--without-mcp']));
+});
+
+test('a Codex familiar started --without-mcp disables every MCP source and refuses one Codex still exposes', async () => {
+  const connect = async (root: string) =>
+    (
+      JSON.parse(await readFile(join(root, 'connect.json'), 'utf8')) as {
+        params: { config: Record<string, unknown> };
+      }
+    ).params.config;
+  const connected = [
+    {
+      name: 'unreal',
+      authStatus: 'unsupported',
+      runtimeStatus: 'connected',
+      resources: [],
+      resourceTemplates: [],
+      tools: { write: { name: 'write', inputSchema: { type: 'object' } } },
+    },
+  ];
+  const isolated = await fixture({
+    withoutMcp: true,
+    config: {
+      mcp_servers: { unreal: { url: 'http://x' }, node_repl: { command: 'n' } },
+    },
+  });
+  try {
+    assert.equal(
+      await within(isolated.closed, 8000, 'isolated completion'),
+      0,
+      isolated.output().stderr,
+    );
+    const config = await connect(isolated.root);
+    assert.equal(config['features.apps'], false);
+    assert.equal(config['features.plugins'], false);
+    assert.equal(config['features.skill_mcp_dependency_install'], false);
+    assert.deepEqual(config.mcp_servers, {
+      unreal: { enabled: false },
+      node_repl: { enabled: false },
+    });
+    assert.equal(config['features.hooks'], undefined);
+  } finally {
+    await isolated.close();
+  }
+  const ordinary = await fixture({
+    config: { mcp_servers: { unreal: { url: 'http://x' } } },
+    tools: connected,
+  });
+  try {
+    assert.equal(
+      await within(ordinary.closed, 8000, 'ordinary completion'),
+      0,
+      ordinary.output().stderr,
+    );
+    assert.equal((await connect(ordinary.root)).mcp_servers, undefined);
+  } finally {
+    await ordinary.close();
+  }
+  const exposed = await fixture({ withoutMcp: true, tools: connected });
+  try {
+    assert.equal(await within(exposed.closed, 8000, 'refused start'), 1);
+    assert.deepEqual((await connect(exposed.root)).mcp_servers, {});
+    assert.match(
+      exposed.updates().at(-1)!.report!,
+      /Codex exposed MCP tools to a familiar\./,
+    );
+    await assert.rejects(readFile(join(exposed.root, 'prompt.json')), {
+      code: 'ENOENT',
+    });
+  } finally {
+    await exposed.close();
+  }
 });
 
 test('a failed report write cannot publish success', async () => {

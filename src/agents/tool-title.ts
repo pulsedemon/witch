@@ -137,7 +137,9 @@ export function boundCommandTitle(
         return;
       const value =
         option[2] ??
-        (name === 'peers' || name === 'json' ? undefined : words[++at]);
+        (['peers', 'json', 'without-mcp'].includes(name)
+          ? undefined
+          : words[++at]);
       const action =
         kind === 'control'
           ? controlActions.has(name) && name

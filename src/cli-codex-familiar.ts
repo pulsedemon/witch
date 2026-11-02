@@ -44,6 +44,7 @@ export async function runCodexFamiliar(
   name: string,
   reportFile: string,
   args: readonly string[],
+  withoutMcp = false,
 ): Promise<number> {
   const argv = codexArguments(args);
   const path = resolve(reportFile);
@@ -240,6 +241,7 @@ export async function runCodexFamiliar(
       executable: 'codex',
       cwd: process.cwd(),
       memoryDirectories: [],
+      withoutMcp,
       signal: abort.signal,
       onEvent: receive,
       onProcess: async () => {},
