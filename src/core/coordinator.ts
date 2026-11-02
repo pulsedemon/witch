@@ -792,6 +792,7 @@ export class Coordinator {
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
     this.compaction.cancel();
+    this.attachments.cancel();
     this.runtimes.stop();
     this.publish({
       requests: this.snapshot.requests.filter(

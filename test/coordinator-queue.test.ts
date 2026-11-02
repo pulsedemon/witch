@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { fixture, turns } from './fixtures/coordinator.js';
@@ -525,6 +527,47 @@ test('an interrupt while a turn saves its images sends nothing and leaves the pr
     assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
   } finally {
     held.restore();
+    await f.coordinator.close();
+  }
+});
+
+test('an interrupt while a pasted image converts stops the conversion, sends nothing, reports no error and leaves the prompt queued', async (t) => {
+  const f = await fixture();
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  const started = Promise.withResolvers<void>();
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    const [, , { signal }, callback] = call as unknown as [
+      string,
+      string[],
+      { signal: AbortSignal },
+      (error: Error | null, stdout: string) => void,
+    ];
+    // a sips that never finishes on its own
+    signal.addEventListener('abort', () => callback(new Error('aborted'), ''));
+    started.resolve();
+    return new childProcess.ChildProcess();
+  });
+  syncBuiltinESMExports();
+  try {
+    const path = join(f.root, 'photo.jpg');
+    await writeFile(path, 'jpeg bytes');
+    const marker = f.coordinator.paste(path, '')!;
+    const sending = f.coordinator.send(`look ${marker}`);
+    await within(started.promise, 2000, 'the conversion');
+    await f.coordinator.interrupt();
+    await within(sending, 2000, 'the stopped turn');
+    assert.deepEqual(f.a.inputs, []);
+    assert.notEqual(f.coordinator.snapshot.phase, 'error');
+    assert.ok(
+      !f.coordinator.snapshot.items.some(({ text }) =>
+        text.includes('aborted'),
+      ),
+    );
+    assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
+  } finally {
     await f.coordinator.close();
   }
 });

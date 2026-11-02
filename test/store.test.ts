@@ -385,6 +385,37 @@ test("a saved image is a new private file in the conversation's images directory
   }
 });
 
+test('closing a conversation waits for an image save it accepted and refuses saves after it', async (t) => {
+  const root = await scratch('witch-image-close-');
+  const store = await StateStore.open(root);
+  const pictures = await store.create(conversation('pictures'));
+  const held = Promise.withResolvers<void>();
+  const write = files.writeFile;
+  t.onTestFinished(() => {
+    held.resolve();
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  vi.spyOn(files, 'writeFile').mockImplementation(async (...args) => {
+    await held.promise;
+    return write(...args);
+  });
+  syncBuiltinESMExports();
+  const saving = pictures.saveImage(Buffer.from('late'), 'png');
+  let closed = false;
+  const closing = pictures.close().then(() => (closed = true));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(closed, false);
+  held.resolve();
+  const path = await saving;
+  await closing;
+  assert.equal(await readFile(path, 'utf8'), 'late');
+  await assert.rejects(
+    pictures.saveImage(Buffer.from('after'), 'png'),
+    /no longer open/,
+  );
+});
+
 test('a failed write fails every later write and the close', async () => {
   const root = await scratch('witch-failed-write-');
   const store = await StateStore.open(root);
@@ -1315,7 +1346,11 @@ test("a prompt's image markers are stored without their numbers, which name imag
   await (
     await StateStore.open(root)
   ).addPrompt('/a', 'see [Image #1] and [Image #12], not [Image #3');
+  await (
+    await StateStore.open(root)
+  ).addPrompt('/a', "!printf '%s' '[Image #12]'");
   assert.deepEqual(await (await StateStore.open(root)).prompts('/a'), [
+    "!printf '%s' '[Image #12]'",
     'see [Image] and [Image], not [Image #3',
   ]);
 });

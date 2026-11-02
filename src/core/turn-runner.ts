@@ -191,10 +191,14 @@ export class TurnRunner {
           )))
       )
         return { status: 'interrupted', text: '', inputUnsent: true };
-      // from `prompt`, since handoff text in the input can quote old markers
+      // from `prompt`, since handoff text in the input can quote old markers.
+      // a stop aborts a conversion, and the check below reports it as the stop it is
       const images =
         kind === 'turn' && !silent && command === undefined
-          ? await this.host.prepareImages(prompt)
+          ? await this.host.prepareImages(prompt).catch((error: unknown) => {
+              if (this.host.cancelled() || session.closed) return [];
+              throw error;
+            })
           : [];
       // a stop during an awaited check must prevent native input.
       if (

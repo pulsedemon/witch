@@ -12,6 +12,7 @@ import { StateStore } from '../src/persistence/store.js';
 import { fixture, record } from './fixtures/coordinator.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
+import { within } from './fixtures/within.js';
 
 const pngSignature = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -34,9 +35,10 @@ function sips(
     syncBuiltinESMExports();
   });
   vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
-    const [, args, callback] = call as unknown as [
+    const [, args, , callback] = call as unknown as [
       string,
       string[],
+      unknown,
       (error: Error | null, stdout: string) => void,
     ];
     const out = args.indexOf('--out');
@@ -191,6 +193,44 @@ test('an image whose conversion failed is converted again on its next delivery',
   const [saved] = await attachments.prepare([1], store);
   assert.equal(calls.length, 3);
   assert.ok(saved!.endsWith('.jpg'));
+  assert.equal(await readFile(saved!, 'utf8'), 'converted jpeg');
+});
+
+test('cancel stops a running conversion, and the next delivery converts again', async (t) => {
+  const directory = await scratch('witch-attach-');
+  await writeFile(join(directory, 'photo.jpg'), 'jpeg bytes');
+  const attachments = new Attachments();
+  attachments.attach(join(directory, 'photo.jpg'));
+  const store = await conversationStore(t);
+  t.onTestFinished(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  const started = Promise.withResolvers<void>();
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    const [, , { signal }, callback] = call as unknown as [
+      string,
+      string[],
+      { signal: AbortSignal },
+      (error: Error | null, stdout: string) => void,
+    ];
+    // a sips that never finishes on its own
+    signal.addEventListener('abort', () => callback(new Error('aborted'), ''));
+    started.resolve();
+    return new childProcess.ChildProcess();
+  });
+  syncBuiltinESMExports();
+  const preparing = attachments.prepare([1], store);
+  await started.promise;
+  attachments.cancel();
+  await assert.rejects(
+    within(preparing, 2000, 'the cancelled conversion'),
+    /aborted/,
+  );
+  vi.restoreAllMocks();
+  const calls = sips(t, [64, 64]);
+  const [saved] = await attachments.prepare([1], store);
+  assert.equal(calls.length, 2);
   assert.equal(await readFile(saved!, 'utf8'), 'converted jpeg');
 });
 

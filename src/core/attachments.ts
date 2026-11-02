@@ -55,6 +55,7 @@ export class Attachments {
     { data: Buffer; saved: Map<string, Promise<string>> }
   >();
   private next = 1;
+  private conversions = new AbortController();
 
   /** takes the bytes now, since a dragged screenshot thumbnail's file can be gone before the prompt is sent. */
   attach(path: string): string {
@@ -76,8 +77,8 @@ export class Attachments {
         const { data, saved } = this.images.get(id)!;
         let saving = saved.get(store.directory);
         if (!saving) {
-          saving = encode(data).then(({ bytes, extension }) =>
-            store.saveImage(bytes, extension),
+          saving = encode(data, this.conversions.signal).then(
+            ({ bytes, extension }) => store.saveImage(bytes, extension),
           );
           saved.set(store.directory, saving);
           void saving.catch(() => saved.delete(store.directory));
@@ -86,11 +87,18 @@ export class Attachments {
       }),
     );
   }
+
+  /** stops running conversions, so an interrupt or shutdown never waits on `sips`. */
+  cancel(): void {
+    this.conversions.abort();
+    this.conversions = new AbortController();
+  }
 }
 
 /** a PNG within Claude's limits goes as it is; anything else is converted to a JPEG of at most 2,000 px a side. */
 async function encode(
   data: Buffer,
+  signal: AbortSignal,
 ): Promise<{ bytes: Buffer; extension: 'png' | 'jpg' }> {
   if (
     data.length >= 24 &&
@@ -106,22 +114,28 @@ async function encode(
     const input = join(directory, 'input');
     const output = join(directory, 'output.jpg');
     await writeFile(input, data);
-    const size = await sips(['-g', 'pixelWidth', '-g', 'pixelHeight', input]);
+    const size = await sips(
+      ['-g', 'pixelWidth', '-g', 'pixelHeight', input],
+      signal,
+    );
     const sides = [...size.matchAll(/pixel(?:Width|Height): (\d+)/g)];
     // `-Z` enlarges a smaller image too
     const fit = sides.some(([, side]) => Number(side) > largestSide)
       ? ['-Z', String(largestSide)]
       : [];
-    await sips(['-s', 'format', 'jpeg', ...fit, input, '--out', output]);
+    await sips(
+      ['-s', 'format', 'jpeg', ...fit, input, '--out', output],
+      signal,
+    );
     return { bytes: await readFile(output), extension: 'jpg' };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 }
 
-function sips(args: string[]): Promise<string> {
+function sips(args: string[], signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) =>
-    execFile('/usr/bin/sips', args, (error, stdout) =>
+    execFile('/usr/bin/sips', args, { signal }, (error, stdout) =>
       error ? reject(error) : resolve(stdout),
     ),
   );

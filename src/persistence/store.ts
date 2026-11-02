@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
 import { markerPattern } from '../core/attachments.js';
+import { shellCommand } from '../core/prompts.js';
 import {
   conversationRecordSchema,
   displayUpdateSchema,
@@ -187,7 +188,14 @@ export class StateStore {
    * crash cut short ends before it. a marker's number names an image only in this process, so it isn't kept.
    */
   addPrompt(cwd: string, text: string): Promise<void> {
-    const line = { cwd, text: text.replace(markerPattern, '[Image]') };
+    // a shell command's markers are its own text
+    const line = {
+      cwd,
+      text:
+        shellCommand(text) === undefined
+          ? text.replace(markerPattern, '[Image]')
+          : text,
+    };
     const added = this.adding.then(async () => {
       const file = await open(this.promptsPath(), 'a', 0o600);
       try {
@@ -292,6 +300,8 @@ export class ConversationStore {
   private historyFile?: FileHandle;
   private pending?: PendingHistory;
   private released = false;
+  // kept out of `queue`, whose first failure ends every later write, so a failed save can be retried
+  private readonly savingImages = new Set<Promise<unknown>>();
 
   constructor(
     readonly directory: string,
@@ -305,10 +315,18 @@ export class ConversationStore {
 
   /** the absolute path of a new image file in the conversation, private like the rest of its state. */
   async saveImage(bytes: Buffer, extension: string): Promise<string> {
+    if (this.released) throw new Error('This conversation is no longer open.');
     const directory = join(this.directory, 'images');
-    await mkdir(directory, { recursive: true, mode: 0o700 });
     const file = join(directory, `${randomUUID()}.${extension}`);
-    await writeFile(file, bytes, { mode: 0o600 });
+    const saving = mkdir(directory, { recursive: true, mode: 0o700 }).then(() =>
+      writeFile(file, bytes, { mode: 0o600 }),
+    );
+    this.savingImages.add(saving);
+    try {
+      await saving;
+    } finally {
+      this.savingImages.delete(saving);
+    }
     return file;
   }
 
@@ -388,6 +406,7 @@ export class ConversationStore {
     if (this.released) return;
     this.released = true;
     try {
+      await Promise.allSettled(this.savingImages);
       await this.flush();
     } finally {
       try {
