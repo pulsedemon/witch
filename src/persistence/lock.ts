@@ -8,12 +8,12 @@ import { z } from 'zod';
 const execute = promisify(execFile);
 const nativeLocks =
   process.platform === 'linux' ? await import('fs-ext') : undefined;
+// paths arrive NUL-terminated and states leave space-separated: loading JSON::PP more than doubled each query's startup
 const query = `
 use Fcntl qw(F_GETLK F_RDLCK F_WRLCK F_UNLCK SEEK_SET);
-use JSON::PP;
-my $paths = decode_json(do { local $/; <STDIN> });
+my @paths = do { local $/ = "\\0"; map { chomp; $_ } <STDIN> };
 my @results;
-for my $path (@$paths) {
+for my $path (@paths) {
   my $file;
   if (!open($file, '<', $path)) {
     push @results, ($!{ENOENT} || $!{ENOTDIR}) ? 0 : -int($!);
@@ -26,15 +26,14 @@ for my $path (@$paths) {
     : -int($!);
   close($file) or die "Cannot close lock: $!";
 }
-print encode_json([@results]);
+print join(' ', @results);
 `;
 
 const linuxQuery = `
-use JSON::PP;
-my $paths = decode_json(do { local $/; <STDIN> });
+my @paths = do { local $/ = "\\0"; map { chomp; $_ } <STDIN> };
 my @files;
 my @results;
-for my $path (@$paths) {
+for my $path (@paths) {
   my $file;
   if (!open($file, '<', $path)) {
     push @results, ($!{ENOENT} || $!{ENOTDIR}) ? 0 : -int($!);
@@ -65,7 +64,7 @@ for my $file (@files) {
   next unless $file;
   close($file) or die "Cannot close lock: $!";
 }
-print encode_json([@results]);
+print join(' ', @results);
 `;
 
 // macOS flock flags, which Node doesn't export
@@ -127,12 +126,18 @@ export async function lockedFiles(
     { ...options, killSignal: 'SIGKILL' },
   );
   // report the process failure even when stdin also fails with EPIPE.
-  result.child.stdin?.on('error', () => {}).end(JSON.stringify(files));
+  result.child.stdin?.on('error', () => {}).end(`${files.join('\0')}\0`);
   const { stdout } = await result;
   const states = z
-    .array(z.number().int().max(2))
+    .array(
+      z
+        .string()
+        .regex(/^-?\d+$/)
+        .transform(Number)
+        .pipe(z.number().max(2)),
+    )
     .length(files.length)
-    .parse(JSON.parse(stdout));
+    .parse(stdout.split(' '));
   const locked = new Map<string, 'shared' | 'exclusive'>();
   for (const [index, state] of states.entries()) {
     const file = files[index]!;
