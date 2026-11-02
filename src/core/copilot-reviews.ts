@@ -120,7 +120,10 @@ function feedback(source: GitHubReviews): Feedback[] {
   ];
 }
 
-/** summaries Copilot marks as having no open issues, with no inline findings of their own, need no review turn. */
+/**
+ * summaries Copilot marks as having no open issues, with no inline findings of their own, need no review turn.
+ * its banner counts only new threads, so a summary listing previously missed issues still has findings.
+ */
 function findingsFree(
   source: GitHubReviews,
   current: readonly Feedback[],
@@ -132,7 +135,9 @@ function findingsFree(
     source.reviews
       .filter(
         ({ id, body }) =>
-          body.includes('**No open issues**') && !threaded.has(id),
+          body.includes('**No open issues**') &&
+          !body.includes('previously missed issue') &&
+          !threaded.has(id),
       )
       .map(({ id }) => id),
   );
