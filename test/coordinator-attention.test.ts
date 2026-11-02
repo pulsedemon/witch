@@ -94,8 +94,7 @@ for (const outcome of ['failed', 'interrupted', 'preparation'] as const)
       const turns = a.inputs.length;
       if (outcome === 'preparation')
         hook.current = async (command, run) => {
-          if (command[0] !== 'rev-parse' || command[1] !== '--git-path')
-            return run();
+          if (command[0] !== 'status') return run();
           hook.current = passThrough;
           return {
             stdout: Buffer.alloc(0),

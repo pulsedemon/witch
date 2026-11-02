@@ -810,16 +810,16 @@ test('a git failure in settle tells the user to restart before continuing', asyn
     a.gate = gate;
     const sending = coordinator.send('Next');
     await within(gate.entered, 2000, 'the gated turn');
-    hook.current = async (command, run) => {
-      if (command.join(' ') !== 'rev-parse --git-path rebase-merge')
-        return run();
-      hook.current = passThrough;
-      return { stdout: Buffer.alloc(0), stderr: 'git path failed', code: 128 };
-    };
+    // the turn's own commit fails first; settle's status read is the failure that must stop Witch
+    hook.current = async (command, run) =>
+      command[0] === 'status'
+        ? { stdout: Buffer.alloc(0), stderr: 'status failed', code: 128 }
+        : run();
     gate.open();
-    await assert.rejects(sending, /Restart Witch: git path failed/);
+    await assert.rejects(sending, /Restart Witch: status failed/);
+    hook.current = passThrough;
     assert.equal(coordinator.snapshot.phase, 'error');
-    assert.equal(coordinator.snapshot.error, 'Restart Witch: git path failed');
+    assert.equal(coordinator.snapshot.error, 'Restart Witch: status failed');
     await assert.rejects(coordinator.send('Again'), /Restart Witch/);
     await assert.rejects(coordinator.refreshModels(), /Restart Witch/);
   } finally {

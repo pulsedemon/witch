@@ -129,9 +129,18 @@ export class Workspace {
     ]);
   }
 
+  /** reads the worktree's `.git` file instead of spawning git, since every turn checks twice. */
   async rebaseStopped(): Promise<boolean> {
-    const path = await this.git(['rev-parse', '--git-path', 'rebase-merge']);
-    return exists(resolve(this.root, path.trim()));
+    const gitfile = join(this.root, '.git');
+    // like git, keep line breaks inside the path and trim only trailing ones
+    const gitdir = /^gitdir: (.+?)[\r\n]*$/s.exec(
+      await readFile(gitfile, 'utf8'),
+    )?.[1];
+    if (!gitdir) throw new Error(`Not a worktree's .git file: ${gitfile}`);
+    const directory = resolve(this.root, gitdir);
+    // a missing git directory fails like git would, instead of reading as no rebase
+    await lstat(directory);
+    return exists(join(directory, 'rebase-merge'));
   }
 
   /** reads a checkout's scope and creates its directories. */

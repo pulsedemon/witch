@@ -23,6 +23,7 @@ import { hookedGit, passThrough } from './fixtures/git.js';
 import { fixture, save, git, repository } from './fixtures/memory.js';
 import type { GitHook } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
+import { seededMemory } from './fixtures/seeded-memory.js';
 
 const execute = promisify(execFile);
 const lines = (changes: Record<number, string> = {}) =>
@@ -1179,6 +1180,17 @@ test('a deleted worktree directory comes back on its branch with its unpublished
   assert.equal(await workspace.revision(), commit);
   await workspace.publish();
   assert.equal(await memory.read(main, 'global/kept.md'), 'Kept.');
+});
+
+test('a stopped rebase is found under a state directory with a line break', async () => {
+  const root = join(await scratch('witch-memory-'), 'state\nbreak');
+  const memory = await seededMemory(join(root, 'memory.git'));
+  const workspace = memory.workspace(join(root, 'conversations', 'a'), 'a');
+  await workspace.ensureWorktree();
+  assert.equal(await workspace.rebaseStopped(), false);
+  const gitdir = await git(workspace.root, 'rev-parse', '--absolute-git-dir');
+  await mkdir(join(gitdir.slice(0, -1), 'rebase-merge'));
+  assert.equal(await workspace.rebaseStopped(), true);
 });
 
 test('a leftover rebase is aborted back onto the branch before publishing', async () => {
