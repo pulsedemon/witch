@@ -116,7 +116,8 @@ export class Coordinator {
     applied: Set<string>;
     confirming: Set<string>;
     release: () => void;
-    stopped: boolean;
+    /** a stop is in flight; confirmation waits for it. */
+    stopping: boolean;
     retry?: ReturnType<typeof setTimeout>;
   };
   /** `conversation/pause` pairs the user lifted with a prompt, which hold no more even before the store records it. */
@@ -460,14 +461,14 @@ export class Coordinator {
   /** holds the open conversation for each pause naming it, and lifts the hold once every applied pause reads resumed. */
   private applyPauses(): void {
     const conversation = this.record?.id;
+    // a visit ends when its conversation does
+    if (this.paused && this.paused.conversation !== conversation)
+      this.releasePause();
     const pauses =
       conversation && !this.closed
         ? this.coordination?.events.pauses(conversation)
         : undefined;
     if (!conversation || !pauses) return;
-    // a visit ends when its conversation does
-    if (this.paused && this.paused.conversation !== conversation)
-      this.releasePause();
     const held = holding(pauses, conversation).filter(
       ({ id }) => !this.userResumed.has(`${conversation}/${id}`),
     );
@@ -475,17 +476,20 @@ export class Coordinator {
       this.releasePause();
       return;
     }
-    if (!this.paused) {
-      const paused = (this.paused = {
-        conversation,
-        applied: new Set<string>(),
-        confirming: new Set<string>(),
-        release: this.holdPromptDelivery(),
-        stopped: false,
-      });
+    const paused = (this.paused ??= {
+      conversation,
+      applied: new Set<string>(),
+      confirming: new Set<string>(),
+      release: this.holdPromptDelivery(),
+      stopping: false,
+    });
+    const fresh = held.filter(({ id }) => !paused.applied.has(id));
+    for (const { id } of fresh) paused.applied.add(id);
+    // an operation the user started while held may run, so each new pause stops it again
+    if (fresh.length && !paused.stopping) {
+      paused.stopping = true;
       void this.stopForPause(paused);
     }
-    for (const { id } of held) this.paused.applied.add(id);
     this.confirmPauses();
   }
 
@@ -493,7 +497,8 @@ export class Coordinator {
   private async stopForPause(paused: NonNullable<Coordinator['paused']>) {
     const task = this.task;
     try {
-      await this.interrupt();
+      // stopCurrent leaves the user's own Escape hold to the user
+      await this.stopCurrent();
       await task?.catch(() => {});
     } catch (error) {
       if (this.paused !== paused || this.closed) return;
@@ -505,13 +510,13 @@ export class Coordinator {
       paused.retry = setTimeout(() => void this.stopForPause(paused), 2000);
       return;
     }
-    paused.stopped = true;
+    paused.stopping = false;
     this.confirmPauses();
   }
 
   private confirmPauses(): void {
     const paused = this.paused;
-    if (!paused?.stopped) return;
+    if (!paused || paused.stopping) return;
     const pauses = this.coordination?.events.pauses(paused.conversation) ?? [];
     for (const pause of pauses) {
       const recipient = entry(pause, paused.conversation);
@@ -532,7 +537,6 @@ export class Coordinator {
     if (!paused) return;
     this.paused = undefined;
     clearTimeout(paused.retry);
-    this.automaticHeld = false;
     paused.release();
     void (this.draining?.promise ?? Promise.resolve()).then(() =>
       this.drainAfter(),
@@ -707,7 +711,10 @@ export class Coordinator {
       !this.closed &&
       !this.snapshot.requests.length &&
       !this.automaticHeld &&
-      !!this.record
+      !!this.record &&
+      // a pause the first read missed would otherwise let automatic work through
+      (!this.coordination ||
+        this.coordination.events.pauses(this.record.id) !== undefined)
     );
   }
 

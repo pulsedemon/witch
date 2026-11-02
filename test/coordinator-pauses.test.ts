@@ -531,3 +531,102 @@ test('an issuer resume while a stopped, undelivered turn settles still runs the 
   await until('queue ran', () => prompts(a).length === 2);
   assert.deepEqual(prompts(a), ['working', 'working\nqueued']);
 });
+
+test("an issuer resume leaves the user's own Escape hold in place", async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  await a.coordinator.interrupt();
+  const issued = await pause(i);
+  await confirmed(f, a, issued);
+  const lifted = await control(i, { kind: 'resume', pause: issued.id });
+  assert.equal(lifted.kind, 'pause', JSON.stringify(lifted));
+  await refreshed(a);
+  await holdsAutomatic(i, a, 'escaped');
+  await a.coordinator.send('back');
+  await until('answer turn', () => answerTurns(a).length === 1);
+});
+
+test('a pause arriving during an operation started while held stops it before confirming', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  await confirmed(f, a, await pause(i));
+  a.a.gate = new TurnGate();
+  let compacted = false;
+  const compacting = a.coordinator.compact().finally(() => {
+    compacted = true;
+  });
+  await a.a.gate.entered;
+  const second = await pause(i);
+  await confirmed(f, a, second);
+  assert.equal(compacted, true);
+  await compacting.catch(() => {});
+});
+
+test('automatic work waits for a restarted recipient to read its pauses', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  const claim = await claimed(a, 'restarting');
+  await confirmed(f, a, await pause(i));
+  const conversation = id(a);
+  await a.coordinator.close({ restart: true });
+  const read = CoordinationStore.prototype.pauses;
+  let failing = true;
+  vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
+    this: CoordinationStore,
+    recipient: string,
+  ) {
+    if (failing && recipient === conversation)
+      return Promise.reject(new Error('pauses unreadable'));
+    return read.call(this, recipient);
+  });
+  const restarted = await f.start('A', { conversation });
+  await control(i, { kind: 'ask', claim: claim.id, message: 'Awake?' });
+  await refreshed(restarted);
+  await refreshed(restarted);
+  await delay(500);
+  assert.deepEqual(answerTurns(restarted), []);
+  failing = false;
+  await refreshed(restarted);
+  await delay(500);
+  assert.deepEqual(answerTurns(restarted), []);
+});
+
+test("a failed pause read after switching away drops the previous conversation's hold", async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  await confirmed(f, a, await pause(i));
+  const conversation = id(a);
+  const read = CoordinationStore.prototype.pauses;
+  let failing = true;
+  vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
+    this: CoordinationStore,
+    recipient: string,
+  ) {
+    if (failing && recipient !== conversation && recipient !== id(i))
+      return Promise.reject(new Error('pauses unreadable'));
+    return read.call(this, recipient);
+  });
+  await a.coordinator.newConversation();
+  await a.coordinator.send('elsewhere');
+  assert.deepEqual(prompts(a), ['elsewhere']);
+  failing = false;
+  await a.coordinator.selectConversation(conversation);
+  await refreshed(a);
+  await holdsAutomatic(i, a, 'a-back');
+});
