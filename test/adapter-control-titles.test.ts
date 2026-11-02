@@ -111,6 +111,7 @@ test('Claude Bash results retain bound titles and multiline commands after repla
     f.children[0]!,
   );
   const familiar = `${prefixes.familiar} --familiar-codex review --report-file /report -- -c model='gpt-6-astra' <<'PROMPT'\nReview this.\nPROMPT`;
+  const isolated = `${prefixes.familiar} --familiar-codex review --report-file /report --without-mcp -- -c model='gpt-6-astra'`;
   try {
     const turn = session.send('initial');
     await until('initial Claude result', () =>
@@ -122,6 +123,7 @@ test('Claude Bash results retain bound titles and multiline commands after repla
     const calls = [
       { id: 'control', command: claim, title: 'claim task:adapter-check' },
       { id: 'familiar', command: familiar, title: 'Familiar Codex review' },
+      { id: 'isolated', command: isolated, title: 'Familiar Codex review' },
       { id: 'foreign', command: foreign, title: undefined },
       { id: 'ordinary', command: 'git status', title: undefined },
     ];

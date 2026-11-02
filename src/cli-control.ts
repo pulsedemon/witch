@@ -49,6 +49,7 @@ const options = {
   'familiar-claude': { type: 'string' },
   'familiar-codex': { type: 'string' },
   'report-file': { type: 'string' },
+  'without-mcp': { type: 'boolean' },
 } as const;
 
 export function parseCommand(args = process.argv.slice(2)) {
@@ -63,7 +64,8 @@ export function parseCommand(args = process.argv.slice(2)) {
   const reporting =
     values['familiar-claude'] !== undefined ||
     values['familiar-codex'] !== undefined ||
-    values['report-file'] !== undefined;
+    values['report-file'] !== undefined ||
+    values['without-mcp'] !== undefined;
   if (reporting) {
     const runtime = values['familiar-codex'] !== undefined ? 'codex' : 'claude';
     const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
@@ -74,6 +76,7 @@ export function parseCommand(args = process.argv.slice(2)) {
       'control-activation',
       option,
       'report-file',
+      ...(runtime === 'codex' ? ['without-mcp'] : []),
     ]);
     if (
       Object.keys(values).some((key) => !allowed.has(key)) ||
@@ -102,6 +105,7 @@ export function parseCommand(args = process.argv.slice(2)) {
         name: values[option].trim(),
         reportFile: resolve(values['report-file']),
         args: positionals,
+        withoutMcp: values['without-mcp'] === true,
       },
     };
   }

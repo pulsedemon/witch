@@ -273,7 +273,7 @@ export function brief({
   ].join('\n');
 }
 
-/** the familiar wrapper command for one routed reviewer, read-only on either runtime. */
+/** the familiar wrapper command for one routed reviewer, read-only and without MCP servers on either runtime. */
 export function reviewerCommand({
   prefix,
   route,
@@ -320,6 +320,7 @@ export function reviewerCommand({
     quote(name),
     '--report-file',
     quote(reportFile),
+    ...(route.runtime === 'codex' ? ['--without-mcp'] : []),
     '--',
     ...native.map(quote),
     '<',

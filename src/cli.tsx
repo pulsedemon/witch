@@ -82,8 +82,8 @@ Agent control (use the prefix supplied in the current Witch context):
 Delegated tasks (use the familiar prefix supplied in the current Witch context):
   --familiar-claude <name> --report-file <file> -- <native Claude arguments>
                       report a native Claude task as a familiar
-  --familiar-codex <name> --report-file <file> -- <native app-server options>
-                      report a Codex task as a familiar; read its prompt from stdin
+  --familiar-codex <name> --report-file <file> [--without-mcp] -- <native app-server options>
+                      report a Codex task as a familiar; read its prompt from stdin; --without-mcp starts it with no MCP server
 
 Every word that starts with - is read as an option, so quote a prompt that
 contains one, and put -- before a prompt that starts with -.
@@ -134,14 +134,17 @@ try {
 }
 if (familiar) {
   try {
-    const run =
-      familiar.runtime === 'codex' ? runCodexFamiliar : runClaudeFamiliar;
-    process.exitCode = await run(
-      familiar.binding,
-      familiar.name,
-      familiar.reportFile,
-      familiar.args,
-    );
+    const { binding, name, reportFile, args } = familiar;
+    process.exitCode =
+      familiar.runtime === 'codex'
+        ? await runCodexFamiliar(
+            binding,
+            name,
+            reportFile,
+            args,
+            familiar.withoutMcp,
+          )
+        : await runClaudeFamiliar(binding, name, reportFile, args);
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
     process.exitCode = 1;

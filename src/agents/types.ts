@@ -355,6 +355,8 @@ export interface SessionOptions {
   /** the effort to start with; omitted keeps the native default. */
   effort?: string;
   memoryDirectories: string[];
+  /** Codex only: starts the thread with no MCP server and fails if Codex still exposes one. */
+  withoutMcp?: boolean;
   signal?: AbortSignal;
   onEvent(event: AgentEvent): void;
   onProcess(pid: number | undefined): Promise<void>;

@@ -41,6 +41,32 @@ function readProfile(
   };
 }
 
+export async function readConfig(
+  rpc: JsonRpc,
+  cwd: string,
+): Promise<Record<string, unknown>> {
+  return configuration.parse(
+    await rpc.request('config/read', { cwd, includeLayers: false }),
+  ).config;
+}
+
+/** Codex has no single switch for every MCP server, so each configured one is disabled by name. */
+export function withoutMcp(
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    'features.apps': false,
+    'features.plugins': false,
+    'features.skill_mcp_dependency_install': false,
+    mcp_servers: Object.fromEntries(
+      Object.keys(object.parse(source.mcp_servers ?? {})).map((name) => [
+        name,
+        { enabled: false },
+      ]),
+    ),
+  };
+}
+
 export async function answerConfiguration(
   rpc: JsonRpc,
   cwd: string,
@@ -53,23 +79,13 @@ export async function answerConfiguration(
   permissions?: string;
   sandbox?: 'read-only';
 }> {
-  const { config: source } = configuration.parse(
-    await rpc.request('config/read', { cwd, includeLayers: false }),
-  );
+  const source = await readConfig(rpc, cwd);
   const config: Record<string, unknown> = {
-    'features.apps': false,
-    'features.plugins': false,
+    ...withoutMcp(source),
     'features.hooks': false,
     notify: [],
     'features.multi_agent': false,
     'features.multi_agent_v2': false,
-    'features.skill_mcp_dependency_install': false,
-    mcp_servers: Object.fromEntries(
-      Object.keys(object.parse(source.mcp_servers ?? {})).map((name) => [
-        name,
-        { enabled: false },
-      ]),
-    ),
   };
   const named = profile !== undefined && !profile.startsWith(':');
   if (named) {
@@ -91,7 +107,11 @@ export async function answerConfiguration(
   };
 }
 
-export async function checkAnswerTools(rpc: JsonRpc, threadId: string) {
+export async function checkNoMcpTools(
+  rpc: JsonRpc,
+  threadId: string,
+  holder: string,
+) {
   let cursor: string | null | undefined;
   do {
     const page = servers.parse(
@@ -108,7 +128,7 @@ export async function checkAnswerTools(rpc: JsonRpc, threadId: string) {
           Object.keys(server.tools).length > 0,
       )
     )
-      throw new Error('Codex exposed MCP tools to a peer answer.');
+      throw new Error(`Codex exposed MCP tools to ${holder}.`);
     cursor = page.nextCursor;
   } while (cursor);
 }
