@@ -835,7 +835,7 @@ test('native exit settles a turn with unacknowledged input', async () => {
 });
 
 /** a native frame, a steered prompt that starts and fails, an interrupt or a killed CLI. */
-type Step = object | 'steer' | 'interrupt' | 'kill';
+type Step = object | 'steer' | 'interrupt' | 'kill' | 'close';
 const week = { rateLimitType: 'seven_day', resetsAt: Date.now() / 1000 + 3600 };
 const limit = (info: object = {}) => ({
   type: 'rate_limit_event',
@@ -864,6 +864,7 @@ async function exhausted(...turns: Step[][]) {
       if (!index) await until('initial reply', () => reported('result-1'));
       for (const step of steps)
         if (step === 'kill') f.child.kill();
+        else if (step === 'close') void f.session.close();
         else if (step === 'interrupt') await f.session.interrupt();
         else if (step !== 'steer') await emit(step);
         else {
@@ -889,19 +890,20 @@ async function exhausted(...turns: Step[][]) {
   }
 }
 
-test('Claude confirms exhaustion from a current rejection behind a failed result', async () => {
+test('Claude confirms exhaustion from a current rejection behind a failed result or exit', async () => {
   const cases: Step[][][] = [
     [[limit(), ...failure]],
     [[limit(), ...failure], failure], // a rejection in an earlier turn
     [[limit({ resetsAt: undefined }), ...failure]],
     [[limit({ rateLimitType: undefined }), 'steer', idle]],
     [[limit({ rateLimitType: 'seven_day_sonnet' }), ...failure]],
+    [[limit(), 'kill']],
   ];
   for (const turns of cases)
     assert.equal(await exhausted(...turns), true, JSON.stringify(turns));
 });
 
-test('Claude leaves exhaustion unset without a current rejection behind a failed result', async () => {
+test('Claude leaves exhaustion unset without a current rejection behind a failed result or exit', async () => {
   const cases: Step[][][] = [
     [failure], // a plain 429
     [[limit(), ...failure], [{ type: 'result' }, idle], failure],
@@ -909,7 +911,8 @@ test('Claude leaves exhaustion unset without a current rejection behind a failed
     [[limit({ overageInUse: true }), ...failure]],
     [[limit({ rateLimitType: 'seven_day_opus' }), ...failure]],
     [[limit(), 'interrupt']],
-    [[limit(), 'kill']],
+    [['kill']],
+    [[limit(), 'close']],
   ];
   for (const turns of cases)
     assert.equal(await exhausted(...turns), undefined, JSON.stringify(turns));

@@ -132,6 +132,27 @@ test('an exhausted turn continues in the same drain step on the newest comparabl
   }
 });
 
+test('an exhausted turn whose source process died continues on another runtime', async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  try {
+    claude.exhaust = (prompt) => {
+      if (!prompt.includes('Migrate the store')) return false;
+      void claude.sessions.at(-1)!.session.close();
+      return true;
+    };
+    await coordinator.send('Migrate the store');
+    assert.equal(claude.sessions.at(-1)!.session.closed, true);
+    assert.deepEqual(
+      codex.inputs.map(({ prompt }) => prompt),
+      [continuation],
+    );
+    assert.equal(coordinator.snapshot.conversation!.agent, 'codex');
+    assert.equal(coordinator.snapshot.error, undefined);
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test("the continuation after an exhausted turn sends the saved images of that turn's prompt and accepted steers, not of earlier turns or unread steers", async () => {
   const { coordinator, claude, codex } = await exhaustion();
   const gate = new TurnGate();
