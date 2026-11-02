@@ -433,6 +433,41 @@ test('handoff discards retained questions from the previous agent', async () => 
   }
 });
 
+for (const { failure, failConnect, id, error } of [
+  {
+    failure: 'fails to connect',
+    failConnect: true,
+    id: 'b-model',
+    error: /Destination unavailable/,
+  },
+  {
+    failure: 'refuses the model',
+    failConnect: false,
+    id: 'b-typo',
+    error: /Unknown model/,
+  },
+])
+  test(`a handoff whose destination ${failure} keeps the source's questions`, async () => {
+    const { coordinator, a, b } = await fixture();
+    try {
+      await coordinator.send('Start');
+      const original = a.sessions[0]!;
+      original.options.onEvent({ type: 'request', request: question() });
+      await original.session.close();
+      original.options.onEvent({ type: 'closed' });
+      b.failConnect = failConnect;
+      b.invalidModel = 'b-typo';
+      await assert.rejects(coordinator.selectModel({ agent: 'b', id }), error);
+      assert.equal(coordinator.snapshot.conversation!.agent, 'a');
+      assert.deepEqual(coordinator.snapshot.requests, [question()]);
+      await coordinator.respond('choice', response);
+      assert.deepEqual(turns(a).at(-1), [answer, undefined]);
+      assert.deepEqual(turns(b), []);
+    } finally {
+      await coordinator.close();
+    }
+  });
+
 for (const departure of ['conversation', 'handoff'])
   test(`a question arriving during close does not survive ${departure}`, async () => {
     const { coordinator, a, b } = await fixture();

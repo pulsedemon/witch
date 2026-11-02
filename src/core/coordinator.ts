@@ -128,7 +128,7 @@ export class Coordinator {
     session: () => this.link.session,
     send: (prompt, kind) => this.turns.perform(prompt, kind),
     connect: (choice) => this.link.connect(choice.agent, undefined, choice),
-    disconnect: () => this.link.disconnect(),
+    disconnect: () => this.link.disconnect(false, true),
     save: () => this.save(),
     publish: (update) => this.publish(update),
     notice: (text) => this.notice(text),

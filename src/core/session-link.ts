@@ -107,11 +107,8 @@ export class SessionLink {
     await workspace.ensureWorktree();
     if (scope) await workspace.prepare(scope);
     else scope = await workspace.scope(conversation.cwd);
-    // an initial connect keeps the activation published when its conversation opened
-    await this.disconnect(
-      !this.connected,
-      agent === this.host.conversation().agent,
-    );
+    // an initial connect keeps the activation published when its conversation opened; a runtime switch drops questions once it activates
+    await this.disconnect(!this.connected, true);
     await this.coordination?.activate(conversation, scope.project);
     const stored = conversation.sessions[agent];
     this.aborter = new AbortController();
