@@ -306,7 +306,8 @@ test('a resize after the retry delay retries a missing image without reparsing i
     id: 'image',
     kind: 'user',
     cwd: directory,
-    text: 'shot.png',
+    text: '[Image #1]',
+    images: ['shot.png'],
   };
   const lex = Lexer.prototype.lex;
   let parsed = 0;

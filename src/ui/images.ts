@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { resolveFile, unescapePath } from '../paths.js';
+import { resolveFile } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image
 const diacritics = [
@@ -26,15 +26,6 @@ const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const largestFile = 64 * 1024 * 1024;
 const retryDelay = 2_000;
 export const imageFile = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
-// a quoted path, or a run where a backslash escapes a space; macOS screenshot names hold an unescaped U+202F
-const pathToken = /"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^ \t\r\n\\"'])+)/g;
-
-/** image paths a message names, unescaped, as typed or dropped into the composer. */
-export function imagePaths(text: string): string[] {
-  return [...text.matchAll(pathToken)]
-    .map(([, double, single, bare]) => double ?? single ?? unescapePath(bare!))
-    .filter((path) => imageFile.test(path));
-}
 
 interface Image {
   id: number;

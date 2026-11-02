@@ -567,6 +567,7 @@ class CodexSession implements AgentSession {
     context?: string,
     purpose: TurnPurpose = 'user',
     answer?: AnswerInput,
+    images: readonly string[] = [],
   ): Promise<TurnResult> {
     if (purpose === 'peer-answer' && !this.options.answer) {
       if (this.closed || this.closing)
@@ -604,6 +605,7 @@ class CodexSession implements AgentSession {
             ...(skill && path
               ? [{ type: 'skill', name: skill.name, path }]
               : []),
+            ...images.map((file) => ({ type: 'localImage', path: file })),
           ],
           effort: this.info.effort,
           ...(this.options.answer
@@ -659,7 +661,7 @@ class CodexSession implements AgentSession {
   /** Codex keeps a steered prompt in the thread even when the turn is then interrupted. */
   async steer(
     prompt: string,
-    { skill }: { skill?: SkillCall } = {},
+    { skill, images = [] }: Parameters<AgentSession['steer']>[1] = {},
   ): Promise<boolean> {
     // a prompt steered into a shell command's turn would never be answered, and Codex expands a skill only at a turn's start
     if (
@@ -676,7 +678,10 @@ class CodexSession implements AgentSession {
       await this.rpc.request('turn/steer', {
         threadId: this.info.id,
         expectedTurnId: id,
-        input: [{ type: 'text', text: prompt, text_elements: [] }],
+        input: [
+          { type: 'text', text: prompt, text_elements: [] },
+          ...images.map((file) => ({ type: 'localImage', path: file })),
+        ],
       });
       return true;
     } catch {

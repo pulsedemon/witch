@@ -9,7 +9,7 @@ import { setImmediate } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import type { TestContext } from 'vitest';
 import { test, vi } from 'vitest';
-import { Graphics, imagePaths } from '../src/ui/images.js';
+import { Graphics } from '../src/ui/images.js';
 import { loaded } from './fixtures/graphics.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
@@ -48,15 +48,6 @@ function sips(t: TestContext, linux: (output: string) => Error | null) {
   syncBuiltinESMExports();
   return calls;
 }
-
-test('a dropped path keeps its escaped spaces and unescaped U+202F, a quoted path keeps its spaces, and other files are not images', () => {
-  assert.deepEqual(
-    imagePaths(
-      'see /tmp/Screenshot\\ 2026-10-14\\ at\\ 8.56.35 AM.png and "/tmp/a b.JPG" or notes.md',
-    ),
-    ['/tmp/Screenshot 2026-10-14 at 8.56.35 AM.png', '/tmp/a b.JPG'],
-  );
-});
 
 test('an image loads in the background, then is sent once as its PNG data, shown by rows that link to its file, whose color names it and whose first cell names its row, and placed again without resending when the width changes', async (t) => {
   const directory = await scratch('witch-images-');

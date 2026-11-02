@@ -5,6 +5,7 @@ import { TurnRunner } from './turn-runner.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction } from './compaction.js';
+import { Attachments, imagePaste } from './attachments.js';
 import { initialSnapshot, type Snapshot } from './snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
@@ -94,6 +95,7 @@ export class Coordinator {
   private readonly catalog: ModelCatalog;
   private readonly link: SessionLink;
   private readonly turns: TurnRunner;
+  private readonly attachments = new Attachments();
   readonly accountUsage: AccountUsage;
   private draining?: PromiseWithResolvers<void>;
   private deliveryHolds = 0;
@@ -126,7 +128,8 @@ export class Coordinator {
     cancelled: () => this.cancelled,
     closed: () => this.closed,
     session: () => this.link.session,
-    send: (prompt, kind) => this.turns.perform(prompt, kind),
+    send: (prompt, kind, images) =>
+      this.turns.perform(prompt, kind, { images }),
     connect: (choice) => this.link.connect(choice.agent, undefined, choice),
     disconnect: () => this.link.disconnect(false, true),
     save: () => this.save(),
@@ -222,6 +225,11 @@ export class Coordinator {
         persist: (operation) => this.persist(operation),
         beginActivity: (kind, scope) => this.beginActivity(kind, scope),
         steerQueued: () => this.steerQueued(),
+        prepareImages: (prompt) =>
+          this.attachments.prepare(
+            this.attachments.resolve(prompt),
+            this.files!,
+          ),
         ended: () => (this.turnEnded = true),
         failed: (failed) => (this.turnFailed = failed),
       },
@@ -408,16 +416,7 @@ export class Coordinator {
 
   private async steer(prompt: string): Promise<boolean> {
     const session = this.link.session;
-    if (
-      this.snapshot.phase !== 'running' ||
-      this.snapshot.answering ||
-      this.snapshot.reviewing ||
-      this.cancelled ||
-      !session ||
-      this.deliveryHeld ||
-      this.halted()
-    )
-      return false;
+    if (!session || !this.steerable()) return false;
     const command = shellCommand(prompt);
     if (command !== undefined) {
       if (!this.replied) return false;
@@ -426,15 +425,50 @@ export class Coordinator {
       return session.steer(`${prompt}\n\n${ranCommand}`, { command });
     }
     const skill = skillCall(prompt, this.snapshot.skills);
+    const ids = this.attachments.resolve(prompt);
+    let images: string[] | undefined;
+    if (ids.length) {
+      // a failure leaves the prompt queued, and its own turn reports it
+      images = await this.attachments
+        .prepare(ids, this.files!)
+        .catch(() => undefined);
+      // the turn can settle meanwhile and let a review start, which must not take the user's prompt
+      if (!images || !this.steerable() || this.link.session !== session)
+        return false;
+    }
     if (
       !(await (skill
-        ? session.steer(prompt.trimStart(), { skill })
-        : session.steer(prompt)))
+        ? session.steer(prompt.trimStart(), { skill, images })
+        : session.steer(prompt, { images })))
     )
       return false;
-    this.userRow(prompt);
+    this.userRow(prompt, images);
     return true;
   }
+
+  private steerable(): boolean {
+    return (
+      this.snapshot.phase === 'running' &&
+      !this.snapshot.answering &&
+      !this.snapshot.reviewing &&
+      !this.cancelled &&
+      !this.deliveryHeld &&
+      !this.halted()
+    );
+  }
+
+  /** the markers for a paste that lists image files, spaced from a word before them; undefined leaves the paste as text. */
+  paste = (text: string, before: string): string | undefined => {
+    const paths = imagePaste(text);
+    if (!paths) return;
+    try {
+      const markers = paths.map((path) => this.attachments.attach(path));
+      return `${/\S$/.test(before) ? ' ' : ''}${markers.join(' ')}`;
+    } catch {
+      // a file removed since it was checked
+      return;
+    }
+  };
 
   private get replied(): boolean {
     return this.snapshot.phase === 'running' && !!this.link.session?.replied;
@@ -759,6 +793,7 @@ export class Coordinator {
     if (refresh) refresh.cancelled = true;
     this.cancelled = true;
     this.compaction.cancel();
+    this.attachments.cancel();
     this.runtimes.stop();
     this.publish({
       requests: this.snapshot.requests.filter(
@@ -1013,9 +1048,15 @@ export class Coordinator {
     if (save) this.persist(this.files!.append(stamped));
   }
 
-  private userRow(text: string): void {
+  private userRow(text: string, images?: string[]): void {
     const { cwd } = this.current();
-    this.display({ id: randomUUID(), kind: 'user', text, cwd });
+    this.display({
+      id: randomUUID(),
+      kind: 'user',
+      text,
+      cwd,
+      ...(images && { images }),
+    });
   }
 
   /** transient notices must not make an unused conversation resumable. */

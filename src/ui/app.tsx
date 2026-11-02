@@ -1413,6 +1413,7 @@ export function App({
             onChange={changeComposer}
             onSubmit={submitComposer}
             onArrow={arrow}
+            onPaste={coordinator.paste}
           />
         </Box>
         {list ? (

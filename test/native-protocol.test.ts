@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { test } from 'vitest';
 import { CodexSchema } from './fixtures/codex-schema.js';
@@ -250,6 +252,56 @@ test('selected skills and child reads send native-shaped requests and consume th
       name: 'review',
       path: '/skills/review/SKILL.md',
     });
+  } finally {
+    await close(f.session, f.cwd);
+  }
+});
+
+test('images go to Codex as native localImage items after the text and selected skill of turn/start, and after the text of turn/steer', async () => {
+  const contract = new CodexSchema(schema);
+  const sent: RpcMessage[] = [];
+  const f = await fixture(undefined, {
+    onClient(message) {
+      if (message.method) {
+        contract.client(message);
+        sent.push(message);
+      }
+    },
+  });
+  const input = (method: string) =>
+    (
+      sent.find((message) => message.method === method)?.params as {
+        input: unknown[];
+      }
+    )?.input;
+  try {
+    await f.session.skills();
+    const turn = f.session.send(
+      'hold',
+      { name: 'review', args: '' },
+      undefined,
+      'user',
+      undefined,
+      ['/images/a.png', '/images/b.jpg'],
+    );
+    await until('the turn', () => input('turn/start') !== undefined);
+    assert.equal(
+      await f.session.steer('also this', { images: ['/images/c.jpg'] }),
+      true,
+    );
+    assert.deepEqual(input('turn/start'), [
+      { type: 'text', text: 'hold', text_elements: [] },
+      { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' },
+      { type: 'localImage', path: '/images/a.png' },
+      { type: 'localImage', path: '/images/b.jpg' },
+    ]);
+    assert.deepEqual(input('turn/steer'), [
+      { type: 'text', text: 'also this', text_elements: [] },
+      { type: 'localImage', path: '/images/c.jpg' },
+    ]);
+    await writeFile(join(f.cwd, 'release'), 'yes');
+    await within(f.session.interrupt(), 2000, 'interrupt');
+    assert.equal((await turn).status, 'interrupted');
   } finally {
     await close(f.session, f.cwd);
   }

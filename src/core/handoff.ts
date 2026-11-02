@@ -17,7 +17,11 @@ interface HandoffHost {
   cancelled(): boolean;
   closed(): boolean;
   session(): AgentSession | undefined;
-  send(prompt: string, kind: 'turn' | 'handoff'): Promise<TurnResult>;
+  send(
+    prompt: string,
+    kind: 'turn' | 'handoff',
+    images?: readonly string[],
+  ): Promise<TurnResult>;
   connect(selection: ModelSelection): Promise<AgentSession>;
   select(
     session: AgentSession,
@@ -84,6 +88,8 @@ export async function handoff(
       await host.send(
         'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
         'turn',
+        // the context carries the unfinished request as text, so its images go with the continuation
+        conversation.lastTurn?.images,
       );
     else if (!summary) delete conversation.handoff;
     await host.save();

@@ -68,6 +68,8 @@ export const conversationRecordSchema = conversationSchema.extend({
     .object({
       id: z.string(),
       status: z.enum(['completed', 'interrupted', 'failed']),
+      // the saved images its prompt and accepted steers sent, which a handoff's continuation sends again
+      images: z.array(z.string()).optional(),
     })
     .optional(),
   process: processIdentity.optional(),

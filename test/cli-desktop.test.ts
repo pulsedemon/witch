@@ -67,7 +67,8 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     id: 'shot',
     kind: 'user',
     cwd: project,
-    text: `see ${shot.replaceAll(' ', '\\ ')}`,
+    text: 'see [Image #1]',
+    images: [shot],
   });
   await files.append({
     id: 'read',
@@ -338,19 +339,15 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
 
     /** clicks the bottom row of an image whose link `matches` accepts, resolving to the target the CLI opened. */
     const open = async (name: string, matches: (url: string) => boolean) => {
+      // only a loaded image links to its file
       const bottom = () => {
         let found: { column: number; row: number } | undefined;
-        const rows = new Set<number>();
         for (let row = 0; row < 30; row++)
           for (let column = 0; column < 80; column++) {
             const url = screen.linkAt(column, row);
-            if (url && matches(url)) {
-              found = { column, row };
-              rows.add(row);
-            }
+            if (url && matches(url)) found = { column, row };
           }
-        // a loaded image spans rows below any text link to its file
-        return rows.size > 1 ? found : undefined;
+        return found;
       };
       await wait(name, bottom);
       const cell = bottom()!;

@@ -125,6 +125,11 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
       for (const listener of listeners) listener();
     },
     send: record('send'),
+    // synchronous, as the composer inserts its result in the same paste
+    paste: (text: string, before: string): string | undefined => {
+      calls.push(['paste', text, before]);
+      return undefined;
+    },
     compact: async () => {
       calls.push(['compact']);
       return true;

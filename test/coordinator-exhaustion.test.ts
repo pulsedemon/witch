@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { TestContext } from 'vitest';
@@ -16,6 +16,7 @@ import {
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
+import { png } from './fixtures/png.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
@@ -127,6 +128,50 @@ test('an exhausted turn continues in the same drain step on the newest comparabl
     assert.equal(conversation.id, id);
     await assert.rejects(store.claim(id), /open in another Witch instance/);
   } finally {
+    await coordinator.close();
+  }
+});
+
+test("the continuation after an exhausted turn sends the saved images of that turn's prompt and accepted steers, not of earlier turns or unread steers", async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  const gate = new TurnGate();
+  try {
+    const directory = await scratch('witch-exhaustion-image-');
+    const paste = async (name: string) => {
+      const path = join(directory, `${name}.png`);
+      await writeFile(path, png(2, 2));
+      return coordinator.paste(path, '')!;
+    };
+    await coordinator.send(`Earlier ${await paste('earlier')}`);
+    const { session } = claude.sessions.at(-1)!;
+    const send = session.send.bind(session);
+    const unread = await paste('unread');
+    vi.spyOn(session, 'send').mockImplementation(async (...args) => {
+      const result = await send(...args);
+      return result.exhausted
+        ? { ...result, unread: [`Unread ${unread}`] }
+        : result;
+    });
+    claude.gate = gate;
+    claude.exhaust = (prompt) => prompt.includes('Describe');
+    const sending = coordinator.send(`Describe ${await paste('prompt')}`);
+    await within(gate.entered, 2000, 'the exhausted turn');
+    await coordinator.send('Text only');
+    await coordinator.send(`Also ${await paste('steer')}`);
+    await coordinator.send(`Unread ${unread}`);
+    gate.open();
+    await sending;
+    const prompt = claude.inputs.at(-1)!.images!;
+    const [, steer] = claude.steerImages;
+    assert.equal(prompt.length, 1);
+    assert.equal(steer!.length, 1);
+    assert.deepEqual(codex.inputs[0], {
+      ...codex.inputs[0],
+      prompt: continuation,
+      images: [...prompt, ...steer!],
+    });
+  } finally {
+    gate.open();
     await coordinator.close();
   }
 });

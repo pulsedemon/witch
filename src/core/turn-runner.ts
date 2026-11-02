@@ -38,6 +38,8 @@ interface TurnOptions {
   /** a turn Witch composed, such as a /review correction, adds no user row and doesn't title the conversation. */
   silent?: boolean;
   review?: ReviewBatch;
+  /** saved images the turn sends as they are, as a handoff's continuation resends its unfinished turn's. */
+  images?: readonly string[];
 }
 
 interface TurnHost {
@@ -59,6 +61,8 @@ interface TurnHost {
     scope?: MemoryScope,
   ): Promise<{ activity: Activity; scope: MemoryScope }>;
   steerQueued(): Promise<void>;
+  /** saves the images the prompt's markers name into the conversation. */
+  prepareImages(prompt: string): Promise<string[]>;
   /** the native turn ended, so only settlement holds the phase. */
   ended(): void;
   /** sets whether a failed turn holds the queue for the composer. */
@@ -117,7 +121,14 @@ export class TurnRunner {
   async perform(
     prompt: string,
     kind: 'turn' | 'handoff' | 'answer' | 'review',
-    { delivered, queued = false, requests, silent, review }: TurnOptions = {},
+    {
+      delivered,
+      queued = false,
+      requests,
+      silent,
+      review,
+      ...options
+    }: TurnOptions = {},
     read?: MemoryScope,
   ): Promise<TurnResult> {
     const conversation = this.host.conversation();
@@ -189,6 +200,21 @@ export class TurnRunner {
           )))
       )
         return { status: 'interrupted', text: '', inputUnsent: true };
+      // from `prompt`, since handoff text in the input can quote old markers.
+      // a stop aborts a conversion, and the check below reports it as the stop it is; a stop already made would have
+      // aborted an earlier controller, so a cancelled turn starts none
+      const images = options.images
+        ? [...options.images]
+        : kind === 'turn' &&
+            !silent &&
+            command === undefined &&
+            !this.host.cancelled() &&
+            !session.closed
+          ? await this.host.prepareImages(prompt).catch((error: unknown) => {
+              if (this.host.cancelled() || session.closed) return [];
+              throw error;
+            })
+          : [];
       // a stop during an awaited check must prevent native input.
       if (
         this.host.cancelled() ||
@@ -198,9 +224,10 @@ export class TurnRunner {
         return { status: 'interrupted', text: '' };
       if (kind === 'turn' && !silent && conversation.title === untitled)
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
+      const row = randomUUID();
       if (!silent)
         this.host.display({
-          id: randomUUID(),
+          id: row,
           kind: kind === 'turn' ? 'user' : 'notice',
           text: requests
             ? answerNotice(requests)
@@ -208,6 +235,7 @@ export class TurnRunner {
               ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
               : prompt,
           cwd: conversation.cwd,
+          ...(images.length ? { images } : {}),
         });
       this.host.persist(this.host.save());
       if (command !== undefined) delivered?.();
@@ -234,6 +262,7 @@ export class TurnRunner {
                 outputSchema: peerAnswerOutputSchema,
                 requestFile: batch.file,
               },
+              images,
             );
             const stopPolicy = watchClaimPolicy(
               this.coordination,
@@ -267,7 +296,7 @@ export class TurnRunner {
         });
       const shown = kind === 'turn' && !silent ? [prompt] : [];
       for (const row of unreadRows(this.host.snapshot().items, shown, result))
-        this.host.display({ ...row, text: '', unread: true });
+        this.host.display({ ...row, text: '', images: [], unread: true });
       if (result.inputUnsent) this.retain(conversation.id, pendingContext);
       this.retain(conversation.id, result.unreadContext);
       await this.finishActivity(activity, this.compaction.failure ?? result);
@@ -281,8 +310,22 @@ export class TurnRunner {
         if (!automatic && pendingHandoff === conversation.handoff)
           delete conversation.handoff;
       }
-      if (kind === 'turn')
-        conversation.lastTurn = { id: activity.id, status: result.status };
+      if (kind === 'turn') {
+        const { items } = this.host.snapshot();
+        // the turn's own row and the steers accepted after it; an unread row's images were cleared above
+        const start = items.findIndex(({ id }) => id === row);
+        const sent =
+          start < 0
+            ? []
+            : items
+                .slice(start)
+                .flatMap((item) => (item.kind === 'user' && item.images) || []);
+        conversation.lastTurn = {
+          id: activity.id,
+          status: result.status,
+          ...(sent.length ? { images: sent } : {}),
+        };
+      }
       await this.host.save();
       if (kind === 'turn' && conversation.lastTurn?.status === 'completed')
         this.host.publish({ completedTurn: conversation.lastTurn.id });

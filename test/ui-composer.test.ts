@@ -137,6 +137,30 @@ test('Enter inserts a file without sending', async () => {
   }
 });
 
+test('a paste the coordinator turns into an image marker goes into the draft and is sent with it', async () => {
+  const { app, coordinator, calls } = fake({});
+  coordinator.paste = (text, before) => {
+    calls.push(['paste', text, before]);
+    return ' [Image #1]';
+  };
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    ui.stdin.write('session');
+    await until('the draft', () => ui.text().includes('┃ session'));
+    ui.stdin.write('\u001b[200~/tmp/shot.png\u001b[201~');
+    await until('the marker', () => ui.text().includes('┃ session [Image #1]'));
+    ui.stdin.write(ENTER);
+    await until('the send', () => calls.some(([name]) => name === 'send'));
+    assert.deepEqual(calls, [
+      ['paste', '/tmp/shot.png', 'session'],
+      ['send', 'session [Image #1]'],
+    ]);
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('Up chooses in an open list without moving the cursor, and moves it once a space closes the list', async () => {
   const { ui } = await launched({}, ['src/app.ts', 'src/apx.ts']);
   try {
