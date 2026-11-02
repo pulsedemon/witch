@@ -80,6 +80,21 @@ test('a pushed fix and its thread reply cover a summary without another response
   assert.equal(result.items[1]!.receipts[0]!.disposition, 'fixed');
 });
 
+test('a summary claiming no open issues stays pending while it has its own inline finding', () => {
+  const source = reviewSource();
+  source.reviews[0]!.body = '**No open issues** 🎉';
+  assert.deepEqual(
+    observeReviews(undefined, source).items.map(({ id, status }) => [
+      id,
+      status,
+    ]),
+    [
+      ['review-1', 'pending'],
+      ['thread-1', 'pending'],
+    ],
+  );
+});
+
 test('a handled finding stays handled through rereads, head updates and human replies', async () => {
   const f = fixture();
   const handled = await reconcileReviews(

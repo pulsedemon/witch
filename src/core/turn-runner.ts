@@ -220,7 +220,7 @@ export class TurnRunner {
         if (refusal !== undefined) {
           // a stop or restart also fails the check, and leaves the repair attempted
           if (!this.host.cancelled() && !session.closed) refused?.(refusal);
-          return { status: 'interrupted', text: '', inputUnsent: true };
+          return { status: 'interrupted', text: '' };
         }
       }
       // from `prompt`, since handoff text in the input can quote old markers.
@@ -273,8 +273,13 @@ export class TurnRunner {
         if (ran && ran.status !== 'completed') result = ran;
         else {
           if (generation !== this.link.generation) input = await context();
+          // a listener can stop the turn as its row publishes; the review's batch then stays retryable
           if (this.host.cancelled() || session.closed)
-            result = { status: 'interrupted', text: '' };
+            result = {
+              status: 'interrupted',
+              text: '',
+              ...(review && { inputUnsent: true }),
+            };
           else {
             if (!automatic) this.pendingContext.delete(conversation.id);
             generation = this.link.generation;

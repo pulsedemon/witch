@@ -613,21 +613,26 @@ export class Coordinator {
     return this.automaticReady() && this.answerable().length > 0;
   }
 
+  /** a turn that never delivered its input returns its batch unsent, so the batch waits for a later attempt. */
   private async reviewCopilot(
     batch: ReviewBatch,
   ): Promise<TurnResult | undefined> {
     let result: TurnResult | undefined;
+    let delivered = false;
     this.publish({ reviewing: true });
     try {
       await this.operate('running', async () => {
         result = await this.turns.run(reviewInstruction(batch), 'review', {
           review: batch,
+          delivered: () => (delivered = true),
         });
       });
     } finally {
       this.publish({ reviewing: false });
     }
-    return result;
+    return delivered
+      ? result
+      : { status: 'interrupted', text: '', inputUnsent: true };
   }
 
   private async repairConflict(
