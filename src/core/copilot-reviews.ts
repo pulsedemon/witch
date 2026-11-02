@@ -120,6 +120,24 @@ function feedback(source: GitHubReviews): Feedback[] {
   ];
 }
 
+/** summaries Copilot marks as having no open issues, with no inline findings of their own, need no review turn. */
+function findingsFree(
+  source: GitHubReviews,
+  current: readonly Feedback[],
+): Set<string> {
+  const threaded = new Set(
+    current.flatMap(({ kind, reviews }) => (kind === 'thread' ? reviews : [])),
+  );
+  return new Set(
+    source.reviews
+      .filter(
+        ({ id, body }) =>
+          body.includes('**No open issues**') && !threaded.has(id),
+      )
+      .map(({ id }) => id),
+  );
+}
+
 export function observeReviews(
   state: CopilotReviewState | undefined,
   source: GitHubReviews,
@@ -127,6 +145,7 @@ export function observeReviews(
   const current = feedback(source);
   const present = new Set(current.map(({ id }) => id));
   const previous = new Map(state?.items.map((item) => [item.id, item]));
+  const clear = findingsFree(source, current);
   return {
     ...state,
     pullRequest: source.pullRequest,
@@ -135,9 +154,19 @@ export function observeReviews(
         const old = previous.get(item.id);
         if (old?.version === item.version)
           return { ...old, ...item, present: true };
-        const receipt = old?.receipts.find(
-          ({ version }) => version === item.version,
-        );
+        const receipts = old?.receipts ?? [];
+        const known = receipts.find(({ version }) => version === item.version);
+        const cleared =
+          !known && clear.has(item.id)
+            ? {
+                id: item.id,
+                version: item.version,
+                disposition: 'covered' as const,
+                threads: [],
+                reason: 'Copilot reported no open issues.',
+              }
+            : undefined;
+        const receipt = known ?? cleared;
         return {
           ...item,
           present: true,
@@ -149,7 +178,7 @@ export function observeReviews(
           ...(receipt?.disposition === 'blocked'
             ? { reason: receipt.reason }
             : {}),
-          receipts: old?.receipts ?? [],
+          receipts: cleared ? [...receipts, cleared] : receipts,
         };
       }),
       ...(state?.items ?? [])
