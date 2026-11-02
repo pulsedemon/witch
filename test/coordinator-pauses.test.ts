@@ -689,3 +689,43 @@ test('a prompt sent before a failed pause read resumes the pauses issued before 
   await restarted.coordinator.send('after the later pause');
   await until('delivered', () => prompts(restarted).length === 2);
 });
+
+test('a pause arriving during an in-flight stop gets its own stop before confirming', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  const session = a.a.sessions[0]!.session;
+  const interrupt = session.interrupt.bind(session);
+  const held = Promise.withResolvers<void>();
+  let first = true;
+  session.interrupt = async (...args) => {
+    if (first) {
+      first = false;
+      await held.promise;
+    }
+    return interrupt(...args);
+  };
+  const issued = await pause(i);
+  await refreshed(a);
+  const second = await pause(i);
+  await refreshed(a);
+  // an operation the user starts while the first stop is still in flight
+  a.a.gate = new TurnGate();
+  let compacted = false;
+  const compacting = a.coordinator.compact().finally(() => {
+    compacted = true;
+  });
+  await a.a.gate.entered;
+  held.resolve();
+  await until(
+    'both confirmed',
+    async () =>
+      (await statuses(f, issued))[id(a)] === 'paused' &&
+      (await statuses(f, second))[id(a)] === 'paused',
+  );
+  assert.equal(compacted, true);
+  await compacting.catch(() => {});
+});

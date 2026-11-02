@@ -118,6 +118,8 @@ export class Coordinator {
     release: () => void;
     /** a stop is in flight; confirmation waits for it. */
     stopping: boolean;
+    /** a pause arrived during that stop, so another pass follows it. */
+    again: boolean;
     retry?: ReturnType<typeof setTimeout>;
   };
   /** `conversation/pause` pairs the user lifted with a prompt, which hold no more even before the store records it. */
@@ -498,11 +500,13 @@ export class Coordinator {
       confirming: new Set<string>(),
       release: this.holdPromptDelivery(),
       stopping: false,
+      again: false,
     });
     const fresh = held.filter(({ id }) => !paused.applied.has(id));
     for (const { id } of fresh) paused.applied.add(id);
     // an operation the user started while held may run, so each new pause stops it again
-    if (fresh.length && !paused.stopping) {
+    if (fresh.length && paused.stopping) paused.again = true;
+    else if (fresh.length) {
       paused.stopping = true;
       void this.stopForPause(paused);
     }
@@ -510,7 +514,9 @@ export class Coordinator {
   }
 
   /** confirms once the stop succeeded and the operation it stopped has settled; a failed stop retries until the visit ends. */
-  private async stopForPause(paused: NonNullable<Coordinator['paused']>) {
+  private async stopForPause(
+    paused: NonNullable<Coordinator['paused']>,
+  ): Promise<void> {
     const task = this.task;
     try {
       // stopCurrent leaves the user's own Escape hold to the user
@@ -525,6 +531,10 @@ export class Coordinator {
       );
       paused.retry = setTimeout(() => void this.stopForPause(paused), 2000);
       return;
+    }
+    if (paused.again && this.paused === paused) {
+      paused.again = false;
+      return this.stopForPause(paused);
     }
     paused.stopping = false;
     this.confirmPauses();
