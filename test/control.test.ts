@@ -4,7 +4,7 @@ import fs, { constants, promises as files } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { basename, join } from 'node:path';
 import { onTestFinished, test, vi } from 'vitest';
-import { setImmediate, setTimeout as delay } from 'node:timers/promises';
+import { setImmediate } from 'node:timers/promises';
 import {
   callControl,
   ControlHost,
@@ -1360,6 +1360,8 @@ test('a closed host keeps no timer or watch', async () => {
 });
 
 test('a far deadline sets no 1 ms timer', async () => {
+  // fake timers, like Node, fire a delay past 2 ** 31 - 1 after 1 ms
+  vi.useFakeTimers({ toFake: [...timers] });
   const bound = await binding();
   const host = await ControlHost.open(
     bound.directory,
@@ -1377,8 +1379,9 @@ test('a far deadline sets no 1 ms timer', async () => {
     );
     await host.drain();
     const readdir = vi.spyOn(files, 'readdir');
-    await delay(200);
-    assert.ok(readdir.mock.calls.length <= 1);
+    // synchronous, so only a timer could start a read here
+    vi.advanceTimersByTime(60_000);
+    assert.equal(readdir.mock.calls.length, 0);
   } finally {
     await host.close();
   }
