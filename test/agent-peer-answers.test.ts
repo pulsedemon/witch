@@ -362,7 +362,18 @@ for (const reason of ['missing profile', 'exposed tool', 'registration']) {
     if (reason === 'exposed tool')
       await writeFile(
         join(cwd, 'answer-tools.json'),
-        JSON.stringify([{ runtimeStatus: 'ready', tools: { write: {} } }]),
+        JSON.stringify([
+          {
+            name: 'unreal',
+            authStatus: 'unsupported',
+            runtimeStatus: 'connected',
+            resources: [],
+            resourceTemplates: [],
+            tools: {
+              write: { name: 'write', inputSchema: { type: 'object' } },
+            },
+          },
+        ]),
       );
     await assert.rejects(
       answer(session, cwd),
