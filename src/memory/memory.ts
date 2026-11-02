@@ -294,6 +294,7 @@ export class Memory {
     // only absent origins and work trees may change the project key; other Git failures must surface.
     // exit 128 also covers fatal errors, so only untranslated missing-work-tree messages fall back.
     // a broken `.git` target remains an error.
+    let outside = false;
     const read = async (
       args: string[],
       absent = /not a git repository \(|must be run in a work tree/,
@@ -307,6 +308,8 @@ export class Memory {
       signal?.throwIfAborted();
       if (result.code === 128 && !absent.test(result.stderr))
         throw new Error(`${cwd}: ${result.stderr.trim()}`);
+      outside =
+        result.code === 128 && /not a git repository \(/.test(result.stderr);
       return result.code === 0
         ? result.stdout.toString('utf8').trim()
         : undefined;
@@ -316,6 +319,8 @@ export class Memory {
       /^file:\/\/[^/]*(.*)$/s,
       (_, path: string) => path.replace(/(?:%(?!00)[\da-f]{2})+/gi, decoded),
     );
+    // outside any repository there is no top level either, so git needn't be asked
+    if (outside) return { identity: cwd, top: cwd };
     const [, url, scp, path] = (origin && remote.exec(origin)) || [];
     const host = url ?? scp;
     const top = (await read(['rev-parse', '--show-toplevel'])) || cwd;
