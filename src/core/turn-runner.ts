@@ -334,8 +334,11 @@ export class TurnRunner {
         this.host.publish({ completedTurn: conversation.lastTurn.id });
       return result;
     } finally {
-      await this.coordination?.endTurn(activity.id);
-      if (batch) await rm(batch.file, { force: true });
+      try {
+        await this.coordination?.endTurn(activity.id);
+      } finally {
+        if (batch) await rm(batch.file, { force: true });
+      }
     }
   }
 

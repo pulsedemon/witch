@@ -909,6 +909,24 @@ test('invalid native answers publish nothing and consume their one automatic att
   assert.equal(answerTurns(b).length, 1);
 });
 
+test('a failed turn cleanup still removes the request file', async (t) => {
+  const { a, b, claim } = await owners(t.onTestFinished);
+  vi.spyOn(b.coordination, 'endTurn').mockRejectedValueOnce(
+    new Error('Turn cleanup failed'),
+  );
+  await ask(a, claim, 'Cleanup?');
+  await refreshed(b);
+  await until(
+    'reported cleanup failure',
+    () =>
+      b.coordinator.snapshot.error === 'Turn cleanup failed' &&
+      !b.coordinator.snapshot.answering,
+  );
+  await assert.rejects(access(answerTurns(b)[0]!.answer!.requestFile), {
+    code: 'ENOENT',
+  });
+});
+
 test('a failed admission clears and retries', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   vi.spyOn(
