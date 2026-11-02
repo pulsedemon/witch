@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdirSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, vi } from 'vitest';
@@ -159,13 +159,16 @@ test('answer process registration preserves the owner identity and ignores repor
 
 test('idle owner answers in one attributed turn', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
-  b.a.peerReply = (requests) =>
-    JSON.stringify({
+  let supplied: PeerRequest[] = [];
+  b.a.peerReply = (requests) => {
+    supplied = requests;
+    return JSON.stringify({
       answers: requests.map(({ id }) => ({
         id,
         message: `Port 4000 ${secret}`,
       })),
     });
+  };
   const request = await ask(a, claim, `Which port? ${secret}`);
   await refreshed(b);
   await until('answer turn', () => answerTurns(b).length === 1 && settled(b));
@@ -174,11 +177,9 @@ test('idle owner answers in one attributed turn', async (t) => {
   assert.ok(
     input!.context!.includes(JSON.stringify(input!.answer!.requestFile)),
   );
-  const supplied = JSON.parse(
-    await readFile(input!.answer!.requestFile, 'utf8'),
-  ) as PeerRequest[];
   assert.equal(supplied[0]!.id, request.id);
   assert.equal(supplied[0]!.message, `Which port? ${secret}`);
+  await assert.rejects(access(input!.answer!.requestFile), { code: 'ENOENT' });
   assert.equal(
     b.coordinator.snapshot.conversation!.sessions.a!.deliveredRevision,
     undefined,
@@ -420,6 +421,9 @@ test('interrupted answer turn is not retried, and Escape holds answer turns', as
   await answering.entered;
   await b.coordinator.interrupt();
   await until('owner settled', () => settled(b));
+  await assert.rejects(access(answerTurns(b)[1]!.answer!.requestFile), {
+    code: 'ENOENT',
+  });
   b.a.gate = undefined;
   seen.answering = false;
   await holds(f, b, await ask(a, claim, 'Later?'), seen);

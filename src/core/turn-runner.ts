@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
 import { aborted, errorMessage } from '../agents/stderr.js';
 import type { TurnResult } from '../agents/types.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
@@ -15,6 +16,7 @@ import {
   preparePeerAnswers,
   recordPeerAnswers,
   peerAnswerOutputSchema,
+  type PeerAnswerBatch,
 } from './peer-answers.js';
 import { nativePrompt, shellCommand, skillCall } from './prompts.js';
 import type { Conflict } from './repository.js';
@@ -143,8 +145,9 @@ export class TurnRunner {
     if (!session || this.host.cancelled())
       return { status: 'interrupted', text: '' };
     if (!answer) this.coordination?.beginTurn(activity.id);
+    let batch: PeerAnswerBatch | undefined;
     try {
-      const batch = requests && (await preparePeerAnswers(requests));
+      batch = requests && (await preparePeerAnswers(requests));
       this.host.publish({
         subagents: this.host
           .snapshot()
@@ -332,6 +335,7 @@ export class TurnRunner {
       return result;
     } finally {
       await this.coordination?.endTurn(activity.id);
+      if (batch) await rm(batch.file, { force: true });
     }
   }
 
