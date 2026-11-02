@@ -126,35 +126,34 @@ test.each([true, false])(
     await git(work, 'config', 'core.sshCommand', ssh);
     await git(work, 'config', 'protocol.ssh.allow', 'always');
     let reads = 0;
-    const watch = new RepositoryWatch(
-      work,
-      async (command, args, options) => {
-        if (command === 'gh') throw new Error('no pull requests found');
-        try {
-          return await execute(command, args, {
-            ...options,
-            env: {
-              ...process.env,
-              ...options.env,
-              // unpatched Git 2.43 ignores the no-fetch setting
-              ...(!noFetchSupport && { GIT_NO_LAZY_FETCH: '0' }),
-            },
-          });
-        } finally {
-          if (args.includes('status')) reads++;
-        }
-      },
-      undefined,
-      { interval: 50 },
-    );
+    const run: Run = async (command, args, options) => {
+      if (command === 'gh') throw new Error('no pull requests found');
+      try {
+        return await execute(command, args, {
+          ...options,
+          env: {
+            ...process.env,
+            ...options.env,
+            // unpatched Git 2.43 ignores the no-fetch setting
+            ...(!noFetchSupport && { GIT_NO_LAZY_FETCH: '0' }),
+          },
+        });
+      } finally {
+        if (args.includes('status')) reads++;
+      }
+    };
+    const missing = new RepositoryWatch(work, run);
     try {
       await until('missing-blob status read', () => reads > 0);
       await assert.rejects(access(marker), { code: 'ENOENT' });
-      const unavailable = watch.snapshot;
-      assert.equal(unavailable, undefined);
-      await git(work, 'hash-object', '-w', join(source, 'a'));
-      const later = new Date(Date.now() + 60_000);
-      await utimes(join(work, 'b'), later, later);
+      assert.equal(missing.snapshot, undefined);
+    } finally {
+      missing.close();
+    }
+    await git(work, 'hash-object', '-w', join(source, 'a'));
+    // a new watch reads at once, where a change event can be lost while FSEvents is busy
+    const watch = new RepositoryWatch(work, run);
+    try {
       await until('rename status', () => watch.snapshot?.staged === 1);
       assert.equal(watch.snapshot?.branch, 'main');
       assert.equal(watch.snapshot?.modified, 0);
