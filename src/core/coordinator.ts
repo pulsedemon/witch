@@ -128,7 +128,8 @@ export class Coordinator {
     cancelled: () => this.cancelled,
     closed: () => this.closed,
     session: () => this.link.session,
-    send: (prompt, kind) => this.turns.perform(prompt, kind),
+    send: (prompt, kind, images) =>
+      this.turns.perform(prompt, kind, { images }),
     connect: (choice) => this.link.connect(choice.agent, undefined, choice),
     disconnect: () => this.link.disconnect(false, true),
     save: () => this.save(),

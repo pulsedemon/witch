@@ -23,7 +23,11 @@ interface SwitchHost {
   cancelled(): boolean;
   closed(): boolean;
   session(): AgentSession | undefined;
-  send(prompt: string, kind: 'turn' | 'handoff'): Promise<TurnResult>;
+  send(
+    prompt: string,
+    kind: 'turn' | 'handoff',
+    images?: readonly string[],
+  ): Promise<TurnResult>;
   connect(selection: ModelSelection): Promise<AgentSession>;
   disconnect(): Promise<void>;
   save(): Promise<void>;
@@ -96,8 +100,8 @@ export class RuntimeSwitch {
         cancelled: () => host.cancelled(),
         closed: () => host.closed(),
         session: () => host.session(),
-        send: async (prompt, kind) => {
-          const result = await host.send(prompt, kind);
+        send: async (prompt, kind, images) => {
+          const result = await host.send(prompt, kind, images);
           // a `/model` summary can exhaust its source too, and returning there needs later evidence
           if (result.status === 'failed' && result.exhausted)
             this.exhaustedAt.set(host.conversation().agent, Date.now());

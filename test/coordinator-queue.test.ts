@@ -5,6 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
 import { test, vi } from 'vitest';
+import { Memory } from '../src/memory/memory.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { fixture, turns } from './fixtures/coordinator.js';
@@ -566,6 +567,49 @@ test('an interrupt while a pasted image converts stops the conversion, sends not
         text.includes('aborted'),
       ),
     );
+    assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+test('an interrupt before a turn reaches its images starts no conversion', async (t) => {
+  const f = await fixture();
+  const entered = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  const snapshot = Memory.prototype.snapshot;
+  const conversions: unknown[] = [];
+  t.onTestFinished(() => {
+    held.resolve();
+    Memory.prototype.snapshot = snapshot;
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+  // the prompt's context reads memory just before the turn prepares its images
+  Memory.prototype.snapshot = function (...args) {
+    entered.resolve();
+    return held.promise.then(() => snapshot.apply(this, args));
+  };
+  vi.spyOn(childProcess, 'execFile').mockImplementation((...call) => {
+    conversions.push(call);
+    return new childProcess.ChildProcess();
+  });
+  syncBuiltinESMExports();
+  try {
+    const path = join(f.root, 'photo.jpg');
+    await writeFile(path, 'jpeg bytes');
+    const marker = f.coordinator.paste(path, '')!;
+    const sending = f.coordinator.send(`look ${marker}`);
+    await within(entered.promise, 2000, 'the held context');
+    const interrupting = f.coordinator.interrupt();
+    held.resolve();
+    await within(
+      Promise.all([sending, interrupting]),
+      2000,
+      'the stopped turn',
+    );
+    assert.deepEqual(conversions, []);
+    assert.deepEqual(f.a.inputs, []);
     assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
   } finally {
     await f.coordinator.close();

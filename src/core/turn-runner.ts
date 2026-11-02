@@ -38,6 +38,8 @@ interface TurnOptions {
   /** a turn Witch composed, such as a /review correction, adds no user row and doesn't title the conversation. */
   silent?: boolean;
   review?: ReviewBatch;
+  /** saved images the turn sends as they are, as a handoff's continuation resends its unfinished turn's. */
+  images?: readonly string[];
 }
 
 interface TurnHost {
@@ -119,7 +121,14 @@ export class TurnRunner {
   async perform(
     prompt: string,
     kind: 'turn' | 'handoff' | 'answer' | 'review',
-    { delivered, queued = false, requests, silent, review }: TurnOptions = {},
+    {
+      delivered,
+      queued = false,
+      requests,
+      silent,
+      review,
+      ...options
+    }: TurnOptions = {},
     read?: MemoryScope,
   ): Promise<TurnResult> {
     const conversation = this.host.conversation();
@@ -192,9 +201,15 @@ export class TurnRunner {
       )
         return { status: 'interrupted', text: '', inputUnsent: true };
       // from `prompt`, since handoff text in the input can quote old markers.
-      // a stop aborts a conversion, and the check below reports it as the stop it is
-      const images =
-        kind === 'turn' && !silent && command === undefined
+      // a stop aborts a conversion, and the check below reports it as the stop it is; a stop already made would have
+      // aborted an earlier controller, so a cancelled turn starts none
+      const images = options.images
+        ? [...options.images]
+        : kind === 'turn' &&
+            !silent &&
+            command === undefined &&
+            !this.host.cancelled() &&
+            !session.closed
           ? await this.host.prepareImages(prompt).catch((error: unknown) => {
               if (this.host.cancelled() || session.closed) return [];
               throw error;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import type { TestContext } from 'vitest';
@@ -16,6 +16,7 @@ import {
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
+import { png } from './fixtures/png.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
@@ -126,6 +127,25 @@ test('an exhausted turn continues in the same drain step on the newest comparabl
     );
     assert.equal(conversation.id, id);
     await assert.rejects(store.claim(id), /open in another Witch instance/);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test("the continuation after an exhausted turn sends that turn's saved images to the destination", async () => {
+  const { coordinator, claude, codex } = await exhaustion();
+  try {
+    const path = join(await scratch('witch-exhaustion-image-'), 'shot.png');
+    await writeFile(path, png(2, 2));
+    const marker = coordinator.paste(path, '')!;
+    claude.exhaust = (prompt) => prompt.includes('Describe');
+    await coordinator.send(`Describe ${marker}`);
+    const [sent] = claude.inputs;
+    assert.equal(sent!.images?.length, 1);
+    assert.deepEqual(
+      codex.inputs.map(({ prompt, images }) => [prompt, images]),
+      [[continuation, sent!.images]],
+    );
   } finally {
     await coordinator.close();
   }
