@@ -224,9 +224,10 @@ export class TurnRunner {
         return { status: 'interrupted', text: '' };
       if (kind === 'turn' && !silent && conversation.title === untitled)
         conversation.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 80);
+      const row = randomUUID();
       if (!silent)
         this.host.display({
-          id: randomUUID(),
+          id: row,
           kind: kind === 'turn' ? 'user' : 'notice',
           text: requests
             ? answerNotice(requests)
@@ -309,8 +310,22 @@ export class TurnRunner {
         if (!automatic && pendingHandoff === conversation.handoff)
           delete conversation.handoff;
       }
-      if (kind === 'turn')
-        conversation.lastTurn = { id: activity.id, status: result.status };
+      if (kind === 'turn') {
+        const { items } = this.host.snapshot();
+        // the turn's own row and the steers accepted after it; an unread row's images were cleared above
+        const start = items.findIndex(({ id }) => id === row);
+        const sent =
+          start < 0
+            ? []
+            : items
+                .slice(start)
+                .flatMap((item) => (item.kind === 'user' && item.images) || []);
+        conversation.lastTurn = {
+          id: activity.id,
+          status: result.status,
+          ...(sent.length ? { images: sent } : {}),
+        };
+      }
       await this.host.save();
       if (kind === 'turn' && conversation.lastTurn?.status === 'completed')
         this.host.publish({ completedTurn: conversation.lastTurn.id });

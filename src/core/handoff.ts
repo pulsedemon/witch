@@ -89,8 +89,7 @@ export async function handoff(
         'Continue the task described by the handoff context. Check the working files before relying on statements about their state.',
         'turn',
         // the context carries the unfinished request as text, so its images go with the continuation
-        context.findLast((item) => item.kind === 'user' && !item.unread)
-          ?.images,
+        conversation.lastTurn?.images,
       );
     else if (!summary) delete conversation.handoff;
     await host.save();
