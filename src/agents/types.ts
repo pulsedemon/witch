@@ -226,6 +226,8 @@ export type AgentEvent =
   | { type: 'spell'; cast: Cast }
   | { type: 'subagent'; subagent: Subagent }
   | { type: 'command'; command: BackgroundCommand }
+  /** the native agent reports whether it runs, which Claude Code also does on its own between turns. */
+  | { type: 'running'; running: boolean }
   /** a transient notice is a diagnostic of this connection, shown but not saved. */
   | { type: 'notice'; text: string; transient?: boolean };
 

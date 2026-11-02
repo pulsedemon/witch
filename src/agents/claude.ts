@@ -1078,9 +1078,11 @@ class ClaudeSession implements AgentSession {
         });
       } else if (message.subtype === 'session_state_changed') {
         this.sessionLifecycle = true;
+        const running = message.state !== 'idle';
+        this.options.onEvent({ type: 'running', running });
         const turn = this.turn;
         if (turn) {
-          turn.idle = message.state === 'idle';
+          turn.idle = !running;
           if (turn.idle && turn.held && turn.answer !== undefined)
             this.release(turn);
           else this.finishIdle(turn);

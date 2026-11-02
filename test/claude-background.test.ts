@@ -166,6 +166,22 @@ test('a session state received between turns makes subsequent results wait for i
   }
 });
 
+test('Claude Code running on its own between turns is reported until it is idle again', async () => {
+  const f = await background();
+  const reported = () =>
+    f.events.flatMap((e) => (e.type === 'running' ? [e.running] : []));
+  try {
+    await f.emit(result('First answer.'), state('idle'));
+    await within(f.turn, 2000, 'first turn');
+    const before = reported().length;
+    // as Claude Code does when a brew ends after idle
+    await f.emit(state('running'), result('Brewed.'), state('idle'));
+    assert.deepEqual(reported().slice(before), [true, false]);
+  } finally {
+    await f.session.close();
+  }
+});
+
 for (const task_type of ['local_agent', 'local_workflow'])
   for (const ending of ['notification', 'live set'])
     test(`without session state a ${task_type} holds the result until its ${ending} ends it`, async () => {

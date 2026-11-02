@@ -122,7 +122,8 @@ export class PresencePublisher {
       activation: active.binding.activation,
       process: this.host.process,
       phase:
-        state?.phase === 'compacting'
+        state?.phase === 'compacting' ||
+        (state?.phase === 'idle' && state.nativeRunning)
           ? 'running'
           : (state?.phase ?? 'starting'),
       requests: state?.requests.length ?? 0,

@@ -282,3 +282,39 @@ test('familiar and brew rows retain identity, order and reports after reopening'
     await reopened?.close();
   }
 });
+
+test('the native agent running on its own keeps the session active until it idles, closes or disconnects', async () => {
+  const { coordinator, a, b, active } = await fixture();
+  const shown = () => [
+    coordinator.snapshot.nativeRunning,
+    coordinator.pentacle.active,
+    active.at(-1),
+  ];
+  try {
+    const emitA = a.sessions[0]!.options.onEvent;
+    emitA({ type: 'running', running: true });
+    assert.equal(coordinator.snapshot.phase, 'idle');
+    assert.deepEqual(shown(), [true, true, true]);
+    emitA({ type: 'running', running: false });
+    assert.deepEqual(shown(), [false, false, false]);
+    emitA({ type: 'running', running: true });
+    await coordinator.selectModel({ agent: 'b', id: 'b-model' });
+    assert.deepEqual(shown(), [false, false, false]);
+    const emitB = b.sessions[0]!.options.onEvent;
+    emitB({ type: 'running', running: true });
+    assert.deepEqual(shown(), [true, true, true]);
+    emitB({ type: 'closed' });
+    assert.deepEqual(shown(), [false, false, false]);
+  } finally {
+    await coordinator.close();
+  }
+});
+
+test('the pentacle spins while the session closes', async () => {
+  const { coordinator } = await fixture();
+  assert.equal(coordinator.pentacle.active, false);
+  const closing = coordinator.close();
+  assert.equal(coordinator.snapshot.phase, 'closing');
+  assert.equal(coordinator.pentacle.active, true);
+  await closing;
+});

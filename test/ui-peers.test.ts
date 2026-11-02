@@ -409,7 +409,7 @@ test('a refused /task take stays in chat and leaves queued prompts runnable', as
   }
 });
 
-test('queue and suggestion rows preserve task links and detailed native phase', async () => {
+test('queue and suggestion rows preserve task links and detailed activity status', async () => {
   const choosing = peer(1),
     queued = peer(2),
     suggested = peer(3);
@@ -433,6 +433,7 @@ test('queue and suggestion rows preserve task links and detailed native phase', 
     };
   }
   suggested.presence.requests = 0;
+  suggested.presence.brews = 1;
   suggested.claim!.process = suggested.presence.process;
   suggested.claim!.suggestion = { selection: randomUUID() };
   const fixture = peersApp(snapshot([choosing, queued, suggested]));
@@ -458,7 +459,7 @@ test('queue and suggestion rows preserve task links and detailed native phase', 
     );
     assert.ok(ui.text().includes('agent-1 | choosing | running'));
     assert.ok(ui.text().includes('agent-2 | queued #2 | running'));
-    assert.ok(ui.text().includes('agent-3 | suggested | idle'));
+    assert.ok(ui.text().includes('agent-3 | suggested | background'));
     assert.ok(ui.text().includes('Suggested task'));
     assert.ok(ui.frame().includes('https://github.com/example/demo/issues/4'));
   } finally {
