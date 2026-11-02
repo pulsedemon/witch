@@ -70,8 +70,7 @@ test('an active watch keeps reading with nothing tracked', async () => {
     },
   });
   try {
-    await delay(200);
-    assert.ok(reads >= 5, `${reads} reads`);
+    await until('five reads', () => reads >= 5);
   } finally {
     jobs.close();
   }
@@ -146,8 +145,11 @@ test('a tracked group keeps an inactive watch reading', async () => {
     jobs.track(job.pgid);
     jobs.setActive(false);
     const count = reads;
-    await delay(150);
-    assert.ok(reads >= count + 3);
+    // waits on the count, not a fixed window, so a loaded machine cannot fail it
+    await until(
+      'three reads after the watch went inactive',
+      () => reads >= count + 3,
+    );
   } finally {
     jobs.close();
   }
