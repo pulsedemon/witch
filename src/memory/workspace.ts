@@ -330,6 +330,8 @@ export class Workspace {
   }
 
   async publish(): Promise<'published' | MemoryConflict> {
+    // git resolves main itself, sparing the usual case a process to read it first
+    if (await this.isAncestor('HEAD', main)) return 'published';
     for (let attempt = 0; attempt < 50; attempt++) {
       const latest = await this.latest();
       // an idle worktree behind main stays where its last turn left it
