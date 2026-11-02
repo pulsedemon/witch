@@ -11,6 +11,7 @@ import { router } from '../src/core/router.js';
 import type { Reviewer, ReviewerResult } from '../src/core/reviewers.js';
 import type { Routed } from '../src/core/routing.js';
 import { main } from '../src/memory/memory.js';
+import { Workspace } from '../src/memory/workspace.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { CommandBatches } from '../src/ui/command-batches.js';
 import type { WitchCommand } from '../src/ui/commands.js';
@@ -846,6 +847,21 @@ test('a publication conflict after a correction stops the review', async (t) => 
     ),
     'theirs',
   );
+});
+
+test("a final turn's memory publication failure fails the review", async (t) => {
+  const h = await harness(t);
+  h.state.outcome = (_round, { runtime }) =>
+    runtime === 'claude' ? { findings: [{ line: 7, blocking: false }] } : {};
+  h.corrections.push(async () => {
+    vi.spyOn(Workspace.prototype, 'publish').mockRejectedValueOnce(
+      new Error('remote refused'),
+    );
+  });
+  assert.equal(await h.coordinator.review('plan.md'), false);
+  assert.equal(h.correctionPrompts().length, 1);
+  assert.ok(h.notice('Memory publication failed: remote refused'));
+  assert.equal(h.notice('Review finished'), undefined);
 });
 
 test('prompts typed during a review wait for it', async (t) => {
