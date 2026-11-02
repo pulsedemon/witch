@@ -1422,6 +1422,12 @@ class ClaudeSession implements AgentSession {
         ...(unread.length ? { unread } : {}),
         ...(unreadContext.length ? { unreadContext } : {}),
         ...(inputUnsent ? { inputUnsent } : {}),
+        // a CLI that dies after a rejection confirms it as a failed result would; Witch's own close doesn't
+        ...(!closed &&
+        !turn.interrupted &&
+        this.rateLimit.rejects(turn, this.info.model)
+          ? { exhausted: true }
+          : {}),
       });
     }
     // a turn reports the error through its result
@@ -1454,7 +1460,7 @@ class ClaudeSession implements AgentSession {
               error: turn.inputError,
             }
           : turn.result!),
-        // only the current turn's failed result confirms a rejection
+        // only the current turn's failure confirms a rejection
         ...(turn.result?.status === 'failed' &&
         !turn.interrupted &&
         this.rateLimit.rejects(turn, this.info.model)
