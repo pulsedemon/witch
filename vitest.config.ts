@@ -42,5 +42,6 @@ export default defineConfig({
     testTimeout: timeout,
     hookTimeout: timeout,
     setupFiles: ['./test/fixtures/vitest-setup.ts'],
+    globalSetup: ['./test/fixtures/cli-build.ts'],
   },
 });

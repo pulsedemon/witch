@@ -57,9 +57,9 @@ Installing dependencies enables the [pre-commit hook](.husky/pre-commit), which 
 
 `pnpm check` also builds `dist`. Agents validating a checkout installed as `witch` must use a disposable copy unless an installed rebuild is authorized. Keep `TMPDIR` outside that copy so fixtures that model non-repositories do not inherit its Git identity. Running the app and native checks requires the [installation prerequisites](#install).
 
-The [desktop CLI test](test/cli-desktop.test.ts) builds in scratch through the same [build script](scripts/build.mjs), so its startup deadline measures the compiled executable.
+The CLI tests, the [desktop CLI test](test/cli-desktop.test.ts) included, share one build per run through the same [build script](scripts/build.mjs), so the desktop test's startup deadline measures the compiled executable.
 
-`pnpm test` runs the suite with Vitest. [vitest.config.ts](vitest.config.ts) owns discovery, worker policy and the React compiler transform.
+`pnpm test` runs the suite with Vitest. [vitest.config.ts](vitest.config.ts) owns discovery, worker policy, global setup and the React compiler transform.
 
 Run a file or one of its named tests with Vitest:
 
