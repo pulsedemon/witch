@@ -1296,7 +1296,11 @@ test('begin returns the worktree revision when main moves during it', async () =
   await save(second, { 'global/later.md': 'Later.' });
   hook.current = async (command, run, options) => {
     const result = await run();
-    if (options.cwd === first.root && command[0] === 'merge') {
+    if (
+      options.cwd === first.root &&
+      command[0] === 'rev-parse' &&
+      command.includes(main)
+    ) {
       hook.current = passThrough;
       await second.publish();
     }

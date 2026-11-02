@@ -334,13 +334,10 @@ test('a move that keeps losing to other clones gives up on main, so it never wai
   await save(workspace, { [`${key}/x.md`]: 'X.\n' });
   await workspace.publish();
   await git(copy, 'remote', 'add', 'origin', 'https://github.com/o/r.git');
-  const publish = workspace.publish.bind(workspace);
-  let publishes = 0;
-  // the leftover publish goes through, and every move after it loses
-  workspace.publish = async () =>
-    publishes++
-      ? { paths: [`${key}/x.md`], diff: `+X. in ${key}/x.md` }
-      : publish();
+  workspace.publish = async () => ({
+    paths: [`${key}/x.md`],
+    diff: `+X. in ${key}/x.md`,
+  });
   await assert.rejects(begin(workspace, copy), /kept losing/);
   assert.equal(
     (await git(workspace.root, 'rev-parse', 'HEAD')).trim(),

@@ -168,29 +168,45 @@ export class Workspace {
   }
 
   async isDirty(): Promise<boolean> {
+    return (await this.status()).dirty;
+  }
+
+  /** whether the worktree holds changes, and the commit HEAD names, from one process. */
+  private async status(): Promise<{ dirty: boolean; head: string }> {
     // the user's status.showUntrackedFiles=no would hide new notes
-    return (
-      (
-        await this.git([
-          'status',
-          '--porcelain',
-          '--untracked-files=normal',
-          '--ignored=matching',
-        ])
-      ).length > 0
-    );
+    const output = await this.git([
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=normal',
+      '--ignored=matching',
+    ]);
+    return {
+      // every line but the `# ` headers is a change
+      dirty: /^[^#]/m.test(output),
+      head: /^# branch\.oid (\S+)$/m.exec(output)![1]!,
+    };
   }
 
   /** publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, and returns the revision the turn starts from. */
   async begin(scope: MemoryScope): Promise<string> {
-    if (await this.isDirty())
+    const status = await this.status();
+    let { head } = status;
+    if (status.dirty)
       throw new Error('Resolve pending memory before running another task');
-    if ((await this.publish()) !== 'published')
-      throw new Error(
-        'Your memory changes conflict with another conversation. Keep yours or discard them.',
-      );
+    let latest = await this.latest();
+    // a worktree at or behind main has nothing to publish
+    if (head !== latest && !(await this.isAncestor(head, latest))) {
+      if ((await this.publish()) !== 'published')
+        throw new Error(
+          'Your memory changes conflict with another conversation. Keep yours or discard them.',
+        );
+      latest = await this.latest();
+    }
     for (let attempt = 1; ; attempt++) {
-      await this.git(['merge', '--ff-only', '--quiet', main]);
+      // moving to the revision read above, not to `main`, lets an unmoved begin return it without asking git
+      if (head !== latest)
+        await this.git(['merge', '--ff-only', '--quiet', latest]);
       await this.prepare(scope);
       const moved = await this.adopt(scope).catch(async (error: unknown) => {
         await this.discardPending().catch((rollback: unknown) => {
@@ -201,10 +217,11 @@ export class Workspace {
         });
         throw error;
       });
-      if (!moved || (await this.publish()) === 'published')
-        return this.revision();
+      if (!moved) return latest;
+      if ((await this.publish()) === 'published') return this.revision();
       // discarding this derived move loses no accepted notes
-      await this.git(['reset', '--hard', '--quiet', main]);
+      head = latest = await this.latest();
+      await this.git(['reset', '--hard', '--quiet', latest]);
       if (attempt === 5)
         throw new Error(
           'Moving project notes kept losing to other conversations',
