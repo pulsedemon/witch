@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { act, createElement, type ReactElement } from 'react';
+import { act, createElement, createRef, type ReactElement } from 'react';
 import { render } from 'ink-testing-library';
 import { test } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
-import { Input } from '../src/ui/input.js';
+import { Input, type InputHandle } from '../src/ui/input.js';
 import { Request } from '../src/ui/request.js';
 import { render as renderTerminal, Box } from 'ink';
 import { PassThrough, Writable } from 'node:stream';
@@ -131,6 +131,95 @@ test('filtered pastes preserve Unicode and line breaks at the current cursor', a
     ]);
     await press(ui.stdin, '\u001b[13u');
     assert.deepEqual(sent, ['Labcd\t中\nr\ns\n👩‍💻XR']);
+  } finally {
+    await unmount(ui);
+  }
+});
+
+test('a paste goes to onPaste with the text before the cursor, and its replacement, or the paste when it gives none, goes in at the cursor', async () => {
+  const changes: [string, number][] = [];
+  const pastes: [string, string][] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 60,
+      height: 4,
+      active: true,
+      initialValue: 'look here',
+      onChange: (value, cursor) => changes.push([value, cursor]),
+      onSubmit: () => true,
+      onPaste: (text, before) => {
+        pastes.push([text, before]);
+        return text === '/tmp/shot.png' ? ' [Image #1]' : undefined;
+      },
+    }),
+  );
+  try {
+    for (let i = 0; i < 5; i++) await press(ui.stdin, '\u001b[D');
+    await press(ui.stdin, '\u001b[200~/tmp/shot.png\u001b[201~');
+    assert.deepEqual(changes.at(-1), ['look [Image #1] here', 15]);
+    await press(ui.stdin, '\u001b[200~more\u001b[201~');
+    assert.deepEqual(changes.at(-1), ['look [Image #1]more here', 19]);
+    assert.deepEqual(pastes, [
+      ['/tmp/shot.png', 'look'],
+      ['more', 'look [Image #1]'],
+    ]);
+  } finally {
+    await unmount(ui);
+  }
+});
+
+test('typed text never goes to onPaste', async () => {
+  const changes: [string, number][] = [];
+  const pastes: string[] = [];
+  const ui = await mount(
+    createElement(Input, {
+      width: 60,
+      height: 4,
+      active: true,
+      onChange: (value, cursor) => changes.push([value, cursor]),
+      onSubmit: () => true,
+      onPaste: (text) => {
+        pastes.push(text);
+        return ' [Image #1]';
+      },
+    }),
+  );
+  try {
+    await press(ui.stdin, '/tmp/shot.png');
+    assert.deepEqual(changes.at(-1), ['/tmp/shot.png', 13]);
+    assert.deepEqual(pastes, []);
+  } finally {
+    await unmount(ui);
+  }
+});
+
+test('a paste after a shell ! goes in as written without onPaste, even when a recalled command leaves the cursor before the !', async () => {
+  const changes: [string, number][] = [];
+  const pastes: string[] = [];
+  const input = createRef<InputHandle>();
+  const ui = await mount(
+    createElement(Input, {
+      ref: input,
+      width: 60,
+      height: 4,
+      active: true,
+      shell: true,
+      initialValue: '!open ',
+      onChange: (value, cursor) => changes.push([value, cursor]),
+      onSubmit: () => true,
+      onPaste: (text) => {
+        pastes.push(text);
+        return ' [Image #1]';
+      },
+    }),
+  );
+  try {
+    await press(ui.stdin, '\u001b[200~/tmp/a.png\u001b[201~');
+    assert.deepEqual(changes.at(-1), ['!open /tmp/a.png', 16]);
+    await act(async () => input.current!.set({ value: '!ls', cursor: 0 }));
+    await press(ui.stdin, '\u001b[200~/tmp/b.png\u001b[201~');
+    assert.deepEqual(changes.at(-1), ['!/tmp/b.pngls', 11]);
+    assert.deepEqual(pastes, []);
   } finally {
     await unmount(ui);
   }

@@ -277,13 +277,17 @@ export interface AgentSession {
   compact(): Promise<TurnResult>;
   /** queues native compaction within an ordinary turn without interrupting it; undefined refuses delivery. */
   compactDuringTurn?(): Promise<TurnResult> | undefined;
-  /** generated context never replaces the user's request in native authorization evidence; an automatic prompt is Witch's instruction for a turn with no new user request. */
+  /**
+   * generated context never replaces the user's request in native authorization evidence; an automatic prompt is
+   * Witch's instruction for a turn with no new user request. `images` are absolute paths of prepared PNG or JPEG files.
+   */
   send(
     prompt: string,
     skill?: SkillCall,
     context?: string,
     purpose?: TurnPurpose,
     answer?: AnswerInput,
+    images?: readonly string[],
   ): Promise<TurnResult>;
   /**
    * runs a command the user typed after `!`, unsandboxed in the session's directory, and gives it and its output to
@@ -292,19 +296,25 @@ export interface AgentSession {
   shell(command: string): Promise<TurnResult>;
   /**
    * adds the prompt to the turn in flight, which the agent reads at its next
-   * tool step or before the turn ends; false when no turn can take it, and
-   * false while a shell command runs. it never refuses while `replied`, and
-   * `command` is passed only then: the command runs first, as `shell` runs
-   * one, and holds the turn open, and once it completes the prompt goes as
-   * its reply. with `skill`, the prompt is that command, run natively: Claude
-   * runs it once the current native turn ends, within this turn, and Codex,
-   * which expands a skill only at a turn's start, refuses it.
+   * tool step or before the turn ends; false when no turn can take it, when
+   * its images can't be read, and while a shell command runs. otherwise it
+   * never refuses while `replied`, and `command` is passed only then: the
+   * command runs first, as `shell` runs one, and holds the turn open, and
+   * once it completes the prompt goes as its reply. with `skill`, the prompt
+   * is that command, run natively: Claude runs it once the current native
+   * turn ends, within this turn, and Codex, which expands a skill only at a
+   * turn's start, refuses it.
    * `contextOnly` never returns as unread user input; its owner supplies fresh
    * context after interruption.
    */
   steer(
     prompt: string,
-    options?: { command?: string; skill?: SkillCall; contextOnly?: true },
+    options?: {
+      command?: string;
+      skill?: SkillCall;
+      contextOnly?: true;
+      images?: readonly string[];
+    },
   ): Promise<boolean>;
   /**
    * an omitted effort keeps the one in force; `null` resets it where the native agent can. refused during a turn

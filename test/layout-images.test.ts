@@ -88,7 +88,7 @@ test('an append after the retry delay retries a named image that was unavailable
   }
 });
 
-test('a message shows the images it names below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
+test('a message shows its images below its text, and a tool shows its images only while expanded, keeping them as its output grows', async () => {
   const directory = await scratch('witch-layout-');
   await writeFile(join(directory, 'shot.png'), png(160, 80));
   const writes: string[] = [];
@@ -97,8 +97,9 @@ test('a message shows the images it names below its text, and a tool shows its i
   const message: DisplayItem = {
     id: 'message',
     kind: 'user',
-    text: 'look at shot.png',
+    text: 'look at [Image #1]',
     cwd: directory,
+    images: ['shot.png'],
   };
   const tool: DisplayItem = {
     id: 'tool',
@@ -135,7 +136,7 @@ test('a message shows the images it names below its text, and a tool shows its i
   assert.ok(
     shown!
       .slice()
-      .findIndex((line) => stripAnsi(line).includes('look at shot.png')) <
+      .findIndex((line) => stripAnsi(line).includes('look at [Image #1]')) <
       shown!.slice().findIndex((line) => line.includes(placeholder)),
   );
   assert.equal(imageRows(collapsed.blocks[1]!.slice()), 0);
@@ -151,6 +152,26 @@ test('a message shows the images it names below its text, and a tool shows its i
   assert.ok(grown.some((line) => stripAnsi(line).includes('and more')));
 });
 
+test('a message draws no image for a path typed into its text, even one already loaded', async () => {
+  const directory = await scratch('witch-layout-');
+  const shot = join(directory, 'shot.png');
+  await writeFile(shot, png(160, 80));
+  const graphics = new Graphics(() => {});
+  assert.deepEqual(graphics.rows(shot, directory, 100), []);
+  await loaded(graphics);
+  assert.notDeepEqual(graphics.rows(shot, directory, 100), []);
+  const layout = new TranscriptLayout(graphics);
+  const item: DisplayItem = {
+    id: 'message',
+    kind: 'user',
+    text: `look at ${shot}`,
+    cwd: directory,
+  };
+  const frame = layout.render([item], 100, new Map());
+  assert.ok(stripAnsi(frame.lines.slice().join('\n')).includes('look at'));
+  assert.ok(!frame.lines.slice().some((line) => line.includes(placeholder)));
+});
+
 for (const kind of ['tool', 'user'] as const) {
   test(`a ${kind}'s image anchors keep their image and closing blank across resizes`, async () => {
     const directory = await scratch('witch-layout-');
@@ -161,9 +182,8 @@ for (const kind of ['tool', 'user'] as const) {
       kind,
       text: 'a.png b.png',
       cwd: directory,
-      ...(kind === 'tool'
-        ? { title: 'Read', done: true, images: ['a.png', 'b.png'] }
-        : {}),
+      images: ['a.png', 'b.png'],
+      ...(kind === 'tool' ? { title: 'Read', done: true } : {}),
     };
     const graphics = new Graphics(() => {});
     const layout = new TranscriptLayout(graphics);
@@ -198,8 +218,9 @@ test('a block whose image failed is reused across renders, not rewrapped each ti
   const item: DisplayItem = {
     id: 'message',
     kind: 'user',
-    text: 'look at missing.png',
+    text: 'look at [Image #1]',
     cwd: directory,
+    images: ['missing.png'],
   };
   layout.render([item], 100, new Map());
   await loaded(graphics);
@@ -223,6 +244,7 @@ test('a shown image and the closing blank keep their anchors while an image befo
     kind: 'user',
     text: 'a.png b.png',
     cwd: directory,
+    images: ['a.png', 'b.png'],
   };
   const before = layout.render([item], 100, new Map());
   const row = before.lines

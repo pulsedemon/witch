@@ -568,15 +568,19 @@ test('no prompt is steered into a turn once it is interrupted or its session clo
   }
 });
 
-test('an interrupt that leaves steered prompts queued closes the session and reports only those unread', async () => {
+test('an interrupt that leaves steered prompts queued closes the session and reports only those unread, one with an image as its text', async () => {
   const { seen, onEvent } = working();
   const { session, child, cwd } = await fixture(onEvent);
   try {
     const exited = once(child, 'exit');
+    await writeFile(join(cwd, 'shot.png'), 'png bytes');
     const turn = session.send('steerable');
     await within(seen, 2000, 'first output');
     assert.equal(await session.steer('also this'), true);
-    assert.equal(await session.steer('and this'), true);
+    assert.equal(
+      await session.steer('and this', { images: [join(cwd, 'shot.png')] }),
+      true,
+    );
     await until('the CLI to hold both', () =>
       readFile(join(cwd, 'steered.jsonl'), 'utf8').then(
         (text) => text.trim().split('\n').length === 2,

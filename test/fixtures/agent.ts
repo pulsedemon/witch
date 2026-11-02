@@ -56,9 +56,12 @@ export class FixtureAgent implements AgentAdapter {
     skill?: SkillCall;
     author?: 'witch';
     answer?: AnswerInput;
+    images?: readonly string[];
   }[] = [];
   /** prompts steered into a turn in flight. */
   readonly steers: string[] = [];
+  /** the images of each entry in `steers`. */
+  readonly steerImages: (readonly string[])[] = [];
   readonly contextSteers: string[] = [];
   /** the calls of the spells and native commands sessions took as steers. */
   readonly skillSteers: SkillCall[] = [];
@@ -279,7 +282,10 @@ export class FixtureAgent implements AgentAdapter {
         }
         return { status: 'completed', text: '' };
       },
-      steer: async (prompt, { command, skill, contextOnly } = {}) => {
+      steer: async (
+        prompt,
+        { command, skill, contextOnly, images = [] } = {},
+      ) => {
         if (
           !turn ||
           closed ||
@@ -287,7 +293,11 @@ export class FixtureAgent implements AgentAdapter {
           (skill && this.refuseSkillSteer)
         )
           return false;
-        (contextOnly ? this.contextSteers : this.steers).push(prompt);
+        if (contextOnly) this.contextSteers.push(prompt);
+        else {
+          this.steers.push(prompt);
+          this.steerImages.push(images);
+        }
         if (skill) this.skillSteers.push(skill);
         if (command === undefined) {
           if (!contextOnly) steered.push(prompt);
@@ -327,6 +337,7 @@ export class FixtureAgent implements AgentAdapter {
         context,
         purpose = 'user',
         answer,
+        images = [],
       ): Promise<TurnResult> => {
         if (closed) throw new Error('Session closed');
         this.inputs.push({
@@ -336,6 +347,7 @@ export class FixtureAgent implements AgentAdapter {
           ...(skill ? { skill } : {}),
           ...(purpose === 'user' ? {} : { author: 'witch' as const }),
           ...(answer ? { answer } : {}),
+          ...(images.length ? { images } : {}),
         });
         if (this.onSend) await this.onSend(prompt);
         // MEMORY.md merges both sides, so a note that can conflict goes elsewhere

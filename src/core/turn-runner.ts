@@ -59,6 +59,8 @@ interface TurnHost {
     scope?: MemoryScope,
   ): Promise<{ activity: Activity; scope: MemoryScope }>;
   steerQueued(): Promise<void>;
+  /** saves the images the prompt's markers name into the conversation. */
+  prepareImages(prompt: string): Promise<string[]>;
   /** the native turn ended, so only settlement holds the phase. */
   ended(): void;
   /** sets whether a failed turn holds the queue for the composer. */
@@ -189,6 +191,11 @@ export class TurnRunner {
           )))
       )
         return { status: 'interrupted', text: '', inputUnsent: true };
+      // from `prompt`, since handoff text in the input can quote old markers
+      const images =
+        kind === 'turn' && !silent && command === undefined
+          ? await this.host.prepareImages(prompt)
+          : [];
       // a stop during an awaited check must prevent native input.
       if (
         this.host.cancelled() ||
@@ -208,6 +215,7 @@ export class TurnRunner {
               ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
               : prompt,
           cwd: conversation.cwd,
+          ...(images.length ? { images } : {}),
         });
       this.host.persist(this.host.save());
       if (command !== undefined) delivered?.();
@@ -234,6 +242,7 @@ export class TurnRunner {
                 outputSchema: peerAnswerOutputSchema,
                 requestFile: batch.file,
               },
+              images,
             );
             const stopPolicy = watchClaimPolicy(
               this.coordination,
@@ -267,7 +276,7 @@ export class TurnRunner {
         });
       const shown = kind === 'turn' && !silent ? [prompt] : [];
       for (const row of unreadRows(this.host.snapshot().items, shown, result))
-        this.host.display({ ...row, text: '', unread: true });
+        this.host.display({ ...row, text: '', images: [], unread: true });
       if (result.inputUnsent) this.retain(conversation.id, pendingContext);
       this.retain(conversation.id, result.unreadContext);
       await this.finishActivity(activity, this.compaction.failure ?? result);

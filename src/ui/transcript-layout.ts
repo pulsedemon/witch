@@ -7,7 +7,6 @@ import { markdown, markdownAppend } from './markdown.js';
 import { accent, colors } from './theme.js';
 import { castTitle } from './cast.js';
 import type { Graphics } from './images.js';
-import { imagePaths } from './images.js';
 import { hyperlink, linkify, linkifyAppend, plain } from './links.js';
 import type { LinkedAppend } from './links.js';
 import { normalizeText, wrapLines } from './wrap.js';
@@ -168,11 +167,7 @@ function prepare(
       : undefined;
   const body = tool ? '' : (assistant?.tail ?? markdown(item.text, item.cwd));
   const sources =
-    item.kind === 'user'
-      ? imagePaths(item.text)
-      : tool && expanded
-        ? (item.images ?? [])
-        : [];
+    item.kind === 'user' || (tool && expanded) ? (item.images ?? []) : [];
   const diff =
     tool && expanded && item.diff?.length
       ? prepareDiff(item.diff, item.cwd, expansion === 'full')

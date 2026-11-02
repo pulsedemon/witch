@@ -1,9 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir, stat } from 'node:fs/promises';
+import {
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
+import { markerPattern } from '../core/attachments.js';
 import {
   conversationRecordSchema,
   displayUpdateSchema,
@@ -173,13 +182,17 @@ export class StateStore {
       .reverse();
   }
 
-  /** waits for the prompts added before it, so the file keeps their order, and starts with the line break, so a line a crash cut short ends before it. */
+  /**
+   * waits for the prompts added before it, so the file keeps their order, and starts with the line break, so a line a
+   * crash cut short ends before it. a marker's number names an image only in this process, so it isn't kept.
+   */
   addPrompt(cwd: string, text: string): Promise<void> {
+    const line = { cwd, text: text.replace(markerPattern, '[Image]') };
     const added = this.adding.then(async () => {
       const file = await open(this.promptsPath(), 'a', 0o600);
       try {
         // one write call, which other instances' appends never split; appendFile writes 512 KiB at a time
-        await file.write(Buffer.from(`\n${JSON.stringify({ cwd, text })}`));
+        await file.write(Buffer.from(`\n${JSON.stringify(line)}`));
       } finally {
         await file.close();
       }
@@ -288,6 +301,15 @@ export class ConversationStore {
 
   get closed(): boolean {
     return this.released;
+  }
+
+  /** the absolute path of a new image file in the conversation, private like the rest of its state. */
+  async saveImage(bytes: Buffer, extension: string): Promise<string> {
+    const directory = join(this.directory, 'images');
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const file = join(directory, `${randomUUID()}.${extension}`);
+    await writeFile(file, bytes, { mode: 0o600 });
+    return file;
   }
 
   save(record: ConversationRecord): Promise<void> {

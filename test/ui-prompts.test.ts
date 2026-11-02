@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import { App } from '../src/ui/app.js';
 import { TurnGate } from './fixtures/agent.js';
 import { fixture, turns } from './fixtures/coordinator.js';
+import { png } from './fixtures/png.js';
 import {
   show,
   fake,
@@ -16,6 +19,18 @@ import {
   tools,
 } from './fixtures/ui.js';
 import { until, within } from './fixtures/within.js';
+
+/** a small PNG written into `directory`, with the bracketed paste a terminal sends for its path. */
+async function image(directory: string) {
+  const bytes = png(16, 16);
+  const path = join(directory, 'shot.png');
+  await writeFile(path, bytes);
+  return { bytes, paste: `\u001b[200~${path}\u001b[201~` };
+}
+
+/** the bytes of the images a turn was sent with. */
+const delivered = (images: readonly string[] = []) =>
+  Promise.all(images.map((path) => readFile(path)));
 
 test('Enter during a turn sends the draft and empties the composer', async () => {
   const { app, calls } = fake({ phase: 'running' });
@@ -71,6 +86,53 @@ test('queued prompts show above the activity row with a hint, and ↑ on the fir
     );
   } finally {
     ui.unmount();
+  }
+});
+
+test('a queued prompt with an image marker, taken back with ↑ and sent again, is delivered with its image', async () => {
+  const { coordinator, a, project } = await fixture();
+  const gate = new TurnGate();
+  a.gate = gate;
+  a.refuseSteer = true;
+  const { bytes, paste } = await image(project);
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  const sending = coordinator.send('held turn');
+  try {
+    await within(gate.entered, 3000, 'the gated turn');
+    ui.stdin.write('look');
+    await until('the draft', () => ui.text().includes('┃ look'));
+    ui.stdin.write(paste);
+    await until('the marker', () => ui.text().includes('┃ look [Image #1]'));
+    ui.stdin.write(ENTER);
+    await until('the queued prompt', () =>
+      ui.text().includes('❯ look [Image #1]'),
+    );
+    ui.stdin.write(UP);
+    await until(
+      'the prompt taken back',
+      () =>
+        !ui.text().includes('❯ look') &&
+        ui.text().includes('┃ look [Image #1]'),
+    );
+    assert.deepEqual(coordinator.snapshot.queue, []);
+    ui.stdin.write(ENTER);
+    await until('the prompt queued again', () =>
+      ui.text().includes('❯ look [Image #1]'),
+    );
+    gate.open();
+    await within(sending, 5000, 'the queued turn');
+    await until('the image prompt', () => a.inputs.length === 2);
+    assert.deepEqual(turns(a), [
+      ['held turn', undefined],
+      ['look [Image #1]', undefined],
+    ]);
+    assert.deepEqual(await delivered(a.inputs[1]!.images), [bytes]);
+    assert.deepEqual(a.steers, []);
+  } finally {
+    gate.open();
+    await sending;
+    ui.unmount();
+    await coordinator.close();
   }
 });
 
@@ -347,6 +409,39 @@ test('an edit to a recalled prompt survives browsing and is sent and recorded, t
   }
 });
 
+test('a prompt with an image marker recalled with ↑ delivers its image again', async () => {
+  const { coordinator, a, store, project } = await fixture();
+  const { bytes, paste } = await image(project);
+  const ui = show(createElement(App, { coordinator, store, onExit: () => {} }));
+  try {
+    await until('the composer', () => ui.text().includes('┃ Ask the agent'));
+    ui.stdin.write('look');
+    await until('the draft', () => ui.text().includes('┃ look'));
+    ui.stdin.write(paste);
+    await until('the marker', () => ui.text().includes('┃ look [Image #1]'));
+    ui.stdin.write(ENTER);
+    await until(
+      'the first turn',
+      () => a.inputs.length === 1 && coordinator.snapshot.phase === 'idle',
+    );
+    ui.stdin.write(UP);
+    await until('the recalled prompt', () =>
+      ui.text().includes('┃ look [Image #1]'),
+    );
+    ui.stdin.write(ENTER);
+    await until('the second turn', () => a.inputs.length === 2);
+    assert.deepEqual(turns(a), [
+      ['look [Image #1]', undefined],
+      ['look [Image #1]', undefined],
+    ]);
+    assert.deepEqual(await delivered(a.inputs[0]!.images), [bytes]);
+    assert.deepEqual(await delivered(a.inputs[1]!.images), [bytes]);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
+  }
+});
+
 test('a prompt and a Witch command are recorded once each, and neither a blank send nor a repeat of the newest is', async () => {
   const { app, calls } = fake({});
   const { store, added } = prompts([]);
@@ -562,5 +657,34 @@ test('a conversation switch starts browsing again at the newest prompt as record
     await until('the draft back', () => ui.text().includes('┃ draft'));
   } finally {
     ui.unmount();
+  }
+});
+
+test('a draft holding an image marker, left for another conversation and back, delivers the image when sent', async () => {
+  const { coordinator, a, project } = await fixture();
+  const { bytes, paste } = await image(project);
+  const ui = show(createElement(App, { coordinator, onExit: () => {} }));
+  try {
+    const original = coordinator.snapshot.conversation!.id;
+    await until('the composer', () => ui.text().includes('┃ Ask the agent'));
+    ui.stdin.write('look');
+    await until('the draft', () => ui.text().includes('┃ look'));
+    ui.stdin.write(paste);
+    await until('the marker', () => ui.text().includes('┃ look [Image #1]'));
+    await coordinator.newConversation();
+    await until('the next conversation', () =>
+      ui.text().includes('┃ Ask the agent'),
+    );
+    await coordinator.selectConversation(original);
+    await until('the draft back', () =>
+      ui.text().includes('┃ look [Image #1]'),
+    );
+    ui.stdin.write(ENTER);
+    await until('the image prompt', () => a.inputs.length === 1);
+    assert.deepEqual(turns(a), [['look [Image #1]', undefined]]);
+    assert.deepEqual(await delivered(a.inputs[0]!.images), [bytes]);
+  } finally {
+    ui.unmount();
+    await coordinator.close();
   }
 });

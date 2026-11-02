@@ -11,7 +11,7 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 import { test, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -360,6 +360,29 @@ test('a closed conversation store rejects writes and leaves its files unchanged'
     ),
     before,
   );
+});
+
+test("a saved image is a new private file in the conversation's images directory", async () => {
+  const root = await scratch('witch-images-');
+  const store = await StateStore.open(root);
+  const pictures = await store.create(conversation('pictures'));
+  try {
+    const first = await pictures.saveImage(Buffer.from('first'), 'png');
+    const second = await pictures.saveImage(Buffer.from('second'), 'jpg');
+    const directory = join(root, 'conversations', 'pictures', 'images');
+    assert.deepEqual([dirname(first), dirname(second)], [directory, directory]);
+    assert.match(first, /\/[0-9a-f-]{36}\.png$/);
+    assert.match(second, /\/[0-9a-f-]{36}\.jpg$/);
+    assert.deepEqual(
+      await Promise.all([first, second].map((path) => readFile(path, 'utf8'))),
+      ['first', 'second'],
+    );
+    assert.equal((await files.stat(directory)).mode & 0o777, 0o700);
+    for (const path of [first, second])
+      assert.equal((await files.stat(path)).mode & 0o777, 0o600);
+  } finally {
+    await pictures.close();
+  }
 });
 
 test('a failed write fails every later write and the close', async () => {
@@ -1285,6 +1308,16 @@ test("prompts list this directory's newest first after a restart, keep line brea
     'one',
   ]);
   assert.deepEqual(await reopened.prompts('/b'), ['other']);
+});
+
+test("a prompt's image markers are stored without their numbers, which name images only in the process that pasted them", async () => {
+  const root = await scratch('witch-prompts-');
+  await (
+    await StateStore.open(root)
+  ).addPrompt('/a', 'see [Image #1] and [Image #12], not [Image #3');
+  assert.deepEqual(await (await StateStore.open(root)).prompts('/a'), [
+    'see [Image] and [Image], not [Image #3',
+  ]);
 });
 
 test('prompts one instance adds at once are stored newest first', async () => {

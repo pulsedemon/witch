@@ -17,6 +17,7 @@ import type { WitchCommand } from '../src/ui/commands.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import { coordinationFixture } from './fixtures/coordination.js';
+import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 
@@ -342,6 +343,24 @@ test("a settling round's non-blocking findings get a final turn", async (t) => {
   assert.equal(h.rounds.length, 1);
   assert.equal(h.correctionPrompts().length, 1);
   assert.match(h.notice('Review finished')!, /1 non-blocking findings sent/);
+});
+
+test("a correction turn that quotes a pasted image's marker sends no image", async (t) => {
+  const h = await harness(t);
+  const shot = join(h.cwd, 'shot.png');
+  await writeFile(shot, png(1, 1));
+  const marker = h.coordinator.paste(shot, '')!;
+  h.state.outcome = (_round, { runtime }) =>
+    runtime === 'claude'
+      ? { findings: [{ line: 7, blocking: false, summary: `see ${marker}` }] }
+      : {};
+  h.corrections.push(() => h.setLines({ 7: 'tidied seven' }));
+  assert.equal(await h.coordinator.review('plan.md'), true);
+  const [correction] = h.claude.inputs.filter(({ prompt }) =>
+    prompt.includes('Witch review'),
+  );
+  assert.match(correction!.prompt, /see \[Image #1\]/);
+  assert.equal(correction!.images, undefined);
 });
 
 test('a final correction that removes a target the checks skip fails the review', async (t) => {

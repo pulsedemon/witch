@@ -1,10 +1,59 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { test } from 'vitest';
+import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { fixture, turns } from './fixtures/coordinator.js';
+import { png } from './fixtures/png.js';
 import { until, within } from './fixtures/within.js';
 
 const review = { name: 'review', description: 'Review changes' };
+
+type Context = Awaited<ReturnType<typeof fixture>>;
+
+/** pastes a new noise PNG, so each image's bytes are its own. */
+async function paste(f: Context, name: string) {
+  const path = join(f.root, `${name}.png`);
+  const data = png(2, 2);
+  await writeFile(path, data);
+  return { marker: f.coordinator.paste(path, '')!, data };
+}
+
+const savedImages = (f: Context) =>
+  join(
+    f.root,
+    'state',
+    'conversations',
+    f.coordinator.snapshot.conversation!.id,
+    'images',
+  );
+
+const userRows = (f: Context) =>
+  f.coordinator.snapshot.items
+    .filter(({ kind }) => kind === 'user')
+    .map(({ text, images }) => [text, images]);
+
+/** holds image saves until released, as a slow conversion would. */
+function holdImages() {
+  const entered = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  const save = ConversationStore.prototype.saveImage;
+  ConversationStore.prototype.saveImage = function (...args) {
+    entered.resolve();
+    return held.promise.then(() => save.apply(this, args));
+  };
+  return {
+    entered: entered.promise,
+    release: () => held.resolve(),
+    fail: (error: Error) => held.reject(error),
+    restore: () => {
+      held.resolve();
+      ConversationStore.prototype.saveImage = save;
+    },
+  };
+}
 
 for (const [source, expectedError] of [
   ['model list', 'a: model/list failed'],
@@ -331,5 +380,278 @@ test('a turn whose input was never written puts its steered prompts back between
   } finally {
     gate.open();
     await coordinator.close();
+  }
+});
+
+test('a prompt naming a pasted image sends the image saved in its conversation, and its row shows it', async () => {
+  const f = await fixture();
+  try {
+    const { marker, data } = await paste(f, 'shot');
+    await f.coordinator.send(`look ${marker}`);
+    assert.deepEqual(turns(f.a), [['look [Image #1]', undefined]]);
+    const saved = f.a.inputs[0]!.images!;
+    assert.equal(saved.length, 1);
+    assert.equal(dirname(saved[0]!), savedImages(f));
+    assert.deepEqual(await readFile(saved[0]!), data);
+    assert.deepEqual(userRows(f), [['look [Image #1]', saved]]);
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+test('a queued batch sends the images of each of its prompts in order', async () => {
+  const f = await fixture();
+  const gate = new TurnGate();
+  try {
+    const first = await paste(f, 'first');
+    const second = await paste(f, 'second');
+    f.a.gate = gate;
+    f.a.refuseSteer = true;
+    const sending = f.coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    await f.coordinator.send(`A ${first.marker}`);
+    await f.coordinator.send(`B ${second.marker}`);
+    gate.open();
+    await within(sending, 2000, 'the queued turn');
+    assert.deepEqual(turns(f.a), [
+      ['Start', undefined],
+      ['A [Image #1]\nB [Image #2]', undefined],
+    ]);
+    assert.equal(f.a.inputs[0]!.images, undefined);
+    assert.deepEqual(
+      await Promise.all(f.a.inputs[1]!.images!.map((path) => readFile(path))),
+      [first.data, second.data],
+    );
+  } finally {
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test('a prompt or spell steered with a pasted image passes it, and its row appears only once the turn accepts it', async () => {
+  const f = await fixture(undefined, (a) => {
+    a.skills = [review];
+  });
+  const gate = new TurnGate();
+  const held = holdImages();
+  try {
+    const plain = await paste(f, 'plain');
+    const spell = await paste(f, 'spell');
+    const refused = await paste(f, 'refused');
+    f.a.gate = gate;
+    const sending = f.coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const steering = f.coordinator.send(`look ${plain.marker}`);
+    await within(held.entered, 2000, 'the held save');
+    assert.deepEqual(userRows(f), [['Start', undefined]]);
+    held.restore();
+    await within(steering, 2000, 'the steer');
+    await f.coordinator.send(`/review ${spell.marker}`);
+    assert.deepEqual(f.a.steers, ['look [Image #1]', '/review [Image #2]']);
+    assert.deepEqual(f.a.skillSteers, [{ name: 'review', args: '[Image #2]' }]);
+    assert.deepEqual(
+      f.a.steerImages.map((paths) => paths.length),
+      [1, 1],
+    );
+    assert.deepEqual(
+      await Promise.all(f.a.steerImages.map((paths) => readFile(paths[0]!))),
+      [plain.data, spell.data],
+    );
+    f.a.refuseSteer = true;
+    await f.coordinator.send(`later ${refused.marker}`);
+    assert.deepEqual(f.coordinator.snapshot.queue, ['later [Image #3]']);
+    assert.deepEqual(userRows(f), [
+      ['Start', undefined],
+      ['look [Image #1]', f.a.steerImages[0]],
+      ['/review [Image #2]', f.a.steerImages[1]],
+    ]);
+    gate.open();
+    await within(sending, 2000, 'the queued turn');
+    assert.deepEqual(turns(f.a).at(-1), ['later [Image #3]', undefined]);
+  } finally {
+    held.restore();
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test('a steered image prompt an interrupt leaves unread goes next with its image, and the row it first had gives up the image', async () => {
+  const f = await fixture();
+  const gate = new TurnGate();
+  try {
+    const { marker } = await paste(f, 'shot');
+    f.a.gate = gate;
+    f.a.unreadOnInterrupt = true;
+    const sending = f.coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    await f.coordinator.send(`look ${marker}`);
+    const [steered] = f.a.steerImages;
+    assert.equal(steered!.length, 1);
+    const row = f.coordinator.snapshot.items.find(
+      ({ text }) => text === 'look [Image #1]',
+    )!;
+    assert.deepEqual(row.images, steered);
+    await f.coordinator.interrupt();
+    gate.open();
+    await within(sending, 2000, 'the next turn');
+    assert.deepEqual(turns(f.a), [
+      ['Start', undefined],
+      ['look [Image #1]', undefined],
+    ]);
+    assert.deepEqual(f.a.inputs[1]!.images, steered);
+    const { text, images, unread } = f.coordinator.snapshot.items.find(
+      ({ id }) => id === row.id,
+    )!;
+    assert.deepEqual([text, images, unread], ['look [Image #1]', [], true]);
+    assert.deepEqual(userRows(f).at(-1), ['look [Image #1]', steered]);
+  } finally {
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test('an interrupt while a turn saves its images sends nothing and leaves the prompt queued', async () => {
+  const f = await fixture();
+  const held = holdImages();
+  try {
+    const { marker } = await paste(f, 'shot');
+    const sending = f.coordinator.send(`look ${marker}`);
+    await within(held.entered, 2000, 'the held save');
+    await f.coordinator.interrupt();
+    held.release();
+    await within(sending, 2000, 'the stopped turn');
+    assert.deepEqual(f.a.inputs, []);
+    assert.deepEqual(userRows(f), []);
+    assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
+  } finally {
+    held.restore();
+    await f.coordinator.close();
+  }
+});
+
+test('a delivery hold that starts while a steer saves its image refuses the steer, and the prompt waits in the queue for its own turn', async () => {
+  const f = await fixture();
+  const gate = new TurnGate();
+  const held = holdImages();
+  try {
+    const { marker } = await paste(f, 'shot');
+    f.a.gate = gate;
+    const sending = f.coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const steering = f.coordinator.send(`look ${marker}`);
+    await within(held.entered, 2000, 'the held save');
+    const release = f.coordinator.holdPromptDelivery();
+    held.release();
+    await within(steering, 2000, 'the refused steer');
+    assert.deepEqual(f.a.steers, []);
+    assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
+    release();
+    gate.open();
+    await within(sending, 2000, 'the first turn');
+    await until('the queued turn', () => f.a.inputs.length === 2);
+    assert.deepEqual(turns(f.a), [
+      ['Start', undefined],
+      ['look [Image #1]', undefined],
+    ]);
+    assert.equal(f.a.inputs[1]!.images!.length, 1);
+  } finally {
+    held.restore();
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test('a turn that settles while a steer saves its image refuses the steer, and the prompt goes in its own turn', async () => {
+  const f = await fixture();
+  const gate = new TurnGate();
+  const held = holdImages();
+  try {
+    const { marker } = await paste(f, 'shot');
+    f.a.gate = gate;
+    const sending = f.coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const steering = f.coordinator.send(`look ${marker}`);
+    await within(held.entered, 2000, 'the held save');
+    gate.open();
+    await within(sending, 2000, 'the first turn');
+    held.release();
+    await within(steering, 2000, 'its own turn');
+    assert.deepEqual(f.a.steers, []);
+    assert.deepEqual(turns(f.a), [
+      ['Start', undefined],
+      ['look [Image #1]', undefined],
+    ]);
+    assert.equal(f.a.inputs[1]!.images!.length, 1);
+  } finally {
+    held.restore();
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test("a steer whose image fails to save leaves its prompt queued without an error, and the prompt's own turn saves it again", async () => {
+  const f = await fixture();
+  const gate = new TurnGate();
+  const held = holdImages();
+  try {
+    const { marker, data } = await paste(f, 'shot');
+    f.a.gate = gate;
+    const sending = f.coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    const steering = f.coordinator.send(`look ${marker}`);
+    await within(held.entered, 2000, 'the held save');
+    held.fail(new Error('Disk full'));
+    await within(steering, 2000, 'the refused steer');
+    assert.deepEqual(f.a.steers, []);
+    assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
+    assert.equal(f.coordinator.snapshot.error, undefined);
+    held.restore();
+    gate.open();
+    await within(sending, 2000, 'the queued turn');
+    assert.deepEqual(turns(f.a), [
+      ['Start', undefined],
+      ['look [Image #1]', undefined],
+    ]);
+    assert.deepEqual(await readFile(f.a.inputs[1]!.images![0]!), data);
+  } finally {
+    held.restore();
+    gate.open();
+    await f.coordinator.close();
+  }
+});
+
+test('a turn whose image fails to save reports the error before any input, and its prompt stays queued for the composer', async () => {
+  const f = await fixture();
+  const held = holdImages();
+  try {
+    const { marker } = await paste(f, 'shot');
+    const sending = f.coordinator.send(`look ${marker}`);
+    await within(held.entered, 2000, 'the held save');
+    held.fail(new Error('Disk full'));
+    await within(sending, 2000, 'the failed turn');
+    assert.deepEqual(f.a.inputs, []);
+    assert.deepEqual(userRows(f), []);
+    assert.equal(f.coordinator.snapshot.error, 'Disk full');
+    assert.deepEqual(f.coordinator.snapshot.queue, ['look [Image #1]']);
+  } finally {
+    held.restore();
+    await f.coordinator.close();
+  }
+});
+
+test('a ! command naming a pasted image runs as typed and sends no image', async () => {
+  const f = await fixture();
+  try {
+    const { marker } = await paste(f, 'shot');
+    await f.coordinator.send(`!ls ${marker}`);
+    assert.deepEqual(f.a.shells, ['ls [Image #1]']);
+    assert.deepEqual(
+      f.a.inputs.map(({ images }) => images),
+      [undefined],
+    );
+    assert.deepEqual(userRows(f), [['!ls [Image #1]', undefined]]);
+    assert.equal(existsSync(savedImages(f)), false);
+  } finally {
+    await f.coordinator.close();
   }
 });

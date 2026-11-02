@@ -123,6 +123,8 @@ interface Props {
   onSubmit(value: string): boolean;
   /** runs before ↑/↓ move the cursor; `true` keeps the cursor where it is. */
   onArrow?(direction: 'up' | 'down', buffer: InputBuffer): boolean;
+  /** replaces a paste, given the text before the cursor; never called in shell mode, where a path stays a path. */
+  onPaste?(text: string, before: string): string | undefined;
 }
 
 export function Input({
@@ -138,6 +140,7 @@ export function Input({
   onChange,
   onSubmit,
   onArrow,
+  onPaste,
 }: Props) {
   const [state, current, setState] = useLiveState(() =>
     initialInput(initialValue),
@@ -209,7 +212,14 @@ export function Input({
     onChange?.(current.current.value, current.current.cursor);
   }, []);
 
-  usePaste(insert, { isActive: active });
+  usePaste(
+    (text) => {
+      const { mark, text: buffer } = split(current.current, width, shell);
+      const before = buffer.value.slice(0, buffer.cursor);
+      insert((!mark && onPaste?.(text, before)) || text);
+    },
+    { isActive: active },
+  );
   useInput(
     (input, key) => {
       if (

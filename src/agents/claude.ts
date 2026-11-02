@@ -1,5 +1,6 @@
 import { AnswerTurn } from './answer-turn.js';
 import { toolRequest } from './claude-permissions.js';
+import { content, readImages } from './claude-content.js';
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -522,20 +523,23 @@ class ClaudeSession implements AgentSession {
     context?: string,
     purpose: TurnPurpose = 'user',
     answer?: AnswerInput,
+    images: readonly string[] = [],
   ): Promise<TurnResult> {
     if (purpose === 'peer-answer' && !this.options.answer) {
       if (this.closed) throw new Error('The Claude session is closed');
       if (this.turn) throw new Error('This agent is already running');
       return this.answers.run(this.info, prompt, context, answer);
     }
+    const blocks = readImages(images);
+    if (!Array.isArray(blocks)) return blocks;
     const turn = this.beginTurn();
-    const records = this.records;
+    const records = this.takeUnreadContext();
     const input =
       context === undefined
         ? prompt
         : `${context}\n\n${purpose === 'user' ? 'User' : 'Witch'} request:\n${prompt}`;
     const uuid = this.push(
-      this.content(input, skill),
+      content(records, input, blocks, skill),
       !skill && prompt.trim().startsWith('/'),
     );
     turn.initialInput = uuid;
@@ -666,7 +670,9 @@ class ClaudeSession implements AgentSession {
     prompt: string,
     options: Parameters<AgentSession['steer']>[1] = {},
   ): Promise<boolean> {
-    const { command, skill, contextOnly } = options;
+    const { command, skill, contextOnly, images = [] } = options;
+    const blocks = readImages(images);
+    if (!Array.isArray(blocks)) return false;
     const turn = this.turn;
     if (
       this.closed ||
@@ -688,7 +694,12 @@ class ClaudeSession implements AgentSession {
     if (skill && !this.messageLifecycle && !this.replied) return false;
     if (command === undefined) {
       // Claude Code holds a message shaped like a slash command until the turn ends; marked, it joins as text
-      const uuid = this.push(prompt, !skill && prompt.trim().startsWith('/'));
+      const uuid = this.push(
+        blocks.length
+          ? content([], skill ? '' : prompt, blocks, skill)
+          : prompt,
+        !skill && prompt.trim().startsWith('/'),
+      );
       turn.steered.set(uuid, {
         prompt: contextOnly ? undefined : prompt,
         pending: true,
@@ -755,8 +766,8 @@ class ClaudeSession implements AgentSession {
     turn.answer = undefined;
     if (answer !== undefined && !turn.interrupted && !this.closed) {
       turn.idle = false;
-      const records = this.records;
-      const uuid = this.push(this.content(answer));
+      const records = this.takeUnreadContext();
+      const uuid = this.push(content(records, answer, []));
       turn.steered.set(uuid, { pending: true });
       turn.commandRecords.set(uuid, { records, writeAttempted: false });
     } else if (!this.closed) this.finishIdle(turn);
@@ -931,24 +942,6 @@ class ClaudeSession implements AgentSession {
     const records = this.records;
     this.records = [];
     return records;
-  }
-
-  /**
-   * the records of commands run since the last prompt go ahead of it, and a skill goes last, since the CLI dispatches a
-   * command only from the last text block and the rest become its context.
-   */
-  private content(
-    prompt: string,
-    skill?: SkillCall,
-  ): SDKUserMessage['message']['content'] {
-    const blocks = [
-      ...this.takeUnreadContext(),
-      prompt,
-      ...(skill ? [`/${skill.name}${skill.args ? ` ${skill.args}` : ''}`] : []),
-    ];
-    return blocks.length > 1
-      ? blocks.map((text) => ({ type: 'text' as const, text }))
-      : prompt;
   }
 
   /** returns the uuid the message went with; a composed message goes as written, with no slash dispatch or `@path` expansion. */

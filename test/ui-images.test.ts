@@ -1,11 +1,13 @@
+import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { createElement } from 'react';
 import { test, vi } from 'vitest';
 import { App } from '../src/ui/app.js';
 import { Graphics, placeholder } from '../src/ui/images.js';
+import { fixture } from './fixtures/coordinator.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 import { fake, show } from './fixtures/ui.js';
@@ -17,7 +19,13 @@ test('typing stays responsive while an image converts, and the image shows once 
   const graphics = new Graphics(() => {});
   const { app } = fake({
     items: [
-      { id: 'message', kind: 'user', text: 'look at shot.jpg', cwd: directory },
+      {
+        id: 'message',
+        kind: 'user',
+        text: 'look at [Image #1]',
+        cwd: directory,
+        images: ['shot.jpg'],
+      },
     ],
   });
   const conversions: Parameters<typeof childProcess.execFile>[] = [];
@@ -46,5 +54,28 @@ test('typing stays responsive while an image converts, and the image shows once 
   } finally {
     ui.unmount();
     graphics.release();
+  }
+});
+
+test('a reopened conversation still draws the image a message was sent with after the pasted file is gone', async () => {
+  const { coordinator, a, project, reopen } = await fixture();
+  const shot = join(project, 'shot.png');
+  await writeFile(shot, png(160, 80));
+  await coordinator.send(`look at${coordinator.paste(shot, 'look at')!}`);
+  assert.equal(a.inputs[0]!.images?.length, 1);
+  await coordinator.close();
+  await rm(shot);
+  const reopened = await reopen();
+  const graphics = new Graphics(() => {});
+  const ui = show(
+    createElement(App, { coordinator: reopened, graphics, onExit: () => {} }),
+  );
+  try {
+    await until('the image', () => ui.text().includes(placeholder));
+    assert.ok(ui.text().includes('look at [Image #1]'), ui.text());
+  } finally {
+    ui.unmount();
+    graphics.release();
+    await reopened.close();
   }
 });
