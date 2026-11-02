@@ -947,15 +947,25 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
     constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK,
     { mode: 0o600 },
   );
-  const attempt = a.claim();
+  // a request the host hasn't read when it closes gets no reply, so wait for the request's own ledger read
+  const deadline = Date.now() + 10_000;
+  const waiting = Promise.withResolvers<void>();
+  const state = CoordinationStore.prototype.state;
+  vi.spyOn(CoordinationStore.prototype, 'state').mockImplementation(function (
+    this: CoordinationStore,
+    ...args: Parameters<typeof state>
+  ) {
+    if (args[0] === deadline) waiting.resolve();
+    return state.apply(this, args);
+  });
+  const attempt = callControl(
+    bound,
+    { kind: 'claim', input: { reference: 'task:shared', summary: 'A task' } },
+    deadline,
+  );
   let closing: ReturnType<typeof a.coordinator.close> | undefined;
   try {
-    await until('request waiting on lock', async () =>
-      (await files.readdir(join(bound.directory, 'inbox'))).some((f) =>
-        f.endsWith('.json'),
-      ),
-    );
-    await delay(300);
+    await within(waiting.promise, 5000, 'request waiting on lock');
     closing = a.coordinator.close();
     await lock.close();
     assert.equal((await attempt).kind, 'error');

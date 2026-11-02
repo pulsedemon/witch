@@ -153,8 +153,8 @@ test.each([true, false])(
       const unavailable = watch.snapshot;
       assert.equal(unavailable, undefined);
       await git(work, 'hash-object', '-w', join(source, 'a'));
-      const later = new Date(Date.now() + 60_000);
-      await utimes(join(work, 'b'), later, later);
+      // delivers the change itself, since FSEvents can drop the event while the disk is busy
+      watch['changed']();
       await until('rename status', () => watch.snapshot?.staged === 1);
       assert.equal(watch.snapshot?.branch, 'main');
       assert.equal(watch.snapshot?.modified, 0);

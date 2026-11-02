@@ -19,6 +19,13 @@ import { selectionTurn } from './fixtures/task-selection.js';
 import { until, within } from './fixtures/within.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 
+/** waits for `gate`, then extends the read's lock deadline by the wait, which stands in for a late read and mustn't expire it. */
+async function resume(gate: Promise<void>, args: [number?, ...unknown[]]) {
+  const paused = Date.now();
+  await gate;
+  if (args[0] !== undefined) args[0] += Date.now() - paused;
+}
+
 for (const kind of [
   'peers',
   'claim',
@@ -193,7 +200,7 @@ for (const stage of ['acquisition', 'completion'] as const)
         first = false;
         if (background && stage === 'acquisition') {
           entered.resolve();
-          await finishRead.promise;
+          await resume(finishRead.promise, args);
         }
         const ledger = await state.apply(this, args);
         if (background && stage === 'completion') {
@@ -292,7 +299,7 @@ test('an older successful ledger read cannot clear a later read failure', async 
     if (first) {
       first = false;
       entered.resolve();
-      await finishRead.promise;
+      await resume(finishRead.promise, args);
     }
     return lock.call(local, ...args);
   };
@@ -954,7 +961,7 @@ test('a refresh started during verification retains peer claims after mutation c
       if (background) {
         background = false;
         readEntered.resolve();
-        await finishRead.promise;
+        await resume(finishRead.promise, args);
         const ledger = await state(...args);
         readCompleted.resolve(ledger);
         await finishRefresh.promise;
@@ -1131,7 +1138,7 @@ for (const kind of ['claim', 'release'] as const)
         if (first) {
           first = false;
           entered.resolve();
-          await finishRead.promise;
+          await resume(finishRead.promise, args);
         }
         return state(...args);
       });

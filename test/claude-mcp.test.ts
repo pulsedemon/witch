@@ -185,6 +185,7 @@ test('cached pending Claude MCP discovery does not sustain polling', async (t) =
   assert.deepEqual(f.notices, []);
   await f.setServers([{ name: 'cached', status: 'needs-auth' }]);
   await f.turn();
+  await until('sign-in notice', () => f.notices.length === 1);
   assert.deepEqual(f.notices, [
     {
       type: 'notice',
@@ -277,10 +278,13 @@ for (const pending of ['timer', 'request'] as const) {
       [{ name: 'pending', status: 'pending' }],
       pending === 'request' ? 'hold-mcp' : undefined,
     );
+    const scheduled = f.timers.length;
     await f.turn();
+    // the turn's init starts another status read, so close only once it has scheduled its poll
+    if (pending === 'timer')
+      await until('MCP poll timer', () => f.timers.length > scheduled);
     const count = (await f.requests()).length;
     if (pending === 'request') assert.equal(count, 1);
-    if (pending === 'timer') assert.ok(f.timers.length > 0);
     const callbacks = f.timers.map((timer) => timer.mock.calls.length);
     await f.session.close();
     vi.advanceTimersByTime(3000);
