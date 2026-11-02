@@ -45,15 +45,23 @@ function checkRepairInstruction({
   return `Witch started this turn to repair the failed checks on your existing task's pull request ${url} at head ${commit}: ${checks}. This is not a new user request. First run gh pr view and stop if the pull request is no longer open, its head commit changed or those checks no longer fail, or if the local branch isn't at ${commit}. Read each failed check's log, for a GitHub Actions job with gh run view --job <job id from its URL> --log-failed, and find the cause. Leave uncommitted changes not made in this turn untouched. When the pull request's changes cause the failure, fix it, run the checks the project requires before publishing, following its pre-publication procedure where it has one, and push without force. When the cause is outside the change, fix it here or match it to an existing open or closed issue, filing one with the evidence, impact and a checkable completion condition when none matches, and only once that's settled rerun the failed jobs. Don't merge or edit the pull request, and don't release the task. Stop and report anything that needs new authorization, within native permissions. Report the cause, the commit or issue that settles it, and the check results.`;
 }
 
-/** a check repair's key has no base, so a conflict repair of the same head keeps its own. */
-const key = ({
+const conflictKey = ({
   url,
   commit,
   base,
-}: Pick<PullRequest, 'url' | 'commit'> & { base?: string }) =>
-  JSON.stringify([url, commit, base ?? null]);
-const repairKey = ({ pullRequest: { url, commit, base }, failed }: Repair) =>
-  key(failed ? { url, commit } : { url, commit, base });
+}: Pick<PullRequest, 'url' | 'commit' | 'base'>) =>
+  JSON.stringify(['conflict', url, commit, base]);
+const checkKey = ({
+  url,
+  commit,
+  check,
+}: Pick<PullRequest, 'url' | 'commit'> & { check: string }) =>
+  JSON.stringify(['check', url, commit, check]);
+/** one per failed check, so a check that fails later on the same head gets its own repair. */
+const repairKeys = ({ pullRequest, failed }: Repair) =>
+  failed
+    ? failed.map(({ name }) => checkKey({ ...pullRequest, check: name }))
+    : [conflictKey(pullRequest)];
 
 interface RepairHost {
   record(): ConversationRecord | undefined;
@@ -71,8 +79,8 @@ interface RepairHost {
 }
 
 /**
- * one automatic turn per conflicting head and base of the pull request this session claims, and one per head whose
- * checks failed. attempted keys are saved on the record; a refused ownership check declines a key until the user's
+ * one automatic turn per conflicting head and base of the pull request this session claims, and one per head for the
+ * checks that failed on it since its last. attempted keys are saved on the record; a refused ownership check declines a key until the user's
  * next prompt or another conversation.
  */
 export class PullRequestRepair {
@@ -118,27 +126,29 @@ export class PullRequestRepair {
       current.mergeable === 'CONFLICTING' &&
       current.url === conflict.pullRequest.url &&
       current.commit === conflict.pullRequest.commit;
+    const recorded = [
+      ...(record.conflictRepairs ?? []).map(conflictKey),
+      ...(record.checkRepairs ?? []).map(checkKey),
+    ];
+    const open = (key: string) =>
+      !this.declined.has(key) && !recorded.includes(key);
+    const failed = current.failed?.filter(({ name }) =>
+      open(checkKey({ ...current, check: name })),
+    );
     const repair: Repair | undefined = conflicting
-      ? {
-          owner: record.id,
-          claim: claim.id,
-          pullRequest: conflict.pullRequest,
-          ...(conflict.baseTip ? { baseTip: conflict.baseTip } : {}),
-        }
-      : current.failed && {
-          owner: record.id,
-          claim: claim.id,
-          pullRequest: current,
-          failed: current.failed,
-        };
-    if (!repair) return;
-    const id = repairKey(repair);
-    const attempted = repair.failed
-      ? record.checkRepairs
-      : record.conflictRepairs;
-    if (this.declined.has(id) || attempted?.some((entry) => key(entry) === id))
-      return;
-    return { record, id, repair };
+      ? open(conflictKey(conflict.pullRequest))
+        ? {
+            owner: record.id,
+            claim: claim.id,
+            pullRequest: conflict.pullRequest,
+            ...(conflict.baseTip ? { baseTip: conflict.baseTip } : {}),
+          }
+        : undefined
+      : failed?.length
+        ? { owner: record.id, claim: claim.id, pullRequest: current, failed }
+        : undefined;
+    if (repair)
+      return { record, id: JSON.stringify(repairKeys(repair)), repair };
   }
 
   ready(): boolean {
@@ -176,14 +186,21 @@ export class PullRequestRepair {
       return false;
     }
     const { url, commit, base } = repair.pullRequest;
-    if (repair.failed) (record.checkRepairs ??= []).push({ url, commit });
+    if (repair.failed)
+      (record.checkRepairs ??= []).push(
+        ...repair.failed.map(({ name }) => ({ url, commit, check: name })),
+      );
     else (record.conflictRepairs ??= []).push({ url, commit, base });
     this.executing = repair;
     try {
       await this.host.run(repair, (error) => {
-        const kept = (entry: Parameters<typeof key>[0]) => key(entry) !== id;
-        record.checkRepairs = record.checkRepairs?.filter(kept);
-        record.conflictRepairs = record.conflictRepairs?.filter(kept);
+        const keys = repairKeys(repair);
+        record.checkRepairs = record.checkRepairs?.filter(
+          (entry) => !keys.includes(checkKey(entry)),
+        );
+        record.conflictRepairs = record.conflictRepairs?.filter(
+          (entry) => !keys.includes(conflictKey(entry)),
+        );
         this.decline(record, repair, error);
       });
     } finally {
@@ -226,8 +243,9 @@ export class PullRequestRepair {
     repair: Repair,
     error: string,
   ): void {
-    const id = repairKey(repair);
-    this.declined.add(id);
+    const keys = repairKeys(repair);
+    for (const entry of keys) this.declined.add(entry);
+    const id = JSON.stringify(keys);
     const text = `Witch didn't repair the ${repair.failed ? 'failed checks' : 'conflict'} on #${repair.pullRequest.number}: ${error || "this session's checkout or claim no longer matches it."}`;
     const shown = JSON.stringify([record.id, id, text]);
     if (this.noticed.has(shown)) return;

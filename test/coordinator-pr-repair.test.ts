@@ -647,7 +647,7 @@ const failing = (
 const checkRepairs = (s: Awaited<ReturnType<typeof setup>>) =>
   s.x.a.inputs.filter(({ prompt }) => prompt.startsWith(checkPrefix));
 
-test('failed checks on the claimed pull request start one repair turn per head, and pending or passing checks start none', async (t) => {
+test('failed checks on the claimed pull request start one repair turn per head and check, and pending or passing checks start none', async (t) => {
   const s = await setup(t);
   s.observe(s.read({ mergeable: 'MERGEABLE', checks: 'pending' }));
   assert.equal(s.c.repair.ready(), false, 'pending');
@@ -671,7 +671,7 @@ test('failed checks on the claimed pull request start one repair turn per head, 
   );
   assert.ok(s.notices().includes('Repairing failed checks on #7: verify.'));
   assert.deepEqual((await s.record()).checkRepairs, [
-    { url: s.pullRequest().url, commit: head(1) },
+    { url: s.pullRequest().url, commit: head(1), check: 'verify' },
   ]);
   assert.equal((await s.record()).conflictRepairs, undefined);
   s.observe(failing(s));
@@ -681,9 +681,21 @@ test('failed checks on the claimed pull request start one repair turn per head, 
   await s.c.send('continue');
   await s.idle();
   assert.equal(checkRepairs(s).length, 1);
+  s.observe(
+    failing(s, {
+      failed: [
+        { name: 'verify', url: job(2) },
+        { name: 'lint', url: job(3) },
+      ],
+    }),
+  );
+  await until('repair of the later check', () => checkRepairs(s).length === 2);
+  await s.idle();
+  assert.match(checkRepairs(s)[1]!.prompt, new RegExp(`${head(1)}: lint \\(`));
+  assert.doesNotMatch(checkRepairs(s)[1]!.prompt, /verify/);
   s.observe(failing(s, { commit: head(2) }));
-  await until('repair of the new head', () => checkRepairs(s).length === 2);
-  assert.match(checkRepairs(s)[1]!.prompt, new RegExp(`at head ${head(2)}:`));
+  await until('repair of the new head', () => checkRepairs(s).length === 3);
+  assert.match(checkRepairs(s)[2]!.prompt, new RegExp(`at head ${head(2)}:`));
 });
 
 test('a check repair waits for the running and queued user turns', async (t) => {
