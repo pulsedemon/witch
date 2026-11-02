@@ -45,6 +45,11 @@ const requested = z.object({
     .object({ __typename: z.string(), login: z.string().optional() })
     .nullable(),
 });
+const rule = z.object({ type: z.string(), parameters: z.unknown().optional() });
+const copilotRule = z.object({
+  review_on_push: z.boolean(),
+  review_draft_pull_requests: z.boolean(),
+});
 const pageInfo = z.object({
   hasNextPage: z.boolean(),
   endCursor: z.string().nullable(),
@@ -54,6 +59,9 @@ const connection = <T extends z.ZodType>(item: T) =>
 
 export interface GitHubReviews {
   pullRequest: PullRequest;
+  draft: boolean;
+  /** the base branch's rules that ask Copilot to review automatically. */
+  copilotRules: z.infer<typeof copilotRule>[];
   viewer: string;
   closingIssues: string[];
   requested: z.infer<typeof requested>[];
@@ -89,8 +97,9 @@ const metadata = z.object({
   headRefName: z.string(),
   headRefOid: z.string(),
   baseRefName: z.string(),
+  isDraft: z.boolean(),
 });
-const fields = 'id number url state headRefName headRefOid baseRefName';
+const fields = 'id number url state headRefName headRefOid baseRefName isDraft';
 const pagedThread = thread.extend({ comments: connection(reviewComment) });
 const initial = metadata.extend({
   closingIssuesReferences: connection(z.object({ url: z.string() })),
@@ -212,54 +221,66 @@ export async function readGitHubReviews(
     }
     return nodes;
   };
-  const [closingIssues, requests, reviews, comments, threads, checkPages] =
-    await Promise.all([
-      all(
-        found.id,
-        'PullRequest',
-        'closingIssuesReferences',
-        'url',
-        z.object({ url: z.string() }),
-        found.closingIssuesReferences,
-      ),
-      all(
-        found.id,
-        'PullRequest',
-        'reviewRequests',
-        requestedFields,
-        requested,
-        found.reviewRequests,
-      ),
-      all(
-        found.id,
-        'PullRequest',
-        'reviews',
-        reviewFields,
-        review,
-        found.reviews,
-      ),
-      all(
-        found.id,
-        'PullRequest',
-        'comments',
-        commentFields,
-        comment,
-        found.comments,
-      ),
-      all(
-        found.id,
-        'PullRequest',
-        'reviewThreads',
-        threadFields,
-        pagedThread,
-        found.reviewThreads,
-      ),
-      api([
-        `repos/${owner}/${name}/commits/${found.headRefOid}/check-runs?per_page=100&filter=all`,
-        '--paginate',
-        '--slurp',
-      ]),
-    ]);
+  const [
+    closingIssues,
+    requests,
+    reviews,
+    comments,
+    threads,
+    checkPages,
+    rulePages,
+  ] = await Promise.all([
+    all(
+      found.id,
+      'PullRequest',
+      'closingIssuesReferences',
+      'url',
+      z.object({ url: z.string() }),
+      found.closingIssuesReferences,
+    ),
+    all(
+      found.id,
+      'PullRequest',
+      'reviewRequests',
+      requestedFields,
+      requested,
+      found.reviewRequests,
+    ),
+    all(
+      found.id,
+      'PullRequest',
+      'reviews',
+      reviewFields,
+      review,
+      found.reviews,
+    ),
+    all(
+      found.id,
+      'PullRequest',
+      'comments',
+      commentFields,
+      comment,
+      found.comments,
+    ),
+    all(
+      found.id,
+      'PullRequest',
+      'reviewThreads',
+      threadFields,
+      pagedThread,
+      found.reviewThreads,
+    ),
+    api([
+      `repos/${owner}/${name}/commits/${found.headRefOid}/check-runs?per_page=100&filter=all`,
+      '--paginate',
+      '--slurp',
+    ]),
+    api([
+      `repos/${owner}/${name}/rules/branches/${found.baseRefName}?per_page=100`,
+      '--paginate',
+      '--slurp',
+    ]),
+  ]);
   const completeThreads = await Promise.all(
     threads.map(async (entry) => ({
       ...entry,
@@ -306,6 +327,13 @@ export async function readGitHubReviews(
       commit: current.headRefOid,
       base: current.baseRefName,
     },
+    draft: current.isDraft,
+    copilotRules: z
+      .array(z.array(rule))
+      .parse(rulePages)
+      .flat()
+      .filter(({ type }) => type === 'copilot_code_review')
+      .map(({ parameters }) => copilotRule.parse(parameters)),
     viewer: first.viewer.login,
     closingIssues: closingIssues.map(({ url }) => url),
     requested: requests,

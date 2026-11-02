@@ -12,12 +12,22 @@ import {
   reviewResultSchema,
 } from './copilot-reviews.js';
 import type { CopilotReviewState, ReviewBatch } from './copilot-reviews.js';
-import { readGitHubReviews, reviewCommitPushed } from './github-reviews.js';
+import {
+  isCopilot,
+  readGitHubReviews,
+  reviewCommitPushed,
+} from './github-reviews.js';
 import type { GitHubReviews } from './github-reviews.js';
 import type { SessionCoordination } from './coordination.js';
 import type { Repository } from './repository.js';
 import { bindingChanged } from './review-ownership.js';
 import type { ConversationRecord } from './state.js';
+
+export interface ReviewWatch {
+  state: CopilotReviewState;
+  /** GitHub hasn't asked Copilot to review the open head a minute after Witch first saw it. */
+  unrequested: boolean;
+}
 
 interface ReviewHost {
   record(): ConversationRecord | undefined;
@@ -40,6 +50,12 @@ export class CopilotReviewController {
   private retry?: string;
   private unmatched?: string;
   private noticeState?: string;
+  private head?: {
+    url: string;
+    commit: string;
+    seen: number;
+    unrequested: boolean;
+  };
   private abort = new AbortController();
 
   constructor(private readonly host: ReviewHost) {}
@@ -53,6 +69,7 @@ export class CopilotReviewController {
     this.unmatched = undefined;
     this.noticeState = undefined;
     this.revoked = undefined;
+    this.head = undefined;
   }
 
   updateRepository(repository: Repository | undefined): void {
@@ -189,6 +206,7 @@ export class CopilotReviewController {
       }
       this.unmatched = undefined;
       if (bound.warning) this.host.notice(bound.warning);
+      this.track(source);
       let state = observeReviews(
         this.state(record, source.pullRequest.url),
         source,
@@ -208,7 +226,45 @@ export class CopilotReviewController {
     });
   }
 
-  context(): CopilotReviewState | undefined {
+  /** a base branch rule asks Copilot within seconds of an open, ready for review or covered push, unless the account's credits ran out. */
+  private track(source: GitHubReviews): void {
+    const { url, commit } = source.pullRequest;
+    if (this.head?.url !== url || this.head.commit !== commit)
+      this.head = { url, commit, seen: Date.now(), unrequested: false };
+    const rules = source.copilotRules.filter(
+      ({ review_draft_pull_requests }) =>
+        !source.draft || review_draft_pull_requests,
+    );
+    const onPush = rules.some(({ review_on_push }) => review_on_push);
+    this.head.unrequested =
+      !!rules.length &&
+      Date.now() - this.head.seen >= 60_000 &&
+      !source.requested.some(({ requestedReviewer }) =>
+        isCopilot(requestedReviewer),
+      ) &&
+      !source.checks.some(
+        ({ name }) => name === 'copilot-pull-request-reviewer',
+      ) &&
+      !source.reviews.some(
+        ({ author, commit: reviewed }) =>
+          isCopilot(author) && (!onPush || reviewed?.oid === commit),
+      );
+  }
+
+  private unrequested(state: CopilotReviewState): boolean {
+    return (
+      !!this.head?.unrequested &&
+      this.head.url === state.pullRequest.url &&
+      this.head.commit === this.repository?.pullRequest?.commit
+    );
+  }
+
+  context(): ReviewWatch | undefined {
+    const state = this.current();
+    return state && { state, unrequested: this.unrequested(state) };
+  }
+
+  private current(): CopilotReviewState | undefined {
     if (this.abort.signal.aborted) return;
     const record = this.host.record();
     const state = record && this.state(record);
@@ -225,7 +281,7 @@ export class CopilotReviewController {
 
   ready(): boolean {
     const record = this.host.record();
-    const state = this.context();
+    const state = this.current();
     const retry = this.retry === state?.pullRequest.url;
     return (
       !this.executing &&
@@ -406,6 +462,8 @@ export class CopilotReviewController {
     const reasons = [
       ...new Set(
         [
+          this.unrequested(state) &&
+            "GitHub hasn't asked Copilot to review the latest push, likely because the account's Copilot credits ran out.",
           state.batch?.verifying &&
             'Waiting for GitHub to verify the previous review replies. Send a prompt to reconcile the recorded result if that evidence stays missing.',
           state.batch?.reason,
