@@ -95,6 +95,21 @@ test('a summary claiming no open issues stays pending while it has its own inlin
   );
 });
 
+test('a summary claiming no open issues stays pending while it lists a previously missed issue', () => {
+  const source = reviewSource();
+  source.threads = [];
+  source.reviews[0]!.body = [
+    '**No open issues** 🎉',
+    '<details>',
+    '<summary><strong>1 previously missed issue</strong></summary>',
+    "In code that hasn't changed since last review",
+    '`src/core/coordinator.ts:507`',
+    'Schedule a follow-up stop pass for pauses received during an in-flight stop.',
+    '</details>',
+  ].join('\n\n');
+  assert.equal(observeReviews(undefined, source).items[0]!.status, 'pending');
+});
+
 test('a handled finding stays handled through rereads, head updates and human replies', async () => {
   const f = fixture();
   const handled = await reconcileReviews(
