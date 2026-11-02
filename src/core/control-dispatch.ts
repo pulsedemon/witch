@@ -12,12 +12,20 @@ import type { Activation, LedgerView, RequestState } from './coordination.js';
 import {
   checkTaskRelease,
   conversationSummarySchema,
+  type ClaimOwner,
   type CoordinationSnapshot,
   type SelectionScope,
   type TransferTarget,
 } from './coordination-state.js';
 import { projectDiscovery, type Discovery } from './discovery.js';
 import { checkAnswering, isPeerAction, peerOutcome } from './peer-requests.js';
+import {
+  isPauseAction,
+  pauseRecipients,
+  pauseStatuses,
+  type Pause,
+  type PauseAction,
+} from './pauses.js';
 import type { Snapshot } from './snapshot.js';
 import type { ProcessIdentity } from './state.js';
 import {
@@ -138,6 +146,8 @@ export async function dispatchControl(
         },
         claims: async () => (await host.readLedger(state)).ledger.claims,
       });
+    if (isPauseAction(action))
+      return await pauseOutcome(host, request, active, owner, state, action);
     const scope =
       action.kind === 'claim' || action.kind === 'take'
         ? undefined
@@ -347,6 +357,65 @@ export async function dispatchControl(
       () => {},
     );
   }
+}
+
+async function pauseOutcome(
+  host: DispatchHost,
+  request: ControlRequest,
+  active: Activation,
+  owner: ClaimOwner,
+  state: RequestState,
+  action: PauseAction,
+): Promise<ControlOutcome> {
+  const { registry } = host;
+  const result = (pause: Pause): ControlOutcome => ({
+    kind: 'pause',
+    pause,
+    statuses: pauseStatuses(pause),
+  });
+  if (action.kind === 'pause-status')
+    return result(await registry.pause(owner.conversation, action.pause));
+  if (action.kind === 'resume')
+    return result(
+      await registry.resumePause(
+        owner.conversation,
+        action.pause,
+        request.deadline,
+      ),
+    );
+  const scope = host.turn();
+  const turn =
+    scope?.activation === active.binding.activation ? scope.turn : undefined;
+  const existing = await registry.existingPause(
+    owner.conversation,
+    turn,
+    action.to,
+  );
+  if (existing) return result(existing);
+  const recipients = pauseRecipients(
+    action.to,
+    owner,
+    await host.observe(state),
+  );
+  return result(
+    await registry.issuePause(
+      owner,
+      turn,
+      action.to,
+      recipients.map(({ id, project }) => ({ conversation: id, project })),
+      request.deadline,
+      async () => {
+        host.admit(request);
+        state.discovery = undefined;
+        const { live } = await host.observe(state);
+        const closed = recipients.filter(({ id }) => !live.get(id)?.pauses);
+        if (closed.length)
+          throw new Error(
+            `These sessions closed before the pause was recorded: ${closed.map(({ id }) => id).join(', ')}`,
+          );
+      },
+    ),
+  );
 }
 
 async function record(host: DispatchHost, conversation: string) {

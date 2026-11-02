@@ -21,6 +21,7 @@ import {
   CoordinationStore,
 } from '../src/persistence/coordination.js';
 import { StateStore } from '../src/persistence/store.js';
+import { entry, pauseStatuses } from '../src/core/pauses.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { openLocked, lockedFiles } from '../src/persistence/lock.js';
 import { record } from './fixtures/coordinator.js';
@@ -712,3 +713,76 @@ for (const field of ['transfer', 'automaticTransfer'] as const) {
     assert.deepEqual(await f.store.claims(), [original]);
   });
 }
+
+test('pause records track each recipient and replay only their own retry', async () => {
+  const root = await scratch('witch-pauses-');
+  const store = await CoordinationStore.open(await StateStore.open(root));
+  const issuer = { conversation: 'i', project: 'project-p' };
+  const a = { conversation: 'a', project: 'project-p' };
+  const b = { conversation: 'b', project: 'project-q' };
+  const deadline = () => Date.now() + 1000;
+  const status = async (id: string) =>
+    pauseStatuses(await store.pause('i', id));
+  const pause = await store.issuePause(
+    issuer,
+    'turn-1',
+    ['a', 'b'],
+    [a, b, a],
+    deadline(),
+    verify,
+  );
+  assert.deepEqual(
+    pause.recipients.map(({ conversation }) => conversation),
+    ['a', 'b'],
+  );
+  assert.deepEqual(await status(pause.id), { a: 'pending', b: 'pending' });
+  await store.confirmPause('a', pause.id, deadline());
+  const confirmed = entry(await store.pause('a', pause.id), 'a')!.confirmedAt;
+  await delay(5);
+  await store.confirmPause('a', pause.id, deadline());
+  assert.equal(
+    entry(await store.pause('a', pause.id), 'a')!.confirmedAt,
+    confirmed,
+  );
+  assert.deepEqual(await status(pause.id), { a: 'paused', b: 'pending' });
+  await store.resumeByUser('a', [pause.id], deadline());
+  assert.deepEqual(await status(pause.id), { a: 'resumed', b: 'pending' });
+  // a timed-out --pause rerun in the same turn gets the recorded pause back, even after a resume
+  const refused = async () => assert.fail('a retry reverifies');
+  const retried = await store.issuePause(
+    issuer,
+    'turn-1',
+    ['a', 'b'],
+    [b],
+    deadline(),
+    refused,
+  );
+  assert.equal(retried.id, pause.id);
+  for (const [turn, requested] of [
+    ['turn-2', ['a', 'b']],
+    ['turn-1', ['b']],
+    [undefined, ['a', 'b']],
+    [undefined, ['a', 'b']],
+  ] as const)
+    assert.notEqual(
+      (await store.issuePause(issuer, turn, requested, [b], deadline(), verify))
+        .id,
+      pause.id,
+    );
+  await assert.rejects(store.resumePause('a', pause.id, deadline()), {
+    message: `Only the issuing session can resume pause ${pause.id}.`,
+  });
+  const lifted = await store.resumePause('i', pause.id, deadline());
+  assert.deepEqual(
+    lifted.recipients.map(({ resumedBy }) => resumedBy),
+    ['user', 'issuer'],
+  );
+  assert.deepEqual(await status(pause.id), { a: 'resumed', b: 'resumed' });
+  const pauses = await store.pauses('a');
+  assert.deepEqual(
+    pauses.map(({ id }) => id),
+    [pause.id],
+  );
+  assert.equal((await store.pauses('i')).length, 5);
+  assert.deepEqual(await store.pauses('other'), []);
+});

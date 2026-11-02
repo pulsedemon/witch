@@ -26,7 +26,14 @@ test('solo context retains PR claims and selection without requiring other task 
     input.context!,
     /New work needs no claim or pre-task peer query/,
   );
-  for (const command of ['--select-next', '--recommend', '--cancel-selection'])
+  for (const command of [
+    '--select-next',
+    '--recommend',
+    '--cancel-selection',
+    // a solo session can still pause sessions in other projects
+    '--pause --json',
+    '--to <session-id>',
+  ])
     assert.ok(input.context!.includes(command));
   assert.match(input.context!, /--claim/);
   assert.match(input.context!, /Open pull requests still need an active claim/);

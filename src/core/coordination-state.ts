@@ -95,6 +95,12 @@ export const coordinationActionSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('peer-request'), request: z.string().uuid() }),
   z.object({
+    kind: z.literal('pause'),
+    to: z.array(z.string().min(1)).min(1).optional(),
+  }),
+  z.object({ kind: z.literal('resume'), pause: z.string().uuid() }),
+  z.object({ kind: z.literal('pause-status'), pause: z.string().uuid() }),
+  z.object({
     kind: z.literal('route'),
     work,
     of: choiceSchema.optional(),
@@ -113,6 +119,7 @@ export const sessionPresenceSchema = conversationSummarySchema.extend({
   version: z.literal(1),
   selectionQueue: z.literal(1).optional(),
   peerRequests: z.literal(1).optional(),
+  pauses: z.literal(1).optional(),
   project: z.string(),
   activation: z.string().uuid(),
   process: processIdentity,

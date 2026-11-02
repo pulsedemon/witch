@@ -4,6 +4,7 @@ import { mergeEventId } from './merge-events.js';
 import type { MergeEvent } from './merge-events.js';
 import { answerable, answered } from './peer-requests.js';
 import type { PeerRequest } from './peer-requests.js';
+import type { Pause } from './pauses.js';
 import type { PullRequest } from './repository.js';
 
 export interface EventScope {
@@ -16,7 +17,7 @@ export interface EventHost {
   scope(): EventScope | undefined;
   claims(): readonly TaskClaim[];
   fail(
-    source: 'merge-events' | 'peer-requests' | 'merge-publish',
+    source: 'merge-events' | 'peer-requests' | 'pauses' | 'merge-publish',
     error: unknown,
   ): void;
   /** the named sources succeeded; `notify` when listeners should hear of it. */
@@ -42,10 +43,11 @@ function same(a: EventScope | undefined, b: EventScope | undefined): boolean {
   return a?.conversation === b?.conversation && a?.project === b?.project;
 }
 
-/** the active conversation's merge events and peer requests, from one guarded read. */
+/** the active conversation's merge events, peer requests and pauses, from one guarded read. */
 export class ConversationEvents {
   private merges?: EventScope & { events: MergeEvent[] };
   private asks?: EventScope & { requests: PeerRequest[] };
+  private halts?: EventScope & { pauses: Pause[] };
   private reading?: { key: object; scope: EventScope; promise: Promise<void> };
   private readonly pendingMerges = new Map<string, MergeObservation>();
   private readonly observedMerges = new Set<string>();
@@ -116,6 +118,12 @@ export class ConversationEvents {
     return scope && same(this.asks, scope) ? this.asks!.requests : [];
   }
 
+  /** the pauses the conversation issued or receives, across projects; undefined until a read for its scope lands. */
+  pauses(conversation: string): readonly Pause[] | undefined {
+    const scope = this.scope(conversation);
+    return scope && same(this.halts, scope) ? this.halts!.pauses : undefined;
+  }
+
   /** the conversation's own requests that have answers. */
   answered(conversation: string): PeerRequest[] {
     return answered(this.peerRequests(conversation), conversation);
@@ -155,8 +163,9 @@ export class ConversationEvents {
     const promise = Promise.allSettled([
       this.registry.mergeEvents(project, conversation),
       this.registry.peerRequests(project, conversation),
+      this.registry.pauses(conversation),
     ])
-      .then(([events, requests]) => {
+      .then(([events, requests, pauses]) => {
         if (!current()) return;
         const read: string[] = [];
         let changed = false;
@@ -172,6 +181,12 @@ export class ConversationEvents {
           this.asks = asks;
           read.push('peer-requests');
         } else this.host.fail('peer-requests', requests.reason);
+        if (pauses.status === 'fulfilled') {
+          const halts = { ...scope, pauses: pauses.value };
+          changed ||= JSON.stringify(halts) !== JSON.stringify(this.halts);
+          this.halts = halts;
+          read.push('pauses');
+        } else this.host.fail('pauses', pauses.reason);
         this.host.read(
           read,
           changed ||

@@ -31,6 +31,8 @@ import type { MergeEvent } from '../core/merge-events.js';
 import { answerable, peerRequestSchema } from '../core/peer-requests.js';
 import type { PeerRequest } from '../core/peer-requests.js';
 import type { PeerAnswer } from '../core/peer-answers.js';
+import { entry, pauseSchema, sameRequest } from '../core/pauses.js';
+import type { Pause, PauseRecipient } from '../core/pauses.js';
 import type { PullRequest } from '../core/repository.js';
 import { identifyProcesses, sameProcess } from './process.js';
 import { lockedFiles, openLocked, tryOpenLocked } from './lock.js';
@@ -170,7 +172,7 @@ export class CoordinationStore {
     return new CoordinationStore(directory, store);
   }
 
-  /** changes with every presence, claim, merge and activation write, each a rename, creation or removal in these directories. */
+  /** changes with every presence, claim, merge, peer request, pause and activation write, each a rename, creation or removal in these directories. */
   signature(): string | undefined {
     try {
       return [this.directory, join(this.directory, 'sessions')]
@@ -407,6 +409,176 @@ export class CoordinationStore {
 
   private async writePeerRequests(requests: PeerRequest[]): Promise<void> {
     await writeJson(join(this.directory, 'peer-requests.json'), requests);
+  }
+
+  private async readPauses(): Promise<Pause[]> {
+    return (
+      (await readJson(
+        join(this.directory, 'pauses.json'),
+        z.array(pauseSchema),
+      )) ?? []
+    );
+  }
+
+  /** the pauses the conversation issued or receives. */
+  async pauses(conversation: string): Promise<Pause[]> {
+    return (await this.readPauses()).filter(
+      (pause) =>
+        pause.from === conversation || entry(pause, conversation) !== undefined,
+    );
+  }
+
+  async pause(conversation: string, id: string): Promise<Pause> {
+    const found = (await this.pauses(conversation)).find(
+      (pause) => pause.id === id,
+    );
+    if (!found)
+      throw new Error(`Pause ${id} was not issued by or to this conversation.`);
+    return found;
+  }
+
+  /** the issuer's record from the same turn and `--to` list, whatever its status. */
+  async existingPause(
+    from: string,
+    turn: string | undefined,
+    requested: readonly string[] | undefined,
+  ): Promise<Pause | undefined> {
+    return (await this.readPauses()).find((pause) =>
+      sameRequest(pause, from, turn, requested),
+    );
+  }
+
+  /** `verify` runs under the lock and must not read the ledger, whose lock this holds. */
+  async issuePause(
+    issuer: ClaimOwner,
+    turn: string | undefined,
+    requested: readonly string[] | undefined,
+    recipients: readonly { conversation: string; project: string }[],
+    deadline: number,
+    verify: () => Promise<void>,
+  ): Promise<Pause> {
+    const lock = await this.lock(deadline);
+    try {
+      const pauses = await this.readPauses();
+      const existing = pauses.find((pause) =>
+        sameRequest(pause, issuer.conversation, turn, requested),
+      );
+      if (existing) return existing;
+      await verify();
+      const unique = [
+        ...new Map(
+          recipients.map((recipient) => [recipient.conversation, recipient]),
+        ).values(),
+      ];
+      const pause = pauseSchema.parse({
+        id: randomUUID(),
+        from: issuer.conversation,
+        project: issuer.project,
+        issuedAt: new Date().toISOString(),
+        turn,
+        requested,
+        recipients: unique.map(({ conversation, project }) => ({
+          conversation,
+          project,
+        })),
+      });
+      checkDeadline(deadline);
+      await this.writePauses([...pauses, pause]);
+      return pause;
+    } finally {
+      await lock.close();
+    }
+  }
+
+  async confirmPause(
+    conversation: string,
+    id: string,
+    deadline: number,
+  ): Promise<void> {
+    await this.stampPauses(deadline, (pause) =>
+      pause.id === id
+        ? pause.recipients.map((recipient) =>
+            recipient.conversation === conversation && !recipient.confirmedAt
+              ? { ...recipient, confirmedAt: new Date().toISOString() }
+              : recipient,
+          )
+        : undefined,
+    );
+  }
+
+  async resumeByUser(
+    conversation: string,
+    ids: readonly string[],
+    deadline: number,
+  ): Promise<void> {
+    await this.stampPauses(deadline, (pause) =>
+      ids.includes(pause.id)
+        ? pause.recipients.map((recipient) =>
+            recipient.conversation === conversation && !recipient.resumedAt
+              ? {
+                  ...recipient,
+                  resumedAt: new Date().toISOString(),
+                  resumedBy: 'user' as const,
+                }
+              : recipient,
+          )
+        : undefined,
+    );
+  }
+
+  /** only the issuer resumes its pause; entries a user already resumed keep that. */
+  async resumePause(
+    from: string,
+    id: string,
+    deadline: number,
+  ): Promise<Pause> {
+    let resumed: Pause | undefined;
+    await this.stampPauses(deadline, (pause) => {
+      if (pause.id !== id) return undefined;
+      if (pause.from !== from)
+        throw new Error(`Only the issuing session can resume pause ${id}.`);
+      const recipients = pause.recipients.map((recipient) =>
+        recipient.resumedAt
+          ? recipient
+          : {
+              ...recipient,
+              resumedAt: new Date().toISOString(),
+              resumedBy: 'issuer' as const,
+            },
+      );
+      resumed = { ...pause, recipients };
+      return recipients;
+    });
+    if (!resumed)
+      throw new Error(`Pause ${id} was not issued by this conversation.`);
+    return resumed;
+  }
+
+  /** `update` returns a pause's new recipients, or undefined to leave it. */
+  private async stampPauses(
+    deadline: number,
+    update: (pause: Pause) => PauseRecipient[] | undefined,
+  ): Promise<void> {
+    const lock = await this.lock(deadline);
+    try {
+      const pauses = await this.readPauses();
+      let changed = false;
+      const next = pauses.map((pause) => {
+        const recipients = update(pause);
+        if (!recipients) return pause;
+        changed = true;
+        return { ...pause, recipients };
+      });
+      if (!changed) return;
+      checkDeadline(deadline);
+      await this.writePauses(next);
+    } finally {
+      await lock.close();
+    }
+  }
+
+  private async writePauses(pauses: Pause[]): Promise<void> {
+    await writeJson(join(this.directory, 'pauses.json'), pauses);
   }
 
   async publish(presence: SessionPresence): Promise<void> {

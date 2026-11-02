@@ -34,6 +34,10 @@ Agent control (use the prefix supplied in the current Witch context):
   --answer <id>       answer a peer request; needs --message
   --message <text>    the request or answer text
   --peer-request <id> show a peer request you sent or received
+  --pause             pause this project's other sessions
+  --to <id>           pause only this session, in any project; repeatable
+  --resume <id>       lift a pause this session issued
+  --pause-status <id> show a pause's recipients and whether each has stopped
   --route <work>      choose where review, planning, implementation or investigation goes
   --of <runtime>:<model>    the runtime and model whose work a review checks
   --named <runtime>:<model> a model the user or agent named, which runs as named, or a family, at its newest

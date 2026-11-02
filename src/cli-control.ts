@@ -42,6 +42,10 @@ const options = {
   answer: { type: 'string' },
   message: { type: 'string' },
   'peer-request': { type: 'string' },
+  pause: { type: 'boolean' },
+  to: { type: 'string', multiple: true },
+  resume: { type: 'string' },
+  'pause-status': { type: 'string' },
   route: { type: 'string' },
   of: { type: 'string' },
   named: { type: 'string' },
@@ -138,6 +142,10 @@ export function parseCommand(args = process.argv.slice(2)) {
     'answer',
     'message',
     'peer-request',
+    'pause',
+    'to',
+    'resume',
+    'pause-status',
     'route',
     'of',
     'named',
@@ -155,12 +163,16 @@ export function parseCommand(args = process.argv.slice(2)) {
     values.ask !== undefined,
     values.answer !== undefined,
     values['peer-request'] !== undefined,
+    !!values.pause,
+    values.resume !== undefined,
+    values['pause-status'] !== undefined,
     values.route !== undefined,
   ].filter(Boolean).length;
   if (actions !== 1)
     throw new Error(
-      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection, --ask, --answer, --peer-request or --route.',
+      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection, --ask, --answer, --peer-request, --pause, --resume, --pause-status or --route.',
     );
+  if (!values.pause && values.to) throw new Error('--to requires --pause.');
   if (
     values.route === undefined &&
     (values.of !== undefined || values.named !== undefined)
@@ -227,21 +239,27 @@ export function parseCommand(args = process.argv.slice(2)) {
               }
             : values['peer-request'] !== undefined
               ? { kind: 'peer-request', request: values['peer-request'] }
-              : values['select-next'] !== undefined
-                ? { kind: 'select-next', turn: values['select-next'] }
-                : values['cancel-selection'] !== undefined
-                  ? {
-                      kind: 'cancel-selection',
-                      selection: values['cancel-selection'],
-                    }
-                  : values.route !== undefined
-                    ? {
-                        kind: 'route',
-                        work: values.route,
-                        of: choice(values.of),
-                        named: choice(values.named),
-                      }
-                    : { kind: 'release', claim: values.release },
+              : values.pause
+                ? { kind: 'pause', to: values.to }
+                : values.resume !== undefined
+                  ? { kind: 'resume', pause: values.resume }
+                  : values['pause-status'] !== undefined
+                    ? { kind: 'pause-status', pause: values['pause-status'] }
+                    : values['select-next'] !== undefined
+                      ? { kind: 'select-next', turn: values['select-next'] }
+                      : values['cancel-selection'] !== undefined
+                        ? {
+                            kind: 'cancel-selection',
+                            selection: values['cancel-selection'],
+                          }
+                        : values.route !== undefined
+                          ? {
+                              kind: 'route',
+                              work: values.route,
+                              of: choice(values.of),
+                              named: choice(values.named),
+                            }
+                          : { kind: 'release', claim: values.release },
   );
   return {
     ...parsed,
@@ -310,6 +328,13 @@ function describe(outcome: ControlOutcome): string {
               : []),
       ].join('\n');
     }
+    case 'pause':
+      return [
+        `Pause ${outcome.pause.id} from ${oneLine(outcome.pause.from)}`,
+        ...Object.entries(outcome.statuses).map(
+          ([conversation, status]) => `${oneLine(conversation)}: ${status}`,
+        ),
+      ].join('\n');
     case 'route':
       return outcome.routes
         .map(

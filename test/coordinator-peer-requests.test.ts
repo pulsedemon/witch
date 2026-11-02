@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -739,13 +740,15 @@ test('control requests stay scoped while an automatic answer is in flight', asyn
     { kind: 'ask', claim: other.id, message: 'Back to you?' },
     { kind: 'claim', input: { reference: 'task:other', summary: 'Other' } },
     { kind: 'release', claim: claim.id },
+    { kind: 'pause' },
+    { kind: 'resume', pause: randomUUID() },
   ] as const) {
     const result = await callControl(binding, action);
     assert.equal(result.kind, 'error', JSON.stringify(result));
     if (result.kind === 'error')
       assert.equal(
         result.message,
-        'Answer the current peer requests without asking other sessions or changing claims.',
+        'Answer the current peer requests without asking or pausing other sessions or changing claims.',
       );
   }
   gate.open();
