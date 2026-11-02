@@ -311,6 +311,52 @@ test('a reconnect that fails before activating keeps the activation and claim', 
   assert.deepEqual((await owner.query()).ownClaim, claim);
 });
 
+for (const stage of ['close', 'reconnect'] as const) {
+  test(`a clear whose ${stage} fails keeps the claim under a new activation`, async (t) => {
+    const cleanup = orderedCleanup(t.onTestFinished);
+    const f = await coordinationFixture(cleanup);
+    const owner = await f.start('A');
+    assert.equal((await owner.claim('task:clear')).kind, 'claimed');
+    const bound = await owner.binding();
+    const claim = (await owner.query()).ownClaim;
+    assert.ok(claim);
+    if (stage === 'close') owner.a.failClose = true;
+    else
+      vi.spyOn(Workspace.prototype, 'ensureWorktree').mockRejectedValueOnce(
+        new Error('Worktree unavailable'),
+      );
+    await assert.rejects(
+      owner.coordinator.clear(),
+      stage === 'close' ? /Close failed/ : /Worktree unavailable/,
+    );
+    owner.a.failClose = false;
+    const current = await owner.binding();
+    assert.notEqual(current.activation, bound.activation);
+    assert.equal(
+      (await callControl(bound, { kind: 'release', claim: claim.id })).kind,
+      'error',
+    );
+    assert.deepEqual((await owner.query()).ownClaim, claim);
+    await owner.coordinator.clear();
+    assert.notEqual((await owner.binding()).activation, current.activation);
+    assert.deepEqual((await owner.query()).ownClaim, claim);
+  });
+}
+
+test('a clear whose close and reactivation both fail reports both', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const f = await coordinationFixture(cleanup);
+  const owner = await f.start('A');
+  owner.a.failClose = true;
+  vi.spyOn(owner.coordination, 'activate').mockRejectedValueOnce(
+    new Error('Activation unavailable'),
+  );
+  await assert.rejects(
+    owner.coordinator.clear(),
+    /Close failed\n\nActivation unavailable/,
+  );
+});
+
 test('bound tool titles use the delivered prefixes, refresh on reconnect and survive results and reopening', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const f = await coordinationFixture(cleanup);

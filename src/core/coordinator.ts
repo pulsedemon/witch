@@ -635,7 +635,19 @@ export class Coordinator {
         throw new Error('Prompts are still queued for this conversation');
       const conversation = this.current();
       const info = this.link.live(conversation.agent)?.info;
-      await this.link.disconnect();
+      const scope = await this.memory.scopePaths(conversation.cwd);
+      const failures: unknown[] = [];
+      await this.link
+        .disconnect()
+        .catch((error: unknown) => failures.push(error));
+      // a fresh activation keeps the conversation coordinated while it reconnects, without the closed session's authority
+      if (!this.closed)
+        await this.coordination
+          ?.activate(conversation, scope.project)
+          .catch((error: unknown) => failures.push(error));
+      if (failures.length > 1)
+        throw new Error(failures.map(errorMessage).join('\n\n'));
+      if (failures.length) throw failures[0];
       if (this.cancelled) return;
       clearConversationContext(conversation, info);
       this.turns.forget(conversation.id);
@@ -651,7 +663,7 @@ export class Coordinator {
       await this.files!.flush();
       if (this.cancelled) return;
       const stored = conversation.sessions[conversation.agent]!;
-      const session = await this.link.connect();
+      const session = await this.link.connect(undefined, scope);
       if (this.cancelled || session.closed) return;
       if (stored.model) {
         // restore the resolved model without changing the saved alias
