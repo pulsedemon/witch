@@ -16,6 +16,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { compiledCli } from './fixtures/compiled-cli.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
 import { StateStore } from '../src/persistence/store.js';
@@ -35,13 +36,7 @@ interface DesktopEvent {
 test('the CLI opens the pressed link or image, copies selected text and runs queued prompts after desktop failures', async () => {
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const root = await scratch('witch-cli-desktop-');
-  const build = join(root, 'dist');
-  await promisify(execFile)(process.execPath, [
-    join(repository, 'scripts/build.mjs'),
-    build,
-  ]);
-  await symlink(join(repository, 'node_modules'), join(root, 'node_modules'));
-  await symlink(join(repository, 'package.json'), join(root, 'package.json'));
+  const cli = await compiledCli();
   const project = join(root, 'project');
   const bin = join(root, 'bin');
   await mkdir(project, { recursive: true });
@@ -100,7 +95,7 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
     [
       '--import',
       join(repository, 'test/fixtures/cli-desktop.mjs'),
-      join(build, 'cli.js'),
+      cli,
       '--state-dir',
       store.root,
     ],

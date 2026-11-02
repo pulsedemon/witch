@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { promises as files } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { cp, readFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
@@ -84,6 +84,24 @@ export function legacyLock(store: StateStore, id: string): Promise<FileHandle> {
   );
 }
 
+/** a checkout in A and B's project. */
+async function checkout(path: string) {
+  await git('init', '--quiet', path);
+  await git('-C', path, 'remote', 'add', 'origin', origin);
+}
+
+let repositories: Promise<string> | undefined;
+
+/** A, B, `other` and C, built once per test file and copied into each fixture. */
+async function template(): Promise<string> {
+  const root = await scratch('witch-coordination-repositories-');
+  await checkout(join(root, 'A'));
+  await checkout(join(root, 'B'));
+  await git('init', '--bare', join(root, 'other'));
+  await git('clone', join(root, 'other'), join(root, 'C'));
+  return root;
+}
+
 export async function coordinationFixture(
   register: RegisterCleanup,
   assign: Parameters<typeof SessionCoordination.open>[4] = async () => ({
@@ -91,15 +109,16 @@ export async function coordinationFixture(
   }),
 ) {
   const root = await scratch('witch-coordination-');
-  /** a checkout in A and B's project. */
-  const checkout = async (name: string) => {
-    await git('init', '--quiet', join(root, name));
-    await git('-C', join(root, name), 'remote', 'add', 'origin', origin);
-  };
-  await checkout('A');
-  await checkout('B');
-  await git('init', '--bare', join(root, 'other'));
-  await git('clone', join(root, 'other'), join(root, 'C'));
+  await cp(await (repositories ??= template()), root, { recursive: true });
+  // C's copied origin still names the template's `other`
+  await git(
+    '-C',
+    join(root, 'C'),
+    'remote',
+    'set-url',
+    'origin',
+    join(root, 'other'),
+  );
   const store = await StateStore.open(join(root, 'state'));
   const memory = await seededMemory(join(store.root, 'memory.git'));
   const registry = await CoordinationStore.open(store);
@@ -168,5 +187,13 @@ export async function coordinationFixture(
   };
   const ledger = () =>
     readFile(join(store.root, 'coordination', 'claims.json'), 'utf8');
-  return { root, store, memory, registry, start, ledger, checkout };
+  return {
+    root,
+    store,
+    memory,
+    registry,
+    start,
+    ledger,
+    checkout: (name: string) => checkout(join(root, name)),
+  };
 }
