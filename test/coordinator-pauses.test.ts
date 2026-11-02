@@ -630,3 +630,62 @@ test("a failed pause read after switching away drops the previous conversation's
   await refreshed(a);
   await holdsAutomatic(i, a, 'a-back');
 });
+
+test('a prompt that resumes a pause runs before automatic work its release wakes', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  const claim = await claimed(a, 'waiting');
+  await confirmed(f, a, await pause(i));
+  await control(i, { kind: 'ask', claim: claim.id, message: 'Later?' });
+  await refreshed(a);
+  await a.coordinator.send('resume');
+  await until('answer turn', () => answerTurns(a).length === 1);
+  assert.deepEqual(
+    a.a.inputs.map(({ prompt, author }) => (author ? 'answer' : prompt)),
+    ['resume', 'answer'],
+  );
+});
+
+test('a prompt sent before a failed pause read resumes the pauses issued before it', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  const issued = await pause(i);
+  await confirmed(f, a, issued);
+  const conversation = id(a);
+  await a.coordinator.close({ restart: true });
+  const read = CoordinationStore.prototype.pauses;
+  let failing = true;
+  vi.spyOn(CoordinationStore.prototype, 'pauses').mockImplementation(function (
+    this: CoordinationStore,
+    recipient: string,
+  ) {
+    if (failing && recipient === conversation)
+      return Promise.reject(new Error('pauses unreadable'));
+    return read.call(this, recipient);
+  });
+  const restarted = await f.start('A', { conversation });
+  await restarted.coordinator.send('after restart');
+  assert.deepEqual(prompts(restarted), ['after restart']);
+  failing = false;
+  const later = await pause(i);
+  await refreshed(restarted);
+  await until(
+    'resumed by the earlier prompt',
+    async () => (await statuses(f, issued))[conversation] === 'resumed',
+  );
+  // a pause issued after the prompt still holds
+  await until(
+    'later pause confirmed',
+    async () => (await statuses(f, later))[conversation] === 'paused',
+  );
+  await restarted.coordinator.send('after the later pause');
+  await until('delivered', () => prompts(restarted).length === 2);
+});

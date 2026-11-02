@@ -122,6 +122,8 @@ export class Coordinator {
   };
   /** `conversation/pause` pairs the user lifted with a prompt, which hold no more even before the store records it. */
   private readonly userResumed = new Set<string>();
+  /** when the user last prompted each conversation, which resumes any pause issued before it, even one not read yet. */
+  private readonly promptedAt = new Map<string, number>();
   readonly copilot = new CopilotReviewController({
     record: () => this.record,
     coordination: () => this.coordination,
@@ -412,6 +414,12 @@ export class Coordinator {
     if (this.opening) throw new Error('Wait for the next conversation to open');
     // one sent during an operation runs after it only as drainAfter would, even when its steer is refused once it has ended
     const during = this.snapshot.phase !== 'idle';
+    this.automaticHeld = false;
+    this.copilot.resume();
+    this.repair.resume();
+    // counted before the pause releases, so the automatic work its release wakes can't run ahead of this prompt
+    this.admissions++;
+    if (this.record) this.promptedAt.set(this.record.id, Date.now());
     const paused = this.paused;
     if (paused) {
       for (const id of paused.applied)
@@ -419,10 +427,6 @@ export class Coordinator {
       this.releasePause();
       this.coordination?.resumePauses([...paused.applied]);
     }
-    this.automaticHeld = false;
-    this.copilot.resume();
-    this.repair.resume();
-    this.admissions++;
     // a steer can wait on the agent, so each prompt steers or queues only after those sent before it
     const admitted = this.admitting
       .then(async () => {
@@ -469,6 +473,18 @@ export class Coordinator {
         ? this.coordination?.events.pauses(conversation)
         : undefined;
     if (!conversation || !pauses) return;
+    const prompted = this.promptedAt.get(conversation);
+    const lifted = holding(pauses, conversation).filter(
+      ({ id, issuedAt }) =>
+        prompted !== undefined &&
+        Date.parse(issuedAt) <= prompted &&
+        !this.userResumed.has(`${conversation}/${id}`),
+    );
+    if (lifted.length) {
+      for (const { id } of lifted)
+        this.userResumed.add(`${conversation}/${id}`);
+      this.coordination?.resumePauses(lifted.map(({ id }) => id));
+    }
     const held = holding(pauses, conversation).filter(
       ({ id }) => !this.userResumed.has(`${conversation}/${id}`),
     );
