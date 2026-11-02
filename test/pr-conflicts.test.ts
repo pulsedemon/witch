@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
 import type { MergeEvent } from '../src/core/merge-events.js';
-import { watchConflicts } from '../src/core/pr-conflicts.js';
+import { watchConflicts } from '../src/core/pr-repair.js';
 import { RepositoryWatch } from '../src/core/repository.js';
 import type {
   Conflict,

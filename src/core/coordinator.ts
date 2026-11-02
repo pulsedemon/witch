@@ -4,10 +4,10 @@ import { SessionLink } from './session-link.js';
 import { TurnRunner } from './turn-runner.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import {
-  ConflictRepair,
+  PullRequestRepair,
   repairInstruction,
   type Repair,
-} from './pr-conflicts.js';
+} from './pr-repair.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction } from './compaction.js';
 import { Attachments, imagePaste, unnumbered } from './attachments.js';
@@ -148,7 +148,7 @@ export class Coordinator {
     run: (batch) => this.reviewCopilot(batch),
     interrupt: () => this.stopCurrent(),
   });
-  readonly repair = new ConflictRepair({
+  readonly repair = new PullRequestRepair({
     record: () => this.record,
     coordination: () => this.coordination,
     ready: () => this.automaticReady() && !this.snapshot.queue.length,
@@ -157,7 +157,7 @@ export class Coordinator {
       if (!this.closed && this.record) this.notice(text);
     },
     changed: () => this.drainAfter(),
-    run: (repair, refused) => this.repairConflict(repair, refused),
+    run: (repair, refused) => this.repairPullRequest(repair, refused),
     interrupt: () => this.stopCurrent(),
   });
   /** a repair turn takes no steering, so prompts sent during it queue. */
@@ -834,7 +834,7 @@ export class Coordinator {
       : { status: 'interrupted', text: '', inputUnsent: true };
   }
 
-  private async repairConflict(
+  private async repairPullRequest(
     repair: Repair,
     refused: (error: string) => void,
   ): Promise<TurnResult | undefined> {

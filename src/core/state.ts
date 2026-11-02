@@ -69,6 +69,10 @@ export const conversationRecordSchema = conversationSchema.extend({
   conflictRepairs: z
     .array(pullRequestSchema.pick({ url: true, commit: true, base: true }))
     .optional(),
+  // each pull request head an automatic repair of failed checks was started for
+  checkRepairs: z
+    .array(pullRequestSchema.pick({ url: true, commit: true }))
+    .optional(),
   lastTurn: z
     .object({
       id: z.string(),

@@ -19,7 +19,7 @@ import {
   type PeerAnswerBatch,
 } from './peer-answers.js';
 import { nativePrompt, shellCommand, skillCall } from './prompts.js';
-import type { Repair } from './pr-conflicts.js';
+import type { Repair } from './pr-repair.js';
 import type { Conflict } from './repository.js';
 import type { SessionLink } from './session-link.js';
 import type { Snapshot } from './snapshot.js';
@@ -200,8 +200,8 @@ export class TurnRunner {
             kind === 'turn'
               ? this.coordination?.events.answered(conversation.id)
               : undefined,
-          // the repair instruction carries it, and this context denies authorization to act on it
-          conflict: repair ? undefined : this.host.conflict(),
+          // a conflict repair's instruction carries it, and this context denies authorization to act on it
+          conflict: repair && !repair.failed ? undefined : this.host.conflict(),
           usage: this.usage.context(this.host.snapshot().agents),
           reviewWatch: this.copilot.context(),
         });
@@ -263,7 +263,9 @@ export class TurnRunner {
             : review
               ? `Handling ${review.items.length} Copilot findings on #${review.pullRequest.number}.`
               : repair
-                ? `Repairing the conflict on #${repair.pullRequest.number} with ${repair.pullRequest.base}.`
+                ? repair.failed
+                  ? `Repairing failed checks on #${repair.pullRequest.number}: ${repair.failed.map(({ name }) => name).join(', ')}.`
+                  : `Repairing the conflict on #${repair.pullRequest.number} with ${repair.pullRequest.base}.`
                 : prompt,
           cwd: conversation.cwd,
           ...(images.length ? { images } : {}),
