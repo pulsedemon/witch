@@ -299,9 +299,12 @@ test('long URLs and preexisting terminal hyperlinks keep their targets, and a fi
     );
 });
 
-test('quoted and Markdown file links preserve spaces without linking command names', () => {
-  const prose = '/help PageUp/PageDown ↑/↓';
-  assert.equal(linkify(prose, '/work'), prose);
+test('quoted and Markdown file links preserve spaces without linking command names or a quoted sentence', () => {
+  for (const prose of [
+    '/help PageUp/PageDown ↑/↓',
+    '"Pause/resume handling can leave a prompt stuck when a pause read fails."',
+  ])
+    assert.equal(linkify(prose, '/work'), prose);
   for (const rendered of [
     linkify('"src/My File.ts:3:2"', '/work'),
     markdown('`src/My File.ts:3:2`', '/work'),
