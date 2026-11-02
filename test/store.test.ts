@@ -25,6 +25,7 @@ import {
 } from '../src/core/state.js';
 import type {
   Conversation,
+  ConversationRecord,
   DisplayItem,
   DisplayUpdate,
 } from '../src/core/state.js';
@@ -1319,6 +1320,44 @@ test("listing keeps this directory's conversations with history, newest history 
   assert.deepEqual(
     (await store.conversations('/project')).map(({ id }) => id),
     ['b', 'c', 'a'],
+  );
+});
+
+test("listing keeps a conversation with a saved draft or queue but no history, placed by its record's time", async () => {
+  const root = await scratch('witch-listing-');
+  const store = await StateStore.open(root);
+  const conversations: [
+    string,
+    Pick<ConversationRecord, 'draft' | 'queue'>?,
+  ][] = [
+    ['a'],
+    ['b'],
+    ['drafted', { draft: 'unsent' }],
+    ['queued', { queue: ['waiting'] }],
+    ['empty', {}],
+  ];
+  for (const [id, saved] of conversations) {
+    const files = await store.create(conversation(id, '/project'));
+    if (saved) await files.save({ ...files.record, ...saved });
+    else
+      await files.append({
+        id: 'n',
+        kind: 'notice',
+        text: id,
+        cwd: '/project',
+      });
+    await files.close();
+  }
+  for (const [id, file, seconds] of [
+    ['a', 'history.jsonl', 1000],
+    ['b', 'history.jsonl', 3000],
+    ['drafted', 'state.json', 2000],
+    ['queued', 'state.json', 500],
+  ] as const)
+    await utimes(join(root, 'conversations', id, file), seconds, seconds);
+  assert.deepEqual(
+    (await store.conversations('/project')).map(({ id }) => id),
+    ['b', 'drafted', 'a', 'queued'],
   );
 });
 

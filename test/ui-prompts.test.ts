@@ -41,7 +41,7 @@ test('Enter during a turn sends the draft and empties the composer', async () =>
     await delay(30);
     ui.stdin.write(ENTER);
     await until('the send', () => calls.length > 0);
-    assert.deepEqual(calls, [['send', 'hello']]);
+    assert.deepEqual(calls, [['send', 'hello', { composer: true }]]);
     await until('the empty composer', () =>
       ui.text().includes('┃ Ask the agent'),
     );
@@ -76,7 +76,7 @@ test('queued prompts show above the activity row with a hint, and ↑ on the fir
     assert.deepEqual(calls, []);
     ui.stdin.write(UP);
     await until('the queue taken back', () => !ui.text().includes('❯ one'));
-    assert.deepEqual(calls, [['unqueue']]);
+    assert.deepEqual(calls, [['unqueue', 'one\ntwo\nlines\nfirst\nsecond']]);
     const rows = ['┃ one', '┃ two', '┃ lines', '┃ first', '┃ second'].map(
       (row) => ui.text().indexOf(row),
     );
@@ -396,7 +396,7 @@ test('an edit to a recalled prompt survives browsing and is sent and recorded, t
     await until('the edit kept', () => ui.text().includes('┃ first edited'));
     ui.stdin.write(ENTER);
     await until('the send', () => calls.length > 0);
-    assert.deepEqual(calls, [['send', 'first edited']]);
+    assert.deepEqual(calls, [['send', 'first edited', { composer: true }]]);
     assert.deepEqual(added, [['/work', 'first edited']]);
     ui.stdin.write(UP);
     await until('the sent prompt', () => ui.text().includes('┃ first edited'));
@@ -488,7 +488,7 @@ test('↑ takes queued prompts back before it shows earlier ones, and ↓ return
     await until('the queue', () => ui.text().includes('❯ queued'));
     ui.stdin.write(UP);
     await until('the queue taken back', () => ui.text().includes('┃ queued'));
-    assert.deepEqual(calls, [['unqueue']]);
+    assert.deepEqual(calls, [['unqueue', 'queued']]);
     ui.stdin.write(UP);
     await until('the earlier prompt', () => ui.text().includes('┃ earlier'));
     ui.stdin.write(DOWN);

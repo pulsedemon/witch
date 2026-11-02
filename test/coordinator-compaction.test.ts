@@ -128,7 +128,7 @@ for (const outcome of [
           undefined,
         );
       f.a.gate = undefined;
-      assert.deepEqual(f.coordinator.unqueue(), ['distinct queued input']);
+      assert.deepEqual(f.coordinator.unqueue(''), ['distinct queued input']);
       await f.coordinator.send('distinct queued input');
       assert.equal(f.a.inputs.length, 3);
       if (outcome === 'replaced then cancelled')

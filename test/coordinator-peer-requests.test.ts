@@ -467,6 +467,33 @@ test('a restart clears the hold but not the attempt', async (t) => {
   assert.ok(!context.includes(first.id));
 });
 
+test('a restored queue holds answer turns until the composer takes it, which wakes them', async (t) => {
+  const { f, a, b, claim } = await owners(t.onTestFinished);
+  const gate = new TurnGate();
+  b.a.gate = gate;
+  b.a.refuseSteer = true;
+  const sending = b.coordinator.send('Start');
+  sending.catch(() => {});
+  await gate.entered;
+  await b.coordinator.send('held');
+  const conversation = b.coordinator.snapshot.conversation!.id;
+  await b.coordinator.close({ restart: true });
+  gate.open();
+  const restarted = await f.start('B', { conversation });
+  assert.deepEqual(restarted.coordinator.snapshot.queue, ['held']);
+  const seen = { answering: false };
+  restarted.coordinator.subscribe(() => {
+    if (restarted.coordinator.snapshot.answering) seen.answering = true;
+  });
+  await holds(f, restarted, await ask(a, claim, 'After a restart?'), seen);
+  // no refresh follows, so only taking the queue can start the answer
+  restarted.coordinator.unqueue('held');
+  await until(
+    'answer after the queue is taken',
+    () => answerTurns(restarted).length === 1 && settled(restarted),
+  );
+});
+
 test('a closing Witch stamps nothing', async (t) => {
   const { f, a, b, claim } = await owners(t.onTestFinished);
   const request = await ask(a, claim, 'Before you go?');

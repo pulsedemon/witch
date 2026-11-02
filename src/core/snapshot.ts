@@ -23,6 +23,8 @@ export interface Snapshot {
   items: readonly DisplayItem[];
   /** prompts waiting for a turn, oldest first. */
   queue: readonly string[];
+  /** the opened conversation's saved composer text. */
+  draft?: string;
   commandsPending: boolean;
   pendingCompaction: boolean;
   requests: readonly UserRequest[];

@@ -12,8 +12,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
-import { markerPattern } from '../core/attachments.js';
-import { shellCommand } from '../core/prompts.js';
+import { unnumbered } from '../core/attachments.js';
 import {
   conversationRecordSchema,
   displayUpdateSchema,
@@ -143,12 +142,13 @@ export class StateStore {
     return { records, unreadable };
   }
 
-  /** conversations that have history, newest first: this directory's, or every directory's without one. */
+  /** conversations that have history or a saved draft or queue, newest first: this directory's, or every directory's without one. */
   async conversations(cwd?: string): Promise<Conversation[]> {
     const listed: { conversation: Conversation; modified: number }[] = [];
     for (const record of (await this.records()).records) {
       if (cwd !== undefined && record.cwd !== cwd) continue;
-      const history = await stat(historyPath(this.directory(record.id))).catch(
+      const directory = this.directory(record.id);
+      const history = await stat(historyPath(directory)).catch(
         (error: unknown) => {
           if (missing(error)) return undefined;
           throw error;
@@ -156,6 +156,11 @@ export class StateStore {
       );
       if (history?.size)
         listed.push({ conversation: record, modified: history.mtimeMs });
+      else if (record.draft || record.queue?.length)
+        listed.push({
+          conversation: record,
+          modified: (await stat(recordPath(directory))).mtimeMs,
+        });
     }
     return listed
       .sort((a, b) => b.modified - a.modified)
@@ -185,17 +190,10 @@ export class StateStore {
 
   /**
    * waits for the prompts added before it, so the file keeps their order, and starts with the line break, so a line a
-   * crash cut short ends before it. a marker's number names an image only in this process, so it isn't kept.
+   * crash cut short ends before it.
    */
   addPrompt(cwd: string, text: string): Promise<void> {
-    // a shell command's markers are its own text
-    const line = {
-      cwd,
-      text:
-        shellCommand(text) === undefined
-          ? text.replace(markerPattern, '[Image]')
-          : text,
-    };
+    const line = { cwd, text: unnumbered(text) };
     const added = this.adding.then(async () => {
       const file = await open(this.promptsPath(), 'a', 0o600);
       try {
