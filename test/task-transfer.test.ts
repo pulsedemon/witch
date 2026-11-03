@@ -647,21 +647,19 @@ test('an automatic requester that switches conversations withdraws without admis
 test('a handover during withdrawal returns the actual automatic ownership', async (t) => {
   const f = await automatic(t);
   const state = CoordinationStore.prototype.state;
-  let hidden = false;
+  // every read until withdrawal misses the request, so the requester's first poll gives up, whichever read comes first
+  let hidden = true;
   vi.spyOn(CoordinationStore.prototype, 'state').mockImplementation(
     async function (this: CoordinationStore, ...args) {
       const ledger = await state.apply(this, args);
-      if (!hidden && ledger.claims.some((claim) => claim.automaticTransfer)) {
-        hidden = true;
-        return {
-          ...ledger,
-          claims: ledger.claims.map((claim) => ({
-            ...claim,
-            automaticTransfer: undefined,
-          })),
-        };
-      }
-      return ledger;
+      if (!hidden) return ledger;
+      return {
+        ...ledger,
+        claims: ledger.claims.map((claim) => ({
+          ...claim,
+          automaticTransfer: undefined,
+        })),
+      };
     },
   );
   const original = CoordinationStore.prototype.withdrawTransfer;
@@ -674,6 +672,7 @@ test('a handover during withdrawal returns the actual automatic ownership', asyn
       verify,
       field,
     ) {
+      hidden = false;
       await this.handOver(
         f.original.owner,
         id,
@@ -685,11 +684,11 @@ test('a handover during withdrawal returns the actual automatic ownership', asyn
       return original.call(this, activation, id, deadline, verify, field);
     },
   );
-  const result = await callControl(
-    await f.requester.binding(),
-    { kind: 'claim', input: { reference: 'task:shared', summary: 'Other' } },
-    Date.now() + 3000,
-  );
+  // the default deadline keeps the request from expiring before the hand-over reads it
+  const result = await callControl(await f.requester.binding(), {
+    kind: 'claim',
+    input: { reference: 'task:shared', summary: 'Other' },
+  });
   if (result.kind !== 'claimed') assert.fail(JSON.stringify(result));
   assert.equal(
     result.claim.owner.conversation,

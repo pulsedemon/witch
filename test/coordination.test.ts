@@ -14,6 +14,8 @@ import type {
   TaskClaim,
   SelectionTicket,
 } from '../src/core/coordination-state.js';
+import { SessionCoordination } from '../src/core/coordination.js';
+import { Memory } from '../src/memory/memory.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import { openLocked } from '../src/persistence/lock.js';
@@ -964,14 +966,26 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
     deadline,
   );
   let closing: ReturnType<typeof a.coordinator.close> | undefined;
+  const reads = Promise.withResolvers<void>();
   try {
     await within(waiting.promise, 5000, 'request waiting on lock');
+    // project reads that crawl, as under other suites' spawn load, can't hold a closing session's refusal past the deadline
+    const scope = Memory.prototype.scopePaths;
+    vi.spyOn(Memory.prototype, 'scopePaths').mockImplementation(async function (
+      this: Memory,
+      ...args
+    ) {
+      await reads.promise;
+      return scope.apply(this, args);
+    });
     closing = a.coordinator.close();
     await lock.close();
     assert.equal((await attempt).kind, 'error');
+    reads.resolve();
     await within(closing, 5000, 'close');
     assert.deepEqual(await registry.claims(), []);
   } finally {
+    reads.resolve();
     await lock.close();
     await Promise.allSettled([attempt, closing]);
   }
@@ -1036,6 +1050,14 @@ test('a delayed presence writer drains before replacement activation publishes',
       return publish.call(this, presence);
     },
   );
+  const deactivating = Promise.withResolvers<void>();
+  const deactivate = SessionCoordination.prototype.deactivate;
+  vi.spyOn(SessionCoordination.prototype, 'deactivate').mockImplementation(
+    function (this: SessionCoordination) {
+      deactivating.resolve();
+      return deactivate.call(this);
+    },
+  );
   let switching: ReturnType<typeof a.coordinator.newConversation> | undefined;
   try {
     a.a.sessions.at(-1)!.options.onEvent({
@@ -1044,7 +1066,7 @@ test('a delayed presence writer drains before replacement activation publishes',
     });
     await within(entered.promise, 3000, 'delayed presence write');
     switching = a.coordinator.newConversation();
-    await delay(50);
+    await within(deactivating.promise, 5000, 'old activation deactivating');
     assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
     finish.resolve();
     await switching;
@@ -1153,10 +1175,30 @@ for (const size of [1, 8])
         join(store.root, 'coordination', 'claims.json'),
         JSON.stringify({ version: 2, claims, selections: tickets }),
       );
+      // the ledger's one-second default, here and when closing, can't cover these probes under load, and the counts don't depend on it
+      const ledgers = CoordinationStore.prototype as unknown as Record<
+        'state' | 'mutate',
+        (deadline?: number, ...rest: unknown[]) => Promise<unknown>
+      >;
+      for (const method of ['state', 'mutate'] as const) {
+        const original = ledgers[method];
+        vi.spyOn(ledgers, method).mockImplementation(function (
+          this: unknown,
+          deadline,
+          ...rest
+        ) {
+          return original.call(
+            this,
+            deadline === undefined ? undefined : Date.now() + 10_000,
+            ...rest,
+          );
+        });
+      }
       const readStatePaths: string[] = [];
       const read = files.readFile;
-      vi.spyOn(files, 'readFile').mockImplementation(
-        (...args: Parameters<typeof files.readFile>) => {
+      const reading = vi
+        .spyOn(files, 'readFile')
+        .mockImplementation((...args: Parameters<typeof files.readFile>) => {
           if (
             typeof args[0] === 'string' &&
             args[0].startsWith(store.root) &&
@@ -1164,12 +1206,11 @@ for (const size of [1, 8])
           )
             readStatePaths.push(args[0]);
           return read(...args);
-        },
-      );
+        });
       syncBuiltinESMExports();
       const probes = await countProbes(() => a.coordination.context()).finally(
         () => {
-          vi.restoreAllMocks();
+          reading.mockRestore();
           syncBuiltinESMExports();
         },
       );

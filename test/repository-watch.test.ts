@@ -367,20 +367,20 @@ watching(
     );
     t.onTestFinished(() => watch.close());
     await until('retried read', () => watch.snapshot?.branch === 'main');
-    let attempts = 0;
+    const reads = { started: 0 };
     const outside = new RepositoryWatch(
       plain,
       async () => {
-        attempts++;
+        reads.started++;
         throw Object.assign(new Error('not a git repository'), { code: 128 });
       },
       undefined,
       { interval: 50 },
     );
     t.onTestFinished(() => outside.close());
-    await until('first read outside a repository', () => attempts === 1);
-    await delay(300);
-    assert.equal(attempts, 1);
+    await until('first read outside a repository', () => reads.started >= 1);
+    // macOS can still report the directory's setup after the watch opens, which is a change to read
+    await settled(reads);
   },
 );
 
