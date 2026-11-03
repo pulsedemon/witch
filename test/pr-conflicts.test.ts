@@ -11,6 +11,7 @@ import type {
 } from '../src/core/repository.js';
 import type { Snapshot } from '../src/core/snapshot.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
+import { until } from './fixtures/within.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const pr = (fields: Partial<PullRequest> = {}): PullRequest => ({
@@ -183,7 +184,7 @@ test('a merge into the pull request base reads it again, and a pull request that
     vi.advanceTimersByTime(5000);
     await delay(20);
   };
-  await delay(20);
+  await until('first pull request read', () => !!watch.snapshot?.pullRequest);
   assert.equal(reads, 1);
   await merged([merge('old', 'main')]);
   await step();
@@ -198,9 +199,10 @@ test('a merge into the pull request base reads it again, and a pull request that
     merge('new', 'main'),
   ]);
   await step();
+  // the base tip's read follows the pull request's, so the conflict can land after the read starts
+  await until('conflict', () => coordinator.conflict?.baseTip === 'f00');
   assert.equal(reads, 2);
   assert.equal(coordinator.conflict?.pullRequest.mergeable, 'CONFLICTING');
-  assert.equal(coordinator.conflict.baseTip, 'f00');
   await merged([
     merge('old', 'main'),
     merge('other', 'release'),
