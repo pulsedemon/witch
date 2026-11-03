@@ -56,7 +56,7 @@ export async function recoverMemory(
       delete reference.deliveredRevision;
 }
 
-/** false when an interrupt closed the editor, which leaves the edit uncommitted. */
+/** false when an interrupt lands before the editor opens or closes it while open, either way leaving the edit uncommitted. */
 export async function editNote(
   workspace: Workspace,
   note: string,
