@@ -521,7 +521,7 @@ test('a failed check of the copies is reported and the slot still opens its tab'
   assert.deepEqual(tabs(), [[slot(1)]]);
 });
 
-test("a directory git can't read while listing ignored files is reported on each new worktree", async () => {
+test("a directory git can't read while listing ignored files is reported on the new worktrees, not reused ones", async () => {
   const { main } = await checkout();
   await mkdir(join(main, 'config'));
   await writeFile(join(main, 'config', 'tracked.txt'), '');
@@ -530,18 +530,19 @@ test("a directory git can't read while listing ignored files is reported on each
   await git(main, 'commit', '-m', 'config');
   await git(main, 'push');
   await writeFile(join(main, 'config', 'secret.local'), 'token');
+  const { run } = recording();
+  await spawnWorktrees(main, 1, { run, live: async () => false });
   await chmod(join(main, 'config'), 0o000);
   try {
-    const [spawned] = (
-      await spawnWorktrees(main, 1, {
-        run: recording().run,
-        live: async () => false,
-      })
+    const [reused, ...created] = (
+      await spawnWorktrees(main, 3, { run, live: async () => false })
     ).slots;
-    assert.match(
-      spawned!.error!,
-      /^ignored files may be missing: .*could not open directory 'config\/'/,
-    );
+    assert.equal(reused!.error, undefined);
+    for (const spawned of created)
+      assert.match(
+        spawned.error!,
+        /^ignored files may be missing: .*could not open directory 'config\/'/,
+      );
   } finally {
     await chmod(join(main, 'config'), 0o755);
   }
