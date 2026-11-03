@@ -18,8 +18,9 @@ Options:
   --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
   --recover-directory <old>  preview recovery of a missing directory into this one
   --apply              apply the directory recovery with all Witches closed
-  --spawn <n>          create up to n worktrees beside the main checkout and open a
-                       Ghostty tab running witch in each
+  --spawn <n>          create worktrees <checkout>-1 to <checkout>-n beside the main
+                       checkout and open a Ghostty tab running witch in each one
+                       without an open session
   -h, --help           show this help
 
 Agent control (use the prefix supplied in the current Witch context):

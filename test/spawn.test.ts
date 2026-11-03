@@ -37,16 +37,30 @@ async function checkout(name = 'repo') {
   return { root, origin, main, slot: (index: number) => `${main}-${index}` };
 }
 
-/** runs git for real and records `pnpm` and `osascript`, failing a call with the message `fail` returns for it. */
+/**
+ * runs git for real and records `pnpm` and `osascript`. a call `fail` returns output for rejects as execFile does, with
+ * the command line in its message; one it returns an error for rejects with that error.
+ */
 function recording(
-  fail: (command: string, cwd: string) => string | undefined = () => undefined,
+  fail: (
+    command: string,
+    cwd: string,
+  ) => { stdout?: string; stderr?: string } | Error | undefined = () =>
+    undefined,
 ) {
   const calls: { command: string; args: string[]; cwd: string }[] = [];
   const run: Run = async (command, args, options) => {
     if (command === 'git') return runCommand(command, args, options);
     calls.push({ command, args, cwd: options.cwd });
-    const message = fail(command, options.cwd);
-    if (message !== undefined) throw new Error(message);
+    const failure = fail(command, options.cwd);
+    if (failure instanceof Error) throw failure;
+    if (failure)
+      throw Object.assign(
+        new Error(
+          `Command failed: ${[command, ...args].join(' ')}\n${failure.stderr ?? ''}`,
+        ),
+        { stdout: '', stderr: '', ...failure },
+      );
     return { stdout: '', stderr: '' };
   };
   return {
@@ -172,10 +186,12 @@ test("spawn leaves a non-empty directory that isn't a worktree alone", async () 
   assert.deepEqual(tabs(), [[slot(2)]]);
 });
 
-test('a failed osascript marks every slot awaiting a tab with its error', async () => {
+test('a failed osascript marks every slot awaiting a tab with its stderr, not its script', async () => {
   const { root, main, slot } = await checkout();
   const { run } = recording((command) =>
-    command === 'osascript' ? 'Command failed: osascript\nboom\n' : undefined,
+    command === 'osascript'
+      ? { stderr: '18:67: execution error: Not authorized. (-1743)\n' }
+      : undefined,
   );
   const { slots } = await spawnWorktrees(main, 2, {
     run,
@@ -187,14 +203,16 @@ test('a failed osascript marks every slot awaiting a tab with its error', async 
       slot: true,
       created: true,
       opened: false,
-      error: 'Command failed: osascript boom',
+      error:
+        'osascript failed: 18:67: execution error: Not authorized. (-1743)',
     },
     {
       path: slot(2),
       slot: true,
       created: true,
       opened: false,
-      error: 'Command failed: osascript boom',
+      error:
+        'osascript failed: 18:67: execution error: Not authorized. (-1743)',
     },
   ]);
   assert.deepEqual(
@@ -203,34 +221,44 @@ test('a failed osascript marks every slot awaiting a tab with its error', async 
       code: 1,
       output: [
         'Worktrees start at origin/main.',
-        `${slot(1)}: exists, Command failed: osascript boom`,
-        `${slot(2)}: exists, Command failed: osascript boom`,
+        `${slot(1)}: exists, osascript failed: 18:67: execution error: Not authorized. (-1743)`,
+        `${slot(2)}: exists, osascript failed: 18:67: execution error: Not authorized. (-1743)`,
         '',
       ].join('\n'),
     },
   );
 });
 
-test('a slot whose install fails still gets its tab', async () => {
+test('slots whose install fails report what pnpm printed and still get their tabs', async () => {
   const { root, main, slot } = await checkout();
-  const { run, tabs } = recording((command, cwd) =>
-    command === 'pnpm' && cwd === slot(1)
-      ? 'Command failed: pnpm install\nERR_PNPM_OUTDATED_LOCKFILE\n'
-      : undefined,
-  );
+  const { run, tabs } = recording((command, cwd) => {
+    if (command !== 'pnpm') return undefined;
+    if (cwd === slot(1))
+      return { stdout: ' ERR_PNPM_OUTDATED_LOCKFILE  Cannot install\n\n' };
+    if (cwd === slot(2)) return new Error('spawn pnpm ENOENT');
+    return Object.assign(
+      new Error('Timed out after 300000 ms: Command failed'),
+      {
+        killed: true,
+        stdout: 'Progress: resolved 1\n',
+        stderr: '',
+      },
+    );
+  });
   assert.deepEqual(
-    await printed(() => runSpawn(main, 2, join(root, 'state'), run)),
+    await printed(() => runSpawn(main, 3, join(root, 'state'), run)),
     {
       code: 1,
       output: [
         'Worktrees start at origin/main.',
-        `${slot(1)}: created, Command failed: pnpm install ERR_PNPM_OUTDATED_LOCKFILE, opened`,
-        `${slot(2)}: created, opened`,
+        `${slot(1)}: created, pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install, opened`,
+        `${slot(2)}: created, spawn pnpm ENOENT, opened`,
+        `${slot(3)}: created, pnpm install timed out: Progress: resolved 1, opened`,
         '',
       ].join('\n'),
     },
   );
-  assert.deepEqual(tabs(), [[slot(1), slot(2)]]);
+  assert.deepEqual(tabs(), [[slot(1), slot(2), slot(3)]]);
 });
 
 test('spawn names slots from the main worktree when run inside one', async () => {

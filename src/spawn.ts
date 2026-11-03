@@ -37,16 +37,34 @@ end run`;
 const failure = (error: unknown) => oneLine(errorMessage(error)).trim();
 
 /**
+ * the end of a failed command's own output, which says why. execFile's message repeats the command line, which for
+ * osascript is the whole script.
+ */
+function commandFailure(command: string, error: unknown): string {
+  const { stdout, stderr, killed } = error as {
+    stdout?: unknown;
+    stderr?: unknown;
+    killed?: unknown;
+  };
+  const output = [stdout, stderr]
+    .filter((text) => typeof text === 'string')
+    .join('\n')
+    .trim()
+    .split('\n')
+    .slice(-20)
+    .join('\n');
+  if (!output) return failure(error);
+  return `${command} ${killed === true ? 'timed out' : 'failed'}: ${oneLine(output)}`;
+}
+
+/**
  * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, then installs
  * and opens a Ghostty tab in each one where `live` finds no session. never removes or moves a worktree.
  */
 export async function spawnWorktrees(
   cwd: string,
   count: number,
-  {
-    run = runCommand,
-    live,
-  }: { run?: Run; live(path: string): Promise<boolean> },
+  { run, live }: { run: Run; live(path: string): Promise<boolean> },
 ): Promise<{ base: string; slots: Spawned[] }> {
   const git = async (directory: string, ...args: string[]) =>
     (await run('git', args, { cwd: directory, timeout: 60_000 })).stdout;
@@ -69,7 +87,7 @@ export async function spawnWorktrees(
     .split('\0');
   if (!ref || !base || !remote)
     throw new Error(`${main} has no upstream branch to start worktrees from.`);
-  // a signal or timeout would detach git from the terminal, where ssh asks for a passphrase
+  // a signal would detach git from the terminal, where ssh asks for a passphrase, and a timeout would kill it mid-prompt
   await run('git', ['fetch', remote], { cwd: main, timeout: 0 });
   const slots: Spawned[] = [];
   for (let index = 1; index <= count; index++) {
@@ -106,7 +124,7 @@ export async function spawnWorktrees(
         cwd: spawned.path,
         timeout: 300_000,
       }).catch((error: unknown) => {
-        spawned.error = failure(error);
+        spawned.error = commandFailure('pnpm install', error);
       });
   }
   if (awaiting.length)
@@ -123,10 +141,9 @@ export async function spawnWorktrees(
         for (const spawned of awaiting) spawned.opened = true;
       },
       (error: unknown) => {
+        const reason = commandFailure('osascript', error);
         for (const spawned of awaiting)
-          spawned.error = [spawned.error, failure(error)]
-            .filter(Boolean)
-            .join(', ');
+          spawned.error = [spawned.error, reason].filter(Boolean).join(', ');
       },
     );
   return { base, slots };
