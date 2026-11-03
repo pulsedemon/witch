@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
@@ -373,6 +373,46 @@ test('an unreadable open conversation record blocks tabs and names its file', as
     await held.close();
   }
   assert.deepEqual(calls, []);
+});
+
+test("a new worktree gets the main checkout's ignored files, but not its ignored directories or plans, and a reused one keeps its own", async () => {
+  const { main, slot } = await checkout();
+  await writeFile(
+    join(main, '.gitignore'),
+    '.env.local\n.claude/settings.local.json\nnode_modules/\ndocs/superpowers/plans/*.md\n',
+  );
+  await mkdir(join(main, '.claude'));
+  await writeFile(join(main, '.claude', 'settings.json'), '{}');
+  await mkdir(join(main, 'docs', 'superpowers', 'plans'), { recursive: true });
+  await writeFile(join(main, 'docs', 'superpowers', 'plans', '.gitkeep'), '');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  await writeFile(join(main, '.env.local'), 'main\n');
+  await writeFile(join(main, '.claude', 'settings.local.json'), '{"main":1}');
+  await mkdir(join(main, 'node_modules', 'x'), { recursive: true });
+  await writeFile(join(main, 'node_modules', 'x', 'index.js'), '');
+  await writeFile(join(main, 'docs', 'superpowers', 'plans', 'task.md'), '');
+  const { run } = recording();
+  assert.deepEqual(
+    (await spawnWorktrees(main, 1, { run, live: async () => false })).slots,
+    [{ path: slot(1), slot: true, created: true, opened: true }],
+  );
+  assert.equal(await readFile(join(slot(1), '.env.local'), 'utf8'), 'main\n');
+  assert.equal(
+    await readFile(join(slot(1), '.claude', 'settings.local.json'), 'utf8'),
+    '{"main":1}',
+  );
+  assert.equal(await exists(join(slot(1), 'node_modules')), false);
+  assert.equal(
+    await exists(join(slot(1), 'docs', 'superpowers', 'plans', 'task.md')),
+    false,
+  );
+  assert.equal(await git(slot(1), 'status', '--porcelain'), '');
+  await writeFile(join(slot(1), '.env.local'), 'slot\n');
+  await writeFile(join(main, '.env.local'), 'changed\n');
+  await spawnWorktrees(main, 1, { run, live: async () => false });
+  assert.equal(await readFile(join(slot(1), '.env.local'), 'utf8'), 'slot\n');
 });
 
 test('a repository without pnpm-lock.yaml gets its worktrees and tabs without pnpm', async () => {

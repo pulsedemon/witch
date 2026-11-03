@@ -1,7 +1,9 @@
-import { realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { cp, realpath } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { errorMessage } from './agents/stderr.js';
 import { runCommand } from './core/command.js';
+import { planDirectories } from './core/merged.js';
 import type { Run } from './core/repository.js';
 import { exists } from './memory/memory.js';
 import { StateStore } from './persistence/store.js';
@@ -58,9 +60,9 @@ function commandFailure(command: string, error: unknown): string {
 }
 
 /**
- * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it. in each one
- * where `live` finds no session, runs `pnpm install` if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes
- * or moves a worktree.
+ * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
+ * main checkout's ignored files into each new one. in each one where `live` finds no session, runs `pnpm install` if it
+ * has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes or moves a worktree.
  */
 export async function spawnWorktrees(
   cwd: string,
@@ -90,6 +92,26 @@ export async function spawnWorktrees(
     throw new Error(`${main} has no upstream branch to start worktrees from.`);
   // a signal would detach git from the terminal, where ssh asks for a passphrase, and a timeout would kill it mid-prompt
   await run('git', ['fetch', remote], { cwd: main, timeout: 0 });
+  // files git lists one by one are local config such as `.env.local`. whole directories are dependencies, caches and
+  // output the repo's own tooling rebuilds, and can hold live state, such as another engine's process markers
+  const local = (
+    await git(
+      main,
+      'ls-files',
+      '--others',
+      '--ignored',
+      '--exclude-standard',
+      '--directory',
+      '-z',
+    )
+  )
+    .split('\0')
+    .filter(
+      (file) =>
+        file &&
+        !file.endsWith('/') &&
+        !planDirectories.some((directory) => file.startsWith(`${directory}/`)),
+    );
   const slots: Spawned[] = [];
   for (let index = 1; index <= count; index++) {
     const spawned: Spawned = {
@@ -103,9 +125,16 @@ export async function spawnWorktrees(
       try {
         await git(main, 'worktree', 'add', '--detach', spawned.path, ref);
         spawned.created = true;
+        // clones on APFS, so a large ignored file costs no space until either copy changes
+        for (const file of local)
+          await cp(join(main, file), join(spawned.path, file), {
+            mode: constants.COPYFILE_FICLONE,
+            force: false,
+            verbatimSymlinks: true,
+          });
       } catch (error) {
         spawned.error = failure(error);
-        continue;
+        if (!spawned.created) continue;
       }
     if (await exists(spawned.path)) spawned.slot = true;
     else spawned.error = 'registered but missing; run git worktree prune';

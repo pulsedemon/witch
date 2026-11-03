@@ -732,6 +732,12 @@ const absent =
     return fallback;
   };
 
+/** where a checkout keeps the gitignored plans and ledgers its merge cleanup removes with their branch. */
+export const planDirectories = [
+  'docs/superpowers/plans',
+  '.superpowers/sdd',
+] as const;
+
 /**
  * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
  * `plan-path` names it. returns those removed, and those it failed to read, check or remove with the first reason,
@@ -746,8 +752,8 @@ async function removePlans(
   if (progress.done) return progress;
   const top = await topLevel(git);
   progress.root = top;
-  const plans = join(top, 'docs/superpowers/plans');
-  const ledgers = join(top, '.superpowers/sdd');
+  const plans = join(top, planDirectories[0]);
+  const ledgers = join(top, planDirectories[1]);
   const { removed, stayed } = progress;
   let names: string[];
   try {
