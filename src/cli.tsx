@@ -18,6 +18,8 @@ Options:
   --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
   --recover-directory <old>  preview recovery of a missing directory into this one
   --apply              apply the directory recovery with all Witches closed
+  --spawn <n>          create up to n worktrees beside the main checkout and open a
+                       Ghostty tab running witch in each
   -h, --help           show this help
 
 Agent control (use the prefix supplied in the current Witch context):
@@ -66,13 +68,14 @@ delete process.env.WITCH_JOBS_RESUME;
 let command;
 try {
   command = parseCommand();
-  const { values, control, familiar } = command;
+  const { values, control, familiar, spawn } = command;
   // parseArgs accepts an empty value, which would put state in the project
   if (values['state-dir'] === '')
     throw new Error("Option '--state-dir' needs a directory");
   if (
     !control &&
     !familiar &&
+    spawn === undefined &&
     !values.help &&
     values['recover-directory'] === undefined &&
     !(process.stdin.isTTY && process.stdout.isTTY)
@@ -84,7 +87,7 @@ try {
   else process.stderr.write(`witch: ${errorMessage(error)}\n`);
   process.exit(1);
 }
-const { values, control, familiar } = command;
+const { values, control, familiar, spawn } = command;
 if (familiar) {
   try {
     const { binding, name, reportFile, args } = familiar;
@@ -106,6 +109,9 @@ if (familiar) {
   process.exitCode = await runControl(control);
 } else if (values.help) {
   process.stdout.write(usage);
+} else if (spawn !== undefined) {
+  const { runSpawn } = await import('./spawn.js');
+  process.exitCode = await runSpawn(process.cwd(), spawn, defaultState);
 } else {
   // React picks its slower development build when loaded without this, and agents inherit the environment, so it lasts only the load
   const production = process.env.NODE_ENV === undefined;

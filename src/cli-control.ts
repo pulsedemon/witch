@@ -54,6 +54,7 @@ const options = {
   'familiar-codex': { type: 'string' },
   'report-file': { type: 'string' },
   'without-mcp': { type: 'boolean' },
+  spawn: { type: 'string' },
 } as const;
 
 export function parseCommand(args = process.argv.slice(2)) {
@@ -111,6 +112,20 @@ export function parseCommand(args = process.argv.slice(2)) {
         args: positionals,
         withoutMcp: values['without-mcp'] === true,
       },
+      spawn: undefined,
+    };
+  }
+  // the tabs start Witch on the default state directory, so nothing else applies
+  if (values.spawn !== undefined) {
+    if (!/^[1-9]\d*$/.test(values.spawn))
+      throw new Error('--spawn needs a positive number of worktrees.');
+    if (positionals.length || Object.keys(values).length > 1)
+      throw new Error('--spawn cannot include prompts or other options.');
+    return {
+      ...parsed,
+      control: undefined,
+      familiar: undefined,
+      spawn: Number(values.spawn),
     };
   }
   if (values.apply && values['recover-directory'] === undefined)
@@ -152,7 +167,12 @@ export function parseCommand(args = process.argv.slice(2)) {
     'json',
   ] as const;
   if (!controls.some((name) => values[name] !== undefined))
-    return { ...parsed, control: undefined, familiar: undefined };
+    return {
+      ...parsed,
+      control: undefined,
+      familiar: undefined,
+      spawn: undefined,
+    };
   const actions = [
     !!values.peers,
     values.claim !== undefined,
@@ -265,6 +285,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     ...parsed,
     control: { binding, action, json: !!values.json },
     familiar: undefined,
+    spawn: undefined,
   };
 }
 
