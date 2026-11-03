@@ -14,6 +14,7 @@ import type {
   TaskClaim,
   SelectionTicket,
 } from '../src/core/coordination-state.js';
+import { SessionCoordination } from '../src/core/coordination.js';
 import { Memory } from '../src/memory/memory.js';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
@@ -1049,6 +1050,14 @@ test('a delayed presence writer drains before replacement activation publishes',
       return publish.call(this, presence);
     },
   );
+  const deactivating = Promise.withResolvers<void>();
+  const deactivate = SessionCoordination.prototype.deactivate;
+  vi.spyOn(SessionCoordination.prototype, 'deactivate').mockImplementation(
+    function (this: SessionCoordination) {
+      deactivating.resolve();
+      return deactivate.call(this);
+    },
+  );
   let switching: ReturnType<typeof a.coordinator.newConversation> | undefined;
   try {
     a.a.sessions.at(-1)!.options.onEvent({
@@ -1057,7 +1066,7 @@ test('a delayed presence writer drains before replacement activation publishes',
     });
     await within(entered.promise, 3000, 'delayed presence write');
     switching = a.coordinator.newConversation();
-    await delay(50);
+    await within(deactivating.promise, 5000, 'old activation deactivating');
     assert.equal((await callControl(bound, { kind: 'peers' })).kind, 'error');
     finish.resolve();
     await switching;
