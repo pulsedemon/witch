@@ -60,6 +60,32 @@ test('bare URLs retain their exact browser target across wrapping', () => {
   }
 });
 
+test("a web link leaves out a sentence's punctuation before a closing quote or paren, keeping a dot inside its path", () => {
+  for (const text of [
+    'see https://example.com/x."',
+    '"see https://example.com/x."',
+    '(https://example.com/x.)',
+    '"is it https://example.com/x?"',
+    '(see https://example.com/x!)',
+    '"https://example.com/x,"',
+    '(https://example.com/x;)',
+  ])
+    assert.deepEqual(
+      linkSpans(linkify(text, '/work')),
+      [{ target: 'https://example.com/x', text: 'https://example.com/x' }],
+      text,
+    );
+  assert.deepEqual(
+    linkSpans(linkify('(https://example.com/v1.2/x.html)', '/work')),
+    [
+      {
+        target: 'https://example.com/v1.2/x.html',
+        text: 'https://example.com/v1.2/x.html',
+      },
+    ],
+  );
+});
+
 test('a link is underlined inside its OSC 8 sequence on each of its lines, and a target that cannot open stays plain text', () => {
   const link = (text: string) =>
     `\u001b]8;;https://example.com\u0007\u001b[4m${text}\u001b[24m\u001b]8;;\u0007`;
