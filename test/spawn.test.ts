@@ -355,8 +355,12 @@ test('an ignored file that fails to copy is reported along with a failed install
 test("an ignored file the new worktree's own rules don't ignore is reported and not copied", async () => {
   const { main, slot } = await checkout();
   // ignored only by the launcher's uncommitted .gitignore, so the worktree at the upstream would show it untracked
-  await writeFile(join(main, '.gitignore'), 'secret.env\n');
+  await writeFile(join(main, '.gitignore'), 'secret\nsecret.env\nexports/\n');
+  // a file whose name starts another listed path's is still a file
+  await writeFile(join(main, 'secret'), 'token');
   await writeFile(join(main, 'secret.env'), 'token');
+  await mkdir(join(main, 'exports'));
+  await writeFile(join(main, 'exports', 'build.bin'), '');
   const [spawned] = (
     await spawnWorktrees(main, 1, {
       run: recording().run,
@@ -365,10 +369,37 @@ test("an ignored file the new worktree's own rules don't ignore is reported and 
   ).slots;
   assert.equal(
     spawned!.error,
-    "not copied, since the worktree doesn't ignore them: secret.env",
+    "not copied, since the worktree doesn't ignore them: exports/, secret, secret.env",
   );
   assert.equal(await exists(join(slot(1), 'secret.env')), false);
+  assert.equal(await exists(join(slot(1), 'exports')), false);
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
+});
+
+test("a failed ignore check skips that slot's copies and still opens its tab", async () => {
+  const { main, slot } = await checkout();
+  await writeFile(join(main, '.gitignore'), '*.local\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  await writeFile(join(main, 'a.local'), 'a');
+  const { run: recorded, tabs } = recording();
+  const run: Run = (command, args, options) =>
+    args.includes('check-ignore')
+      ? Promise.reject(
+          Object.assign(new Error('Command failed'), {
+            code: 128,
+            stdout: '',
+            stderr: 'fatal: bad pathspec\n',
+          }),
+        )
+      : recorded(command, args, options);
+  const [spawned] = (
+    await spawnWorktrees(main, 1, { run, live: async () => false })
+  ).slots;
+  assert.equal(spawned!.error, 'check-ignore failed: fatal: bad pathspec');
+  assert.deepEqual(tabs(), [[slot(1)]]);
+  assert.equal(await exists(join(slot(1), 'a.local')), false);
 });
 
 test('a directory copy that fails partway still leaves out what its copy would act on', async () => {

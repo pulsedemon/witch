@@ -83,7 +83,7 @@ async function seed(
     basename(directory) === '.godot' ||
     !!(await stat(join(directory, '.git')).catch(() => undefined))?.isFile() ||
     (await exists(join(directory, 'pyvenv.cfg')));
-  // gone since the listing, such as a pruned capture, or already in the worktree
+  // deleted since the listing, or already in the worktree
   if (!(await exists(source)) || (await exists(target))) return;
   if (plans.some((plan) => `${source}/`.startsWith(`${plan}/`))) return;
   // git lists what sits inside a partly tracked directory on its own
@@ -146,9 +146,9 @@ async function seed(
 
 /**
  * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
- * main checkout's ignored files and directories into each new one, except what `seed` leaves behind. in each one where
- * `live` finds no session, runs `pnpm install` if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes or
- * moves a worktree.
+ * main checkout's ignored files and directories that each new one's own rules also ignore, except what `seed` leaves
+ * behind, and reporting the rest. in each one where `live` finds no session, runs `pnpm install` if it has a
+ * `pnpm-lock.yaml` and opens a Ghostty tab. never removes or moves a worktree.
  */
 export async function spawnWorktrees(
   cwd: string,
@@ -213,35 +213,44 @@ export async function spawnWorktrees(
         continue;
       }
       // the worktree's .gitignore is the upstream's, so a copy it doesn't ignore, such as a secret, could get committed
-      const ignored = local.length
-        ? (
-            await git(
-              spawned.path,
-              '-c',
-              'core.quotePath=false',
-              'check-ignore',
-              '--',
-              ...local,
-            ).catch((error: unknown) => {
+      const ignored: string[] | undefined = await (local.length
+        ? git(
+            spawned.path,
+            '-c',
+            'core.quotePath=false',
+            'check-ignore',
+            '--',
+            ...local,
+          ).then(
+            (stdout) => stdout.split('\n'),
+            (error: unknown) => {
               // git exits 1 when none of them is ignored
-              if ((error as { code?: unknown }).code === 1) return '';
-              throw error;
-            })
-          ).split('\n')
-        : [];
-      // a directory git lists only because all it holds is ignored has its files listed, and checked, on their own
-      const unignored = local.filter(
-        (path) => !path.endsWith('/') && !ignored.includes(path),
-      );
-      if (unignored.length)
-        report(
-          spawned,
-          `not copied, since the worktree doesn't ignore them: ${unignored.join(', ')}`,
+              if ((error as { code?: unknown }).code === 1) return [];
+              report(spawned, commandFailure('check-ignore', error));
+              return undefined;
+            },
+          )
+        : []);
+      if (ignored) {
+        // a directory git lists only because all it holds is ignored has its files listed, and checked, on their own
+        const unignored = local.filter(
+          (path) =>
+            !ignored.includes(path) &&
+            !(
+              path.endsWith('/') &&
+              local.some((other) => other !== path && other.startsWith(path))
+            ),
         );
-      for (const path of local.filter((path) => ignored.includes(path)))
-        await seed(run, main, spawned.path, path).catch((error: unknown) => {
-          report(spawned, commandFailure('copy', error));
-        });
+        if (unignored.length)
+          report(
+            spawned,
+            `not copied, since the worktree doesn't ignore them: ${unignored.join(', ')}`,
+          );
+        for (const path of local.filter((path) => ignored.includes(path)))
+          await seed(run, main, spawned.path, path).catch((error: unknown) => {
+            report(spawned, commandFailure('copy', error));
+          });
+      }
     }
     if (await exists(spawned.path)) spawned.slot = true;
     else spawned.error = 'registered but missing; run git worktree prune';

@@ -101,8 +101,10 @@ test("a clone's cleanup that first runs while the clone sits on its base still s
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
-test('a worktree cleanup interrupted before the detach keeps detaching on resume after the base is released', async () => {
-  const { launcher, checkout, other, tip } = await merged({}, [], true);
+test("a main checkout's cleanup interrupted before the detach keeps detaching on resume after the worktree lets go of the base", async () => {
+  const { root, checkout, other, tip } = await merged();
+  const holder = join(root, 'holder');
+  await git(checkout, 'worktree', 'add', holder, 'main');
   await merge(other, 'feat/x');
   const controller = new AbortController();
   const progress: MergeCleanup = {};
@@ -120,8 +122,8 @@ test('a worktree cleanup interrupted before the detach keeps detaching on resume
   );
   assert.equal(progress.moved, undefined);
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-  const main = await git(launcher, 'rev-parse', 'main');
-  await git(launcher, 'switch', '--detach');
+  const main = await git(checkout, 'rev-parse', 'main');
+  await git(holder, 'switch', '--detach');
   assert.deepEqual(
     await cleanUpMerge(checkout, pullRequest(tip), idle, { progress }),
     detached,
@@ -131,7 +133,7 @@ test('a worktree cleanup interrupted before the detach keeps detaching on resume
     await git(checkout, 'rev-parse', 'HEAD'),
     await git(other, 'rev-parse', 'HEAD'),
   );
-  assert.equal(await git(launcher, 'rev-parse', 'main'), main);
+  assert.equal(await git(checkout, 'rev-parse', 'main'), main);
 });
 
 for (const moved of [false, true])
