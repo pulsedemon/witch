@@ -1175,10 +1175,30 @@ for (const size of [1, 8])
         join(store.root, 'coordination', 'claims.json'),
         JSON.stringify({ version: 2, claims, selections: tickets }),
       );
+      // the ledger's one-second default, here and when closing, can't cover these probes under load, and the counts don't depend on it
+      const ledgers = CoordinationStore.prototype as unknown as Record<
+        'state' | 'mutate',
+        (deadline?: number, ...rest: unknown[]) => Promise<unknown>
+      >;
+      for (const method of ['state', 'mutate'] as const) {
+        const original = ledgers[method];
+        vi.spyOn(ledgers, method).mockImplementation(function (
+          this: unknown,
+          deadline,
+          ...rest
+        ) {
+          return original.call(
+            this,
+            deadline === undefined ? undefined : Date.now() + 10_000,
+            ...rest,
+          );
+        });
+      }
       const readStatePaths: string[] = [];
       const read = files.readFile;
-      vi.spyOn(files, 'readFile').mockImplementation(
-        (...args: Parameters<typeof files.readFile>) => {
+      const reading = vi
+        .spyOn(files, 'readFile')
+        .mockImplementation((...args: Parameters<typeof files.readFile>) => {
           if (
             typeof args[0] === 'string' &&
             args[0].startsWith(store.root) &&
@@ -1186,12 +1206,11 @@ for (const size of [1, 8])
           )
             readStatePaths.push(args[0]);
           return read(...args);
-        },
-      );
+        });
       syncBuiltinESMExports();
       const probes = await countProbes(() => a.coordination.context()).finally(
         () => {
-          vi.restoreAllMocks();
+          reading.mockRestore();
           syncBuiltinESMExports();
         },
       );
