@@ -8,6 +8,7 @@ import { CodexSchema } from './fixtures/codex-schema.js';
 import { CodexAdapter } from '../src/agents/codex.js';
 import { ClaudeAdapter } from '../src/agents/claude.js';
 import { nativeScenario } from './fixtures/native-scenario.js';
+import type { NativeScenario } from './fixtures/native-scenario.js';
 import { replayWire, observeWire } from './fixtures/native-wire.js';
 import { scratch } from './fixtures/scratch.js';
 import { fileURLToPath } from 'node:url';
@@ -47,7 +48,9 @@ const manifest = JSON.parse(
 const requests: RpcMessage[] = [];
 
 for (const runtime of ['codex', 'claude'] as const) {
-  for (const scenario of ['basic', 'control', 'background', 'spell'] as const) {
+  for (const scenario of Object.keys(
+    manifest[runtime].scenarios,
+  ) as NativeScenario[]) {
     test(`${runtime} replays native ${scenario} through its production adapter`, async () => {
       const cwd = await scratch('witch-native-protocol-');
       const files: string[] = manifest[runtime].scenarios[scenario].files;
