@@ -146,8 +146,8 @@ async function seed(
 
 /**
  * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
- * main checkout's ignored files and directories that each new one's own rules also ignore, except what `seed` leaves
- * behind, and reporting the rest. in each one where `live` finds no session, runs `pnpm install` if it has a
+ * main checkout's ignored files and directories into each new one, except what `seed` leaves behind, then removing and
+ * reporting any copy the new one's own rules don't ignore. in each one where `live` finds no session, runs `pnpm install` if it has a
  * `pnpm-lock.yaml` and opens a Ghostty tab. never removes or moves a worktree.
  */
 export async function spawnWorktrees(
@@ -182,26 +182,21 @@ export async function spawnWorktrees(
     throw new Error(`${main} has no upstream branch to start worktrees from.`);
   // a signal would detach git from the terminal, where ssh asks for a passphrase, and a timeout would kill it mid-prompt
   await run('git', ['fetch', remote], { cwd: main, timeout: 0 });
-  const local = (
-    await git(
-      main,
+  const listing = await run(
+    'git',
+    [
       'ls-files',
       '--others',
       '--ignored',
       '--exclude-standard',
       '--directory',
       '-z',
-    )
-  )
-    .split('\0')
-    .filter(Boolean);
-  // a directory whose own .gitignore is listed, such as a tool's cache, ignores itself wherever it's copied
-  const carried = local.filter(
-    (path) => path.endsWith('/') && local.includes(`${path}.gitignore`),
+    ],
+    { cwd: main, timeout: 60_000 },
   );
-  const checked = local.filter(
-    (path) => !carried.some((directory) => path.startsWith(directory)),
-  );
+  const local = listing.stdout.split('\0').filter(Boolean);
+  // git exits 0 when it can't read a directory, and says so only on stderr
+  const unread = oneLine(listing.stderr ?? '').trim();
   const slots: Spawned[] = [];
   for (let index = 1; index <= count; index++) {
     const spawned: Spawned = {
@@ -219,48 +214,34 @@ export async function spawnWorktrees(
         spawned.error = failure(error);
         continue;
       }
-      // the worktree's .gitignore is the upstream's, so a copy it doesn't ignore, such as a secret, could get committed
-      const ignored: string[] | undefined = await (checked.length
-        ? git(
-            spawned.path,
-            '-c',
-            'core.quotePath=false',
-            'check-ignore',
-            '--',
-            ...checked,
-          ).then(
-            (stdout) => stdout.split('\n'),
-            (error: unknown) => {
-              // git exits 1 when none of them is ignored
-              if ((error as { code?: unknown }).code === 1) return [];
-              report(spawned, commandFailure('check-ignore', error));
-              return undefined;
-            },
-          )
-        : []);
-      if (ignored) {
-        // a directory git lists only because all it holds is ignored has its files listed, and checked, on their own
-        const unignored = checked.filter(
-          (path) =>
-            !ignored.includes(path) &&
-            !(
-              path.endsWith('/') &&
-              checked.some((other) => other !== path && other.startsWith(path))
-            ),
-        );
-        if (unignored.length)
-          report(
-            spawned,
-            `not copied, since the worktree doesn't ignore them: ${unignored.join(', ')}`,
-          );
-        for (const path of [
-          ...carried,
-          ...checked.filter((path) => ignored.includes(path)),
-        ])
-          await seed(run, main, spawned.path, path).catch((error: unknown) => {
-            report(spawned, commandFailure('copy', error));
-          });
-      }
+      if (unread) report(spawned, `ignored files may be missing: ${unread}`);
+      for (const path of local)
+        await seed(run, main, spawned.path, path).catch((error: unknown) => {
+          report(spawned, commandFailure('copy', error));
+        });
+      // the worktree's ignore rules are the upstream's, so a copy they don't cover, such as a secret, could get committed.
+      // a new worktree has nothing untracked of its own
+      await git(
+        spawned.path,
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+        '-z',
+      ).then(
+        async (stdout) => {
+          const unignored = stdout.split('\0').filter(Boolean);
+          for (const path of unignored)
+            await rm(join(spawned.path, path), { force: true });
+          if (unignored.length)
+            report(
+              spawned,
+              `removed copies the worktree doesn't ignore: ${unignored.join(', ')}`,
+            );
+        },
+        (error: unknown) => {
+          report(spawned, commandFailure('ls-files', error));
+        },
+      );
     }
     if (await exists(spawned.path)) spawned.slot = true;
     else spawned.error = 'registered but missing; run git worktree prune';

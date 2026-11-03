@@ -152,6 +152,23 @@ test("spawn creates the missing worktrees detached at the main checkout's upstre
   assert.deepEqual(tabs(), [[slot(1), slot(2)]]);
 });
 
+test("spawn starts worktrees at the main checkout's own upstream, not origin's main", async () => {
+  const { root, main, slot } = await checkout();
+  const fork = join(root, 'fork.git');
+  await git(root, 'init', '--bare', '-b', 'stable', fork);
+  await git(main, 'remote', 'add', 'fork', fork);
+  await git(main, 'commit', '--allow-empty', '-m', 'stable only');
+  await git(main, 'push', 'fork', 'HEAD:stable');
+  const stable = await git(main, 'rev-parse', 'HEAD');
+  await git(main, 'branch', '--set-upstream-to', 'fork/stable');
+  const { base } = await spawnWorktrees(main, 1, {
+    run: recording().run,
+    live: async () => false,
+  });
+  assert.equal(base, 'fork/stable');
+  assert.equal(await git(slot(1), 'rev-parse', 'HEAD'), stable);
+});
+
 test('spawn reuses existing worktrees, installs and opens tabs only where no session runs, and reports a registered slot missing from disk', async () => {
   const { main, slot } = await checkout();
   await spawnWorktrees(main, 3, {
@@ -352,15 +369,25 @@ test('an ignored file that fails to copy is reported along with a failed install
   assert.equal(await readFile(join(slot(1), 'b.local'), 'utf8'), 'b');
 });
 
-test("an ignored file the new worktree's own rules don't ignore is reported and not copied", async () => {
+test("copies the new worktree's own rules don't ignore are removed and reported", async () => {
   const { main, slot } = await checkout();
-  // ignored only by the launcher's uncommitted .gitignore, so the worktree at the upstream would show it untracked
-  await writeFile(join(main, '.gitignore'), 'secret\nsecret.env\nexports/\n');
-  // a file whose name starts another listed path's is still a file
+  await writeFile(join(main, '.gitignore'), 'keys/*\n!keys/visible.env\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  // ignored only by the launcher's uncommitted .gitignore, so the worktree at the upstream would show them untracked
+  await writeFile(
+    join(main, '.gitignore'),
+    'keys/\nsecret\nsecret.env\nexports/\n',
+  );
   await writeFile(join(main, 'secret'), 'token');
   await writeFile(join(main, 'secret.env'), 'token');
   await mkdir(join(main, 'exports'));
   await writeFile(join(main, 'exports', 'build.bin'), '');
+  // git lists keys/ whole, but the upstream's rules keep visible.env out of the ignore
+  await mkdir(join(main, 'keys'));
+  await writeFile(join(main, 'keys', 'visible.env'), 'token');
+  await writeFile(join(main, 'keys', 'a.key'), 'key');
   const [spawned] = (
     await spawnWorktrees(main, 1, {
       run: recording().run,
@@ -369,37 +396,56 @@ test("an ignored file the new worktree's own rules don't ignore is reported and 
   ).slots;
   assert.equal(
     spawned!.error,
-    "not copied, since the worktree doesn't ignore them: exports/, secret, secret.env",
+    "removed copies the worktree doesn't ignore: exports/build.bin, keys/visible.env, secret, secret.env",
   );
-  assert.equal(await exists(join(slot(1), 'secret.env')), false);
-  assert.equal(await exists(join(slot(1), 'exports')), false);
+  assert.equal(await readFile(join(slot(1), 'keys', 'a.key'), 'utf8'), 'key');
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
 });
 
-test("a failed ignore check skips that slot's copies and still opens its tab", async () => {
+test('a failed check of the copies is reported and the slot still opens its tab', async () => {
   const { main, slot } = await checkout();
-  await writeFile(join(main, '.gitignore'), '*.local\n');
-  await git(main, 'add', '.');
-  await git(main, 'commit', '-m', 'ignores');
-  await git(main, 'push');
-  await writeFile(join(main, 'a.local'), 'a');
   const { run: recorded, tabs } = recording();
   const run: Run = (command, args, options) =>
-    args.includes('check-ignore')
+    options.cwd === slot(1) && args[0] === 'ls-files'
       ? Promise.reject(
           Object.assign(new Error('Command failed'), {
             code: 128,
             stdout: '',
-            stderr: 'fatal: bad pathspec\n',
+            stderr: 'fatal: bad index\n',
           }),
         )
       : recorded(command, args, options);
   const [spawned] = (
     await spawnWorktrees(main, 1, { run, live: async () => false })
   ).slots;
-  assert.equal(spawned!.error, 'check-ignore failed: fatal: bad pathspec');
+  assert.equal(spawned!.error, 'ls-files failed: fatal: bad index');
   assert.deepEqual(tabs(), [[slot(1)]]);
-  assert.equal(await exists(join(slot(1), 'a.local')), false);
+});
+
+test("a directory git can't read while listing ignored files is reported on each new worktree", async () => {
+  const { main } = await checkout();
+  await mkdir(join(main, 'config'));
+  await writeFile(join(main, 'config', 'tracked.txt'), '');
+  await writeFile(join(main, '.gitignore'), '*.local\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'config');
+  await git(main, 'push');
+  await writeFile(join(main, 'config', 'secret.local'), 'token');
+  await chmod(join(main, 'config'), 0o000);
+  try {
+    const [spawned] = (
+      await spawnWorktrees(main, 1, {
+        run: recording().run,
+        live: async () => false,
+      })
+    ).slots;
+    assert.match(
+      spawned!.error!,
+      /^ignored files may be missing: .*could not open directory 'config\/'/,
+    );
+  } finally {
+    await chmod(join(main, 'config'), 0o755);
+  }
 });
 
 test('a directory copy that fails partway still leaves out what its copy would act on', async () => {

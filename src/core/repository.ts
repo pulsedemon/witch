@@ -222,7 +222,7 @@ export type Run = (
     env?: NodeJS.ProcessEnv;
     signal?: AbortSignal;
   },
-) => Promise<{ stdout: string }>;
+) => Promise<{ stdout: string; stderr?: string }>;
 
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
