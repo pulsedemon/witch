@@ -83,20 +83,30 @@ async function seed(
     basename(directory) === '.godot' ||
     !!(await stat(join(directory, '.git')).catch(() => undefined))?.isFile() ||
     (await exists(join(directory, 'pyvenv.cfg')));
-  // deleted since the listing
-  if (!(await exists(source))) return;
+  // deleted since the listing; any other failure to look is reported
+  const listed = await lstat(source).catch((error: unknown) => {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    throw error;
+  });
+  if (!listed) return;
   // lstat, since a symlink the upstream tracks would carry the copy outside the worktree
   const placed = await lstat(target).catch(() => undefined);
   if (placed) {
     // the upstream tracks something in this directory, so its other contents go in one by one
-    if (path.endsWith('/') && placed.isDirectory())
+    if (path.endsWith('/') && placed.isDirectory()) {
+      const failed: string[] = [];
       for (const entry of await readdir(source, { withFileTypes: true }))
         await seed(
           run,
           main,
           worktree,
           `${path}${entry.name}${entry.isDirectory() ? '/' : ''}`,
-        );
+        ).catch((error: unknown) => {
+          failed.push(commandFailure('copy', error));
+        });
+      if (failed.length) throw new Error(failed.join(', '));
+    }
     return;
   }
   if (plans.some((plan) => `${source}/`.startsWith(`${plan}/`))) return;
@@ -155,12 +165,16 @@ async function seed(
       .split('\0')
       .filter(Boolean)
       .map((match) => (basename(match) === '.godot' ? match : dirname(match)));
+    const stuck: string[] = [];
     for (const leftover of [...leftovers, ...plans])
       if (leftover.startsWith(`${source}/`))
         await rm(join(target, relative(source, leftover)), {
           recursive: true,
           force: true,
+        }).catch((error: unknown) => {
+          stuck.push(failure(error));
         });
+    if (stuck.length) throw new Error(`left in the copy: ${stuck.join(', ')}`);
   });
 }
 

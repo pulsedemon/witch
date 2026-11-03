@@ -5,6 +5,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  readlink,
   rm,
   symlink,
   writeFile,
@@ -496,6 +497,91 @@ test('a copy that a symlink the upstream tracks would carry outside the worktree
   );
   assert.deepEqual(await readdir(outside), []);
   assert.equal(await exists(join(slot(1), 'config')), true);
+});
+
+test('an ignored symlink whose target spawn cannot reach is still copied as the link', async () => {
+  const { root, main, slot } = await checkout();
+  await writeFile(join(main, '.gitignore'), '.env.local\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  const locked = join(root, 'locked');
+  await mkdir(locked);
+  await writeFile(join(locked, 'env'), 'token');
+  await symlink(join(locked, 'env'), join(main, '.env.local'));
+  await chmod(locked, 0o000);
+  try {
+    const [spawned] = (
+      await spawnWorktrees(main, 1, {
+        run: recording().run,
+        live: async () => false,
+      })
+    ).slots;
+    assert.equal(spawned!.error, undefined);
+    assert.equal(
+      await readlink(join(slot(1), '.env.local')),
+      join(locked, 'env'),
+    );
+  } finally {
+    await chmod(locked, 0o755);
+  }
+});
+
+test('in a directory the upstream tracks a file in, one entry that fails to copy is reported and the rest still arrive', async () => {
+  const { main, slot } = await checkout();
+  await mkdir(join(main, '.claude'));
+  await writeFile(join(main, '.claude', 'settings.json'), '{}');
+  await writeFile(join(main, '.gitignore'), '.claude/*.local*\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'claude settings');
+  await git(main, 'push');
+  await git(main, 'rm', '-q', '.claude/settings.json');
+  await writeFile(join(main, '.gitignore'), '.claude/\n');
+  await git(main, 'commit', '-qam', 'ignore claude');
+  await mkdir(join(main, '.claude'), { recursive: true });
+  await writeFile(join(main, '.claude', 'a.local'), 'a');
+  await chmod(join(main, '.claude', 'a.local'), 0o000);
+  await writeFile(join(main, '.claude', 'settings.local.json'), '{"main":1}');
+  const [spawned] = (
+    await spawnWorktrees(main, 1, {
+      run: recording().run,
+      live: async () => false,
+    })
+  ).slots;
+  assert.match(
+    spawned!.error!,
+    /^copy failed: cp: .*a\.local.*Permission denied$/,
+  );
+  assert.equal(
+    await readFile(join(slot(1), '.claude', 'settings.local.json'), 'utf8'),
+    '{"main":1}',
+  );
+});
+
+test('a left-out path that cannot be removed from a copy is reported, and the others are still removed', async () => {
+  const { main, slot } = await checkout();
+  await writeFile(join(main, '.gitignore'), 'tools/\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  await mkdir(join(main, 'tools', 'stuck', '.godot'), { recursive: true });
+  await mkdir(join(main, 'tools', 'venv'), { recursive: true });
+  await writeFile(join(main, 'tools', 'venv', 'pyvenv.cfg'), '');
+  // a read-only parent, which the copy keeps, so its .godot can't be removed
+  await chmod(join(main, 'tools', 'stuck'), 0o555);
+  try {
+    const [spawned] = (
+      await spawnWorktrees(main, 1, {
+        run: recording().run,
+        live: async () => false,
+      })
+    ).slots;
+    assert.match(spawned!.error!, /^left in the copy: .*stuck\/\.godot/);
+    assert.equal(await exists(join(slot(1), 'tools', 'venv')), false);
+  } finally {
+    await chmod(join(main, 'tools', 'stuck'), 0o755);
+    await chmod(join(slot(1), 'tools', 'stuck'), 0o755).catch(() => {});
+  }
 });
 
 test('a failed check of the copies is reported and the slot still opens its tab', async () => {
