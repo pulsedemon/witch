@@ -246,9 +246,9 @@ const arrived = (
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
  * at the base's upstream when another worktree holds the base, deletes the branch and its gitignored plans with their
- * gitignored ledgers, and deletes the other merged branches whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, `'changed'`
- * when the checkout left the branch or changed, or nothing when another Witch is updating it or `blocked` says one is
- * working in it.
+ * gitignored ledgers, and deletes the other merged branches whose remote branch is gone. returns a sentence saying what
+ * it did, and whether it moved the checkout, `'changed'` when the checkout left the branch or changed, or nothing when
+ * another Witch is updating it or `blocked` says one is working in it.
  */
 export async function cleanUpMerge(
   cwd: string,
