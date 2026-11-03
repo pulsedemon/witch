@@ -47,6 +47,7 @@ const stateCommands = [
 let initialization = 0;
 let model = 'claude-a';
 let lastPrompt = '';
+let lastInput = '';
 /** the uuids of prompts sent during a steerable turn. */
 const steered = [];
 /** where a `reporting familiar` turn is: `before` the report, `reported` and not yet idle, `idle`, or `running` again. */
@@ -218,7 +219,8 @@ const exitBeforeGrandchild = (code) => {
   );
 };
 const finish = () => {
-  result();
+  // with lifecycle acknowledgements, a result names the input it answers
+  result(mode === 'spell-user' ? { user_message_uuids: [lastInput] } : {});
   if (lastPrompt === 'wait for idle') {
     const states = ['running', 'requires_action', 'idle'];
     const interval = setInterval(() => {
@@ -528,6 +530,7 @@ for await (const line of lines) {
     });
   } else if (message.type === 'user') {
     appendFileSync(join(process.cwd(), 'inputs.jsonl'), `${line}\n`);
+    lastInput = message.uuid;
     if (mode === 'background') {
       if (lastPrompt) {
         held.push(message.uuid);

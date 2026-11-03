@@ -57,6 +57,8 @@ async function background(sessionState = true) {
   );
   const inputs = async () =>
     (await jsonLines(join(f.cwd, 'inputs.jsonl'))) as SDKUserMessage[];
+  // Claude Code's result names the input it answers; one naming none is a run Claude Code started on its own
+  const initial = (await inputs())[0]!.uuid!;
   const steer = async (
     text: string,
     options?: Parameters<typeof f.session.steer>[1],
@@ -76,6 +78,7 @@ async function background(sessionState = true) {
     events,
     emit,
     turn,
+    initial,
     steer,
     inputs,
     completions: () => completions,
@@ -118,14 +121,14 @@ async function commandReply(f: Awaited<ReturnType<typeof background>>) {
 test('without session state a result finishes the turn and reports missing tracking once', async () => {
   const f = await background(false);
   try {
-    await f.emit(result('First answer.'));
+    await f.emit(result('First answer.', [f.initial]));
     assert.deepEqual(await within(f.turn, 2000, 'result completion'), {
       status: 'completed',
       text: 'First answer.',
     });
     const next = f.session.send('next');
     await until('next input', async () => (await f.inputs()).length === 2);
-    await f.emit(result('Second answer.'));
+    await f.emit(result('Second answer.', [(await f.inputs())[1]!.uuid!]));
     assert.deepEqual(await within(next, 2000, 'next result'), {
       status: 'completed',
       text: 'Second answer.',
@@ -145,7 +148,7 @@ test('without session state a result finishes the turn and reports missing track
 test('a session state received between turns makes subsequent results wait for idle', async () => {
   const f = await background(false);
   try {
-    await f.emit(result('First answer.'));
+    await f.emit(result('First answer.', [f.initial]));
     await within(f.turn, 2000, 'first result');
     await f.emit(state('running'));
     let settled = false;
@@ -154,7 +157,7 @@ test('a session state received between turns makes subsequent results wait for i
       return value;
     });
     await until('next input', async () => (await f.inputs()).length === 2);
-    await f.emit(result('Second answer.'));
+    await f.emit(result('Second answer.', [(await f.inputs())[1]!.uuid!]));
     assert.equal(settled, false);
     await f.emit(state('idle'));
     assert.deepEqual(await within(next, 2000, 'native idle'), {
@@ -182,6 +185,37 @@ test('Claude Code running on its own between turns is reported until it is idle 
   }
 });
 
+test("a prompt sent while Claude Code runs on its own settles on its own result, not the run's", async () => {
+  const f = await background();
+  try {
+    await f.emit(state('idle'));
+    await within(f.turn, 2000, 'first turn');
+    await f.emit(state('running'));
+    let settled = false;
+    const next = f.session.send('next').then((value) => {
+      settled = true;
+      return value;
+    });
+    await until('next input', async () => (await f.inputs()).length === 2);
+    const uuid = (await f.inputs())[1]!.uuid!;
+    // as captured, the run's own result names no input
+    await f.emit(lifecycle(uuid, 'queued'), result('Brewed.'), state('idle'));
+    assert.equal(settled, false);
+    await f.emit(
+      state('running'),
+      lifecycle(uuid, 'started'),
+      result('Next answer.', [uuid]),
+      state('idle'),
+    );
+    assert.deepEqual(await within(next, 2000, 'next result'), {
+      status: 'completed',
+      text: 'Next answer.',
+    });
+  } finally {
+    await f.session.close();
+  }
+});
+
 for (const task_type of ['local_agent', 'local_workflow'])
   for (const ending of ['notification', 'live set'])
     test(`without session state a ${task_type} holds the result until its ${ending} ends it`, async () => {
@@ -195,7 +229,7 @@ for (const task_type of ['local_agent', 'local_workflow'])
             subtype: 'background_tasks_changed',
             tasks: [task],
           },
-          result('Held answer.'),
+          result('Held answer.', [f.initial]),
         );
         assert.equal(f.completions(), 0);
         assert.equal(f.session.replied, true);
@@ -237,7 +271,7 @@ test('without session state a stale workflow notification cannot release the cur
         run_id: '2',
         description: 'Current workflow',
       },
-      result('Held answer.'),
+      result('Held answer.', [f.initial]),
     );
     const notification = {
       type: 'system',
@@ -265,7 +299,10 @@ test('without session state an accepted follow-up with no task needs consumption
   const f = await background(false);
   try {
     const uuid = await f.steer('follow-up');
-    await f.emit(result('Initial answer.'), lifecycle(uuid, 'queued'));
+    await f.emit(
+      result('Initial answer.', [f.initial]),
+      lifecycle(uuid, 'queued'),
+    );
     assert.equal(f.completions(), 0);
     await f.emit(lifecycle(uuid, 'started'));
     assert.equal(f.completions(), 0);
@@ -294,7 +331,7 @@ test('a workflow can hold a normal turn beyond the shutdown budget', async () =>
         task_type: 'local_workflow',
         description: 'Long work',
       },
-      result('Held answer.'),
+      result('Held answer.', [f.initial]),
     );
     await delay(8100);
     assert.equal(f.completions(), 0);
@@ -328,7 +365,7 @@ for (const commandFirst of [false, true])
           task_type: 'local_agent',
           description: 'Holder',
         },
-        result('Initial answer.'),
+        result('Initial answer.', [f.initial]),
       );
       const command =
         "printf 'once\\n' >> executions; touch command-started; while [ ! -e command-release ]; do sleep 0.02; done; printf output";
@@ -435,7 +472,7 @@ test('a refused steered command reply fails the Witch turn', async () => {
     await f.emit(lifecycle(uuid, 'refused'), state('idle'));
     const outcome = await within(f.turn, 2000, 'refused command reply');
     assert.equal(outcome.status, 'failed');
-    assert.equal(outcome.error, 'Claude refused a steered prompt');
+    assert.equal(outcome.error, 'Claude refused a prompt');
   } finally {
     await f.session.close();
   }
@@ -877,12 +914,25 @@ async function exhausted(...turns: Step[][]) {
     let result;
     for (const [index, steps] of turns.entries()) {
       const turn = f.session.send('limited');
+      let uuid = '';
+      await until('turn input', async () => {
+        const inputs = await jsonLines(join(f.cwd, 'inputs.jsonl'));
+        uuid = (inputs[index] as SDKUserMessage | undefined)?.uuid ?? '';
+        return !!uuid;
+      });
       if (!index) await until('initial reply', () => reported('result-1'));
       for (const step of steps)
         if (step === 'kill') f.child.kill();
         else if (step === 'close') void f.session.close();
         else if (step === 'interrupt') await f.session.interrupt();
-        else if (step !== 'steer') await emit(step);
+        else if (step !== 'steer')
+          await emit(
+            'type' in step &&
+              step.type === 'result' &&
+              !('user_message_uuids' in step)
+              ? { ...step, user_message_uuids: [uuid] }
+              : step,
+          );
         else {
           assert.equal(await f.session.steer('also'), true);
           let id = '';

@@ -350,6 +350,28 @@ test('a recipient confirms only after its stopped turn settles, and retries a fa
   );
 });
 
+test('a recipient that Claude Code runs on its own confirms once that run ends', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  pauseDiscovery(vi.spyOn);
+  const f = await coordinationFixture(cleanup);
+  await f.checkout('I');
+  const i = await f.start('I');
+  const a = await f.start('A');
+  const emit = a.a.sessions.at(-1)!.options.onEvent;
+  emit({ type: 'running', running: true });
+  const issued = await pause(i);
+  await refreshed(a);
+  await refreshed(a);
+  // an unheld confirmation would be written within this
+  await delay(500);
+  assert.equal((await statuses(f, issued))[id(a)], 'pending');
+  emit({ type: 'running', running: false });
+  await until(
+    'confirmed after the native run',
+    async () => (await statuses(f, issued))[id(a)] === 'paused',
+  );
+});
+
 test('a resume cancels a scheduled stop retry, which never interrupts the next turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);

@@ -206,6 +206,30 @@
             ]
           }
         ]
+      },
+      "idle-run": {
+        "capturedOn": "2026-11-03",
+        "files": ["idle-run-0.jsonl"],
+        "launches": [
+          {
+            "command": "claude",
+            "args": [
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--input-format",
+              "stream-json",
+              "--effort=low",
+              "--model=haiku",
+              "--permission-prompt-tool=stdio",
+              "--include-partial-messages",
+              "--session-id=31c17a7e-e681-42a0-8784-03f163553705",
+              "--setting-sources=project",
+              "--strict-mcp-config",
+              "--permission-mode=default"
+            ]
+          }
+        ]
       }
     },
     "sdk": "0.3.296"

@@ -75,7 +75,7 @@ test('an idle owner hands over its task without a model turn, and its next conte
   assert.equal(conflict.kind, 'conflict');
 });
 
-test('a running turn, a running brew and memory recovery each refuse with their next action', async (t) => {
+test('a running turn, a native run, a running brew and memory recovery each refuse with their next action', async (t) => {
   const { a, b, answer, registry } = await transfer(t);
   const before = await registry.claims();
   const refuses = async (reason: RegExp) => {
@@ -100,6 +100,10 @@ test('a running turn, a running brew and memory recovery each refuse with their 
   await sending;
 
   const emit = a.a.sessions.at(-1)!.options.onEvent;
+  emit({ type: 'running', running: true });
+  await refuses(/It is running on its own\. Wait for it to go idle/);
+  emit({ type: 'running', running: false });
+
   emit({
     type: 'command',
     command: { id: 'brew', description: 'Work', status: 'running' },

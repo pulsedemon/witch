@@ -588,9 +588,10 @@ export class Coordinator {
     this.confirmPauses();
   }
 
+  /** Escape can't stop a native run outside a turn, so confirmation waits for it to end. */
   private confirmPauses(): void {
     const paused = this.paused;
-    if (!paused || paused.stopping) return;
+    if (!paused || paused.stopping || this.snapshot.nativeRunning) return;
     const pauses = this.coordination?.events.pauses(paused.conversation) ?? [];
     for (const pause of pauses) {
       const recipient = entry(pause, paused.conversation);
@@ -1468,6 +1469,8 @@ export class Coordinator {
     );
     this.jobs?.setActive(working);
     this.coordination?.update(this.snapshot);
+    if ('nativeRunning' in update && !update.nativeRunning)
+      this.confirmPauses();
     for (const listener of this.listeners) listener();
   }
 }

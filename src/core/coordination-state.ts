@@ -202,7 +202,10 @@ export function checkTaskRelease(
   snapshot: Snapshot | undefined,
   human: boolean,
 ): void {
-  if (human && (snapshot?.phase !== 'idle' || snapshot.recovery))
+  if (
+    human &&
+    (snapshot?.phase !== 'idle' || snapshot.nativeRunning || snapshot.recovery)
+  )
     throw new Error(
       'Wait for idle and resolve memory recovery before releasing the task.',
     );

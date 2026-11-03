@@ -170,8 +170,8 @@ interface Turn {
   result?: TurnResult;
   interrupted: boolean;
   messages: TurnText;
-  /** retain consumed user input for interrupt receipts; generated context must never reenter the prompt queue. */
-  steered: Map<
+  /** pending until acknowledged, so a result from Claude Code's own run can't settle the turn; generated context never returns unread. */
+  inputs: Map<
     string,
     { prompt?: string; pending: boolean; contextOnly?: true }
   >;
@@ -543,6 +543,7 @@ class ClaudeSession implements AgentSession {
       !skill && prompt.trim().startsWith('/'),
     );
     turn.initialInput = uuid;
+    turn.inputs.set(uuid, { pending: true });
     turn.commandRecords.set(uuid, { records, writeAttempted: false });
     if (skill && !skill.builtin) this.pendingCasts.set(uuid, skill.name);
     return turn.finished.promise;
@@ -589,7 +590,7 @@ class ClaudeSession implements AgentSession {
       finished: Promise.withResolvers<TurnResult>(),
       interrupted: false,
       messages: new TurnText(),
-      steered: new Map(),
+      inputs: new Map(),
       commandRecords: new Map(),
       held: false,
       idle: false,
@@ -700,7 +701,7 @@ class ClaudeSession implements AgentSession {
           : prompt,
         !skill && prompt.trim().startsWith('/'),
       );
-      turn.steered.set(uuid, {
+      turn.inputs.set(uuid, {
         prompt: contextOnly ? undefined : prompt,
         pending: true,
         contextOnly,
@@ -768,7 +769,7 @@ class ClaudeSession implements AgentSession {
       turn.idle = false;
       const records = this.takeUnreadContext();
       const uuid = this.push(content(records, answer, []));
-      turn.steered.set(uuid, { pending: true });
+      turn.inputs.set(uuid, { pending: true });
       turn.commandRecords.set(uuid, { records, writeAttempted: false });
     } else if (!this.closed) this.finishIdle(turn);
   }
@@ -815,7 +816,7 @@ class ClaudeSession implements AgentSession {
       turn.idle &&
       turn.held &&
       (!this.messageLifecycle ||
-        ![...turn.steered.values()].some(({ pending }) => pending))
+        ![...turn.inputs.values()].some(({ pending }) => pending))
     ) {
       await turn.finished.promise;
       return;
@@ -847,7 +848,7 @@ class ClaudeSession implements AgentSession {
         status: 'interrupted',
         text: turn.messages.text,
         unread: receipt.still_queued.flatMap(
-          (uuid) => turn.steered.get(uuid)?.prompt ?? [],
+          (uuid) => turn.inputs.get(uuid)?.prompt ?? [],
         ),
         ...(unreadContext.length ? { unreadContext } : {}),
       });
@@ -1033,7 +1034,7 @@ class ClaudeSession implements AgentSession {
         turn &&
         lifecycle.data.session_id === this.info.id
       ) {
-        const input = turn.steered.get(lifecycle.data.command_uuid);
+        const input = turn.inputs.get(lifecycle.data.command_uuid);
         const state = lifecycle.data.state;
         if (input && state !== 'queued') {
           if (state === 'started' && input.pending) turn.result = undefined;
@@ -1044,7 +1045,7 @@ class ClaudeSession implements AgentSession {
             !turn.interrupted &&
             !input.contextOnly
           )
-            turn.inputError ??= `Claude ${state} a steered prompt`;
+            turn.inputError ??= `Claude ${state} a prompt`;
           this.finishIdle(turn);
         }
       }
@@ -1269,7 +1270,7 @@ class ClaudeSession implements AgentSession {
         const uuids = message.user_message_uuids ?? [message.user_message_uuid];
         for (const uuid of uuids) {
           const input =
-            uuid === undefined ? undefined : this.turn.steered.get(uuid);
+            uuid === undefined ? undefined : this.turn.inputs.get(uuid);
           if (!input) continue;
           input.pending = false;
           if (!success && !this.turn.interrupted)
@@ -1413,7 +1414,7 @@ class ClaudeSession implements AgentSession {
         turn.commandRecords.get(turn.initialInput)?.writeAttempted === false;
       // input goes in order, so what was steered behind unwritten input is unwritten too
       const unread = inputUnsent
-        ? [...turn.steered.values()].flatMap(({ prompt, pending }) =>
+        ? [...turn.inputs.values()].flatMap(({ prompt, pending }) =>
             pending && prompt !== undefined ? [prompt] : [],
           )
         : [];
@@ -1445,7 +1446,7 @@ class ClaudeSession implements AgentSession {
       !turn.held &&
       !this.compacting &&
       (!this.messageLifecycle ||
-        ![...turn.steered.values()].some(({ pending }) => pending))
+        ![...turn.inputs.values()].some(({ pending }) => pending))
     ) {
       if (!this.sessionLifecycle && !this.reportedMissingLifecycle) {
         this.reportedMissingLifecycle = true;

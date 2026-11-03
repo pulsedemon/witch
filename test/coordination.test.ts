@@ -615,6 +615,9 @@ test('task counts, pentacle and release follow running work', async (t) => {
     ['completed', 'stopped', 'completed', 'failed', 'stopped'],
   );
   assert.equal(a.coordinator.pentacle.active, false);
+  emit({ type: 'running', running: true });
+  await assert.rejects(a.coordinator.releaseTask(), /Wait for idle/);
+  emit({ type: 'running', running: false });
   await a.coordinator.releaseTask();
   assert.deepEqual(await registry.claims(), []);
 });

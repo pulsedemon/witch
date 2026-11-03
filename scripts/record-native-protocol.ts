@@ -26,7 +26,8 @@ assert.ok(
   values.scenario === 'basic' ||
     values.scenario === 'control' ||
     values.scenario === 'background' ||
-    values.scenario === 'spell',
+    values.scenario === 'spell' ||
+    values.scenario === 'idle-run',
   'Unknown scenario',
 );
 const root = resolve(values.out);
