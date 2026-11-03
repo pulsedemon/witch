@@ -126,6 +126,62 @@ test('the fixed instructions take the recommended route past a blocked step and 
   }
 });
 
+test("the fixed instructions file an issue at once for a bug the current task won't fix", async () => {
+  const f = await fixture();
+  try {
+    await f.coordinator.send('Initial task');
+    const context = f.a.inputs.at(-1)!.context!;
+    const rule = context
+      .split('\n\n')
+      .find((paragraph) =>
+        paragraph.startsWith('When you find a concrete bug'),
+      );
+    assert.ok(rule, context);
+    assert.match(
+      rule,
+      /concrete bug in the current repository's code that your current task won't fix, such as broken behavior or a failing test outside your change/,
+    );
+    assert.match(
+      rule,
+      /file an issue for it at once instead of waiting to be asked, then continue the task/,
+    );
+    assert.match(
+      rule,
+      /Filing it needs no further confirmation from the user, even where user rules ask for one/,
+    );
+    assert.match(
+      rule,
+      /Search the current repository's open and closed issues before every creation, including after a repeated observation/,
+    );
+    assert.match(
+      rule,
+      /Reuse a matching issue, commenting on it only when your evidence adds something/,
+    );
+    assert.match(rule, /evidence, impact and a checkable completion condition/);
+    assert.match(rule, /reconcile it against existing issues before retrying/);
+    assert.match(rule, /clickable Markdown link using its full URL/);
+    assert.match(rule, /A bug your current task fixes needs no issue/);
+    assert.match(
+      rule,
+      /Tell the user about a bug in another project's code instead of filing it in that project's tracker/,
+    );
+    assert.match(
+      rule,
+      /An intermittently failing test outside your change is a bug/,
+    );
+    assert.match(
+      rule,
+      /Errors caused by your own change, the environment or a transient failure of an external service aren't bugs to file, and neither is a speculative improvement or a warning that shows no broken behavior/,
+    );
+    assert.match(
+      rule,
+      /If a search or write is blocked, report the bug and the blocked step instead/,
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
 for (const revision of [undefined, '0'.repeat(64)]) {
   test(`a session with ${revision ? 'outdated' : 'missing'} instructions receives them without resending unchanged memory`, async () => {
     const f = await fixture();
