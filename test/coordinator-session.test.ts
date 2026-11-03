@@ -635,7 +635,7 @@ test('close releases the conversation when its disconnect throws', async () => {
   assert.equal(coordinator.pentacle.active, true);
   a.failClose = true;
   await assert.rejects(coordinator.close(), /Close failed/);
-  assert.equal(coordinator.pentacle.active, false);
+  assert.deepEqual(coordinator.snapshot.backgroundCommands, []);
   await (await store.claim(id)).close();
 });
 

@@ -177,6 +177,7 @@ export class SessionLink {
     const snapshot = this.host.snapshot();
     this.host.publish({
       native: undefined,
+      nativeRunning: false,
       usage: {},
       skills: [],
       subagents: snapshot.subagents.filter(({ id }) => owned(id)),
@@ -225,6 +226,7 @@ export class SessionLink {
         host.background(event);
       host.publish({
         native: undefined,
+        nativeRunning: false,
         usage: {},
         requests: host
           .snapshot()
@@ -243,6 +245,8 @@ export class SessionLink {
       if (this.live(agent)) host.publish({ usage: event.usage });
     } else if (event.type === 'subagent' || event.type === 'command') {
       if (this.live(agent)) host.background(event, conversation.cwd);
+    } else if (event.type === 'running') {
+      if (this.live(agent)) host.publish({ nativeRunning: event.running });
     } else if (event.type === 'spell') {
       host.display(castRow(event.cast, conversation.cwd));
     } else {

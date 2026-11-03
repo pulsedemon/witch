@@ -113,6 +113,23 @@ const elicitation: UserRequest = {
   schema: { type: 'object', properties: { project: { type: 'string' } } },
 };
 
+test('the terminal title of an idle session reads background while a brew runs and running while the native agent runs on its own', (t) => {
+  const { coordinator, output, stop } = fixture();
+  t.onTestFinished(stop);
+  assert.equal(output.at(-1), '\u001b]2;Witch | idle | First task\u001b\\');
+  coordinator.publish({
+    backgroundCommands: [
+      { id: 'serve', description: 'Serve', status: 'running' },
+    ],
+  });
+  assert.equal(
+    output.at(-1),
+    '\u001b]2;Witch | background | First task\u001b\\',
+  );
+  coordinator.publish({ nativeRunning: true });
+  assert.equal(output.at(-1), '\u001b]2;Witch | running | First task\u001b\\');
+});
+
 test('terminal titles follow claim-only updates, mutable titles and conversation ownership', (t) => {
   const { coordinator, coordination, output, stop } = fixture({
     phase: 'starting',

@@ -1394,7 +1394,8 @@ export class Coordinator {
     await this.save();
     const error = [report, failure].filter(Boolean).join('\n\n');
     this.publish({
-      phase: recovery ? 'recovery' : 'idle',
+      // a close that began during settlement keeps its phase
+      phase: this.closed ? 'closing' : recovery ? 'recovery' : 'idle',
       recovery,
       requests: this.snapshot.requests.filter(
         (request) => request.replyAsPrompt || request.survivesTurn,
@@ -1456,10 +1457,16 @@ export class Coordinator {
       pendingCompaction: this.compaction.pending,
     };
     if ('queue' in update) this.saveQueue();
-    const active =
-      agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running;
-    this.pentacle.set(localActivity, active);
-    this.jobs?.setActive(active);
+    const working =
+      agentWorking(this.snapshot.phase) ||
+      taskActivity(this.snapshot).running ||
+      !!this.snapshot.nativeRunning;
+    // merge cleanup and closing start no agent jobs
+    this.pentacle.set(
+      localActivity,
+      working || ['cleaning', 'closing'].includes(this.snapshot.phase),
+    );
+    this.jobs?.setActive(working);
     this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();
   }

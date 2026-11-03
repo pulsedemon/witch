@@ -53,15 +53,17 @@ const notices = (coordinator: Coordinator) =>
     .filter((item) => item.kind === 'notice')
     .map((item) => item.text);
 
-test('a merge cleanup holds the phase, a prompt sent during it runs after it, and its notice says what it did', async () => {
+test('a merge cleanup holds the phase and spins the pentacle, a prompt sent during it runs after it, and its notice says what it did', async () => {
   const { coordinator, a, project } = await fixture();
   try {
     await gitIn(project, 'init', '-q', '-b', 'feat/x');
     await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
     let queued = false;
+    const spinning: boolean[] = [];
     let sent: Promise<void> | undefined;
     coordinator.subscribe(() => {
       if (coordinator.snapshot.phase !== 'cleaning') return;
+      spinning.push(coordinator.pentacle.active);
       sent ??= coordinator.send('After');
       if (coordinator.snapshot.queue.includes('After')) queued = true;
     });
@@ -71,6 +73,7 @@ test('a merge cleanup holds the phase, a prompt sent during it runs after it, an
     );
     assert.equal(acted, true);
     assert.ok(queued);
+    assert.ok(spinning.length > 0 && spinning.every(Boolean));
     await sent;
     await until('the queued prompt', () =>
       turns(a).some(([prompt]) => prompt === 'After'),

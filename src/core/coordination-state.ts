@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { work } from './routing.js';
 import type { Snapshot } from './snapshot.js';
-import { conversationSchema, phaseSchema, processIdentity } from './state.js';
+import {
+  conversationSchema,
+  phaseSchema,
+  processIdentity,
+  type Phase,
+} from './state.js';
 
 export const claimInputSchema = z.object({
   reference: z.string(),
@@ -209,9 +214,23 @@ export function checkTaskRelease(
 
 export function presenceStatus(presence: SessionPresence): string {
   if (presence.requests) return 'waiting';
-  if (presence.phase === 'idle' && (presence.familiars || presence.brews))
-    return 'background';
-  return presence.phase;
+  return idleStatus(presence.phase, !!(presence.familiars || presence.brews));
+}
+
+/** the session's status for display; an idle session whose native agent works on its own is running. */
+export function sessionStatus(
+  snapshot: Pick<
+    Snapshot,
+    'phase' | 'nativeRunning' | 'subagents' | 'backgroundCommands'
+  >,
+): string {
+  if (snapshot.phase === 'idle' && snapshot.nativeRunning) return 'running';
+  return idleStatus(snapshot.phase, taskActivity(snapshot).running);
+}
+
+/** an idle session runs in the background while its familiars or brews do. */
+function idleStatus(phase: Phase, background: boolean): string {
+  return phase === 'idle' && background ? 'background' : phase;
 }
 
 /** named tasks belong to a project; GitHub issue and pr routes share one number. */
