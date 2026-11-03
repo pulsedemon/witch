@@ -4,10 +4,10 @@ import { SessionLink } from './session-link.js';
 import { TurnRunner } from './turn-runner.js';
 import { CopilotReviewController } from './copilot-review-controller.js';
 import {
-  ConflictRepair,
+  PullRequestRepair,
   repairInstruction,
   type Repair,
-} from './pr-conflicts.js';
+} from './pr-repair.js';
 import { reviewInstruction, type ReviewBatch } from './copilot-reviews.js';
 import { Compaction } from './compaction.js';
 import { Attachments, imagePaste, unnumbered } from './attachments.js';
@@ -148,7 +148,7 @@ export class Coordinator {
     run: (batch) => this.reviewCopilot(batch),
     interrupt: () => this.stopCurrent(),
   });
-  readonly repair = new ConflictRepair({
+  readonly repair = new PullRequestRepair({
     record: () => this.record,
     coordination: () => this.coordination,
     ready: () => this.automaticReady() && !this.snapshot.queue.length,
@@ -157,7 +157,7 @@ export class Coordinator {
       if (!this.closed && this.record) this.notice(text);
     },
     changed: () => this.drainAfter(),
-    run: (repair, refused) => this.repairConflict(repair, refused),
+    run: (repair, refused) => this.repairPullRequest(repair, refused),
     interrupt: () => this.stopCurrent(),
   });
   /** a repair turn takes no steering, so prompts sent during it queue. */
@@ -834,7 +834,7 @@ export class Coordinator {
       : { status: 'interrupted', text: '', inputUnsent: true };
   }
 
-  private async repairConflict(
+  private async repairPullRequest(
     repair: Repair,
     refused: (error: string) => void,
   ): Promise<TurnResult | undefined> {
@@ -1394,7 +1394,8 @@ export class Coordinator {
     await this.save();
     const error = [report, failure].filter(Boolean).join('\n\n');
     this.publish({
-      phase: recovery ? 'recovery' : 'idle',
+      // a close that began during settlement keeps its phase
+      phase: this.closed ? 'closing' : recovery ? 'recovery' : 'idle',
       recovery,
       requests: this.snapshot.requests.filter(
         (request) => request.replyAsPrompt || request.survivesTurn,
@@ -1456,10 +1457,16 @@ export class Coordinator {
       pendingCompaction: this.compaction.pending,
     };
     if ('queue' in update) this.saveQueue();
-    const active =
-      agentWorking(this.snapshot.phase) || taskActivity(this.snapshot).running;
-    this.pentacle.set(localActivity, active);
-    this.jobs?.setActive(active);
+    const working =
+      agentWorking(this.snapshot.phase) ||
+      taskActivity(this.snapshot).running ||
+      !!this.snapshot.nativeRunning;
+    // merge cleanup and closing start no agent jobs
+    this.pentacle.set(
+      localActivity,
+      working || ['cleaning', 'closing'].includes(this.snapshot.phase),
+    );
+    this.jobs?.setActive(working);
     this.coordination?.update(this.snapshot);
     for (const listener of this.listeners) listener();
   }

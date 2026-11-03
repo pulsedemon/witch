@@ -12,6 +12,8 @@ export function reviewSource(): GitHubReviews {
       commit: 'a'.repeat(40),
       base: 'main',
     },
+    draft: false,
+    copilotRules: [{ review_on_push: true, review_draft_pull_requests: false }],
     viewer: 'owner',
     closingIssues: ['https://github.com/team/project/issues/4'],
     requested: [],

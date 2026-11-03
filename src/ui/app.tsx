@@ -17,6 +17,7 @@ import { modelKey, modelTarget } from '../core/models.js';
 import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
+import { sessionStatus } from '../core/coordination-state.js';
 import type { StateStore } from '../persistence/store.js';
 import { commands, parseCommands, safeQueueMerge } from './commands.js';
 import type { WitchCommand, CommandName } from './commands.js';
@@ -1455,7 +1456,7 @@ export function App({
         <Box height={1}>
           <Text dimColor wrap="truncate-end">
             {piped([
-              state.phase.toUpperCase(),
+              sessionStatus(state).toUpperCase(),
               ...(state.native?.permissionMode
                 ? [plain(state.native.permissionMode).toUpperCase()]
                 : []),

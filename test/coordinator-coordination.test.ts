@@ -1259,6 +1259,21 @@ test('compaction publishes a running presence and defers behind a held native tu
   }
 });
 
+test('an idle session whose native agent runs on its own publishes a running presence', async (t) => {
+  const cleanup = orderedCleanup(t.onTestFinished);
+  const { start } = await coordinationFixture(cleanup);
+  const a = await start(),
+    b = await start('B');
+  const phase = async () => (await b.query()).peers[0]?.presence.phase;
+  const emit = a.a.sessions.at(-1)!.options.onEvent;
+  await until('idle presence', async () => (await phase()) === 'idle');
+  emit({ type: 'running', running: true });
+  assert.equal(a.coordinator.snapshot.phase, 'idle');
+  await until('running presence', async () => (await phase()) === 'running');
+  emit({ type: 'running', running: false });
+  await until('idle presence again', async () => (await phase()) === 'idle');
+});
+
 for (const reconnect of [false, true])
   test(`a ${reconnect ? 'reconnecting' : 'live'} turn reads its project scope once`, async (t) => {
     pauseDiscovery(vi.spyOn);

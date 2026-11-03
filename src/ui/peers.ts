@@ -76,7 +76,7 @@ export function coordinationText(
         claim
           ? claimText(claim)
           : `${oneLine(presence.title)}\n${selection ? selectionText(selection) : 'Unclaimed'}\nConversation: ${oneLine(presence.id)}`,
-        `${oneLine(presence.agent)} | ${peerStatus(peer)}${selection || claim?.suggestion ? ` | ${presence.phase}` : ''} | ${oneLine(presence.branch ?? 'No branch')}`,
+        `${oneLine(presence.agent)} | ${peerStatus(peer)}${selection || claim?.suggestion ? ` | ${presenceStatus(presence)}` : ''} | ${oneLine(presence.branch ?? 'No branch')}`,
         hyperlink(oneLine(presence.cwd), presence.cwd, presence.cwd),
       ].join('\n'),
     );

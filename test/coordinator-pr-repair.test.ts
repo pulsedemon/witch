@@ -5,7 +5,7 @@ import { test, vi } from 'vitest';
 import type { TestContext } from 'vitest';
 import * as github from '../src/core/github-reviews.js';
 import { answerInstruction } from '../src/core/peer-requests.js';
-import { watchConflicts } from '../src/core/pr-conflicts.js';
+import { watchConflicts } from '../src/core/pr-repair.js';
 import { conversationRecordSchema } from '../src/core/state.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
 import { callControl } from '../src/persistence/control.js';
@@ -627,4 +627,96 @@ test('a new conflict does not steer prompts a replied turn refused', async (t) =
   gate.open();
   s.x.a.gate = undefined;
   s.x.a.replied = false;
+});
+
+const checkPrefix = 'Witch started this turn to repair the failed checks';
+const job = (n: number) => `https://github.com/o/r/actions/runs/1/job/${n}`;
+
+/** a mergeable read whose `verify` check failed, as `parsePullRequest` publishes it. */
+const failing = (
+  s: Awaited<ReturnType<typeof setup>>,
+  fields: Partial<PullRequest> = {},
+) =>
+  s.read({
+    mergeable: 'MERGEABLE',
+    checks: 'failing',
+    failed: [{ name: 'verify', url: job(1) }],
+    ...fields,
+  });
+
+const checkRepairs = (s: Awaited<ReturnType<typeof setup>>) =>
+  s.x.a.inputs.filter(({ prompt }) => prompt.startsWith(checkPrefix));
+
+test('failed checks on the claimed pull request start one repair turn per head and check, and pending or passing checks start none', async (t) => {
+  const s = await setup(t);
+  s.observe(s.read({ mergeable: 'MERGEABLE', checks: 'pending' }));
+  assert.equal(s.c.repair.ready(), false, 'pending');
+  s.observe(s.read({ mergeable: 'MERGEABLE', checks: 'passing' }));
+  assert.equal(s.c.repair.ready(), false, 'passing');
+  s.observe(failing(s));
+  await until('check repair', () => checkRepairs(s).length === 1);
+  await s.idle();
+  const [repair] = checkRepairs(s);
+  assert.equal(repair!.author, 'witch');
+  assert.match(
+    repair!.prompt,
+    new RegExp(
+      `pull request https://github\\.com/o/r/pull/7 at head ${head(1)}: verify \\(${job(1).replaceAll('/', '\\/')}\\)\\.`,
+    ),
+  );
+  assert.match(repair!.prompt, /gh run view --job/);
+  assert.match(
+    repair!.prompt,
+    /only once that's settled rerun the failed jobs/,
+  );
+  assert.ok(s.notices().includes('Repairing failed checks on #7: verify.'));
+  assert.deepEqual((await s.record()).checkRepairs, [
+    { url: s.pullRequest().url, commit: head(1), check: 'verify' },
+  ]);
+  assert.equal((await s.record()).conflictRepairs, undefined);
+  s.observe(failing(s));
+  assert.equal(s.c.repair.ready(), false, 'a repeated poll');
+  s.observe(failing(s, { failed: [{ name: 'verify', url: job(2) }] }));
+  assert.equal(s.c.repair.ready(), false, 'a rerun that failed the same way');
+  await s.c.send('continue');
+  await s.idle();
+  assert.equal(checkRepairs(s).length, 1);
+  s.observe(
+    failing(s, {
+      failed: [
+        { name: 'verify', url: job(2) },
+        { name: 'lint', url: job(3) },
+      ],
+    }),
+  );
+  await until('repair of the later check', () => checkRepairs(s).length === 2);
+  await s.idle();
+  assert.match(checkRepairs(s)[1]!.prompt, new RegExp(`${head(1)}: lint \\(`));
+  assert.doesNotMatch(checkRepairs(s)[1]!.prompt, /verify/);
+  s.observe(failing(s, { commit: head(2) }));
+  await until('repair of the new head', () => checkRepairs(s).length === 3);
+  assert.match(checkRepairs(s)[2]!.prompt, new RegExp(`at head ${head(2)}:`));
+});
+
+test('a check repair waits for the running and queued user turns', async (t) => {
+  const s = await setup(t);
+  const gate = new TurnGate();
+  s.x.a.gate = gate;
+  const first = s.c.send('long user turn');
+  await within(gate.entered, 5000, 'user turn');
+  s.x.a.refuseSteer = true;
+  await s.c.send('queued user turn');
+  s.observe(failing(s));
+  assert.equal(checkRepairs(s).length, 0);
+  gate.open();
+  s.x.a.gate = undefined;
+  await first;
+  s.x.a.refuseSteer = false;
+  await until('check repair', () => checkRepairs(s).length === 1);
+  assert.deepEqual(
+    s.x.a.inputs.map(({ prompt }) =>
+      prompt.startsWith(checkPrefix) ? 'repair' : prompt,
+    ),
+    ['long user turn', 'queued user turn', 'repair'],
+  );
 });

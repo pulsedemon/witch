@@ -389,11 +389,45 @@ const view = (fields: object) =>
     ...fields,
   });
 
+test('a failing pull request lists its failed runs and statuses with their details pages', () => {
+  const read = (rollup: object[]) =>
+    parsePullRequest(view({ state: 'OPEN', statusCheckRollup: rollup }));
+  const run = (name: string, conclusion: string, detailsUrl?: string) => ({
+    __typename: 'CheckRun',
+    name,
+    status: 'COMPLETED',
+    conclusion,
+    detailsUrl,
+  });
+  assert.deepEqual(
+    read([
+      run('verify', 'FAILURE', 'https://x.test/job/1'),
+      run('lint', 'SUCCESS', 'https://x.test/job/2'),
+      run('deploy', 'TIMED_OUT'),
+      { __typename: 'CheckRun', name: 'e2e', status: 'IN_PROGRESS' },
+      {
+        __typename: 'StatusContext',
+        context: 'external',
+        state: 'ERROR',
+        targetUrl: 'https://ci.test/3',
+      },
+      { __typename: 'StatusContext', context: 'pending', state: 'PENDING' },
+    ]).failed,
+    [
+      { name: 'verify', url: 'https://x.test/job/1' },
+      { name: 'deploy' },
+      { name: 'external', url: 'https://ci.test/3' },
+    ],
+  );
+  assert.equal(read([run('lint', 'SUCCESS')]).failed, undefined);
+});
+
 test("a pull request's checks fail on a failed run or status, stay pending while any runs or none exist, and pass otherwise, and only an open one carries its mergeability", () => {
   const checks = (rollup: object[]) =>
     parsePullRequest(view({ state: 'OPEN', statusCheckRollup: rollup })).checks;
   const done = (conclusion: string) => ({
     __typename: 'CheckRun',
+    name: conclusion.toLowerCase(),
     status: 'COMPLETED',
     conclusion,
   });
@@ -402,23 +436,28 @@ test("a pull request's checks fail on a failed run or status, stay pending while
   assert.equal(
     checks([
       done('SUCCESS'),
-      { __typename: 'CheckRun', status: 'IN_PROGRESS' },
+      { __typename: 'CheckRun', name: 'running', status: 'IN_PROGRESS' },
     ]),
     'pending',
   );
   assert.equal(
     checks([
       done('FAILURE'),
-      { __typename: 'CheckRun', status: 'QUEUED', conclusion: null },
+      {
+        __typename: 'CheckRun',
+        name: 'queued',
+        status: 'QUEUED',
+        conclusion: null,
+      },
     ]),
     'failing',
   );
   assert.equal(
-    checks([{ __typename: 'StatusContext', state: 'ERROR' }]),
+    checks([{ __typename: 'StatusContext', context: 'ci', state: 'ERROR' }]),
     'failing',
   );
   assert.equal(
-    checks([{ __typename: 'StatusContext', state: 'EXPECTED' }]),
+    checks([{ __typename: 'StatusContext', context: 'ci', state: 'EXPECTED' }]),
     'pending',
   );
   assert.equal(

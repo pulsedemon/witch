@@ -17,6 +17,10 @@ export const pullRequestSchema = z.object({
   base: z.string(),
   /** an open pull request's checks, pending while it has none. */
   checks: z.enum(['passing', 'failing', 'pending']).optional(),
+  /** the checks that make it failing, with their details pages. */
+  failed: z
+    .array(z.object({ name: z.string(), url: z.string().optional() }))
+    .optional(),
   /** an open pull request's mergeability as GitHub last computed it, `UNKNOWN` while it computes. */
   mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']).optional(),
 });
@@ -138,10 +142,17 @@ const pullRequestView = z.object({
       z.union([
         z.object({
           __typename: z.literal('CheckRun'),
+          name: z.string(),
+          detailsUrl: z.string().nullish(),
           status: z.string(),
           conclusion: z.string().nullish(),
         }),
-        z.object({ __typename: z.literal('StatusContext'), state: z.string() }),
+        z.object({
+          __typename: z.literal('StatusContext'),
+          context: z.string(),
+          targetUrl: z.string().nullish(),
+          state: z.string(),
+        }),
       ]),
     )
     .nullish(),
@@ -168,13 +179,22 @@ export function parsePullRequest(json: string): PullRequest {
     base: baseRefName,
   };
   if (state !== 'OPEN') return pullRequest;
+  // GitHub's rollup holds each check's latest run, so a rerun in progress hides its earlier failure
   const checks = statusCheckRollup ?? [];
-  const failing = checks.some((check) =>
-    check.__typename === 'CheckRun'
-      ? check.status === 'COMPLETED' &&
-        !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(check.conclusion ?? '')
-      : ['FAILURE', 'ERROR'].includes(check.state),
+  const named = (name: string, url: string | null | undefined) => [
+    { name, ...(url ? { url } : {}) },
+  ];
+  const failed = checks.flatMap((entry) =>
+    entry.__typename === 'CheckRun'
+      ? entry.status === 'COMPLETED' &&
+        !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(entry.conclusion ?? '')
+        ? named(entry.name, entry.detailsUrl)
+        : []
+      : ['FAILURE', 'ERROR'].includes(entry.state)
+        ? named(entry.context, entry.targetUrl)
+        : [],
   );
+  const failing = failed.length > 0;
   const pending = checks.some((check) =>
     check.__typename === 'CheckRun'
       ? check.status !== 'COMPLETED'
@@ -188,6 +208,7 @@ export function parsePullRequest(json: string): PullRequest {
         : failing
           ? 'failing'
           : 'passing',
+    ...(failing ? { failed } : {}),
     mergeable,
   };
 }
@@ -206,16 +227,19 @@ export type Run = (
 /** how soon a change is read, so one save's several writes take one read. */
 const debounce = 100;
 
-/** how often a watch retries a read Git failed with exit 128, since a fix such as `git init` in a parent or a global config edit sends no event. */
-const retry = 60_000;
+/**
+ * how long a watch goes without a read before it reads anyway, since FSEvents can drop an event under load and a fix
+ * for a read Git failed with exit 128, such as `git init` in a parent or a global config edit, sends none.
+ */
+const fallback = 60_000;
 
 /**
  * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
  * seconds, after 10 while GitHub hasn't computed its mergeability, and whenever the branch changes or
  * `refreshPullRequest` asks. on macOS a change in the work tree or its Git dirs starts a read, at most
- * one per `interval`, and a read Git failed with exit 128 is retried each minute. elsewhere, or once a watch fails,
- * status is read every `interval`, since Linux's recursive watch loses a file once it is replaced by rename. each read
- * shows until the next; a failed one leaves its field out.
+ * one per `interval`, and a minute without a read starts one, so a change whose event is lost shows within a minute
+ * and one `interval`. elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
+ * loses a file once it is replaced by rename. each read shows until the next; a failed one leaves its field out.
  */
 export class RepositoryWatch {
   snapshot?: Repository;
@@ -286,10 +310,7 @@ export class RepositoryWatch {
   }
 
   private tick(): void {
-    if (
-      !this.watchers ||
-      (!this.snapshot && performance.now() - this.startedAt >= retry)
-    ) {
+    if (!this.watchers || performance.now() - this.startedAt >= fallback) {
       void this.refresh();
       return;
     }
@@ -374,6 +395,9 @@ export class RepositoryWatch {
     if (this.refreshing) return;
     this.refreshing = true;
     this.stale = false;
+    // this read covers a change still waiting for its own, such as when the minute timer starts it first
+    clearTimeout(this.scheduled);
+    this.scheduled = undefined;
     this.startedAt = performance.now();
     let repository: Repository | undefined;
     let failure: unknown;
@@ -410,7 +434,7 @@ export class RepositoryWatch {
     this.publish(repository);
     if (this.watchers) {
       if (repository && !this.located) void this.locate();
-      // exit 128 is any Git fatal error, such as outside a repository, and waits for tick's minute retry; a timeout or a failed spawn may pass sooner
+      // exit 128 is any Git fatal error, such as outside a repository, and waits for tick's minute read; a timeout or a failed spawn may pass sooner
       if (
         this.stale ||
         (failure !== undefined && (failure as { code?: unknown }).code !== 128)

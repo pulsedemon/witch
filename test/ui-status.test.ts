@@ -47,6 +47,27 @@ test('the status line waits for a live model and uses its runtime label, and the
   }
 });
 
+test('the phase row of an idle session reads background while a brew runs and running while the native agent runs on its own', async () => {
+  const { app, coordinator } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const phase = () => ui.text().split('\n')[0] ?? '';
+  try {
+    await until('the idle row', () => /^IDLE\b/.test(phase()));
+    coordinator.publish({
+      backgroundCommands: [
+        { id: 'serve', description: 'Serve', status: 'running' },
+      ],
+    });
+    await until('the background row', () => /^BACKGROUND\b/.test(phase()));
+    coordinator.publish({ nativeRunning: true });
+    await until('the running row', () => /^RUNNING\b/.test(phase()));
+    coordinator.publish({ nativeRunning: false, backgroundCommands: [] });
+    await until('the idle row again', () => /^IDLE\b/.test(phase()));
+  } finally {
+    ui.unmount();
+  }
+});
+
 test('a failed reconnect clears the displayed model and usage while preserving resume settings', async () => {
   const { coordinator, a, store } = await coordinatorFixture(undefined, (a) => {
     a.connectUsage = { context: 42 };

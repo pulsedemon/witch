@@ -12,7 +12,7 @@ import { Coordinator } from './core/coordinator.js';
 import { SessionCoordination } from './core/coordination.js';
 import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
-import { watchConflicts } from './core/pr-conflicts.js';
+import { watchConflicts } from './core/pr-repair.js';
 import { RepositoryWatch } from './core/repository.js';
 import { watchCopilotReviews } from './core/copilot-review-watch.js';
 import { Memory } from './memory/memory.js';

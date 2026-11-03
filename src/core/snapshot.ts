@@ -45,6 +45,8 @@ export interface Snapshot {
   openedAt?: number;
   /** a live completion signal; reopening never announces a stored result. */
   completedTurn?: string;
+  /** the native agent reports it runs, as Claude Code does on its own when a brew ends. */
+  nativeRunning?: boolean;
   /** a Witch-started turn answering peer requests holds the phase. */
   answering?: boolean;
   /** a Witch-started turn handling Copilot feedback holds the phase. */

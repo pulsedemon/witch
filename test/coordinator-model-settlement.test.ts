@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
+import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
 import { fixture, holdSettlement, readRecord } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
@@ -204,3 +205,39 @@ for (const outcome of ['interrupt', 'close', 'failure'] as const)
       await coordinator.close();
     }
   });
+
+test('a close that starts while a finished turn settles keeps the closing phase', async () => {
+  const { coordinator, a } = await fixture();
+  const gate = new TurnGate();
+  const settlement = holdSettlement(a.sessions.at(-1)!.session);
+  const save = ConversationStore.prototype.save;
+  const settling = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  try {
+    a.gate = gate;
+    const sending = coordinator.send('Start');
+    await within(gate.entered, 2000, 'the gated turn');
+    gate.open();
+    await within(settlement.entered, 2000, 'the post-turn save');
+    // the save after the turn runner's is settlement's own, past its closed check
+    const holding = ConversationStore.prototype.save;
+    ConversationStore.prototype.save = function (record) {
+      ConversationStore.prototype.save = holding;
+      settling.resolve();
+      return held.promise.then(() => holding.call(this, record));
+    };
+    settlement.release();
+    await within(settling.promise, 2000, 'the settlement save');
+    const closing = coordinator.close();
+    held.resolve();
+    await closing;
+    await within(sending, 2000, 'the turn');
+    assert.equal(coordinator.snapshot.phase, 'closing');
+  } finally {
+    held.resolve();
+    settlement.restore();
+    ConversationStore.prototype.save = save;
+    gate.open();
+    await coordinator.close();
+  }
+});
