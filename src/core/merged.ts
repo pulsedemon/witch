@@ -50,7 +50,10 @@ interface PlanRemoval {
 
 export interface MergeCleanup {
   cwd?: string;
-  /** the base's upstream, such as `origin/main`, where a linked worktree, or a checkout whose base one holds, detaches. */
+  /**
+   * the base's upstream, such as `origin/main`, or the merged branch's remote copy of a base with no local branch, where
+   * a linked worktree, or a checkout whose base one holds, detaches.
+   */
   detached?: string;
   switchHead?: string;
   moved?: boolean;
@@ -251,7 +254,7 @@ const arrived = (
 
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
- * at the base's upstream in a linked worktree or while one holds the base, deletes the branch and its gitignored plans with their
+ * at the base's remote branch in a linked worktree or while one holds the base, deletes the branch and its gitignored plans with their
  * gitignored ledgers, and deletes the other merged branches whose remote branch is gone. returns a sentence saying what
  * it did, and whether it moved the checkout, `'changed'` when the checkout left the branch or changed, or nothing when
  * another Witch is updating it or `blocked` says one is working in it.
@@ -360,12 +363,13 @@ async function clean(
         '--format=%(worktreepath)',
         `refs/heads/${base}`,
       ).catch(stopped);
+      // a stacked pull request's base can exist only on the merged branch's remote
       if (gitDir !== commonDir || (holder && holder !== top))
-        progress.detached = await git(
-          'rev-parse',
-          '--abbrev-ref',
-          `${base}@{upstream}`,
-        ).catch(stopped);
+        progress.detached = (await refHead(git, base).catch(stopped))
+          ? await git('rev-parse', '--abbrev-ref', `${base}@{upstream}`).catch(
+              stopped,
+            )
+          : `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
     }
     await fetchRemote(git, '--prune').catch(stopped);
     // a detach takes the base's upstream as it is now, so its own remote is fetched here, before the checks below, since
@@ -413,10 +417,13 @@ async function clean(
     // again: a turn that started during the fetch changes nothing the status shows
     if (await blocked()) return undefined;
     if (progress.detached) {
+      const upstream = (await refHead(git, base).catch(stopped))
+        ? `${base}@{upstream}`
+        : `refs/remotes/${progress.detached}`;
       const target = await git(
         'rev-parse',
         '--verify',
-        `${base}@{upstream}^{commit}`,
+        `${upstream}^{commit}`,
       ).catch(stopped);
       progress.switchHead = target;
       // already at the fetched upstream, so there's nothing to fast-forward
