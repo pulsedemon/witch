@@ -50,6 +50,8 @@ interface PlanRemoval {
 
 export interface MergeCleanup {
   cwd?: string;
+  /** the base's upstream, such as `origin/main`, where a linked worktree, or a checkout whose base one holds, detaches. */
+  detached?: string;
   switchHead?: string;
   moved?: boolean;
   unset?: string;
@@ -155,13 +157,19 @@ async function peerTurnIn(
   return false;
 }
 
+/** a Git config value, or '' when it's unset, which Git reports with exit 1. any other failure throws. */
+const configValue = (git: Git, key: string) =>
+  git('config', key).catch((error: unknown) => {
+    if ((error as { code?: unknown }).code === 1) return '';
+    throw error;
+  });
+
 /**
  * uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command.
  */
 const fetchRemote = async (git: Git, ...args: string[]) => {
   const own =
-    process.env.GIT_SSH ||
-    (await git('config', 'core.sshCommand').catch(() => ''));
+    process.env.GIT_SSH || (await configValue(git, 'core.sshCommand'));
   await git(
     ...(own ? [] : ['-c', 'core.sshCommand=ssh -o BatchMode=yes']),
     'fetch',
@@ -230,12 +238,23 @@ async function lockCheckout(git: Git): Promise<FileHandle | undefined> {
   );
 }
 
+/** whether the checkout sits where the cleanup moves it: on the base, or detached at the target when it detaches. */
+const arrived = (
+  progress: MergeCleanup,
+  base: string,
+  { branch }: Repository,
+  head: string,
+) =>
+  progress.detached
+    ? branch === 'HEAD' && head === progress.switchHead
+    : branch === base;
+
 /**
- * what a merged pull request leaves in the checkout at `cwd`: switches to the base, deletes the branch and its
- * gitignored plans with their gitignored ledgers, brings the base up to date, and deletes the other merged branches
- * whose remote branch is gone. returns a sentence saying what it did, and whether it moved the checkout, `'changed'`
- * when the checkout left the branch or changed, or nothing when another Witch is updating it or `blocked` says one is
- * working in it.
+ * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
+ * at the base's upstream in a linked worktree or while one holds the base, deletes the branch and its gitignored plans with their
+ * gitignored ledgers, and deletes the other merged branches whose remote branch is gone. returns a sentence saying what
+ * it did, and whether it moved the checkout, `'changed'` when the checkout left the branch or changed, or nothing when
+ * another Witch is updating it or `blocked` says one is working in it.
  */
 export async function cleanUpMerge(
   cwd: string,
@@ -296,7 +315,7 @@ async function clean(
     const status = await read(git);
     const head = await git('rev-parse', 'HEAD');
     if (changed(status)) return 'changed';
-    if (status.branch === base) {
+    if (arrived(progress, base, status, head)) {
       const installed =
         progress.install?.root === progress.plans?.root
           ? progress.install?.checkout
@@ -323,7 +342,41 @@ async function clean(
   }
   if (progress.result) return progress.result;
   if (!progress.moved) {
+    // a linked worktree never takes the base, which would leave the main checkout unable to switch back to it. the main
+    // checkout detaches only while a worktree holds the base, and keeps that decision, so a retry after it lets go still
+    // detaches
+    if (progress.detached === undefined) {
+      const [gitDir, commonDir, top] = (
+        await git(
+          'rev-parse',
+          '--path-format=absolute',
+          '--git-dir',
+          '--git-common-dir',
+          '--show-toplevel',
+        ).catch(stopped)
+      ).split('\n');
+      const holder = await git(
+        'for-each-ref',
+        '--format=%(worktreepath)',
+        `refs/heads/${base}`,
+      ).catch(stopped);
+      if (gitDir !== commonDir || (holder && holder !== top))
+        progress.detached = await git(
+          'rev-parse',
+          '--abbrev-ref',
+          `${base}@{upstream}`,
+        ).catch(stopped);
+    }
     await fetchRemote(git, '--prune').catch(stopped);
+    // a detach takes the base's upstream as it is now, so its own remote is fetched here, before the checks below, since
+    // a slow fetch gives another terminal time to switch or edit
+    if (progress.detached) {
+      const remote = (name: string) =>
+        configValue(git, `branch.${name}.remote`).catch(stopped);
+      const own = await remote(base);
+      if (own && own !== (await remote(branch)))
+        await fetchRemote(git, own).catch(stopped);
+    }
     // after the fetch, which can take a while: the watch's status is seconds old, and a commit made meanwhile would
     // go with the branch
     const status = await read(git).catch(stopped);
@@ -359,21 +412,43 @@ async function clean(
       };
     // again: a turn that started during the fetch changes nothing the status shows
     if (await blocked()) return undefined;
-    progress.switchHead = await git('rev-parse', `refs/heads/${base}`);
+    if (progress.detached) {
+      const target = await git(
+        'rev-parse',
+        '--verify',
+        `${base}@{upstream}^{commit}`,
+      ).catch(stopped);
+      progress.switchHead = target;
+      // already at the fetched upstream, so there's nothing to fast-forward
+      progress.pull = { head: target, target, done: true };
+    } else progress.switchHead = await git('rev-parse', `refs/heads/${base}`);
     // a plain switch overwrites an ignored file the base tracks, and that file was never committed
-    await git(
+    const failed = await git(
       'switch',
       '--no-overwrite-ignore',
+      ...(progress.detached ? ['--detach'] : []),
       '--end-of-options',
-      base,
-    ).catch(async (error: unknown) => {
-      if (error === signal?.reason) throw error;
-      // a failing post-checkout hook fails the switch after it has moved the checkout
-      if ((await read(git).catch(() => undefined))?.branch !== base)
-        stopped(error);
-    });
+      progress.detached ? progress.switchHead : base,
+    ).then(
+      () => undefined,
+      (error: unknown) => {
+        if (error === signal?.reason) throw error;
+        return error;
+      },
+    );
+    // a post-checkout hook runs after the switch has moved the checkout, can fail it, and can move it again
+    const after = await read(git).catch(stopped);
+    const head = await git('rev-parse', 'HEAD').catch(stopped);
+    if (!arrived(progress, base, after, head)) {
+      if (failed && after.branch === branch && head === commit) stopped(failed);
+      return 'changed';
+    }
     progress.moved = true;
   }
+  const moved = progress.detached
+    ? `detached at ${progress.detached}`
+    : `switched to ${base}`;
+  const pulled = progress.detached ? moved : `${moved} and pulled`;
   // deleted only while still at the merged commit, since another terminal can commit to it after the tip check. -d
   // would compare against the base before it's brought up to date
   if (!progress.deleted)
@@ -384,7 +459,7 @@ async function clean(
     } catch (error) {
       if (error === signal?.reason) throw error;
       throw new Error(
-        `#${number} merged: switched to ${base}, but ${branch} wasn't deleted: ${errorMessage(error)}`,
+        `#${number} merged: ${moved}, but ${branch} wasn't deleted: ${errorMessage(error)}`,
         { cause: error },
       );
     }
@@ -412,7 +487,7 @@ async function clean(
   ).catch((error: unknown) => {
     if (error === signal?.reason) throw error;
     throw new Error(
-      `#${number} merged: switched to ${base} and deleted branch ${branch}${unset && ` (${unset})`}, but could not locate its plans: ${errorMessage(error)}`,
+      `#${number} merged: ${moved} and deleted branch ${branch}${unset && ` (${unset})`}, but could not locate its plans: ${errorMessage(error)}`,
       { cause: error },
     );
   });
@@ -434,7 +509,7 @@ async function clean(
   } catch (error) {
     if (error === signal?.reason) throw error;
     throw new Error(
-      `#${number} merged: switched to ${base} and deleted branch ${branch}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward: ${errorMessage(error)}`,
+      `#${number} merged: ${moved} and deleted branch ${branch}${removed}${kept && ` (${kept})`}, but ${base} didn't fast-forward: ${errorMessage(error)}`,
       { cause: error },
     );
   }
@@ -454,7 +529,7 @@ async function clean(
   ).catch((error: unknown) => {
     if (error === signal?.reason) throw error;
     throw new Error(
-      `#${number} merged: switched to ${base} and pulled, deleted branch ${branch}${removed}${kept && ` (${kept})`}, but could not list other merged branches: ${errorMessage(error)}`,
+      `#${number} merged: ${pulled}, deleted branch ${branch}${removed}${kept && ` (${kept})`}, but could not list other merged branches: ${errorMessage(error)}`,
       { cause: error },
     );
   });
@@ -495,7 +570,7 @@ async function clean(
     .filter(Boolean)
     .join(' and ');
   return (progress.result = {
-    text: `#${number} merged: switched to ${base} and pulled, deleted ${branches}${removed}${left && `, but ${left}`}.`,
+    text: `#${number} merged: ${pulled}, deleted ${branches}${removed}${left && `, but ${left}`}.`,
     cleaned: true,
   });
 }
@@ -528,8 +603,15 @@ async function reconcileCleanup(
   progress: MergeCleanup,
   signal: AbortSignal,
 ): Promise<void> {
-  const status = await read(git);
-  if (status.branch === request.base) progress.moved = true;
+  if (
+    arrived(
+      progress,
+      request.base,
+      await read(git),
+      await git('rev-parse', 'HEAD'),
+    )
+  )
+    progress.moved = true;
   if (!progress.moved) return;
   if (!progress.deleted && !(await refHead(git, request.branch)))
     progress.deleted = [request.branch];
@@ -652,6 +734,12 @@ const absent =
     return fallback;
   };
 
+/** where a checkout keeps the gitignored plans and ledgers its merge cleanup removes with their branch. */
+export const planDirectories = {
+  plans: 'docs/superpowers/plans',
+  ledgers: '.superpowers/sdd',
+} as const;
+
 /**
  * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
  * `plan-path` names it. returns those removed, and those it failed to read, check or remove with the first reason,
@@ -666,8 +754,8 @@ async function removePlans(
   if (progress.done) return progress;
   const top = await topLevel(git);
   progress.root = top;
-  const plans = join(top, 'docs/superpowers/plans');
-  const ledgers = join(top, '.superpowers/sdd');
+  const plans = join(top, planDirectories.plans);
+  const ledgers = join(top, planDirectories.ledgers);
   const { removed, stayed } = progress;
   let names: string[];
   try {

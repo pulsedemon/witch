@@ -65,6 +65,10 @@ for (const [args, expected] of [
   [['--recover-directory', '/old', 'prompt'], /cannot include/],
   [['--recover-directory', '/old'], /ENOENT/],
   [['hi'], /^witch: Witch needs an interactive terminal\.\n$/],
+  [['--spawn', '0'], /--spawn needs a positive number/],
+  [['--spawn', 'x'], /--spawn needs a positive number/],
+  [['--spawn', '2', '--state-dir', '/s'], /--spawn cannot include/],
+  [['--spawn', '2', '--peers'], /--spawn cannot include/],
 ] as const) {
   test(`witch ${JSON.stringify(args)} exits 1 with a one-line error before opening the store`, async () => {
     const { code, stderr, files } = await run(args);
@@ -83,6 +87,14 @@ test('witch --help with stdout piped prints the usage and exits 0 before opening
     assert.match(stdout, /^Usage: witch /);
     assert.deepEqual(files, []);
   }
+});
+
+test("witch --spawn outside a repository exits 1 with git's error, without a terminal", async () => {
+  const { code, stdout, stderr, files } = await run(['--spawn', '2']);
+  assert.equal(code, 1);
+  assert.equal(stdout, '');
+  assert.match(stderr, /^witch: [^\n]*not a git repository[^\n]*\n$/);
+  assert.deepEqual(files, []);
 });
 
 test('headless controls preserve quoted paths, JSON, errors and conflicts without normal startup', async () => {
