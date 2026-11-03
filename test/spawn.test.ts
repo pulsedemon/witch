@@ -298,6 +298,43 @@ test('spawn passes paths with spaces and quotes to osascript as arguments', asyn
   assert.equal(script!.includes("it's"), false);
 });
 
+test('spawn fails before creating anything when the main checkout is detached', async () => {
+  const { main } = await checkout();
+  await git(main, 'switch', '--detach');
+  const { run, calls } = recording();
+  await assert.rejects(
+    spawnWorktrees(main, 2, { run, live: async () => false }),
+    {
+      message: `${main} is detached; switch it to the branch worktrees should start from.`,
+    },
+  );
+  assert.deepEqual(await worktrees(main), [main]);
+  assert.deepEqual(calls, []);
+});
+
+test('an ignored file that leaves the main checkout while its worktree is created is skipped, and the rest are copied', async () => {
+  const { main, slot } = await checkout();
+  await writeFile(join(main, '.gitignore'), '*.local\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  await writeFile(join(main, 'a.local'), 'a');
+  await writeFile(join(main, 'b.local'), 'b');
+  const { run: recorded } = recording();
+  const run: Run = async (command, args, options) => {
+    const result = await recorded(command, args, options);
+    if (args[0] === 'worktree' && args[1] === 'add')
+      await rm(join(main, 'a.local'));
+    return result;
+  };
+  assert.deepEqual(
+    (await spawnWorktrees(main, 1, { run, live: async () => false })).slots,
+    [{ path: slot(1), slot: true, created: true, opened: true }],
+  );
+  assert.equal(await exists(join(slot(1), 'a.local')), false);
+  assert.equal(await readFile(join(slot(1), 'b.local'), 'utf8'), 'b');
+});
+
 test("spawn fails before creating anything when the main checkout's branch has no upstream", async () => {
   const { main } = await checkout();
   await git(main, 'branch', '--unset-upstream');
@@ -345,6 +382,30 @@ test('a session counts as open in a slot only while its conversation is locked a
   }
 });
 
+test('a locked conversation that has not saved its record yet leaves ownership unknown', async () => {
+  const root = await scratch('witch-spawn-sessions-');
+  const state = join(root, 'state');
+  const held = await (
+    await StateStore.open(state)
+  ).create({
+    id: 'new',
+    title: 'new',
+    cwd: '/elsewhere',
+    agent: 'codex',
+    sessions: {},
+    createdAt: new Date().toISOString(),
+  });
+  try {
+    await rm(join(state, 'conversations', 'new', 'state.json'));
+    await assert.rejects(sessionsIn(state)(root), {
+      message:
+        'cannot determine session ownership: a conversation is still saving its first record',
+    });
+  } finally {
+    await held.close();
+  }
+});
+
 test('an unreadable open conversation record blocks tabs and names its file', async () => {
   const { root, main, slot } = await checkout();
   const state = join(root, 'state');
@@ -381,14 +442,14 @@ test("a new worktree gets the main checkout's ignored files, but not its ignored
     join(main, '.gitignore'),
     '.env.local\n.claude/settings.local.json\nnode_modules/\ndocs/superpowers/plans/*.md\n',
   );
-  await mkdir(join(main, '.claude'));
-  await writeFile(join(main, '.claude', 'settings.json'), '{}');
   await mkdir(join(main, 'docs', 'superpowers', 'plans'), { recursive: true });
   await writeFile(join(main, 'docs', 'superpowers', 'plans', '.gitkeep'), '');
   await git(main, 'add', '.');
   await git(main, 'commit', '-m', 'ignores');
   await git(main, 'push');
   await writeFile(join(main, '.env.local'), 'main\n');
+  // alone in an untracked directory, which git lists along with the file, as in netshooter
+  await mkdir(join(main, '.claude'));
   await writeFile(join(main, '.claude', 'settings.local.json'), '{"main":1}');
   await mkdir(join(main, 'node_modules', 'x'), { recursive: true });
   await writeFile(join(main, 'node_modules', 'x', 'index.js'), '');

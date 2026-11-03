@@ -238,7 +238,7 @@ async function lockCheckout(git: Git): Promise<FileHandle | undefined> {
   );
 }
 
-/** whether the checkout sits where the cleanup moves it: on the base, or detached at the target when another worktree holds the base. */
+/** whether the checkout sits where the cleanup moves it: on the base, or detached at the target when it detaches. */
 const arrived = (
   progress: MergeCleanup,
   base: string,
@@ -342,8 +342,8 @@ async function clean(
   }
   if (progress.result) return progress.result;
   if (!progress.moved) {
-    // a linked worktree never takes the base, which would leave the main checkout unable to switch back to it. decided
-    // once, so a retry after a worktree lets go of the base still detaches
+    // a linked worktree never takes the base, which would leave the main checkout unable to switch back to it. the main
+    // checkout detaches only while a worktree holds the base, decided once so a retry after it lets go still detaches
     if (progress.detached === undefined) {
       const [gitDir, commonDir, top] = (
         await git(
@@ -733,10 +733,10 @@ const absent =
   };
 
 /** where a checkout keeps the gitignored plans and ledgers its merge cleanup removes with their branch. */
-export const planDirectories = [
-  'docs/superpowers/plans',
-  '.superpowers/sdd',
-] as const;
+export const planDirectories = {
+  plans: 'docs/superpowers/plans',
+  ledgers: '.superpowers/sdd',
+} as const;
 
 /**
  * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
@@ -752,8 +752,8 @@ async function removePlans(
   if (progress.done) return progress;
   const top = await topLevel(git);
   progress.root = top;
-  const plans = join(top, planDirectories[0]);
-  const ledgers = join(top, planDirectories[1]);
+  const plans = join(top, planDirectories.plans);
+  const ledgers = join(top, planDirectories.ledgers);
   const { removed, stayed } = progress;
   let names: string[];
   try {

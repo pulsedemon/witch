@@ -61,7 +61,7 @@ function commandFailure(command: string, error: unknown): string {
 
 /**
  * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
- * main checkout's ignored files into each new one. in each one where `live` finds no session, runs `pnpm install` if it
+ * ignored files git lists one by one in the main checkout into each new one. in each one where `live` finds no session, runs `pnpm install` if it
  * has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes or moves a worktree.
  */
 export async function spawnWorktrees(
@@ -78,6 +78,10 @@ export async function spawnWorktrees(
     );
   const main = registered[0]!;
   const branch = await git(main, 'rev-parse', '--symbolic-full-name', 'HEAD');
+  if (branch.trim() === 'HEAD')
+    throw new Error(
+      `${main} is detached; switch it to the branch worktrees should start from.`,
+    );
   const [ref, base, remote] = (
     await git(
       main,
@@ -92,8 +96,9 @@ export async function spawnWorktrees(
     throw new Error(`${main} has no upstream branch to start worktrees from.`);
   // a signal would detach git from the terminal, where ssh asks for a passphrase, and a timeout would kill it mid-prompt
   await run('git', ['fetch', remote], { cwd: main, timeout: 0 });
-  // files git lists one by one are local config such as `.env.local`. whole directories are dependencies, caches and
-  // output the repo's own tooling rebuilds, and can hold live state, such as another engine's process markers
+  // files git lists one by one include local config such as `.env.local`, and any output that sits beside tracked
+  // files. a whole ignored directory stays behind: usually dependencies and caches, but it can hold live state, such as
+  // another engine's process markers. plans stay with the checkout whose merge cleanup removes them
   const local = (
     await git(
       main,
@@ -110,7 +115,9 @@ export async function spawnWorktrees(
       (file) =>
         file &&
         !file.endsWith('/') &&
-        !planDirectories.some((directory) => file.startsWith(`${directory}/`)),
+        !Object.values(planDirectories).some((directory) =>
+          file.startsWith(`${directory}/`),
+        ),
     );
   const slots: Spawned[] = [];
   for (let index = 1; index <= count; index++) {
@@ -121,21 +128,28 @@ export async function spawnWorktrees(
       opened: false,
     };
     slots.push(spawned);
-    if (!registered.includes(spawned.path))
+    if (!registered.includes(spawned.path)) {
       try {
         await git(main, 'worktree', 'add', '--detach', spawned.path, ref);
         spawned.created = true;
-        // clones on APFS, so a large ignored file costs no space until either copy changes
-        for (const file of local)
-          await cp(join(main, file), join(spawned.path, file), {
-            mode: constants.COPYFILE_FICLONE,
-            force: false,
-            verbatimSymlinks: true,
-          });
       } catch (error) {
         spawned.error = failure(error);
-        if (!spawned.created) continue;
+        continue;
       }
+      const missed: string[] = [];
+      // clones on APFS, so a large ignored file costs no space until either copy changes
+      for (const file of local)
+        await cp(join(main, file), join(spawned.path, file), {
+          mode: constants.COPYFILE_FICLONE,
+          force: false,
+          verbatimSymlinks: true,
+        }).catch((error: unknown) => {
+          // gone from the main checkout since the listing, such as a pruned capture
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+            missed.push(failure(error));
+        });
+      if (missed.length) spawned.error = missed.join(', ');
+    }
     if (await exists(spawned.path)) spawned.slot = true;
     else spawned.error = 'registered but missing; run git worktree prune';
   }
@@ -188,20 +202,20 @@ export async function spawnWorktrees(
 }
 
 /**
- * whether a conversation the store holds open has its `cwd` at or under the path, read on every query. an unreadable
- * one rejects the query, since its session could be anywhere.
+ * whether a conversation the store holds open has its `cwd` at or under the path, read on every query. one without a
+ * readable record rejects the query, since its session could be anywhere.
  */
 export function sessionsIn(
   stateRoot: string,
 ): (path: string) => Promise<boolean> {
   return async (path) => {
     const store = await StateStore.open(stateRoot);
-    const { records, unreadable } = await store.records([
-      ...(await store.openConversations()).keys(),
-    ]);
-    if (unreadable.length)
+    const ids = [...(await store.openConversations()).keys()];
+    const { records, unreadable } = await store.records(ids);
+    // a new conversation locks before its first save
+    if (records.length < ids.length)
       throw new Error(
-        `cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
+        `cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ') || 'a conversation is still saving its first record'}`,
       );
     const real = await realpath(path);
     return records.some(

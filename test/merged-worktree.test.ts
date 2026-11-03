@@ -63,6 +63,24 @@ test('a merged branch in a worktree detaches while the base is free, so the laun
   await git(launcher, 'switch', 'main');
 });
 
+test('a main checkout whose base a linked worktree holds detaches and leaves that worktree alone', async () => {
+  const { root, checkout, other, tip } = await merged();
+  const holder = join(root, 'holder');
+  await git(checkout, 'worktree', 'add', holder, 'main');
+  const held = await git(holder, 'rev-parse', 'HEAD');
+  await merge(other, 'feat/x');
+  assert.deepEqual(
+    await cleanUpMerge(checkout, pullRequest(tip), idle),
+    detached,
+  );
+  assert.equal(
+    await git(checkout, 'rev-parse', 'HEAD'),
+    await git(other, 'rev-parse', 'HEAD'),
+  );
+  assert.equal(await git(holder, 'branch', '--show-current'), 'main');
+  assert.equal(await git(holder, 'rev-parse', 'HEAD'), held);
+});
+
 test("a clone's cleanup that first runs while the clone sits on its base still switches to the base on resume", async () => {
   const { checkout, other, tip } = await merged();
   await merge(other, 'feat/x');
