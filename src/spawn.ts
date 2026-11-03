@@ -212,7 +212,33 @@ export async function spawnWorktrees(
         spawned.error = failure(error);
         continue;
       }
-      for (const path of local)
+      // the worktree's .gitignore is the upstream's, so a copy it doesn't ignore, such as a secret, could get committed
+      const ignored = local.length
+        ? (
+            await git(
+              spawned.path,
+              '-c',
+              'core.quotePath=false',
+              'check-ignore',
+              '--',
+              ...local,
+            ).catch((error: unknown) => {
+              // git exits 1 when none of them is ignored
+              if ((error as { code?: unknown }).code === 1) return '';
+              throw error;
+            })
+          ).split('\n')
+        : [];
+      // a directory git lists only because all it holds is ignored has its files listed, and checked, on their own
+      const unignored = local.filter(
+        (path) => !path.endsWith('/') && !ignored.includes(path),
+      );
+      if (unignored.length)
+        report(
+          spawned,
+          `not copied, since the worktree doesn't ignore them: ${unignored.join(', ')}`,
+        );
+      for (const path of local.filter((path) => ignored.includes(path)))
         await seed(run, main, spawned.path, path).catch((error: unknown) => {
           report(spawned, commandFailure('copy', error));
         });

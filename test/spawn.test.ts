@@ -352,6 +352,25 @@ test('an ignored file that fails to copy is reported along with a failed install
   assert.equal(await readFile(join(slot(1), 'b.local'), 'utf8'), 'b');
 });
 
+test("an ignored file the new worktree's own rules don't ignore is reported and not copied", async () => {
+  const { main, slot } = await checkout();
+  // ignored only by the launcher's uncommitted .gitignore, so the worktree at the upstream would show it untracked
+  await writeFile(join(main, '.gitignore'), 'secret.env\n');
+  await writeFile(join(main, 'secret.env'), 'token');
+  const [spawned] = (
+    await spawnWorktrees(main, 1, {
+      run: recording().run,
+      live: async () => false,
+    })
+  ).slots;
+  assert.equal(
+    spawned!.error,
+    "not copied, since the worktree doesn't ignore them: secret.env",
+  );
+  assert.equal(await exists(join(slot(1), 'secret.env')), false);
+  assert.equal(await git(slot(1), 'status', '--porcelain'), '');
+});
+
 test('a directory copy that fails partway still leaves out what its copy would act on', async () => {
   const { main, slot } = await checkout();
   await writeFile(join(main, '.gitignore'), 'tools/\n');
