@@ -42,6 +42,8 @@ export function transferRefusal(
     return 'It stopped with an error. Restart Witch there, then run /task take again.';
   if (state?.phase !== 'idle')
     return `It is ${state?.phase ?? 'starting'}. Wait for it to go idle or stop its turn there, then run /task take again.`;
+  if (state.nativeRunning)
+    return 'It is running on its own. Wait for it to go idle, then run /task take again.';
   if (taskActivity(state).running)
     return 'It has running familiars or brews. Stop them there, then run /task take again.';
   const runtime = state.native?.agent ?? state.conversation?.agent;
