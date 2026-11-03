@@ -325,15 +325,7 @@ export class CodexCommands {
 
   /** approval starts omit the handle and suppress the later native start; the list retains the same item id. */
   private async readHandle(entry: Command): Promise<void> {
-    let cursor: string | undefined;
-    do {
-      const page = backgroundList.parse(
-        await this.rpc.request('thread/backgroundTerminals/list', {
-          threadId: entry.threadId,
-          cursor,
-          limit: 100,
-        }),
-      );
+    for await (const data of this.backgroundPages(entry.threadId)) {
       if (
         this.stopped ||
         this.closing ||
@@ -341,13 +333,26 @@ export class CodexCommands {
         this.entries.get(`${entry.threadId}/${entry.itemId}`) !== entry
       )
         return;
-      const terminal = page.data.find((item) => item.itemId === entry.itemId);
+      const terminal = data.find((item) => item.itemId === entry.itemId);
       if (terminal) {
         if (!terminal.processId)
           throw new Error('The native terminal has no process handle.');
         entry.processId = terminal.processId;
         return;
       }
+    }
+  }
+
+  private async *backgroundPages(threadId: string) {
+    let cursor: string | undefined;
+    do {
+      const page = backgroundList.parse(
+        await this.rpc.request('thread/backgroundTerminals/list', {
+          threadId,
+          cursor,
+        }),
+      );
+      yield page.data;
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
   }
@@ -363,13 +368,12 @@ export class CodexCommands {
     );
     if (!candidates.length) return;
     try {
-      const { data } = backgroundList.parse(
-        await this.rpc.request('thread/backgroundTerminals/list', { threadId }),
-      );
-      if (this.stopped || this.closing) return;
-      const listed = new Map(
-        data.map(({ itemId, command }) => [`${threadId}/${itemId}`, command]),
-      );
+      const listed = new Map<string, string>();
+      for await (const data of this.backgroundPages(threadId)) {
+        if (this.stopped || this.closing) return;
+        for (const { itemId, command } of data)
+          listed.set(`${threadId}/${itemId}`, command);
+      }
       for (const [id, entry] of candidates) {
         const description = listed.get(id);
         if (

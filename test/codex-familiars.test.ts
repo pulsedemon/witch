@@ -376,7 +376,7 @@ test('an approval-first start resolves only its own native handle before admitti
     );
     assert.deepEqual(
       JSON.parse(await readFile(join(f.cwd, 'list-2.json'), 'utf8')).params,
-      { threadId: 'native-thread', cursor: 'second-page', limit: 100 },
+      { threadId: 'native-thread', cursor: 'second-page' },
     );
     await writeJson(join(f.cwd, 'list-reply-2.json'), {
       result: {
