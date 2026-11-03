@@ -265,3 +265,25 @@ for (const change of ['branch', 'edit'])
     if (change === 'edit')
       assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
   });
+
+test("a worktree whose stacked base exists only on its remote detaches at the remote's commit", async () => {
+  const { launcher, checkout, other, tip } = await merged({}, [], true);
+  await git(launcher, 'push', 'origin', 'main:stack');
+  await git(other, 'fetch');
+  await git(other, 'switch', 'stack');
+  await git(other, 'merge', '--no-ff', '-m', 'merge feat/x', 'origin/feat/x');
+  await git(other, 'push', 'origin', 'stack');
+  await git(other, 'push', 'origin', '--delete', 'feat/x');
+  assert.deepEqual(
+    await cleanUpMerge(checkout, { ...pullRequest(tip), base: 'stack' }, idle),
+    {
+      text: '#7 merged: detached at origin/stack, deleted branch feat/x.',
+      cleaned: true,
+    },
+  );
+  assert.equal(
+    await git(checkout, 'rev-parse', 'HEAD'),
+    await git(other, 'rev-parse', 'HEAD'),
+  );
+  assert.deepEqual(await branches(checkout), ['main']);
+});
