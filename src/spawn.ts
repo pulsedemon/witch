@@ -58,8 +58,9 @@ function commandFailure(command: string, error: unknown): string {
 }
 
 /**
- * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, then installs
- * and opens a Ghostty tab in each one where `live` finds no session. never removes or moves a worktree.
+ * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it. in each one
+ * where `live` finds no session, runs `pnpm install` if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes
+ * or moves a worktree.
  */
 export async function spawnWorktrees(
   cwd: string,
@@ -109,16 +110,20 @@ export async function spawnWorktrees(
     if (await exists(spawned.path)) spawned.slot = true;
     else spawned.error = 'registered but missing; run git worktree prune';
   }
-  const awaiting: Spawned[] = [];
-  for (const spawned of slots) {
-    if (!spawned.slot) continue;
+  const idle = async (spawned: Spawned) => {
     try {
-      if (await live(spawned.path)) continue;
+      return !(await live(spawned.path));
     } catch (error) {
-      spawned.error = failure(error);
-      continue;
+      spawned.error = [spawned.error, failure(error)]
+        .filter(Boolean)
+        .join(', ');
+      return false;
     }
-    awaiting.push(spawned);
+  };
+  const installed: Spawned[] = [];
+  for (const spawned of slots) {
+    if (!spawned.slot || !(await idle(spawned))) continue;
+    installed.push(spawned);
     if (await exists(join(spawned.path, 'pnpm-lock.yaml')))
       await run('pnpm', ['install', '--frozen-lockfile'], {
         cwd: spawned.path,
@@ -127,6 +132,10 @@ export async function spawnWorktrees(
         spawned.error = commandFailure('pnpm install', error);
       });
   }
+  // asked again, since a session can open in a slot while a later one installs
+  const awaiting: Spawned[] = [];
+  for (const spawned of installed)
+    if (await idle(spawned)) awaiting.push(spawned);
   if (awaiting.length)
     // no timeout, since the first Apple Events permission prompt waits for the user
     await run(
@@ -150,28 +159,25 @@ export async function spawnWorktrees(
 }
 
 /**
- * whether a conversation the store holds open has its `cwd` at or under the path. reads the open conversations once;
- * an unreadable one rejects every query, since its session could be anywhere.
+ * whether a conversation the store holds open has its `cwd` at or under the path, read on every query. an unreadable
+ * one rejects the query, since its session could be anywhere.
  */
 export function sessionsIn(
   stateRoot: string,
 ): (path: string) => Promise<boolean> {
-  let cwds: Promise<string[]> | undefined;
   return async (path) => {
-    cwds ??= (async () => {
-      const store = await StateStore.open(stateRoot);
-      const { records, unreadable } = await store.records([
-        ...(await store.openConversations()).keys(),
-      ]);
-      if (unreadable.length)
-        throw new Error(
-          `cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
-        );
-      return records.map((record) => record.cwd);
-    })();
-    const open = await cwds;
+    const store = await StateStore.open(stateRoot);
+    const { records, unreadable } = await store.records([
+      ...(await store.openConversations()).keys(),
+    ]);
+    if (unreadable.length)
+      throw new Error(
+        `cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ')}`,
+      );
     const real = await realpath(path);
-    return open.some((cwd) => cwd === real || cwd.startsWith(real + sep));
+    return records.some(
+      ({ cwd }) => cwd === real || cwd.startsWith(real + sep),
+    );
   };
 }
 

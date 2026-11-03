@@ -50,7 +50,7 @@ interface PlanRemoval {
 
 export interface MergeCleanup {
   cwd?: string;
-  /** the base's upstream, such as `origin/main`, when another worktree holds the base so the checkout detaches there. */
+  /** the base's upstream, such as `origin/main`, where a linked worktree, or a checkout whose base one holds, detaches. */
   detached?: string;
   switchHead?: string;
   moved?: boolean;
@@ -157,13 +157,19 @@ async function peerTurnIn(
   return false;
 }
 
+/** a Git config value, or '' when it's unset, which Git reports with exit 1. any other failure throws. */
+const configValue = (git: Git, key: string) =>
+  git('config', key).catch((error: unknown) => {
+    if ((error as { code?: unknown }).code === 1) return '';
+    throw error;
+  });
+
 /**
  * uses ssh batch mode to avoid passphrase and host key prompts unless the user configured an ssh command.
  */
 const fetchRemote = async (git: Git, ...args: string[]) => {
   const own =
-    process.env.GIT_SSH ||
-    (await git('config', 'core.sshCommand').catch(() => ''));
+    process.env.GIT_SSH || (await configValue(git, 'core.sshCommand'));
   await git(
     ...(own ? [] : ['-c', 'core.sshCommand=ssh -o BatchMode=yes']),
     'fetch',
@@ -245,7 +251,7 @@ const arrived = (
 
 /**
  * what a merged pull request leaves in the checkout at `cwd`: switches to the base and brings it up to date, or detaches
- * at the base's upstream when another worktree holds the base, deletes the branch and its gitignored plans with their
+ * at the base's upstream in a linked worktree or while one holds the base, deletes the branch and its gitignored plans with their
  * gitignored ledgers, and deletes the other merged branches whose remote branch is gone. returns a sentence saying what
  * it did, and whether it moved the checkout, `'changed'` when the checkout left the branch or changed, or nothing when
  * another Witch is updating it or `blocked` says one is working in it.
@@ -336,29 +342,35 @@ async function clean(
   }
   if (progress.result) return progress.result;
   if (!progress.moved) {
-    // decided once, so a retry after the other worktree lets go of the base still detaches. a held base can't be this
-    // checkout's, since it's on the merged branch
-    if (
-      progress.detached === undefined &&
-      (await git(
+    // a linked worktree never takes the base, which would leave the main checkout unable to switch back to it. decided
+    // once, so a retry after a worktree lets go of the base still detaches
+    if (progress.detached === undefined) {
+      const [gitDir, commonDir, top] = (
+        await git(
+          'rev-parse',
+          '--path-format=absolute',
+          '--git-dir',
+          '--git-common-dir',
+          '--show-toplevel',
+        ).catch(stopped)
+      ).split('\n');
+      const holder = await git(
         'for-each-ref',
         '--format=%(worktreepath)',
         `refs/heads/${base}`,
-      ).catch(stopped))
-    )
-      progress.detached = await git(
-        'rev-parse',
-        '--abbrev-ref',
-        `${base}@{upstream}`,
       ).catch(stopped);
+      if (gitDir !== commonDir || (holder && holder !== top))
+        progress.detached = await git(
+          'rev-parse',
+          '--abbrev-ref',
+          `${base}@{upstream}`,
+        ).catch(stopped);
+    }
     await fetchRemote(git, '--prune').catch(stopped);
     // every fetch comes before the checks below, since a slow one gives another terminal time to switch or edit
     if (progress.detached) {
       const remote = (name: string) =>
-        git('config', `branch.${name}.remote`).catch((error: unknown) => {
-          if (error === signal?.reason) throw error;
-          return '';
-        });
+        configValue(git, `branch.${name}.remote`).catch(stopped);
       const own = await remote(base);
       if (own && own !== (await remote(branch)))
         await fetchRemote(git, own).catch(stopped);

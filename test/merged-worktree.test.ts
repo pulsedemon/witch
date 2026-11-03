@@ -51,6 +51,38 @@ test("a merged branch in a worktree whose base another worktree holds detaches a
   assert.equal(await git(launcher, 'rev-parse', 'HEAD'), held);
 });
 
+test('a merged branch in a worktree detaches while the base is free, so the launcher can switch back to it', async () => {
+  const { launcher, checkout, other, tip } = await merged({}, [], true);
+  await git(launcher, 'switch', '-c', 'feat/y');
+  await merge(other, 'feat/x');
+  assert.deepEqual(
+    await cleanUpMerge(checkout, pullRequest(tip), idle),
+    detached,
+  );
+  await assert.rejects(git(checkout, 'symbolic-ref', '-q', 'HEAD'));
+  await git(launcher, 'switch', 'main');
+});
+
+test("a clone's cleanup that first runs while the clone sits on its base still switches to the base on resume", async () => {
+  const { checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  await git(checkout, 'switch', 'main');
+  const progress: MergeCleanup = {};
+  assert.equal(
+    await cleanUpMerge(checkout, pullRequest(tip), idle, { progress }),
+    'changed',
+  );
+  await git(checkout, 'switch', 'feat/x');
+  assert.deepEqual(
+    await cleanUpMerge(checkout, pullRequest(tip), idle, { progress }),
+    {
+      text: '#7 merged: switched to main and pulled, deleted branch feat/x.',
+      cleaned: true,
+    },
+  );
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
+});
+
 test('a worktree cleanup interrupted before the detach keeps detaching on resume after the base is released', async () => {
   const { launcher, checkout, other, tip } = await merged({}, [], true);
   await merge(other, 'feat/x');

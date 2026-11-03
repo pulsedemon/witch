@@ -22,14 +22,19 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-/** a checkout on `main` tracking a bare origin, in its own scratch root so its `<main>-<i>` slots are removed with it. */
-async function checkout(name = 'repo') {
+/**
+ * a checkout on `main` tracking a bare origin, in its own scratch root so its `<main>-<i>` slots are removed with it.
+ * without `lockfile` it has no `pnpm-lock.yaml`, like a Godot project.
+ */
+async function checkout(name = 'repo', lockfile = true) {
   const root = await scratch('witch-spawn-');
   const origin = join(root, 'origin.git');
   const main = join(root, name);
   await git(root, 'init', '--bare', '-b', 'main', origin);
   await git(root, 'init', '-b', 'main', main);
-  await writeFile(join(main, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+  if (lockfile)
+    await writeFile(join(main, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+  else await writeFile(join(main, 'project.godot'), '');
   await git(main, 'add', '.');
   await git(main, 'commit', '-m', 'first');
   await git(main, 'remote', 'add', 'origin', origin);
@@ -333,6 +338,8 @@ test('a session counts as open in a slot only while its conversation is locked a
     assert.equal(await live(`${main}-2`), true);
     assert.equal(await live(`${main}-10`), true);
     assert.equal(await live(link), true);
+    held.push(await store.create(conversation('later', `${main}-1`)));
+    assert.equal(await live(`${main}-1`), true);
   } finally {
     for (const files of held) await files.close();
   }
@@ -366,6 +373,30 @@ test('an unreadable open conversation record blocks tabs and names its file', as
     await held.close();
   }
   assert.deepEqual(calls, []);
+});
+
+test('a repository without pnpm-lock.yaml gets its worktrees and tabs without pnpm', async () => {
+  const { main, slot } = await checkout('repo', false);
+  const { run, installs, tabs } = recording();
+  await spawnWorktrees(main, 2, { run, live: async () => false });
+  assert.deepEqual(await worktrees(main), [main, slot(1), slot(2)]);
+  assert.deepEqual(installs(), []);
+  assert.deepEqual(tabs(), [[slot(1), slot(2)]]);
+});
+
+test('a slot whose session opens while a later slot installs gets no tab', async () => {
+  const { main, slot } = await checkout();
+  const { run, installs, tabs } = recording();
+  const { slots } = await spawnWorktrees(main, 2, {
+    run,
+    live: async (path) => path === slot(1) && installs().includes(slot(2)),
+  });
+  assert.deepEqual(installs(), [slot(1), slot(2)]);
+  assert.deepEqual(tabs(), [[slot(2)]]);
+  assert.deepEqual(slots, [
+    { path: slot(1), slot: true, created: true, opened: false },
+    { path: slot(2), slot: true, created: true, opened: true },
+  ]);
 });
 
 test('spawn runs no osascript when every slot has an open session', async () => {
