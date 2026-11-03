@@ -412,6 +412,58 @@ test("copies the new worktree's own rules don't ignore are removed and reported"
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
 });
 
+test("an ignored directory the upstream tracks a file in gets the main checkout's other files one by one", async () => {
+  const { main, slot } = await checkout();
+  await mkdir(join(main, '.claude'));
+  await writeFile(join(main, '.claude', 'settings.json'), '{}');
+  await writeFile(join(main, '.gitignore'), '.claude/settings.local.json\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'claude settings');
+  await git(main, 'push');
+  // a launcher commit not pushed yet ignores the whole directory, so git lists it as one entry
+  await git(main, 'rm', '-q', '.claude/settings.json');
+  await writeFile(join(main, '.gitignore'), '.claude/\n');
+  await git(main, 'commit', '-qam', 'ignore claude');
+  await mkdir(join(main, '.claude'), { recursive: true });
+  await writeFile(join(main, '.claude', 'settings.local.json'), '{"main":1}');
+  const [spawned] = (
+    await spawnWorktrees(main, 1, {
+      run: recording().run,
+      live: async () => false,
+    })
+  ).slots;
+  assert.equal(spawned!.error, undefined);
+  assert.equal(
+    await readFile(join(slot(1), '.claude', 'settings.local.json'), 'utf8'),
+    '{"main":1}',
+  );
+  assert.equal(
+    await readFile(join(slot(1), '.claude', 'settings.json'), 'utf8'),
+    '{}',
+  );
+});
+
+test("removing a copied .gitignore removes what it was ignoring, when the worktree's rules don't ignore that either", async () => {
+  const { main, slot } = await checkout();
+  // ignored only by the launcher's uncommitted .gitignore
+  await writeFile(join(main, '.gitignore'), 'out/\n');
+  await mkdir(join(main, 'out'));
+  await writeFile(join(main, 'out', '.gitignore'), '*.bin\n');
+  await writeFile(join(main, 'out', 'a.bin'), 'secret');
+  const [spawned] = (
+    await spawnWorktrees(main, 1, {
+      run: recording().run,
+      live: async () => false,
+    })
+  ).slots;
+  assert.equal(
+    spawned!.error,
+    "removed copies the worktree doesn't ignore: out/.gitignore, out/a.bin",
+  );
+  assert.equal(await exists(join(slot(1), 'out', 'a.bin')), false);
+  assert.equal(await git(slot(1), 'status', '--porcelain'), '');
+});
+
 test('a failed check of the copies is reported and the slot still opens its tab', async () => {
   const { main, slot } = await checkout();
   const { run: recorded, tabs } = recording();

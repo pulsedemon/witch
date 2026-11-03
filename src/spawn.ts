@@ -1,4 +1,4 @@
-import { mkdir, realpath, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { errorMessage } from './agents/stderr.js';
 import { runCommand } from './core/command.js';
@@ -67,8 +67,8 @@ function commandFailure(command: string, error: unknown): string {
  * clones an ignored file or directory of the main checkout into a new worktree, leaving out what its copy would act on
  * as the original: a Godot `.godot`, where a project's tooling can mark the main checkout's running engine, as netshooter's `instances` does, a worktree or
  * submodule, whose `.git` file points at the original's git directory, and a virtualenv, whose scripts run the main
- * checkout's interpreter. a nested clone with its own `.git` directory comes along. the merge cleanup's plans stay with
- * their checkout.
+ * checkout's interpreter. a nested clone with its own `.git` directory comes along. the merge cleanup's plans and
+ * ledgers stay with their checkout.
  */
 async function seed(
   run: Run,
@@ -83,8 +83,20 @@ async function seed(
     basename(directory) === '.godot' ||
     !!(await stat(join(directory, '.git')).catch(() => undefined))?.isFile() ||
     (await exists(join(directory, 'pyvenv.cfg')));
-  // deleted since the listing, or already in the worktree
-  if (!(await exists(source)) || (await exists(target))) return;
+  // deleted since the listing
+  if (!(await exists(source))) return;
+  if (await exists(target)) {
+    // the upstream tracks something in this directory, so its other contents go in one by one
+    if (path.endsWith('/') && (await stat(target)).isDirectory())
+      for (const entry of await readdir(source, { withFileTypes: true }))
+        await seed(
+          run,
+          main,
+          worktree,
+          `${path}${entry.name}${entry.isDirectory() ? '/' : ''}`,
+        );
+    return;
+  }
   if (plans.some((plan) => `${source}/`.startsWith(`${plan}/`))) return;
   // git lists what sits inside a partly tracked directory on its own
   for (
@@ -222,24 +234,33 @@ export async function spawnWorktrees(
       // the worktree's ignore rules are the upstream's, so a copy they don't cover, such as a secret, could get committed.
       // a new worktree has nothing untracked of its own
       try {
-        const unignored = (
-          await git(
-            spawned.path,
-            'ls-files',
-            '--others',
-            '--exclude-standard',
-            '-z',
+        const removed: string[] = [];
+        // removing a copied .gitignore uncovers what it ignored, so the listing repeats until it's empty
+        for (;;) {
+          const unignored = (
+            await git(
+              spawned.path,
+              'ls-files',
+              '--others',
+              '--exclude-standard',
+              '-z',
+            )
           )
-        )
-          .split('\0')
-          .filter(Boolean);
-        // a nested clone is listed as its directory
-        for (const path of unignored)
-          await rm(join(spawned.path, path), { recursive: true, force: true });
-        if (unignored.length)
+            .split('\0')
+            .filter(Boolean);
+          if (!unignored.length) break;
+          // a nested clone is listed as its directory
+          for (const path of unignored)
+            await rm(join(spawned.path, path), {
+              recursive: true,
+              force: true,
+            });
+          removed.push(...unignored);
+        }
+        if (removed.length)
           report(
             spawned,
-            `removed copies the worktree doesn't ignore: ${unignored.join(', ')}`,
+            `removed copies the worktree doesn't ignore: ${removed.join(', ')}`,
           );
       } catch (error) {
         report(
