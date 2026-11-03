@@ -103,7 +103,7 @@ async function seed(
     await copy;
     return;
   }
-  // a failed copy still leaves what it got through, so what stays behind is removed either way
+  // a failed copy still leaves what it got through, so the paths seed leaves out are removed from it either way
   await copy.finally(async () => {
     const found = await run(
       'find',
@@ -221,27 +221,32 @@ export async function spawnWorktrees(
         });
       // the worktree's ignore rules are the upstream's, so a copy they don't cover, such as a secret, could get committed.
       // a new worktree has nothing untracked of its own
-      await git(
-        spawned.path,
-        'ls-files',
-        '--others',
-        '--exclude-standard',
-        '-z',
-      ).then(
-        async (stdout) => {
-          const unignored = stdout.split('\0').filter(Boolean);
-          for (const path of unignored)
-            await rm(join(spawned.path, path), { force: true });
-          if (unignored.length)
-            report(
-              spawned,
-              `removed copies the worktree doesn't ignore: ${unignored.join(', ')}`,
-            );
-        },
-        (error: unknown) => {
-          report(spawned, commandFailure('ls-files', error));
-        },
-      );
+      try {
+        const unignored = (
+          await git(
+            spawned.path,
+            'ls-files',
+            '--others',
+            '--exclude-standard',
+            '-z',
+          )
+        )
+          .split('\0')
+          .filter(Boolean);
+        // a nested clone is listed as its directory
+        for (const path of unignored)
+          await rm(join(spawned.path, path), { recursive: true, force: true });
+        if (unignored.length)
+          report(
+            spawned,
+            `removed copies the worktree doesn't ignore: ${unignored.join(', ')}`,
+          );
+      } catch (error) {
+        report(
+          spawned,
+          `copies the worktree doesn't ignore may remain: ${commandFailure('ls-files', error)}`,
+        );
+      }
     }
     if (await exists(spawned.path)) spawned.slot = true;
     else spawned.error = 'registered but missing; run git worktree prune';

@@ -159,8 +159,13 @@ test("spawn starts worktrees at the main checkout's own upstream, not origin's m
   await git(main, 'remote', 'add', 'fork', fork);
   await git(main, 'commit', '--allow-empty', '-m', 'stable only');
   await git(main, 'push', 'fork', 'HEAD:stable');
-  const stable = await git(main, 'rev-parse', 'HEAD');
   await git(main, 'branch', '--set-upstream-to', 'fork/stable');
+  // the main checkout sees this commit only once spawn fetches its upstream's remote
+  const other = join(root, 'other');
+  await git(root, 'clone', '-b', 'stable', fork, other);
+  await git(other, 'commit', '--allow-empty', '-m', 'later');
+  await git(other, 'push');
+  const stable = await git(other, 'rev-parse', 'HEAD');
   const { base } = await spawnWorktrees(main, 1, {
     run: recording().run,
     live: async () => false,
@@ -378,8 +383,12 @@ test("copies the new worktree's own rules don't ignore are removed and reported"
   // ignored only by the launcher's uncommitted .gitignore, so the worktree at the upstream would show them untracked
   await writeFile(
     join(main, '.gitignore'),
-    'keys/\nsecret\nsecret.env\nexports/\n',
+    'keys/\nsecret\nsecret.env\nexports/\nvendor/\n',
   );
+  // a nested clone, which git lists as its directory
+  await mkdir(join(main, 'vendor', 'lib'), { recursive: true });
+  await git(join(main, 'vendor', 'lib'), 'init', '-q');
+  await writeFile(join(main, 'vendor', 'lib', 'lib.js'), '');
   await writeFile(join(main, 'secret'), 'token');
   await writeFile(join(main, 'secret.env'), 'token');
   await mkdir(join(main, 'exports'));
@@ -396,9 +405,10 @@ test("copies the new worktree's own rules don't ignore are removed and reported"
   ).slots;
   assert.equal(
     spawned!.error,
-    "removed copies the worktree doesn't ignore: exports/build.bin, keys/visible.env, secret, secret.env",
+    "removed copies the worktree doesn't ignore: exports/build.bin, keys/visible.env, secret, secret.env, vendor/lib/",
   );
   assert.equal(await readFile(join(slot(1), 'keys', 'a.key'), 'utf8'), 'key');
+  assert.equal(await exists(join(slot(1), 'vendor', 'lib')), false);
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
 });
 
@@ -418,7 +428,10 @@ test('a failed check of the copies is reported and the slot still opens its tab'
   const [spawned] = (
     await spawnWorktrees(main, 1, { run, live: async () => false })
   ).slots;
-  assert.equal(spawned!.error, 'ls-files failed: fatal: bad index');
+  assert.equal(
+    spawned!.error,
+    "copies the worktree doesn't ignore may remain: ls-files failed: fatal: bad index",
+  );
   assert.deepEqual(tabs(), [[slot(1)]]);
 });
 

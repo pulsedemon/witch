@@ -908,6 +908,39 @@ test("the cleanup fetches through the user's own ssh command, from git's config 
   }
 });
 
+test('an ssh command lookup that fails for a reason other than being unset stops the cleanup before it moves anything', async () => {
+  const { root, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x');
+  const bin = join(root, 'bin');
+  const realGit = (await execute('/usr/bin/which', ['git'])).stdout.trim();
+  const previousPath = process.env.PATH;
+  // git exits 1 for an unset key, which reads as no ssh command; any other failure is not absence
+  await write(
+    join(bin, 'git'),
+    `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args.join(' ') === 'config core.sshCommand') {
+  process.stderr.write('injected config failure');
+  process.exit(3);
+}
+process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1);
+`,
+  );
+  await chmod(join(bin, 'git'), 0o755);
+  process.env.PATH = `${bin}:${previousPath}`;
+  try {
+    await assert.rejects(cleanUpMerge(checkout, pullRequest(tip), idle), {
+      message:
+        /cleanup failed before deleting feat\/x: .*injected config failure/s,
+    });
+  } finally {
+    process.env.PATH = previousPath;
+  }
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
+  assert.equal(await git(checkout, 'rev-parse', 'feat/x'), tip);
+});
+
 test('a branch switched to during the base fetch is left as it was, and the cleanup stops', async () => {
   const { root, checkout, other, tip } = await merged();
   await git(checkout, 'switch', '-c', 'feat/y', 'main');
