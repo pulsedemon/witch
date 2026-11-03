@@ -797,6 +797,7 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
       'tools/',
       '.superpowers/',
       'docs/superpowers/plans/*.md',
+      'docs/plans/',
       '',
     ].join('\n'),
   );
@@ -827,6 +828,7 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
   await local('.superpowers/sdd/ledger');
   await local('.superpowers/brainstorm.md');
   await local('docs/superpowers/plans/task.md');
+  await local('docs/plans/task.md');
   // ignored only by its own .gitignore, like husky's hooks or a pytest cache, which the worktree lacks until it's copied
   await local('.cache/.gitignore', '*\n');
   await local('.cache/data');
@@ -856,6 +858,7 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
     'tools/venv',
     '.superpowers/sdd',
     'docs/superpowers/plans/task.md',
+    'docs/plans',
   ])
     assert.equal(await copied(path), false, path);
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');

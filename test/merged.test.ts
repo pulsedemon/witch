@@ -412,6 +412,56 @@ test('a ledger the repository tracks stays when its plan goes', async () => {
   assert.equal(await git(checkout, 'status', '--porcelain'), '');
 });
 
+test('a plan in docs/plans goes with its branch and its ledger', async () => {
+  const { checkout, other, tip } = await merged({}, ['docs/plans/']);
+  const docsPlans = join(checkout, 'docs/plans');
+  await write(join(docsPlans, 'x.md'), '`git switch -c feat/x`\n');
+  await write(
+    join(checkout, '.superpowers/sdd/x/plan-path'),
+    'docs/plans/x.md\n',
+  );
+  await merge(other, 'feat/x');
+  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md.',
+    cleaned: true,
+  });
+  assert.deepEqual(await readdir(docsPlans), []);
+  assert.deepEqual(await readdir(join(checkout, '.superpowers/sdd')), []);
+});
+
+test("a plan directory that can't be listed leaves the other's plans to go with their branch, and is reported apart from them", async () => {
+  const { checkout, other, tip } = await merged({}, ['docs/plans/']);
+  const docsPlans = join(checkout, 'docs/plans');
+  await write(join(docsPlans, 'x.md'), '`git switch -c feat/x`\n');
+  await mkdir(plans(checkout), { recursive: true });
+  await merge(other, 'feat/x');
+  await chmod(plans(checkout), 0o000);
+  const result = await cleanUpMerge(checkout, pullRequest(tip), idle).finally(
+    () => chmod(plans(checkout), 0o700),
+  );
+  assert.ok(typeof result === 'object');
+  assert.ok(
+    result?.text.startsWith(
+      '#7 merged: switched to main and pulled, deleted branch feat/x, and plan x.md, but plans stayed: EACCES',
+    ),
+    result?.text,
+  );
+  assert.deepEqual(await readdir(docsPlans), []);
+});
+
+test('plans of the same name in both plan directories both go', async () => {
+  const { checkout, other, tip } = await merged({}, ['docs/plans/']);
+  for (const directory of [plans(checkout), join(checkout, 'docs/plans')])
+    await write(join(directory, 'x.md'), '`git switch -c feat/x`\n');
+  await merge(other, 'feat/x');
+  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
+    text: '#7 merged: switched to main and pulled, deleted branch feat/x, and plans x.md and x.md.',
+    cleaned: true,
+  });
+  assert.deepEqual(await readdir(plans(checkout)), []);
+  assert.deepEqual(await readdir(join(checkout, 'docs/plans')), []);
+});
+
 test("a squash merge's branch goes too", async () => {
   const { checkout, other, tip } = await merged();
   await git(other, 'pull');
