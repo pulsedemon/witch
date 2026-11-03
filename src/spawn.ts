@@ -1,4 +1,4 @@
-import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { errorMessage } from './agents/stderr.js';
 import { runCommand } from './core/command.js';
@@ -85,9 +85,11 @@ async function seed(
     (await exists(join(directory, 'pyvenv.cfg')));
   // deleted since the listing
   if (!(await exists(source))) return;
-  if (await exists(target)) {
+  // lstat, since a symlink the upstream tracks would carry the copy outside the worktree
+  const placed = await lstat(target).catch(() => undefined);
+  if (placed) {
     // the upstream tracks something in this directory, so its other contents go in one by one
-    if (path.endsWith('/') && (await stat(target)).isDirectory())
+    if (path.endsWith('/') && placed.isDirectory())
       for (const entry of await readdir(source, { withFileTypes: true }))
         await seed(
           run,
@@ -105,6 +107,12 @@ async function seed(
     directory = dirname(directory)
   )
     if (await left(directory)) return;
+  let parent = dirname(target);
+  while (!(await lstat(parent).catch(() => undefined)))
+    parent = dirname(parent);
+  const [real, root] = [await realpath(parent), await realpath(worktree)];
+  if (real !== root && !real.startsWith(root + sep))
+    throw new Error(`${path} would land outside the worktree, at ${real}`);
   await mkdir(dirname(target), { recursive: true });
   // node's copyFile can't clone on macOS, so cp -c does, and dependencies and assets cost no space until a copy changes
   const copy = run('cp', ['-c', '-R', source, target], {

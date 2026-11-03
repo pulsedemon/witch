@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import {
   chmod,
   mkdir,
+  readdir,
   readFile,
   rm,
   symlink,
@@ -462,6 +463,39 @@ test("removing a copied .gitignore removes what it was ignoring, when the worktr
   );
   assert.equal(await exists(join(slot(1), 'out', 'a.bin')), false);
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
+});
+
+test('a copy that a symlink the upstream tracks would carry outside the worktree is reported, not written', async () => {
+  const { root, origin, main, slot } = await checkout();
+  await mkdir(join(main, 'config'));
+  await writeFile(join(main, 'config', 'tracked.txt'), '');
+  await writeFile(join(main, '.gitignore'), '*.env\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'config');
+  await git(main, 'push');
+  await writeFile(join(main, 'config', 'secret.env'), 'token');
+  // the upstream turns config into a symlink to a directory outside any checkout
+  const outside = join(root, 'outside');
+  await mkdir(outside);
+  const other = join(root, 'other');
+  await git(root, 'clone', origin, other);
+  await git(other, 'rm', '-rq', 'config');
+  await symlink(outside, join(other, 'config'));
+  await git(other, 'add', 'config');
+  await git(other, 'commit', '-m', 'link config');
+  await git(other, 'push');
+  const [spawned] = (
+    await spawnWorktrees(main, 1, {
+      run: recording().run,
+      live: async () => false,
+    })
+  ).slots;
+  assert.match(
+    spawned!.error!,
+    /^config\/secret\.env would land outside the worktree, at /,
+  );
+  assert.deepEqual(await readdir(outside), []);
+  assert.equal(await exists(join(slot(1), 'config')), true);
 });
 
 test('a failed check of the copies is reported and the slot still opens its tab', async () => {
