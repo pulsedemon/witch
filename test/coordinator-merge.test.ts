@@ -566,15 +566,23 @@ exec '${realGit}' "$@"
   }
 });
 
-async function interruptedCleanup(stage: string, register: RegisterCleanup) {
+/** with `worktree`, the project is a linked worktree of `install`, a clone that holds `main`. */
+async function interruptedCleanup(
+  stage: string,
+  register: RegisterCleanup,
+  worktree = false,
+) {
   const { coordinator, root, project } = await fixture();
   const origin = join(root, 'origin.git');
+  const install = worktree ? join(root, 'launcher') : project;
   await gitIn(root, 'init', '--bare', origin);
-  await gitIn(root, 'clone', origin, project);
-  await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
-  await gitIn(project, 'push', '-u', 'origin', 'main');
-  const base = await gitIn(project, 'rev-parse', 'HEAD');
-  await gitIn(project, 'switch', '-c', 'feat/x');
+  await gitIn(root, 'clone', origin, install);
+  await gitIn(install, 'commit', '--allow-empty', '-m', 'base');
+  await gitIn(install, 'push', '-u', 'origin', 'main');
+  const base = await gitIn(install, 'rev-parse', 'HEAD');
+  if (worktree)
+    await gitIn(install, 'worktree', 'add', '-b', 'feat/x', project);
+  else await gitIn(project, 'switch', '-c', 'feat/x');
   await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
   const tip = await gitIn(project, 'rev-parse', 'HEAD');
   await gitIn(project, 'push', 'origin', 'feat/x:main');
@@ -670,6 +678,7 @@ else {
   return {
     coordinator,
     project,
+    install,
     tip,
     base,
     expectedHead,
@@ -689,27 +698,31 @@ else {
   };
 }
 
-for (const stage of [
-  'fetch',
-  'switch',
-  'delete',
-  'config',
-  'pull',
-  'prune',
-  'install',
-  'build',
-  'advanced',
+for (const [stage, worktree] of [
+  ...[
+    'fetch',
+    'switch',
+    'delete',
+    'config',
+    'pull',
+    'prune',
+    'install',
+    'build',
+    'advanced',
+  ].map((stage) => [stage, false] as const),
+  ['install', true] as const,
 ])
-  test(`an interrupted ${stage === 'advanced' ? 'install after its own checkout update' : stage} resumes cleanup without repeating completed deletion or checkout steps`, async (t) => {
+  test(`an interrupted ${stage === 'advanced' ? 'install after its own checkout update' : stage}${worktree ? " of a worktree's launcher" : ''} resumes cleanup without repeating completed deletion or checkout steps`, async (t) => {
     const {
       coordinator,
       project,
+      install,
       tip,
       expectedHead,
       entered,
       stopped,
       commands,
-    } = await interruptedCleanup(stage, t.onTestFinished);
+    } = await interruptedCleanup(stage, t.onTestFinished, worktree);
     const repository: { snapshot: Repository; subscribe: () => () => void } = {
       snapshot: {
         branch: 'feat/x',
@@ -731,7 +744,7 @@ for (const stage of [
       results.push(result);
       return result;
     };
-    const stop = watchMerges(repository, coordinator, project);
+    const stop = watchMerges(repository, coordinator, install);
     try {
       await entered();
       repository.snapshot.branch = await gitIn(
@@ -749,10 +762,20 @@ for (const stage of [
       );
       assert.deepEqual(results, ['interrupted', true]);
       assert.equal(coordinator.snapshot.error, undefined);
-      assert.equal(await gitIn(project, 'branch', '--show-current'), 'main');
-      assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), expectedHead);
       assert.equal(
-        await gitIn(project, 'branch', '--format=%(refname:short)'),
+        await gitIn(project, 'branch', '--show-current'),
+        worktree ? '' : 'main',
+      );
+      assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), expectedHead);
+      // the launcher, still on main, is pulled before its rebuild
+      assert.equal(await gitIn(install, 'rev-parse', 'HEAD'), expectedHead);
+      assert.equal(
+        await gitIn(
+          project,
+          'for-each-ref',
+          '--format=%(refname:short)',
+          'refs/heads',
+        ),
         'main',
       );
       const calls = await commands();

@@ -16,9 +16,19 @@ import { fileURLToPath } from 'node:url';
 import { quote } from '../src/shell.js';
 import { runCommand } from '../src/core/command.js';
 import { cleanUpMerge, refreshInstall } from '../src/core/merged.js';
-import type { PullRequest, Run } from '../src/core/repository.js';
+import type { Run } from '../src/core/repository.js';
 import { openLocked } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
+import {
+  branches,
+  exists,
+  git,
+  idle,
+  merge,
+  merged,
+  pullRequest,
+  write,
+} from './fixtures/merged.js';
 import { within } from './fixtures/within.js';
 
 // a developer's own ssh command would take the place of the ssh test's stand-in
@@ -29,103 +39,7 @@ delete process.env.GIT_SSH_COMMAND;
 
 const execute = promisify(execFile);
 
-const git = async (cwd: string, ...args: string[]) =>
-  (
-    await execute(
-      'git',
-      [
-        '-c',
-        'init.defaultBranch=main',
-        '-c',
-        'user.name=t',
-        '-c',
-        'user.email=t@t',
-        ...args,
-      ],
-      { cwd },
-    )
-  ).stdout.trim();
-
-const write = async (path: string, text: string) => {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, text);
-};
-
-const exists = (path: string) =>
-  readFile(path).then(
-    () => true,
-    () => false,
-  );
-
-async function merged(
-  files: Record<string, string> = {},
-  ignore: string[] = [],
-): Promise<{
-  root: string;
-  origin: string;
-  checkout: string;
-  other: string;
-  tip: string;
-}> {
-  const root = await scratch('witch-merged-');
-  const origin = join(root, 'origin.git');
-  const checkout = join(root, 'checkout');
-  const other = join(root, 'other');
-  await git(root, 'init', '--bare', origin);
-  await git(root, 'clone', origin, checkout);
-  await write(
-    join(checkout, '.gitignore'),
-    ['docs/superpowers/', '.superpowers/', ...ignore, ''].join('\n'),
-  );
-  for (const [name, text] of Object.entries(files))
-    await write(join(checkout, name), text);
-  await git(checkout, 'add', '.');
-  await git(checkout, 'commit', '-m', 'base');
-  await git(checkout, 'push', '-u', 'origin', 'main');
-  await git(checkout, 'switch', '-c', 'feat/x');
-  await write(join(checkout, 'x.txt'), 'x\n');
-  await git(checkout, 'add', '.');
-  await git(checkout, 'commit', '-m', 'x');
-  await git(checkout, 'push', '-u', 'origin', 'feat/x');
-  await git(root, 'clone', origin, other);
-  return {
-    root,
-    origin,
-    checkout,
-    other,
-    tip: await git(checkout, 'rev-parse', 'HEAD'),
-  };
-}
-
-async function merge(other: string, branch: string, keep = false) {
-  await git(other, 'pull');
-  await git(
-    other,
-    'merge',
-    '--no-ff',
-    '-m',
-    `merge ${branch}`,
-    `origin/${branch}`,
-  );
-  await git(other, 'push', 'origin', 'main');
-  if (!keep) await git(other, 'push', 'origin', '--delete', branch);
-}
-
-const pullRequest = (tip: string): PullRequest => ({
-  number: 7,
-  url: 'https://x.test/7',
-  state: 'MERGED',
-  branch: 'feat/x',
-  commit: tip,
-  base: 'main',
-});
-
-const idle = async () => false;
-
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
-
-const branches = async (checkout: string) =>
-  (await git(checkout, 'branch', '--format=%(refname:short)')).split('\n');
 
 test("a merged branch's checkout switches to the base, and loses the branch, its ignored plan and ledger, and the merged branches whose remote branch is gone", async () => {
   const { root, checkout, other, tip } = await merged();
