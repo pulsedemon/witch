@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
@@ -310,6 +317,31 @@ test('spawn fails before creating anything when the main checkout is detached', 
   );
   assert.deepEqual(await worktrees(main), [main]);
   assert.deepEqual(calls, []);
+});
+
+test('an ignored file that fails to copy is reported along with a failed install, and the rest are copied', async () => {
+  const { main, slot } = await checkout();
+  await writeFile(join(main, '.gitignore'), '*.local\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  await writeFile(join(main, 'a.local'), 'a');
+  await chmod(join(main, 'a.local'), 0o000);
+  await writeFile(join(main, 'b.local'), 'b');
+  const { run, tabs } = recording((command) =>
+    command === 'pnpm' ? { stdout: 'ERR_PNPM_OUTDATED_LOCKFILE\n' } : undefined,
+  );
+  const [spawned] = (
+    await spawnWorktrees(main, 1, { run, live: async () => false })
+  ).slots;
+  assert.match(
+    spawned!.error!,
+    /^EACCES: .*a\.local.*, pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE$/,
+  );
+  assert.equal(spawned!.opened, true);
+  assert.deepEqual(tabs(), [[slot(1)]]);
+  assert.equal(await exists(join(slot(1), 'a.local')), false);
+  assert.equal(await readFile(join(slot(1), 'b.local'), 'utf8'), 'b');
 });
 
 test('an ignored file that leaves the main checkout while its worktree is created is skipped, and the rest are copied', async () => {

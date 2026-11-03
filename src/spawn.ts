@@ -38,6 +38,11 @@ end run`;
 
 const failure = (error: unknown) => oneLine(errorMessage(error)).trim();
 
+/** adds to a slot's error, since its copies, session check, install and tab can each fail. */
+const report = (spawned: Spawned, message: string) => {
+  spawned.error = [spawned.error, message].filter(Boolean).join(', ');
+};
+
 /**
  * the end of a failed command's own output, which says why. execFile's message repeats the command line, which for
  * osascript is the whole script.
@@ -61,8 +66,9 @@ function commandFailure(command: string, error: unknown): string {
 
 /**
  * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
- * ignored files git lists one by one in the main checkout into each new one. in each one where `live` finds no session, runs `pnpm install` if it
- * has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes or moves a worktree.
+ * ignored files git lists one by one in the main checkout, except the merge cleanup's plans, into each new one. in each
+ * one where `live` finds no session, runs `pnpm install` if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never
+ * removes or moves a worktree.
  */
 export async function spawnWorktrees(
   cwd: string,
@@ -136,7 +142,6 @@ export async function spawnWorktrees(
         spawned.error = failure(error);
         continue;
       }
-      const missed: string[] = [];
       // clones on APFS, so a large ignored file costs no space until either copy changes
       for (const file of local)
         await cp(join(main, file), join(spawned.path, file), {
@@ -146,9 +151,8 @@ export async function spawnWorktrees(
         }).catch((error: unknown) => {
           // gone from the main checkout since the listing, such as a pruned capture
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-            missed.push(failure(error));
+            report(spawned, failure(error));
         });
-      if (missed.length) spawned.error = missed.join(', ');
     }
     if (await exists(spawned.path)) spawned.slot = true;
     else spawned.error = 'registered but missing; run git worktree prune';
@@ -157,9 +161,7 @@ export async function spawnWorktrees(
     try {
       return !(await live(spawned.path));
     } catch (error) {
-      spawned.error = [spawned.error, failure(error)]
-        .filter(Boolean)
-        .join(', ');
+      report(spawned, failure(error));
       return false;
     }
   };
@@ -172,7 +174,7 @@ export async function spawnWorktrees(
         cwd: spawned.path,
         timeout: 300_000,
       }).catch((error: unknown) => {
-        spawned.error = commandFailure('pnpm install', error);
+        report(spawned, commandFailure('pnpm install', error));
       });
   }
   // asked again, since a session can open in a slot while a later one installs
@@ -194,8 +196,7 @@ export async function spawnWorktrees(
       },
       (error: unknown) => {
         const reason = commandFailure('osascript', error);
-        for (const spawned of awaiting)
-          spawned.error = [spawned.error, reason].filter(Boolean).join(', ');
+        for (const spawned of awaiting) report(spawned, reason);
       },
     );
   return { base, slots };

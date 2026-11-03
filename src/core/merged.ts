@@ -343,7 +343,8 @@ async function clean(
   if (progress.result) return progress.result;
   if (!progress.moved) {
     // a linked worktree never takes the base, which would leave the main checkout unable to switch back to it. the main
-    // checkout detaches only while a worktree holds the base, decided once so a retry after it lets go still detaches
+    // checkout detaches only while a worktree holds the base, and keeps that decision, so a retry after it lets go still
+    // detaches
     if (progress.detached === undefined) {
       const [gitDir, commonDir, top] = (
         await git(
