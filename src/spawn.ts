@@ -78,7 +78,9 @@ async function seed(
 ): Promise<void> {
   const source = join(main, path).replace(/\/$/, '');
   const target = join(worktree, path).replace(/\/$/, '');
-  const plans = Object.values(planDirectories).map((plan) => join(main, plan));
+  const plans = [...planDirectories.plans, planDirectories.ledgers].map(
+    (plan) => join(main, plan),
+  );
   const left = async (directory: string) =>
     basename(directory) === '.godot' ||
     !!(await stat(join(directory, '.git')).catch(() => undefined))?.isFile() ||

@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { readFile, readdir, rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import { tryOpenLocked } from '../persistence/lock.js';
@@ -41,10 +41,14 @@ interface CheckoutProgress {
 
 interface PlanRemoval {
   root?: string;
+  /** absolute paths, since two plan directories can hold the same name */
   removed: string[];
   stayed: string[];
   ledgers: string[];
+  /** the first reason a plan stayed */
   reason?: string;
+  /** the first reason a plan directory couldn't be listed */
+  unlisted?: string;
   done?: boolean;
 }
 
@@ -486,6 +490,7 @@ async function clean(
     removed: plans,
     stayed,
     reason,
+    unlisted,
   } = await removePlans(
     git,
     branch,
@@ -498,13 +503,14 @@ async function clean(
       { cause: error },
     );
   });
-  // none is named when the plans couldn't be listed
-  const named = (names: string[]) =>
-    names.length
-      ? `${names.length > 1 ? 'plans' : 'plan'} ${list(names)}`
-      : 'plans';
+  const named = (paths: string[]) =>
+    `${paths.length > 1 ? 'plans' : 'plan'} ${list(paths.map((path) => basename(path)))}`;
   const removed = plans.length ? `, and ${named(plans)}` : '';
-  const kept = [unset, reason && `${named(stayed)} stayed: ${reason}`]
+  const kept = [
+    unset,
+    reason && `${named(stayed)} stayed: ${reason}`,
+    unlisted && `plans stayed: ${unlisted}`,
+  ]
     .filter(Boolean)
     .join(' and ');
   // after the branch and its plans go, so a base that can't fast-forward still deletes them
@@ -741,16 +747,19 @@ const absent =
     return fallback;
   };
 
-/** where a checkout keeps the gitignored plans and ledgers its merge cleanup removes with their branch. */
+/**
+ * where a checkout keeps the gitignored plans and ledgers its merge cleanup removes with their branch. a repository
+ * keeps its plans in whichever of `plans` its own instructions name.
+ */
 export const planDirectories = {
-  plans: 'docs/superpowers/plans',
+  plans: ['docs/superpowers/plans', 'docs/plans'],
   ledgers: '.superpowers/sdd',
 } as const;
 
 /**
  * removes the gitignored plans that create `branch` and no other branch, each with the gitignored ledgers whose
- * `plan-path` names it. returns those removed, and those it failed to read, check or remove with the first reason,
- * or only a reason when it couldn't list the plans.
+ * `plan-path` names it. returns those removed, those it failed to read, check or remove with the first reason, and
+ * the first reason a plan directory couldn't be listed.
  */
 async function removePlans(
   git: Git,
@@ -761,61 +770,62 @@ async function removePlans(
   if (progress.done) return progress;
   const top = await topLevel(git);
   progress.root = top;
-  const plans = join(top, planDirectories.plans);
   const ledgers = join(top, planDirectories.ledgers);
   const { removed, stayed } = progress;
-  let names: string[];
-  try {
-    names = await readdir(plans).catch(absent([]));
-  } catch (error) {
-    progress.reason = errorMessage(error);
-    progress.done = true;
-    return progress;
-  }
-  for (const name of names) {
-    const plan = join(plans, name);
-    if (
-      !name.endsWith('.md') ||
-      removed.includes(name) ||
-      stayed.includes(name)
-    )
-      continue;
+  for (const directory of planDirectories.plans) {
+    const plans = join(top, directory);
+    let names: string[];
     try {
-      // a plan that isn't there, such as a dangling link, creates no branch
-      const created = createdBranches(
-        await readFile(plan, 'utf8').catch(absent('')),
-      );
-      // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
+      names = await readdir(plans).catch(absent([]));
+    } catch (error) {
+      progress.unlisted ??= errorMessage(error);
+      continue;
+    }
+    for (const name of names) {
+      const plan = join(plans, name);
       if (
-        created.size !== 1 ||
-        !created.has(branch) ||
-        !(await ignored(git, plan))
+        !name.endsWith('.md') ||
+        removed.includes(plan) ||
+        stayed.includes(plan)
       )
         continue;
-      // the ledgers first, since only the plan leads to them
-      for (const ledger of await readdir(ledgers).catch(absent([]))) {
-        const folder = join(ledgers, ledger);
-        if (progress.ledgers.includes(folder)) continue;
-        const link = (
-          await readFile(join(folder, 'plan-path'), 'utf8').catch(absent(''))
-        ).trim();
+      try {
+        // a plan that isn't there, such as a dangling link, creates no branch
+        const created = createdBranches(
+          await readFile(plan, 'utf8').catch(absent('')),
+        );
+        // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
         if (
-          link &&
-          resolve(top, link) === plan &&
-          (await ignored(git, folder))
-        ) {
-          signal?.throwIfAborted();
-          await rm(folder, { recursive: true, force: true });
-          progress.ledgers.push(folder);
+          created.size !== 1 ||
+          !created.has(branch) ||
+          !(await ignored(git, plan))
+        )
+          continue;
+        // the ledgers first, since only the plan leads to them
+        for (const ledger of await readdir(ledgers).catch(absent([]))) {
+          const folder = join(ledgers, ledger);
+          if (progress.ledgers.includes(folder)) continue;
+          const link = (
+            await readFile(join(folder, 'plan-path'), 'utf8').catch(absent(''))
+          ).trim();
+          if (
+            link &&
+            resolve(top, link) === plan &&
+            (await ignored(git, folder))
+          ) {
+            signal?.throwIfAborted();
+            await rm(folder, { recursive: true, force: true });
+            progress.ledgers.push(folder);
+          }
         }
+        signal?.throwIfAborted();
+        await rm(plan);
+        removed.push(plan);
+      } catch (error) {
+        if (error === signal?.reason) throw error;
+        stayed.push(plan);
+        progress.reason ??= errorMessage(error).trim();
       }
-      signal?.throwIfAborted();
-      await rm(plan);
-      removed.push(name);
-    } catch (error) {
-      if (error === signal?.reason) throw error;
-      stayed.push(name);
-      progress.reason ??= errorMessage(error).trim();
     }
   }
   progress.done = true;
