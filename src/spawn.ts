@@ -65,9 +65,9 @@ function commandFailure(command: string, error: unknown): string {
 
 /**
  * clones an ignored file or directory of the main checkout into a new worktree, leaving out what its copy would act on
- * as the original: a Godot `.godot`, where a project's tooling can mark the main checkout's running engine, as netshooter's `instances` does, a worktree or
- * submodule, whose `.git` file points at the original's git directory, and a virtualenv, whose scripts run the main
- * checkout's interpreter. a nested clone with its own `.git` directory comes along. the merge cleanup's plans and
+ * as the original: a Godot `.godot`, where a project's tooling can mark the main checkout's running engine, a worktree
+ * or submodule, whose `.git` file names a git directory the copy doesn't own, and a virtualenv, whose scripts run the
+ * main checkout's interpreter. a nested clone with its own `.git` directory comes along. the merge cleanup's plans and
  * ledgers stay with their checkout.
  */
 async function seed(
