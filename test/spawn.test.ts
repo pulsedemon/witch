@@ -62,6 +62,13 @@ function recording(
 ) {
   const calls: { command: string; args: string[]; cwd: string }[] = [];
   const run: Run = async (command, args, options) => {
+    // Linux ci's GNU cp has no -c, the clone flag on macOS
+    if (command === 'cp' && process.platform !== 'darwin')
+      return runCommand(
+        command,
+        args.filter((arg) => arg !== '-c'),
+        options,
+      );
     if (['git', 'cp', 'find'].includes(command))
       return runCommand(command, args, options);
     calls.push({ command, args, cwd: options.cwd });
@@ -337,12 +344,35 @@ test('an ignored file that fails to copy is reported along with a failed install
   ).slots;
   assert.match(
     spawned!.error!,
-    /^copy failed: cp: .*a\.local: Permission denied, pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE$/,
+    /^copy failed: cp: .*a\.local.*Permission denied, pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE$/,
   );
   assert.equal(spawned!.opened, true);
   assert.deepEqual(tabs(), [[slot(1)]]);
   assert.equal(await exists(join(slot(1), 'a.local')), false);
   assert.equal(await readFile(join(slot(1), 'b.local'), 'utf8'), 'b');
+});
+
+test('a directory copy that fails partway still leaves out what its copy would act on', async () => {
+  const { main, slot } = await checkout();
+  await writeFile(join(main, '.gitignore'), 'tools/\n');
+  await git(main, 'add', '.');
+  await git(main, 'commit', '-m', 'ignores');
+  await git(main, 'push');
+  await mkdir(join(main, 'tools', 'venv'), { recursive: true });
+  await writeFile(join(main, 'tools', 'venv', 'pyvenv.cfg'), '');
+  await writeFile(join(main, 'tools', 'locked'), '');
+  await chmod(join(main, 'tools', 'locked'), 0o000);
+  const [spawned] = (
+    await spawnWorktrees(main, 1, {
+      run: recording().run,
+      live: async () => false,
+    })
+  ).slots;
+  assert.match(
+    spawned!.error!,
+    /^copy failed: cp: .*locked.*Permission denied$/,
+  );
+  assert.equal(await exists(join(slot(1), 'tools', 'venv')), false);
 });
 
 test('an ignored file that leaves the main checkout while its worktree is created is skipped, and the rest are copied', async () => {
@@ -478,15 +508,21 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
       '.claude/settings.local.json',
       '.claude/worktrees/',
       'node_modules/',
-      'app/.godot/',
+      'app/.godot/*',
+      '!app/.godot/.gitkeep',
+      'app/.plugged/',
+      'game/.godot/',
       'tools/',
       '.superpowers/',
       'docs/superpowers/plans/*.md',
       '',
     ].join('\n'),
   );
-  await mkdir(join(main, 'app'));
-  await writeFile(join(main, 'app', 'project.godot'), '');
+  // one cache partly tracked, so git lists its contents on their own, and one wholly ignored
+  await mkdir(join(main, 'app', '.godot'), { recursive: true });
+  await writeFile(join(main, 'app', '.godot', '.gitkeep'), '');
+  await mkdir(join(main, 'game'));
+  await writeFile(join(main, 'game', 'project.godot'), '');
   await mkdir(join(main, 'docs', 'superpowers', 'plans'), { recursive: true });
   await writeFile(join(main, 'docs', 'superpowers', 'plans', '.gitkeep'), '');
   await git(main, 'add', '.');
@@ -501,7 +537,9 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
   await local('.claude/settings.local.json', '{"main":1}');
   await local('node_modules/x/index.js');
   await local('app/.godot/instances/1');
+  await local('game/.godot/instances/1');
   await local('.claude/worktrees/agent/.git', 'gitdir: elsewhere');
+  await local('app/.plugged/addon/.git/HEAD', 'ref: refs/heads/main');
   await local('tools/venv/pyvenv.cfg');
   await local('tools/notes.txt');
   await local('.superpowers/sdd/ledger');
@@ -520,12 +558,14 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
   );
   for (const path of [
     'node_modules/x/index.js',
+    'app/.plugged/addon/.git/HEAD',
     'tools/notes.txt',
     '.superpowers/brainstorm.md',
   ])
     assert.equal(await copied(path), true, path);
   for (const path of [
-    'app/.godot',
+    'app/.godot/instances',
+    'game/.godot',
     '.claude/worktrees/agent',
     'tools/venv',
     '.superpowers/sdd',

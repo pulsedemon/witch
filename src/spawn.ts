@@ -1,4 +1,4 @@
-import { mkdir, realpath, rm } from 'node:fs/promises';
+import { mkdir, realpath, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { errorMessage } from './agents/stderr.js';
 import { runCommand } from './core/command.js';
@@ -65,9 +65,10 @@ function commandFailure(command: string, error: unknown): string {
 
 /**
  * clones an ignored file or directory of the main checkout into a new worktree, leaving out what its copy would act on
- * as the original: Godot's `.godot`, whose `instances` markers name the main checkout's running engine, a nested
- * checkout, which git takes for the same one, and a virtualenv, whose scripts run the main checkout's interpreter. the
- * merge cleanup's plans stay with their checkout.
+ * as the original: Godot's `.godot`, whose `instances` markers name the main checkout's running engine, a worktree or
+ * submodule, whose `.git` file points at the original's git directory, and a virtualenv, whose scripts run the main
+ * checkout's interpreter. a nested clone with its own `.git` directory comes along. the merge cleanup's plans stay with
+ * their checkout.
  */
 async function seed(
   run: Run,
@@ -80,18 +81,31 @@ async function seed(
   const plans = Object.values(planDirectories).map((plan) => join(main, plan));
   const left = async (directory: string) =>
     basename(directory) === '.godot' ||
-    (await exists(join(directory, '.git'))) ||
+    !!(await stat(join(directory, '.git')).catch(() => undefined))?.isFile() ||
     (await exists(join(directory, 'pyvenv.cfg')));
   // gone since the listing, such as a pruned capture, or already in the worktree
   if (!(await exists(source)) || (await exists(target))) return;
   if (plans.some((plan) => `${source}/`.startsWith(`${plan}/`))) return;
-  if (path.endsWith('/') && (await left(source))) return;
+  // git lists what sits inside a partly tracked directory on its own
+  for (
+    let directory = source;
+    directory !== main;
+    directory = dirname(directory)
+  )
+    if (await left(directory)) return;
   await mkdir(dirname(target), { recursive: true });
   // node's copyFile can't clone on macOS, so cp -c does, and dependencies and assets cost no space until a copy changes
-  await run('cp', ['-c', '-R', source, target], { cwd: main, timeout: 0 });
-  if (!path.endsWith('/')) return;
-  const found = (
-    await run(
+  const copy = run('cp', ['-c', '-R', source, target], {
+    cwd: main,
+    timeout: 0,
+  });
+  if (!path.endsWith('/')) {
+    await copy;
+    return;
+  }
+  // a failed copy still leaves what it got through, so what stays behind is removed either way
+  await copy.finally(async () => {
+    const found = await run(
       'find',
       [
         source,
@@ -103,6 +117,8 @@ async function seed(
         '-o',
         '-name',
         '.git',
+        '-type',
+        'f',
         '-o',
         '-name',
         'pyvenv.cfg',
@@ -111,22 +127,26 @@ async function seed(
         '-print0',
       ],
       { cwd: main, timeout: 60_000 },
-    )
-  ).stdout
-    .split('\0')
-    .filter(Boolean)
-    .map((match) => (basename(match) === '.godot' ? match : dirname(match)));
-  for (const leftover of [...found, ...plans])
-    if (leftover.startsWith(`${source}/`))
-      await rm(join(target, relative(source, leftover)), {
-        recursive: true,
-        force: true,
-      });
+    ).catch(async (error: unknown) => {
+      await rm(target, { recursive: true, force: true });
+      throw error;
+    });
+    const leftovers = found.stdout
+      .split('\0')
+      .filter(Boolean)
+      .map((match) => (basename(match) === '.godot' ? match : dirname(match)));
+    for (const leftover of [...leftovers, ...plans])
+      if (leftover.startsWith(`${source}/`))
+        await rm(join(target, relative(source, leftover)), {
+          recursive: true,
+          force: true,
+        });
+  });
 }
 
 /**
  * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
- * main checkout's ignored files and directories into each new one, except what `copies` leaves behind. in each one where
+ * main checkout's ignored files and directories into each new one, except what `seed` leaves behind. in each one where
  * `live` finds no session, runs `pnpm install` if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes or
  * moves a worktree.
  */
