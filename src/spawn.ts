@@ -1,6 +1,5 @@
-import { constants } from 'node:fs';
-import { cp, realpath } from 'node:fs/promises';
-import { join, sep } from 'node:path';
+import { mkdir, realpath, rm } from 'node:fs/promises';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { errorMessage } from './agents/stderr.js';
 import { runCommand } from './core/command.js';
 import { planDirectories } from './core/merged.js';
@@ -65,10 +64,71 @@ function commandFailure(command: string, error: unknown): string {
 }
 
 /**
+ * clones an ignored file or directory of the main checkout into a new worktree, leaving out what its copy would act on
+ * as the original: Godot's `.godot`, whose `instances` markers name the main checkout's running engine, a nested
+ * checkout, which git takes for the same one, and a virtualenv, whose scripts run the main checkout's interpreter. the
+ * merge cleanup's plans stay with their checkout.
+ */
+async function seed(
+  run: Run,
+  main: string,
+  worktree: string,
+  path: string,
+): Promise<void> {
+  const source = join(main, path).replace(/\/$/, '');
+  const target = join(worktree, path).replace(/\/$/, '');
+  const plans = Object.values(planDirectories).map((plan) => join(main, plan));
+  const left = async (directory: string) =>
+    basename(directory) === '.godot' ||
+    (await exists(join(directory, '.git'))) ||
+    (await exists(join(directory, 'pyvenv.cfg')));
+  // gone since the listing, such as a pruned capture, or already in the worktree
+  if (!(await exists(source)) || (await exists(target))) return;
+  if (plans.some((plan) => `${source}/`.startsWith(`${plan}/`))) return;
+  if (path.endsWith('/') && (await left(source))) return;
+  await mkdir(dirname(target), { recursive: true });
+  // node's copyFile can't clone on macOS, so cp -c does, and dependencies and assets cost no space until a copy changes
+  await run('cp', ['-c', '-R', source, target], { cwd: main, timeout: 0 });
+  if (!path.endsWith('/')) return;
+  const found = (
+    await run(
+      'find',
+      [
+        source,
+        '-mindepth',
+        '1',
+        '(',
+        '-name',
+        '.godot',
+        '-o',
+        '-name',
+        '.git',
+        '-o',
+        '-name',
+        'pyvenv.cfg',
+        ')',
+        '-prune',
+        '-print0',
+      ],
+      { cwd: main, timeout: 60_000 },
+    )
+  ).stdout
+    .split('\0')
+    .filter(Boolean)
+    .map((match) => (basename(match) === '.godot' ? match : dirname(match)));
+  for (const leftover of [...found, ...plans])
+    if (leftover.startsWith(`${source}/`))
+      await rm(join(target, relative(source, leftover)), {
+        recursive: true,
+        force: true,
+      });
+}
+
+/**
  * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
- * ignored files git lists one by one in the main checkout, except the merge cleanup's plans, into each new one. in each
- * one where `live` finds no session, runs `pnpm install` if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never
- * removes or moves a worktree.
+ * main checkout's ignored files and directories into each new one, except what `copies` leaves behind. in each one where
+ * `live` finds no session, runs `pnpm install` if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes or
+ * moves a worktree.
  */
 export async function spawnWorktrees(
   cwd: string,
@@ -102,9 +162,6 @@ export async function spawnWorktrees(
     throw new Error(`${main} has no upstream branch to start worktrees from.`);
   // a signal would detach git from the terminal, where ssh asks for a passphrase, and a timeout would kill it mid-prompt
   await run('git', ['fetch', remote], { cwd: main, timeout: 0 });
-  // files git lists one by one include local config such as `.env.local`, and any output that sits beside tracked
-  // files. a whole ignored directory stays behind: usually dependencies and caches, but it can hold live state, such as
-  // another engine's process markers. plans stay with the checkout whose merge cleanup removes them
   const local = (
     await git(
       main,
@@ -117,14 +174,7 @@ export async function spawnWorktrees(
     )
   )
     .split('\0')
-    .filter(
-      (file) =>
-        file &&
-        !file.endsWith('/') &&
-        !Object.values(planDirectories).some((directory) =>
-          file.startsWith(`${directory}/`),
-        ),
-    );
+    .filter(Boolean);
   const slots: Spawned[] = [];
   for (let index = 1; index <= count; index++) {
     const spawned: Spawned = {
@@ -142,16 +192,9 @@ export async function spawnWorktrees(
         spawned.error = failure(error);
         continue;
       }
-      // clones on APFS, so a large ignored file costs no space until either copy changes
-      for (const file of local)
-        await cp(join(main, file), join(spawned.path, file), {
-          mode: constants.COPYFILE_FICLONE,
-          force: false,
-          verbatimSymlinks: true,
-        }).catch((error: unknown) => {
-          // gone from the main checkout since the listing, such as a pruned capture
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-            report(spawned, failure(error));
+      for (const path of local)
+        await seed(run, main, spawned.path, path).catch((error: unknown) => {
+          report(spawned, commandFailure('copy', error));
         });
     }
     if (await exists(spawned.path)) spawned.slot = true;

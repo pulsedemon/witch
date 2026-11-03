@@ -8,7 +8,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
@@ -50,7 +50,7 @@ async function checkout(name = 'repo', lockfile = true) {
 }
 
 /**
- * runs git for real and records `pnpm` and `osascript`. a call `fail` returns output for rejects as execFile does, with
+ * runs git, cp and find for real and records `pnpm` and `osascript`. a call `fail` returns output for rejects as execFile does, with
  * the command line in its message; one it returns an error for rejects with that error.
  */
 function recording(
@@ -62,7 +62,8 @@ function recording(
 ) {
   const calls: { command: string; args: string[]; cwd: string }[] = [];
   const run: Run = async (command, args, options) => {
-    if (command === 'git') return runCommand(command, args, options);
+    if (['git', 'cp', 'find'].includes(command))
+      return runCommand(command, args, options);
     calls.push({ command, args, cwd: options.cwd });
     const failure = fail(command, options.cwd);
     if (failure instanceof Error) throw failure;
@@ -336,7 +337,7 @@ test('an ignored file that fails to copy is reported along with a failed install
   ).slots;
   assert.match(
     spawned!.error!,
-    /^EACCES: .*a\.local.*, pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE$/,
+    /^copy failed: cp: .*a\.local: Permission denied, pnpm install failed: ERR_PNPM_OUTDATED_LOCKFILE$/,
   );
   assert.equal(spawned!.opened, true);
   assert.deepEqual(tabs(), [[slot(1)]]);
@@ -468,39 +469,69 @@ test('an unreadable open conversation record blocks tabs and names its file', as
   assert.deepEqual(calls, []);
 });
 
-test("a new worktree gets the main checkout's ignored files, but not its ignored directories or plans, and a reused one keeps its own", async () => {
+test("a new worktree gets the main checkout's ignored files and directories, except what its copy would act on and the plans, and a reused one keeps its own", async () => {
   const { main, slot } = await checkout();
   await writeFile(
     join(main, '.gitignore'),
-    '.env.local\n.claude/settings.local.json\nnode_modules/\ndocs/superpowers/plans/*.md\n',
+    [
+      '.env.local',
+      '.claude/settings.local.json',
+      '.claude/worktrees/',
+      'node_modules/',
+      'app/.godot/',
+      'tools/',
+      '.superpowers/',
+      'docs/superpowers/plans/*.md',
+      '',
+    ].join('\n'),
   );
+  await mkdir(join(main, 'app'));
+  await writeFile(join(main, 'app', 'project.godot'), '');
   await mkdir(join(main, 'docs', 'superpowers', 'plans'), { recursive: true });
   await writeFile(join(main, 'docs', 'superpowers', 'plans', '.gitkeep'), '');
   await git(main, 'add', '.');
   await git(main, 'commit', '-m', 'ignores');
   await git(main, 'push');
-  await writeFile(join(main, '.env.local'), 'main\n');
+  const local = async (path: string, text = '') => {
+    await mkdir(dirname(join(main, path)), { recursive: true });
+    await writeFile(join(main, path), text);
+  };
+  await local('.env.local', 'main\n');
   // alone in an untracked directory, which git lists along with the file, as in netshooter
-  await mkdir(join(main, '.claude'));
-  await writeFile(join(main, '.claude', 'settings.local.json'), '{"main":1}');
-  await mkdir(join(main, 'node_modules', 'x'), { recursive: true });
-  await writeFile(join(main, 'node_modules', 'x', 'index.js'), '');
-  await writeFile(join(main, 'docs', 'superpowers', 'plans', 'task.md'), '');
+  await local('.claude/settings.local.json', '{"main":1}');
+  await local('node_modules/x/index.js');
+  await local('app/.godot/instances/1');
+  await local('.claude/worktrees/agent/.git', 'gitdir: elsewhere');
+  await local('tools/venv/pyvenv.cfg');
+  await local('tools/notes.txt');
+  await local('.superpowers/sdd/ledger');
+  await local('.superpowers/brainstorm.md');
+  await local('docs/superpowers/plans/task.md');
   const { run } = recording();
   assert.deepEqual(
     (await spawnWorktrees(main, 1, { run, live: async () => false })).slots,
     [{ path: slot(1), slot: true, created: true, opened: true }],
   );
+  const copied = async (path: string) => exists(join(slot(1), path));
   assert.equal(await readFile(join(slot(1), '.env.local'), 'utf8'), 'main\n');
   assert.equal(
     await readFile(join(slot(1), '.claude', 'settings.local.json'), 'utf8'),
     '{"main":1}',
   );
-  assert.equal(await exists(join(slot(1), 'node_modules')), false);
-  assert.equal(
-    await exists(join(slot(1), 'docs', 'superpowers', 'plans', 'task.md')),
-    false,
-  );
+  for (const path of [
+    'node_modules/x/index.js',
+    'tools/notes.txt',
+    '.superpowers/brainstorm.md',
+  ])
+    assert.equal(await copied(path), true, path);
+  for (const path of [
+    'app/.godot',
+    '.claude/worktrees/agent',
+    'tools/venv',
+    '.superpowers/sdd',
+    'docs/superpowers/plans/task.md',
+  ])
+    assert.equal(await copied(path), false, path);
   assert.equal(await git(slot(1), 'status', '--porcelain'), '');
   await writeFile(join(slot(1), '.env.local'), 'slot\n');
   await writeFile(join(main, '.env.local'), 'changed\n');
