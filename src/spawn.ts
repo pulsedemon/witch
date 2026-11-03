@@ -65,7 +65,7 @@ function commandFailure(command: string, error: unknown): string {
 
 /**
  * clones an ignored file or directory of the main checkout into a new worktree, leaving out what its copy would act on
- * as the original: Godot's `.godot`, whose `instances` markers name the main checkout's running engine, a worktree or
+ * as the original: a Godot `.godot`, where a project's tooling can mark the main checkout's running engine, as netshooter's `instances` does, a worktree or
  * submodule, whose `.git` file points at the original's git directory, and a virtualenv, whose scripts run the main
  * checkout's interpreter. a nested clone with its own `.git` directory comes along. the merge cleanup's plans stay with
  * their checkout.
@@ -195,6 +195,13 @@ export async function spawnWorktrees(
   )
     .split('\0')
     .filter(Boolean);
+  // a directory whose own .gitignore is listed, such as a tool's cache, ignores itself wherever it's copied
+  const carried = local.filter(
+    (path) => path.endsWith('/') && local.includes(`${path}.gitignore`),
+  );
+  const checked = local.filter(
+    (path) => !carried.some((directory) => path.startsWith(directory)),
+  );
   const slots: Spawned[] = [];
   for (let index = 1; index <= count; index++) {
     const spawned: Spawned = {
@@ -213,14 +220,14 @@ export async function spawnWorktrees(
         continue;
       }
       // the worktree's .gitignore is the upstream's, so a copy it doesn't ignore, such as a secret, could get committed
-      const ignored: string[] | undefined = await (local.length
+      const ignored: string[] | undefined = await (checked.length
         ? git(
             spawned.path,
             '-c',
             'core.quotePath=false',
             'check-ignore',
             '--',
-            ...local,
+            ...checked,
           ).then(
             (stdout) => stdout.split('\n'),
             (error: unknown) => {
@@ -233,12 +240,12 @@ export async function spawnWorktrees(
         : []);
       if (ignored) {
         // a directory git lists only because all it holds is ignored has its files listed, and checked, on their own
-        const unignored = local.filter(
+        const unignored = checked.filter(
           (path) =>
             !ignored.includes(path) &&
             !(
               path.endsWith('/') &&
-              local.some((other) => other !== path && other.startsWith(path))
+              checked.some((other) => other !== path && other.startsWith(path))
             ),
         );
         if (unignored.length)
@@ -246,7 +253,10 @@ export async function spawnWorktrees(
             spawned,
             `not copied, since the worktree doesn't ignore them: ${unignored.join(', ')}`,
           );
-        for (const path of local.filter((path) => ignored.includes(path)))
+        for (const path of [
+          ...carried,
+          ...checked.filter((path) => ignored.includes(path)),
+        ])
           await seed(run, main, spawned.path, path).catch((error: unknown) => {
             report(spawned, commandFailure('copy', error));
           });

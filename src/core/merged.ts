@@ -368,7 +368,8 @@ async function clean(
         ).catch(stopped);
     }
     await fetchRemote(git, '--prune').catch(stopped);
-    // every fetch comes before the checks below, since a slow one gives another terminal time to switch or edit
+    // a detach takes the base's upstream as it is now, so its own remote is fetched here, before the checks below, since
+    // a slow fetch gives another terminal time to switch or edit
     if (progress.detached) {
       const remote = (name: string) =>
         configValue(git, `branch.${name}.remote`).catch(stopped);

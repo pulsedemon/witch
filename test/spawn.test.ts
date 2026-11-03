@@ -595,6 +595,9 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
   await local('.superpowers/sdd/ledger');
   await local('.superpowers/brainstorm.md');
   await local('docs/superpowers/plans/task.md');
+  // ignored only by its own .gitignore, like husky's hooks or a pytest cache, which the worktree lacks until it's copied
+  await local('.cache/.gitignore', '*\n');
+  await local('.cache/data');
   const { run } = recording();
   assert.deepEqual(
     (await spawnWorktrees(main, 1, { run, live: async () => false })).slots,
@@ -608,6 +611,7 @@ test("a new worktree gets the main checkout's ignored files and directories, exc
   );
   for (const path of [
     'node_modules/x/index.js',
+    '.cache/data',
     'app/.plugged/addon/.git/HEAD',
     'tools/notes.txt',
     '.superpowers/brainstorm.md',
