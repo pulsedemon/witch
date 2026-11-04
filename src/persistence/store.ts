@@ -228,13 +228,15 @@ export class StateStore {
 
   /**
    * rewrites a closed conversation's raw `state.json` under its lock, without the recovery `claim` does, keeping the
-   * fields its schema doesn't know and its times. `change` returns the new record, or undefined to leave it.
+   * fields its schema doesn't know and its times. `change` returns the new record, or undefined to leave it, and can
+   * `save` one before then.
    */
   async repairRecord(
     id: string,
     change: (
       raw: Record<string, unknown>,
       directory: string,
+      save: (record: Record<string, unknown>) => Promise<void>,
     ) => Promise<Record<string, unknown> | undefined>,
   ): Promise<'repaired' | 'unchanged'> {
     const directory = this.directory(id);
@@ -242,15 +244,18 @@ export class StateStore {
     try {
       const file = recordPath(directory);
       const { atime, mtime } = await stat(file);
+      const save = (record: Record<string, unknown>) =>
+        replaceFile(file, `${JSON.stringify(record, null, 2)}\n`, {
+          atime,
+          mtime,
+        });
       const record = await change(
         JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>,
         directory,
+        save,
       );
       if (!record) return 'unchanged';
-      await replaceFile(file, `${JSON.stringify(record, null, 2)}\n`, {
-        atime,
-        mtime,
-      });
+      await save(record);
       return 'repaired';
     } finally {
       await unlock();

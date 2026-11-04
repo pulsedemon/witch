@@ -97,6 +97,9 @@ export const conversationRecordSchema = conversationSchema.extend({
   // the newest ledger move's time when the conversation was created or a repair last set `cwd`; moves recorded up to it
   // belong to other directories
   cwdSince: z.string().optional(),
+  // the directory history rows named when a move repair set `cwd`, kept until it rewrites them, since a crash can stop
+  // it between the two writes
+  historyCwd: z.string().optional(),
   activity: z
     .object({
       id: z.string(),

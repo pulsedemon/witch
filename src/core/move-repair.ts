@@ -356,7 +356,8 @@ async function repairConversations(
         tally.unresolved.push(saved.cwd);
         continue;
       }
-      if (target === saved.cwd) continue;
+      // one left with `historyCwd` still has its history to rewrite
+      if (target === saved.cwd && saved.historyCwd === undefined) continue;
       // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
       const destination = [...prefixes(target)].flatMap(
         (path) => resolvedPaths.get(path) ?? [],
@@ -371,7 +372,11 @@ async function repairConversations(
       const repaired =
         preview ||
         (await rewrite(store, saved, target, destination, resolved, report));
-      if (repaired) tally.repaired.push({ from: saved.cwd, to: target });
+      if (repaired)
+        tally.repaired.push({
+          from: target === saved.cwd ? saved.historyCwd! : saved.cwd,
+          to: target,
+        });
     } catch (error) {
       report.blocked.push({
         path: saved.cwd,
@@ -485,7 +490,7 @@ async function rewrite(
 ): Promise<boolean> {
   try {
     return (
-      (await store.repairRecord(saved.id, async (raw, directory) => {
+      (await store.repairRecord(saved.id, async (raw, directory, save) => {
         const current = conversationRecordSchema.parse(raw);
         if (current.cwd !== saved.cwd) return undefined;
         // holding the lock means no Witch has it open, so these are left from a crash, and claim would stop them too
@@ -510,19 +515,28 @@ async function rewrite(
           });
           return undefined;
         }
+        const moved = { ...raw, cwd: target, cwdSince: resolved.at };
         const history = join(directory, 'history.jsonl');
         const times = await unlessGone(stat(history));
         if (times) {
-          const { content, count } = rewriteLines(
-            await readFile(history),
-            (cwd) =>
-              within(cwd, saved.cwd)
-                ? target + cwd.slice(saved.cwd.length)
-                : cwd,
-          );
-          if (count) await replaceFile(history, content, times);
+          const content = await readFile(history);
+          const moveRows = (from: string) =>
+            rewriteLines(content, (cwd) =>
+              within(cwd, from) ? target + cwd.slice(from.length) : cwd,
+            );
+          // the rows still name an earlier repair's `historyCwd` until that repair's history write lands
+          let named = current.historyCwd;
+          let rewritten = named === undefined ? undefined : moveRows(named);
+          if (!rewritten?.count) {
+            named = saved.cwd;
+            rewritten = moveRows(named);
+          }
+          if (rewritten.count) {
+            await save({ ...moved, historyCwd: named });
+            await replaceFile(history, rewritten.content, times);
+          }
         }
-        return { ...raw, cwd: target, cwdSince: resolved.at };
+        return { ...moved, historyCwd: undefined };
       })) === 'repaired'
     );
   } catch (error) {
