@@ -15,6 +15,7 @@ import {
   identify,
   sameIdentity,
   mapper,
+  prefixes,
   readLedger,
   relocate,
   resolve,
@@ -268,17 +269,21 @@ export async function repairMoves(
       : updateLedger(store.root, apply);
 
   const found = await change(async (ledger) => {
-    // record cwds, where the ledger already took them included, Git-backed entries and ones holding a seed are worth
-    // finding
+    // Git-backed entries and ones holding a seed or a record cwd, where the ledger already took it included, are worth
+    // finding. each such holder is collected once, so the check stays linear in entries and records
     const { map } = await mapper(ledger);
+    const held = new Set<string>();
+    for (const path of [
+      ...seeds,
+      ...records.flatMap((saved) => [
+        saved.cwd,
+        map(saved.cwd, savedBefore(saved)),
+      ]),
+    ])
+      if (path !== undefined)
+        for (const prefix of prefixes(path)) held.add(prefix);
     const used = (entry: DirectoryEntry) =>
-      entry.main !== undefined ||
-      seeds.some((seed) => within(seed, entry.path)) ||
-      records.some(
-        (saved) =>
-          within(saved.cwd, entry.path) ||
-          within(map(saved.cwd, savedBefore(saved)) ?? '', entry.path),
-      );
+      entry.main !== undefined || held.has(entry.path);
     const moves = await findMoves(
       ledger.entries.filter(used),
       seeds,
@@ -288,13 +293,16 @@ export async function repairMoves(
           reason: `Couldn't look for where it went: ${errorMessage(error)}`,
         }),
     );
-    const copy = declared && (await identify(declared.to));
-    if (declared && !copy)
+    const copyIdentity = declared && (await identify(declared.to));
+    if (declared && !copyIdentity)
       report.blocked.push({
         path: declared.to,
         reason: 'The destination directory is gone',
       });
-    const vouched = declared && copy && { path: declared.to, ...copy };
+    const vouched =
+      declared && copyIdentity
+        ? { path: declared.to, ...copyIdentity }
+        : undefined;
     if (declared && vouched)
       moves.push({
         ...declared,

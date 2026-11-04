@@ -246,7 +246,7 @@ export async function mapper(ledger: Ledger): Promise<{
 }
 
 /** every path `path` is within, itself first and `/` last, at each separator however many it repeats. */
-function* prefixes(path: string): Generator<string> {
+export function* prefixes(path: string): Generator<string> {
   yield path;
   for (
     let at = path.lastIndexOf('/');
