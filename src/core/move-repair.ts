@@ -377,6 +377,13 @@ export async function repairMoves(
   // what the conversations' mappings rely on, as resolved, which each rewrite rechecks under its lock
   const mapping = await mapper(resolved.ledger);
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
+  // each directory this repair resolved, by path, a ledger entry over a move found to the same place
+  const resolvedAt = new Map<string, Identity & { path: string }>();
+  for (const known of [
+    ...resolved.ledger.entries,
+    ...found.map(({ to, device, inode }) => ({ path: to, device, inode })),
+  ])
+    if (!resolvedAt.has(known.path)) resolvedAt.set(known.path, known);
   for (const saved of records) {
     try {
       const target = map(saved.cwd, savedBefore(saved));
@@ -393,15 +400,9 @@ export async function repairMoves(
       }
       if (target === saved.cwd) continue;
       // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
-      const destination = [
-        ...resolved.ledger.entries,
-        ...found.map(({ to, device, inode }) => ({ path: to, device, inode })),
-      ]
-        .filter(({ path }) => within(target, path))
-        .sort((a, b) => b.path.length - a.path.length)[0] ?? {
-        path: target,
-        ...current,
-      };
+      const destination = [...prefixes(target)].flatMap(
+        (path) => resolvedAt.get(path) ?? [],
+      )[0] ?? { path: target, ...current };
       if (!(await compatible(memory, saved, saved.cwd, target))) {
         report.blocked.push({
           path: saved.cwd,

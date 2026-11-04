@@ -239,6 +239,7 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
     for (const key of visited) followed.set(key, result);
     return result;
   };
+  const byPath = new Map(ledger.entries.map((entry) => [entry.path, entry]));
   // a known directory carried by a parent's move that isn't where the move would put it hasn't moved with it
   const stranded: string[] = [];
   for (const entry of ledger.entries) {
@@ -258,8 +259,9 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
     async unchanged(path, owner) {
       const consulted: number[] = [];
       raw(path, owner, consulted);
-      for (const entry of ledger.entries) {
-        if (!within(path, entry.path)) continue;
+      for (const prefix of prefixes(path)) {
+        const entry = byPath.get(prefix);
+        if (!entry) continue;
         const target = raw(entry.path, undefined, consulted);
         if (target === undefined || target === entry.path) continue;
         const missing = !sameIdentity(
