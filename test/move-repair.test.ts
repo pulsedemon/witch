@@ -20,7 +20,7 @@ import { describeMoves, repairMoves } from '../src/core/move-repair.js';
 import type { Run } from '../src/core/repository.js';
 import type { ConversationRecord } from '../src/core/state.js';
 import { projectKey } from '../src/memory/memory.js';
-import { readLedger } from '../src/persistence/directories.js';
+import { readLedger, updateLedger } from '../src/persistence/directories.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import { quote } from '../src/shell.js';
@@ -697,6 +697,67 @@ test("a replacement child follows its parent's later move, not the earlier child
   assert.equal((await f.saved('second')).raw.cwd, f.at('b/sub'));
   assert.deepEqual(await f.store.prompts(f.at('b/sub')), [
     'in the replacement',
+  ]);
+});
+
+test('a destination replaced between two conversations keeps the later one where it was', async () => {
+  const f = await setup();
+  // whichever stop comes first swaps the destination; the other conversation is checked against the ledger
+  const swap = `if (!fs.existsSync(${JSON.stringify(f.at('actual'))})) { fs.renameSync(${JSON.stringify(f.at('c/main'))}, ${JSON.stringify(f.at('actual'))}); fs.mkdirSync(${JSON.stringify(f.at('c/main'))}); }`;
+  const children = ['one', 'two'].map(() =>
+    spawn(process.execPath, [
+      '-e',
+      `const fs = require('node:fs'); process.on('SIGTERM', () => { ${swap} process.exit(0); }); console.log('ready'); setTimeout(() => {}, 60_000);`,
+    ]),
+  );
+  try {
+    for (const [index, child] of children.entries()) {
+      await new Promise((ready) => child.stdout.once('data', ready));
+      await f.save(`live-${index}`, 'w/main', {
+        process: await identifyProcess(child.pid!),
+      });
+    }
+    await rename(f.at('w'), f.at('c'));
+    await f.repair('c/main');
+    for (const index of [0, 1])
+      assert.equal((await f.saved(`live-${index}`)).raw.cwd, f.at('w/main'));
+  } finally {
+    for (const child of children) child.kill('SIGKILL');
+  }
+});
+
+test('prompts added while repair waits for the ledger lock stay with the moved directory', async () => {
+  const f = await setup();
+  await f.store.addPrompt(f.at('w/main'), 'first');
+  await rename(f.at('w'), f.at('c'));
+  let entered!: () => void;
+  const inside = new Promise<void>((done) => (entered = done));
+  let release!: () => void;
+  const gate = new Promise<void>((done) => (release = done));
+  const held = updateLedger(f.at('state'), async () => {
+    entered();
+    await gate;
+  });
+  await inside;
+  // the old boundary was read right after this listing, before the lock
+  let listed!: () => void;
+  const reached = new Promise<void>((done) => (listed = done));
+  const repairing = repairMoves(f.store, f.memory, f.at('c/main'), {
+    run: async (command, args, options) => {
+      const result = await runCommand(command, args, options);
+      if (args[0] === 'worktree') listed();
+      return result;
+    },
+  });
+  await reached;
+  await new Promise((settled) => setTimeout(settled, 100));
+  await f.store.addPrompt(f.at('w/main'), 'while waiting');
+  release();
+  await held;
+  await repairing;
+  assert.deepEqual(await f.store.prompts(f.at('c/main')), [
+    'while waiting',
+    'first',
   ]);
 });
 

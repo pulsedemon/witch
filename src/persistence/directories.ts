@@ -136,7 +136,7 @@ export async function updateLedger<T>(
 
 type Source = 'gone' | 'back' | 'reused';
 
-/** what mapped a path: whether it predates a move, and whether that carries it past a path another directory took. */
+/** the owner of a mapped path: which moves it predates, and whether it follows one past a path another directory took. */
 export interface Owner {
   predates(move: LedgerMove): boolean;
   throughReused: boolean;

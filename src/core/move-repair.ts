@@ -230,8 +230,6 @@ export async function repairMoves(
     );
   const listed = await worktreeList(run, cwd);
   const seeds = [cwd, ...(listed ?? [])];
-  const promptsSize =
-    (await unlessGone(stat(join(store.root, 'prompts.jsonl'))))?.size ?? 0;
 
   if (declared) {
     const problem = await (async () => {
@@ -279,6 +277,9 @@ export async function repairMoves(
       const identity = (await identify(declared.to))!;
       moves.push({ ...declared, ...identity });
     }
+    // read under the ledger lock, so prompts added while repair waited for it count as before the move
+    const promptsSize =
+      (await unlessGone(stat(join(store.root, 'prompts.jsonl'))))?.size ?? 0;
     await resolve(ledger, moves, promptsSize);
     // a declared move is a copy, so the directories under it have new identities the user vouches for
     if (declared)
@@ -334,12 +335,18 @@ export async function repairMoves(
         else tally.unresolved.push(saved.cwd);
         continue;
       }
-      const destination = await identify(target);
-      if (!destination) {
+      if (!(await exists(target))) {
         tally.unresolved.push(saved.cwd);
         continue;
       }
       if (target === saved.cwd) continue;
+      // the directory the ledger resolved there, so one put in its place during the repair isn't taken for it
+      const destination = ledger.entries
+        .filter(({ path }) => within(target, path))
+        .sort((a, b) => b.path.length - a.path.length)[0] ?? {
+        path: target,
+        ...(await identify(target))!,
+      };
       if (!(await compatible(memory, saved, saved.cwd, target))) {
         report.blocked.push({
           path: saved.cwd,
@@ -348,8 +355,7 @@ export async function repairMoves(
         continue;
       }
       const repaired =
-        preview ||
-        (await rewrite(store, saved, { path: target, ...destination }, report));
+        preview || (await rewrite(store, saved, target, destination, report));
       if (repaired) tally.repaired.push({ from: saved.cwd, to: target });
     } catch (error) {
       report.blocked.push({
@@ -520,10 +526,10 @@ async function record(
 async function rewrite(
   store: StateStore,
   saved: ConversationRecord,
+  target: string,
   destination: Identity & { path: string },
   report: MoveReport,
 ): Promise<boolean> {
-  const target = destination.path;
   try {
     return (
       (await store.repairRecord(saved.id, async (raw, directory) => {
@@ -545,7 +551,7 @@ async function rewrite(
           });
           return undefined;
         }
-        if (!sameIdentity(destination, await identify(target))) {
+        if (!sameIdentity(destination, await identify(destination.path))) {
           report.blocked.push({
             path: saved.cwd,
             reason: `${target} moved during the repair, so ${saved.title} waits for the next start`,
