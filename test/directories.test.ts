@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { chmod, mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -273,5 +273,47 @@ test.skipIf(!darwin)(
     const now = (await identify(f.at('gone')))!;
     assert.equal(await adoptIdentity(deleted, now), true);
     assert.equal(deleted.inode, now.inode);
+  },
+);
+
+test("a moved entry that takes a stale entry's path keeps its own repository and no slot", async () => {
+  const f = await directories('one', 'two', 'two-1');
+  const ledger: Ledger = {
+    entries: [
+      await f.entry('one', { main: f.at('one') }),
+      await f.entry('two', { main: f.at('two') }),
+      await f.entry('two-1', { main: f.at('two'), slot: 1 }),
+    ],
+    moves: [],
+  };
+  await rm(f.at('two-1'), { recursive: true });
+  const move = await f.move('one', 'two-1');
+  await rename(f.at('one'), f.at('two-1'));
+  await resolve(ledger, [{ ...move, ...(await identify(f.at('two-1')))! }], 0);
+  const at = ledger.entries.filter(({ path }) => path === f.at('two-1'));
+  assert.deepEqual(
+    at.map(({ main, slot }) => ({ main, slot })),
+    [{ main: f.at('two-1'), slot: undefined }],
+  );
+});
+
+test.skipIf(!darwin)(
+  'adoptIdentity keeps a recorded directory it cannot reach',
+  async () => {
+    const f = await directories('a', 'locked');
+    const recorded = { path: f.at('a'), ...(await identify(f.at('a')))! };
+    await rename(f.at('a'), f.at('locked/a'));
+    await mkdir(f.at('a'));
+    await chmod(f.at('locked'), 0);
+    try {
+      const before = { ...recorded };
+      assert.equal(
+        await adoptIdentity(recorded, (await identify(f.at('a')))!),
+        false,
+      );
+      assert.deepEqual(recorded, before);
+    } finally {
+      await chmod(f.at('locked'), 0o755);
+    }
   },
 );

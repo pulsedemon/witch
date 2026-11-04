@@ -16,6 +16,7 @@ import {
   sameIdentity,
   mapper,
   readLedger,
+  relocate,
   resolve,
   updateLedger,
   within,
@@ -265,7 +266,8 @@ export async function repairMoves(
       : updateLedger(store.root, apply);
 
   const found = await change(async (ledger) => {
-    // record cwds, where the ledger already took them included, and Git-backed entries are worth finding
+    // record cwds, where the ledger already took them included, Git-backed entries and ones holding where this starts are
+    // worth finding
     const { map } = await mapper(ledger);
     const used = (entry: DirectoryEntry) =>
       entry.main !== undefined ||
@@ -276,33 +278,40 @@ export async function repairMoves(
           within(map(saved.cwd, savedBefore(saved)) ?? '', entry.path),
       );
     const moves = await findMoves(ledger.entries.filter(used), seeds);
-    if (declared) {
-      const identity = (await identify(declared.to))!;
-      moves.push({ ...declared, ...identity });
-      // the copy the user vouches for, so a stand-in put there later is never taken for it
-      if (!ledger.entries.some(({ path }) => path === declared.to))
-        ledger.entries.push({ path: declared.to, ...identity });
-    }
+    const copy = declared && {
+      path: declared.to,
+      ...(await identify(declared.to))!,
+    };
+    if (declared && copy) moves.push({ ...declared, ...copy });
     // read under the ledger lock, so prompts added while repair waited for it count as before the move
     const promptsSize =
       (await unlessGone(stat(join(store.root, 'prompts.jsonl'))))?.size ?? 0;
     await resolve(ledger, moves, promptsSize);
     // a declared move is a copy, so the directories under it have new identities the user vouches for
-    if (declared)
-      for (const entry of ledger.entries) {
+    if (declared && copy) {
+      for (const entry of [...ledger.entries]) {
         if (!within(entry.path, declared.from)) continue;
         const path = declared.to + entry.path.slice(declared.from.length);
         const identity = await identify(path);
         if (!identity) continue;
-        for (const other of ledger.entries)
-          if (other.main === entry.path) other.main = path;
-        Object.assign(entry, { path }, identity);
+        Object.assign(entry, identity);
+        relocate(ledger, entry, path);
       }
+      // the copy itself, so a stand-in put there later is never taken for it
+      if (
+        !ledger.entries.some(
+          (entry) => entry.path === copy.path && sameIdentity(entry, copy),
+        )
+      ) {
+        ledger.entries.push(copy);
+        relocate(ledger, copy, copy.path);
+      }
+    }
     return moves;
   });
 
   const { ledger, resolved } = await change(async (ledger) => {
-    // the identities as resolved, before record() takes in whatever sits at each path by then
+    // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone
     const resolved: Ledger = structuredClone(ledger);
     const { map } = await mapper(ledger);
     const mains = new Set<string>();

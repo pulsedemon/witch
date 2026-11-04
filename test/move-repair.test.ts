@@ -913,7 +913,7 @@ test("checking a repaired worktree runs nothing the repository's config names", 
   await assert.rejects(stat(marker), { code: 'ENOENT' });
 });
 
-test('prompt history from every stop of a long move chain loads in linear time', async () => {
+test('prompt history from every stop of a long move chain maps each stop once', async () => {
   const f = await setup();
   const paths = Array.from({ length: 1201 }, (_, index) =>
     f.at(`chain/${index}`),
@@ -938,7 +938,7 @@ test('prompt history from every stop of a long move chain loads in linear time',
     f.at('state/directories.json'),
     JSON.stringify({ version: 1, entries: [], moves }),
   );
-  // linear work takes milliseconds here; replaying the rest of the chain for every prompt took seconds
+  // each stop's chain is followed once; replaying the rest of the chain for every prompt took seconds
   const started = performance.now();
   assert.equal((await f.store.prompts(paths[1200]!)).length, 1201);
   assert.ok(performance.now() - started < 1000);
@@ -1338,6 +1338,107 @@ test('a declared recovery from a copy Witch already started in keeps one ledger 
   const { entries } = await readLedger(f.at('state'));
   assert.equal(entries.filter(({ path }) => path === f.at('c/main')).length, 1);
   assert.equal((await f.saved('copied')).raw.cwd, f.at('c/main'));
+});
+
+test.skipIf(!darwin)(
+  'a declared copy where an earlier occupant moved away from is never traded for a stand-in',
+  async () => {
+    const f = await setup();
+    await mkdir(f.at('d'));
+    await f.save('occupant', 'd');
+    await f.save('copied', 'w/main');
+    await f.repair('d');
+    // a conversation saved before the ledger knew its directory
+    await updateLedger(f.at('state'), async (ledger) => {
+      ledger.entries = ledger.entries.filter(({ path }) => path === f.at('d'));
+    });
+    await rename(f.at('d'), f.at('e'));
+    await cp(f.at('w/main'), f.at('d'), { recursive: true });
+    await rm(f.at('w/main'), { recursive: true });
+    await repairMoves(f.store, f.memory, f.at('d'), {
+      declared: { from: f.at('w/main'), to: f.at('d') },
+      run: async (command, args, options) => {
+        const result = await runCommand(command, args, options);
+        if (args[0] === 'worktree' && args[1] === 'repair') {
+          await rename(f.at('d'), f.at('actual'));
+          await cp(f.at('actual'), f.at('d'), { recursive: true });
+        }
+        return result;
+      },
+    });
+    await f.repair('d');
+    assert.notEqual((await f.saved('copied')).raw.cwd, f.at('d'));
+  },
+);
+
+test("a declared copy onto a deleted directory's path is repaired, not reported as a race", async () => {
+  const f = await setup();
+  for (const name of ['d', 's']) {
+    await mkdir(f.at(name));
+    await f.save(name, name);
+  }
+  await f.repair('d');
+  await rm(f.at('d'), { recursive: true });
+  await cp(f.at('s'), f.at('d'), { recursive: true });
+  await rm(f.at('s'), { recursive: true });
+  const report = await f.repair('d', {
+    declared: { from: f.at('s'), to: f.at('d') },
+  });
+  assert.deepEqual(report.blocked, []);
+  assert.equal((await f.saved('s')).raw.cwd, f.at('d'));
+});
+
+test("repair's worktree check runs none of the repository's clean filters", async () => {
+  const f = await setup();
+  const marker = f.at('filtered');
+  await git(
+    f.at('w/main'),
+    'config',
+    'filter.mark.clean',
+    `sh -c 'touch ${quote(marker)}; cat'`,
+  );
+  await writeFile(f.at('w/main-1/.gitattributes'), '*.txt filter=mark\n');
+  await writeFile(f.at('w/main-1/a.txt'), 'x\n');
+  await git(f.at('w/main-1'), 'add', '.');
+  await git(f.at('w/main-1'), 'commit', '-q', '-m', 'filtered');
+  await rm(marker, { force: true });
+  // a changed stat makes status read the file through its clean filter
+  const later = new Date(Date.now() + 60_000);
+  await utimes(f.at('w/main-1/a.txt'), later, later);
+  await rename(f.at('w'), f.at('c'));
+  const report = await f.repair('c/main');
+  assert.deepEqual(report.blocked, []);
+  await assert.rejects(stat(marker), { code: 'ENOENT' });
+});
+
+test('prompt history from many directories under a long-moved parent stays fast', async () => {
+  const f = await setup();
+  const parents = Array.from({ length: 401 }, (_, index) =>
+    f.at(`moved/${index}`),
+  );
+  let content = '';
+  for (let index = 0; index < 400; index++)
+    content += `${JSON.stringify({ cwd: `${parents[0]}/sub-${index}`, text: String(index) })}\n`;
+  await writeFile(f.at('state/prompts.jsonl'), content);
+  await writeFile(
+    f.at('state/directories.json'),
+    JSON.stringify({
+      version: 1,
+      entries: [],
+      moves: parents.slice(1).map((to, index) => ({
+        from: parents[index],
+        to,
+        device: '1',
+        inode: String(index),
+        prompts: Buffer.byteLength(content),
+        at: index,
+      })),
+    }),
+  );
+  // each hop looks up its own path and parents; scanning every move at every hop took many seconds
+  const started = performance.now();
+  assert.deepEqual(await f.store.prompts(`${parents[400]}/sub-7`), ['7']);
+  assert.ok(performance.now() - started < 1000);
 });
 
 test('concurrent repairs leave every record moved and one move in the ledger', async () => {

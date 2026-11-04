@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import {
   chmod,
+  cp,
   mkdir,
   readdir,
   readFile,
@@ -17,6 +18,7 @@ import { describe, test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import type { Run } from '../src/core/repository.js';
 import { exists } from '../src/memory/memory.js';
+import { readLedger } from '../src/persistence/directories.js';
 import { StateStore } from '../src/persistence/store.js';
 import { runSpawn, sessionsIn, spawnWorktrees } from '../src/spawn.js';
 import { scratch } from './fixtures/scratch.js';
@@ -1055,6 +1057,33 @@ describe('moved checkouts', () => {
       const { output } = await printed(() => runSpawn(f.main, 1, f.state, run));
       assert.ok(output.includes(`${f.at('w/elsewhere')}: exists`), output);
       await git(f.at('w/elsewhere'), 'status');
+    },
+  );
+
+  test.skipIf(!darwin)(
+    'a stand-in put at a slot while spawn opens it never takes the slot',
+    async () => {
+      const f = await spawned(1);
+      const before = (await readLedger(f.state)).entries.find(
+        ({ path }) => path === f.slot(1),
+      )!;
+      const { run: recorded } = recording();
+      // replaces the slot as its tab opens, between repair and recording it
+      const run: Run = async (command, args, options) => {
+        if (command === 'osascript') {
+          await rename(f.slot(1), f.at('w/away'));
+          await cp(f.at('w/away'), f.slot(1), { recursive: true });
+        }
+        return recorded(command, args, options);
+      };
+      await printed(() => runSpawn(f.main, 1, f.state, run));
+      const after = (await readLedger(f.state)).entries.find(
+        ({ path }) => path === f.slot(1),
+      )!;
+      assert.deepEqual(
+        [after.device, after.inode, after.slot],
+        [before.device, before.inode, 1],
+      );
     },
   );
 

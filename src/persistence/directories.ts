@@ -77,28 +77,30 @@ export async function adoptIdentity(
   entry: DirectoryEntry,
   identity: Identity,
 ): Promise<boolean> {
-  if (!sameIdentity(entry, identity) && (await locate(entry))) return false;
+  // a lookup that fails leaves the recorded directory as it was, since it may still exist where it can't be seen
+  if (!sameIdentity(entry, identity) && (await locate(entry).catch(() => true)))
+    return false;
   entry.device = identity.device;
   entry.inode = identity.inode;
   return true;
 }
 
-/** where a directory is now, which macOS resolves by device and inode under /.vol. node's realpath can't read /.vol, so sh does. */
-export async function locate(identity: Identity): Promise<string | undefined> {
+/**
+ * where a directory is now, which macOS resolves by device and inode under /.vol; undefined once it's gone. one it
+ * can't reach, such as under a parent without permission, throws. node's realpath can't read /.vol, so sh does.
+ */
+async function locate(identity: Identity): Promise<string | undefined> {
   if (process.platform !== 'darwin') return undefined;
-  try {
-    const { stdout } = await execute('/bin/sh', [
-      '-c',
-      'CDPATH= cd -P "/.vol/$1/$2" && pwd -P',
-      'witch-locate',
-      identity.device,
-      identity.inode,
-    ]);
-    const path = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
-    return sameIdentity(identity, await identify(path)) ? path : undefined;
-  } catch {
-    return undefined;
-  }
+  const handle = `/.vol/${identity.device}/${identity.inode}`;
+  if (!(await identify(handle))) return undefined;
+  const { stdout } = await execute('/bin/sh', [
+    '-c',
+    'CDPATH= cd -P "$1" && pwd -P',
+    'witch-locate',
+    handle,
+  ]);
+  const path = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
+  return sameIdentity(identity, await identify(path)) ? path : undefined;
 }
 
 export async function readLedger(root: string): Promise<Ledger> {
@@ -130,9 +132,10 @@ export async function updateLedger<T>(
     for (const entry of ledger.entries) {
       const known = entries.get(entry.path);
       if (!known) entries.set(entry.path, entry);
-      else {
-        known.main ??= entry.main;
-        known.slot ??= entry.slot;
+      // a slot means something only in its own repository
+      else if (known.main === undefined) {
+        known.main = entry.main;
+        known.slot = entry.slot;
       }
     }
     // checked as it's read, so a change the reader would refuse never lands
@@ -174,6 +177,10 @@ export async function mapper(ledger: Ledger): Promise<{
       return sameIdentity(move, found) ? 'back' : 'reused';
     }),
   );
+  // each move's index under its source, in the order recorded
+  const bySource = new Map<string, number[]>();
+  for (const [index, { from }] of ledger.moves.entries())
+    bySource.set(from, [...(bySource.get(from) ?? []), index]);
   // past the first hop, where a chain ends depends only on where it stands, the last move and passing reused paths
   const followed = new Map<string, string | undefined>();
   const raw = (path: string, owner?: Owner): string | undefined => {
@@ -191,17 +198,17 @@ export async function mapper(ledger: Ledger): Promise<{
         visited.push(key);
       }
       let chosen = -1;
-      for (const [index, move] of ledger.moves.entries()) {
-        if (index <= last || !within(current, move.from)) continue;
-        // a move out of the path before its owner was there was an earlier occupant's
-        if (last < 0 && owner && !owner.predates(move)) continue;
-        const best = ledger.moves[chosen];
-        if (
-          !best ||
-          move.from.length > best.from.length ||
-          (move.from.length === best.from.length && last < 0 && !owner)
-        )
-          chosen = index;
+      // the most specific source first: the path itself, then each parent
+      for (let prefix = current; chosen < 0; prefix = dirname(prefix)) {
+        const eligible = (bySource.get(prefix) ?? []).filter(
+          (index) =>
+            index > last &&
+            // a move out of the path before its owner was there was an earlier occupant's
+            !(last < 0 && owner && !owner.predates(ledger.moves[index]!)),
+        );
+        if (eligible.length)
+          chosen = (last < 0 && !owner ? eligible.at(-1) : eligible[0])!;
+        if (prefix === dirname(prefix)) break;
       }
       const move = ledger.moves[chosen];
       const source = sources[chosen];
@@ -289,7 +296,7 @@ export async function findMoves(
       missing.splice(missing.indexOf(entry), 1);
       continue;
     }
-    const found = await locate(entry);
+    const found = await locate(entry).catch(() => undefined);
     if (found && found !== entry.path) settle(entry, found);
   }
   for (let progress = true; progress;) {
@@ -351,6 +358,23 @@ function inOrder(
 }
 
 /**
+ * puts an entry at `path`, with each `main` naming it. an entry still there was a directory gone from it, so it's
+ * dropped, and its repository and slot, which described that directory, go with it.
+ */
+export function relocate(
+  ledger: Ledger,
+  entry: DirectoryEntry,
+  path: string,
+): void {
+  ledger.entries = ledger.entries.filter(
+    (other) => other === entry || other.path !== path,
+  );
+  for (const other of ledger.entries)
+    if (other.main === entry.path) other.main = path;
+  entry.path = path;
+}
+
+/**
  * appends each move unless it's already the newest move of its directory, then moves every entry, and each `main`
  * naming it, whose directory now sits where the move puts it.
  */
@@ -369,17 +393,7 @@ export async function resolve(
       const target = through(entry.path, move);
       if (!sameIdentity(entry, await identify(target).catch(() => undefined)))
         continue;
-      // an entry still at the target was a directory gone from there, so the one that moved takes its place
-      for (const other of ledger.entries.filter(
-        (known) => known !== entry && known.path === target,
-      )) {
-        entry.main ??= other.main;
-        entry.slot ??= other.slot;
-        ledger.entries.splice(ledger.entries.indexOf(other), 1);
-      }
-      for (const other of ledger.entries)
-        if (other.main === entry.path) other.main = target;
-      entry.path = target;
+      relocate(ledger, entry, target);
     }
   }
 }
