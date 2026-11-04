@@ -5,7 +5,11 @@ import { runCommand } from './core/command.js';
 import { planDirectories } from './core/merged.js';
 import type { Run } from './core/repository.js';
 import { exists } from './memory/memory.js';
-import { describeMoves, repairMoves } from './core/move-repair.js';
+import {
+  describeMoves,
+  repairMoves,
+  listWorktrees,
+} from './core/move-repair.js';
 import { Memory } from './memory/memory.js';
 import {
   identify,
@@ -404,20 +408,6 @@ function describe({ path, slot, created, opened, error }: Spawned): string {
   ].join(', ');
 }
 
-/** the paths `git worktree list` registers for `cwd`'s repository, main checkout first. */
-async function registered(run: Run, cwd: string): Promise<string[]> {
-  const { stdout } = await run(
-    'git',
-    ['worktree', 'list', '--porcelain', '-z'],
-    { cwd, timeout: 60_000 },
-  );
-  return stdout
-    .split('\0')
-    .flatMap((line) =>
-      line.startsWith('worktree ') ? [line.slice('worktree '.length)] : [],
-    );
-}
-
 /**
  * repairs moved directories first, so a moved main checkout reuses its worktrees wherever they are, then spawns. a cwd
  * whose Git a move broke is repaired only when the ledger knows it, so a directory outside any repository still exits
@@ -430,7 +420,7 @@ export async function runSpawn(
   run: Run = runCommand,
 ): Promise<number> {
   try {
-    await registered(run, cwd).catch(async (error: unknown) => {
+    await listWorktrees(run, cwd).catch(async (error: unknown) => {
       const identity = await identify(cwd);
       const known = await readLedger(stateRoot).then(
         ({ entries }) => entries.some((entry) => sameIdentity(entry, identity)),
@@ -450,7 +440,7 @@ export async function runSpawn(
     );
     const notice = report && describeMoves(report, stateRoot);
     if (notice) process.stdout.write(`${notice}\n`);
-    const list = await registered(run, cwd);
+    const list = await listWorktrees(run, cwd);
     const main = list[0]!;
     if (report?.blocked.some(({ repository }) => repository === main)) return 1;
     const ledger = await readLedger(stateRoot).catch(() => undefined);

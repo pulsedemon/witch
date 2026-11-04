@@ -203,7 +203,7 @@ export async function findMoves(
     }
     return false;
   };
-  const settle = async (entry: DirectoryEntry, to: string) => {
+  const settle = (entry: DirectoryEntry, to: string) => {
     missing.splice(missing.indexOf(entry), 1);
     moves.push({
       from: entry.path,
@@ -217,7 +217,7 @@ export async function findMoves(
   );
   for (const entry of [...missing]) {
     const seed = seeded.find(({ identity }) => sameIdentity(entry, identity));
-    if (seed && seed.seed !== entry.path) await settle(entry, seed.seed);
+    if (seed && seed.seed !== entry.path) settle(entry, seed.seed);
   }
   // parents first, so their children are carried rather than moved
   missing.sort((a, b) => a.path.length - b.path.length);
@@ -227,7 +227,7 @@ export async function findMoves(
       continue;
     }
     const found = await locate(entry);
-    if (found && found !== entry.path) await settle(entry, found);
+    if (found && found !== entry.path) settle(entry, found);
   }
   for (let progress = true; progress;) {
     progress = false;
@@ -258,7 +258,7 @@ export async function findMoves(
           return undefined;
         })();
         if (found) {
-          await settle(entry, found);
+          settle(entry, found);
           progress = true;
           break;
         }

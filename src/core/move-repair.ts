@@ -1,4 +1,4 @@
-import { lstat, readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
@@ -43,26 +43,13 @@ interface Registration {
 }
 
 /** whether a path exists; a failure to look, such as a parent without permission, throws. */
-async function exists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if (
-      ['ENOENT', 'ENOTDIR'].includes(
-        (error as NodeJS.ErrnoException).code ?? '',
-      )
-    )
-      return false;
-    throw error;
-  }
-}
+const exists = async (path: string) => (await identify(path)) !== undefined;
 
 /**
  * rewrites history lines whose `cwd` the mapping changes and leaves every other byte alone, including torn, foreign
  * and CRLF lines.
  */
-export function rewriteLines(
+function rewriteLines(
   content: Buffer,
   destination: (cwd: string) => string,
 ): { content: Buffer; count: number } {
@@ -101,23 +88,23 @@ export function rewriteLines(
   return { content: count ? Buffer.concat(parts) : content, count };
 }
 
-/** the worktree list's paths, main checkout first, or undefined where Git can't list them. */
-async function worktreeList(run: Run, cwd: string) {
-  try {
-    const { stdout } = await run(
-      'git',
-      ['worktree', 'list', '--porcelain', '-z'],
-      { cwd, timeout: 60_000 },
+/** the paths `git worktree list` registers for `cwd`'s repository, main checkout first. */
+export async function listWorktrees(run: Run, cwd: string): Promise<string[]> {
+  const { stdout } = await run(
+    'git',
+    ['worktree', 'list', '--porcelain', '-z'],
+    { cwd, timeout: 60_000 },
+  );
+  return stdout
+    .split('\0')
+    .flatMap((line) =>
+      line.startsWith('worktree ') ? [line.slice('worktree '.length)] : [],
     );
-    return stdout
-      .split('\0')
-      .flatMap((line) =>
-        line.startsWith('worktree ') ? [line.slice('worktree '.length)] : [],
-      );
-  } catch {
-    return undefined;
-  }
 }
+
+/** the worktree list, or undefined where Git can't list them, such as outside a repository. */
+const worktreeList = (run: Run, cwd: string) =>
+  listWorktrees(run, cwd).catch(() => undefined);
 
 async function registrations(common: string): Promise<Registration[]> {
   const names = await readdir(join(common, 'worktrees')).catch(() => []);
@@ -132,7 +119,7 @@ async function registrations(common: string): Promise<Registration[]> {
   return found;
 }
 
-/** the common Git directory a worktree's `.git` file names, from `gitdir: <common>/worktrees/<name>`. */
+/** the admin directory a worktree's `.git` file names, `<common>/worktrees/<name>`. */
 async function namedAdmin(worktree: string): Promise<string | undefined> {
   const text = await readFile(join(worktree, '.git'), 'utf8').catch(
     () => undefined,
@@ -271,19 +258,18 @@ export async function repairMoves(
   });
 
   const { map, suspended } = await mapper(ledger);
-  const counts = new Map<string, number>();
-  const count = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
+  const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   for (const saved of records) {
     try {
       const target = map(saved.cwd);
       if (target === undefined) {
         const move = suspended.find(({ from }) => within(saved.cwd, from));
-        if (move) count(`suspended:${move.from}`);
-        else count(`unresolved:${saved.cwd}`);
+        if (move) tally.suspended.push(move);
+        else tally.unresolved.push(saved.cwd);
         continue;
       }
       if (!(await exists(target))) {
-        count(`unresolved:${saved.cwd}`);
+        tally.unresolved.push(saved.cwd);
         continue;
       }
       if (target === saved.cwd) continue;
@@ -295,7 +281,7 @@ export async function repairMoves(
         continue;
       }
       const repaired = preview || (await rewrite(store, saved, target, report));
-      if (repaired) count(`repaired:${saved.cwd}->${target}`);
+      if (repaired) tally.repaired.push({ from: saved.cwd, to: target });
     } catch (error) {
       report.blocked.push({
         path: saved.cwd,
@@ -304,7 +290,7 @@ export async function repairMoves(
     }
   }
 
-  summarize(report, found, ledger, counts);
+  summarize(report, found, ledger, tally);
   return report;
 }
 
@@ -324,6 +310,7 @@ async function repairWorktrees(
     )
   ).stdout.trim();
   const moved: string[] = [];
+  const checked: string[] = [];
   let needed = false;
   const problems: Array<{ path: string; reason: string }> = [];
   for (const { name, registered } of await registrations(common)) {
@@ -345,6 +332,7 @@ async function repairWorktrees(
       moved.push(target);
       needed = true;
     }
+    checked.push(target);
     const admin = await namedAdmin(target);
     const expected = join(common, 'worktrees', name);
     if (admin === expected) continue;
@@ -372,13 +360,13 @@ async function repairWorktrees(
     cwd: main,
     timeout: 60_000,
   });
-  for (const { registered } of await registrations(common))
+  for (const path of checked)
     await run('git', ['status', '--porcelain'], {
-      cwd: registered,
+      cwd: path,
       timeout: 60_000,
     }).catch((error: unknown) =>
       report.blocked.push({
-        path: registered,
+        path,
         reason: errorMessage(error),
         repository: main,
       }),
@@ -434,10 +422,11 @@ async function record(
       (entry) => entry.main === main && list.includes(entry.path),
     );
     for (const entry of registered) {
-      const slot = /^-(\d+)$/.exec(entry.path.slice(main.length))?.[1];
+      const slot = entry.path.startsWith(main)
+        ? /^-(\d+)$/.exec(entry.path.slice(main.length))?.[1]
+        : undefined;
       if (
         entry.slot === undefined &&
-        entry.path !== main &&
         slot &&
         !registered.some((other) => other.slot === Number(slot))
       )
@@ -510,12 +499,19 @@ async function rewrite(
   }
 }
 
+/** the conversations each outcome left, before they're grouped into report lines. */
+interface Tally {
+  repaired: Move[];
+  suspended: Move[];
+  unresolved: string[];
+}
+
 /** one line per repaired main checkout, with its worktrees' moves folded in, and the counts of the rest. */
 function summarize(
   report: MoveReport,
   found: readonly Move[],
   ledger: Ledger,
-  counts: Map<string, number>,
+  tally: Tally,
 ) {
   const lines = new Map<
     string,
@@ -542,23 +538,24 @@ function summarize(
     const main = mainOf(move);
     if (main !== undefined && main !== move.to) known.worktrees++;
   }
-  for (const [key, conversations] of counts) {
-    const [kind, rest] = [
-      key.slice(0, key.indexOf(':')),
-      key.slice(key.indexOf(':') + 1),
-    ];
-    if (kind === 'repaired') {
-      const [from, to] = rest.split('->') as [string, string];
-      const move = found
-        .filter((known) => within(from, known.from))
-        .sort((a, b) => b.from.length - a.from.length)[0];
-      line(move ? owner(move) : { from, to }).conversations += conversations;
-    } else if (kind === 'suspended') {
-      const move = ledger.moves.findLast(({ from }) => from === rest)!;
-      report.suspended.push({ from: move.from, to: move.to, conversations });
-    } else
-      report.unresolved.push({ path: rest, conversations, worktree: false });
+  for (const { from, to } of tally.repaired) {
+    const move = found
+      .filter((known) => within(from, known.from))
+      .sort((a, b) => b.from.length - a.from.length)[0];
+    line(move ? owner(move) : { from, to }).conversations++;
   }
+  for (const move of new Set(tally.suspended))
+    report.suspended.push({
+      from: move.from,
+      to: move.to,
+      conversations: tally.suspended.filter((other) => other === move).length,
+    });
+  for (const path of new Set(tally.unresolved))
+    report.unresolved.push({
+      path,
+      conversations: tally.unresolved.filter((other) => other === path).length,
+      worktree: false,
+    });
   report.repaired.push(...lines.values());
 }
 

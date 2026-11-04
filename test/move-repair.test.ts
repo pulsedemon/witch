@@ -248,6 +248,44 @@ test('a deleted, unpruned worktree is reported and does not block', async () => 
   assert.match(describeMoves(report, f.at('state'))!, /moved or was deleted/);
 });
 
+test('a deleted worktree beside a moved one does not block the repair', async () => {
+  const f = await setup();
+  await git(
+    f.at('w/main'),
+    'worktree',
+    'add',
+    '-q',
+    '--detach',
+    f.at('w/main-2'),
+  );
+  await f.repair('w/main');
+  await rm(f.at('w/main-1'), { recursive: true });
+  await rename(f.at('w'), f.at('c'));
+  const report = await f.repair('c/main');
+  assert.deepEqual(report.blocked, []);
+  await status(f.at('c/main-2'));
+});
+
+test('a slot is read only from a name under its main checkout', async () => {
+  const f = await setup();
+  // as long as `main`, so the part past the main checkout's length reads as `-3`
+  await git(
+    f.at('w/main'),
+    'worktree',
+    'add',
+    '-q',
+    '--detach',
+    f.at('w/abcd-3'),
+  );
+  await f.repair('w/main');
+  const { entries } = await readLedger(f.at('state'));
+  const slots = Object.fromEntries(
+    entries.map(({ path, slot }) => [path, slot]),
+  );
+  assert.equal(slots[f.at('w/main-1')], 1);
+  assert.equal(slots[f.at('w/abcd-3')], undefined);
+});
+
 test('an interrupted repair finishes at the next start', async () => {
   const f = await setup();
   await rename(f.at('w'), f.at('c'));
