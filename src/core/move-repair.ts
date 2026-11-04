@@ -340,10 +340,13 @@ export async function repairMoves(
 
   const { ledger, resolved } = await change(async (ledger) => {
     // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone, and
-    // when, since a move recorded after this is one the conversations this repair rewrites haven't followed yet
+    // the newest move's time: every move recorded later is dated after it, so a conversation dated from this follows
+    // those and none before, whatever the clock reads
+    const copied = structuredClone(ledger);
     const resolved: Snapshot = {
-      ledger: structuredClone(ledger),
-      at: new Date().toISOString(),
+      ledger: copied,
+      mapping: await mapper(copied),
+      at: new Date(ledger.moves.at(-1)?.at ?? Date.now()).toISOString(),
     };
     const { map } = await mapper(ledger);
     const mains = new Set<string>();
@@ -374,8 +377,6 @@ export async function repairMoves(
   });
 
   const { map, suspended } = await mapper(ledger);
-  // what the conversations' mappings rely on, as resolved, which each rewrite rechecks under its lock
-  const mapping = await mapper(resolved.ledger);
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   // each directory this repair resolved, by path, a ledger entry over a move found to the same place
   const resolvedAt = new Map<string, Identity & { path: string }>();
@@ -412,15 +413,7 @@ export async function repairMoves(
       }
       const repaired =
         preview ||
-        (await rewrite(
-          store,
-          saved,
-          target,
-          destination,
-          resolved,
-          mapping,
-          report,
-        ));
+        (await rewrite(store, saved, target, destination, resolved, report));
       if (repaired) tally.repaired.push({ from: saved.cwd, to: target });
     } catch (error) {
       report.blocked.push({
@@ -605,7 +598,6 @@ async function rewrite(
   target: string,
   destination: Identity & { path: string },
   resolved: Snapshot,
-  mapping: Mapping,
   report: MoveReport,
 ): Promise<boolean> {
   try {
@@ -621,11 +613,12 @@ async function rewrite(
           current.answerProcess,
         ])
           if (identity) await stopPreviousProcess(identity);
-        // a path the mapping relied on that changed while this waited for the lock or the stops leaves it for the next start
+        // the mapping as resolved must still give the target, and anything it relied on that changed while this waited
+        // for the lock or the stops leaves the conversation for the next start
         const owner = savedBefore(saved);
         if (
-          mapping.map(saved.cwd, owner) !== target ||
-          !(await mapping.unchanged(saved.cwd, owner)) ||
+          resolved.mapping.map(saved.cwd, owner) !== target ||
+          !(await resolved.mapping.unchanged(saved.cwd, owner)) ||
           !sameIdentity(destination, await identify(destination.path))
         ) {
           report.blocked.push({
@@ -659,9 +652,10 @@ async function rewrite(
   }
 }
 
-/** the ledger as move resolution left it, and when that was. */
+/** the ledger as move resolution left it, its moves as the filesystem read then, and its newest move's time. */
 interface Snapshot {
   ledger: Ledger;
+  mapping: Mapping;
   at: string;
 }
 

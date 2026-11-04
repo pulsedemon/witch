@@ -35,7 +35,10 @@ export interface Move {
   from: string;
   to: string;
 }
-/** a move with the identity of the directory that moved, and the size of `prompts.jsonl` and the time when it was recorded. */
+/**
+ * a move with the identity of the directory that moved, the size of `prompts.jsonl` when it was recorded, and when that
+ * was: the clock's time, but always after the move recorded before it.
+ */
 export type LedgerMove = z.infer<typeof moveSchema>;
 export interface Ledger {
   entries: DirectoryEntry[];
@@ -452,12 +455,12 @@ export async function resolve(
 ): Promise<void> {
   for (const move of moves) {
     const newest = ledger.moves.findLast((known) => sameIdentity(known, move));
-    // moves are searched by recording time, which a clock stepping back mustn't reorder
+    // moves are searched by recording time, which a clock stepping back mustn't reorder or tie
     if (newest?.from !== move.from || newest.to !== move.to)
       ledger.moves.push({
         ...move,
         prompts,
-        at: Math.max(Date.now(), ledger.moves.at(-1)?.at ?? 0),
+        at: Math.max(Date.now(), (ledger.moves.at(-1)?.at ?? -1) + 1),
       });
     for (const entry of [...ledger.entries]) {
       if (!ledger.entries.includes(entry) || !within(entry.path, move.from))
