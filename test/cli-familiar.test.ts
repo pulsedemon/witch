@@ -138,9 +138,9 @@ async function fixture(
   };
 }
 
-test('the wrapper retries a lost marker, preserves native inputs and saves a full report only after child exit', async () => {
+test('the wrapper retries a lost marker, preserves native inputs and saves every turn in a full report only after child exit', async () => {
   let registrations = 0;
-  const f = await fixture('gated', async (request) => ({
+  const f = await fixture('later-turn', async (request) => ({
     kind:
       request.action.kind === 'familiar-register'
         ? ++registrations === 1
@@ -187,7 +187,7 @@ test('the wrapper retries a lost marker, preserves native inputs and saves a ful
     assert.equal(f.updates().at(-1)!.progress.model, 'claude-response');
     assert.equal(f.updates().at(-1)!.progress.tools, 2);
     assert.equal(f.updates().at(-1)!.progress.status, 'completed');
-    const expected = 'Full review.\n'.repeat(7000);
+    const expected = `${'Full review.\n'.repeat(7000)}\n\nStopped the background search.`;
     assert.equal(await readFile(join(f.root, 'report.txt'), 'utf8'), expected);
     assert.equal((await stat(join(f.root, 'report.txt'))).mode & 0o777, 0o600);
     const markers = f
