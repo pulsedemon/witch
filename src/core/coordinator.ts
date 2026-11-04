@@ -360,7 +360,7 @@ export class Coordinator {
     );
   }
 
-  /** claims the target first, so a failed claim leaves the current conversation untouched. */
+  /** claims the target first, so a failed claim leaves the current conversation untouched. a created target's id is new, so it has no memory branch to repair. */
   private async openConversation(
     target: { id: string } | { create: Conversation },
   ): Promise<MemoryScope> {
@@ -378,7 +378,7 @@ export class Coordinator {
       let items;
       try {
         items = await files.items();
-        if (await workspace.branchExists()) await workspace.ensureWorktree();
+        if ('id' in target) await workspace.repairWorktree();
       } catch (error) {
         await files.close().catch(() => {});
         throw error;

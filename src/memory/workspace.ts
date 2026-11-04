@@ -248,6 +248,11 @@ export class Workspace {
     ]);
   }
 
+  /** restores the worktree of a branch that exists, never creating the branch. */
+  async repairWorktree(): Promise<void> {
+    if (await this.branchExists()) await this.ensureWorktree();
+  }
+
   /** reads the worktree's `.git` file instead of spawning git, since every turn checks twice. */
   async rebaseStopped(): Promise<boolean> {
     const gitfile = join(this.root, '.git');
