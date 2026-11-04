@@ -188,18 +188,26 @@ export const savedBefore = ({
   throughReused: false,
 });
 
+/** the project key and path-keyed top at `to`, which Git discovery finds once per repair for every conversation going there. */
+const scopeAt = async (memory: Memory, to: string) => ({
+  project: (await memory.scopePaths(to)).project,
+  top: await memory.pathScope(to),
+});
+type Scopes = Map<string, ReturnType<typeof scopeAt>>;
+
 const compatible = async (
   memory: Memory,
   record: ConversationRecord,
   from: string,
   to: string,
+  scopes: Scopes,
 ) => {
   const delivered = Object.values(record.sessions).flatMap(
     ({ deliveredProject }) => (deliveredProject ? [deliveredProject] : []),
   );
   if (!delivered.length) return true;
-  const project = (await memory.scopePaths(to)).project;
-  const top = await memory.pathScope(to);
+  if (!scopes.has(to)) scopes.set(to, scopeAt(memory, to));
+  const { project, top } = await scopes.get(to)!;
   // a path-keyed project's key changes with the path, so the old path's key counts too
   const rest = top && to.slice(top.length);
   const old =
@@ -231,6 +239,7 @@ export async function repairMoves(
     suspended: [],
   };
   const { records, unreadable } = await store.records();
+  const scopes: Scopes = new Map();
   if (declared)
     report.blocked.push(
       ...unreadable.map(({ file, error }) => ({ path: file, reason: error })),
@@ -251,7 +260,7 @@ export async function repairMoves(
           () => target,
           () => declared.to,
         );
-        if (!(await compatible(memory, record, record.cwd, checkAt)))
+        if (!(await compatible(memory, record, record.cwd, checkAt, scopes)))
           return `The saved project memory scope of ${record.title} differs from ${declared.to}`;
       }
       return undefined;
@@ -379,12 +388,12 @@ export async function repairMoves(
   const { map, suspended } = await mapper(ledger);
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   // each directory this repair resolved, by path, a ledger entry over a move found to the same place
-  const resolvedAt = new Map<string, Identity & { path: string }>();
+  const resolvedPaths = new Map<string, Identity & { path: string }>();
   for (const known of [
     ...resolved.ledger.entries,
     ...found.map(({ to, device, inode }) => ({ path: to, device, inode })),
   ])
-    if (!resolvedAt.has(known.path)) resolvedAt.set(known.path, known);
+    if (!resolvedPaths.has(known.path)) resolvedPaths.set(known.path, known);
   for (const saved of records) {
     try {
       const target = map(saved.cwd, savedBefore(saved));
@@ -402,9 +411,9 @@ export async function repairMoves(
       if (target === saved.cwd) continue;
       // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
       const destination = [...prefixes(target)].flatMap(
-        (path) => resolvedAt.get(path) ?? [],
+        (path) => resolvedPaths.get(path) ?? [],
       )[0] ?? { path: target, ...current };
-      if (!(await compatible(memory, saved, saved.cwd, target))) {
+      if (!(await compatible(memory, saved, saved.cwd, target, scopes))) {
         report.blocked.push({
           path: saved.cwd,
           reason: `${saved.title}'s saved project memory scope differs from ${target}`,

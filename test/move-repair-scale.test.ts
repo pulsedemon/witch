@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { repairMoves } from '../src/core/move-repair.js';
+import { projectKey } from '../src/memory/memory.js';
 import { identify } from '../src/persistence/directories.js';
 import { StateStore } from '../src/persistence/store.js';
 import { record } from './fixtures/coordinator.js';
@@ -77,4 +78,42 @@ test('repairing many conversations past many unrelated moves stays fast', async 
   assert.deepEqual(report.blocked, []);
   const { records } = await store.records();
   assert.ok(records.every(({ cwd }) => cwd.startsWith(at('new/'))));
+});
+
+test('conversations moving to the same place look up its project scope once', async () => {
+  const root = await scratch('witch-scale-');
+  const at = (path: string) => join(root, path);
+  await mkdir(at('old'));
+  const session = {
+    id: 'session',
+    model: 'model',
+    hasHistory: true,
+    deliveredProject: projectKey(at('old')),
+  };
+  for (let index = 0; index < 3; index++) {
+    await mkdir(at(`state/conversations/c${index}`), { recursive: true });
+    await writeFile(
+      at(`state/conversations/c${index}/state.json`),
+      JSON.stringify({
+        ...record(`c${index}`, at('old')),
+        sessions: { codex: session },
+      }),
+    );
+  }
+  const entries = [{ path: at('old'), ...(await identify(at('old')))! }];
+  await writeFile(
+    at('state/directories.json'),
+    JSON.stringify({ version: 1, entries, moves: [] }),
+  );
+  await rename(at('old'), at('new'));
+  const store = await StateStore.open(at('state'));
+  const memory = await seededMemory(at('state/memory.git'));
+  const looked = vi.spyOn(memory, 'scopePaths');
+  await repairMoves(store, memory, at('new'), {
+    run: () => Promise.reject(new Error('not a repository')),
+  });
+  assert.equal(
+    looked.mock.calls.filter(([path]) => path === at('new')).length,
+    1,
+  );
 });
