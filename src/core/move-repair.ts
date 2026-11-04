@@ -295,7 +295,9 @@ export async function repairMoves(
     return moves;
   });
 
-  const ledger = await change(async (ledger) => {
+  const { ledger, resolved } = await change(async (ledger) => {
+    // the identities as resolved, before record() takes in whatever sits at each path by then
+    const resolved: Ledger = structuredClone(ledger);
     const { map } = await mapper(ledger);
     const mains = new Set<string>();
     if (listed?.[0]) mains.add(listed[0]);
@@ -321,7 +323,7 @@ export async function repairMoves(
         }),
       );
     if (!preview) await record(ledger, cwd, seeds, records, run, report);
-    return ledger;
+    return { ledger, resolved };
   });
 
   const { map, suspended } = await mapper(ledger);
@@ -341,7 +343,7 @@ export async function repairMoves(
       }
       if (target === saved.cwd) continue;
       // the directory the ledger resolved there, so one put in its place during the repair isn't taken for it
-      const destination = ledger.entries
+      const destination = resolved.entries
         .filter(({ path }) => within(target, path))
         .sort((a, b) => b.path.length - a.path.length)[0] ?? {
         path: target,
@@ -355,7 +357,8 @@ export async function repairMoves(
         continue;
       }
       const repaired =
-        preview || (await rewrite(store, saved, target, destination, report));
+        preview ||
+        (await rewrite(store, saved, target, destination, resolved, report));
       if (repaired) tally.repaired.push({ from: saved.cwd, to: target });
     } catch (error) {
       report.blocked.push({
@@ -528,6 +531,7 @@ async function rewrite(
   saved: ConversationRecord,
   target: string,
   destination: Identity & { path: string },
+  resolved: Ledger,
   report: MoveReport,
 ): Promise<boolean> {
   try {
@@ -543,18 +547,15 @@ async function rewrite(
           current.answerProcess,
         ])
           if (identity) await stopPreviousProcess(identity);
-        // a directory that appeared at the old path while this waited for the lock or the stops holds it now
-        if (await exists(saved.cwd)) {
+        // a path the mapping relied on that changed while this waited for the lock or the stops leaves it for the next start
+        const { map } = await mapper(resolved);
+        if (
+          map(saved.cwd, savedBefore(saved)) !== target ||
+          !sameIdentity(destination, await identify(destination.path))
+        ) {
           report.blocked.push({
             path: saved.cwd,
-            reason: `another directory is at it now, so ${saved.title} stays listed there`,
-          });
-          return undefined;
-        }
-        if (!sameIdentity(destination, await identify(destination.path))) {
-          report.blocked.push({
-            path: saved.cwd,
-            reason: `${target} moved during the repair, so ${saved.title} waits for the next start`,
+            reason: `where it moved changed during the repair, so ${saved.title} waits for the next start`,
           });
           return undefined;
         }

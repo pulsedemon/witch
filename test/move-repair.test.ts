@@ -14,19 +14,34 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import { describeMoves, repairMoves } from '../src/core/move-repair.js';
 import type { Run } from '../src/core/repository.js';
 import type { ConversationRecord } from '../src/core/state.js';
 import { projectKey } from '../src/memory/memory.js';
 import { readLedger, updateLedger } from '../src/persistence/directories.js';
+import type * as Directories from '../src/persistence/directories.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import { quote } from '../src/shell.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
+
+const ledgerCalls = vi.hoisted(() => ({
+  before: undefined as (() => void) | undefined,
+}));
+vi.mock('../src/persistence/directories.js', async (importOriginal) => {
+  const original = await importOriginal<typeof Directories>();
+  return {
+    ...original,
+    updateLedger: ((...args) => {
+      ledgerCalls.before?.();
+      return original.updateLedger(...args);
+    }) satisfies typeof original.updateLedger,
+  };
+});
 
 const execute = promisify(execFile);
 const darwin = process.platform === 'darwin';
@@ -650,34 +665,57 @@ test('a repaired conversation follows its directory past an earlier move out of 
   assert.equal((await f.saved('b')).raw.cwd, f.at('c'));
 });
 
-for (const race of ['source', 'destination'])
+for (const race of ['source', 'parent', 'destination'])
   test(`a ${race} that changes while repair stops a leftover process keeps the conversation where it was`, async () => {
     const f = await setup();
+    const cwd = race === 'parent' ? 'w/main/sub' : 'w/main';
+    if (race === 'parent') await mkdir(f.at(cwd));
     // changes the paths as it's stopped, the last moment before the rewrite
     const change =
-      race === 'source'
-        ? `fs.mkdirSync(${JSON.stringify(f.at('w/main'))}, { recursive: true });`
-        : `fs.renameSync(${JSON.stringify(f.at('c/main'))}, ${JSON.stringify(f.at('actual'))}); fs.mkdirSync(${JSON.stringify(f.at('c/main'))});`;
+      race === 'destination'
+        ? `fs.renameSync(${JSON.stringify(f.at('c/main'))}, ${JSON.stringify(f.at('actual'))}); fs.mkdirSync(${JSON.stringify(f.at('c/main'))});`
+        : `fs.mkdirSync(${JSON.stringify(f.at('w/main'))}, { recursive: true });`;
     const child = spawn(process.execPath, [
       '-e',
       `const fs = require('node:fs'); process.on('SIGTERM', () => { ${change} process.exit(0); }); console.log('ready'); setTimeout(() => {}, 60_000);`,
     ]);
     try {
       await new Promise((ready) => child.stdout.once('data', ready));
-      await f.save('live', 'w/main', {
+      await f.save('live', cwd, {
         process: await identifyProcess(child.pid!),
       });
       await rename(f.at('w'), f.at('c'));
       const report = await f.repair('c/main');
-      assert.equal((await f.saved('live')).raw.cwd, f.at('w/main'));
+      assert.equal((await f.saved('live')).raw.cwd, f.at(cwd));
       assert.ok(
-        report.blocked.some(({ path }) => path === f.at('w/main')),
+        report.blocked.some(({ path }) => path === f.at(cwd)),
         JSON.stringify(report),
       );
     } finally {
       child.kill('SIGKILL');
     }
   });
+
+test('a destination copied back in place during worktree repair is not taken for the moved one', async () => {
+  const f = await setup();
+  await f.save('held', 'w/main');
+  await rename(f.at('w'), f.at('c'));
+  const report = await repairMoves(f.store, f.memory, f.at('c/main'), {
+    run: async (command, args, options) => {
+      const result = await runCommand(command, args, options);
+      if (args[0] === 'worktree' && args[1] === 'repair') {
+        await rename(f.at('c/main'), f.at('actual'));
+        await cp(f.at('actual'), f.at('c/main'), { recursive: true });
+      }
+      return result;
+    },
+  });
+  assert.equal((await f.saved('held')).raw.cwd, f.at('w/main'));
+  assert.ok(
+    report.blocked.some(({ path }) => path === f.at('w/main')),
+    JSON.stringify(report),
+  );
+});
 
 test("a replacement child follows its parent's later move, not the earlier child's own", async () => {
   const f = await setup();
@@ -739,18 +777,11 @@ test('prompts added while repair waits for the ledger lock stay with the moved d
     await gate;
   });
   await inside;
-  // the old boundary was read right after this listing, before the lock
-  let listed!: () => void;
-  const reached = new Promise<void>((done) => (listed = done));
-  const repairing = repairMoves(f.store, f.memory, f.at('c/main'), {
-    run: async (command, args, options) => {
-      const result = await runCommand(command, args, options);
-      if (args[0] === 'worktree') listed();
-      return result;
-    },
-  });
-  await reached;
-  await new Promise((settled) => setTimeout(settled, 100));
+  // a repair asks for the ledger lock only after any boundary read outside it
+  const asked = new Promise<void>((done) => (ledgerCalls.before = done));
+  const repairing = f.repair('c/main');
+  await asked;
+  ledgerCalls.before = undefined;
   await f.store.addPrompt(f.at('w/main'), 'while waiting');
   release();
   await held;
