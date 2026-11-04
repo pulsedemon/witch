@@ -165,6 +165,44 @@ test('resolving a move relocates the directories it carries in one pass over the
   assert.ok(reads < 20, String(reads));
 });
 
+test('resolving many moves at once reads the ledger a fixed number of times', async () => {
+  const f = await directories();
+  const entries: DirectoryEntry[] = [];
+  for (let index = 0; index < 300; index++) {
+    await mkdir(f.at(`b/c${index}`), { recursive: true });
+    entries.push({
+      ...(await f.entry(`b/c${index}`, { main: f.at(`a/c${index}`) })),
+      path: f.at(`a/c${index}`),
+    });
+  }
+  const moves = entries.map(({ path, device, inode }) => ({
+    from: path,
+    to: path.replace(f.at('a'), f.at('b')),
+    device,
+    inode,
+  }));
+  let reads = 0;
+  const counted = <T extends object>(items: T[]) =>
+    new Proxy(items, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+  const ledger: Ledger = { entries: counted(entries), moves: counted([]) };
+  await resolve(ledger, moves, 0);
+  // scanning the entries and the moves for each move made a parent holding thousands of known directories take seconds
+  assert.ok(reads < 4 * moves.length, String(reads));
+  assert.deepEqual(
+    ledger.entries.map(({ path, main }) => [path, main]),
+    moves.map(({ to }) => [to, to]),
+  );
+  assert.deepEqual(
+    ledger.moves.map(({ from, to }) => [from, to]),
+    moves.map(({ from, to }) => [from, to]),
+  );
+});
+
 test("formerPaths follows a directory back through its own and its parents' moves, but not past a path another directory took", async () => {
   const f = await directories('v/p');
   const ledger: Ledger = {
