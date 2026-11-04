@@ -1409,6 +1409,25 @@ test("a repaired conversation's ownership counts from the mapping it followed, n
   assert.ok(Date.parse(String(raw.cwdSince)) <= during, String(raw.cwdSince));
 });
 
+test("another repository's worktree in a removed one's place is recorded, not blocked", async () => {
+  const f = await setup();
+  const other = f.at('other');
+  await mkdir(other);
+  await git(other, 'init', '-q', '-b', 'main');
+  await git(other, 'commit', '-q', '--allow-empty', '-m', 'first');
+  // made while the old one exists, so the replacement can't reuse its inode
+  await git(other, 'worktree', 'add', '-q', '--detach', f.at('staged'));
+  await git(f.at('w/main'), 'worktree', 'remove', f.at('w/main-1'));
+  await git(other, 'worktree', 'move', f.at('staged'), f.at('w/main-1'));
+  const report = await f.repair('w/main-1');
+  assert.deepEqual(report.blocked, []);
+  const { entries } = await readLedger(f.at('state'));
+  assert.equal(
+    entries.find(({ path }) => path === f.at('w/main-1'))?.main,
+    other,
+  );
+});
+
 test('concurrent repairs leave every record moved and one move in the ledger', async () => {
   const f = await setup();
   for (const id of ['one', 'two', 'three']) await f.save(id, 'w/main');

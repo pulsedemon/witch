@@ -526,7 +526,13 @@ async function record(
     if (main && !lists.has(main)) lists.set(main, list);
     // a recorded main that Git no longer reaches means this directory's Git now belongs to another repository
     const known = ledger.entries.find((entry) => entry.path === path);
-    if (path === cwd && known?.main && main && known.main !== main) {
+    if (
+      path === cwd &&
+      known?.main &&
+      main &&
+      known.main !== main &&
+      sameIdentity(known, identity)
+    ) {
       report.blocked.push({
         path,
         reason: `its Git reaches ${main}, not its recorded main checkout ${known.main}`,
