@@ -14,7 +14,7 @@ pnpm install && pnpm build && pnpm install:cli
 
 Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation. When a built Witch finishes cleaning up after a merge into Witch's own repository, it also pulls and rebuilds this checkout, if this one sits on the base branch with nothing staged, modified or conflicted. If another Witch is updating this checkout, the refresh is skipped with a notice.
 
-If the checkout moves, the installed launcher names its missing target. Run `pnpm build && pnpm install:cli` from the relocated Witch checkout to repair it.
+On macOS the installed launcher follows the Witch checkout when it moves on the same volume. After a copy to another volume, or a remount that renumbers the volume, it names its missing target; run `pnpm build && pnpm install:cli` from the new checkout to repair it. A launcher installed before this behavior keeps following only its recorded path until `pnpm install:cli` runs once.
 
 ## Usage
 
