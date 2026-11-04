@@ -146,26 +146,28 @@ test('a conversation opened before its stopped repair finishes keeps its new row
   ]);
 });
 
-test('a repair stopped after its history write into an ancestor moves each row once', async () => {
-  const { at, repair, saved } = await stopped(
-    'after',
-    [['sub', 'p/child/child']],
-    {
-      home: 'p/child',
-      away: 'p',
-      move: async (at) => {
-        await rename(at('p/child'), at('x'));
-        await rm(at('p'), { recursive: true });
-        await rename(at('x'), at('p'));
+for (const finish of ['the next repair', 'opening the conversation'])
+  test(`a repair stopped after its history write into an ancestor moves each row once when ${finish} finishes it`, async () => {
+    const { at, store, repair, saved } = await stopped(
+      'after',
+      [['sub', 'p/child/child']],
+      {
+        home: 'p/child',
+        away: 'p',
+        move: async (at) => {
+          await rename(at('p/child'), at('x'));
+          await rm(at('p'), { recursive: true });
+          await rename(at('x'), at('p'));
+        },
       },
-    },
-  );
-  await repair('p');
-  const { record, rows } = await saved();
-  assert.equal(record.cwd, at('p'));
-  assert.equal(record.historyMove, undefined);
-  assert.deepEqual(rows, [
-    ['own', at('p')],
-    ['sub', at('p/child')],
-  ]);
-});
+    );
+    if (finish === 'the next repair') await repair('p');
+    else await (await store.claim('a')).close();
+    const { record, rows } = await saved();
+    assert.equal(record.cwd, at('p'));
+    assert.equal(record.historyMove, undefined);
+    assert.deepEqual(rows, [
+      ['own', at('p')],
+      ['sub', at('p/child')],
+    ]);
+  });
