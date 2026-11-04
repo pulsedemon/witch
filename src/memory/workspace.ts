@@ -248,6 +248,11 @@ export class Workspace {
     ]);
   }
 
+  /** restores the worktree of a branch that exists, never creating the branch. */
+  async repairWorktree(): Promise<void> {
+    if (await this.branchExists()) await this.ensureWorktree();
+  }
+
   /** reads the worktree's `.git` file instead of spawning git, since every turn checks twice. */
   async rebaseStopped(): Promise<boolean> {
     const gitfile = join(this.root, '.git');
@@ -318,9 +323,8 @@ export class Workspace {
     ledger?: Ledger,
     former: readonly string[] = [],
   ): Promise<{ revision: string; repointed: number; notice?: string }> {
-    const status = await this.status();
-    let { head } = status;
-    if (status.dirty)
+    const { dirty, head } = await this.status();
+    if (dirty)
       throw new Error('Resolve pending memory before running another task');
     let latest = await this.latest();
     // a worktree at or behind main has nothing to publish
@@ -331,8 +335,19 @@ export class Workspace {
         );
       latest = await this.latest();
     }
+    return this.beginFrom(head, latest, scope, ledger, former);
+  }
+
+  /** begins from a clean worktree at `head`, which is `latest` or behind it. */
+  private async beginFrom(
+    head: string,
+    latest: string,
+    scope: MemoryScope,
+    ledger: Ledger | undefined,
+    former: readonly string[],
+  ): Promise<{ revision: string; repointed: number; notice?: string }> {
     for (let attempt = 1; ; attempt++) {
-      // moving to the revision read above, not to `main`, lets an unmoved begin return it without asking git
+      // moving to `latest`, not to `main`, lets an unmoved begin return it without asking git
       if (head !== latest)
         await this.git(['merge', '--ff-only', '--quiet', latest]);
       await this.prepare(scope);
@@ -436,10 +451,19 @@ export class Workspace {
     ledger?: Ledger,
     former: readonly string[] = [],
   ): Promise<{ repointed: number; notice?: string }> {
-    if (!(await this.exists()) || (await this.isDirty()))
+    if (!(await this.exists())) return { repointed: 0 };
+    const { dirty, head } = await this.status();
+    if (dirty) return { repointed: 0 };
+    const latest = await this.latest();
+    if (head !== latest && !(await this.isAncestor(head, latest)))
       return { repointed: 0 };
-    if (!(await this.isAncestor('HEAD', main))) return { repointed: 0 };
-    const { repointed, notice } = await this.begin(scope, ledger, former);
+    const { repointed, notice } = await this.beginFrom(
+      head,
+      latest,
+      scope,
+      ledger,
+      former,
+    );
     return { repointed, notice };
   }
 
