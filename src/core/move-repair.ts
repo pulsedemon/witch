@@ -239,9 +239,9 @@ export async function repairMoves(
   if (declared) {
     const problem = await (async () => {
       if (!isAbsolute(declared.from))
-        return 'Choose an absolute saved directory to recover.';
+        return 'Choose an absolute saved directory to recover';
       if (await exists(declared.from))
-        return `The source directory still exists: ${declared.from}`;
+        return 'The source directory still exists';
       for (const record of records) {
         if (!within(record.cwd, declared.from)) continue;
         const target = declared.to + record.cwd.slice(declared.from.length);
@@ -250,7 +250,7 @@ export async function repairMoves(
           () => declared.to,
         );
         if (!(await compatible(memory, record, record.cwd, checkAt)))
-          return `The saved project memory scope of ${record.title} differs from ${declared.to}.`;
+          return `The saved project memory scope of ${record.title} differs from ${declared.to}`;
       }
       return undefined;
     })();
@@ -288,13 +288,13 @@ export async function repairMoves(
           reason: `Couldn't look for where it went: ${errorMessage(error)}`,
         }),
     );
-    const found = declared && (await identify(declared.to));
-    if (declared && !found)
+    const copy = declared && (await identify(declared.to));
+    if (declared && !copy)
       report.blocked.push({
         path: declared.to,
-        reason: `The destination directory is gone: ${declared.to}`,
+        reason: 'The destination directory is gone',
       });
-    const vouched = declared && found && { path: declared.to, ...found };
+    const vouched = declared && copy && { path: declared.to, ...copy };
     if (declared && vouched)
       moves.push({
         ...declared,

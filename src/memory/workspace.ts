@@ -59,8 +59,8 @@ const matchesAt = (pattern: RegExp, text: string, index: number) => {
 
 /**
  * a note with each reference to a moved directory, absolute or under `~/`, mapped through `map`. a reference ends at a
- * path boundary: inside `` `…` `` or `<…>` the rest of the span up to a `#` or `?`, elsewhere the next delimiter, and
- * never at a space whose next word continues a path, which may be part of the name.
+ * path boundary: inside `` `…` `` or `<…>` the rest of the span up to a `#` or `?`, elsewhere the next delimiter. a
+ * moved path followed by a space and a word holding a slash is left alone, since the space may be part of the name.
  */
 export function repointText(
   text: string,
