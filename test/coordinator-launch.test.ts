@@ -17,7 +17,6 @@ import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
-import { recoverDirectory } from '../src/persistence/directory-recovery.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import {
   record,
@@ -29,7 +28,8 @@ import {
 import { passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
-import { within } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
+import { main } from '../src/memory/memory.js';
 
 async function relocatedFixture() {
   const f = await fixture();
@@ -43,16 +43,9 @@ async function relocatedFixture() {
   );
   const scope = await f.memory.scopePaths(f.project);
   const destination = join(f.root, 'renamed project');
+  // the coordinator repairs the move when it starts in the destination, with no command
   const move = async () => {
     await rename(f.project, destination);
-    const report = await recoverDirectory(
-      f.store,
-      f.memory,
-      f.project,
-      destination,
-      true,
-    );
-    assert.equal(report.applied, true, report.blockers.join('\n'));
   };
   const coordinator = new Coordinator(f.store, f.memory, [
     { adapter: f.a, executable: 'a' },
@@ -157,13 +150,12 @@ test('directory recovery preserves pending memory and keeps a new turn queued', 
   await dirty.files.close();
   const before = await readRecord(f.root, dirty.id);
   await f.move();
-  assert.deepEqual(
-    (await readRecord(f.root, dirty.id)).activity,
-    before.activity,
-  );
-  assert.equal(await readFile(join(dirty.memory.root, note), 'utf8'), pending);
   try {
     await f.coordinator.initialize(f.destination, { continue: true });
+    assert.deepEqual(
+      (await readRecord(f.root, dirty.id)).activity,
+      before.activity,
+    );
     assert.equal(f.coordinator.snapshot.conversation!.id, dirty.id);
     assert.equal(f.coordinator.snapshot.recovery?.kind, 'pending');
     await f.coordinator.send('wait for memory recovery');
@@ -221,6 +213,65 @@ test('a recovered conversation with missing native history keeps its ID and tran
       (await readRecord(f.root, 'missing-native')).sessions.a!.id,
       'original-native-id',
     );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+test('a turn in a moved checkout repoints memory notes published after startup and says so', async () => {
+  const f = await relocatedFixture();
+  await f.move();
+  try {
+    await f.coordinator.initialize(f.destination);
+    // startup has already repointed, so only the turn can fix this link
+    const helper = f.memory.workspace(join(f.root, 'helper'), 'helper');
+    await helper.ensureWorktree();
+    await helper.begin(f.scope);
+    const note = `${f.scope.global}/links.md`;
+    await writeFile(join(helper.root, note), `See ${f.project}/README.md.\n`);
+    await helper.commit('save');
+    await helper.publish();
+    assert.ok(
+      !f.coordinator.snapshot.items.some(({ text }) =>
+        /Repointed/.test(text ?? ''),
+      ),
+    );
+    await f.coordinator.send('hello');
+    await until(
+      'the first turn',
+      () => f.a.inputs.length === 1 && f.coordinator.snapshot.phase === 'idle',
+    );
+    assert.equal(
+      await f.memory.read(main, note),
+      `See ${f.destination}/README.md.\n`,
+    );
+    assert.ok(
+      f.coordinator.snapshot.items.some(
+        ({ kind, text }) =>
+          kind === 'notice' && /Repointed 1 memory note/.test(text),
+      ),
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+test('an unreadable ledger leaves startup and turns running with a notice naming it', async () => {
+  const f = await relocatedFixture();
+  await writeFile(join(f.root, 'state', 'directories.json'), '{');
+  try {
+    await f.coordinator.initialize(f.project);
+    assert.equal(f.coordinator.snapshot.error, undefined);
+    await f.coordinator.send('hello');
+    await until(
+      'the first turn',
+      () => f.a.inputs.length === 1 && f.coordinator.snapshot.phase === 'idle',
+    );
+    const notices = f.coordinator.snapshot.items.filter(
+      ({ kind, text }) =>
+        kind === 'notice' && text.includes('directories.json'),
+    );
+    assert.ok(notices.length >= 2, JSON.stringify(notices));
   } finally {
     await f.coordinator.close();
   }

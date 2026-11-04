@@ -7,6 +7,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../agents/stderr.js';
@@ -19,6 +20,8 @@ import {
   printable,
 } from './memory.js';
 import type { Memory, MemoryScope } from './memory.js';
+import { mapper, within } from '../persistence/directories.js';
+import type { Ledger } from '../persistence/directories.js';
 
 export interface MemoryConflict {
   paths: string[];
@@ -40,6 +43,122 @@ function mergeLines(index: string, added: string): string {
   }
   const kept = index.slice(0, end);
   return `${kept ? `${kept}${eol}` : ''}${missing.join(eol)}${eol}`;
+}
+
+const nameCharacter = /[\p{L}\p{N}_\-./~]/u;
+const delimiter = /[\s`'"()[\]<>,;:#?]/;
+/** whitespace then a word holding a slash, which continues a path whose name has a space. */
+const spacedPath = /[^\S\n]+\S*\//y;
+/** what may follow a whole path: a separator, a delimiter, or a sentence's full stop. */
+const pathEnd = /[/#?\s`'")\]>,;:]|\.(?=\s|$)/y;
+
+const matchesAt = (pattern: RegExp, text: string, index: number) => {
+  pattern.lastIndex = index;
+  return pattern.test(text);
+};
+
+/**
+ * a note with each reference to a moved directory, absolute or under `~/`, mapped through `map`. a reference ends at a
+ * path boundary: inside `` `…` `` or `<…>` the rest of the span up to a `#` or `?`, elsewhere the next delimiter. a
+ * moved path followed by a space and a word holding a slash is left alone, since the space may be part of the name.
+ */
+export function repointText(
+  text: string,
+  forms: readonly string[],
+  map: (path: string) => string | undefined,
+  home: string,
+): string {
+  const pattern = new RegExp(
+    [...forms]
+      .sort((a, b) => b.length - a.length)
+      .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|'),
+    'g',
+  );
+  let result = '';
+  let cursor = 0;
+  // the line's backtick and angle bracket state up to `scanned`, carried from match to match so each line is read once
+  let scanned = 0;
+  let ticks = false;
+  let opened = -1;
+  let closed = -1;
+  let lineEnd = -1;
+  // the next of each boundary character at or after the last search, Infinity once there's none
+  const next = { '`': -1, '>': -1, '#': -1, '?': -1 };
+  const nextOf = (character: keyof typeof next, from: number) => {
+    if (next[character] < from) {
+      const found = text.indexOf(character, from);
+      next[character] = found < 0 ? Infinity : found;
+    }
+    return next[character];
+  };
+  // where the bare path last scanned stops, which every later match inside it shares
+  let pathStop = -1;
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index;
+    const form = match[0];
+    for (; scanned < start; scanned++) {
+      const character = text[scanned];
+      if (character === '\n') {
+        ticks = false;
+        opened = closed = -1;
+      } else if (character === '`') ticks = !ticks;
+      else if (character === '<') opened = scanned;
+      else if (character === '>') closed = scanned;
+    }
+    if (start < cursor || nameCharacter.test(text[start - 1] ?? '')) continue;
+    if (lineEnd < start) {
+      const newline = text.indexOf('\n', start);
+      lineEnd = newline < 0 ? text.length : newline;
+    }
+    const angle = opened > closed;
+    const tail = start + form.length;
+    const close = ticks ? nextOf('`', tail) : angle ? nextOf('>', tail) : -1;
+    let end = tail;
+    if ((ticks || angle) && close >= 0 && close <= lineEnd) {
+      if (tail < close && !'/#?'.includes(text[tail]!)) continue;
+      end = Math.min(close, nextOf('#', tail), nextOf('?', tail));
+    } else {
+      if (matchesAt(spacedPath, text, tail)) continue;
+      if (tail < lineEnd && !matchesAt(pathEnd, text, tail)) continue;
+      if (text[tail] === '/') {
+        if (pathStop < tail) {
+          pathStop = tail;
+          while (pathStop < lineEnd) {
+            const character = text[pathStop]!;
+            if (delimiter.test(character)) break;
+            if (
+              character === '.' &&
+              (pathStop + 1 === lineEnd || /\s/.test(text[pathStop + 1]!))
+            )
+              break;
+            pathStop++;
+          }
+        }
+        end = pathStop;
+      }
+    }
+    // macOS opens no path longer than PATH_MAX bytes, so a longer reference names no directory. a UTF-16 unit is at
+    // least a byte, which lets the length rule most out before the slice
+    if (end - start > 1024) continue;
+    const reference = text.slice(start, end);
+    if (Buffer.byteLength(reference) > 1024) continue;
+    const tilde = form.startsWith('~');
+    const absolute = tilde ? home + reference.slice(1) : reference;
+    const moved = map(absolute);
+    if (moved === undefined || moved === absolute) continue;
+    let replacement =
+      tilde && within(moved, home) ? `~${moved.slice(home.length)}` : moved;
+    if (
+      /\s/.test(replacement) &&
+      text.slice(start - 2, start) === '](' &&
+      !angle
+    )
+      replacement = `<${replacement}>`;
+    result += text.slice(cursor, start) + replacement;
+    cursor = end;
+  }
+  return result + text.slice(cursor);
 }
 
 /** git's conflict list uses generated names; file/directory messages retain their original paths. */
@@ -188,8 +307,15 @@ export class Workspace {
     };
   }
 
-  /** publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, and returns the revision the turn starts from. */
-  async begin(scope: MemoryScope): Promise<string> {
+  /**
+   * publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, repoints notes at
+   * directories that moved, and returns the revision the turn starts from with how many notes it repointed. a failed
+   * repoint is rolled back and reported in `notice`, so only a failed rollback stops the turn.
+   */
+  async begin(
+    scope: MemoryScope,
+    ledger?: Ledger,
+  ): Promise<{ revision: string; repointed: number; notice?: string }> {
     const status = await this.status();
     let { head } = status;
     if (status.dirty)
@@ -217,8 +343,24 @@ export class Workspace {
         });
         throw error;
       });
-      if (!moved) return latest;
-      if ((await this.publish()) === 'published') return this.revision();
+      const first = await this.tryRepoint(ledger);
+      if (!moved && !first.repointed) return { revision: latest, ...first };
+      if ((await this.publish()) === 'published') {
+        // a rebase onto another conversation's notes can merge old links back into MEMORY.md
+        let { repointed, notice } = first;
+        for (let again = 0; again < 5; again++) {
+          const more = await this.tryRepoint(ledger);
+          notice ??= more.notice;
+          if (!more.repointed) break;
+          if ((await this.publish()) !== 'published') {
+            // the next begin repoints what lost to another conversation here
+            await this.git(['reset', '--hard', '--quiet', await this.latest()]);
+            break;
+          }
+          repointed += more.repointed;
+        }
+        return { revision: await this.revision(), repointed, notice };
+      }
       // discarding this derived move loses no accepted notes
       head = latest = await this.latest();
       await this.git(['reset', '--hard', '--quiet', latest]);
@@ -229,10 +371,71 @@ export class Workspace {
     }
   }
 
-  /** begins outside a turn to take in the notes keyed by the checkout's path, unless pending or unpublished memory waits for settling. */
-  async adoptCheckout(scope: MemoryScope): Promise<void> {
-    if (!(await this.exists()) || (await this.isDirty())) return;
-    if (await this.isAncestor('HEAD', main)) await this.begin(scope);
+  /** repoints and commits, or rolls back what it changed and says why. */
+  private async tryRepoint(
+    ledger: Ledger | undefined,
+  ): Promise<{ repointed: number; notice?: string }> {
+    if (!ledger?.moves.length) return { repointed: 0 };
+    try {
+      return { repointed: await this.repoint(ledger) };
+    } catch (error) {
+      await this.discardPending().catch((rollback: unknown) => {
+        throw new Error(
+          `${errorMessage(error)}\n\nCould not discard the failed memory repoint: ${errorMessage(rollback)}`,
+          { cause: error },
+        );
+      });
+      return {
+        repointed: 0,
+        notice: `Could not repoint memory notes at moved directories: ${errorMessage(error)}`,
+      };
+    }
+  }
+
+  /** rewrites references to moved directories in every scope as a commit of its own, and says how many notes changed. */
+  private async repoint(ledger: Ledger): Promise<number> {
+    const { map } = await mapper(ledger);
+    const home = homedir();
+    const forms = new Set<string>();
+    for (const { from } of ledger.moves) {
+      forms.add(from);
+      if (within(from, home) && from !== home)
+        forms.add(`~${from.slice(home.length)}`);
+    }
+    const found = await this.memory.run(
+      this.root,
+      ['grep', '-l', '-z', '-F', ...[...forms].flatMap((form) => ['-e', form])],
+      { codes: [0, 1] },
+    );
+    let changed = 0;
+    for (const file of found.stdout
+      .toString('utf8')
+      .split('\0')
+      .filter(Boolean)) {
+      const path = await this.checkedPath(file);
+      const text = await readFile(path, 'utf8');
+      const next = repointText(text, [...forms], map, home);
+      if (next === text) continue;
+      await writeFile(path, next);
+      changed++;
+    }
+    if (changed)
+      await this.commit(
+        `chore(memory): repoint moved directories\n\n${ledger.moves.map(({ from, to }) => `${from} -> ${to}`).join('\n')}\nconversation: ${this.id}`,
+      );
+    return changed;
+  }
+
+  /** begins outside a turn to take in the notes keyed by the checkout's path and repoint moved paths, unless pending or unpublished memory waits for settling. */
+  async adoptCheckout(
+    scope: MemoryScope,
+    ledger?: Ledger,
+  ): Promise<{ repointed: number; notice?: string }> {
+    if (!(await this.exists()) || (await this.isDirty()))
+      return { repointed: 0 };
+    if (!(await this.isAncestor('HEAD', main))) return { repointed: 0 };
+    const { repointed, notice } = await this.begin(scope, ledger);
+    return { repointed, notice };
   }
 
   /** merges the notes keyed by a checkout's path into its origin's project as a commit of its own, and says whether that key held notes. */

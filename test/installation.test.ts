@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import {
+  cp,
   lstat,
   mkdir,
   readFile,
   rename,
+  rm,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -38,11 +40,12 @@ async function fixture() {
   return { root, checkout, entry, launcher, install };
 }
 
-test('launcher preserves arguments and diagnoses a moved checkout', async () => {
-  const { root, checkout, entry, launcher, install } = await fixture();
-  await install();
+const sentinel =
+  '#!/usr/bin/env node\nconsole.log(JSON.stringify({ sentinel: true }));\n';
+
+async function caller(root: string, launcher: string) {
   const cwd = join(root, 'caller');
-  await mkdir(cwd);
+  await mkdir(cwd, { recursive: true });
   const run = () =>
     execute(launcher, ['two words', "one's", '--flag'], {
       cwd,
@@ -53,17 +56,56 @@ test('launcher preserves arguments and diagnoses a moved checkout', async () => 
     cwd,
     sentinel: 'kept-42',
   };
-  assert.deepEqual(JSON.parse((await run()).stdout), expected);
-  const moved = join(root, 'new checkout');
-  await rename(checkout, moved);
-  await assert.rejects(run(), (error: unknown) => {
-    const failure = error as Error & { code: number; stderr: string };
-    assert.equal(failure.code, 1);
-    assert.ok(failure.stderr.includes(entry));
-    assert.match(failure.stderr, /pnpm build.*pnpm install:cli/);
-    return true;
-  });
-  await install(moved);
+  return { run, expected };
+}
+
+const missing = (entry: string) => (error: unknown) => {
+  const failure = error as Error & { code: number; stderr: string };
+  assert.equal(failure.code, 1);
+  assert.ok(failure.stderr.includes(entry));
+  assert.match(failure.stderr, /pnpm build.*pnpm install:cli/);
+  return true;
+};
+
+test.skipIf(process.platform !== 'darwin')(
+  'launcher follows a moved checkout and never runs another at its old path',
+  async () => {
+    const { root, checkout, entry, launcher, install } = await fixture();
+    await install();
+    const { run, expected } = await caller(root, launcher);
+    assert.deepEqual(JSON.parse((await run()).stdout), expected);
+    let moved = join(root, 'moved checkout');
+    await rename(checkout, moved);
+    assert.deepEqual(JSON.parse((await run()).stdout), expected);
+    await mkdir(dirname(entry), { recursive: true });
+    await writeFile(entry, sentinel, { mode: 0o755 });
+    const again = join(root, 'ends in a newline\n');
+    await rename(moved, again);
+    moved = again;
+    await mkdir(join(root, 'ends in a newline', 'dist'), { recursive: true });
+    await writeFile(
+      join(root, 'ends in a newline', 'dist', 'cli.js'),
+      sentinel,
+      {
+        mode: 0o755,
+      },
+    );
+    assert.deepEqual(JSON.parse((await run()).stdout), expected);
+    await rm(moved, { recursive: true });
+    await assert.rejects(run(), missing(entry));
+  },
+);
+
+test('launcher diagnoses a checkout it can not find, and a reinstall restores it', async () => {
+  const { root, checkout, entry, launcher, install } = await fixture();
+  const copy = join(root, 'copy');
+  await cp(checkout, copy, { recursive: true });
+  await install();
+  const { run, expected } = await caller(root, launcher);
+  if (process.platform === 'darwin') await rm(checkout, { recursive: true });
+  else await rename(checkout, join(root, 'renamed'));
+  await assert.rejects(run(), missing(entry));
+  await install(copy);
   assert.deepEqual(JSON.parse((await run()).stdout), expected);
 });
 

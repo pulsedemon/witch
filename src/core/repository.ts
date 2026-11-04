@@ -61,6 +61,19 @@ export const statusArgs = [
   '--branch',
 ] as const;
 
+/** a status read's environment: the repository's own filters blanked, and no lazy fetch or transport. */
+export async function statusEnv(
+  run: Run,
+  cwd: string,
+): Promise<NodeJS.ProcessEnv> {
+  return {
+    ...((await filterless(run, cwd)) ?? process.env),
+    GIT_NO_LAZY_FETCH: '1',
+    // older Git ignores GIT_NO_LAZY_FETCH, so transports stay disabled too
+    GIT_ALLOW_PROTOCOL: '',
+  };
+}
+
 /**
  * blanks the filter drivers the repository's own config defines, since status runs a clean filter on a file whose stat
  * data changed; the user's own filters stay. an empty `process` stops `clean` too, and `required` would fail the read.
@@ -402,7 +415,6 @@ export class RepositoryWatch {
     let repository: Repository | undefined;
     let failure: unknown;
     try {
-      const env = await filterless(this.run, this.cwd);
       const { stdout } = await this.run(
         'git',
         // a submodule's own config could run a filter; merge cleanup's own read still counts dirty submodules
@@ -410,12 +422,7 @@ export class RepositoryWatch {
         {
           cwd: this.cwd,
           timeout: 10_000,
-          env: {
-            ...(env ?? process.env),
-            GIT_NO_LAZY_FETCH: '1',
-            // older Git ignores GIT_NO_LAZY_FETCH, so transports stay disabled too
-            GIT_ALLOW_PROTOCOL: '',
-          },
+          env: await statusEnv(this.run, this.cwd),
         },
       );
       repository = parseStatus(stdout);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import { CoordinationStore } from '../src/persistence/coordination.js';
 import { StateStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { controlPrefix } from '../src/cli-control.js';
+import { quote } from '../src/shell.js';
 
 const identity = (await identifyProcess(process.pid))!;
 
@@ -95,6 +96,70 @@ test("witch --spawn outside a repository exits 1 with git's error, without a ter
   assert.equal(stdout, '');
   assert.match(stderr, /^witch: [^\n]*not a git repository[^\n]*\n$/);
   assert.deepEqual(files, []);
+});
+
+test('witch --recover-directory previews, applies and reports a blocked record without launching an agent', async () => {
+  const root = await scratch('witch-cli-recover-');
+  const state = join(root, 'state');
+  const destination = join(root, 'destination');
+  const bin = join(root, 'bin');
+  const launched = join(root, 'launched');
+  await mkdir(destination);
+  await mkdir(bin);
+  for (const agent of ['claude', 'codex'])
+    await writeFile(join(bin, agent), `#!/bin/sh\ntouch ${quote(launched)}\n`, {
+      mode: 0o755,
+    });
+  const store = await StateStore.open(state);
+  const source = join(root, 'gone');
+  await (
+    await store.create({
+      id: 'moved',
+      title: 'Moved',
+      cwd: source,
+      agent: 'claude',
+      sessions: {},
+      createdAt: new Date().toISOString(),
+    })
+  ).close();
+  const recover = (apply: boolean) =>
+    run(
+      `cd ${quote(destination)} && PATH=${quote(bin)}:$PATH ${quote(process.execPath)} ${quote(compiled)} --state-dir ${quote(state)} --recover-directory ${quote(source)}${apply ? ' --apply' : ''}`,
+    );
+  const compiled = await compiledCli();
+  const record = async () =>
+    (
+      JSON.parse(
+        await readFile(join(state, 'conversations/moved/state.json'), 'utf8'),
+      ) as { cwd: string }
+    ).cwd;
+  const preview = await recover(false);
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.match(preview.stdout, /Would repair/);
+  assert.match(preview.stdout, /--apply/);
+  assert.equal(await record(), source);
+  const applied = await recover(true);
+  assert.equal(applied.code, 0, applied.stderr);
+  assert.equal(await record(), destination);
+  // held open, as another Witch would
+  const open = await store.create({
+    id: 'open',
+    title: 'Open',
+    cwd: join(root, 'also gone'),
+    agent: 'claude',
+    sessions: {},
+    createdAt: new Date().toISOString(),
+  });
+  try {
+    const blocked = await run(
+      `cd ${quote(destination)} && ${quote(process.execPath)} ${quote(compiled)} --state-dir ${quote(state)} --recover-directory ${quote(join(root, 'also gone'))} --apply`,
+    );
+    assert.equal(blocked.code, 1);
+    assert.match(blocked.stdout, /open in another Witch/);
+  } finally {
+    await open.close();
+  }
+  await assert.rejects(readFile(launched), { code: 'ENOENT' });
 });
 
 test('headless controls preserve quoted paths, JSON, errors and conflicts without normal startup', async () => {

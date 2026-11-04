@@ -14,7 +14,7 @@ pnpm install && pnpm build && pnpm install:cli
 
 Rerun `pnpm build` after changes, and `/restart` loads the new build into a running Witch's conversation. When a built Witch finishes cleaning up after a merge into Witch's own repository, it also pulls and rebuilds this checkout, if this one sits on the base branch with nothing staged, modified or conflicted. If another Witch is updating this checkout, the refresh is skipped with a notice.
 
-If the checkout moves, the installed launcher names its missing target. Run `pnpm build && pnpm install:cli` from the relocated Witch checkout to repair it.
+On macOS the installed launcher follows the Witch checkout when it moves on the same volume. After a copy to another volume, or a remount that renumbers the volume, it names its missing target; run `pnpm build && pnpm install:cli` from the new checkout to repair it. A launcher installed before this behavior keeps following only its recorded path until `pnpm install:cli` runs once.
 
 ## Usage
 
@@ -30,7 +30,7 @@ Other Witch sessions and exclusive task claims are described under [session coor
 
 Agents delegate work through the [familiar reporting path](docs/rules.md#native-adapters-and-execution) on either runtime, with native identity, activity and a saved report. `/delegation` sets where each kind of work goes, each runtime's model family and the usage level that shifts new work to a runtime with room.
 
-For a moved project directory, use the directory-recovery commands in `witch --help` from its replacement directory. Preview first; applying recovery requires every Witch using that state directory to be closed and retains the original files in a backup.
+Witch repairs a directory moved on the same volume on its own the next time it starts there or anywhere else: its conversations, prompt history, spawned worktrees' Git links and shared-memory paths. For a move it can't prove, such as a copy to another volume, its startup notice gives the `--recover-directory` command to run from the new location.
 
 Witch names each tab by its current task and repeats notifications while a request, memory recovery or fatal error waits for you. A successful settled turn gets one notification. [Terminal attention](src/ui/terminal.ts) owns eligibility and title selection. [Desktop scheduling](src/persistence/notifications.ts) spaces alerts across sessions sharing a state directory; bursts can wait, and stale alerts cancel. Titles and bells keep their timing.
 

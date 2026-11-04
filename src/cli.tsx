@@ -16,11 +16,13 @@ you last used, sending the prompt if one is given.
 Options:
   -c, --continue       continue this directory's most recent conversation
   --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
-  --recover-directory <old>  preview recovery of a missing directory into this one
-  --apply              apply the directory recovery with all Witches closed
-  --spawn <n>          create worktrees <checkout>-1 to <checkout>-n beside the main
-                       checkout and open a Ghostty tab running witch in each one
-                       without an open session
+  --recover-directory <old>  preview recovery of a missing directory into this one,
+                       for a move Witch can't find by itself
+  --apply              apply the directory recovery
+  --spawn <n>          fill slots 1 to n with worktrees, creating <checkout>-<i> beside
+                       the main checkout for a slot whose worktree is gone and
+                       reusing one wherever it moved, and open a Ghostty tab
+                       running witch in each one without an open session
   -h, --help           show this help
 
 Agent control (use the prefix supplied in the current Witch context):

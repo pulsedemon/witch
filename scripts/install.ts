@@ -9,6 +9,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -42,9 +43,19 @@ try {
   const temporary = `${destination}.${randomUUID()}.tmp`;
   const file = await open(temporary, 'wx', 0o755);
   try {
-    await file.writeFile(`${marker}entry=${quote(entry)}
+    const { dev, ino } = await stat(dirname(dirname(entry)), { bigint: true });
+    await file.writeFile(`${marker}recorded=${quote(entry)}
+entry=$recorded
+# a moved checkout keeps its device and inode, which macOS resolves under /.vol; a path alone could name another checkout
+if [ -d /.vol ]; then
+  # command substitution strips trailing newlines, which a directory name can end in
+  root=$(CDPATH= cd -P /.vol/${dev}/${ino} 2>/dev/null && pwd -P && echo x) || root=
+  root=\${root%x}
+  root=\${root%?}
+  entry=\${root:+$root/dist/cli.js}
+fi
 if [ ! -f "$entry" ]; then
-  printf '%s\\n' "witch: missing compiled entry: $entry" 'Run pnpm build and pnpm install:cli from the relocated Witch checkout.' >&2
+  printf '%s\\n' "witch: missing compiled entry: $recorded" 'Run pnpm build and pnpm install:cli from the relocated Witch checkout.' >&2
   exit 1
 fi
 exec "$entry" "$@"
