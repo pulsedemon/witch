@@ -601,10 +601,9 @@ async function rewrite(
         ])
           if (identity) await stopPreviousProcess(identity);
         // a path the mapping relied on that changed while this waited for the lock or the stops leaves it for the next start
-        const { map, route } = await mapper(resolved.ledger);
-        const owner = savedBefore(saved);
+        const { map } = await mapper(resolved.ledger);
         if (
-          map(saved.cwd, owner) !== target ||
+          map(saved.cwd, savedBefore(saved)) !== target ||
           !sameIdentity(destination, await identify(destination.path))
         ) {
           report.blocked.push({
@@ -616,14 +615,12 @@ async function rewrite(
         const history = join(directory, 'history.jsonl');
         const times = await unlessGone(stat(history));
         if (times) {
-          // rows a repair stopped between these two writes left at a stop on the way follow too
-          const stops = route(saved.cwd, owner);
           const { content, count } = rewriteLines(
             await readFile(history),
-            (cwd) => {
-              const stop = stops.findLast((path) => within(cwd, path));
-              return stop === undefined ? cwd : target + cwd.slice(stop.length);
-            },
+            (cwd) =>
+              within(cwd, saved.cwd)
+                ? target + cwd.slice(saved.cwd.length)
+                : cwd,
           );
           if (count) await replaceFile(history, content, times);
         }

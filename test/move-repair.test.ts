@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import {
+  appendFile,
   chmod,
   cp,
   mkdir,
@@ -1432,26 +1433,33 @@ test("a repaired conversation's ownership counts from the mapping it followed, n
   assert.ok(Date.parse(String(raw.cwdSince)) <= during, String(raw.cwdSince));
 });
 
-test("history a repair rewrote before it stopped follows its own directory, not an earlier one's move", async () => {
+test("a tool row at a path the conversation's directory passed through keeps its own cwd", async () => {
   const f = await setup();
-  for (const name of ['a', 'b']) {
-    await mkdir(f.at(name));
-    await f.save(name, name);
-  }
-  await f.repair('a');
-  await rename(f.at('b'), f.at('d'));
-  await f.repair('d');
-  const state = f.at('state/conversations/a/state.json');
-  const before = await readFile(state);
-  await rename(f.at('a'), f.at('b'));
+  for (const name of ['a', 'b']) await mkdir(f.at(name));
+  await f.save('a', 'a');
+  const row = { id: 'tool', kind: 'tool', cwd: f.at('b'), text: 'ran' };
+  await appendFile(
+    f.at('state/conversations/a/history.jsonl'),
+    `${JSON.stringify(row)}\n`,
+  );
   await f.repair('b');
-  // the record as a repair that stopped after replacing the history left it
-  await writeFile(state, before);
-  await rename(f.at('b'), f.at('c'));
+  const files = await (await StateStore.open(f.at('state'))).claim('a');
+  try {
+    await rename(f.at('b'), f.at('d'));
+    await f.repair('d');
+    await rename(f.at('a'), f.at('b'));
+    await f.repair('b');
+    await rename(f.at('b'), f.at('c'));
+    await f.repair('c');
+  } finally {
+    await files.close();
+  }
   await f.repair('c');
   const { raw, history } = await f.saved('a');
   assert.equal(raw.cwd, f.at('c'));
-  assert.equal(JSON.parse(history!).cwd, f.at('c'));
+  const [own, tool] = history!.split('\n');
+  assert.equal(JSON.parse(own!).cwd, f.at('c'));
+  assert.equal(JSON.parse(tool!).cwd, f.at('b'));
 });
 
 test("another repository's worktree in a removed one's place is recorded, not blocked", async () => {
