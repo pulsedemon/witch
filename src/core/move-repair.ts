@@ -26,6 +26,7 @@ import type {
   DirectoryEntry,
   Identity,
   Ledger,
+  Mapping,
   Move,
   Owner,
 } from '../persistence/directories.js';
@@ -269,8 +270,8 @@ export async function repairMoves(
       : updateLedger(store.root, apply);
 
   const found = await change(async (ledger) => {
-    // Git-backed entries and ones holding a seed or a record cwd, where the ledger already took it included, are worth
-    // finding. each such holder is collected once, so the check stays linear in entries and records
+    // entries worth finding: Git-backed ones, and ones holding a seed or a record cwd before or after the ledger maps
+    // it. the holders are collected once, so the check stays linear in entries and records
     const { map } = await mapper(ledger);
     const held = new Set<string>();
     for (const path of [
@@ -373,6 +374,8 @@ export async function repairMoves(
   });
 
   const { map, suspended } = await mapper(ledger);
+  // what the conversations' mappings rely on, as resolved, which each rewrite rechecks under its lock
+  const mapping = await mapper(resolved.ledger);
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   for (const saved of records) {
     try {
@@ -408,7 +411,15 @@ export async function repairMoves(
       }
       const repaired =
         preview ||
-        (await rewrite(store, saved, target, destination, resolved, report));
+        (await rewrite(
+          store,
+          saved,
+          target,
+          destination,
+          resolved,
+          mapping,
+          report,
+        ));
       if (repaired) tally.repaired.push({ from: saved.cwd, to: target });
     } catch (error) {
       report.blocked.push({
@@ -593,6 +604,7 @@ async function rewrite(
   target: string,
   destination: Identity & { path: string },
   resolved: Snapshot,
+  mapping: Mapping,
   report: MoveReport,
 ): Promise<boolean> {
   try {
@@ -609,9 +621,10 @@ async function rewrite(
         ])
           if (identity) await stopPreviousProcess(identity);
         // a path the mapping relied on that changed while this waited for the lock or the stops leaves it for the next start
-        const { map } = await mapper(resolved.ledger);
+        const owner = savedBefore(saved);
         if (
-          map(saved.cwd, savedBefore(saved)) !== target ||
+          mapping.map(saved.cwd, owner) !== target ||
+          !(await mapping.unchanged(saved.cwd, owner)) ||
           !sameIdentity(destination, await identify(destination.path))
         ) {
           report.blocked.push({

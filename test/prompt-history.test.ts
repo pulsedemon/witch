@@ -36,7 +36,7 @@ test('prompt history maps a long move chain once per directory, not once per pro
       })),
     }),
   );
-  // linear work takes milliseconds here; replaying the chain for every prompt took seconds
+  // linear work takes milliseconds here; replaying the chain for every prompt takes seconds
   const started = performance.now();
   assert.equal((await f.store.prompts(paths[200]!)).length, 10_000);
   assert.ok(performance.now() - started < 1000);
@@ -67,7 +67,7 @@ test('prompt history from every stop of a long move chain maps each stop once', 
     f.at('state/directories.json'),
     JSON.stringify({ version: 1, entries: [], moves }),
   );
-  // each stop's chain is followed once; replaying the rest of the chain for every prompt took seconds
+  // each stop's chain is followed once; replaying the rest of the chain for every prompt takes seconds here
   const started = performance.now();
   assert.equal((await f.store.prompts(paths[1200]!)).length, 1201);
   assert.ok(performance.now() - started < 1000);
@@ -97,7 +97,7 @@ test('prompt history from many directories under a long-moved parent stays fast'
       })),
     }),
   );
-  // each hop looks up its own path and parents; scanning every move at every hop took many seconds
+  // each hop looks up its own path and parents; scanning every move at every hop takes many seconds here
   const started = performance.now();
   assert.deepEqual(await f.store.prompts(`${parents[400]}/sub-7`), ['7']);
   assert.ok(performance.now() - started < 1000);
@@ -135,7 +135,7 @@ test('prompt history under a parent moved back and forth many times stays fast',
     f.at('state/directories.json'),
     JSON.stringify({ version: 1, entries: [], moves }),
   );
-  // each hop finds its next move by binary search; filtering every move from the same path took seconds
+  // each hop finds its next move by binary search; filtering every move from the same path takes seconds here
   const started = performance.now();
   assert.deepEqual(await f.store.prompts(`${z}/sub-7`), ['7']);
   assert.ok(performance.now() - started < 2000);
@@ -161,7 +161,7 @@ test('prompt history with many prompts and many unrelated moves stays fast', asy
       })),
     }),
   );
-  // each line moves a forward index past the boundaries; counting them all again per line took seconds
+  // each line moves a forward index past the boundaries; counting them all again per line takes seconds here
   const started = performance.now();
   assert.equal((await f.store.prompts(f.at('here'))).length, 200_000);
   assert.ok(performance.now() - started < 1000);

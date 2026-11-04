@@ -143,6 +143,24 @@ export async function updateLedger<T>(
 
 type Source = 'gone' | 'back' | 'reused';
 
+/** what a move's source holds now. a lookup failure counts as the moved directory, so the chain stops there. */
+async function sourceOf(move: LedgerMove): Promise<Source> {
+  const found = await identify(move.from).catch(() => move);
+  if (!found) return 'gone';
+  return sameIdentity(move, found) ? 'back' : 'reused';
+}
+
+/** a ledger's moves, read against the filesystem as it was when `mapper` built this. */
+export interface Mapping {
+  map(path: string, owner?: Owner): string | undefined;
+  /**
+   * whether what `map(path, owner)` relied on still holds: the sources its chain consulted, and each known directory
+   * holding `path` still at, or still missing from, where its own chain puts it.
+   */
+  unchanged(path: string, owner?: Owner): Promise<boolean>;
+  suspended: Move[];
+}
+
 /** the owner of a mapped path: which moves it predates, and whether it follows one past a path another directory took. */
 export interface Owner {
   predates(move: LedgerMove): boolean;
@@ -156,17 +174,8 @@ export interface Owner {
  * `from` holding the moved directory again, or one that can't be looked at, stops the chain there; one holding another
  * directory stops it with nothing, unless the owner follows it `throughReused`.
  */
-export async function mapper(ledger: Ledger): Promise<{
-  map(path: string, owner?: Owner): string | undefined;
-  suspended: Move[];
-}> {
-  const sources: Source[] = await Promise.all(
-    ledger.moves.map(async (move) => {
-      const found = await identify(move.from).catch(() => move);
-      if (!found) return 'gone';
-      return sameIdentity(move, found) ? 'back' : 'reused';
-    }),
-  );
+export async function mapper(ledger: Ledger): Promise<Mapping> {
+  const sources: Source[] = await Promise.all(ledger.moves.map(sourceOf));
   // each move's index under its source, in the order recorded
   const bySource = new Map<string, number[]>();
   for (const [index, { from }] of ledger.moves.entries()) {
@@ -176,7 +185,11 @@ export async function mapper(ledger: Ledger): Promise<{
   }
   // past the first hop, where a chain ends depends only on where it stands, the last move and passing reused paths
   const followed = new Map<string, string | undefined>();
-  const raw = (path: string, owner?: Owner): string | undefined => {
+  const raw = (
+    path: string,
+    owner?: Owner,
+    consulted?: number[],
+  ): string | undefined => {
     const through = owner?.throughReused ? 1 : 0;
     const visited: string[] = [];
     let result: string | undefined;
@@ -184,7 +197,7 @@ export async function mapper(ledger: Ledger): Promise<{
     for (let current = path, last = -1; ;) {
       const key = `${last}\0${through}\0${current}`;
       if (last >= 0) {
-        if (followed.has(key)) {
+        if (!consulted && followed.has(key)) {
           result = followed.get(key);
           break;
         }
@@ -209,6 +222,7 @@ export async function mapper(ledger: Ledger): Promise<{
           break;
         }
       }
+      if (chosen >= 0) consulted?.push(chosen);
       const move = ledger.moves[chosen];
       const source = sources[chosen];
       if (!move || source === 'back') {
@@ -240,6 +254,24 @@ export async function mapper(ledger: Ledger): Promise<{
     map(path, owner) {
       if (stranded.some((root) => within(path, root))) return undefined;
       return raw(path, owner);
+    },
+    async unchanged(path, owner) {
+      const consulted: number[] = [];
+      raw(path, owner, consulted);
+      for (const entry of ledger.entries) {
+        if (!within(path, entry.path)) continue;
+        const target = raw(entry.path, undefined, consulted);
+        if (target === undefined || target === entry.path) continue;
+        const missing = !sameIdentity(
+          entry,
+          await identify(target).catch(() => entry),
+        );
+        if (missing !== stranded.includes(entry.path)) return false;
+      }
+      for (const index of new Set(consulted))
+        if ((await sourceOf(ledger.moves[index]!)) !== sources[index])
+          return false;
+      return true;
     },
     suspended: ledger.moves.filter((_, index) => sources[index] === 'reused'),
   };
