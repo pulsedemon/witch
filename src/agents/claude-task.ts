@@ -49,13 +49,18 @@ const result = z.object({
   ),
 });
 
-/** a native result supplies the report; only the child's exit can finish the task. */
+/**
+ * every native result adds to the report, since a finished background task can start a turn after the answer; only
+ * the child's exit can finish the task.
+ */
 export class ClaudeTask {
   private identity?: z.infer<typeof init>;
   private readonly tools = new Set<string>();
   private spells?: Cast[];
   private activity?: string;
-  private report = '';
+  private readonly reports: string[] = [];
+  /** the current turn's latest text, its report if the turn ends without a result. */
+  private draft = '';
   private success = false;
   private receivedResult = false;
   private failure?: string;
@@ -120,21 +125,22 @@ export class ClaudeTask {
           .filter((block) => block.type === 'text')
           .map((block) => z.string().parse(block.text))
           .join('\n');
-        if (text) this.report = text;
+        if (text) this.draft = text;
       } else if (message.type === 'result') {
         const finished = result.parse(value);
         if (finished.subtype === 'success' && finished.result === undefined)
           throw new Error('Claude returned a success result without a report.');
         this.receivedResult = true;
         this.success = finished.subtype === 'success' && !finished.is_error;
-        this.report =
-          finished.result ?? finished.errors?.join('\n') ?? this.report;
         const denials = finished.permission_denials.map(
           (denial) =>
             `Permission denied: ${claudeTitle(denial.tool_name, denial.tool_input, this.cwd).title}`,
         );
-        if (denials.length)
-          this.report = [this.report, ...denials].filter(Boolean).join('\n\n');
+        this.reports.push(
+          finished.result ?? finished.errors?.join('\n') ?? this.draft,
+          ...denials,
+        );
+        this.draft = '';
       }
     } catch (error) {
       this.failed(`Invalid Claude task stream: ${errorMessage(error)}`);
@@ -162,7 +168,9 @@ export class ClaudeTask {
     return {
       ...this.progress(),
       status: signal ? 'stopped' : reason ? 'failed' : 'completed',
-      report: [this.report, reason].filter(Boolean).join('\n\n'),
+      report: [...this.reports, this.draft, reason]
+        .filter(Boolean)
+        .join('\n\n'),
     };
   }
 

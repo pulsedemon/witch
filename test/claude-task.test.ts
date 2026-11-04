@@ -231,6 +231,24 @@ for (const [name, frames, code, signal, status, report] of [
     'Reviewed.\n\nClaude task stopped (SIGTERM).',
   ],
   [
+    'signal during a later turn',
+    [
+      init,
+      success,
+      {
+        ...read,
+        message: {
+          model: 'native-model',
+          content: [{ type: 'text', text: 'Stopping the search.' }],
+        },
+      },
+    ],
+    null,
+    'SIGTERM',
+    'stopped',
+    'Reviewed.\n\nStopping the search.\n\nClaude task stopped (SIGTERM).',
+  ],
+  [
     'error flag on success',
     [init, { ...success, is_error: true }],
     0,

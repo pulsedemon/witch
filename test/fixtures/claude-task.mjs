@@ -54,11 +54,20 @@ else if (mode === 'held-pipe') {
   });
   writeFileSync('descendant.pid', String(child.pid));
   child.unref();
-} else if (mode === 'gated' || mode === 'ignore-term') {
+} else if (['gated', 'ignore-term', 'later-turn'].includes(mode)) {
   const timer = setInterval(() => {
-    if (existsSync('exit')) {
-      clearInterval(timer);
-      process.exit(0);
-    }
+    if (!existsSync('exit')) return;
+    clearInterval(timer);
+    if (mode !== 'later-turn') process.exit(0);
+    // as Claude Code does when a background task ends after the answer
+    const later = {
+      type: 'result',
+      subtype: 'success',
+      session_id,
+      is_error: false,
+      result: 'Stopped the background search.',
+      permission_denials: [],
+    };
+    process.stdout.write(`${JSON.stringify(later)}\n`, () => process.exit(0));
   }, 10);
 }
