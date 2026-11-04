@@ -1364,7 +1364,7 @@ test('the launch sweep publishes what it can and reports the rest in one message
         assert.match(
           report ?? '',
           new RegExp(
-            `Title ${conflict.id} in .*deleted-project \\(recover this directory first\\): memory conflicts`,
+            `Title ${conflict.id} in .*deleted-project \\(start Witch in its new location\\): memory conflicts`,
           ),
         );
         assert.match(

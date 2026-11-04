@@ -16,8 +16,9 @@ you last used, sending the prompt if one is given.
 Options:
   -c, --continue       continue this directory's most recent conversation
   --state-dir <dir>    keep conversations and memory in <dir> (default ${defaultState})
-  --recover-directory <old>  preview recovery of a missing directory into this one
-  --apply              apply the directory recovery with all Witches closed
+  --recover-directory <old>  preview recovery of a missing directory into this one,
+                       for a move Witch can't find by itself
+  --apply              apply the directory recovery
   --spawn <n>          create worktrees <checkout>-1 to <checkout>-n beside the main
                        checkout and open a Ghostty tab running witch in each one
                        without an open session

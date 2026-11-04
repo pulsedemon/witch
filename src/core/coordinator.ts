@@ -32,11 +32,8 @@ import type {
   StateStore,
 } from '../persistence/store.js';
 import { updateBackgroundActivity } from './background-activity.js';
-import {
-  launchRecord,
-  missingDirectoryNotice,
-  recoverConversations,
-} from './startup-recovery.js';
+import { startupMoves } from './move-repair.js';
+import { launchRecord, recoverConversations } from './startup-recovery.js';
 import { editInVSCode } from './editor.js';
 import { editNote, memoryView, recoverMemory } from './memory-actions.js';
 import type { MemoryView } from './memory-actions.js';
@@ -327,6 +324,7 @@ export class Coordinator {
   private async load(directory: string, options: Launch): Promise<void> {
     await this.memory.initialize();
     const cwd = await realpath(directory);
+    const moved = await startupMoves(this.store, this.memory, cwd);
     const id =
       options.conversation ??
       (options.continue
@@ -347,8 +345,7 @@ export class Coordinator {
     // a failed connect leaves the conversation open, as a failed send does
     const failure = await failureOf(this.link.connect(undefined, scope));
     const adoption = await failureOf(this.workspace!.adoptCheckout(scope));
-    const missing = await missingDirectoryNotice(this.store);
-    if (missing) this.notice(missing, undefined, false);
+    if (moved) this.notice(moved, undefined, false);
     // a scope directory that can't be created can fail both, so its message shows once
     await this.settle(
       [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||

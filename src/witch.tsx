@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
-import type { FileHandle } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { access, readFile, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from 'ink';
 import { installedAgents } from './agents/registry.js';
@@ -9,6 +8,7 @@ import { errorMessage } from './agents/stderr.js';
 import { controlPrefix } from './cli-control.js';
 import type { parseCommand } from './cli-control.js';
 import { Coordinator } from './core/coordinator.js';
+import { describeMoves, repairMoves } from './core/move-repair.js';
 import { SessionCoordination } from './core/coordination.js';
 import { JobWatch, jobCheckpointSchema } from './core/jobs.js';
 import { watchMerges } from './core/merged.js';
@@ -23,10 +23,6 @@ import { router } from './core/router.js';
 import { NotificationSchedule } from './persistence/notifications.js';
 import { ScratchSpace } from './persistence/scratch.js';
 import { StateStore } from './persistence/store.js';
-import {
-  assertNoPendingDirectoryRecovery,
-  recoverDirectory,
-} from './persistence/directory-recovery.js';
 import { App } from './ui/app.js';
 import { Graphics } from './ui/images.js';
 import { clickTarget } from './ui/links.js';
@@ -62,284 +58,267 @@ export async function runWitch(
   }: Handover,
 ) {
   let store: StateStore;
-  let directoryLock: FileHandle | undefined;
   try {
     if (values['recover-directory'] !== undefined)
       await access(join(root, 'conversations'));
     store = await StateStore.open(root);
-    if (values['recover-directory'] === undefined) {
-      directoryLock = await store.lockDirectory('shared');
-      await assertNoPendingDirectoryRecovery(store.root);
-    }
   } catch (error) {
     process.stderr.write(`witch: ${errorMessage(error)}\n`);
     process.exit(1);
   }
-  if (values['recover-directory'] !== undefined) {
+  const source = values['recover-directory'];
+  if (source !== undefined) {
     try {
-      const report = await recoverDirectory(
+      const preview = !values.apply;
+      const report = await repairMoves(
         store,
         new Memory(join(store.root, 'memory.git')),
-        values['recover-directory'],
-        process.cwd(),
-        !!values.apply,
+        await realpath(process.cwd()),
+        {
+          declared: {
+            from: isAbsolute(source)
+              ? normalize(source).replace(/(.)\/$/, '$1')
+              : source,
+            to: await realpath(process.cwd()),
+          },
+          preview,
+        },
       );
       process.stdout.write(
-        [
-          `Source: ${report.source}`,
-          `Destination: ${report.destination}`,
-          `Conversations: ${report.conversations}`,
-          `Histories: ${report.histories}`,
-          `Prompts: ${report.prompts}`,
-          `Affected bytes: ${report.bytes}`,
-          `Saved memory scopes: ${report.sourceProjects.join(', ') || 'not recorded'}`,
-          `Records without a memory scope: ${report.unknownProjectRecords}`,
-          `Destination memory scope: ${report.destinationProject}`,
-          ...report.blockers.map((blocker) => `Blocked: ${blocker}`),
-          ...(report.backup ? [`Backup: ${report.backup}`] : []),
-          report.applied
-            ? 'Recovery complete.'
-            : 'Preview only. Close all Witches using this state directory, then repeat with --apply.',
-        ].join('\n') + '\n',
+        `${describeMoves(report, store.root, preview) ?? 'Nothing to recover.'}\n`,
       );
-      if (values.apply && !report.applied) process.exitCode = 1;
+      if (!preview && report.blocked.length) process.exitCode = 1;
     } catch (error) {
       process.stderr.write(`witch: ${errorMessage(error)}\n`);
       process.exitCode = 1;
     }
     return;
   }
-  try {
-    const prompt = positionals.join(' ');
-    let stopTerminal: (() => void) | undefined;
-    const restore = () => {
-      process.stdout.write(releaseMouse);
-      if (stopTerminal) {
-        stopTerminal();
-        stopTerminal = undefined;
-        process.stdout.write('\u001b]2;\u001b\\');
-      }
-    };
-    // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
-    // can't hold mouse reporting on
-    process.once('exit', restore);
-    const scratchParent = join(store.root, 'scratch');
-    const scratchResume =
-      handedScratch ??
-      (handedOver &&
-      process.env.TMPDIR === join(scratchParent, String(process.pid))
-        ? process.env.TMPDIR
-        : undefined);
-    const scratch = await ScratchSpace.open(scratchParent, {
-      resume: scratchResume,
-    });
-    const checkpointPath = join(scratch.directory, '.witch-jobs.json');
-    if (handedJobs !== undefined && scratchResume === undefined)
-      throw new Error('Restart jobs require resumed scratch.');
-    const resume =
-      handedJobs !== undefined
-        ? jobCheckpointSchema.parse(
-            JSON.parse(await readFile(checkpointPath, 'utf8')),
-          )
-        : undefined;
-    // the pid keeps another live instance's mark from matching
-    const jobs = new JobWatch({
-      directory: instanceDirectory(join(store.root, 'jobs')),
-      resume,
-    });
-    process.env.TMPDIR = scratch.directory;
-    const memory = new Memory(join(store.root, 'memory.git'));
-    const coordination = await SessionCoordination.open(
-      store,
-      memory,
-      join(scratch.directory, 'control'),
-      (binding) => controlPrefix(binding, cli),
-    );
-    const notifications = await NotificationSchedule.open(
-      join(store.root, 'notifications'),
-    );
-    const coordinator = new Coordinator(
-      store,
-      memory,
-      await installedAgents(),
-      jobs,
-      undefined,
-      coordination,
-    );
-    const policy = await DelegationStore.open(join(store.root, 'delegation'));
-    coordination.router = router(coordinator, policy);
-    coordination.ownFamiliars = (action) =>
-      coordinator.reviewers.report(action);
-    // straight to the terminal, since the link screen would read image data as printed text
-    const graphics = new Graphics((data) => process.stdout.write(data));
-    /** frees the images while the alternate screen that holds them is still active. */
-    const unmount = () => {
-      graphics.release();
-      application.unmount();
-    };
-    let shuttingDown = false;
-    const shutdown = () => {
-      stopTerminal?.();
-      // a second request quits without waiting for a stuck agent
-      if (shuttingDown) {
+  const prompt = positionals.join(' ');
+  let stopTerminal: (() => void) | undefined;
+  const restore = () => {
+    process.stdout.write(releaseMouse);
+    if (stopTerminal) {
+      stopTerminal();
+      stopTerminal = undefined;
+      process.stdout.write('\u001b]2;\u001b\\');
+    }
+  };
+  // runs on every exit, including a second Ctrl+C's process.exit and a crash, and first, so a slow directory removal
+  // can't hold mouse reporting on
+  process.once('exit', restore);
+  const scratchParent = join(store.root, 'scratch');
+  const scratchResume =
+    handedScratch ??
+    (handedOver &&
+    process.env.TMPDIR === join(scratchParent, String(process.pid))
+      ? process.env.TMPDIR
+      : undefined);
+  const scratch = await ScratchSpace.open(scratchParent, {
+    resume: scratchResume,
+  });
+  const checkpointPath = join(scratch.directory, '.witch-jobs.json');
+  if (handedJobs !== undefined && scratchResume === undefined)
+    throw new Error('Restart jobs require resumed scratch.');
+  const resume =
+    handedJobs !== undefined
+      ? jobCheckpointSchema.parse(
+          JSON.parse(await readFile(checkpointPath, 'utf8')),
+        )
+      : undefined;
+  // the pid keeps another live instance's mark from matching
+  const jobs = new JobWatch({
+    directory: instanceDirectory(join(store.root, 'jobs')),
+    resume,
+  });
+  process.env.TMPDIR = scratch.directory;
+  const memory = new Memory(join(store.root, 'memory.git'));
+  const coordination = await SessionCoordination.open(
+    store,
+    memory,
+    join(scratch.directory, 'control'),
+    (binding) => controlPrefix(binding, cli),
+  );
+  const notifications = await NotificationSchedule.open(
+    join(store.root, 'notifications'),
+  );
+  const coordinator = new Coordinator(
+    store,
+    memory,
+    await installedAgents(),
+    jobs,
+    undefined,
+    coordination,
+  );
+  const policy = await DelegationStore.open(join(store.root, 'delegation'));
+  coordination.router = router(coordinator, policy);
+  coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
+  // straight to the terminal, since the link screen would read image data as printed text
+  const graphics = new Graphics((data) => process.stdout.write(data));
+  /** frees the images while the alternate screen that holds them is still active. */
+  const unmount = () => {
+    graphics.release();
+    application.unmount();
+  };
+  let shuttingDown = false;
+  const shutdown = () => {
+    stopTerminal?.();
+    // a second request quits without waiting for a stuck agent
+    if (shuttingDown) {
+      unmount();
+      process.exit(130);
+    }
+    shuttingDown = true;
+    void coordinator
+      .close({ restart: restarting })
+      .then(unmount, (error: unknown) => {
         unmount();
-        process.exit(130);
-      }
-      shuttingDown = true;
-      void coordinator
-        .close({ restart: restarting })
-        .then(unmount, (error: unknown) => {
-          unmount();
-          process.stderr.write(`witch: ${errorMessage(error)}\n`);
-          process.exitCode = 1;
-        });
-    };
-    let restarting = false;
-    const restart = () => {
-      restarting = true;
-      shutdown();
-    };
-    const repository = new RepositoryWatch(
-      process.cwd(),
-      undefined,
-      async () => (await memory.scopePaths(process.cwd())).project,
-    );
-    const stopCoordinationRepository = repository.subscribe(() =>
-      coordination.updateRepository(repository.snapshot),
-    );
-    coordination.updateRepository(repository.snapshot);
-    const stopCopilot = watchCopilotReviews(
-      repository,
-      coordinator,
-      process.cwd(),
-    );
-    const stopMerges = watchMerges(repository, coordinator, install);
-    const stopConflicts = watchConflicts(repository, coordinator);
-    const screen = new Screen(process.stdout);
-    const stdin = new MouseInput(process.stdin);
-    // output can scroll another link under the pointer before the release, so a click opens the one it pressed
-    let pressed: string | undefined;
-    const hover = ({ column, row }: Cell) => {
-      const shape = screen.point(column, row);
-      if (shape) process.stdout.write(shape);
-    };
-    stdin.on('hover', hover);
-    stdin.on('pointer', (pointer: Pointer, cell: Cell) => {
-      hover(cell);
-      if (pointer === 'press') pressed = screen.linkAt(cell.column, cell.row);
-    });
-    stdin.on('click', () => {
-      const link = pressed;
-      if (!link) return;
-      graphics
-        .save(link)
-        .then(() => clickTarget(link, () => coordinator.memoryDirectories()))
-        .then((target) => {
-          if ('notice' in target)
-            coordinator.notice(target.notice, undefined, false);
-          else
-            execFile('/usr/bin/open', [target.open], (error) => {
-              if (error)
-                coordinator.notice(errorMessage(error), undefined, false);
-            });
-        })
-        .catch((error: unknown) =>
-          coordinator.notice(errorMessage(error), undefined, false),
-        );
-    });
-    const application = render(
-      <App
-        coordinator={coordinator}
-        repository={repository}
-        jobs={jobs}
-        store={store}
-        policy={policy}
-        onExit={shutdown}
-        onRestart={restart}
-        initialPrompt={prompt || undefined}
-        graphics={graphics}
-        copy={(text) => {
-          const child = execFile('/usr/bin/pbcopy', (error) => {
+        process.stderr.write(`witch: ${errorMessage(error)}\n`);
+        process.exitCode = 1;
+      });
+  };
+  let restarting = false;
+  const restart = () => {
+    restarting = true;
+    shutdown();
+  };
+  const repository = new RepositoryWatch(
+    process.cwd(),
+    undefined,
+    async () => (await memory.scopePaths(process.cwd())).project,
+  );
+  const stopCoordinationRepository = repository.subscribe(() =>
+    coordination.updateRepository(repository.snapshot),
+  );
+  coordination.updateRepository(repository.snapshot);
+  const stopCopilot = watchCopilotReviews(
+    repository,
+    coordinator,
+    process.cwd(),
+  );
+  const stopMerges = watchMerges(repository, coordinator, install);
+  const stopConflicts = watchConflicts(repository, coordinator);
+  const screen = new Screen(process.stdout);
+  const stdin = new MouseInput(process.stdin);
+  // output can scroll another link under the pointer before the release, so a click opens the one it pressed
+  let pressed: string | undefined;
+  const hover = ({ column, row }: Cell) => {
+    const shape = screen.point(column, row);
+    if (shape) process.stdout.write(shape);
+  };
+  stdin.on('hover', hover);
+  stdin.on('pointer', (pointer: Pointer, cell: Cell) => {
+    hover(cell);
+    if (pointer === 'press') pressed = screen.linkAt(cell.column, cell.row);
+  });
+  stdin.on('click', () => {
+    const link = pressed;
+    if (!link) return;
+    graphics
+      .save(link)
+      .then(() => clickTarget(link, () => coordinator.memoryDirectories()))
+      .then((target) => {
+        if ('notice' in target)
+          coordinator.notice(target.notice, undefined, false);
+        else
+          execFile('/usr/bin/open', [target.open], (error) => {
             if (error)
               coordinator.notice(errorMessage(error), undefined, false);
           });
-          // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
-          child.stdin?.on('error', () => {}).end(text);
-        }}
-      />,
+      })
+      .catch((error: unknown) =>
+        coordinator.notice(errorMessage(error), undefined, false),
+      );
+  });
+  const application = render(
+    <App
+      coordinator={coordinator}
+      repository={repository}
+      jobs={jobs}
+      store={store}
+      policy={policy}
+      onExit={shutdown}
+      onRestart={restart}
+      initialPrompt={prompt || undefined}
+      graphics={graphics}
+      copy={(text) => {
+        const child = execFile('/usr/bin/pbcopy', (error) => {
+          if (error) coordinator.notice(errorMessage(error), undefined, false);
+        });
+        // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
+        child.stdin?.on('error', () => {}).end(text);
+      }}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: recorded(process.stdout, screen),
+      alternateScreen: true,
+      exitOnCtrlC: false,
+      kittyKeyboard: {
+        flags: ['disambiguateEscapeCodes', 'reportAssociatedText'],
+      },
+    },
+  );
+  process.stdout.write(captureMouse);
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+  // a closed terminal fails every write and may send SIGHUP, and the first of these stops a running Claude `!`
+  // command before anything awaits
+  process.on('SIGHUP', shutdown);
+  process.stdout.on('error', shutdown);
+  stopTerminal = watchTerminal(
+    coordinator,
+    coordination,
+    (data) => process.stdout.write(data),
+    notifications,
+  );
+  void coordinator
+    .initialize(process.cwd(), {
+      continue: values.continue,
+      conversation: handedOver,
+    })
+    // initialize shows its own failure
+    .catch(() => {});
+  await application.waitUntilExit();
+  stopMerges();
+  stopConflicts();
+  stopCopilot();
+  stopCoordinationRepository();
+  repository.close();
+  jobs.close();
+  process.removeListener('SIGTERM', shutdown);
+  process.removeListener('SIGINT', shutdown);
+  process.removeListener('SIGHUP', shutdown);
+  process.stdout.removeListener('error', shutdown);
+  try {
+    if (restarting) await writeJson(checkpointPath, await jobs.checkpoint());
+  } catch (error) {
+    throw new Error(
+      `Preserving jobs for restart failed: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  } finally {
+    await scratch.close();
+  }
+  if (restarting) {
+    // execve fires no exit event; the replacement resets job reports and resumes scratch
+    restore();
+    const id = coordinator.snapshot.conversation?.id ?? handedOver;
+    process.execve!(
+      process.execPath,
+      [
+        process.execPath,
+        ...process.execArgv,
+        process.argv[1]!,
+        '--state-dir',
+        store.root,
+      ],
       {
-        stdin: stdin as unknown as NodeJS.ReadStream,
-        stdout: recorded(process.stdout, screen),
-        alternateScreen: true,
-        exitOnCtrlC: false,
-        kittyKeyboard: {
-          flags: ['disambiguateEscapeCodes', 'reportAssociatedText'],
-        },
+        ...process.env,
+        WITCH_SCRATCH: scratch.directory,
+        WITCH_JOBS_RESUME: '1',
+        ...(id ? { WITCH_CONVERSATION: id } : {}),
       },
     );
-    process.stdout.write(captureMouse);
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
-    // a closed terminal fails every write and may send SIGHUP, and the first of these stops a running Claude `!`
-    // command before anything awaits
-    process.on('SIGHUP', shutdown);
-    process.stdout.on('error', shutdown);
-    stopTerminal = watchTerminal(
-      coordinator,
-      coordination,
-      (data) => process.stdout.write(data),
-      notifications,
-    );
-    void coordinator
-      .initialize(process.cwd(), {
-        continue: values.continue,
-        conversation: handedOver,
-      })
-      // initialize shows its own failure
-      .catch(() => {});
-    await application.waitUntilExit();
-    stopMerges();
-    stopConflicts();
-    stopCopilot();
-    stopCoordinationRepository();
-    repository.close();
-    jobs.close();
-    process.removeListener('SIGTERM', shutdown);
-    process.removeListener('SIGINT', shutdown);
-    process.removeListener('SIGHUP', shutdown);
-    process.stdout.removeListener('error', shutdown);
-    try {
-      if (restarting) await writeJson(checkpointPath, await jobs.checkpoint());
-    } catch (error) {
-      throw new Error(
-        `Preserving jobs for restart failed: ${errorMessage(error)}`,
-        { cause: error },
-      );
-    } finally {
-      await scratch.close();
-    }
-    if (restarting) {
-      // execve fires no exit event; the replacement resets job reports and resumes scratch
-      restore();
-      const id = coordinator.snapshot.conversation?.id ?? handedOver;
-      process.execve!(
-        process.execPath,
-        [
-          process.execPath,
-          ...process.execArgv,
-          process.argv[1]!,
-          '--state-dir',
-          store.root,
-        ],
-        {
-          ...process.env,
-          WITCH_SCRATCH: scratch.directory,
-          WITCH_JOBS_RESUME: '1',
-          ...(id ? { WITCH_CONVERSATION: id } : {}),
-        },
-      );
-    }
-  } finally {
-    await directoryLock?.close();
   }
 }

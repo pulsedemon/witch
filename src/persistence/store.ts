@@ -24,11 +24,12 @@ import type {
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
-import { writeJson } from './json.js';
+import { mapper, readLedger } from './directories.js';
+import { replaceFile, writeJson } from './json.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
 import { lockedFiles, tryOpenLocked } from './lock.js';
 
-export const promptSchema = z.object({ cwd: z.string(), text: z.string() });
+const promptSchema = z.object({ cwd: z.string(), text: z.string() });
 
 // ENOTDIR covers a stray file, such as Finder's .DS_Store, where a conversation directory would be
 function missing(error: unknown): boolean {
@@ -109,22 +110,6 @@ export class StateStore {
     return new StateStore(root);
   }
 
-  async lockDirectory(mode: 'shared' | 'exclusive'): Promise<FileHandle> {
-    try {
-      return await tryLock(
-        join(this.root, 'directory-recovery.lock'),
-        mode === 'shared',
-      );
-    } catch (error) {
-      if (error instanceof LockedElsewhere)
-        throw new LockedElsewhere(
-          'Close all Witches using this state directory before applying recovery. Another session or recovery is running.',
-          { cause: error },
-        );
-      throw error;
-    }
-  }
-
   async records(ids?: readonly string[]): Promise<{
     records: ConversationRecord[];
     unreadable: UnreadableRecord[];
@@ -167,25 +152,37 @@ export class StateStore {
     return listed.sort((a, b) => b.modified - a.modified);
   }
 
-  /** the prompts sent in `cwd`, newest first, skipping a line a crash cut short. */
+  /**
+   * the prompts sent in `cwd`, newest first, skipping a line a crash cut short. a line sent from a directory that has
+   * since moved here counts, matched by its byte offset against when each move was recorded.
+   */
   async prompts(cwd: string): Promise<string[]> {
-    const content = await readFile(this.promptsPath(), 'utf8').catch(
+    const content = await readFile(this.promptsPath()).catch(
       (error: unknown) => {
-        if (missing(error)) return '';
+        if (missing(error)) return Buffer.alloc(0);
         throw error;
       },
     );
-    return content
-      .split('\n')
-      .flatMap((line) => {
-        try {
-          const prompt = promptSchema.parse(JSON.parse(line));
-          return prompt.cwd === cwd ? [prompt.text] : [];
-        } catch {
-          return [];
-        }
-      })
-      .reverse();
+    // the ledger only widens the match, so an unreadable one leaves exact matching
+    const { map } = await readLedger(this.root)
+      .then(mapper)
+      .catch(() => ({ map: (path: string) => path }));
+    const prompts: string[] = [];
+    for (let start = 0; start < content.length;) {
+      const end = content.indexOf(10, start);
+      const next = end < 0 ? content.length : end + 1;
+      try {
+        const prompt = promptSchema.parse(
+          JSON.parse(content.toString('utf8', start, next)),
+        );
+        if ((map(prompt.cwd, start) ?? prompt.cwd) === cwd)
+          prompts.push(prompt.text);
+      } catch {
+        // a torn or foreign line isn't a prompt
+      }
+      start = next;
+    }
+    return prompts.reverse();
   }
 
   /**
@@ -205,6 +202,37 @@ export class StateStore {
     });
     this.adding = added.catch(() => {});
     return added;
+  }
+
+  /**
+   * rewrites a closed conversation's raw `state.json` under its lock, without the recovery `claim` does, keeping the
+   * fields its schema doesn't know and its times. `change` returns the new record, or undefined to leave it.
+   */
+  async repairRecord(
+    id: string,
+    change: (
+      raw: Record<string, unknown>,
+      directory: string,
+    ) => Promise<Record<string, unknown> | undefined>,
+  ): Promise<'repaired' | 'unchanged'> {
+    const directory = this.directory(id);
+    const unlock = await hold(directory);
+    try {
+      const file = recordPath(directory);
+      const { atime, mtime } = await stat(file);
+      const record = await change(
+        JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>,
+        directory,
+      );
+      if (!record) return 'unchanged';
+      await replaceFile(file, `${JSON.stringify(record, null, 2)}\n`, {
+        atime,
+        mtime,
+      });
+      return 'repaired';
+    } finally {
+      await unlock();
+    }
   }
 
   /** locks before writing `state.json`, so `records()` never lists an unlocked new conversation. */

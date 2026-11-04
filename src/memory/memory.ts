@@ -102,7 +102,7 @@ export const runGit: GitRunner = (args, { cwd, env, input, signal }) =>
   });
 
 /** preserves APFS keys while fitting Linux's byte limit, without splitting a code point. */
-function projectKey(identity: string): string {
+export function projectKey(identity: string): string {
   let name = '';
   for (const char of basename(identity)) {
     const next = name + char;
@@ -271,6 +271,14 @@ export class Memory {
       project,
       ...(checkout === project ? {} : { checkout }),
     };
+  }
+
+  /** the project key and the path it derives from, when a directory's project is keyed by its own path rather than an origin. */
+  async pathScope(
+    directory: string,
+  ): Promise<{ key: string; top: string } | undefined> {
+    const { identity, top } = await this.reach(await realpath(directory));
+    return identity === top ? { key: projectKey(top), top } : undefined;
   }
 
   /** the Git config of the repository holding a directory, or undefined when Git exits 128, such as outside a repository. */

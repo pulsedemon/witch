@@ -17,7 +17,6 @@ import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
-import { recoverDirectory } from '../src/persistence/directory-recovery.js';
 import { FixtureAgent } from './fixtures/agent.js';
 import {
   record,
@@ -43,16 +42,9 @@ async function relocatedFixture() {
   );
   const scope = await f.memory.scopePaths(f.project);
   const destination = join(f.root, 'renamed project');
+  // the coordinator repairs the move when it starts in the destination, with no command
   const move = async () => {
     await rename(f.project, destination);
-    const report = await recoverDirectory(
-      f.store,
-      f.memory,
-      f.project,
-      destination,
-      true,
-    );
-    assert.equal(report.applied, true, report.blockers.join('\n'));
   };
   const coordinator = new Coordinator(f.store, f.memory, [
     { adapter: f.a, executable: 'a' },
@@ -157,13 +149,12 @@ test('directory recovery preserves pending memory and keeps a new turn queued', 
   await dirty.files.close();
   const before = await readRecord(f.root, dirty.id);
   await f.move();
-  assert.deepEqual(
-    (await readRecord(f.root, dirty.id)).activity,
-    before.activity,
-  );
-  assert.equal(await readFile(join(dirty.memory.root, note), 'utf8'), pending);
   try {
     await f.coordinator.initialize(f.destination, { continue: true });
+    assert.deepEqual(
+      (await readRecord(f.root, dirty.id)).activity,
+      before.activity,
+    );
     assert.equal(f.coordinator.snapshot.conversation!.id, dirty.id);
     assert.equal(f.coordinator.snapshot.recovery?.kind, 'pending');
     await f.coordinator.send('wait for memory recovery');

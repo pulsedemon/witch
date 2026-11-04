@@ -2,10 +2,8 @@ import type { AgentRegistration } from '../agents/registry.js';
 import { errorMessage } from '../agents/stderr.js';
 import { branchOf, exists } from '../memory/memory.js';
 import type { Memory } from '../memory/memory.js';
-import { missingConversationDirectories } from '../persistence/directory-recovery.js';
 import { LockedElsewhere } from '../persistence/store.js';
 import type { ConversationStore, StateStore } from '../persistence/store.js';
-import { quote } from '../shell.js';
 import { createConversation } from './state.js';
 import type { Conversation } from './state.js';
 
@@ -73,29 +71,10 @@ export async function recoverConversations(
     if (!reason) continue;
     const gone = !(await exists(record.cwd));
     lines.push(
-      `- ${record.title} in ${record.cwd}${gone ? ' (recover this directory first)' : ''}: ${reason}`,
+      `- ${record.title} in ${record.cwd}${gone ? ' (start Witch in its new location)' : ''}: ${reason}`,
     );
   }
   return lines.length
     ? `These conversations need attention. Open each from /sessions in its directory:\n${lines.join('\n')}`
     : undefined;
-}
-
-/** a launch notice for saved conversations whose directories are gone, or undefined when none are. */
-export async function missingDirectoryNotice(
-  store: StateStore,
-): Promise<string | undefined> {
-  try {
-    const missing = await missingConversationDirectories(store);
-    if (!missing.length) return undefined;
-    return [
-      'Saved conversations refer to missing directories. From each replacement directory, preview recovery with:',
-      ...missing.map(
-        ({ cwd, conversations }) =>
-          `${conversations} conversation(s) in ${cwd}\nwitch --state-dir ${quote(store.root)} --recover-directory ${quote(cwd)}`,
-      ),
-    ].join('\n');
-  } catch (error) {
-    return `Could not inspect missing conversation directories: ${errorMessage(error)}`;
-  }
 }
