@@ -134,7 +134,7 @@ test('repointing a suspended chain stays linear in the number of references', as
   await rename(join(s, 'spare'), join(b, 'x'));
   const { map } = await mapper(ledger);
   const note = `${a}/x/f`;
-  // the quadratic scans these replaced took seconds here; linear work takes milliseconds
+  // linear work takes milliseconds here, so a second fails only a scan that rereads the line for each reference
   for (const text of [
     `\`${`${note} `.repeat(20_000)}\``,
     `${note}!`.repeat(20_000),
@@ -149,8 +149,10 @@ test('a reference longer than any path is left alone', async () => {
   const s = await scratch('witch-repoint-');
   const w = join(s, 'w/main');
   const { map } = await mapper(await moves([w, join(s, 'c/main')]));
-  const text = `\`${w}/${'x'.repeat(1100)}\``;
-  assert.equal(repointText(text, [w], map, homedir()), text);
+  for (const tail of ['x'.repeat(1100), 'é/'.repeat(350)]) {
+    const text = `\`${w}/${tail}\``;
+    assert.equal(repointText(text, [w], map, homedir()), text, tail);
+  }
 });
 
 test('begin repoints moved paths in every scope as one published commit', async () => {

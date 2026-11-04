@@ -139,9 +139,11 @@ export function repointText(
         end = pathStop;
       }
     }
-    // macOS opens no path longer than PATH_MAX, so a longer reference names no directory
+    // macOS opens no path longer than PATH_MAX bytes, so a longer reference names no directory. a UTF-16 unit is at
+    // least a byte, which lets the length rule most out before the slice
     if (end - start > 1024) continue;
     const reference = text.slice(start, end);
+    if (Buffer.byteLength(reference) > 1024) continue;
     const tilde = form.startsWith('~');
     const absolute = tilde ? home + reference.slice(1) : reference;
     const moved = map(absolute);

@@ -304,10 +304,12 @@ export async function findMoves(
  * one pass's moves in an order they could have happened: a move out of a path before any move into it, which the
  * mapper relies on. a cycle, such as two directories swapped, keeps the order it was found in.
  */
-function inOrder<T extends Move>(moves: readonly T[]): T[] {
+function inOrder(
+  moves: ReadonlyArray<Move & Identity>,
+): Array<Move & Identity> {
   const rest = [...moves];
-  const ordered: T[] = [];
-  const after = (move: T, other: T) =>
+  const ordered: Array<Move & Identity> = [];
+  const after = (move: Move, other: Move) =>
     within(move.to, other.from) || within(other.from, move.to);
   while (rest.length) {
     const ready = rest.findIndex(

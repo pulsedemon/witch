@@ -390,8 +390,8 @@ export function sessionsIn(
     const real = await realpath(path);
     // a session left in a directory that has since moved still holds it
     const { map } = await mapper(await readLedger(stateRoot));
-    return records.some(({ cwd, createdAt }) =>
-      [cwd, map(cwd, savedBefore(createdAt))].some(
+    return records.some((record) =>
+      [record.cwd, map(record.cwd, savedBefore(record))].some(
         (held) => held && (held === real || held.startsWith(real + sep)),
       ),
     );

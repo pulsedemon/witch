@@ -116,7 +116,7 @@ export async function listWorktrees(run: Run, cwd: string): Promise<string[]> {
 const worktreeList = (run: Run, cwd: string) =>
   listWorktrees(run, cwd).catch(() => undefined);
 
-/** undefined for a file that's gone; one that can't be read throws, so its repository is reported rather than skipped. */
+/** undefined for a file that's gone; one that can't be read throws, so its caller reports it rather than skipping it. */
 const unlessGone = <T>(read: Promise<T>): Promise<T | undefined> =>
   read.catch((error: unknown) => {
     const { code } = error as NodeJS.ErrnoException;
@@ -169,11 +169,14 @@ async function leftWorktree(
 }
 
 /**
- * a record as the owner of its cwd: saved before a move was recorded, the directory that moved was its own. one waiting
- * at a path another directory took stays there.
+ * a record as the owner of its cwd: there since before a move was recorded, the directory that moved was its own. one
+ * waiting at a path another directory took stays there.
  */
-export const savedBefore = (createdAt: string): Owner => ({
-  predates: (move) => Date.parse(createdAt) < move.at,
+export const savedBefore = ({
+  createdAt,
+  cwdSince,
+}: Pick<ConversationRecord, 'createdAt' | 'cwdSince'>): Owner => ({
+  predates: (move) => Date.parse(cwdSince ?? createdAt) < move.at,
   throughReused: false,
 });
 
@@ -266,9 +269,9 @@ export async function repairMoves(
     const used = (entry: DirectoryEntry) =>
       entry.main !== undefined ||
       records.some(
-        ({ cwd: saved, createdAt }) =>
-          within(saved, entry.path) ||
-          within(map(saved, savedBefore(createdAt)) ?? '', entry.path),
+        (saved) =>
+          within(saved.cwd, entry.path) ||
+          within(map(saved.cwd, savedBefore(saved)) ?? '', entry.path),
       );
     const moves = await findMoves(ledger.entries.filter(used), seeds);
     if (declared) {
@@ -323,7 +326,7 @@ export async function repairMoves(
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   for (const saved of records) {
     try {
-      const target = map(saved.cwd, savedBefore(saved.createdAt));
+      const target = map(saved.cwd, savedBefore(saved));
       if (target === undefined) {
         const move = suspended.find(({ from }) => within(saved.cwd, from));
         if (move) tally.suspended.push(move);
@@ -529,6 +532,14 @@ async function rewrite(
           current.answerProcess,
         ])
           if (identity) await stopPreviousProcess(identity);
+        // a directory that appeared at the old path while this waited for the lock or the stops holds it now
+        if (await exists(saved.cwd)) {
+          report.blocked.push({
+            path: saved.cwd,
+            reason: `another directory is at it now, so ${saved.title} stays listed there`,
+          });
+          return undefined;
+        }
         const history = join(directory, 'history.jsonl');
         const times = await unlessGone(stat(history));
         if (times) {
@@ -541,7 +552,7 @@ async function rewrite(
           );
           if (count) await replaceFile(history, content, times);
         }
-        return { ...raw, cwd: target };
+        return { ...raw, cwd: target, cwdSince: new Date().toISOString() };
       })) === 'repaired'
     );
   } catch (error) {

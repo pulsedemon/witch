@@ -632,6 +632,50 @@ test.skipIf(!darwin)(
   },
 );
 
+test('a repaired conversation follows its directory past an earlier move out of its new path', async () => {
+  const f = await setup();
+  for (const name of ['a', 'b']) {
+    await mkdir(f.at(name));
+    await f.save(name, name);
+  }
+  await f.repair('a');
+  await rename(f.at('b'), f.at('c'));
+  await f.repair('c');
+  await rename(f.at('a'), f.at('b'));
+  await f.repair('b');
+  assert.equal((await f.saved('a')).raw.cwd, f.at('b'));
+  await rename(f.at('b'), f.at('d'));
+  await f.repair('d');
+  assert.equal((await f.saved('a')).raw.cwd, f.at('d'));
+  assert.equal((await f.saved('b')).raw.cwd, f.at('c'));
+});
+
+test('a directory that appears at the old path while repair stops a leftover process keeps the conversation there', async () => {
+  const f = await setup();
+  // recreates the old path as it's stopped, the last moment before the rewrite
+  const child = spawn(process.execPath, [
+    '-e',
+    `process.on('SIGTERM', () => { require('node:fs').mkdirSync(${JSON.stringify(f.at('w/main'))}, { recursive: true }); process.exit(0); }); setTimeout(() => {}, 60_000);`,
+  ]);
+  try {
+    await new Promise((ready) => setTimeout(ready, 200));
+    await f.save('live', 'w/main', {
+      process: await identifyProcess(child.pid!),
+    });
+    await rename(f.at('w'), f.at('c'));
+    const report = await f.repair('c/main');
+    assert.equal((await f.saved('live')).raw.cwd, f.at('w/main'));
+    assert.ok(
+      report.blocked.some(({ reason }) =>
+        /another directory is at it/.test(reason),
+      ),
+      JSON.stringify(report),
+    );
+  } finally {
+    child.kill('SIGKILL');
+  }
+});
+
 test('a recreated source suspends its move', async () => {
   const f = await setup();
   await f.save('held', 'w/main');
