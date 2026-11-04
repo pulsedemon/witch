@@ -121,6 +121,23 @@ test('rechecking a mapping looks only at the known directories holding its path'
   assert.ok(performance.now() - started < 500);
 });
 
+test('resolving a move beside many known directories looks only at the ones it carries', async () => {
+  const f = await directories('b');
+  const ledger: Ledger = {
+    entries: Array.from({ length: 100_000 }, (_, index) => ({
+      path: f.at(`known/e${index}`),
+      device: '1',
+      inode: String(index),
+    })),
+    moves: [],
+  };
+  // checking every entry's membership before its path takes a second here
+  const started = performance.now();
+  await resolve(ledger, [await f.move('a', 'b')], 0);
+  assert.ok(performance.now() - started < 300);
+  assert.equal(ledger.entries.length, 100_000);
+});
+
 test('mapper never carries a replaced child', async () => {
   const f = await directories('old/nested', 'x', 'spare');
   const ledger: Ledger = {

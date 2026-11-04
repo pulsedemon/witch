@@ -467,7 +467,7 @@ export async function resolve(
         at: Math.max(Date.now(), (ledger.moves.at(-1)?.at ?? -1) + 1),
       });
     for (const entry of [...ledger.entries]) {
-      if (!ledger.entries.includes(entry) || !within(entry.path, move.from))
+      if (!within(entry.path, move.from) || !ledger.entries.includes(entry))
         continue;
       const target = through(entry.path, move);
       if (!sameIdentity(entry, await identify(target).catch(() => undefined)))
