@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { subscribe, unsubscribe } from 'node:diagnostics_channel';
 import { chmod, mkdir, rename, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +20,7 @@ import type {
   Ledger,
   LedgerMove,
 } from '../src/persistence/directories.js';
+import { countProbes } from './fixtures/probes.js';
 import { scratch } from './fixtures/scratch.js';
 
 const execute = promisify(execFile);
@@ -346,28 +346,29 @@ test('findMoves gives one move per moved root', async () => {
   ]);
 });
 
-test('findMoves follows a renamed parent of many known directories with one lookup by identity', async () => {
-  const names = Array.from(
-    { length: 300 },
-    (_, index) => `r${String(index).padStart(3, '0')}`,
-  );
-  const f = await directories(...names.map((name) => `w/${name}`));
-  const entries = await Promise.all(names.map((name) => f.entry(`w/${name}`)));
-  await rename(f.at('w'), f.at('c'));
-  let spawns = 0;
-  const spawned = () => spawns++;
-  subscribe('child_process', spawned);
-  try {
+test.skipIf(!darwin)(
+  'findMoves follows a renamed parent of many known directories with one lookup by identity',
+  async () => {
+    const names = Array.from(
+      { length: 300 },
+      (_, index) => `r${String(index).padStart(3, '0')}`,
+    );
+    const f = await directories(...names.map((name) => `w/${name}`));
+    const entries = await Promise.all(
+      names.map((name) => f.entry(`w/${name}`)),
+    );
+    await rename(f.at('w'), f.at('c'));
+    const { value: moves, sh } = await countProbes(() =>
+      findMoves(entries, []),
+    );
     assert.deepEqual(
-      f.moved(await findMoves(entries, [])),
+      f.moved(moves),
       names.map((name) => [f.at(`w/${name}`), f.at(`c/${name}`)]),
     );
-  } finally {
-    unsubscribe('child_process', spawned);
-  }
-  // a shell for each entry made a renamed folder of thousands of checkouts take most of a minute
-  assert.ok(spawns <= 1, String(spawns));
-});
+    // a shell for each entry made a renamed folder of thousands of checkouts take most of a minute
+    assert.ok(sh <= 1, String(sh));
+  },
+);
 
 test('findMoves records where a sibling really is, not a link or a differently cased name to it', async () => {
   const f = await directories('w/main', 'w/linked', 'w/cased', 'far');
