@@ -80,6 +80,11 @@ export async function adoptIdentity(
   // a lookup that fails leaves the recorded directory as it was, since it may still exist where it can't be seen
   if (!sameIdentity(entry, identity) && (await locate(entry).catch(() => true)))
     return false;
+  // its repository and slot described the directory that was here
+  if (!sameIdentity(entry, identity)) {
+    delete entry.main;
+    delete entry.slot;
+  }
   entry.device = identity.device;
   entry.inode = identity.inode;
   return true;
@@ -127,23 +132,8 @@ export async function updateLedger<T>(
   try {
     const ledger = await readLedger(root);
     const result = await change(ledger);
-    // a path reassigned onto one the ledger already knew keeps one entry, with what either knew
-    const entries = new Map<string, DirectoryEntry>();
-    for (const entry of ledger.entries) {
-      const known = entries.get(entry.path);
-      if (!known) entries.set(entry.path, entry);
-      // a slot means something only in its own repository
-      else if (known.main === undefined) {
-        known.main = entry.main;
-        known.slot = entry.slot;
-      }
-    }
     // checked as it's read, so a change the reader would refuse never lands
-    const checked = ledgerSchema.parse({
-      version: 1,
-      entries: [...entries.values()],
-      moves: ledger.moves,
-    });
+    const checked = ledgerSchema.parse({ version: 1, ...ledger });
     await writeJson(ledgerFile(root), checked);
     return result;
   } finally {
@@ -179,8 +169,11 @@ export async function mapper(ledger: Ledger): Promise<{
   );
   // each move's index under its source, in the order recorded
   const bySource = new Map<string, number[]>();
-  for (const [index, { from }] of ledger.moves.entries())
-    bySource.set(from, [...(bySource.get(from) ?? []), index]);
+  for (const [index, { from }] of ledger.moves.entries()) {
+    const bucket = bySource.get(from);
+    if (bucket) bucket.push(index);
+    else bySource.set(from, [index]);
+  }
   // past the first hop, where a chain ends depends only on where it stands, the last move and passing reused paths
   const followed = new Map<string, string | undefined>();
   const raw = (path: string, owner?: Owner): string | undefined => {
@@ -199,16 +192,22 @@ export async function mapper(ledger: Ledger): Promise<{
       }
       let chosen = -1;
       // the most specific source first: the path itself, then each parent
-      for (let prefix = current; chosen < 0; prefix = dirname(prefix)) {
-        const eligible = (bySource.get(prefix) ?? []).filter(
-          (index) =>
-            index > last &&
-            // a move out of the path before its owner was there was an earlier occupant's
-            !(last < 0 && owner && !owner.predates(ledger.moves[index]!)),
-        );
-        if (eligible.length)
-          chosen = (last < 0 && !owner ? eligible.at(-1) : eligible[0])!;
-        if (prefix === dirname(prefix)) break;
+      for (const prefix of prefixes(current)) {
+        const bucket = bySource.get(prefix);
+        if (!bucket) continue;
+        const found =
+          last >= 0
+            ? firstPassing(bucket, (index) => index > last)
+            : owner
+              ? // a move out of the path before its owner was there was an earlier occupant's
+                firstPassing(bucket, (index) =>
+                  owner.predates(ledger.moves[index]!),
+                )
+              : bucket.at(-1);
+        if (found !== undefined) {
+          chosen = found;
+          break;
+        }
       }
       const move = ledger.moves[chosen];
       const source = sources[chosen];
@@ -246,6 +245,36 @@ export async function mapper(ledger: Ledger): Promise<{
   };
 }
 
+/** every path `path` is within, itself first and `/` last, at each separator however many it repeats. */
+function* prefixes(path: string): Generator<string> {
+  yield path;
+  for (
+    let at = path.lastIndexOf('/');
+    at > 0;
+    at = path.lastIndexOf('/', at - 1)
+  )
+    yield path.slice(0, at);
+  yield '/';
+}
+
+/**
+ * the first index in a bucket that passes a test that stays true from there on: moves are recorded in order, so a
+ * later index, prompt boundary or recording time is never smaller.
+ */
+function firstPassing(
+  bucket: readonly number[],
+  passes: (index: number) => boolean,
+): number | undefined {
+  let low = 0;
+  let high = bucket.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (passes(bucket[middle]!)) high = middle;
+    else low = middle + 1;
+  }
+  return bucket[low];
+}
+
 /** paths under `move.from` mapped through it. */
 const through = (path: string, { from, to }: Move) =>
   within(path, from) ? to + path.slice(from.length) : path;
@@ -257,6 +286,7 @@ const through = (path: string, { from, to }: Move) =>
 export async function findMoves(
   entries: readonly DirectoryEntry[],
   seeds: readonly string[],
+  unreachable: (entry: DirectoryEntry, error: unknown) => void = () => {},
 ): Promise<Array<Move & Identity>> {
   // an entry that can't be looked at stays put, and so do its records, which report why
   const missing: DirectoryEntry[] = [];
@@ -296,7 +326,10 @@ export async function findMoves(
       missing.splice(missing.indexOf(entry), 1);
       continue;
     }
-    const found = await locate(entry).catch(() => undefined);
+    const found = await locate(entry).catch((error: unknown) => {
+      unreachable(entry, error);
+      return undefined;
+    });
     if (found && found !== entry.path) settle(entry, found);
   }
   for (let progress = true; progress;) {

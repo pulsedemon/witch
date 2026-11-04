@@ -58,6 +58,8 @@ test('repointText maps references at path boundaries and leaves look-alikes alon
     [`${w}?raw=1`, `${c}?raw=1`],
     [`see ${w}, then`, `see ${c}, then`],
     [`~/old/notes.md`, `~/moved/notes.md`],
+    [`\`${w}/\``, `\`${c}/\``],
+    [`${w}//src/a.md`, `${c}//src/a.md`],
   ])
     assert.equal(repoint(before!), after, before);
   for (const unchanged of [

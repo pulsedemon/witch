@@ -317,3 +317,13 @@ test.skipIf(!darwin)(
     }
   },
 );
+
+test('adoptIdentity drops the repository and slot that described the directory gone from a path', async () => {
+  const f = await directories('w-2');
+  const recorded = await f.entry('w-2', { main: f.at('w'), slot: 2 });
+  await rm(f.at('w-2'), { recursive: true });
+  await mkdir(f.at('w-2'));
+  const now = (await identify(f.at('w-2')))!;
+  assert.equal(await adoptIdentity(recorded, now), true);
+  assert.deepEqual(recorded, { path: f.at('w-2'), ...now });
+});

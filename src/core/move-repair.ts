@@ -132,17 +132,19 @@ async function registrations(common: string): Promise<Registration[]> {
   const names = (await unlessGone(readdir(join(common, 'worktrees')))) ?? [];
   const found: Registration[] = [];
   for (const name of names) {
-    const gitdir = await unlessGone(
-      readFile(join(common, 'worktrees', name, 'gitdir'), 'utf8'),
-    );
+    const admin = join(common, 'worktrees', name);
+    const gitdir = await unlessGone(readFile(join(admin, 'gitdir'), 'utf8'));
+    // a registration removed whole while this read is gone; one left without its gitdir can't be checked
+    if (gitdir === undefined && !(await exists(admin))) continue;
+    if (!gitdir?.trim())
+      throw new Error(
+        `${admin} names no worktree; run git worktree prune in ${dirname(common)}`,
+      );
     // Git may write it relative to the registration's own directory
-    if (gitdir)
-      found.push({
-        name,
-        registered: dirname(
-          resolvePath(join(common, 'worktrees', name), gitdir.trim()),
-        ),
-      });
+    found.push({
+      name,
+      registered: dirname(resolvePath(admin, gitdir.trim())),
+    });
   }
   return found;
 }
@@ -277,18 +279,31 @@ export async function repairMoves(
           within(saved.cwd, entry.path) ||
           within(map(saved.cwd, savedBefore(saved)) ?? '', entry.path),
       );
-    const moves = await findMoves(ledger.entries.filter(used), seeds);
-    const copy = declared && {
+    const moves = await findMoves(
+      ledger.entries.filter(used),
+      seeds,
+      (entry, error) =>
+        report.blocked.push({
+          path: entry.path,
+          reason: `Couldn't look for where it went: ${errorMessage(error)}`,
+        }),
+    );
+    const vouched = declared && {
       path: declared.to,
       ...(await identify(declared.to))!,
     };
-    if (declared && copy) moves.push({ ...declared, ...copy });
+    if (declared && vouched)
+      moves.push({
+        ...declared,
+        device: vouched.device,
+        inode: vouched.inode,
+      });
     // read under the ledger lock, so prompts added while repair waited for it count as before the move
     const promptsSize =
       (await unlessGone(stat(join(store.root, 'prompts.jsonl'))))?.size ?? 0;
     await resolve(ledger, moves, promptsSize);
     // a declared move is a copy, so the directories under it have new identities the user vouches for
-    if (declared && copy) {
+    if (declared && vouched) {
       for (const entry of [...ledger.entries]) {
         if (!within(entry.path, declared.from)) continue;
         const path = declared.to + entry.path.slice(declared.from.length);
@@ -300,11 +315,12 @@ export async function repairMoves(
       // the copy itself, so a stand-in put there later is never taken for it
       if (
         !ledger.entries.some(
-          (entry) => entry.path === copy.path && sameIdentity(entry, copy),
+          (entry) =>
+            entry.path === vouched.path && sameIdentity(entry, vouched),
         )
       ) {
-        ledger.entries.push(copy);
-        relocate(ledger, copy, copy.path);
+        ledger.entries.push(vouched);
+        relocate(ledger, vouched, vouched.path);
       }
     }
     return moves;
@@ -472,7 +488,10 @@ async function repairWorktrees(
     );
 }
 
-/** records the identities of `cwd`, the seeds and every present record cwd, with each worktree's main and slot. */
+/**
+ * records the identities of `cwd`, the seeds and every present record cwd, with each worktree's main and slot, except
+ * where the directory recorded at a path still exists elsewhere.
+ */
 async function record(
   ledger: Ledger,
   cwd: string,

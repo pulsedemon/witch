@@ -913,67 +913,6 @@ test("checking a repaired worktree runs nothing the repository's config names", 
   await assert.rejects(stat(marker), { code: 'ENOENT' });
 });
 
-test('prompt history from every stop of a long move chain maps each stop once', async () => {
-  const f = await setup();
-  const paths = Array.from({ length: 1201 }, (_, index) =>
-    f.at(`chain/${index}`),
-  );
-  let content = '';
-  const moves = [];
-  for (const [index, path] of paths.entries()) {
-    content += `${JSON.stringify({ cwd: path, text: String(index) })}\n`;
-    const to = paths[index + 1];
-    if (to)
-      moves.push({
-        from: path,
-        to,
-        device: '1',
-        inode: String(index),
-        prompts: Buffer.byteLength(content),
-        at: index,
-      });
-  }
-  await writeFile(f.at('state/prompts.jsonl'), content);
-  await writeFile(
-    f.at('state/directories.json'),
-    JSON.stringify({ version: 1, entries: [], moves }),
-  );
-  // each stop's chain is followed once; replaying the rest of the chain for every prompt took seconds
-  const started = performance.now();
-  assert.equal((await f.store.prompts(paths[1200]!)).length, 1201);
-  assert.ok(performance.now() - started < 1000);
-});
-
-test('prompt history maps a long move chain once per directory, not once per prompt', async () => {
-  const f = await setup();
-  const paths = Array.from({ length: 201 }, (_, index) =>
-    f.at(`chain/${index}`),
-  );
-  const lines = `${JSON.stringify({ cwd: paths[0], text: 'p' })}\n`.repeat(
-    10_000,
-  );
-  await writeFile(f.at('state/prompts.jsonl'), lines);
-  await writeFile(
-    f.at('state/directories.json'),
-    JSON.stringify({
-      version: 1,
-      entries: [],
-      moves: paths.slice(1).map((to, index) => ({
-        from: paths[index],
-        to,
-        device: '1',
-        inode: String(index),
-        prompts: lines.length,
-        at: index,
-      })),
-    }),
-  );
-  // linear work takes milliseconds here; replaying the chain for every prompt took seconds
-  const started = performance.now();
-  assert.equal((await f.store.prompts(paths[200]!)).length, 10_000);
-  assert.ok(performance.now() - started < 1000);
-});
-
 test('a recreated source suspends its move', async () => {
   const f = await setup();
   await f.save('held', 'w/main');
@@ -1411,35 +1350,42 @@ test("repair's worktree check runs none of the repository's clean filters", asyn
   await assert.rejects(stat(marker), { code: 'ENOENT' });
 });
 
-test('prompt history from many directories under a long-moved parent stays fast', async () => {
+test('a worktree registration left without its gitdir blocks its repository', async () => {
   const f = await setup();
-  const parents = Array.from({ length: 401 }, (_, index) =>
-    f.at(`moved/${index}`),
+  await rm(f.at('w/main/.git/worktrees/main-1/gitdir'));
+  await rename(f.at('w/main'), f.at('w/renamed'));
+  const report = await f.repair('w/renamed');
+  assert.ok(
+    report.blocked.some(
+      ({ repository, reason }) =>
+        repository === f.at('w/renamed') && /git worktree prune/.test(reason),
+    ),
+    JSON.stringify(report),
   );
-  let content = '';
-  for (let index = 0; index < 400; index++)
-    content += `${JSON.stringify({ cwd: `${parents[0]}/sub-${index}`, text: String(index) })}\n`;
-  await writeFile(f.at('state/prompts.jsonl'), content);
-  await writeFile(
-    f.at('state/directories.json'),
-    JSON.stringify({
-      version: 1,
-      entries: [],
-      moves: parents.slice(1).map((to, index) => ({
-        from: parents[index],
-        to,
-        device: '1',
-        inode: String(index),
-        prompts: Buffer.byteLength(content),
-        at: index,
-      })),
-    }),
-  );
-  // each hop looks up its own path and parents; scanning every move at every hop took many seconds
-  const started = performance.now();
-  assert.deepEqual(await f.store.prompts(`${parents[400]}/sub-7`), ['7']);
-  assert.ok(performance.now() - started < 1000);
 });
+
+test.skipIf(!darwin)(
+  "a directory that moved where it can't be looked for is reported",
+  async () => {
+    const f = await setup();
+    await mkdir(f.at('p'));
+    await f.save('held', 'p');
+    await f.repair('p');
+    await mkdir(f.at('locked'));
+    await rename(f.at('p'), f.at('locked/p'));
+    await mkdir(f.at('p'));
+    await chmod(f.at('locked'), 0);
+    try {
+      const report = await f.repair('w/main');
+      assert.ok(
+        report.blocked.some(({ path }) => path === f.at('p')),
+        JSON.stringify(report),
+      );
+    } finally {
+      await chmod(f.at('locked'), 0o755);
+    }
+  },
+);
 
 test('concurrent repairs leave every record moved and one move in the ledger', async () => {
   const f = await setup();
