@@ -338,6 +338,7 @@ test('a failed repair keeps a moved worktree and its slot', async () => {
 for (const [unreadable, mode] of [
   ['.git/worktrees', 0o300],
   ['.git/worktrees/main-1/gitdir', 0],
+  ['../main-1/.git', 0],
 ] as const)
   test(`an unreadable ${unreadable} blocks its repository`, async () => {
     const f = await setup();

@@ -55,8 +55,12 @@ async function registrations(common: string): Promise<Registration[]> {
 
 /** the admin directory a worktree's `.git` file names, `<common>/worktrees/<name>`, which Git may write relative to it. */
 async function namedAdmin(worktree: string): Promise<string | undefined> {
-  const text = await readFile(join(worktree, '.git'), 'utf8').catch(
-    () => undefined,
+  const text = await unlessGone(readFile(join(worktree, '.git'), 'utf8')).catch(
+    (error: unknown) => {
+      // a .git directory is a checkout of its own, which names no admin directory
+      if ((error as NodeJS.ErrnoException).code === 'EISDIR') return undefined;
+      throw error;
+    },
   );
   return text?.startsWith('gitdir: ')
     ? resolvePath(worktree, text.slice(8).trim())
