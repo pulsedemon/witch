@@ -12,6 +12,7 @@ import { projectKey } from '../memory/memory.js';
 import {
   findMoves,
   identify,
+  locate,
   sameIdentity,
   mapper,
   readLedger,
@@ -35,6 +36,7 @@ import { LockedElsewhere } from '../persistence/store.js';
 import type { StateStore } from '../persistence/store.js';
 import { quote } from '../shell.js';
 import { runCommand } from './command.js';
+import { statusArgs, statusEnv } from './repository.js';
 import type { Run } from './repository.js';
 import { conversationRecordSchema, displayUpdateSchema } from './state.js';
 import type { ConversationRecord } from './state.js';
@@ -337,17 +339,21 @@ export async function repairMoves(
         else tally.unresolved.push(saved.cwd);
         continue;
       }
-      if (!(await exists(target))) {
+      const current = await identify(target);
+      if (!current) {
         tally.unresolved.push(saved.cwd);
         continue;
       }
       if (target === saved.cwd) continue;
-      // the directory the ledger resolved there, so one put in its place during the repair isn't taken for it
-      const destination = resolved.entries
+      // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
+      const destination = [
+        ...resolved.entries,
+        ...found.map(({ to, device, inode }) => ({ path: to, device, inode })),
+      ]
         .filter(({ path }) => within(target, path))
         .sort((a, b) => b.path.length - a.path.length)[0] ?? {
         path: target,
-        ...(await identify(target))!,
+        ...current,
       };
       if (!(await compatible(memory, saved, saved.cwd, target))) {
         report.blocked.push({
@@ -439,10 +445,12 @@ async function repairWorktrees(
     timeout: 60_000,
   });
   for (const path of checked)
-    await run('git', ['status', '--porcelain'], {
-      cwd: path,
-      timeout: 60_000,
-    }).catch((error: unknown) =>
+    await (async () =>
+      run('git', [...statusArgs, '--ignore-submodules=dirty'], {
+        cwd: path,
+        timeout: 60_000,
+        env: await statusEnv(run, path),
+      }))().catch((error: unknown) =>
       report.blocked.push({
         path,
         reason: errorMessage(error),
@@ -460,12 +468,15 @@ async function record(
   run: Run,
   report: MoveReport,
 ) {
-  const upsert = (path: string, identity: Identity) => {
+  const upsert = async (path: string, identity: Identity) => {
     let entry = ledger.entries.find((known) => known.path === path);
     if (!entry) {
       entry = { path, ...identity };
       ledger.entries.push(entry);
     }
+    // a directory recorded here that still exists elsewhere moved, and the next repair records that, not its stand-in
+    else if (!sameIdentity(entry, identity) && (await locate(entry)))
+      return entry;
     entry.device = identity.device;
     entry.inode = identity.inode;
     return entry;
@@ -491,14 +502,14 @@ async function record(
       });
       continue;
     }
-    if (!list?.includes(path)) upsert(path, identity);
+    if (!list?.includes(path)) await upsert(path, identity);
   }
   for (const [main, list] of lists) {
     for (const path of list) {
       // one that can't be looked at keeps its entry; its repository's check already reported why
       const identity = await identify(path).catch(() => undefined);
       if (!identity) continue;
-      upsert(path, identity).main = main;
+      (await upsert(path, identity)).main = main;
     }
     const registered = ledger.entries.filter(
       (entry) => entry.main === main && list.includes(entry.path),

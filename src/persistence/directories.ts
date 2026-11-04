@@ -70,7 +70,7 @@ export async function identify(path: string): Promise<Identity | undefined> {
 }
 
 /** where a directory is now, which macOS resolves by device and inode under /.vol. node's realpath can't read /.vol, so sh does. */
-async function locate(identity: Identity): Promise<string | undefined> {
+export async function locate(identity: Identity): Promise<string | undefined> {
   if (process.platform !== 'darwin') return undefined;
   try {
     const { stdout } = await execute('/bin/sh', [
@@ -329,11 +329,20 @@ export async function resolve(
     const newest = ledger.moves.findLast((known) => sameIdentity(known, move));
     if (newest?.from !== move.from || newest.to !== move.to)
       ledger.moves.push({ ...move, prompts, at: Date.now() });
-    for (const entry of ledger.entries) {
-      if (!within(entry.path, move.from)) continue;
+    for (const entry of [...ledger.entries]) {
+      if (!ledger.entries.includes(entry) || !within(entry.path, move.from))
+        continue;
       const target = through(entry.path, move);
       if (!sameIdentity(entry, await identify(target).catch(() => undefined)))
         continue;
+      // an entry still at the target was a directory gone from there, so the one that moved takes its place
+      for (const other of ledger.entries.filter(
+        (known) => known !== entry && known.path === target,
+      )) {
+        entry.main ??= other.main;
+        entry.slot ??= other.slot;
+        ledger.entries.splice(ledger.entries.indexOf(other), 1);
+      }
       for (const other of ledger.entries)
         if (other.main === entry.path) other.main = target;
       entry.path = target;

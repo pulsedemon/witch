@@ -792,6 +792,110 @@ test('prompts added while repair waits for the ledger lock stay with the moved d
   ]);
 });
 
+test('a directory moved onto a path the ledger knew for a deleted one is repaired on the first start', async () => {
+  const f = await setup();
+  await mkdir(f.at('q/dest'), { recursive: true });
+  await f.save('dest', 'q/dest');
+  await f.repair('q/dest');
+  await mkdir(f.at('p/old'), { recursive: true });
+  await f.save('held', 'p/old');
+  await f.repair('p/old');
+  await rm(f.at('q/dest'), { recursive: true });
+  await rename(f.at('p/old'), f.at('q/dest'));
+  const report = await f.repair('q/dest');
+  assert.deepEqual(report.blocked, []);
+  assert.equal((await f.saved('held')).raw.cwd, f.at('q/dest'));
+});
+
+test.skipIf(!darwin)(
+  'a stand-in copied over a moved destination is never taken for it on a later start',
+  async () => {
+    const f = await setup();
+    await f.save('held', 'w/main');
+    await rename(f.at('w'), f.at('c'));
+    await repairMoves(f.store, f.memory, f.at('c/main'), {
+      run: async (command, args, options) => {
+        const result = await runCommand(command, args, options);
+        if (args[0] === 'worktree' && args[1] === 'repair') {
+          await rename(f.at('c/main'), f.at('actual'));
+          await cp(f.at('actual'), f.at('c/main'), { recursive: true });
+        }
+        return result;
+      },
+    });
+    // c/main holds another directory now, so the conversation stays listed where it was
+    await f.repair('c/main');
+    assert.equal((await f.saved('held')).raw.cwd, f.at('w/main'));
+  },
+);
+
+test('a declared recovery with no ledger entry for it never takes a stand-in for its destination', async () => {
+  const f = await setup();
+  await f.save('copied', 'w/main');
+  await rm(f.at('state/directories.json'));
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w/main'), { recursive: true });
+  const report = await repairMoves(f.store, f.memory, f.at('c/main'), {
+    declared: { from: f.at('w/main'), to: f.at('c/main') },
+    run: async (command, args, options) => {
+      const result = await runCommand(command, args, options);
+      if (args[0] === 'worktree' && args[1] === 'repair') {
+        await rename(f.at('c/main'), f.at('actual'));
+        await cp(f.at('actual'), f.at('c/main'), { recursive: true });
+      }
+      return result;
+    },
+  });
+  assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
+  assert.ok(
+    report.blocked.some(({ path }) => path === f.at('w/main')),
+    JSON.stringify(report),
+  );
+});
+
+test("checking a repaired worktree runs nothing the repository's config names", async () => {
+  const f = await setup();
+  const marker = f.at('ran');
+  const hook = f.at('fsmonitor.sh');
+  await writeFile(hook, `#!/bin/sh\ntouch ${quote(marker)}\n`, { mode: 0o755 });
+  await git(f.at('w/main'), 'config', 'core.fsmonitor', hook);
+  await rename(f.at('w'), f.at('c'));
+  const report = await f.repair('c/main');
+  assert.deepEqual(report.blocked, []);
+  await assert.rejects(stat(marker), { code: 'ENOENT' });
+});
+
+test('prompt history maps a long move chain once per directory, not once per prompt', async () => {
+  const f = await setup();
+  const paths = Array.from({ length: 201 }, (_, index) =>
+    f.at(`chain/${index}`),
+  );
+  const lines = `${JSON.stringify({ cwd: paths[0], text: 'p' })}\n`.repeat(
+    10_000,
+  );
+  await writeFile(f.at('state/prompts.jsonl'), lines);
+  await writeFile(
+    f.at('state/directories.json'),
+    JSON.stringify({
+      version: 1,
+      entries: [],
+      moves: paths.slice(1).map((to, index) => ({
+        from: paths[index],
+        to,
+        device: '1',
+        inode: String(index),
+        prompts: lines.length,
+        at: index,
+      })),
+    }),
+  );
+  // linear work takes milliseconds here; replaying the chain for every prompt took seconds
+  const started = performance.now();
+  assert.equal((await f.store.prompts(paths[200]!)).length, 10_000);
+  assert.ok(performance.now() - started < 1000);
+});
+
 test('a recreated source suspends its move', async () => {
   const f = await setup();
   await f.save('held', 'w/main');

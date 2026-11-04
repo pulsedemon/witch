@@ -164,9 +164,27 @@ export class StateStore {
       },
     );
     // an unreadable ledger leaves exact matching
-    const { map } = await readLedger(this.root)
-      .then(mapper)
-      .catch(() => ({ map: (path: string) => path }));
+    const ledger = await readLedger(this.root).catch(() => undefined);
+    const { map } = ledger
+      ? await mapper(ledger)
+      : { map: (path: string) => path };
+    // lines from one directory between the same two move boundaries map alike, so each pair maps once
+    const boundaries = [
+      ...new Set((ledger?.moves ?? []).map(({ prompts }) => prompts)),
+    ].sort((a, b) => a - b);
+    const mapped = new Map<string, string | undefined>();
+    const destination = (cwd: string, start: number) => {
+      const key = `${boundaries.filter((size) => size <= start).length}\0${cwd}`;
+      if (!mapped.has(key))
+        mapped.set(
+          key,
+          map(cwd, {
+            predates: (move) => start < move.prompts,
+            throughReused: true,
+          }),
+        );
+      return mapped.get(key);
+    };
     const prompts: string[] = [];
     for (let start = 0; start < content.length;) {
       const end = content.indexOf(10, start);
@@ -175,12 +193,7 @@ export class StateStore {
         const prompt = promptSchema.parse(
           JSON.parse(content.toString('utf8', start, next)),
         );
-        if (
-          (map(prompt.cwd, {
-            predates: (move) => start < move.prompts,
-            throughReused: true,
-          }) ?? prompt.cwd) === cwd
-        )
+        if ((destination(prompt.cwd, start) ?? prompt.cwd) === cwd)
           prompts.push(prompt.text);
       } catch {
         // a torn or foreign line isn't a prompt
