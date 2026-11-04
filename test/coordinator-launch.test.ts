@@ -28,7 +28,8 @@ import {
 import { passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
-import { within } from './fixtures/within.js';
+import { until, within } from './fixtures/within.js';
+import { main } from '../src/memory/memory.js';
 
 async function relocatedFixture() {
   const f = await fixture();
@@ -212,6 +213,59 @@ test('a recovered conversation with missing native history keeps its ID and tran
       (await readRecord(f.root, 'missing-native')).sessions.a!.id,
       'original-native-id',
     );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+test('the first turn in a moved checkout repoints memory notes and says so', async () => {
+  const f = await relocatedFixture();
+  const helper = f.memory.workspace(join(f.root, 'helper'), 'helper');
+  await helper.ensureWorktree();
+  await helper.begin(f.scope);
+  const note = `${f.scope.global}/links.md`;
+  await writeFile(join(helper.root, note), `See ${f.project}/README.md.\n`);
+  await helper.commit('save');
+  await helper.publish();
+  await f.move();
+  try {
+    await f.coordinator.initialize(f.destination);
+    await f.coordinator.send('hello');
+    await until(
+      'the first turn',
+      () => f.a.inputs.length === 1 && f.coordinator.snapshot.phase === 'idle',
+    );
+    assert.equal(
+      await f.memory.read(main, note),
+      `See ${f.destination}/README.md.\n`,
+    );
+    assert.ok(
+      f.coordinator.snapshot.items.some(
+        ({ kind, text }) =>
+          kind === 'notice' && /Repointed 1 memory note/.test(text),
+      ),
+    );
+  } finally {
+    await f.coordinator.close();
+  }
+});
+
+test('an unreadable ledger leaves startup and turns running with a notice naming it', async () => {
+  const f = await relocatedFixture();
+  await writeFile(join(f.root, 'state', 'directories.json'), '{');
+  try {
+    await f.coordinator.initialize(f.project);
+    assert.equal(f.coordinator.snapshot.error, undefined);
+    await f.coordinator.send('hello');
+    await until(
+      'the first turn',
+      () => f.a.inputs.length === 1 && f.coordinator.snapshot.phase === 'idle',
+    );
+    const notices = f.coordinator.snapshot.items.filter(
+      ({ kind, text }) =>
+        kind === 'notice' && text.includes('directories.json'),
+    );
+    assert.ok(notices.length >= 2, JSON.stringify(notices));
   } finally {
     await f.coordinator.close();
   }

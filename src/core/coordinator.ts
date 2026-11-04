@@ -51,7 +51,7 @@ import { taskActivity } from './coordination-state.js';
 import { runMergeCleanup } from './merged.js';
 import type { CleanupResult, MergeCleanup } from './merged.js';
 import { PentacleActivity } from './pentacle-activity.js';
-import { startActivity, type Activity } from './activity.js';
+import { adoptMoved, startActivity, type Activity } from './activity.js';
 import { runReviewCommand } from './review-run.js';
 import { Reviewers } from './reviewers.js';
 import { ModelCatalog, type ModelSelection } from './models.js';
@@ -344,8 +344,12 @@ export class Coordinator {
     }
     // a failed connect leaves the conversation open, as a failed send does
     const failure = await failureOf(this.link.connect(undefined, scope));
-    const adoption = await failureOf(this.workspace!.adoptCheckout(scope));
     if (moved) this.notice(moved, undefined, false);
+    const adoption = await failureOf(
+      adoptMoved(this.workspace!, scope, this.store.root).then(
+        (notice) => notice && this.notice(notice, undefined, false),
+      ),
+    );
     // a scope directory that can't be created can fail both, so its message shows once
     await this.settle(
       [...new Set([report, failure, adoption].filter(Boolean))].join('\n\n') ||
@@ -1305,7 +1309,14 @@ export class Coordinator {
 
   private async beginActivity(kind: Activity['kind'], scope?: MemoryScope) {
     const workspace = this.workspace!;
-    const begun = await startActivity(workspace, this.current(), kind, scope);
+    const begun = await startActivity(
+      workspace,
+      this.current(),
+      kind,
+      this.store.root,
+      scope,
+    );
+    if (begun.notice) this.notice(begun.notice, undefined, false);
     await this.save();
     return begun;
   }

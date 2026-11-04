@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import { errorMessage } from '../agents/stderr.js';
 import { readJson, writeJson } from './json.js';
 import { openLocked } from './lock.js';
 
@@ -86,7 +87,13 @@ export async function locate(identity: Identity): Promise<string | undefined> {
 }
 
 export async function readLedger(root: string): Promise<Ledger> {
-  const ledger = await readJson(ledgerFile(root), ledgerSchema);
+  const ledger = await readJson(ledgerFile(root), ledgerSchema).catch(
+    (error: unknown) => {
+      throw new Error(`${ledgerFile(root)}: ${errorMessage(error)}`, {
+        cause: error,
+      });
+    },
+  );
   return { entries: ledger?.entries ?? [], moves: ledger?.moves ?? [] };
 }
 

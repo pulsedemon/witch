@@ -1,0 +1,233 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { chmod, mkdir, readFile, rename } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'vitest';
+import { main } from '../src/memory/memory.js';
+import { repointText } from '../src/memory/workspace.js';
+import { identify, mapper } from '../src/persistence/directories.js';
+import type { Ledger, LedgerMove } from '../src/persistence/directories.js';
+import { fixture, save } from './fixtures/memory.js';
+import { scratch } from './fixtures/scratch.js';
+
+async function moves(...pairs: Array<[string, string]>): Promise<Ledger> {
+  const ledger: Ledger = { entries: [], moves: [] };
+  for (const [from, to] of pairs) {
+    await mkdir(to, { recursive: true });
+    ledger.moves.push({ from, to, ...(await identify(to))!, prompts: 0 });
+  }
+  return ledger;
+}
+
+/** a move under the home directory whose `from` never existed, for the `~/` form. */
+const homeMove = (to: string): LedgerMove => ({
+  from: join(homedir(), `witch-test-${randomUUID()}`),
+  to,
+  device: '0',
+  inode: '0',
+  prompts: 0,
+});
+
+test('repointText maps references at path boundaries and leaves look-alikes alone', async () => {
+  const s = await scratch('witch-repoint-');
+  const ledger = await moves([join(s, 'w/main'), join(s, 'c/main')]);
+  const home = await scratch('witch-repoint-home-');
+  const tilde = { ...homeMove(join(home, 'moved')), from: join(home, 'old') };
+  ledger.moves.push(tilde);
+  await mkdir(tilde.to);
+  Object.assign(tilde, await identify(tilde.to));
+  const { map } = await mapper(ledger);
+  const w = join(s, 'w/main');
+  const c = join(s, 'c/main');
+  const forms = [w, tilde.from, '~/old'];
+  const repoint = (text: string) => repointText(text, forms, map, home);
+  for (const [before, after] of [
+    [w, c],
+    [`${w}/README.md`, `${c}/README.md`],
+    [`\`${w}\`.`, `\`${c}\`.`],
+    [`(${w})`, `(${c})`],
+    [`[x](${w}/a.md#setup)`, `[x](${c}/a.md#setup)`],
+    [`${w}?raw=1`, `${c}?raw=1`],
+    [`see ${w}, then`, `see ${c}, then`],
+    [`~/old/notes.md`, `~/moved/notes.md`],
+  ])
+    assert.equal(repoint(before!), after, before);
+  for (const unchanged of [
+    `${w}-1`,
+    `${w}.git`,
+    `\`${w} copy\``,
+    `\`${w} copy/x\``,
+    `<${w} copy/x>`,
+    `see ${w} copy/x`,
+    `${w}é`,
+    `/backup${w}`,
+  ])
+    assert.equal(repoint(unchanged), unchanged);
+});
+
+test('a destination with a space gets angle brackets', async () => {
+  const s = await scratch('witch-repoint-');
+  const w = join(s, 'w/main');
+  const to = join(s, 'new checkout');
+  const { map } = await mapper(await moves([w, to]));
+  assert.equal(
+    repointText(`[x](${w}/README.md)`, [w], map, homedir()),
+    `[x](<${to}/README.md>)`,
+  );
+});
+
+test('repointing follows a chain and never maps into a reused directory', async () => {
+  const s = await scratch('witch-repoint-');
+  const [a, b, c] = ['a', 'b', 'c'].map((name) => join(s, name)) as [
+    string,
+    string,
+    string,
+  ];
+  const ledger = await moves([a, c], [join(b, 'x'), c]);
+  ledger.moves[0] = { ...ledger.moves[0]!, to: b };
+  const note = `${a}/x/f`;
+  assert.equal(
+    repointText(note, [a, join(b, 'x')], (await mapper(ledger)).map, homedir()),
+    `${c}/f`,
+  );
+  await mkdir(join(s, 'spare'));
+  await mkdir(b, { recursive: true });
+  await rename(join(s, 'spare'), join(b, 'x'));
+  assert.equal(
+    repointText(note, [a, join(b, 'x')], (await mapper(ledger)).map, homedir()),
+    note,
+  );
+});
+
+test('begin repoints moved paths in every scope as one published commit', async () => {
+  const { memory, open, begin } = await fixture();
+  const s = await scratch('witch-repoint-');
+  const w = join(s, 'w/main');
+  const c = join(s, 'c/main');
+  const ledger = await moves([w, c]);
+  const { workspace } = await open('a');
+  const { scope } = await begin(workspace, s);
+  await save(workspace, {
+    [`${scope.global}/a.md`]: `See ${w}/README.md.\n`,
+    [`${scope.project}/b.md`]: `Use \`${w}\` and ${w}-1.\n`,
+    [`${scope.project}/c.md`]: 'Nothing moved here.\n',
+  });
+  await workspace.publish();
+  const begun = await workspace.begin(scope, ledger);
+  assert.equal(begun.repointed, 2);
+  assert.equal(begun.notice, undefined);
+  assert.equal(begun.revision, await memory.resolve(main));
+  assert.equal(
+    await memory.read(main, `${scope.global}/a.md`),
+    `See ${c}/README.md.\n`,
+  );
+  assert.equal(
+    await memory.read(main, `${scope.project}/b.md`),
+    `Use \`${c}\` and ${w}-1.\n`,
+  );
+  const message = (
+    await memory.run(memory.root, ['log', '-1', '--format=%B', main])
+  ).stdout.toString();
+  assert.match(message, /^chore\(memory\): repoint moved directories/);
+  assert.ok(message.includes(`${w} -> ${c}`));
+  assert.match(message, /conversation: a/);
+  const again = await workspace.begin(scope, ledger);
+  assert.equal(again.repointed, 0);
+  assert.equal(again.revision, begun.revision);
+});
+
+test('notes published later by another conversation get repointed at the next begin', async () => {
+  const { memory, open, begin } = await fixture();
+  const s = await scratch('witch-repoint-');
+  const w = join(s, 'w/main');
+  const c = join(s, 'c/main');
+  const ledger = await moves([w, c]);
+  const first = (await open('a')).workspace;
+  const second = (await open('b')).workspace;
+  const { scope } = await begin(first, s);
+  await workspace(second, s, begin, { [`${scope.global}/late.md`]: `${w}\n` });
+  await first.begin(scope, ledger);
+  assert.equal(await memory.read(main, `${scope.global}/late.md`), `${c}\n`);
+});
+
+async function workspace(
+  target: Awaited<
+    ReturnType<Awaited<ReturnType<typeof fixture>>['open']>
+  >['workspace'],
+  cwd: string,
+  begin: Awaited<ReturnType<typeof fixture>>['begin'],
+  notes: Record<string, string>,
+) {
+  await begin(target, cwd);
+  await save(target, notes);
+  await target.publish();
+}
+
+test('a repoint survives a concurrent union merge of MEMORY.md', async () => {
+  const { memory, open, begin, hook } = await fixture();
+  const s = await scratch('witch-repoint-');
+  const w = join(s, 'w/main');
+  const c = join(s, 'c/main');
+  const ledger = await moves([w, c]);
+  const first = (await open('a')).workspace;
+  const second = (await open('b')).workspace;
+  const { scope } = await begin(first, s);
+  const index = `${scope.global}/MEMORY.md`;
+  await save(first, { [index]: `- one ${w}\n` });
+  await first.publish();
+  await begin(second, s);
+  await save(second, { [index]: `- one ${w}\n- two ${w}/x\n` });
+  let raced = false;
+  hook.current = async (command, run) => {
+    if (!raced && command[0] === 'update-ref' && command.includes(main)) {
+      raced = true;
+      await second.publish();
+    }
+    return run();
+  };
+  await first.begin(scope, ledger);
+  assert.ok(raced);
+  const merged = await memory.read(main, index);
+  assert.ok(!merged.includes(`${w}`), merged);
+  assert.ok(merged.includes(`${c}/x`), merged);
+});
+
+test('begin without matches makes no commit', async () => {
+  const { memory, open, begin } = await fixture();
+  const s = await scratch('witch-repoint-');
+  const ledger = await moves([join(s, 'w/main'), join(s, 'c/main')]);
+  const { workspace } = await open('a');
+  const { scope } = await begin(workspace, s);
+  const before = await memory.resolve(main);
+  const begun = await workspace.begin(scope, ledger);
+  assert.equal(begun.repointed, 0);
+  assert.equal(await memory.resolve(main), before);
+});
+
+test('a failed note write rolls back and the turn still begins', async () => {
+  const { memory, open, begin } = await fixture();
+  const s = await scratch('witch-repoint-');
+  const w = join(s, 'w/main');
+  const ledger = await moves([w, join(s, 'c/main')]);
+  const { workspace } = await open('a');
+  const { scope } = await begin(workspace, s);
+  const note = `${scope.global}/z-locked.md`;
+  await save(workspace, {
+    [note]: `${w}\n`,
+    [`${scope.global}/a-open.md`]: `${w}\n`,
+  });
+  await workspace.publish();
+  const before = await memory.resolve(main);
+  await chmod(join(workspace.root, note), 0o444);
+  try {
+    const begun = await workspace.begin(scope, ledger);
+    assert.match(begun.notice ?? '', /Could not repoint/);
+    assert.equal(begun.repointed, 0);
+    assert.equal(await workspace.isDirty(), false);
+    assert.equal(await memory.resolve(main), before);
+    assert.equal(await readFile(join(workspace.root, note), 'utf8'), `${w}\n`);
+  } finally {
+    await chmod(join(workspace.root, note), 0o644);
+  }
+});
