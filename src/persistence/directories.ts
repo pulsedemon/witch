@@ -286,6 +286,21 @@ export async function mapper(ledger: Ledger): Promise<Mapping> {
   };
 }
 
+/** the paths the ledger's moves carried `path` from, newest first, that `mapper` still maps to it. */
+export async function formerPaths(
+  ledger: Ledger,
+  path: string,
+): Promise<string[]> {
+  const paths = new Set<string>();
+  let current = path;
+  for (const { from, to } of ledger.moves.toReversed())
+    if (within(current, to))
+      paths.add((current = from + current.slice(to.length)));
+  paths.delete(path);
+  const { map } = await mapper(ledger);
+  return [...paths].filter((former) => map(former) === path);
+}
+
 /** every path `path` is within, itself first and `/` last, at each separator however many it repeats. */
 export function* prefixes(path: string): Generator<string> {
   yield path;
