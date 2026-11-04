@@ -31,12 +31,12 @@ import {
   stopPreviousProcess,
   stopPreviousShell,
 } from '../persistence/process.js';
-import { LockedElsewhere } from '../persistence/store.js';
+import { LockedElsewhere, moveRows } from '../persistence/store.js';
 import type { StateStore } from '../persistence/store.js';
 import { quote } from '../shell.js';
 import { runCommand } from './command.js';
 import type { Run } from './repository.js';
-import { conversationRecordSchema, displayUpdateSchema } from './state.js';
+import { conversationRecordSchema } from './state.js';
 import type { ConversationRecord } from './state.js';
 import { repairRepositories, worktreeList } from './worktree-repair.js';
 
@@ -46,49 +46,6 @@ export interface MoveReport {
   blocked: Array<{ path: string; reason: string; repository?: string }>;
   unresolved: Array<{ path: string; conversations: number; worktree: boolean }>;
   suspended: Array<Move & { conversations: number }>;
-}
-
-/**
- * rewrites history lines whose `cwd` the mapping changes and leaves every other byte alone, including torn, foreign
- * and CRLF lines.
- */
-function rewriteLines(
-  content: Buffer,
-  destination: (cwd: string) => string,
-): { content: Buffer; count: number } {
-  const parts: Buffer[] = [];
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  let count = 0;
-  for (let start = 0; start < content.length;) {
-    const newline = content.indexOf(10, start);
-    const end = newline < 0 ? content.length : newline;
-    const next = newline < 0 ? end : end + 1;
-    const textEnd = content[end - 1] === 13 ? end - 1 : end;
-    let line = content.subarray(start, next);
-    try {
-      const raw: unknown = JSON.parse(
-        decoder.decode(content.subarray(start, textEnd)),
-      );
-      const checked = displayUpdateSchema.safeParse(raw);
-      if (checked.success) {
-        const cwd = destination(checked.data.cwd);
-        if (cwd !== checked.data.cwd) {
-          line = Buffer.concat([
-            Buffer.from(
-              JSON.stringify({ ...(raw as Record<string, unknown>), cwd }),
-            ),
-            content.subarray(textEnd, next),
-          ]);
-          count++;
-        }
-      }
-    } catch {
-      // a torn or unreadable line stays available for the store's existing recovery rules
-    }
-    parts.push(line);
-    start = next;
-  }
-  return { content: count ? Buffer.concat(parts) : content, count };
 }
 
 /**
@@ -124,9 +81,9 @@ const compatible = async (
   if (!scopes.has(to)) scopes.set(to, scopeAt(memory, to));
   const { project, top } = await scopes.get(to)!;
   // a path-keyed project's key changes with the path, so the old paths' keys count too, including a stopped repair's
-  // `historyCwd`
+  // `from`
   const rest = top && to.slice(top.length);
-  const old = [record.cwd, record.historyCwd].flatMap((from) =>
+  const old = [record.cwd, record.historyMove?.from].flatMap((from) =>
     rest !== undefined && from?.endsWith(rest)
       ? [projectKey(from.slice(0, from.length - rest.length))]
       : [],
@@ -357,8 +314,8 @@ async function repairConversations(
         tally.unresolved.push(saved.cwd);
         continue;
       }
-      // one left with `historyCwd` has a stopped repair to finish
-      if (target === saved.cwd && saved.historyCwd === undefined) continue;
+      // one left with `historyMove` has a stopped repair to finish
+      if (target === saved.cwd && !saved.historyMove) continue;
       // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
       const destination = [...prefixes(target)].flatMap(
         (path) => resolvedPaths.get(path) ?? [],
@@ -375,7 +332,7 @@ async function repairConversations(
         (await rewrite(store, saved, target, destination, resolved, report));
       if (repaired)
         tally.repaired.push({
-          from: target === saved.cwd ? saved.historyCwd! : saved.cwd,
+          from: target === saved.cwd ? saved.historyMove!.from : saved.cwd,
           to: target,
         });
     } catch (error) {
@@ -520,30 +477,18 @@ async function rewrite(
         const history = join(directory, 'history.jsonl');
         const times = await unlessGone(stat(history));
         if (times) {
-          const content = await readFile(history);
-          const moveRows = (from: string) => {
-            let found = false;
-            const rewritten = rewriteLines(content, (cwd) => {
-              if (!within(cwd, from)) return cwd;
-              found = true;
-              return target + cwd.slice(from.length);
-            });
-            return { ...rewritten, found };
-          };
-          // the rows still name an earlier repair's `historyCwd` until that repair's history write lands, even when that
-          // path is the target again
-          let from = current.historyCwd;
-          let rewritten = from === undefined ? undefined : moveRows(from);
-          if (!rewritten?.found) {
-            from = saved.cwd;
-            rewritten = moveRows(from);
-          }
-          if (rewritten.count) {
-            await save({ ...moved, historyCwd: from });
+          // the rows name a stopped repair's `from` until its history write replaces the file
+          const from =
+            current.historyMove?.inode === times.ino
+              ? current.historyMove.from
+              : saved.cwd;
+          const rewritten = moveRows(await readFile(history), from, target);
+          if (rewritten.changed) {
+            await save({ ...moved, historyMove: { from, inode: times.ino } });
             await replaceFile(history, rewritten.content, times);
           }
         }
-        return { ...moved, historyCwd: undefined };
+        return { ...moved, historyMove: undefined };
       })) === 'repaired'
     );
   } catch (error) {
