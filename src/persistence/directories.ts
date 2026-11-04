@@ -69,7 +69,7 @@ export async function identify(path: string): Promise<Identity | undefined> {
 }
 
 /** where a directory is now, which macOS resolves by device and inode under /.vol. node's realpath can't read /.vol, so sh does. */
-export async function locate(identity: Identity): Promise<string | undefined> {
+async function locate(identity: Identity): Promise<string | undefined> {
   if (process.platform !== 'darwin') return undefined;
   try {
     const { stdout } = await execute('/bin/sh', [
@@ -120,8 +120,8 @@ export async function updateLedger<T>(
 type Source = 'gone' | 'back' | 'reused';
 
 /**
- * maps old paths through the ledger's moves. each step takes the most specific move whose `from` holds the path, of
- * equals the first recorded after `offset`, else the latest, and a move applies once. a `from` holding the moved
+ * maps old paths through the ledger's moves. each step takes the most specific move recorded after the last one applied
+ * whose `from` holds the path, of equals the first recorded after `offset`, else the latest. a `from` holding the moved
  * directory again, or one that can't be looked at, stops the chain there; one holding another directory stops it with
  * nothing, unless `offset` predates the move.
  */
@@ -137,11 +137,11 @@ export async function mapper(ledger: Ledger): Promise<{
     }),
   );
   const raw = (path: string, offset?: number): string | undefined => {
-    const applied = new Set<number>();
-    for (let current = path; ;) {
+    // an older move from where this one landed was another directory's
+    for (let current = path, last = -1; ;) {
       let chosen = -1;
       for (const [index, move] of ledger.moves.entries()) {
-        if (applied.has(index) || !within(current, move.from)) continue;
+        if (index <= last || !within(current, move.from)) continue;
         const best = ledger.moves[chosen];
         if (
           !best ||
@@ -160,7 +160,7 @@ export async function mapper(ledger: Ledger): Promise<{
         !(offset !== undefined && offset < move.prompts)
       )
         return undefined;
-      applied.add(chosen);
+      last = chosen;
       current = move.to + current.slice(move.from.length);
     }
   };

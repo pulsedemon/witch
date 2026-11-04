@@ -372,7 +372,7 @@ export async function spawnWorktrees(
 
 /**
  * whether a conversation the store holds open has its `cwd` at or under the path, read on every query. one without a
- * readable record rejects the query, since its session could be anywhere.
+ * readable record, or an unreadable ledger, rejects the query, since its session could be anywhere.
  */
 export function sessionsIn(
   stateRoot: string,
@@ -388,9 +388,7 @@ export function sessionsIn(
       );
     const real = await realpath(path);
     // a session left in a directory that has since moved still holds it
-    const { map } = await readLedger(stateRoot)
-      .then(mapper)
-      .catch(() => ({ map: (cwd: string) => cwd }));
+    const { map } = await mapper(await readLedger(stateRoot));
     return records.some(({ cwd }) =>
       [cwd, map(cwd)].some(
         (held) => held && (held === real || held.startsWith(real + sep)),
@@ -430,22 +428,16 @@ export async function runSpawn(
     });
     const store = await StateStore.open(stateRoot);
     const memory = new Memory(join(stateRoot, 'memory.git'));
-    const report = await repairMoves(store, memory, cwd, { run }).catch(
-      (error: unknown) => {
-        process.stdout.write(
-          `Could not inspect moved directories: ${failure(error)}\n`,
-        );
-        return undefined;
-      },
-    );
-    const notice = report && describeMoves(report, stateRoot);
+    // spawning without a repair would open worktrees whose registrations nothing checked
+    const report = await repairMoves(store, memory, cwd, { run });
+    const notice = describeMoves(report, stateRoot);
     if (notice) process.stdout.write(`${notice}\n`);
     const list = await listWorktrees(run, cwd);
     const main = list[0]!;
-    if (report?.blocked.some(({ repository }) => repository === main)) return 1;
-    const ledger = await readLedger(stateRoot).catch(() => undefined);
+    if (report.blocked.some(({ repository }) => repository === main)) return 1;
+    const { entries } = await readLedger(stateRoot);
     const slots = new Map(
-      (ledger?.entries ?? []).flatMap(({ path, main: owner, slot }) =>
+      entries.flatMap(({ path, main: owner, slot }) =>
         owner === main && slot !== undefined && list.includes(path)
           ? [[slot, path] as const]
           : [],

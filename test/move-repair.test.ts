@@ -487,6 +487,24 @@ test('prompts follow the directory that wrote them when a reused path moves agai
   assert.deepEqual(await f.store.prompts(f.at('c')), ['second directory']);
 });
 
+test("a directory moved onto another's old path doesn't follow that one's move", async () => {
+  const f = await setup();
+  for (const name of ['a', 'b']) {
+    await mkdir(f.at(name));
+    await f.save(name, name);
+  }
+  await f.repair('a');
+  await f.store.addPrompt(f.at('a'), 'in a');
+  await rename(f.at('b'), f.at('c'));
+  await f.repair('c');
+  await rename(f.at('a'), f.at('b'));
+  await f.repair('b');
+  assert.equal((await f.saved('a')).raw.cwd, f.at('b'));
+  assert.equal((await f.saved('b')).raw.cwd, f.at('c'));
+  assert.deepEqual(await f.store.prompts(f.at('b')), ['in a']);
+  assert.deepEqual(await f.store.prompts(f.at('c')), []);
+});
+
 test('a recreated source suspends its move', async () => {
   const f = await setup();
   await f.save('held', 'w/main');
@@ -763,6 +781,52 @@ test('a failure on one path is reported and the rest repair', async () => {
   } finally {
     await chmod(f.at('locked'), 0o755);
   }
+});
+
+for (const held of ['main checkout', 'worktree'])
+  test(`an inaccessible ${held} is reported and the rest repair`, async () => {
+    const f = await setup();
+    const other = f.at('locked/other');
+    await mkdir(f.at('locked'));
+    if (held === 'worktree')
+      await git(f.at('w/main'), 'worktree', 'add', '-q', '--detach', other);
+    else {
+      await mkdir(other);
+      await git(other, 'init', '-q', '-b', 'main');
+      await git(other, 'commit', '-q', '--allow-empty', '-m', 'other');
+    }
+    await mkdir(f.at('p'));
+    await f.save('fine', 'p');
+    await f.repair(held === 'worktree' ? 'w/main' : 'locked/other');
+    await rename(f.at('p'), f.at('q'));
+    await chmod(f.at('locked'), 0);
+    try {
+      const report = await f.repair(held === 'worktree' ? 'w/main' : 'q');
+      assert.equal((await f.saved('fine')).raw.cwd, f.at('q'));
+      assert.ok(
+        report.blocked.some(({ repository }) =>
+          [other, f.at('w/main')].includes(repository ?? ''),
+        ),
+        JSON.stringify(report),
+      );
+    } finally {
+      await chmod(f.at('locked'), 0o755);
+    }
+  });
+
+test('a missing worktree with conversations in it is one line', async () => {
+  const f = await setup();
+  await f.save('inside', 'w/main-1');
+  await f.repair('w/main');
+  await rm(f.at('w/main-1'), { recursive: true });
+  const report = await f.repair('w/main');
+  assert.deepEqual(report.unresolved, [
+    { path: f.at('w/main-1'), conversations: 1, worktree: true },
+  ]);
+  assert.match(
+    describeMoves(report, f.at('state'))!,
+    /a worktree that moved or was deleted, with 1 conversation\(s\)/,
+  );
 });
 
 test('concurrent repairs leave every record moved and one move in the ledger', async () => {

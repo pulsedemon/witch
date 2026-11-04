@@ -84,9 +84,9 @@ export function repointText(
   let opened = -1;
   let closed = -1;
   let lineEnd = -1;
-  // the next of each closing character at or after the last search, Infinity once there's none
-  const next = { '`': -1, '>': -1 };
-  const nextOf = (character: '`' | '>', from: number) => {
+  // the next of each boundary character at or after the last search, Infinity once there's none
+  const next = { '`': -1, '>': -1, '#': -1, '?': -1 };
+  const nextOf = (character: keyof typeof next, from: number) => {
     if (next[character] < from) {
       const found = text.indexOf(character, from);
       next[character] = found < 0 ? Infinity : found;
@@ -116,7 +116,7 @@ export function repointText(
     let end = tail;
     if ((ticks || angle) && close >= 0 && close <= lineEnd) {
       if (tail < close && !'/#?'.includes(text[tail]!)) continue;
-      while (end < close && text[end] !== '#' && text[end] !== '?') end++;
+      end = Math.min(close, nextOf('#', tail), nextOf('?', tail));
     } else {
       if (matchesAt(spacedPath, text, tail)) continue;
       if (tail < lineEnd && !matchesAt(pathEnd, text, tail)) continue;

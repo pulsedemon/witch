@@ -98,6 +98,11 @@ test('repointing follows a chain and never maps into a reused directory', async 
     repointText(note, [a, join(b, 'x')], (await mapper(ledger)).map, homedir()),
     note,
   );
+  const span = `\`${note} ${note}#x ${note}?y\``;
+  assert.equal(
+    repointText(span, [a, join(b, 'x')], (await mapper(ledger)).map, homedir()),
+    span,
+  );
 });
 
 test('begin repoints moved paths in every scope as one published commit', async () => {

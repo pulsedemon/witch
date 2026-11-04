@@ -160,7 +160,8 @@ const compatible = async (
 
 /**
  * finds where known directories went, repairs the Git links of their worktrees and rewrites the conversations saved
- * in them. `declared` is a move the user asserts, checked before anything is written; `preview` writes nothing.
+ * in them, stopping the native processes and `!` shells a crash left running there. `declared` is a move the user
+ * asserts, checked before anything is written; `preview` writes nothing.
  */
 export async function repairMoves(
   store: StateStore,
@@ -249,19 +250,20 @@ export async function repairMoves(
     const { map } = await mapper(ledger);
     const mains = new Set<string>();
     if (listed?.[0]) mains.add(listed[0]);
-    for (const entry of ledger.entries)
-      if (entry.main) {
-        const main = map(entry.main);
-        if (main && (await exists(main))) mains.add(main);
-      }
+    for (const entry of ledger.entries) {
+      const main = entry.main && map(entry.main);
+      if (main) mains.add(main);
+    }
     for (const main of mains)
-      await repairWorktrees(main, map, report, run, preview).catch(
-        (error: unknown) =>
-          report.blocked.push({
-            path: main,
-            reason: errorMessage(error),
-            repository: main,
-          }),
+      await (async () => {
+        if (await exists(main))
+          await repairWorktrees(main, map, report, run, preview);
+      })().catch((error: unknown) =>
+        report.blocked.push({
+          path: main,
+          reason: errorMessage(error),
+          repository: main,
+        }),
       );
     if (!preview) await record(ledger, cwd, seeds, records, run, report);
     return ledger;
@@ -427,7 +429,8 @@ async function record(
   }
   for (const [main, list] of lists) {
     for (const path of list) {
-      const identity = await identify(path);
+      // one that can't be looked at keeps its entry; its repository's check already reported why
+      const identity = await identify(path).catch(() => undefined);
       if (!identity) continue;
       upsert(path, identity).main = main;
     }
@@ -445,7 +448,7 @@ async function record(
       )
         entry.slot = Number(slot);
     }
-    // a worktree Git no longer lists, with no conversation in it, is gone for good, unless a failed repair left the list stale
+    // a worktree Git no longer lists, with no conversation in it, is gone for good, unless a blocked repository's list is stale
     if (report.blocked.some(({ repository }) => repository === main)) continue;
     ledger.entries = ledger.entries.filter(
       (entry) =>
@@ -456,7 +459,7 @@ async function record(
   }
 }
 
-/** rewrites one conversation's history and record under its lock, or says why it can't. */
+/** rewrites one conversation's history and record under its lock, stopping native processes a crash left running, or says why it can't. */
 async function rewrite(
   store: StateStore,
   saved: ConversationRecord,
@@ -552,12 +555,15 @@ function summarize(
       to: move.to,
       conversations: tally.suspended.filter((other) => other === move).length,
     });
-  for (const path of new Set(tally.unresolved))
-    report.unresolved.push({
-      path,
-      conversations: tally.unresolved.filter((other) => other === path).length,
-      worktree: false,
-    });
+  for (const path of new Set(tally.unresolved)) {
+    const conversations = tally.unresolved.filter(
+      (other) => other === path,
+    ).length;
+    // a missing worktree that held conversations is one directory to recover
+    const worktree = report.unresolved.find((row) => row.path === path);
+    if (worktree) worktree.conversations = conversations;
+    else report.unresolved.push({ path, conversations, worktree: false });
+  }
   report.repaired.push(...lines.values());
 }
 
@@ -580,7 +586,7 @@ export function describeMoves(
     ),
     ...report.unresolved.map(
       ({ path, conversations, worktree }) =>
-        `Couldn't find where ${path} went${worktree ? ', a worktree that moved or was deleted' : `, with ${conversations} conversation(s)`}. Start Witch in its new location, or from there preview recovery with:\nwitch --state-dir ${quote(root)} --recover-directory ${quote(path)}`,
+        `Couldn't find where ${path} went${worktree ? ', a worktree that moved or was deleted' : ''}${conversations ? `, with ${conversations} conversation(s)` : ''}. Start Witch in its new location, or from there preview recovery with:\nwitch --state-dir ${quote(root)} --recover-directory ${quote(path)}`,
     ),
   ];
   if (!lines.length) return undefined;

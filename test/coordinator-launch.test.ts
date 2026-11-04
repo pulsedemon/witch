@@ -218,18 +218,24 @@ test('a recovered conversation with missing native history keeps its ID and tran
   }
 });
 
-test('the first turn in a moved checkout repoints memory notes and says so', async () => {
+test('a turn in a moved checkout repoints memory notes published after startup and says so', async () => {
   const f = await relocatedFixture();
-  const helper = f.memory.workspace(join(f.root, 'helper'), 'helper');
-  await helper.ensureWorktree();
-  await helper.begin(f.scope);
-  const note = `${f.scope.global}/links.md`;
-  await writeFile(join(helper.root, note), `See ${f.project}/README.md.\n`);
-  await helper.commit('save');
-  await helper.publish();
   await f.move();
   try {
     await f.coordinator.initialize(f.destination);
+    // startup has already repointed, so only the turn can fix this link
+    const helper = f.memory.workspace(join(f.root, 'helper'), 'helper');
+    await helper.ensureWorktree();
+    await helper.begin(f.scope);
+    const note = `${f.scope.global}/links.md`;
+    await writeFile(join(helper.root, note), `See ${f.project}/README.md.\n`);
+    await helper.commit('save');
+    await helper.publish();
+    assert.ok(
+      !f.coordinator.snapshot.items.some(({ text }) =>
+        /Repointed/.test(text ?? ''),
+      ),
+    );
     await f.coordinator.send('hello');
     await until(
       'the first turn',

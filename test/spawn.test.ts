@@ -991,6 +991,16 @@ describe('moved checkouts', () => {
     assert.deepEqual(calls, []);
   });
 
+  test('an unreadable ledger stops spawn before anything is installed or opened', async () => {
+    const f = await spawned(1);
+    await writeFile(join(f.state, 'directories.json'), '{');
+    const { run, calls } = recording();
+    const { code } = await printed(() => runSpawn(f.main, 1, f.state, run));
+    assert.equal(code, 1);
+    assert.deepEqual(calls, []);
+    await assert.rejects(sessionsIn(f.state)(f.slot(1)), /directories\.json/);
+  });
+
   test('a live session with a stale cwd still occupies its moved slot', async () => {
     const f = await spawned(1);
     const store = await StateStore.open(f.state);
