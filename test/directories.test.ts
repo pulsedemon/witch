@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, rename, rm } from 'node:fs/promises';
+import { subscribe, unsubscribe } from 'node:diagnostics_channel';
+import { chmod, mkdir, rename, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -342,6 +343,47 @@ test('findMoves gives one move per moved root', async () => {
   assert.deepEqual(f.moved(await findMoves(entries, [f.at('c/main')])), [
     [f.at('w/main'), f.at('c/main')],
     [f.at('w/main-1'), f.at('c/main-1')],
+  ]);
+});
+
+test('findMoves follows a renamed parent of many known directories with one lookup by identity', async () => {
+  const names = Array.from(
+    { length: 300 },
+    (_, index) => `r${String(index).padStart(3, '0')}`,
+  );
+  const f = await directories(...names.map((name) => `w/${name}`));
+  const entries = await Promise.all(names.map((name) => f.entry(`w/${name}`)));
+  await rename(f.at('w'), f.at('c'));
+  let spawns = 0;
+  const spawned = () => spawns++;
+  subscribe('child_process', spawned);
+  try {
+    assert.deepEqual(
+      f.moved(await findMoves(entries, [])),
+      names.map((name) => [f.at(`w/${name}`), f.at(`c/${name}`)]),
+    );
+  } finally {
+    unsubscribe('child_process', spawned);
+  }
+  // a shell for each entry made a renamed folder of thousands of checkouts take most of a minute
+  assert.ok(spawns <= 1, String(spawns));
+});
+
+test('findMoves records where a sibling really is, not a link or a differently cased name to it', async () => {
+  const f = await directories('w/main', 'w/linked', 'w/cased', 'far');
+  const entries = [
+    await f.entry('w/main'),
+    await f.entry('w/linked'),
+    await f.entry('w/cased'),
+  ];
+  await rename(f.at('w'), f.at('c'));
+  await rename(f.at('c/linked'), f.at('far/linked'));
+  await symlink(f.at('far/linked'), f.at('c/linked'));
+  await rename(f.at('c/cased'), f.at('c/Cased'));
+  assert.deepEqual(f.moved(await findMoves(entries, [f.at('c/main')])), [
+    [f.at('w/main'), f.at('c/main')],
+    ...(darwin ? [[f.at('w/cased'), f.at('c/Cased')]] : []),
+    [f.at('w/linked'), f.at('far/linked')],
   ]);
 });
 
