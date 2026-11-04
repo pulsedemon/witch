@@ -25,8 +25,8 @@ vi.mock('../src/persistence/json.js', async (importOriginal) => {
 });
 
 /**
- * a conversation in `home`, with a row there and `rows` elsewhere and its project delivered there unless `delivered` is
- * false, whose repair of `move` to `away` stopped `stop` its history write.
+ * a conversation in `home`, with a row there and `rows` elsewhere and its project delivered there, whose repair of `move`
+ * to `away` stopped `stop` its history write.
  */
 async function stopped(
   stop: 'before' | 'after',
@@ -34,7 +34,6 @@ async function stopped(
   {
     home = 'a',
     away = 'b',
-    delivered = true,
     move = (at: (path: string) => string) => rename(at(home), at(away)),
   } = {},
 ) {
@@ -46,16 +45,14 @@ async function stopped(
   const repair = (cwd: string) => repairMoves(store, memory, at(cwd));
   const files = await store.create({
     ...record('a', at(home)),
-    ...(delivered && {
-      sessions: {
-        a: {
-          id: 'n',
-          model: 'm',
-          hasHistory: true,
-          deliveredProject: projectKey(at(home)),
-        },
+    sessions: {
+      a: {
+        id: 'n',
+        model: 'm',
+        hasHistory: true,
+        deliveredProject: projectKey(at(home)),
       },
-    }),
+    },
   });
   await files.append({ id: 'own', kind: 'user', cwd: at(home), text: 'hi' });
   for (const [id, path] of rows)
@@ -125,12 +122,9 @@ test('a repair stopped before its history write leaves a tool row at the path it
 });
 
 test('a conversation opened before its stopped repair finishes keeps its new rows with its own', async () => {
-  // a delivered project's key names `a`, which `claim` drops, so the repair to `c` would refuse it
-  const { at, store, repair, saved } = await stopped(
-    'before',
-    [['ran', 'tools']],
-    { delivered: false },
-  );
+  const { at, store, repair, saved } = await stopped('before', [
+    ['ran', 'tools'],
+  ]);
   const files = await store.claim('a');
   await files.append({ id: 'later', kind: 'user', cwd: at('b'), text: 'hi' });
   await files.close();

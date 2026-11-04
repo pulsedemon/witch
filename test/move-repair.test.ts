@@ -993,43 +993,33 @@ test('a live pid with a different start time is left running', async () => {
   assert.equal((await f.saved('reused')).raw.cwd, f.at('c/main'));
 });
 
+/** a native session whose memory was delivered for `deliveredProject`. */
+const delivered = (deliveredProject: string) => ({
+  id: 'n',
+  model: 'm',
+  hasHistory: true,
+  deliveredProject,
+});
+
 for (const kind of ['origin-less repository', 'plain directory'])
-  test(`a ${kind} repairs its conversations`, async () => {
+  test(`a ${kind} repairs its conversations through repeated moves`, async () => {
     const f = await setup({ origin: false });
     const base = kind === 'plain directory' ? 'p' : 'w/main';
     if (base === 'p') await mkdir(f.at('p/sub'), { recursive: true });
     else await mkdir(f.at('w/main/sub'));
     await f.save('top', base, {
       sessions: {
-        a: {
-          id: 'n',
-          model: 'm',
-          hasHistory: true,
-          deliveredProject: projectKey(f.at(base)),
-        },
+        a: { ...delivered(projectKey(f.at(base))), deliveredRevision: 'r' },
+        b: { id: 'o', model: 'm', hasHistory: true },
       },
     });
     await f.save('sub', `${base}/sub`, {
       sessions: {
-        a: {
-          id: 'n',
-          model: 'm',
-          hasHistory: true,
-          deliveredProject: projectKey(
-            base === 'p' ? f.at('p/sub') : f.at(base),
-          ),
-        },
+        a: delivered(projectKey(base === 'p' ? f.at('p/sub') : f.at(base))),
       },
     });
     await f.save('elsewhere', base, {
-      sessions: {
-        a: {
-          id: 'n',
-          model: 'm',
-          hasHistory: true,
-          deliveredProject: 'projects/other-0000',
-        },
-      },
+      sessions: { a: delivered('projects/other-0000') },
     });
     await f.repair(base);
     const moved = base === 'p' ? 'q' : 'w/renamed';
@@ -1039,19 +1029,21 @@ for (const kind of ['origin-less repository', 'plain directory'])
     assert.equal((await f.saved('sub')).raw.cwd, f.at(`${moved}/sub`));
     assert.equal((await f.saved('elsewhere')).raw.cwd, f.at(base));
     assert.ok(report.blocked.some(({ path }) => path === f.at(base)));
+    const again = base === 'p' ? 'r' : 'w/again';
+    await rename(f.at(moved), f.at(again));
+    await f.repair(again);
+    assert.equal((await f.saved('top')).raw.cwd, f.at(again));
+    assert.equal((await f.saved('sub')).raw.cwd, f.at(`${again}/sub`));
+    assert.deepEqual((await f.saved('top')).raw.sessions, {
+      a: delivered(projectKey(f.at(again))),
+      b: { id: 'o', model: 'm', hasHistory: true },
+    });
   });
 
 test('a detected move into another project blocks its records', async () => {
   const f = await setup();
   await f.save('other', 'w/main', {
-    sessions: {
-      a: {
-        id: 'n',
-        model: 'm',
-        hasHistory: true,
-        deliveredProject: 'projects/other-0000',
-      },
-    },
+    sessions: { a: delivered('projects/other-0000') },
   });
   await f.save('same', 'w/main');
   await rename(f.at('w'), f.at('c'));
@@ -1066,7 +1058,7 @@ test('a declared move into a different project is refused before anything is wri
   const key = (await f.memory.scopePaths(f.at('w/main'))).project;
   await f.save('kept', 'w/main', {
     sessions: {
-      a: { id: 'n', model: 'm', hasHistory: true, deliveredProject: key },
+      a: delivered(key),
     },
   });
   await mkdir(f.at('c'));
@@ -1102,7 +1094,7 @@ test('a declared parent move accepts nested repositories', async () => {
   const nested = (await f.memory.scopePaths(f.at('w/main/nested'))).project;
   await f.save('nested', 'w/main/nested', {
     sessions: {
-      a: { id: 'n', model: 'm', hasHistory: true, deliveredProject: nested },
+      a: delivered(nested),
     },
   });
   await mkdir(f.at('c'));
