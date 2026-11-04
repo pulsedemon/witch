@@ -26,7 +26,11 @@ import type {
 import { indexNote, noticeText } from '../memory/memory.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
-import type { ConversationStore, StateStore } from '../persistence/store.js';
+import type {
+  ConversationStore,
+  ListedConversation,
+  StateStore,
+} from '../persistence/store.js';
 import { updateBackgroundActivity } from './background-activity.js';
 import {
   launchRecord,
@@ -965,7 +969,7 @@ export class Coordinator {
     return listFiles(this.current().cwd);
   }
 
-  async conversations(): Promise<Conversation[]> {
+  async conversations(): Promise<ListedConversation[]> {
     return this.store.conversations(this.current().cwd);
   }
 

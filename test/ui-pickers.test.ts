@@ -414,7 +414,7 @@ for (const [name, keys] of [
       await commands(ui);
       ui.stdin.write(keys);
       await until('the conversations picker', () =>
-        ui.text().includes('Other · a'),
+        ui.text().includes('a · Other'),
       );
       await delay(30);
       ui.stdin.write(ENTER);
@@ -439,7 +439,7 @@ test('a conversation picked in /sessions keeps the composer from typing until it
     await commands(ui);
     ui.stdin.write(`sess${ENTER}`);
     await until('the conversations picker', () =>
-      ui.text().includes('Other · a'),
+      ui.text().includes('a · Other'),
     );
     await delay(30);
     ui.stdin.write(ENTER);
@@ -458,6 +458,41 @@ test('a conversation picked in /sessions keeps the composer from typing until it
     );
   } finally {
     switching.resolve();
+    ui.unmount();
+  }
+});
+
+test('/sessions tells same-titled conversations apart by when they last changed', async () => {
+  const { coordinator, app, calls } = fake({});
+  coordinator.conversations = async () => [
+    {
+      id: 'newer',
+      title: "what's next?",
+      agent: 'codex',
+      cwd: '/work',
+      modified: new Date(2026, 10, 3, 23, 46).getTime(),
+    },
+    {
+      id: 'older',
+      title: "what's next?",
+      agent: 'codex',
+      cwd: '/work',
+      modified: new Date(2026, 0, 2, 8, 0).getTime(),
+    },
+  ];
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await commands(ui);
+    ui.stdin.write(`sess${ENTER}`);
+    await until('the conversations picker', () =>
+      ui.text().includes("2026-01-02 08:00 · codex · what's next?"),
+    );
+    assert.ok(ui.text().includes("2026-11-03 23:46 · codex · what's next?"));
+    ui.stdin.write(`01-02${ENTER}`);
+    await until('the selection', () => calls.length > 0);
+    assert.deepEqual(calls, [['selectConversation', 'older']]);
+  } finally {
     ui.unmount();
   }
 });

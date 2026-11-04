@@ -167,7 +167,13 @@ export function fake(snapshot: Partial<Snapshot>, files: string[] = []) {
     report: (error: unknown) => calls.push(['report', String(error)]),
     notice: record('notice'),
     conversations: async () => [
-      { id: 'c2', title: 'Other', agent: 'a', cwd: '/work' },
+      {
+        id: 'c2',
+        title: 'Other',
+        agent: 'a',
+        cwd: '/work',
+        modified: new Date(2026, 10, 3, 23, 46).getTime(),
+      },
     ],
     projectFiles: async () => files,
   };
