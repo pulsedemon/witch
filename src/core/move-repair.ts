@@ -310,7 +310,7 @@ export async function repairMoves(
   return report;
 }
 
-/** rewrites each conversation whose directory moved and tallies the ones that couldn't follow, for `summarize`. */
+/** rewrites each conversation whose directory moved and tallies the outcomes for `summarize`; one blocked goes to `report` directly. */
 async function repairConversations(
   store: StateStore,
   memory: Memory,
@@ -392,28 +392,34 @@ async function record(
   run: Run,
   report: MoveReport,
 ) {
+  // looked up once per path, so recording stays linear in entries and paths
+  const byPath = new Map(ledger.entries.map((entry) => [entry.path, entry]));
   /** the entry for what's at `path` now, or undefined while the one recorded there still exists elsewhere. */
   const upsert = async (path: string, identity: Identity) => {
-    const entry = ledger.entries.find((known) => known.path === path);
+    const entry = byPath.get(path);
     if (!entry) {
-      ledger.entries.push({ path, ...identity });
-      return ledger.entries.at(-1);
+      const added: DirectoryEntry = { path, ...identity };
+      ledger.entries.push(added);
+      byPath.set(path, added);
+      return added;
     }
     return (await adoptIdentity(entry, identity)) ? entry : undefined;
   };
   const paths = new Set([cwd, ...seeds, ...records.map(({ cwd }) => cwd)]);
   const lists = new Map<string, string[]>();
+  // every worktree of a repository lists the same registrations
+  const listing = new Map<string, string[]>();
   for (const path of paths) {
     const identity = await identify(path).catch(() => undefined);
     if (!identity) continue;
-    // every worktree of a repository lists the same registrations
-    const list =
-      [...lists.values()].find((other) => other.includes(path)) ??
-      (await worktreeList(run, path));
+    const list = listing.get(path) ?? (await worktreeList(run, path));
     const main = list?.[0];
-    if (main && !lists.has(main)) lists.set(main, list);
+    if (main && !lists.has(main)) {
+      lists.set(main, list);
+      for (const listed of list) listing.set(listed, list);
+    }
     // a recorded main that Git no longer reaches means this directory's Git now belongs to another repository
-    const known = ledger.entries.find((entry) => entry.path === path);
+    const known = byPath.get(path);
     if (
       path === cwd &&
       known?.main &&
@@ -430,6 +436,7 @@ async function record(
     }
     if (!list?.includes(path)) await upsert(path, identity);
   }
+  const holding = new Set(records.flatMap(({ cwd }) => [...prefixes(cwd)]));
   for (const [main, list] of lists) {
     for (const path of list) {
       // one that can't be looked at keeps its entry as it was
@@ -454,12 +461,14 @@ async function record(
     }
     // a worktree Git no longer lists, with no conversation in it, is gone for good, unless a blocked repository's list is stale
     if (report.blocked.some(({ repository }) => repository === main)) continue;
-    ledger.entries = ledger.entries.filter(
-      (entry) =>
+    ledger.entries = ledger.entries.filter((entry) => {
+      const kept =
         entry.main !== main ||
         list.includes(entry.path) ||
-        records.some(({ cwd: saved }) => within(saved, entry.path)),
-    );
+        holding.has(entry.path);
+      if (!kept) byPath.delete(entry.path);
+      return kept;
+    });
   }
 }
 
