@@ -418,8 +418,13 @@ export async function resolve(
 ): Promise<void> {
   for (const move of moves) {
     const newest = ledger.moves.findLast((known) => sameIdentity(known, move));
+    // moves are searched by recording time, which a clock stepping back mustn't reorder
     if (newest?.from !== move.from || newest.to !== move.to)
-      ledger.moves.push({ ...move, prompts, at: Date.now() });
+      ledger.moves.push({
+        ...move,
+        prompts,
+        at: Math.max(Date.now(), ledger.moves.at(-1)?.at ?? 0),
+      });
     for (const entry of [...ledger.entries]) {
       if (!ledger.entries.includes(entry) || !within(entry.path, move.from))
         continue;

@@ -92,6 +92,17 @@ test('mapper follows a directory moved back and forth', async () => {
   assert.equal((await mapper(ledger)).map(f.at('a/x')), f.at('b/x'));
 });
 
+test('a move recorded while the clock reads behind the last one is dated no earlier', async () => {
+  const f = await directories('a');
+  const ahead = Date.now() + 60_000;
+  const ledger: Ledger = {
+    entries: [],
+    moves: [{ ...(await f.move('a', 'b')), at: ahead }],
+  };
+  await resolve(ledger, [await f.move('b', 'c')], 0);
+  assert.equal(ledger.moves[1]?.at, ahead);
+});
+
 test('mapper never carries a replaced child', async () => {
   const f = await directories('old/nested', 'x', 'spare');
   const ledger: Ledger = {
