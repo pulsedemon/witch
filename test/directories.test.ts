@@ -103,6 +103,24 @@ test('a move recorded while the clock reads behind the last one is dated after i
   assert.equal(ledger.moves[1]?.at, ahead + 1);
 });
 
+test('rechecking a mapping looks only at the known directories holding its path', async () => {
+  const f = await directories('a');
+  const ledger: Ledger = {
+    entries: Array.from({ length: 50_000 }, (_, index) => ({
+      path: f.at(`known/e${index}`),
+      device: '1',
+      inode: String(index),
+    })),
+    moves: [],
+  };
+  const mapping = await mapper(ledger);
+  // scanning every entry for each recheck takes seconds here
+  const started = performance.now();
+  for (let index = 0; index < 2000; index++)
+    assert.equal(await mapping.unchanged(f.at(`a/c${index}`)), true);
+  assert.ok(performance.now() - started < 500);
+});
+
 test('mapper never carries a replaced child', async () => {
   const f = await directories('old/nested', 'x', 'spare');
   const ledger: Ledger = {
