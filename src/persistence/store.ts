@@ -173,8 +173,12 @@ export class StateStore {
       ...new Set((ledger?.moves ?? []).map(({ prompts }) => prompts)),
     ].sort((a, b) => a - b);
     const mapped = new Map<string, string | undefined>();
+    // lines come in offset order, so the count of boundaries passed only grows
+    let passed = 0;
     const destination = (cwd: string, start: number) => {
-      const key = `${boundaries.filter((size) => size <= start).length}\0${cwd}`;
+      while (passed < boundaries.length && boundaries[passed]! <= start)
+        passed++;
+      const key = `${passed}\0${cwd}`;
       if (!mapped.has(key))
         mapped.set(
           key,

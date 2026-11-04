@@ -268,8 +268,8 @@ export async function repairMoves(
       : updateLedger(store.root, apply);
 
   const found = await change(async (ledger) => {
-    // record cwds, where the ledger already took them included, Git-backed entries and ones holding where this starts are
-    // worth finding
+    // record cwds, where the ledger already took them included, Git-backed entries and ones holding a seed are worth
+    // finding
     const { map } = await mapper(ledger);
     const used = (entry: DirectoryEntry) =>
       entry.main !== undefined ||
@@ -327,8 +327,12 @@ export async function repairMoves(
   });
 
   const { ledger, resolved } = await change(async (ledger) => {
-    // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone
-    const resolved: Ledger = structuredClone(ledger);
+    // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone, and
+    // when, since a move recorded after this is one the conversations this repair rewrites haven't followed yet
+    const resolved: Snapshot = {
+      ledger: structuredClone(ledger),
+      at: new Date().toISOString(),
+    };
     const { map } = await mapper(ledger);
     const mains = new Set<string>();
     if (listed?.[0]) mains.add(listed[0]);
@@ -376,7 +380,7 @@ export async function repairMoves(
       if (target === saved.cwd) continue;
       // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
       const destination = [
-        ...resolved.entries,
+        ...resolved.ledger.entries,
         ...found.map(({ to, device, inode }) => ({ path: to, device, inode })),
       ]
         .filter(({ path }) => within(target, path))
@@ -534,7 +538,7 @@ async function record(
   }
   for (const [main, list] of lists) {
     for (const path of list) {
-      // one that can't be looked at keeps its entry; its repository's check already reported why
+      // one that can't be looked at keeps its entry as it was
       const identity = await identify(path).catch(() => undefined);
       if (!identity) continue;
       const entry = await upsert(path, identity);
@@ -571,7 +575,7 @@ async function rewrite(
   saved: ConversationRecord,
   target: string,
   destination: Identity & { path: string },
-  resolved: Ledger,
+  resolved: Snapshot,
   report: MoveReport,
 ): Promise<boolean> {
   try {
@@ -588,7 +592,7 @@ async function rewrite(
         ])
           if (identity) await stopPreviousProcess(identity);
         // a path the mapping relied on that changed while this waited for the lock or the stops leaves it for the next start
-        const { map } = await mapper(resolved);
+        const { map } = await mapper(resolved.ledger);
         if (
           map(saved.cwd, savedBefore(saved)) !== target ||
           !sameIdentity(destination, await identify(destination.path))
@@ -611,7 +615,7 @@ async function rewrite(
           );
           if (count) await replaceFile(history, content, times);
         }
-        return { ...raw, cwd: target, cwdSince: new Date().toISOString() };
+        return { ...raw, cwd: target, cwdSince: resolved.at };
       })) === 'repaired'
     );
   } catch (error) {
@@ -622,6 +626,12 @@ async function rewrite(
     });
     return false;
   }
+}
+
+/** the ledger as move resolution left it, and when that was. */
+interface Snapshot {
+  ledger: Ledger;
+  at: string;
 }
 
 /** the conversations each outcome left, before they're grouped into report lines. */

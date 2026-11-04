@@ -391,8 +391,8 @@ function inOrder(
 }
 
 /**
- * puts an entry at `path`, with each `main` naming it. an entry still there was a directory gone from it, so it's
- * dropped, and its repository and slot, which described that directory, go with it.
+ * puts an entry at `path`, with each `main` naming it. any other entry there is dropped with its repository and slot:
+ * it described a directory gone from there, or the same one recorded before a declared copy.
  */
 export function relocate(
   ledger: Ledger,

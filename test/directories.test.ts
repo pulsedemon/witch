@@ -262,8 +262,9 @@ test.skipIf(!darwin)(
     const deleted = { path: f.at('gone'), ...(await identify(f.at('gone')))! };
     await rename(f.at('a'), f.at('b'));
     await mkdir(f.at('a'));
+    await mkdir(f.at('replacement'));
     await rm(f.at('gone'), { recursive: true });
-    await mkdir(f.at('gone'));
+    await rename(f.at('replacement'), f.at('gone'));
     const before = { ...moved };
     assert.equal(
       await adoptIdentity(moved, (await identify(f.at('a')))!),
@@ -321,8 +322,10 @@ test.skipIf(!darwin)(
 test('adoptIdentity drops the repository and slot that described the directory gone from a path', async () => {
   const f = await directories('w-2');
   const recorded = await f.entry('w-2', { main: f.at('w'), slot: 2 });
+  // made before the old one goes, so Linux can't give it the same inode
+  await mkdir(f.at('replacement'));
   await rm(f.at('w-2'), { recursive: true });
-  await mkdir(f.at('w-2'));
+  await rename(f.at('replacement'), f.at('w-2'));
   const now = (await identify(f.at('w-2')))!;
   assert.equal(await adoptIdentity(recorded, now), true);
   assert.deepEqual(recorded, { path: f.at('w-2'), ...now });

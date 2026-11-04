@@ -1387,6 +1387,28 @@ test.skipIf(!darwin)(
   },
 );
 
+test("a repaired conversation's ownership counts from the mapping it followed, not the rewrite's end", async () => {
+  const f = await setup();
+  await f.save('moved', 'w/main');
+  await rename(f.at('w'), f.at('c'));
+  // the listing record() makes comes after the mapping was taken and before the rewrite
+  let lists = 0;
+  let during = 0;
+  await repairMoves(f.store, f.memory, f.at('c/main'), {
+    run: async (command, args, options) => {
+      const result = await runCommand(command, args, options);
+      if (args[0] === 'worktree' && args[1] === 'list' && ++lists === 2) {
+        during = Date.now();
+        await new Promise((settled) => setTimeout(settled, 5));
+      }
+      return result;
+    },
+  });
+  const { raw } = await f.saved('moved');
+  assert.equal(raw.cwd, f.at('c/main'));
+  assert.ok(Date.parse(String(raw.cwdSince)) <= during, String(raw.cwdSince));
+});
+
 test('concurrent repairs leave every record moved and one move in the ledger', async () => {
   const f = await setup();
   for (const id of ['one', 'two', 'three']) await f.save(id, 'w/main');

@@ -140,3 +140,29 @@ test('prompt history under a parent moved back and forth many times stays fast',
   assert.deepEqual(await f.store.prompts(`${z}/sub-7`), ['7']);
   assert.ok(performance.now() - started < 1000);
 });
+
+test('prompt history with many prompts and many unrelated moves stays fast', async () => {
+  const f = await state();
+  const line = `${JSON.stringify({ cwd: f.at('here'), text: 'p' })}\n`;
+  const content = line.repeat(200_000);
+  await writeFile(f.at('state/prompts.jsonl'), content);
+  await writeFile(
+    f.at('state/directories.json'),
+    JSON.stringify({
+      version: 1,
+      entries: [],
+      moves: Array.from({ length: 8000 }, (_, index) => ({
+        from: f.at(`elsewhere/${index}`),
+        to: f.at(`moved/${index}`),
+        device: '1',
+        inode: String(index),
+        prompts: (index + 1) * line.length * 20,
+        at: index,
+      })),
+    }),
+  );
+  // each line moves a forward index past the boundaries; counting them all again per line took seconds
+  const started = performance.now();
+  assert.equal((await f.store.prompts(f.at('here'))).length, 200_000);
+  assert.ok(performance.now() - started < 1000);
+});
