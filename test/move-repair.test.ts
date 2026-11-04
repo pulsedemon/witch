@@ -1487,7 +1487,6 @@ test('concurrent repairs leave every record moved and one move in the ledger', a
   const before = await Promise.all(['one', 'two', 'three'].map(f.saved));
   await rename(f.at('w'), f.at('c'));
   await Promise.all([f.repair('c/main'), f.repair('c/main')]);
-  await f.repair('c/main');
   for (const [index, id] of ['one', 'two', 'three'].entries()) {
     const after = await f.saved(id);
     assert.equal(after.raw.cwd, f.at('c/main'));
