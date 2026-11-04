@@ -256,6 +256,57 @@ test('a turn in a moved checkout repoints memory notes published after startup a
   }
 });
 
+test('a moved directory without an origin takes its notes into the project its new path keys, at startup and on a turn', async () => {
+  const f = await fixture();
+  await f.coordinator.close();
+  const before = await f.memory.scopePaths(f.project);
+  const helper = f.memory.workspace(join(f.root, 'helper'), 'helper');
+  await helper.ensureWorktree();
+  const publish = async (notes: Record<string, string>) => {
+    await helper.begin(before);
+    for (const [note, text] of Object.entries(notes))
+      await writeFile(join(helper.root, before.project, note), text);
+    await helper.commit('save');
+    await helper.publish();
+  };
+  await publish({
+    'MEMORY.md': '- [deploy](deploy.md)\n',
+    'deploy.md': 'Deploy.\n',
+  });
+  const destination = join(f.root, 'renamed project');
+  await rename(f.project, destination);
+  const coordinator = new Coordinator(f.store, f.memory, [
+    { adapter: f.a, executable: 'a' },
+  ]);
+  try {
+    await coordinator.initialize(destination, { continue: true });
+    const after = await f.memory.scopePaths(destination);
+    assert.notEqual(after.project, before.project);
+    assert.equal(
+      await f.memory.read(main, `${after.project}/MEMORY.md`),
+      '- [deploy](deploy.md)\n',
+    );
+    assert.equal(
+      await f.memory.read(main, `${after.project}/deploy.md`),
+      'Deploy.\n',
+    );
+    await assert.rejects(f.memory.read(main, `${before.project}/deploy.md`));
+    // another conversation still writing to the old key publishes after startup, so only the turn can take this in
+    await publish({ 'late.md': 'Late.\n' });
+    await coordinator.send('hello');
+    await until(
+      'the first turn',
+      () => f.a.inputs.length === 1 && coordinator.snapshot.phase === 'idle',
+    );
+    assert.equal(
+      await f.memory.read(main, `${after.project}/late.md`),
+      'Late.\n',
+    );
+  } finally {
+    await coordinator.close();
+  }
+});
+
 test('an unreadable ledger leaves startup and turns running with a notice naming it', async () => {
   const f = await relocatedFixture();
   await writeFile(join(f.root, 'state', 'directories.json'), '{');

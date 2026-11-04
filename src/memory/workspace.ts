@@ -308,13 +308,15 @@ export class Workspace {
   }
 
   /**
-   * publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, repoints notes at
-   * directories that moved, and returns the revision the turn starts from with how many notes it repointed. a failed
-   * repoint is rolled back and reported in `notice`, so only a failed rollback stops the turn.
+   * publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path and by the `former`
+   * keys a path-keyed project had before it moved, repoints notes at directories that moved, and returns the revision
+   * the turn starts from with how many notes it repointed. a failed repoint is rolled back and reported in `notice`, so
+   * only a failed rollback stops the turn.
    */
   async begin(
     scope: MemoryScope,
     ledger?: Ledger,
+    former: readonly string[] = [],
   ): Promise<{ revision: string; repointed: number; notice?: string }> {
     const status = await this.status();
     let { head } = status;
@@ -334,15 +336,17 @@ export class Workspace {
       if (head !== latest)
         await this.git(['merge', '--ff-only', '--quiet', latest]);
       await this.prepare(scope);
-      const moved = await this.adopt(scope).catch(async (error: unknown) => {
-        await this.discardPending().catch((rollback: unknown) => {
-          throw new Error(
-            `${errorMessage(error)}\n\nCould not discard the failed memory move: ${errorMessage(rollback)}`,
-            { cause: error },
-          );
-        });
-        throw error;
-      });
+      const moved = await this.adoptAll(scope, former).catch(
+        async (error: unknown) => {
+          await this.discardPending().catch((rollback: unknown) => {
+            throw new Error(
+              `${errorMessage(error)}\n\nCould not discard the failed memory move: ${errorMessage(rollback)}`,
+              { cause: error },
+            );
+          });
+          throw error;
+        },
+      );
       const first = await this.tryRepoint(ledger);
       if (!moved && !first.repointed) return { revision: latest, ...first };
       if ((await this.publish()) === 'published') {
@@ -426,39 +430,50 @@ export class Workspace {
     return changed;
   }
 
-  /** begins outside a turn to take in the notes keyed by the checkout's path and repoint moved paths, unless pending or unpublished memory waits for settling. */
+  /** begins outside a turn to take in the notes keyed by the checkout's path and its `former` keys and repoint moved paths, unless pending or unpublished memory waits for settling. */
   async adoptCheckout(
     scope: MemoryScope,
     ledger?: Ledger,
+    former: readonly string[] = [],
   ): Promise<{ repointed: number; notice?: string }> {
     if (!(await this.exists()) || (await this.isDirty()))
       return { repointed: 0 };
     if (!(await this.isAncestor('HEAD', main))) return { repointed: 0 };
-    const { repointed, notice } = await this.begin(scope, ledger);
+    const { repointed, notice } = await this.begin(scope, ledger, former);
     return { repointed, notice };
   }
 
-  /** merges the notes keyed by a checkout's path into its origin's project as a commit of its own, and says whether that key held notes. */
-  private async adopt({ project, checkout }: MemoryScope): Promise<boolean> {
-    if (!checkout) return false;
+  /** adopts the checkout's notes and each former key's, and says whether any of them held notes. */
+  private async adoptAll(
+    { project, checkout }: MemoryScope,
+    former: readonly string[],
+  ): Promise<boolean> {
+    let moved = false;
+    for (const key of checkout ? [checkout, ...former] : former)
+      if (await this.adopt(project, key)) moved = true;
+    return moved;
+  }
+
+  /** merges the notes under another project key into `project` as a commit of its own, and says whether that key held notes. */
+  private async adopt(project: string, key: string): Promise<boolean> {
     // the index matches HEAD here, since begin runs only on a clean worktree
-    const files = (await this.git(['ls-files', '-z', '--', checkout]))
+    const files = (await this.git(['ls-files', '-z', '--', key]))
       .split('\0')
       .filter(Boolean);
     if (!files.length) return false;
-    const notes = new Set(files.map((file) => posix.relative(checkout, file)));
+    const notes = new Set(files.map((file) => posix.relative(key, file)));
     const directories = new Set<string>();
     for (const note of notes)
       for (let dir = posix.dirname(note); dir !== '.'; dir = posix.dirname(dir))
         directories.add(dir);
-    const label = posix.basename(checkout).replace(/-[0-9a-f]{16}$/, '');
-    const index = posix.join(checkout, indexNote);
+    const label = posix.basename(key).replace(/-[0-9a-f]{16}$/, '');
+    const index = posix.join(key, indexNote);
     const renamed = new Map<string, string>();
     // the index merges last, so its lines can link where renamed notes went
     for (const file of files.sort((a, b) => +(a === index) - +(b === index))) {
       const source = await this.checkedPath(file);
       const content = await readFile(source);
-      const note = posix.relative(checkout, file);
+      const note = posix.relative(key, file);
       if (file === index) {
         // one pass, so a rewritten link can't match another rename. it reads the `<…>` form this move writes too
         const text = content
@@ -519,7 +534,7 @@ export class Workspace {
       if (placed !== note) renamed.set(note, placed);
     }
     await this.commit(
-      `chore(memory): move ${checkout} notes to ${project}\n\nconversation: ${this.id}`,
+      `chore(memory): move ${key} notes to ${project}\n\nconversation: ${this.id}`,
     );
     return true;
   }

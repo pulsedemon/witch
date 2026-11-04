@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { errorMessage } from '../agents/stderr.js';
-import type { MemoryScope } from '../memory/memory.js';
-import { readLedger } from '../persistence/directories.js';
+import { projectKey } from '../memory/memory.js';
+import type { Memory, MemoryScope } from '../memory/memory.js';
+import { formerPaths, readLedger, within } from '../persistence/directories.js';
 import type { Ledger } from '../persistence/directories.js';
 import type { Workspace } from '../memory/workspace.js';
 import { memoryAttribution } from './prompts.js';
@@ -9,17 +10,30 @@ import type { ConversationRecord } from './state.js';
 
 export type Activity = NonNullable<ConversationRecord['activity']>;
 
-/** the ledger of moved directories, or why it couldn't be read, which never stops memory from beginning. */
+/**
+ * the ledger of moved directories with the keys a project keyed by its own path had before its moves carried it to
+ * `cwd`, or why the ledger couldn't be read, which never stops memory from beginning.
+ */
 async function movedDirectories(
+  memory: Memory,
   root: string,
-): Promise<{ ledger?: Ledger; notices: string[] }> {
+  cwd: string,
+): Promise<{ ledger?: Ledger; former: string[]; notices: string[] }> {
+  let ledger;
   try {
-    return { ledger: await readLedger(root), notices: [] };
+    ledger = await readLedger(root);
   } catch (error) {
     return {
+      former: [],
       notices: [`Could not read moved directories: ${errorMessage(error)}`],
     };
   }
+  // only a move to `cwd` or a directory holding it can have carried it, so most turns need no git process here
+  const top = ledger.moves.some(({ to }) => within(cwd, to))
+    ? await memory.pathScope(cwd)
+    : undefined;
+  const former = top ? (await formerPaths(ledger, top)).map(projectKey) : [];
+  return { ledger, former, notices: [] };
 }
 
 /** the notice for notes a begin repointed, with any failure to read the ledger or repoint. */
@@ -47,8 +61,12 @@ export async function startActivity(
 ): Promise<{ activity: Activity; scope: MemoryScope; notice?: string }> {
   scope ??= await workspace.memory.scopePaths(conversation.cwd);
   await workspace.ensureWorktree();
-  const { ledger, notices } = await movedDirectories(root);
-  const begun = await workspace.begin(scope, ledger);
+  const { ledger, former, notices } = await movedDirectories(
+    workspace.memory,
+    root,
+    conversation.cwd,
+  );
+  const begun = await workspace.begin(scope, ledger, former);
   const activity = {
     id: randomUUID(),
     agent: conversation.agent,
@@ -68,10 +86,15 @@ export async function startActivity(
 export async function adoptMoved(
   workspace: Workspace,
   scope: MemoryScope,
+  cwd: string,
   root: string,
 ): Promise<string | undefined> {
-  const { ledger, notices } = await movedDirectories(root);
-  const adopted = await workspace.adoptCheckout(scope, ledger);
+  const { ledger, former, notices } = await movedDirectories(
+    workspace.memory,
+    root,
+    cwd,
+  );
+  const adopted = await workspace.adoptCheckout(scope, ledger, former);
   return repointNotice(notices, adopted.repointed, adopted.notice);
 }
 

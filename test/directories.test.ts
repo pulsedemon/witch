@@ -8,6 +8,7 @@ import { test } from 'vitest';
 import {
   adoptIdentity,
   findMoves,
+  formerPaths,
   identify,
   mapper,
   readLedger,
@@ -162,6 +163,23 @@ test('resolving a move relocates the directories it carries in one pass over the
   assert.equal(ledger.entries[199]?.path, f.at('b/c199'));
   // reading every entry again for each carried directory made large moves quadratic
   assert.ok(reads < 20, String(reads));
+});
+
+test("formerPaths follows a directory back through its own and its parents' moves, but not past a path another directory took", async () => {
+  const f = await directories('v/p');
+  const ledger: Ledger = {
+    entries: [],
+    moves: [
+      { ...(await f.move('p', 'v/p')), to: f.at('w/p') },
+      await f.move('w', 'v'),
+    ],
+  };
+  assert.deepEqual(await formerPaths(ledger, f.at('v/p')), [
+    f.at('w/p'),
+    f.at('p'),
+  ]);
+  await mkdir(f.at('p'));
+  assert.deepEqual(await formerPaths(ledger, f.at('v/p')), [f.at('w/p')]);
 });
 
 test('mapper never carries a replaced child', async () => {

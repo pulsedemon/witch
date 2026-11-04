@@ -346,9 +346,12 @@ export class Coordinator {
     const failure = await failureOf(this.link.connect(undefined, scope));
     if (moved) this.notice(moved, undefined, false);
     const adoption = await failureOf(
-      adoptMoved(this.workspace!, scope, this.store.root).then(
-        (notice) => notice && this.notice(notice, undefined, false),
-      ),
+      adoptMoved(
+        this.workspace!,
+        scope,
+        this.current().cwd,
+        this.store.root,
+      ).then((notice) => notice && this.notice(notice, undefined, false)),
     );
     // a scope directory that can't be created can fail both, so its message shows once
     await this.settle(
