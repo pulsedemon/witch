@@ -47,6 +47,15 @@ function mergeLines(index: string, added: string): string {
 
 const nameCharacter = /[\p{L}\p{N}_\-./~]/u;
 const delimiter = /[\s`'"()[\]<>,;:#?]/;
+/** whitespace then a word holding a slash, which continues a path whose name has a space. */
+const spacedPath = /[^\S\n]+\S*\//y;
+/** what may follow a whole path: a separator, a delimiter, or a sentence's full stop. */
+const pathEnd = /[/#?\s`'")\]>,;:]|\.(?=\s|$)/y;
+
+const matchesAt = (pattern: RegExp, text: string, index: number) => {
+  pattern.lastIndex = index;
+  return pattern.test(text);
+};
 
 /**
  * a note with each reference to a moved directory, absolute or under `~/`, mapped through `map`. a reference ends at a
@@ -69,38 +78,58 @@ export function repointText(
   );
   let result = '';
   let cursor = 0;
+  // the line's backtick and angle bracket state up to `scanned`, carried from match to match so each line is read once
+  let scanned = 0;
+  let ticks = false;
+  let opened = -1;
+  let closed = -1;
+  let lineEnd = -1;
+  // the next of each closing character at or after the last search, Infinity once there's none
+  const next = { '`': -1, '>': -1 };
+  const nextOf = (character: '`' | '>', from: number) => {
+    if (next[character] < from) {
+      const found = text.indexOf(character, from);
+      next[character] = found < 0 ? Infinity : found;
+    }
+    return next[character];
+  };
   for (const match of text.matchAll(pattern)) {
     const start = match.index;
     const form = match[0];
+    for (; scanned < start; scanned++) {
+      const character = text[scanned];
+      if (character === '\n') {
+        ticks = false;
+        opened = closed = -1;
+      } else if (character === '`') ticks = !ticks;
+      else if (character === '<') opened = scanned;
+      else if (character === '>') closed = scanned;
+    }
     if (start < cursor || nameCharacter.test(text[start - 1] ?? '')) continue;
-    const lineStart = text.lastIndexOf('\n', start - 1) + 1;
-    const newline = text.indexOf('\n', start);
-    const lineEnd = newline < 0 ? text.length : newline;
-    const before = text.slice(lineStart, start);
-    const ticks = (before.match(/`/g) ?? []).length % 2 === 1;
-    const angle = before.lastIndexOf('<') > before.lastIndexOf('>');
-    const close = ticks
-      ? text.indexOf('`', start + form.length)
-      : angle
-        ? text.indexOf('>', start + form.length)
-        : -1;
-    let end: number;
+    if (lineEnd < start) {
+      const newline = text.indexOf('\n', start);
+      lineEnd = newline < 0 ? text.length : newline;
+    }
+    const angle = opened > closed;
+    const tail = start + form.length;
+    const close = ticks ? nextOf('`', tail) : angle ? nextOf('>', tail) : -1;
+    let end = tail;
     if ((ticks || angle) && close >= 0 && close <= lineEnd) {
-      const rest = text.slice(start + form.length, close);
-      if (rest && !/^[/#?]/.test(rest)) continue;
-      end = start + form.length + /^[^#?]*/.exec(rest)![0].length;
+      if (tail < close && !'/#?'.includes(text[tail]!)) continue;
+      while (end < close && text[end] !== '#' && text[end] !== '?') end++;
     } else {
-      const after = text.slice(start + form.length, lineEnd);
-      if (/^\s+[^\s]*\//.test(after)) continue;
-      if (after && !/^([/#?\s`'")\]>,;:]|\.(\s|$))/.test(after)) continue;
-      end = start + form.length;
-      if (after.startsWith('/'))
-        for (let index = 0; index < after.length; index++) {
-          const character = after[index]!;
+      if (matchesAt(spacedPath, text, tail)) continue;
+      if (tail < lineEnd && !matchesAt(pathEnd, text, tail)) continue;
+      if (text[tail] === '/')
+        for (let index = tail; index < lineEnd; index++) {
+          const character = text[index]!;
           if (delimiter.test(character)) break;
-          if (character === '.' && /^(\s|$)/.test(after.slice(index + 1)))
+          if (
+            character === '.' &&
+            (index + 1 === lineEnd || /\s/.test(text[index + 1]!))
+          )
             break;
-          end = start + form.length + index + 1;
+          end = index + 1;
         }
     }
     const reference = text.slice(start, end);
@@ -271,7 +300,7 @@ export class Workspace {
   /**
    * publishes anything left over, moves to `main`, takes in the notes keyed by the checkout's path, repoints notes at
    * directories that moved, and returns the revision the turn starts from with how many notes it repointed. a failed
-   * repoint is rolled back and reported in `notice`, so it never stops the turn.
+   * repoint is rolled back and reported in `notice`, so only a failed rollback stops the turn.
    */
   async begin(
     scope: MemoryScope,
@@ -304,17 +333,23 @@ export class Workspace {
         });
         throw error;
       });
-      const { repointed, notice } = await this.tryRepoint(ledger);
-      if (!moved && !repointed) return { revision: latest, repointed, notice };
+      const first = await this.tryRepoint(ledger);
+      if (!moved && !first.repointed) return { revision: latest, ...first };
       if ((await this.publish()) === 'published') {
         // a rebase onto another conversation's notes can merge old links back into MEMORY.md
-        let total = repointed;
+        let { repointed, notice } = first;
         for (let again = 0; again < 5; again++) {
           const more = await this.tryRepoint(ledger);
-          if (!more.repointed || (await this.publish()) !== 'published') break;
-          total += more.repointed;
+          notice ??= more.notice;
+          if (!more.repointed) break;
+          if ((await this.publish()) !== 'published') {
+            // the next begin repoints what lost to another conversation here
+            await this.git(['reset', '--hard', '--quiet', await this.latest()]);
+            break;
+          }
+          repointed += more.repointed;
         }
-        return { revision: await this.revision(), repointed: total, notice };
+        return { revision: await this.revision(), repointed, notice };
       }
       // discarding this derived move loses no accepted notes
       head = latest = await this.latest();

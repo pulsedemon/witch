@@ -163,7 +163,7 @@ export class StateStore {
         throw error;
       },
     );
-    // the ledger only widens the match, so an unreadable one leaves exact matching
+    // an unreadable ledger leaves exact matching
     const { map } = await readLedger(this.root)
       .then(mapper)
       .catch(() => ({ map: (path: string) => path }));

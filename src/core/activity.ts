@@ -64,7 +64,7 @@ export async function startActivity(
   };
 }
 
-/** adopts the checkout's notes at startup and repoints moved paths; adoption errors propagate, the rest is a notice. */
+/** adopts the checkout's notes at startup and repoints moved paths; adoption errors and a failed repoint rollback propagate, the rest is a notice. */
 export async function adoptMoved(
   workspace: Workspace,
   scope: MemoryScope,

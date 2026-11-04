@@ -19,7 +19,10 @@ import type {
   Move,
 } from '../persistence/directories.js';
 import { replaceFile } from '../persistence/json.js';
-import { identifyProcesses, sameProcess } from '../persistence/process.js';
+import {
+  stopPreviousProcess,
+  stopPreviousShell,
+} from '../persistence/process.js';
 import { LockedElsewhere } from '../persistence/store.js';
 import type { StateStore } from '../persistence/store.js';
 import { quote } from '../shell.js';
@@ -30,7 +33,7 @@ import type { ConversationRecord } from './state.js';
 
 export interface MoveReport {
   repaired: Array<Move & { conversations: number; worktrees: number }>;
-  /** `repository` names the main checkout whose worktree links couldn't be checked or repaired. */
+  /** `repository` names the main checkout whose worktree links couldn't be checked or repaired, or that a recorded checkout's Git reaches instead of its own. */
   blocked: Array<{ path: string; reason: string; repository?: string }>;
   unresolved: Array<{ path: string; conversations: number; worktree: boolean }>;
   suspended: Array<Move & { conversations: number }>;
@@ -106,14 +109,21 @@ export async function listWorktrees(run: Run, cwd: string): Promise<string[]> {
 const worktreeList = (run: Run, cwd: string) =>
   listWorktrees(run, cwd).catch(() => undefined);
 
+/** undefined for a file that's gone; one that can't be read throws, so its repository is reported rather than skipped. */
+const unlessGone = <T>(read: Promise<T>): Promise<T | undefined> =>
+  read.catch((error: unknown) => {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    throw error;
+  });
+
 async function registrations(common: string): Promise<Registration[]> {
-  const names = await readdir(join(common, 'worktrees')).catch(() => []);
+  const names = (await unlessGone(readdir(join(common, 'worktrees')))) ?? [];
   const found: Registration[] = [];
   for (const name of names) {
-    const gitdir = await readFile(
-      join(common, 'worktrees', name, 'gitdir'),
-      'utf8',
-    ).catch(() => undefined);
+    const gitdir = await unlessGone(
+      readFile(join(common, 'worktrees', name, 'gitdir'), 'utf8'),
+    );
     if (gitdir) found.push({ name, registered: dirname(gitdir.trim()) });
   }
   return found;
@@ -138,11 +148,11 @@ const compatible = async (
   );
   if (!delivered.length) return true;
   const project = (await memory.scopePaths(to)).project;
-  const path = await memory.pathScope(to);
+  const top = await memory.pathScope(to);
   // a path-keyed project's key changes with the path, so the old path's key counts too
-  const rest = path && to.slice(path.top.length);
+  const rest = top && to.slice(top.length);
   const old =
-    path && rest !== undefined && from.endsWith(rest)
+    rest !== undefined && from.endsWith(rest)
       ? projectKey(from.slice(0, from.length - rest.length))
       : undefined;
   return delivered.every((key) => key === project || key === old);
@@ -397,7 +407,10 @@ async function record(
   for (const path of paths) {
     const identity = await identify(path).catch(() => undefined);
     if (!identity) continue;
-    const list = await worktreeList(run, path);
+    // every worktree of a repository lists the same registrations
+    const list =
+      [...lists.values()].find((other) => other.includes(path)) ??
+      (await worktreeList(run, path));
     const main = list?.[0];
     if (main && !lists.has(main)) lists.set(main, list);
     // a recorded main that Git no longer reaches means this directory's Git now belongs to another repository
@@ -432,7 +445,8 @@ async function record(
       )
         entry.slot = Number(slot);
     }
-    // a worktree Git no longer lists, with no conversation in it, is gone for good
+    // a worktree Git no longer lists, with no conversation in it, is gone for good, unless a failed repair left the list stale
+    if (report.blocked.some(({ repository }) => repository === main)) continue;
     ledger.entries = ledger.entries.filter(
       (entry) =>
         entry.main !== main ||
@@ -454,26 +468,14 @@ async function rewrite(
       (await store.repairRecord(saved.id, async (raw, directory) => {
         const current = conversationRecordSchema.parse(raw);
         if (current.cwd !== saved.cwd) return undefined;
-        const identities = [
+        // holding the lock means no Witch has it open, so these are left from a crash, and claim would stop them too
+        if (current.shell) await stopPreviousShell(current.shell);
+        for (const identity of [
           current.process,
           current.usageProcess,
           current.answerProcess,
-          current.shell,
-        ].filter((identity) => identity !== undefined);
-        const running = await identifyProcesses(
-          identities.map(({ pid }) => pid),
-        );
-        if (
-          identities.some((identity) =>
-            sameProcess(running.get(identity.pid), identity),
-          )
-        ) {
-          report.blocked.push({
-            path: saved.cwd,
-            reason: `${saved.title} has a native process or shell still running`,
-          });
-          return undefined;
-        }
+        ])
+          if (identity) await stopPreviousProcess(identity);
         const history = join(directory, 'history.jsonl');
         const times = await stat(history).catch(() => undefined);
         if (times) {

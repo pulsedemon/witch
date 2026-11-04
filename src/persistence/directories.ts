@@ -120,9 +120,10 @@ export async function updateLedger<T>(
 type Source = 'gone' | 'back' | 'reused';
 
 /**
- * maps old paths through the ledger's moves. each step takes the most specific move whose `from` holds the path, the
- * latest of equals, and a move applies once. a `from` holding the moved directory again stops the chain there; one
- * holding another directory stops it with nothing, unless `offset` predates the move.
+ * maps old paths through the ledger's moves. each step takes the most specific move whose `from` holds the path, of
+ * equals the first recorded after `offset`, else the latest, and a move applies once. a `from` holding the moved
+ * directory again, or one that can't be looked at, stops the chain there; one holding another directory stops it with
+ * nothing, unless `offset` predates the move.
  */
 export async function mapper(ledger: Ledger): Promise<{
   map(path: string, offset?: number): string | undefined;
@@ -130,7 +131,7 @@ export async function mapper(ledger: Ledger): Promise<{
 }> {
   const sources: Source[] = await Promise.all(
     ledger.moves.map(async (move) => {
-      const found = await identify(move.from);
+      const found = await identify(move.from).catch(() => move);
       if (!found) return 'gone';
       return sameIdentity(move, found) ? 'back' : 'reused';
     }),
@@ -139,13 +140,17 @@ export async function mapper(ledger: Ledger): Promise<{
     const applied = new Set<number>();
     for (let current = path; ;) {
       let chosen = -1;
-      for (const [index, move] of ledger.moves.entries())
+      for (const [index, move] of ledger.moves.entries()) {
+        if (applied.has(index) || !within(current, move.from)) continue;
+        const best = ledger.moves[chosen];
         if (
-          !applied.has(index) &&
-          within(current, move.from) &&
-          (chosen < 0 || move.from.length >= ledger.moves[chosen]!.from.length)
+          !best ||
+          move.from.length > best.from.length ||
+          (move.from.length === best.from.length &&
+            !(offset !== undefined && offset < best.prompts))
         )
           chosen = index;
+      }
       if (chosen < 0) return current;
       const move = ledger.moves[chosen]!;
       const source = sources[chosen]!;
@@ -166,7 +171,7 @@ export async function mapper(ledger: Ledger): Promise<{
     if (
       target !== undefined &&
       target !== entry.path &&
-      !sameIdentity(entry, await identify(target))
+      !sameIdentity(entry, await identify(target).catch(() => entry))
     )
       stranded.push(entry.path);
   }
@@ -191,14 +196,17 @@ export async function findMoves(
   entries: readonly DirectoryEntry[],
   seeds: readonly string[],
 ): Promise<Array<Move & Identity>> {
+  // an entry that can't be looked at stays put, and so do its records, which report why
   const missing: DirectoryEntry[] = [];
   for (const entry of entries)
-    if (!sameIdentity(entry, await identify(entry.path))) missing.push(entry);
+    if (!sameIdentity(entry, await identify(entry.path).catch(() => entry)))
+      missing.push(entry);
+  const look = (path: string) => identify(path).catch(() => undefined);
   const moves: Array<Move & Identity> = [];
   const carried = async (entry: DirectoryEntry) => {
     for (const move of moves) {
       if (!within(entry.path, move.from) || entry.path === move.from) continue;
-      if (sameIdentity(entry, await identify(through(entry.path, move))))
+      if (sameIdentity(entry, await look(through(entry.path, move))))
         return true;
     }
     return false;
@@ -213,7 +221,7 @@ export async function findMoves(
     });
   };
   const seeded = await Promise.all(
-    seeds.map(async (seed) => ({ seed, identity: await identify(seed) })),
+    seeds.map(async (seed) => ({ seed, identity: await look(seed) })),
   );
   for (const entry of [...missing]) {
     const seed = seeded.find(({ identity }) => sameIdentity(entry, identity));
@@ -253,8 +261,7 @@ export async function findMoves(
         }
         const found = await (async () => {
           for (const candidate of candidates)
-            if (sameIdentity(entry, await identify(candidate)))
-              return candidate;
+            if (sameIdentity(entry, await look(candidate))) return candidate;
           return undefined;
         })();
         if (found) {
@@ -284,7 +291,8 @@ export async function resolve(
     for (const entry of ledger.entries) {
       if (!within(entry.path, move.from)) continue;
       const target = through(entry.path, move);
-      if (!sameIdentity(entry, await identify(target))) continue;
+      if (!sameIdentity(entry, await identify(target).catch(() => undefined)))
+        continue;
       for (const other of ledger.entries)
         if (other.main === entry.path) other.main = target;
       entry.path = target;

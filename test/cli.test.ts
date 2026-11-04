@@ -141,22 +141,24 @@ test('witch --recover-directory previews, applies and reports a blocked record w
   const applied = await recover(true);
   assert.equal(applied.code, 0, applied.stderr);
   assert.equal(await record(), destination);
-  await (
-    await store.create({
-      id: 'running',
-      title: 'Running',
-      cwd: join(root, 'also gone'),
-      agent: 'claude',
-      sessions: {},
-      createdAt: new Date().toISOString(),
-      process: identity,
-    } as Parameters<typeof store.create>[0])
-  ).close();
-  const blocked = await run(
-    `cd ${quote(destination)} && ${quote(process.execPath)} ${quote(compiled)} --state-dir ${quote(state)} --recover-directory ${quote(join(root, 'also gone'))} --apply`,
-  );
-  assert.equal(blocked.code, 1);
-  assert.match(blocked.stdout, /still running/);
+  // held open, as another Witch would
+  const open = await store.create({
+    id: 'open',
+    title: 'Open',
+    cwd: join(root, 'also gone'),
+    agent: 'claude',
+    sessions: {},
+    createdAt: new Date().toISOString(),
+  });
+  try {
+    const blocked = await run(
+      `cd ${quote(destination)} && ${quote(process.execPath)} ${quote(compiled)} --state-dir ${quote(state)} --recover-directory ${quote(join(root, 'also gone'))} --apply`,
+    );
+    assert.equal(blocked.code, 1);
+    assert.match(blocked.stdout, /open in another Witch/);
+  } finally {
+    await open.close();
+  }
   await assert.rejects(readFile(launched), { code: 'ENOENT' });
 });
 

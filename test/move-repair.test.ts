@@ -304,6 +304,42 @@ test('an interrupted repair finishes at the next start', async () => {
   await status(f.at('c/main-1'));
 });
 
+test('a failed repair keeps a moved worktree and its slot', async () => {
+  const f = await setup();
+  await rename(f.at('w/main-1'), f.at('far'));
+  await repairMoves(f.store, f.memory, f.at('far'), {
+    run: (command, args, options) =>
+      args[0] === 'worktree' && args[1] === 'repair'
+        ? Promise.reject(new Error('interrupted'))
+        : runCommand(command, args, options),
+  });
+  const { entries } = await readLedger(f.at('state'));
+  assert.equal(entries.find(({ path }) => path === f.at('far'))?.slot, 1);
+});
+
+for (const [unreadable, mode] of [
+  ['.git/worktrees', 0o300],
+  ['.git/worktrees/main-1/gitdir', 0],
+] as const)
+  test(`an unreadable ${unreadable} blocks its repository`, async () => {
+    const f = await setup();
+    await rename(f.at('w/main'), f.at('w/renamed'));
+    const file = f.at(`w/renamed/${unreadable}`);
+    await chmod(file, mode);
+    try {
+      const report = await f.repair('w/renamed');
+      assert.ok(
+        report.blocked.some(
+          ({ repository, reason }) =>
+            repository === f.at('w/renamed') && reason.includes(file),
+        ),
+        JSON.stringify(report),
+      );
+    } finally {
+      await chmod(file, 0o755);
+    }
+  });
+
 test('a start with nothing moved runs no repair', async () => {
   const f = await setup();
   f.runs.length = 0;
@@ -433,6 +469,24 @@ test('prompt history follows a move without rewriting the file', async () => {
   assert.deepEqual(await f.store.prompts(f.at('c/main')), []);
 });
 
+test('prompts follow the directory that wrote them when a reused path moves again', async () => {
+  const f = await setup();
+  await mkdir(f.at('p'));
+  await f.save('first', 'p');
+  await f.repair('p');
+  await f.store.addPrompt(f.at('p'), 'first directory');
+  await rename(f.at('p'), f.at('b'));
+  await f.repair('b');
+  await mkdir(f.at('p'));
+  await f.save('second', 'p');
+  await f.repair('p');
+  await f.store.addPrompt(f.at('p'), 'second directory');
+  await rename(f.at('p'), f.at('c'));
+  await f.repair('c');
+  assert.deepEqual(await f.store.prompts(f.at('b')), ['first directory']);
+  assert.deepEqual(await f.store.prompts(f.at('c')), ['second directory']);
+});
+
 test('a recreated source suspends its move', async () => {
   const f = await setup();
   await f.save('held', 'w/main');
@@ -474,26 +528,23 @@ test('an open conversation is reported and repaired after it closes', async () =
 });
 
 for (const field of ['process', 'usageProcess', 'answerProcess', 'shell'])
-  test(`a recorded ${field} blocks while it runs and survives repair once it ends`, async () => {
+  test(`a recorded ${field} left running by a crash is stopped and its conversation repaired`, async () => {
     const f = await setup();
-    const child = spawn(process.execPath, [
-      '-e',
-      'setTimeout(() => {}, 60_000)',
-    ]);
+    // a recorded shell leads its own process group, which is what gets killed
+    const child = spawn(
+      process.execPath,
+      ['-e', 'setTimeout(() => {}, 60_000)'],
+      { detached: field === 'shell' },
+    );
+    const exited = new Promise((done) => child.once('exit', done));
     try {
       const identity = await identifyProcess(child.pid!);
       await f.save('live', 'w/main', { [field]: identity });
+      const before = (await f.saved('live')).mtimes;
       await rename(f.at('w'), f.at('c'));
       const report = await f.repair('c/main');
-      assert.ok(
-        report.blocked.some(({ reason }) => /still running/.test(reason)),
-      );
-      assert.equal((await f.saved('live')).raw.cwd, f.at('w/main'));
-      // a reused pid with another start time is a different process
-      const before = (await f.saved('live')).mtimes;
-      child.kill();
-      await new Promise((done) => child.once('exit', done));
-      await f.repair('c/main');
+      assert.deepEqual(report.blocked, []);
+      await exited;
       const after = await f.saved('live');
       assert.equal(after.raw.cwd, f.at('c/main'));
       assert.deepEqual(after.raw[field], identity);
@@ -503,7 +554,7 @@ for (const field of ['process', 'usageProcess', 'answerProcess', 'shell'])
     }
   });
 
-test('a live pid with a different start time does not block', async () => {
+test('a live pid with a different start time is left running', async () => {
   const f = await setup();
   await f.save('reused', 'w/main', {
     process: { pid: process.pid, started: 'Thu Jan  1 00:00:00 1970' },
@@ -670,18 +721,36 @@ test('an unreadable record is reported only for a declared move', async () => {
   const f = await setup();
   await f.save('good', 'w/main');
   await mkdir(f.at('state/conversations/bad'));
-  await writeFile(f.at('state/conversations/bad/state.json'), '{');
+  const bad = f.at('state/conversations/bad/state.json');
+  await writeFile(bad, '{');
   await rename(f.at('w'), f.at('c'));
   const report = await f.repair('c/main');
   assert.ok(!report.blocked.some(({ path }) => path.includes('bad')));
   assert.equal((await f.saved('good')).raw.cwd, f.at('c/main'));
+  await mkdir(f.at('d'));
+  await cp(f.at('c/main'), f.at('d/main'), { recursive: true });
+  await rm(f.at('c/main'), { recursive: true });
+  const declared = await f.repair('d/main', {
+    declared: { from: f.at('c/main'), to: f.at('d/main') },
+  });
+  assert.ok(
+    declared.blocked.some(({ path }) => path === bad),
+    JSON.stringify(declared),
+  );
 });
 
 test('a failure on one path is reported and the rest repair', async () => {
   const f = await setup();
   await mkdir(f.at('locked/inside'), { recursive: true });
+  await mkdir(f.at('locked/from'));
   await f.save('locked', 'locked/inside');
+  await f.save('earlier', 'locked/from');
   await f.save('fine', 'w/main');
+  // the ledger knows both directories under `locked`, and a move out of one of them
+  await f.repair('w/main');
+  await rename(f.at('locked/from'), f.at('locked/to'));
+  await f.repair('locked/to');
+  assert.equal((await f.saved('earlier')).raw.cwd, f.at('locked/to'));
   await rename(f.at('w'), f.at('c'));
   await chmod(f.at('locked'), 0);
   try {

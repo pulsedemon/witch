@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { main } from '../src/memory/memory.js';
 import { repointText } from '../src/memory/workspace.js';
 import { identify, mapper } from '../src/persistence/directories.js';
@@ -108,14 +108,17 @@ test('begin repoints moved paths in every scope as one published commit', async 
   const ledger = await moves([w, c]);
   const { workspace } = await open('a');
   const { scope } = await begin(workspace, s);
+  const other = 'projects/other-0000/d.md';
   await save(workspace, {
     [`${scope.global}/a.md`]: `See ${w}/README.md.\n`,
     [`${scope.project}/b.md`]: `Use \`${w}\` and ${w}-1.\n`,
     [`${scope.project}/c.md`]: 'Nothing moved here.\n',
+    [other]: `${w}\n`,
   });
   await workspace.publish();
   const begun = await workspace.begin(scope, ledger);
-  assert.equal(begun.repointed, 2);
+  assert.equal(begun.repointed, 3);
+  assert.equal(await memory.read(main, other), `${c}\n`);
   assert.equal(begun.notice, undefined);
   assert.equal(begun.revision, await memory.resolve(main));
   assert.equal(
@@ -164,33 +167,70 @@ async function workspace(
   await target.publish();
 }
 
-test('a repoint survives a concurrent union merge of MEMORY.md', async () => {
-  const { memory, open, begin, hook } = await fixture();
+/** a MEMORY.md whose concurrent union merge brings an old link back after the first repoint publishes. */
+async function unionRace() {
+  const f = await fixture();
   const s = await scratch('witch-repoint-');
   const w = join(s, 'w/main');
   const c = join(s, 'c/main');
   const ledger = await moves([w, c]);
-  const first = (await open('a')).workspace;
-  const second = (await open('b')).workspace;
-  const { scope } = await begin(first, s);
+  const first = (await f.open('a')).workspace;
+  const second = (await f.open('b')).workspace;
+  const { scope } = await f.begin(first, s);
   const index = `${scope.global}/MEMORY.md`;
   await save(first, { [index]: `- one ${w}\n` });
   await first.publish();
-  await begin(second, s);
+  await f.begin(second, s);
   await save(second, { [index]: `- one ${w}\n- two ${w}/x\n` });
   let raced = false;
-  hook.current = async (command, run) => {
+  f.hook.current = async (command, run) => {
     if (!raced && command[0] === 'update-ref' && command.includes(main)) {
       raced = true;
       await second.publish();
     }
     return run();
   };
-  await first.begin(scope, ledger);
-  assert.ok(raced);
-  const merged = await memory.read(main, index);
-  assert.ok(!merged.includes(`${w}`), merged);
-  assert.ok(merged.includes(`${c}/x`), merged);
+  return { ...f, w, c, ledger, first, scope, index, raced: () => raced };
+}
+
+test('a repoint survives a concurrent union merge of MEMORY.md', async () => {
+  const f = await unionRace();
+  await f.first.begin(f.scope, f.ledger);
+  assert.ok(f.raced());
+  const merged = await f.memory.read(main, f.index);
+  assert.ok(!merged.includes(f.w), merged);
+  assert.ok(merged.includes(`${f.c}/x`), merged);
+});
+
+test('a failed repoint after the first publish is still reported', async () => {
+  const f = await unionRace();
+  const hook = f.hook.current;
+  f.hook.current = async (command, run, options) => {
+    if (f.raced() && command[0] === 'commit') throw new Error('disk full');
+    return hook(command, run, options);
+  };
+  const begun = await f.first.begin(f.scope, f.ledger);
+  assert.match(begun.notice ?? '', /Could not repoint.*disk full/);
+  assert.equal(begun.repointed, 1);
+  assert.equal(begun.revision, await f.memory.resolve(main));
+  assert.equal(await f.first.isDirty(), false);
+});
+
+test('a follow-up repoint that loses to another conversation starts the turn from main', async () => {
+  const f = await unionRace();
+  const publish = f.first.publish.bind(f.first);
+  const spy = vi
+    .spyOn(f.first, 'publish')
+    .mockImplementationOnce(publish)
+    .mockResolvedValueOnce({ paths: [f.index], diff: '' });
+  const begun = await f.first.begin(f.scope, f.ledger);
+  assert.equal(spy.mock.calls.length, 2);
+  spy.mockRestore();
+  assert.equal(begun.revision, await f.memory.resolve(main));
+  assert.equal(await f.first.revision(), begun.revision);
+  assert.ok((await f.memory.read(main, f.index)).includes(`${f.w}/x`));
+  assert.equal((await f.first.begin(f.scope, f.ledger)).repointed, 1);
+  assert.ok(!(await f.memory.read(main, f.index)).includes(f.w));
 });
 
 test('begin without matches makes no commit', async () => {
