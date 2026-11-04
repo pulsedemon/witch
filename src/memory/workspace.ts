@@ -430,7 +430,7 @@ export class Workspace {
     return changed;
   }
 
-  /** begins outside a turn to take in the notes keyed by the checkout's path and its `former` keys and repoint moved paths, unless pending or unpublished memory waits for settling. */
+  /** begins outside a turn to take in the notes keyed by the checkout's path or by a path-keyed project's `former` keys and repoint moved paths, unless pending or unpublished memory waits for settling. */
   async adoptCheckout(
     scope: MemoryScope,
     ledger?: Ledger,

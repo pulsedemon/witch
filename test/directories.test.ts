@@ -182,6 +182,18 @@ test("formerPaths follows a directory back through its own and its parents' move
   assert.deepEqual(await formerPaths(ledger, f.at('v/p')), [f.at('w/p')]);
 });
 
+test('formerPaths gives one path per move a directory took when a parent was renamed before it', async () => {
+  const f = await directories('b/d');
+  const ledger: Ledger = {
+    entries: [],
+    moves: [await f.move('a', 'b'), await f.move('b/c', 'b/d')],
+  };
+  assert.deepEqual(await formerPaths(ledger, f.at('b/d')), [
+    f.at('b/c'),
+    f.at('a/c'),
+  ]);
+});
+
 test('mapper never carries a replaced child', async () => {
   const f = await directories('old/nested', 'x', 'spare');
   const ledger: Ledger = {

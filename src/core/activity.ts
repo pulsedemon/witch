@@ -11,13 +11,13 @@ import type { ConversationRecord } from './state.js';
 export type Activity = NonNullable<ConversationRecord['activity']>;
 
 /**
- * the ledger of moved directories with the keys a project keyed by its own path had before its moves carried it to
- * `cwd`, or why the ledger couldn't be read, which never stops memory from beginning.
+ * the ledger of moved directories with the keys the path-keyed project holding `cwd` had at its earlier paths, or why
+ * the ledger couldn't be read, which never stops memory from beginning.
  */
 async function movedDirectories(
   memory: Memory,
-  root: string,
   cwd: string,
+  root: string,
 ): Promise<{ ledger?: Ledger; former: string[]; notices: string[] }> {
   let ledger;
   try {
@@ -63,8 +63,8 @@ export async function startActivity(
   await workspace.ensureWorktree();
   const { ledger, former, notices } = await movedDirectories(
     workspace.memory,
-    root,
     conversation.cwd,
+    root,
   );
   const begun = await workspace.begin(scope, ledger, former);
   const activity = {
@@ -82,7 +82,7 @@ export async function startActivity(
   };
 }
 
-/** adopts the checkout's notes at startup and repoints moved paths; adoption errors and a failed repoint rollback propagate, the rest is a notice. */
+/** adopts the checkout's notes and a path-keyed project's notes from its earlier paths at startup and repoints moved paths; adoption errors and a failed repoint rollback propagate, the rest is a notice. */
 export async function adoptMoved(
   workspace: Workspace,
   scope: MemoryScope,
@@ -91,8 +91,8 @@ export async function adoptMoved(
 ): Promise<string | undefined> {
   const { ledger, former, notices } = await movedDirectories(
     workspace.memory,
-    root,
     cwd,
+    root,
   );
   const adopted = await workspace.adoptCheckout(scope, ledger, former);
   return repointNotice(notices, adopted.repointed, adopted.notice);
