@@ -20,6 +20,7 @@ const moveSchema = identitySchema.extend({
   from: z.string(),
   to: z.string(),
   prompts: z.number().int().nonnegative(),
+  at: z.number().int().nonnegative(),
 });
 const ledgerSchema = z.object({
   version: z.literal(1),
@@ -34,7 +35,7 @@ export interface Move {
   from: string;
   to: string;
 }
-/** a move with the identity of the directory that moved, and the size of `prompts.jsonl` when it was recorded. */
+/** a move with the identity of the directory that moved, and the size of `prompts.jsonl` and the time when it was recorded. */
 export type LedgerMove = z.infer<typeof moveSchema>;
 export interface Ledger {
   entries: DirectoryEntry[];
@@ -110,7 +111,23 @@ export async function updateLedger<T>(
   try {
     const ledger = await readLedger(root);
     const result = await change(ledger);
-    await writeJson(ledgerFile(root), { version: 1, ...ledger });
+    // a path reassigned onto one the ledger already knew keeps one entry, with what either knew
+    const entries = new Map<string, DirectoryEntry>();
+    for (const entry of ledger.entries) {
+      const known = entries.get(entry.path);
+      if (!known) entries.set(entry.path, entry);
+      else {
+        known.main ??= entry.main;
+        known.slot ??= entry.slot;
+      }
+    }
+    // checked as it's read, so a change the reader would refuse never lands
+    const checked = ledgerSchema.parse({
+      version: 1,
+      entries: [...entries.values()],
+      moves: ledger.moves,
+    });
+    await writeJson(ledgerFile(root), checked);
     return result;
   } finally {
     await lock.close();
@@ -119,15 +136,21 @@ export async function updateLedger<T>(
 
 type Source = 'gone' | 'back' | 'reused';
 
+/** what mapped a path: whether it predates a move, and whether that carries it past a path another directory took. */
+export interface Owner {
+  predates(move: LedgerMove): boolean;
+  throughReused: boolean;
+}
+
 /**
  * maps old paths through the ledger's moves. each step takes the most specific move recorded after the last one applied
  * whose `from` holds the path. of equals, a chain under way takes the next, since the directory it followed there left
- * first; its first step takes the first recorded after `offset`, else the latest. a `from` holding the moved directory
- * again, or one that can't be looked at, stops the chain there; one holding another directory stops it with nothing,
- * unless `offset` predates the move.
+ * first; its first step takes the first the path's `owner` predates, else the latest. a `from` holding the moved
+ * directory again, or one that can't be looked at, stops the chain there; one holding another directory stops it with
+ * nothing, unless the owner predates the move and follows it `throughReused`.
  */
 export async function mapper(ledger: Ledger): Promise<{
-  map(path: string, offset?: number): string | undefined;
+  map(path: string, owner?: Owner): string | undefined;
   suspended: Move[];
 }> {
   const sources: Source[] = await Promise.all(
@@ -137,7 +160,7 @@ export async function mapper(ledger: Ledger): Promise<{
       return sameIdentity(move, found) ? 'back' : 'reused';
     }),
   );
-  const raw = (path: string, offset?: number): string | undefined => {
+  const raw = (path: string, owner?: Owner): string | undefined => {
     // an older move from where this one landed was another directory's
     for (let current = path, last = -1; ;) {
       let chosen = -1;
@@ -149,7 +172,7 @@ export async function mapper(ledger: Ledger): Promise<{
           move.from.length > best.from.length ||
           (move.from.length === best.from.length &&
             last < 0 &&
-            !(offset !== undefined && offset < best.prompts))
+            !owner?.predates(best))
         )
           chosen = index;
       }
@@ -159,7 +182,7 @@ export async function mapper(ledger: Ledger): Promise<{
       if (source === 'back') return current;
       if (
         source === 'reused' &&
-        !(offset !== undefined && offset < move.prompts)
+        !(owner?.throughReused && owner.predates(move))
       )
         return undefined;
       last = chosen;
@@ -178,9 +201,9 @@ export async function mapper(ledger: Ledger): Promise<{
       stranded.push(entry.path);
   }
   return {
-    map(path, offset) {
+    map(path, owner) {
       if (stranded.some((root) => within(path, root))) return undefined;
-      return raw(path, offset);
+      return raw(path, owner);
     },
     suspended: ledger.moves.filter((_, index) => sources[index] === 'reused'),
   };
@@ -274,7 +297,25 @@ export async function findMoves(
       }
     }
   }
-  return moves;
+  return inOrder(moves);
+}
+
+/**
+ * one pass's moves in an order they could have happened: a move out of a path before any move into it, which the
+ * mapper relies on. a cycle, such as two directories swapped, keeps the order it was found in.
+ */
+function inOrder<T extends Move>(moves: readonly T[]): T[] {
+  const rest = [...moves];
+  const ordered: T[] = [];
+  const after = (move: T, other: T) =>
+    within(move.to, other.from) || within(other.from, move.to);
+  while (rest.length) {
+    const ready = rest.findIndex(
+      (move) => !rest.some((other) => other !== move && after(move, other)),
+    );
+    ordered.push(...rest.splice(Math.max(ready, 0), 1));
+  }
+  return ordered;
 }
 
 /**
@@ -289,7 +330,7 @@ export async function resolve(
   for (const move of moves) {
     const newest = ledger.moves.findLast((known) => sameIdentity(known, move));
     if (newest?.from !== move.from || newest.to !== move.to)
-      ledger.moves.push({ ...move, prompts });
+      ledger.moves.push({ ...move, prompts, at: Date.now() });
     for (const entry of ledger.entries) {
       if (!within(entry.path, move.from)) continue;
       const target = through(entry.path, move);

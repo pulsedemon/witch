@@ -15,7 +15,13 @@ async function moves(...pairs: Array<[string, string]>): Promise<Ledger> {
   const ledger: Ledger = { entries: [], moves: [] };
   for (const [from, to] of pairs) {
     await mkdir(to, { recursive: true });
-    ledger.moves.push({ from, to, ...(await identify(to))!, prompts: 0 });
+    ledger.moves.push({
+      from,
+      to,
+      ...(await identify(to))!,
+      prompts: 0,
+      at: 0,
+    });
   }
   return ledger;
 }
@@ -27,6 +33,7 @@ const homeMove = (to: string): LedgerMove => ({
   device: '0',
   inode: '0',
   prompts: 0,
+  at: 0,
 });
 
 test('repointText maps references at path boundaries and leaves look-alikes alone', async () => {
@@ -111,6 +118,39 @@ test('repointing follows a chain and never maps into a reused directory', async 
       ),
       text,
     );
+});
+
+test('repointing a suspended chain stays linear in the number of references', async () => {
+  const s = await scratch('witch-repoint-');
+  const [a, b, c] = ['a', 'b', 'c'].map((name) => join(s, name)) as [
+    string,
+    string,
+    string,
+  ];
+  const ledger = await moves([a, c], [join(b, 'x'), c]);
+  ledger.moves[0] = { ...ledger.moves[0]!, to: b };
+  await mkdir(join(s, 'spare'));
+  await mkdir(b, { recursive: true });
+  await rename(join(s, 'spare'), join(b, 'x'));
+  const { map } = await mapper(ledger);
+  const note = `${a}/x/f`;
+  // the quadratic scans these replaced took seconds here; linear work takes milliseconds
+  for (const text of [
+    `\`${`${note} `.repeat(20_000)}\``,
+    `${note}!`.repeat(20_000),
+  ]) {
+    const started = performance.now();
+    assert.equal(repointText(text, [a, join(b, 'x')], map, homedir()), text);
+    assert.ok(performance.now() - started < 1000);
+  }
+});
+
+test('a reference longer than any path is left alone', async () => {
+  const s = await scratch('witch-repoint-');
+  const w = join(s, 'w/main');
+  const { map } = await mapper(await moves([w, join(s, 'c/main')]));
+  const text = `\`${w}/${'x'.repeat(1100)}\``;
+  assert.equal(repointText(text, [w], map, homedir()), text);
 });
 
 test('begin repoints moved paths in every scope as one published commit', async () => {

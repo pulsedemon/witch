@@ -59,8 +59,8 @@ const matchesAt = (pattern: RegExp, text: string, index: number) => {
 
 /**
  * a note with each reference to a moved directory, absolute or under `~/`, mapped through `map`. a reference ends at a
- * path boundary: inside `` `…` `` or `<…>` the whole rest of the span, elsewhere the next delimiter, and never at a space
- * whose next word continues a path, which may be part of the name.
+ * path boundary: inside `` `…` `` or `<…>` the rest of the span up to a `#` or `?`, elsewhere the next delimiter, and
+ * never at a space whose next word continues a path, which may be part of the name.
  */
 export function repointText(
   text: string,
@@ -139,6 +139,8 @@ export function repointText(
         end = pathStop;
       }
     }
+    // macOS opens no path longer than PATH_MAX, so a longer reference names no directory
+    if (end - start > 1024) continue;
     const reference = text.slice(start, end);
     const tilde = form.startsWith('~');
     const absolute = tilde ? home + reference.slice(1) : reference;

@@ -1,5 +1,11 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  resolve as resolvePath,
+} from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import { projectKey } from '../memory/memory.js';
@@ -17,6 +23,7 @@ import type {
   Identity,
   Ledger,
   Move,
+  Owner,
 } from '../persistence/directories.js';
 import { replaceFile } from '../persistence/json.js';
 import {
@@ -124,18 +131,51 @@ async function registrations(common: string): Promise<Registration[]> {
     const gitdir = await unlessGone(
       readFile(join(common, 'worktrees', name, 'gitdir'), 'utf8'),
     );
-    if (gitdir) found.push({ name, registered: dirname(gitdir.trim()) });
+    // Git may write it relative to the registration's own directory
+    if (gitdir)
+      found.push({
+        name,
+        registered: dirname(
+          resolvePath(join(common, 'worktrees', name), gitdir.trim()),
+        ),
+      });
   }
   return found;
 }
 
-/** the admin directory a worktree's `.git` file names, `<common>/worktrees/<name>`. */
+/** the admin directory a worktree's `.git` file names, `<common>/worktrees/<name>`, which Git may write relative to it. */
 async function namedAdmin(worktree: string): Promise<string | undefined> {
   const text = await readFile(join(worktree, '.git'), 'utf8').catch(
     () => undefined,
   );
-  return text?.startsWith('gitdir: ') ? text.slice(8).trim() : undefined;
+  return text?.startsWith('gitdir: ')
+    ? resolvePath(worktree, text.slice(8).trim())
+    : undefined;
 }
+
+/** whether a worktree of a main checkout that can't be found is still there, broken until its main is recovered. */
+async function leftWorktree(
+  ledger: Ledger,
+  main: string,
+  map: (path: string) => string | undefined,
+): Promise<boolean> {
+  for (const entry of ledger.entries) {
+    if (entry.path === entry.main || !entry.main || map(entry.main) !== main)
+      continue;
+    const path = map(entry.path);
+    if (path && (await exists(path))) return true;
+  }
+  return false;
+}
+
+/**
+ * a record as the owner of its cwd: saved before a move was recorded, the directory that moved was its own. one waiting
+ * at a path another directory took stays there.
+ */
+export const savedBefore = (createdAt: string): Owner => ({
+  predates: (move) => Date.parse(createdAt) < move.at,
+  throughReused: false,
+});
 
 const compatible = async (
   memory: Memory,
@@ -187,8 +227,7 @@ export async function repairMoves(
   const listed = await worktreeList(run, cwd);
   const seeds = [cwd, ...(listed ?? [])];
   const promptsSize =
-    (await stat(join(store.root, 'prompts.jsonl')).catch(() => undefined))
-      ?.size ?? 0;
+    (await unlessGone(stat(join(store.root, 'prompts.jsonl'))))?.size ?? 0;
 
   if (declared) {
     const problem = await (async () => {
@@ -227,8 +266,9 @@ export async function repairMoves(
     const used = (entry: DirectoryEntry) =>
       entry.main !== undefined ||
       records.some(
-        ({ cwd: saved }) =>
-          within(saved, entry.path) || within(map(saved) ?? '', entry.path),
+        ({ cwd: saved, createdAt }) =>
+          within(saved, entry.path) ||
+          within(map(saved, savedBefore(createdAt)) ?? '', entry.path),
       );
     const moves = await findMoves(ledger.entries.filter(used), seeds);
     if (declared) {
@@ -262,6 +302,12 @@ export async function repairMoves(
       await (async () => {
         if (await exists(main))
           await repairWorktrees(main, map, report, run, preview);
+        else if (await leftWorktree(ledger, main, map))
+          report.unresolved.push({
+            path: main,
+            conversations: 0,
+            worktree: false,
+          });
       })().catch((error: unknown) =>
         report.blocked.push({
           path: main,
@@ -277,7 +323,7 @@ export async function repairMoves(
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   for (const saved of records) {
     try {
-      const target = map(saved.cwd);
+      const target = map(saved.cwd, savedBefore(saved.createdAt));
       if (target === undefined) {
         const move = suspended.find(({ from }) => within(saved.cwd, from));
         if (move) tally.suspended.push(move);
@@ -443,7 +489,7 @@ async function record(
     );
     for (const entry of registered) {
       const slot = entry.path.startsWith(main)
-        ? /^-(\d+)$/.exec(entry.path.slice(main.length))?.[1]
+        ? /^-([1-9]\d{0,8})$/.exec(entry.path.slice(main.length))?.[1]
         : undefined;
       if (
         entry.slot === undefined &&
@@ -463,7 +509,7 @@ async function record(
   }
 }
 
-/** rewrites one conversation's history and record under its lock, stopping native processes a crash left running, or says why it can't. */
+/** rewrites one conversation's history and record under its lock, stopping native processes and `!` shells a crash left running, or says why it can't. */
 async function rewrite(
   store: StateStore,
   saved: ConversationRecord,
@@ -484,7 +530,7 @@ async function rewrite(
         ])
           if (identity) await stopPreviousProcess(identity);
         const history = join(directory, 'history.jsonl');
-        const times = await stat(history).catch(() => undefined);
+        const times = await unlessGone(stat(history));
         if (times) {
           const { content, count } = rewriteLines(
             await readFile(history),

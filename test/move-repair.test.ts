@@ -8,6 +8,7 @@ import {
   rename,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from 'node:fs/promises';
@@ -340,6 +341,62 @@ for (const [unreadable, mode] of [
     }
   });
 
+for (const relative of ['.git', 'gitdir'])
+  test(`a worktree whose ${relative} link Git wrote relative is checked as its own`, async () => {
+    const f = await setup();
+    if (relative === '.git')
+      await writeFile(
+        f.at('w/main-1/.git'),
+        'gitdir: ../main/.git/worktrees/main-1\n',
+      );
+    else
+      await writeFile(
+        f.at('w/main/.git/worktrees/main-1/gitdir'),
+        '../../../../main-1/.git\n',
+      );
+    await status(f.at('w/main-1'));
+    const report = await f.repair('w/main');
+    assert.deepEqual(report.blocked, []);
+    assert.deepEqual(report.unresolved, []);
+  });
+
+test('a worktree named with slot 0 gets no slot and the ledger stays readable', async () => {
+  const f = await setup();
+  await git(
+    f.at('w/main'),
+    'worktree',
+    'add',
+    '-q',
+    '--detach',
+    f.at('w/main-0'),
+  );
+  await f.repair('w/main');
+  const { entries } = await readLedger(f.at('state'));
+  assert.equal(
+    entries.find(({ path }) => path === f.at('w/main-0'))?.slot,
+    undefined,
+  );
+});
+
+test('a main checkout that left its worktree behind is reported with its recovery command', async () => {
+  const f = await setup();
+  await f.save('inside', 'w/main-1');
+  await f.repair('w/main');
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w/main'), { recursive: true });
+  const report = await f.repair('w/main-1');
+  assert.ok(
+    report.unresolved.some(({ path }) => path === f.at('w/main')),
+    JSON.stringify(report),
+  );
+  assert.ok(
+    describeMoves(report, f.at('state'))!.includes(
+      `--recover-directory ${quote(f.at('w/main'))}`,
+    ),
+  );
+});
+
 test('a start with nothing moved runs no repair', async () => {
   const f = await setup();
   f.runs.length = 0;
@@ -533,6 +590,47 @@ test('a conversation held open through two moves follows its own directory, not 
   assert.equal((await f.saved('held')).raw.cwd, f.at('c'));
   assert.equal((await f.saved('other')).raw.cwd, f.at('d'));
 });
+
+test('a conversation waiting at a path follows its own directory, not a later one that moved from there', async () => {
+  const f = await setup();
+  await mkdir(f.at('a'));
+  await f.save('held', 'a');
+  await f.repair('a');
+  const files = await (await StateStore.open(f.at('state'))).claim('held');
+  try {
+    await rename(f.at('a'), f.at('b'));
+    await f.repair('b');
+    await mkdir(f.at('a'));
+    await f.save('other', 'a');
+    await f.repair('a');
+    await rename(f.at('a'), f.at('c'));
+    await f.repair('c');
+  } finally {
+    await files.close();
+  }
+  await f.repair('c');
+  assert.equal((await f.saved('held')).raw.cwd, f.at('b'));
+  assert.equal((await f.saved('other')).raw.cwd, f.at('c'));
+});
+
+test.skipIf(!darwin)(
+  'two renames found by one repair are followed in the order they happened',
+  async () => {
+    const f = await setup();
+    for (const name of ['a', 'b']) {
+      await mkdir(f.at(name));
+      await f.save(name, name);
+    }
+    await f.repair('a');
+    await rename(f.at('b'), f.at('c'));
+    await rename(f.at('a'), f.at('b'));
+    const report = await f.repair('b');
+    assert.equal((await f.saved('a')).raw.cwd, f.at('b'));
+    // b's own conversation waits where another directory now sits
+    assert.equal((await f.saved('b')).raw.cwd, f.at('b'));
+    assert.deepEqual(report.unresolved, []);
+  },
+);
 
 test('a recreated source suspends its move', async () => {
   const f = await setup();
@@ -858,6 +956,46 @@ test('a missing worktree with conversations in it is one line', async () => {
     describeMoves(report, f.at('state'))!,
     /a worktree that moved or was deleted, with 1 conversation\(s\)/,
   );
+});
+
+test('a history that cannot be read blocks its conversation instead of moving it without its history', async () => {
+  const f = await setup();
+  await f.save('looped', 'w/main');
+  const history = f.at('state/conversations/looped/history.jsonl');
+  await rm(history);
+  await symlink(history, history);
+  await rename(f.at('w'), f.at('c'));
+  const report = await f.repair('c/main');
+  assert.equal((await f.saved('looped')).raw.cwd, f.at('w/main'));
+  assert.ok(
+    report.blocked.some(({ path }) => path === f.at('w/main')),
+    JSON.stringify(report),
+  );
+});
+
+test('a prompt history that cannot be read stops the repair before any move is recorded', async () => {
+  const f = await setup();
+  const prompts = f.at('state/prompts.jsonl');
+  await symlink(prompts, prompts);
+  await rename(f.at('w'), f.at('c'));
+  const before = await readLedger(f.at('state'));
+  await assert.rejects(f.repair('c/main'), /ELOOP/);
+  assert.deepEqual(await readLedger(f.at('state')), before);
+});
+
+test('a declared recovery from a copy Witch already started in keeps one ledger entry for it', async () => {
+  const f = await setup();
+  await f.save('copied', 'w/main');
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w/main'), { recursive: true });
+  await f.repair('c/main');
+  await f.repair('c/main', {
+    declared: { from: f.at('w/main'), to: f.at('c/main') },
+  });
+  const { entries } = await readLedger(f.at('state'));
+  assert.equal(entries.filter(({ path }) => path === f.at('c/main')).length, 1);
+  assert.equal((await f.saved('copied')).raw.cwd, f.at('c/main'));
 });
 
 test('concurrent repairs leave every record moved and one move in the ledger', async () => {

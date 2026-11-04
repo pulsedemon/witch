@@ -175,7 +175,12 @@ export class StateStore {
         const prompt = promptSchema.parse(
           JSON.parse(content.toString('utf8', start, next)),
         );
-        if ((map(prompt.cwd, start) ?? prompt.cwd) === cwd)
+        if (
+          (map(prompt.cwd, {
+            predates: (move) => start < move.prompts,
+            throughReused: true,
+          }) ?? prompt.cwd) === cwd
+        )
           prompts.push(prompt.text);
       } catch {
         // a torn or foreign line isn't a prompt

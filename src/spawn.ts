@@ -9,6 +9,7 @@ import {
   describeMoves,
   repairMoves,
   listWorktrees,
+  savedBefore,
 } from './core/move-repair.js';
 import { Memory } from './memory/memory.js';
 import {
@@ -389,8 +390,8 @@ export function sessionsIn(
     const real = await realpath(path);
     // a session left in a directory that has since moved still holds it
     const { map } = await mapper(await readLedger(stateRoot));
-    return records.some(({ cwd }) =>
-      [cwd, map(cwd)].some(
+    return records.some(({ cwd, createdAt }) =>
+      [cwd, map(cwd, savedBefore(createdAt))].some(
         (held) => held && (held === real || held.startsWith(real + sep)),
       ),
     );

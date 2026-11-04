@@ -40,6 +40,7 @@ async function directories(...paths: string[]) {
     to: at(to),
     ...(await identify(at(to)))!,
     prompts: 0,
+    at: 0,
   });
   const moved = (moves: Array<{ from: string; to: string }>) =>
     moves.map(({ from, to }) => [from, to]);
@@ -129,8 +130,12 @@ test('mapper maps prompts written before a move even after its path is reused', 
   const move = { ...(await f.move('a', 'c')), prompts: 100 };
   await rename(f.at('spare'), f.at('a'));
   const { map } = await mapper({ entries: [], moves: [move] });
-  assert.equal(map(f.at('a'), 99), f.at('c'));
-  assert.equal(map(f.at('a'), 100), undefined);
+  const written = (offset: number) => ({
+    predates: (known: LedgerMove) => offset < known.prompts,
+    throughReused: true,
+  });
+  assert.equal(map(f.at('a'), written(99)), f.at('c'));
+  assert.equal(map(f.at('a'), written(100)), undefined);
   assert.equal(map(f.at('a')), undefined);
 });
 
@@ -237,7 +242,7 @@ test('updateLedger serializes writers across processes', async () => {
       `import { updateLedger } from ${JSON.stringify(ledgerModule)};
 for (let index = 0; index < 20; index++)
   await updateLedger(${JSON.stringify(root)}, async (ledger) => {
-    ledger.moves.push({ from: '/${name}', to: '/' + index, device: '1', inode: '1', prompts: 0 });
+    ledger.moves.push({ from: '/${name}', to: '/' + index, device: '1', inode: '1', prompts: 0, at: 0 });
   });`,
     ]);
   await Promise.all([writer('a'), writer('b')]);
