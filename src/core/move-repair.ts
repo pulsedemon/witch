@@ -221,11 +221,15 @@ export async function repairMoves(
       ? apply((copy ??= await readLedger(store.root)))
       : updateLedger(store.root, apply);
 
-  // record cwds and Git-backed entries are worth finding; anything else stays unlocated
-  const used = (entry: DirectoryEntry) =>
-    entry.main !== undefined ||
-    records.some(({ cwd: saved }) => within(saved, entry.path));
   const found = await change(async (ledger) => {
+    // record cwds, where the ledger already took them included, and Git-backed entries are worth finding
+    const { map } = await mapper(ledger);
+    const used = (entry: DirectoryEntry) =>
+      entry.main !== undefined ||
+      records.some(
+        ({ cwd: saved }) =>
+          within(saved, entry.path) || within(map(saved) ?? '', entry.path),
+      );
     const moves = await findMoves(ledger.entries.filter(used), seeds);
     if (declared) {
       const identity = (await identify(declared.to))!;

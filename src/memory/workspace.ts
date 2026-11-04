@@ -93,6 +93,8 @@ export function repointText(
     }
     return next[character];
   };
+  // where the bare path last scanned stops, which every later match inside it shares
+  let pathStop = -1;
   for (const match of text.matchAll(pattern)) {
     const start = match.index;
     const form = match[0];
@@ -120,17 +122,22 @@ export function repointText(
     } else {
       if (matchesAt(spacedPath, text, tail)) continue;
       if (tail < lineEnd && !matchesAt(pathEnd, text, tail)) continue;
-      if (text[tail] === '/')
-        for (let index = tail; index < lineEnd; index++) {
-          const character = text[index]!;
-          if (delimiter.test(character)) break;
-          if (
-            character === '.' &&
-            (index + 1 === lineEnd || /\s/.test(text[index + 1]!))
-          )
-            break;
-          end = index + 1;
+      if (text[tail] === '/') {
+        if (pathStop < tail) {
+          pathStop = tail;
+          while (pathStop < lineEnd) {
+            const character = text[pathStop]!;
+            if (delimiter.test(character)) break;
+            if (
+              character === '.' &&
+              (pathStop + 1 === lineEnd || /\s/.test(text[pathStop + 1]!))
+            )
+              break;
+            pathStop++;
+          }
         }
+        end = pathStop;
+      }
     }
     const reference = text.slice(start, end);
     const tilde = form.startsWith('~');

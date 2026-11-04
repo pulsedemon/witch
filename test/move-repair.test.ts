@@ -505,6 +505,35 @@ test("a directory moved onto another's old path doesn't follow that one's move",
   assert.deepEqual(await f.store.prompts(f.at('c')), []);
 });
 
+test('a conversation held open through two moves follows its own directory, not a later one at the same path', async () => {
+  const f = await setup();
+  await mkdir(f.at('a'));
+  await f.save('held', 'a');
+  await f.repair('a');
+  const files = await (await StateStore.open(f.at('state'))).claim('held');
+  try {
+    await rename(f.at('a'), f.at('b'));
+    await f.repair('b');
+    await rename(f.at('b'), f.at('c'));
+    await f.repair('c');
+    const { moves } = await readLedger(f.at('state'));
+    assert.ok(
+      moves.some(({ from, to }) => from === f.at('b') && to === f.at('c')),
+      JSON.stringify(moves),
+    );
+    await mkdir(f.at('b'));
+    await f.save('other', 'b');
+    await f.repair('b');
+    await rename(f.at('b'), f.at('d'));
+    await f.repair('d');
+  } finally {
+    await files.close();
+  }
+  await f.repair('d');
+  assert.equal((await f.saved('held')).raw.cwd, f.at('c'));
+  assert.equal((await f.saved('other')).raw.cwd, f.at('d'));
+});
+
 test('a recreated source suspends its move', async () => {
   const f = await setup();
   await f.save('held', 'w/main');
@@ -788,24 +817,26 @@ for (const held of ['main checkout', 'worktree'])
     const f = await setup();
     const other = f.at('locked/other');
     await mkdir(f.at('locked'));
+    // the conversation that still repairs moves to the start directory, which every platform finds
+    const [from, to] = held === 'worktree' ? ['w/main', 'w/moved'] : ['p', 'q'];
     if (held === 'worktree')
       await git(f.at('w/main'), 'worktree', 'add', '-q', '--detach', other);
     else {
       await mkdir(other);
       await git(other, 'init', '-q', '-b', 'main');
       await git(other, 'commit', '-q', '--allow-empty', '-m', 'other');
+      await mkdir(f.at(from));
     }
-    await mkdir(f.at('p'));
-    await f.save('fine', 'p');
+    await f.save('fine', from);
     await f.repair(held === 'worktree' ? 'w/main' : 'locked/other');
-    await rename(f.at('p'), f.at('q'));
+    await rename(f.at(from), f.at(to));
     await chmod(f.at('locked'), 0);
     try {
-      const report = await f.repair(held === 'worktree' ? 'w/main' : 'q');
-      assert.equal((await f.saved('fine')).raw.cwd, f.at('q'));
+      const report = await f.repair(to);
+      assert.equal((await f.saved('fine')).raw.cwd, f.at(to));
       assert.ok(
         report.blocked.some(({ repository }) =>
-          [other, f.at('w/main')].includes(repository ?? ''),
+          [other, f.at(to)].includes(repository ?? ''),
         ),
         JSON.stringify(report),
       );

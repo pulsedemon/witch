@@ -121,9 +121,10 @@ type Source = 'gone' | 'back' | 'reused';
 
 /**
  * maps old paths through the ledger's moves. each step takes the most specific move recorded after the last one applied
- * whose `from` holds the path, of equals the first recorded after `offset`, else the latest. a `from` holding the moved
- * directory again, or one that can't be looked at, stops the chain there; one holding another directory stops it with
- * nothing, unless `offset` predates the move.
+ * whose `from` holds the path. of equals, a chain under way takes the next, since the directory it followed there left
+ * first; its first step takes the first recorded after `offset`, else the latest. a `from` holding the moved directory
+ * again, or one that can't be looked at, stops the chain there; one holding another directory stops it with nothing,
+ * unless `offset` predates the move.
  */
 export async function mapper(ledger: Ledger): Promise<{
   map(path: string, offset?: number): string | undefined;
@@ -147,6 +148,7 @@ export async function mapper(ledger: Ledger): Promise<{
           !best ||
           move.from.length > best.from.length ||
           (move.from.length === best.from.length &&
+            last < 0 &&
             !(offset !== undefined && offset < best.prompts))
         )
           chosen = index;
