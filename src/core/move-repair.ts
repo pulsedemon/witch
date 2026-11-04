@@ -1,11 +1,5 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  resolve as resolvePath,
-} from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import { projectKey } from '../memory/memory.js';
@@ -16,6 +10,7 @@ import {
   sameIdentity,
   mapper,
   prefixes,
+  present,
   readLedger,
   relocate,
   resolve,
@@ -30,7 +25,7 @@ import type {
   Move,
   Owner,
 } from '../persistence/directories.js';
-import { replaceFile } from '../persistence/json.js';
+import { replaceFile, unlessGone } from '../persistence/json.js';
 import {
   stopPreviousProcess,
   stopPreviousShell,
@@ -39,10 +34,10 @@ import { LockedElsewhere } from '../persistence/store.js';
 import type { StateStore } from '../persistence/store.js';
 import { quote } from '../shell.js';
 import { runCommand } from './command.js';
-import { statusArgs, statusEnv } from './repository.js';
 import type { Run } from './repository.js';
 import { conversationRecordSchema, displayUpdateSchema } from './state.js';
 import type { ConversationRecord } from './state.js';
+import { repairRepositories, worktreeList } from './worktree-repair.js';
 
 export interface MoveReport {
   repaired: Array<Move & { conversations: number; worktrees: number }>;
@@ -51,15 +46,6 @@ export interface MoveReport {
   unresolved: Array<{ path: string; conversations: number; worktree: boolean }>;
   suspended: Array<Move & { conversations: number }>;
 }
-
-interface Registration {
-  name: string;
-  /** where the registration points now, which is gone for a worktree that moved */
-  registered: string;
-}
-
-/** whether a path exists; a failure to look, such as a parent without permission, throws. */
-const exists = async (path: string) => (await identify(path)) !== undefined;
 
 /**
  * rewrites history lines whose `cwd` the mapping changes and leaves every other byte alone, including torn, foreign
@@ -104,78 +90,6 @@ function rewriteLines(
   return { content: count ? Buffer.concat(parts) : content, count };
 }
 
-/** the paths `git worktree list` registers for `cwd`'s repository, main checkout first. */
-export async function listWorktrees(run: Run, cwd: string): Promise<string[]> {
-  const { stdout } = await run(
-    'git',
-    ['worktree', 'list', '--porcelain', '-z'],
-    { cwd, timeout: 60_000 },
-  );
-  return stdout
-    .split('\0')
-    .flatMap((line) =>
-      line.startsWith('worktree ') ? [line.slice('worktree '.length)] : [],
-    );
-}
-
-/** the worktree list, or undefined where Git can't list them, such as outside a repository. */
-const worktreeList = (run: Run, cwd: string) =>
-  listWorktrees(run, cwd).catch(() => undefined);
-
-/** undefined for a file that's gone; one that can't be read throws, so its caller reports it rather than skipping it. */
-const unlessGone = <T>(read: Promise<T>): Promise<T | undefined> =>
-  read.catch((error: unknown) => {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
-    throw error;
-  });
-
-async function registrations(common: string): Promise<Registration[]> {
-  const names = (await unlessGone(readdir(join(common, 'worktrees')))) ?? [];
-  const found: Registration[] = [];
-  for (const name of names) {
-    const admin = join(common, 'worktrees', name);
-    const gitdir = await unlessGone(readFile(join(admin, 'gitdir'), 'utf8'));
-    // a registration removed whole while this read is gone; one left without its gitdir can't be checked
-    if (gitdir === undefined && !(await exists(admin))) continue;
-    if (!gitdir?.trim())
-      throw new Error(
-        `${admin} names no worktree; run git worktree prune in ${dirname(common)}`,
-      );
-    // Git may write it relative to the registration's own directory
-    found.push({
-      name,
-      registered: dirname(resolvePath(admin, gitdir.trim())),
-    });
-  }
-  return found;
-}
-
-/** the admin directory a worktree's `.git` file names, `<common>/worktrees/<name>`, which Git may write relative to it. */
-async function namedAdmin(worktree: string): Promise<string | undefined> {
-  const text = await readFile(join(worktree, '.git'), 'utf8').catch(
-    () => undefined,
-  );
-  return text?.startsWith('gitdir: ')
-    ? resolvePath(worktree, text.slice(8).trim())
-    : undefined;
-}
-
-/** whether a worktree of a main checkout that can't be found is still there, broken until its main is recovered. */
-async function leftWorktree(
-  ledger: Ledger,
-  main: string,
-  map: (path: string) => string | undefined,
-): Promise<boolean> {
-  for (const entry of ledger.entries) {
-    if (entry.path === entry.main || !entry.main || map(entry.main) !== main)
-      continue;
-    const path = map(entry.path);
-    if (path && (await exists(path))) return true;
-  }
-  return false;
-}
-
 /**
  * a record as the owner of its cwd: there since before a move was recorded, the directory that moved was its own. one
  * waiting at a path another directory took stays there.
@@ -217,6 +131,108 @@ const compatible = async (
   return delivered.every((key) => key === project || key === old);
 };
 
+/** why a move the user declares can't be applied, found before anything is written. */
+async function declaredProblem(
+  declared: Move,
+  records: readonly ConversationRecord[],
+  memory: Memory,
+  scopes: Scopes,
+): Promise<string | undefined> {
+  if (!isAbsolute(declared.from))
+    return 'Choose an absolute saved directory to recover';
+  if (await present(declared.from)) return 'The source directory still exists';
+  for (const record of records) {
+    if (!within(record.cwd, declared.from)) continue;
+    const target = declared.to + record.cwd.slice(declared.from.length);
+    const checkAt = await memory.scopePaths(target).then(
+      () => target,
+      () => declared.to,
+    );
+    if (!(await compatible(memory, record, record.cwd, checkAt, scopes)))
+      return `The saved project memory scope of ${record.title} differs from ${declared.to}`;
+  }
+  return undefined;
+}
+
+/**
+ * finds where the ledger's known directories went, adds a declared move, and records them in `ledger` with the size of
+ * `prompts.jsonl` under `root`.
+ */
+async function recordMoves(
+  ledger: Ledger,
+  root: string,
+  seeds: readonly string[],
+  records: readonly ConversationRecord[],
+  declared: Move | undefined,
+  report: MoveReport,
+): Promise<Array<Move & Identity>> {
+  // entries worth finding: Git-backed ones, and ones holding a seed or a record cwd before or after the ledger maps
+  // it. the holders are collected once, so the check stays linear in entries and records
+  const { map } = await mapper(ledger);
+  const held = new Set<string>();
+  for (const path of [
+    ...seeds,
+    ...records.flatMap((saved) => [
+      saved.cwd,
+      map(saved.cwd, savedBefore(saved)),
+    ]),
+  ])
+    if (path !== undefined)
+      for (const prefix of prefixes(path)) held.add(prefix);
+  const used = (entry: DirectoryEntry) =>
+    entry.main !== undefined || held.has(entry.path);
+  const moves = await findMoves(
+    ledger.entries.filter(used),
+    seeds,
+    (entry, error) =>
+      report.blocked.push({
+        path: entry.path,
+        reason: `Couldn't look for where it went: ${errorMessage(error)}`,
+      }),
+  );
+  const copyIdentity = declared && (await identify(declared.to));
+  if (declared && !copyIdentity)
+    report.blocked.push({
+      path: declared.to,
+      reason: 'The destination directory is gone',
+    });
+  const vouched =
+    declared && copyIdentity
+      ? { path: declared.to, ...copyIdentity }
+      : undefined;
+  if (declared && vouched)
+    moves.push({
+      ...declared,
+      device: vouched.device,
+      inode: vouched.inode,
+    });
+  // read under the ledger lock, so prompts added while repair waited for it count as before the move
+  const promptsSize =
+    (await unlessGone(stat(join(root, 'prompts.jsonl'))))?.size ?? 0;
+  await resolve(ledger, moves, promptsSize);
+  // a declared move is a copy, so the directories under it have new identities the user vouches for
+  if (declared && vouched) {
+    for (const entry of [...ledger.entries]) {
+      if (!within(entry.path, declared.from)) continue;
+      const path = declared.to + entry.path.slice(declared.from.length);
+      const identity = await identify(path);
+      if (!identity) continue;
+      Object.assign(entry, identity);
+      relocate(ledger, entry, path);
+    }
+    // the copy itself, so a stand-in put there later is never taken for it
+    if (
+      !ledger.entries.some(
+        (entry) => entry.path === vouched.path && sameIdentity(entry, vouched),
+      )
+    ) {
+      ledger.entries.push(vouched);
+      relocate(ledger, vouched, vouched.path);
+    }
+  }
+  return moves;
+}
+
 /**
  * finds where known directories went, repairs the Git links of their worktrees and rewrites the conversations saved
  * in them, stopping the native processes and `!` shells a crash left running there. `declared` is a move the user
@@ -248,23 +264,7 @@ export async function repairMoves(
   const seeds = [cwd, ...(listed ?? [])];
 
   if (declared) {
-    const problem = await (async () => {
-      if (!isAbsolute(declared.from))
-        return 'Choose an absolute saved directory to recover';
-      if (await exists(declared.from))
-        return 'The source directory still exists';
-      for (const record of records) {
-        if (!within(record.cwd, declared.from)) continue;
-        const target = declared.to + record.cwd.slice(declared.from.length);
-        const checkAt = await memory.scopePaths(target).then(
-          () => target,
-          () => declared.to,
-        );
-        if (!(await compatible(memory, record, record.cwd, checkAt, scopes)))
-          return `The saved project memory scope of ${record.title} differs from ${declared.to}`;
-      }
-      return undefined;
-    })();
+    const problem = await declaredProblem(declared, records, memory, scopes);
     if (problem) {
       report.blocked.push({ path: declared.from, reason: problem });
       return report;
@@ -278,74 +278,9 @@ export async function repairMoves(
       ? apply((copy ??= await readLedger(store.root)))
       : updateLedger(store.root, apply);
 
-  const found = await change(async (ledger) => {
-    // entries worth finding: Git-backed ones, and ones holding a seed or a record cwd before or after the ledger maps
-    // it. the holders are collected once, so the check stays linear in entries and records
-    const { map } = await mapper(ledger);
-    const held = new Set<string>();
-    for (const path of [
-      ...seeds,
-      ...records.flatMap((saved) => [
-        saved.cwd,
-        map(saved.cwd, savedBefore(saved)),
-      ]),
-    ])
-      if (path !== undefined)
-        for (const prefix of prefixes(path)) held.add(prefix);
-    const used = (entry: DirectoryEntry) =>
-      entry.main !== undefined || held.has(entry.path);
-    const moves = await findMoves(
-      ledger.entries.filter(used),
-      seeds,
-      (entry, error) =>
-        report.blocked.push({
-          path: entry.path,
-          reason: `Couldn't look for where it went: ${errorMessage(error)}`,
-        }),
-    );
-    const copyIdentity = declared && (await identify(declared.to));
-    if (declared && !copyIdentity)
-      report.blocked.push({
-        path: declared.to,
-        reason: 'The destination directory is gone',
-      });
-    const vouched =
-      declared && copyIdentity
-        ? { path: declared.to, ...copyIdentity }
-        : undefined;
-    if (declared && vouched)
-      moves.push({
-        ...declared,
-        device: vouched.device,
-        inode: vouched.inode,
-      });
-    // read under the ledger lock, so prompts added while repair waited for it count as before the move
-    const promptsSize =
-      (await unlessGone(stat(join(store.root, 'prompts.jsonl'))))?.size ?? 0;
-    await resolve(ledger, moves, promptsSize);
-    // a declared move is a copy, so the directories under it have new identities the user vouches for
-    if (declared && vouched) {
-      for (const entry of [...ledger.entries]) {
-        if (!within(entry.path, declared.from)) continue;
-        const path = declared.to + entry.path.slice(declared.from.length);
-        const identity = await identify(path);
-        if (!identity) continue;
-        Object.assign(entry, identity);
-        relocate(ledger, entry, path);
-      }
-      // the copy itself, so a stand-in put there later is never taken for it
-      if (
-        !ledger.entries.some(
-          (entry) =>
-            entry.path === vouched.path && sameIdentity(entry, vouched),
-        )
-      ) {
-        ledger.entries.push(vouched);
-        relocate(ledger, vouched, vouched.path);
-      }
-    }
-    return moves;
-  });
+  const found = await change((ledger) =>
+    recordMoves(ledger, store.root, seeds, records, declared, report),
+  );
 
   const { ledger, resolved } = await change(async (ledger) => {
     // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone, and
@@ -358,33 +293,44 @@ export async function repairMoves(
       at: new Date(ledger.moves.at(-1)?.at ?? Date.now()).toISOString(),
     };
     const { map } = await mapper(ledger);
-    const mains = new Set<string>();
-    if (listed?.[0]) mains.add(listed[0]);
-    for (const entry of ledger.entries) {
-      const main = entry.main && map(entry.main);
-      if (main) mains.add(main);
-    }
-    for (const main of mains)
-      await (async () => {
-        if (await exists(main))
-          await repairWorktrees(main, map, report, run, preview);
-        else if (await leftWorktree(ledger, main, map))
-          report.unresolved.push({
-            path: main,
-            conversations: 0,
-            worktree: false,
-          });
-      })().catch((error: unknown) =>
-        report.blocked.push({
-          path: main,
-          reason: errorMessage(error),
-          repository: main,
-        }),
-      );
+    await repairRepositories(ledger, listed?.[0], map, report, run, preview);
     if (!preview) await record(ledger, cwd, seeds, records, run, report);
     return { ledger, resolved };
   });
 
+  const tally = await repairConversations(store, memory, records, {
+    ledger,
+    found,
+    resolved,
+    scopes,
+    preview,
+    report,
+  });
+  summarize(report, found, ledger, tally);
+  return report;
+}
+
+/** rewrites each conversation whose directory moved and tallies the ones that couldn't follow, for `summarize`. */
+async function repairConversations(
+  store: StateStore,
+  memory: Memory,
+  records: readonly ConversationRecord[],
+  {
+    ledger,
+    found,
+    resolved,
+    scopes,
+    preview,
+    report,
+  }: {
+    ledger: Ledger;
+    found: ReadonlyArray<Move & Identity>;
+    resolved: Snapshot;
+    scopes: Scopes;
+    preview: boolean;
+    report: MoveReport;
+  },
+): Promise<Tally> {
   const { map, suspended } = await mapper(ledger);
   const tally: Tally = { repaired: [], suspended: [], unresolved: [] };
   // each directory this repair resolved, by path, a ledger entry over a move found to the same place
@@ -431,90 +377,7 @@ export async function repairMoves(
       });
     }
   }
-
-  summarize(report, found, ledger, tally);
-  return report;
-}
-
-/** checks every registration of `main`'s repository, then repairs its links when a main checkout or worktree moved. */
-async function repairWorktrees(
-  main: string,
-  map: (path: string) => string | undefined,
-  report: MoveReport,
-  run: Run,
-  preview: boolean,
-) {
-  const common = (
-    await run(
-      'git',
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      { cwd: main, timeout: 60_000 },
-    )
-  ).stdout.trim();
-  const moved: string[] = [];
-  const checked: string[] = [];
-  let needed = false;
-  const problems: Array<{ path: string; reason: string }> = [];
-  for (const { name, registered } of await registrations(common)) {
-    const destination = map(registered);
-    const target = (await exists(registered))
-      ? registered
-      : destination && (await exists(destination))
-        ? destination
-        : undefined;
-    if (!target) {
-      report.unresolved.push({
-        path: registered,
-        conversations: 0,
-        worktree: true,
-      });
-      continue;
-    }
-    if (target !== registered) {
-      moved.push(target);
-      needed = true;
-    }
-    checked.push(target);
-    const admin = await namedAdmin(target);
-    const expected = join(common, 'worktrees', name);
-    if (admin === expected) continue;
-    // a .git naming the old common directory is this repository's only while nothing else sits there
-    const old = admin && dirname(dirname(admin));
-    if (
-      admin &&
-      basename(admin) === name &&
-      old !== undefined &&
-      !(await exists(old)) &&
-      map(old) === common
-    ) {
-      needed = true;
-      continue;
-    }
-    problems.push({
-      path: target,
-      reason: `its .git names ${admin ?? 'no repository'}, not ${expected}`,
-    });
-  }
-  for (const problem of problems)
-    report.blocked.push({ ...problem, repository: main });
-  if (problems.length || !needed || preview) return;
-  await run('git', ['worktree', 'repair', ...moved], {
-    cwd: main,
-    timeout: 60_000,
-  });
-  for (const path of checked)
-    await (async () =>
-      run('git', [...statusArgs, '--ignore-submodules=dirty'], {
-        cwd: path,
-        timeout: 60_000,
-        env: await statusEnv(run, path),
-      }))().catch((error: unknown) =>
-      report.blocked.push({
-        path,
-        reason: errorMessage(error),
-        repository: main,
-      }),
-    );
+  return tally;
 }
 
 /**

@@ -36,3 +36,11 @@ export async function readJson<T>(
   });
   return text === undefined ? undefined : schema.parse(JSON.parse(text));
 }
+
+/** undefined for a file that's gone; one that can't be read throws, so its caller reports it rather than skipping it. */
+export const unlessGone = <T>(read: Promise<T>): Promise<T | undefined> =>
+  read.catch((error: unknown) => {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    throw error;
+  });

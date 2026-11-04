@@ -52,6 +52,10 @@ export function within(path: string, root: string): boolean {
   return path === root || path.startsWith(root === '/' ? root : `${root}/`);
 }
 
+/** whether a path exists; a failure to look, such as a parent without permission, throws. */
+export const present = async (path: string) =>
+  (await identify(path)) !== undefined;
+
 export function sameIdentity(a: Identity, b: Identity | undefined): boolean {
   return a.device === b?.device && a.inode === b.inode;
 }

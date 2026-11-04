@@ -4,12 +4,8 @@ import { errorMessage } from './agents/stderr.js';
 import { runCommand } from './core/command.js';
 import { planDirectories } from './core/merged.js';
 import type { Run } from './core/repository.js';
-import {
-  describeMoves,
-  repairMoves,
-  listWorktrees,
-  savedBefore,
-} from './core/move-repair.js';
+import { describeMoves, repairMoves, savedBefore } from './core/move-repair.js';
+import { listWorktrees } from './core/worktree-repair.js';
 import { exists, Memory } from './memory/memory.js';
 import {
   adoptIdentity,
