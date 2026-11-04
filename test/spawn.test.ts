@@ -6,13 +6,14 @@ import {
   readdir,
   readFile,
   readlink,
+  rename,
   rm,
   symlink,
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { test, vi } from 'vitest';
+import { describe, test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import type { Run } from '../src/core/repository.js';
 import { exists } from '../src/memory/memory.js';
@@ -195,7 +196,7 @@ test('spawn reuses existing worktrees, installs and opens tabs only where no ses
       slot: false,
       created: false,
       opened: false,
-      error: 'registered but missing; run git worktree prune',
+      error: 'registered but missing; start Witch where it moved',
     },
     { path: slot(3), slot: true, created: false, opened: true },
     { path: slot(4), slot: true, created: true, opened: true },
@@ -904,4 +905,166 @@ test('spawn runs no osascript when every slot has an open session', async () => 
     { path: slot(2), slot: true, created: true, opened: false },
   ]);
   assert.deepEqual(calls, []);
+});
+
+describe('moved checkouts', () => {
+  const darwin = process.platform === 'darwin';
+  /** a checkout at `<root>/w/main` with its bare origin outside `w`, and `count` slots spawned there. */
+  async function spawned(count: number) {
+    const repository = await checkout('w/main');
+    const state = join(repository.root, 'state');
+    const first = recording();
+    await printed(() => runSpawn(repository.main, count, state, first.run));
+    const at = (path: string) => join(repository.root, path);
+    return { ...repository, state, at };
+  }
+
+  test('spawn from a moved main reuses the worktrees left beside the old location', async () => {
+    const f = await spawned(2);
+    await mkdir(f.at('c'));
+    await rename(f.main, f.at('c/main'));
+    const { run } = recording();
+    const { code, output } = await printed(() =>
+      runSpawn(f.at('c/main'), 2, f.state, run),
+    );
+    assert.equal(code, 0, output);
+    assert.match(output, /Repaired the move of .*w\/main to .*c\/main/);
+    assert.ok(output.includes(`${f.slot(1)}: exists`), output);
+    assert.ok(output.includes(`${f.slot(2)}: exists`), output);
+    assert.equal(await exists(f.at('c/main-1')), false);
+    for (const path of [f.at('c/main'), f.slot(1), f.slot(2)])
+      await git(path, 'status');
+  });
+
+  test('spawn from a worktree whose main moved too repairs first', async () => {
+    const f = await spawned(1);
+    await rename(f.at('w'), f.at('c'));
+    const { run } = recording();
+    const { code, output } = await printed(() =>
+      runSpawn(f.at('c/main-1'), 1, f.state, run),
+    );
+    assert.equal(code, 0, output);
+    assert.ok(output.includes(`${f.at('c/main-1')}: exists`), output);
+  });
+
+  test("spawn creates only the slots it can't find", async () => {
+    const f = await spawned(2);
+    await git(f.main, 'worktree', 'remove', f.slot(2));
+    await mkdir(f.at('c'));
+    await rename(f.main, f.at('c/main'));
+    const { run } = recording();
+    const { output } = await printed(() =>
+      runSpawn(f.at('c/main'), 2, f.state, run),
+    );
+    assert.ok(output.includes(`${f.slot(1)}: exists`), output);
+    assert.ok(output.includes(`${f.at('c/main-2')}: created`), output);
+  });
+
+  test('spawn stops when another repository holds a registered path', async () => {
+    const f = await spawned(1);
+    await mkdir(f.at('c'));
+    await rename(f.main, f.at('c/main'));
+    await rename(f.slot(1), f.at('away'));
+    const other = f.at('other');
+    await git(f.root, 'init', '-b', 'main', other);
+    await git(other, 'commit', '--allow-empty', '-m', 'other');
+    await git(other, 'worktree', 'add', '--detach', f.slot(1));
+    const { run, calls } = recording();
+    const { code } = await printed(() =>
+      runSpawn(f.at('c/main'), 1, f.state, run),
+    );
+    assert.equal(code, 1);
+    assert.deepEqual(calls, []);
+  });
+
+  test('spawn checks registrations even when nothing moved', async () => {
+    const f = await spawned(1);
+    const other = f.at('other');
+    await git(f.root, 'init', '-b', 'main', other);
+    await writeFile(
+      join(f.slot(1), '.git'),
+      `gitdir: ${join(other, '.git/worktrees/main-1')}\n`,
+    );
+    const { run, calls } = recording();
+    const { code } = await printed(() => runSpawn(f.main, 1, f.state, run));
+    assert.equal(code, 1);
+    assert.deepEqual(calls, []);
+  });
+
+  test('a live session with a stale cwd still occupies its moved slot', async () => {
+    const f = await spawned(1);
+    const store = await StateStore.open(f.state);
+    const held = await store.create({
+      id: 'live',
+      title: 'live',
+      cwd: f.slot(1),
+      agent: 'codex',
+      sessions: {},
+      createdAt: new Date().toISOString(),
+    });
+    try {
+      await rename(f.at('w'), f.at('c'));
+      const { run, tabs } = recording();
+      const { code, output } = await printed(() =>
+        runSpawn(f.at('c/main'), 1, f.state, run),
+      );
+      assert.equal(code, 0, output);
+      assert.equal(await sessionsIn(f.state)(f.at('c/main-1')), true);
+      assert.ok(
+        output.includes(`${f.at('c/main-1')}: exists, already open`),
+        output,
+      );
+      assert.deepEqual(tabs(), []);
+    } finally {
+      await held.close();
+    }
+  });
+
+  test('a deleted slot does not stop the others', async () => {
+    const f = await spawned(2);
+    await rm(f.slot(2), { recursive: true });
+    const { run, installs, tabs } = recording();
+    const { output } = await printed(() => runSpawn(f.main, 2, f.state, run));
+    assert.ok(output.includes(`${f.slot(1)}: exists`), output);
+    assert.ok(
+      output.includes(
+        `${f.slot(2)}: registered but missing; start Witch where it moved`,
+      ),
+      output,
+    );
+    assert.deepEqual(installs(), [f.slot(1)]);
+    assert.deepEqual(tabs(), [[f.slot(1)]]);
+  });
+
+  test.skipIf(!darwin)(
+    'spawn after a worktree moved alone reuses it',
+    async () => {
+      const f = await spawned(1);
+      await rename(f.slot(1), f.at('w/elsewhere'));
+      const { run } = recording();
+      const { output } = await printed(() => runSpawn(f.main, 1, f.state, run));
+      assert.ok(output.includes(`${f.at('w/elsewhere')}: exists`), output);
+      await git(f.at('w/elsewhere'), 'status');
+    },
+  );
+
+  test.skipIf(!darwin)(
+    "a moved slot keeps its number and its default name isn't taken twice",
+    async () => {
+      const f = await spawned(1);
+      await rename(f.slot(1), f.slot(2));
+      const once = recording();
+      const kept = await printed(() => runSpawn(f.main, 1, f.state, once.run));
+      assert.ok(kept.output.includes(`${f.slot(2)}: exists`), kept.output);
+      assert.ok(!kept.output.includes('created'), kept.output);
+      const twice = recording();
+      const both = await printed(() => runSpawn(f.main, 2, f.state, twice.run));
+      assert.ok(both.output.includes(`${f.slot(2)}: exists`), both.output);
+      assert.ok(both.output.includes(`${f.main}-2-2: created`), both.output);
+      assert.equal(
+        new Set(twice.tabs().flat()).size,
+        twice.tabs().flat().length,
+      );
+    },
+  );
 });

@@ -5,6 +5,15 @@ import { runCommand } from './core/command.js';
 import { planDirectories } from './core/merged.js';
 import type { Run } from './core/repository.js';
 import { exists } from './memory/memory.js';
+import { describeMoves, repairMoves } from './core/move-repair.js';
+import { Memory } from './memory/memory.js';
+import {
+  identify,
+  mapper,
+  readLedger,
+  sameIdentity,
+  updateLedger,
+} from './persistence/directories.js';
 import { StateStore } from './persistence/store.js';
 import { oneLine } from './ui/links.js';
 
@@ -181,15 +190,24 @@ async function seed(
 }
 
 /**
- * fetches the main worktree's upstream and makes `<main>-1` to `<main>-<count>` worktrees detached at it, copying the
- * main checkout's ignored files and directories into each new one, except what `seed` leaves behind, then removing and
- * reporting any copy the new one's own rules don't ignore. in each one where `live` finds no session, runs `pnpm install` if it has a
- * `pnpm-lock.yaml` and opens a Ghostty tab. never removes or moves a worktree.
+ * fetches the main worktree's upstream and fills slots 1 to `count` with worktrees detached at it: the registered
+ * worktree `slots` names, wherever it moved, else a new `<main>-<i>`, or `<main>-<i>-2` and on when another slot holds
+ * that name. a new one gets copies of the main checkout's ignored files and directories, except what `seed` leaves
+ * behind, then loses any copy its own rules don't ignore. in each one where `live` finds no session, runs `pnpm install`
+ * if it has a `pnpm-lock.yaml` and opens a Ghostty tab. never removes or moves a worktree.
  */
 export async function spawnWorktrees(
   cwd: string,
   count: number,
-  { run, live }: { run: Run; live(path: string): Promise<boolean> },
+  {
+    run,
+    live,
+    slots = new Map(),
+  }: {
+    run: Run;
+    live(path: string): Promise<boolean>;
+    slots?: ReadonlyMap<number, string>;
+  },
 ): Promise<{ base: string; slots: Spawned[] }> {
   const git = async (directory: string, ...args: string[]) =>
     (await run('git', args, { cwd: directory, timeout: 60_000 })).stdout;
@@ -233,15 +251,22 @@ export async function spawnWorktrees(
   const local = listing.stdout.split('\0').filter(Boolean);
   // git exits 0 when it can't read a directory, and says so only on stderr
   const unread = oneLine(listing.stderr ?? '').trim();
-  const slots: Spawned[] = [];
+  const results: Spawned[] = [];
+  const held = new Set(slots.values());
   for (let index = 1; index <= count; index++) {
+    let path = slots.get(index);
+    for (let copy = 1; !path; copy++) {
+      const candidate = `${main}-${index}${copy > 1 ? `-${copy}` : ''}`;
+      if (!held.has(candidate)) path = candidate;
+    }
+    held.add(path);
     const spawned: Spawned = {
-      path: `${main}-${index}`,
+      path,
       slot: false,
       created: false,
       opened: false,
     };
-    slots.push(spawned);
+    results.push(spawned);
     if (!registered.includes(spawned.path)) {
       try {
         await git(main, 'worktree', 'add', '--detach', spawned.path, ref);
@@ -294,7 +319,7 @@ export async function spawnWorktrees(
       }
     }
     if (await exists(spawned.path)) spawned.slot = true;
-    else spawned.error = 'registered but missing; run git worktree prune';
+    else spawned.error = 'registered but missing; start Witch where it moved';
   }
   const idle = async (spawned: Spawned) => {
     try {
@@ -305,7 +330,7 @@ export async function spawnWorktrees(
     }
   };
   const installed: Spawned[] = [];
-  for (const spawned of slots) {
+  for (const spawned of results) {
     if (!spawned.slot || !(await idle(spawned))) continue;
     installed.push(spawned);
     if (await exists(join(spawned.path, 'pnpm-lock.yaml')))
@@ -338,7 +363,7 @@ export async function spawnWorktrees(
         for (const spawned of awaiting) report(spawned, reason);
       },
     );
-  return { base, slots };
+  return { base, slots: results };
 }
 
 /**
@@ -358,8 +383,14 @@ export function sessionsIn(
         `cannot determine session ownership: ${unreadable.map((entry) => entry.file).join(', ') || 'a conversation is still saving its first record'}`,
       );
     const real = await realpath(path);
-    return records.some(
-      ({ cwd }) => cwd === real || cwd.startsWith(real + sep),
+    // a session left in a directory that has since moved still holds it
+    const { map } = await readLedger(stateRoot)
+      .then(mapper)
+      .catch(() => ({ map: (cwd: string) => cwd }));
+    return records.some(({ cwd }) =>
+      [cwd, map(cwd)].some(
+        (held) => held && (held === real || held.startsWith(real + sep)),
+      ),
     );
   };
 }
@@ -373,6 +404,25 @@ function describe({ path, slot, created, opened, error }: Spawned): string {
   ].join(', ');
 }
 
+/** the paths `git worktree list` registers for `cwd`'s repository, main checkout first. */
+async function registered(run: Run, cwd: string): Promise<string[]> {
+  const { stdout } = await run(
+    'git',
+    ['worktree', 'list', '--porcelain', '-z'],
+    { cwd, timeout: 60_000 },
+  );
+  return stdout
+    .split('\0')
+    .flatMap((line) =>
+      line.startsWith('worktree ') ? [line.slice('worktree '.length)] : [],
+    );
+}
+
+/**
+ * repairs moved directories first, so a moved main checkout reuses its worktrees wherever they are, then spawns. a cwd
+ * whose Git a move broke is repaired only when the ledger knows it, so a directory outside any repository still exits
+ * with Git's error and leaves no state behind.
+ */
 export async function runSpawn(
   cwd: string,
   count: number,
@@ -380,14 +430,60 @@ export async function runSpawn(
   run: Run = runCommand,
 ): Promise<number> {
   try {
-    const { base, slots } = await spawnWorktrees(cwd, count, {
+    await registered(run, cwd).catch(async (error: unknown) => {
+      const identity = await identify(cwd);
+      const known = await readLedger(stateRoot).then(
+        ({ entries }) => entries.some((entry) => sameIdentity(entry, identity)),
+        () => false,
+      );
+      if (!known) throw error;
+    });
+    const store = await StateStore.open(stateRoot);
+    const memory = new Memory(join(stateRoot, 'memory.git'));
+    const report = await repairMoves(store, memory, cwd, { run }).catch(
+      (error: unknown) => {
+        process.stdout.write(
+          `Could not inspect moved directories: ${failure(error)}\n`,
+        );
+        return undefined;
+      },
+    );
+    const notice = report && describeMoves(report, stateRoot);
+    if (notice) process.stdout.write(`${notice}\n`);
+    const list = await registered(run, cwd);
+    const main = list[0]!;
+    if (report?.blocked.some(({ repository }) => repository === main)) return 1;
+    const ledger = await readLedger(stateRoot).catch(() => undefined);
+    const slots = new Map(
+      (ledger?.entries ?? []).flatMap(({ path, main: owner, slot }) =>
+        owner === main && slot !== undefined && list.includes(path)
+          ? [[slot, path] as const]
+          : [],
+      ),
+    );
+    const { base, slots: spawned } = await spawnWorktrees(cwd, count, {
       run,
       live: sessionsIn(stateRoot),
+      slots,
+    });
+    await updateLedger(stateRoot, async ({ entries }) => {
+      for (const [index, result] of spawned.entries()) {
+        if (!result.slot) continue;
+        const identity = await identify(result.path);
+        if (!identity) continue;
+        let entry = entries.find((known) => known.path === result.path);
+        if (!entry) entries.push((entry = { path: result.path, ...identity }));
+        Object.assign(entry, identity, { main, slot: index + 1 });
+      }
+    }).catch((error: unknown) => {
+      process.stdout.write(
+        `Could not record the worktrees: ${failure(error)}\n`,
+      );
     });
     process.stdout.write(
-      `${[`Worktrees start at ${base}.`, ...slots.map(describe)].join('\n')}\n`,
+      `${[`Worktrees start at ${base}.`, ...spawned.map(describe)].join('\n')}\n`,
     );
-    return slots.some(({ error }) => error) ? 1 : 0;
+    return spawned.some(({ error }) => error) ? 1 : 0;
   } catch (error) {
     process.stderr.write(`witch: ${failure(error)}\n`);
     return 1;
