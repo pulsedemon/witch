@@ -12,6 +12,7 @@ import { projectKey } from '../memory/memory.js';
 import {
   findMoves,
   identify,
+  sameIdentity,
   mapper,
   readLedger,
   resolve,
@@ -333,7 +334,8 @@ export async function repairMoves(
         else tally.unresolved.push(saved.cwd);
         continue;
       }
-      if (!(await exists(target))) {
+      const destination = await identify(target);
+      if (!destination) {
         tally.unresolved.push(saved.cwd);
         continue;
       }
@@ -345,7 +347,9 @@ export async function repairMoves(
         });
         continue;
       }
-      const repaired = preview || (await rewrite(store, saved, target, report));
+      const repaired =
+        preview ||
+        (await rewrite(store, saved, { path: target, ...destination }, report));
       if (repaired) tally.repaired.push({ from: saved.cwd, to: target });
     } catch (error) {
       report.blocked.push({
@@ -516,9 +520,10 @@ async function record(
 async function rewrite(
   store: StateStore,
   saved: ConversationRecord,
-  target: string,
+  destination: Identity & { path: string },
   report: MoveReport,
 ): Promise<boolean> {
+  const target = destination.path;
   try {
     return (
       (await store.repairRecord(saved.id, async (raw, directory) => {
@@ -537,6 +542,13 @@ async function rewrite(
           report.blocked.push({
             path: saved.cwd,
             reason: `another directory is at it now, so ${saved.title} stays listed there`,
+          });
+          return undefined;
+        }
+        if (!sameIdentity(destination, await identify(target))) {
+          report.blocked.push({
+            path: saved.cwd,
+            reason: `${target} moved during the repair, so ${saved.title} waits for the next start`,
           });
           return undefined;
         }

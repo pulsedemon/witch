@@ -650,30 +650,54 @@ test('a repaired conversation follows its directory past an earlier move out of 
   assert.equal((await f.saved('b')).raw.cwd, f.at('c'));
 });
 
-test('a directory that appears at the old path while repair stops a leftover process keeps the conversation there', async () => {
+for (const race of ['source', 'destination'])
+  test(`a ${race} that changes while repair stops a leftover process keeps the conversation where it was`, async () => {
+    const f = await setup();
+    // changes the paths as it's stopped, the last moment before the rewrite
+    const change =
+      race === 'source'
+        ? `fs.mkdirSync(${JSON.stringify(f.at('w/main'))}, { recursive: true });`
+        : `fs.renameSync(${JSON.stringify(f.at('c/main'))}, ${JSON.stringify(f.at('actual'))}); fs.mkdirSync(${JSON.stringify(f.at('c/main'))});`;
+    const child = spawn(process.execPath, [
+      '-e',
+      `const fs = require('node:fs'); process.on('SIGTERM', () => { ${change} process.exit(0); }); console.log('ready'); setTimeout(() => {}, 60_000);`,
+    ]);
+    try {
+      await new Promise((ready) => child.stdout.once('data', ready));
+      await f.save('live', 'w/main', {
+        process: await identifyProcess(child.pid!),
+      });
+      await rename(f.at('w'), f.at('c'));
+      const report = await f.repair('c/main');
+      assert.equal((await f.saved('live')).raw.cwd, f.at('w/main'));
+      assert.ok(
+        report.blocked.some(({ path }) => path === f.at('w/main')),
+        JSON.stringify(report),
+      );
+    } finally {
+      child.kill('SIGKILL');
+    }
+  });
+
+test("a replacement child follows its parent's later move, not the earlier child's own", async () => {
   const f = await setup();
-  // recreates the old path as it's stopped, the last moment before the rewrite
-  const child = spawn(process.execPath, [
-    '-e',
-    `process.on('SIGTERM', () => { require('node:fs').mkdirSync(${JSON.stringify(f.at('w/main'))}, { recursive: true }); process.exit(0); }); setTimeout(() => {}, 60_000);`,
+  await mkdir(f.at('a/sub'), { recursive: true });
+  await f.save('parent', 'a');
+  await f.save('first', 'a/sub');
+  await f.repair('a');
+  await rename(f.at('a/sub'), f.at('x'));
+  await f.repair('x');
+  await mkdir(f.at('a/sub'));
+  await f.save('second', 'a/sub');
+  await f.repair('a');
+  await f.store.addPrompt(f.at('a/sub'), 'in the replacement');
+  await rename(f.at('a'), f.at('b'));
+  await f.repair('b');
+  assert.equal((await f.saved('first')).raw.cwd, f.at('x'));
+  assert.equal((await f.saved('second')).raw.cwd, f.at('b/sub'));
+  assert.deepEqual(await f.store.prompts(f.at('b/sub')), [
+    'in the replacement',
   ]);
-  try {
-    await new Promise((ready) => setTimeout(ready, 200));
-    await f.save('live', 'w/main', {
-      process: await identifyProcess(child.pid!),
-    });
-    await rename(f.at('w'), f.at('c'));
-    const report = await f.repair('c/main');
-    assert.equal((await f.saved('live')).raw.cwd, f.at('w/main'));
-    assert.ok(
-      report.blocked.some(({ reason }) =>
-        /another directory is at it/.test(reason),
-      ),
-      JSON.stringify(report),
-    );
-  } finally {
-    child.kill('SIGKILL');
-  }
 });
 
 test('a recreated source suspends its move', async () => {

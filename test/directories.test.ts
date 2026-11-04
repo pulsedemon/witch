@@ -135,7 +135,8 @@ test('mapper maps prompts written before a move even after its path is reused', 
     throughReused: true,
   });
   assert.equal(map(f.at('a'), written(99)), f.at('c'));
-  assert.equal(map(f.at('a'), written(100)), undefined);
+  // written there after the move, it belongs to the directory there now
+  assert.equal(map(f.at('a'), written(100)), f.at('a'));
   assert.equal(map(f.at('a')), undefined);
 });
 
