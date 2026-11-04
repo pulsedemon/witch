@@ -310,7 +310,7 @@ export async function repairMoves(
   return report;
 }
 
-/** rewrites each conversation whose directory moved and tallies the outcomes for `summarize`; one blocked goes to `report` directly. */
+/** rewrites each conversation whose directory moved and tallies the outcomes for `summarize`; a blocked one goes to `report` directly. */
 async function repairConversations(
   store: StateStore,
   memory: Memory,
@@ -392,7 +392,7 @@ async function record(
   run: Run,
   report: MoveReport,
 ) {
-  // looked up once per path, so recording stays linear in entries and paths
+  // each path's entry is a map lookup rather than a scan of the entries
   const byPath = new Map(ledger.entries.map((entry) => [entry.path, entry]));
   /** the entry for what's at `path` now, or undefined while the one recorded there still exists elsewhere. */
   const upsert = async (path: string, identity: Identity) => {
