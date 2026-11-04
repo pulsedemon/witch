@@ -1409,20 +1409,26 @@ test("a repaired conversation's ownership counts from the mapping it followed, n
   assert.ok(Date.parse(String(raw.cwdSince)) <= during, String(raw.cwdSince));
 });
 
-test('history a repair rewrote before it stopped follows the next move', async () => {
+test("history a repair rewrote before it stopped follows its own directory, not an earlier one's move", async () => {
   const f = await setup();
-  await f.save('half', 'w/main');
-  const state = f.at('state/conversations/half/state.json');
+  for (const name of ['a', 'b']) {
+    await mkdir(f.at(name));
+    await f.save(name, name);
+  }
+  await f.repair('a');
+  await rename(f.at('b'), f.at('d'));
+  await f.repair('d');
+  const state = f.at('state/conversations/a/state.json');
   const before = await readFile(state);
-  await rename(f.at('w'), f.at('b'));
-  await f.repair('b/main');
+  await rename(f.at('a'), f.at('b'));
+  await f.repair('b');
   // the record as a repair that stopped after replacing the history left it
   await writeFile(state, before);
   await rename(f.at('b'), f.at('c'));
-  await f.repair('c/main');
-  const { raw, history } = await f.saved('half');
-  assert.equal(raw.cwd, f.at('c/main'));
-  assert.equal(JSON.parse(history!).cwd, f.at('c/main'));
+  await f.repair('c');
+  const { raw, history } = await f.saved('a');
+  assert.equal(raw.cwd, f.at('c'));
+  assert.equal(JSON.parse(history!).cwd, f.at('c'));
 });
 
 test("another repository's worktree in a removed one's place is recorded, not blocked", async () => {

@@ -158,6 +158,8 @@ export interface Owner {
  */
 export async function mapper(ledger: Ledger): Promise<{
   map(path: string, owner?: Owner): string | undefined;
+  /** every path `map` stands at on the way, `path` first. */
+  route(path: string, owner?: Owner): string[];
   suspended: Move[];
 }> {
   const sources: Source[] = await Promise.all(
@@ -176,15 +178,20 @@ export async function mapper(ledger: Ledger): Promise<{
   }
   // past the first hop, where a chain ends depends only on where it stands, the last move and passing reused paths
   const followed = new Map<string, string | undefined>();
-  const raw = (path: string, owner?: Owner): string | undefined => {
+  const raw = (
+    path: string,
+    owner?: Owner,
+    route?: string[],
+  ): string | undefined => {
     const through = owner?.throughReused ? 1 : 0;
     const visited: string[] = [];
     let result: string | undefined;
     // an older move from where this one landed was another directory's
     for (let current = path, last = -1; ;) {
+      route?.push(current);
       const key = `${last}\0${through}\0${current}`;
       if (last >= 0) {
-        if (followed.has(key)) {
+        if (!route && followed.has(key)) {
           result = followed.get(key);
           break;
         }
@@ -240,6 +247,11 @@ export async function mapper(ledger: Ledger): Promise<{
     map(path, owner) {
       if (stranded.some((root) => within(path, root))) return undefined;
       return raw(path, owner);
+    },
+    route(path, owner) {
+      const route: string[] = [];
+      raw(path, owner, route);
+      return route;
     },
     suspended: ledger.moves.filter((_, index) => sources[index] === 'reused'),
   };
