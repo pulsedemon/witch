@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, rename } from 'node:fs/promises';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { test } from 'vitest';
 import {
+  adoptIdentity,
   findMoves,
   identify,
   mapper,
@@ -252,3 +253,25 @@ for (let index = 0; index < 20; index++)
   await updateLedger(root, async () => {});
   assert.equal((await readLedger(root)).moves.length, 40);
 });
+
+test.skipIf(!darwin)(
+  'adoptIdentity keeps a recorded directory that still exists elsewhere and takes in one that is gone',
+  async () => {
+    const f = await directories('a', 'gone');
+    const moved = { path: f.at('a'), ...(await identify(f.at('a')))! };
+    const deleted = { path: f.at('gone'), ...(await identify(f.at('gone')))! };
+    await rename(f.at('a'), f.at('b'));
+    await mkdir(f.at('a'));
+    await rm(f.at('gone'), { recursive: true });
+    await mkdir(f.at('gone'));
+    const before = { ...moved };
+    assert.equal(
+      await adoptIdentity(moved, (await identify(f.at('a')))!),
+      false,
+    );
+    assert.deepEqual(moved, before);
+    const now = (await identify(f.at('gone')))!;
+    assert.equal(await adoptIdentity(deleted, now), true);
+    assert.equal(deleted.inode, now.inode);
+  },
+);

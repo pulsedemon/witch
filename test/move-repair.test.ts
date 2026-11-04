@@ -852,7 +852,54 @@ test('a declared recovery with no ledger entry for it never takes a stand-in for
     report.blocked.some(({ path }) => path === f.at('w/main')),
     JSON.stringify(report),
   );
+  // finding the copy that moved away by its identity, so a later start never adopts the stand-in, needs macOS
+  if (darwin) {
+    await f.repair('c/main');
+    assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
+  }
 });
+
+test.skipIf(!darwin)(
+  'a plain directory that moved before anything was saved in it keeps the new one at its path apart',
+  async () => {
+    const f = await setup();
+    await mkdir(f.at('foo'));
+    await f.repair('foo');
+    await rename(f.at('foo'), f.at('bar'));
+    await mkdir(f.at('foo'));
+    await f.repair('foo');
+    await f.store.addPrompt(f.at('foo'), 'typed in the new foo');
+    await f.save('new', 'foo');
+    const report = await f.repair('foo');
+    assert.deepEqual(await f.store.prompts(f.at('foo')), [
+      'typed in the new foo',
+    ]);
+    assert.deepEqual(await f.store.prompts(f.at('bar')), []);
+    assert.equal((await f.saved('new')).raw.cwd, f.at('foo'));
+    assert.deepEqual(report.suspended, []);
+  },
+);
+
+test.skipIf(!darwin)(
+  'a clone made where a plain directory moved from is recorded as its own repository',
+  async () => {
+    const f = await setup();
+    await mkdir(f.at('p/plain'), { recursive: true });
+    await f.repair('p/plain');
+    await rename(f.at('p/plain'), f.at('p/old'));
+    await mkdir(f.at('p/plain'));
+    await git(f.at('p/plain'), 'init', '-q', '-b', 'main');
+    await git(f.at('p/plain'), 'commit', '-q', '--allow-empty', '-m', 'x');
+    await f.repair('p/plain');
+    await f.repair('p/plain');
+    const { entries } = await readLedger(f.at('state'));
+    const at = (path: string) => entries.find((entry) => entry.path === path);
+    assert.equal(at(f.at('p/plain'))?.main, f.at('p/plain'));
+    assert.equal(at(f.at('p/old'))?.main, undefined);
+    const elsewhere = await f.repair('w/main');
+    assert.deepEqual(elsewhere.blocked, []);
+  },
+);
 
 test("checking a repaired worktree runs nothing the repository's config names", async () => {
   const f = await setup();
@@ -864,6 +911,37 @@ test("checking a repaired worktree runs nothing the repository's config names", 
   const report = await f.repair('c/main');
   assert.deepEqual(report.blocked, []);
   await assert.rejects(stat(marker), { code: 'ENOENT' });
+});
+
+test('prompt history from every stop of a long move chain loads in linear time', async () => {
+  const f = await setup();
+  const paths = Array.from({ length: 1201 }, (_, index) =>
+    f.at(`chain/${index}`),
+  );
+  let content = '';
+  const moves = [];
+  for (const [index, path] of paths.entries()) {
+    content += `${JSON.stringify({ cwd: path, text: String(index) })}\n`;
+    const to = paths[index + 1];
+    if (to)
+      moves.push({
+        from: path,
+        to,
+        device: '1',
+        inode: String(index),
+        prompts: Buffer.byteLength(content),
+        at: index,
+      });
+  }
+  await writeFile(f.at('state/prompts.jsonl'), content);
+  await writeFile(
+    f.at('state/directories.json'),
+    JSON.stringify({ version: 1, entries: [], moves }),
+  );
+  // linear work takes milliseconds here; replaying the rest of the chain for every prompt took seconds
+  const started = performance.now();
+  assert.equal((await f.store.prompts(paths[1200]!)).length, 1201);
+  assert.ok(performance.now() - started < 1000);
 });
 
 test('prompt history maps a long move chain once per directory, not once per prompt', async () => {

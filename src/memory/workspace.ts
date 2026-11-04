@@ -68,7 +68,6 @@ export function repointText(
   map: (path: string) => string | undefined,
   home: string,
 ): string {
-  if (!forms.length) return text;
   const pattern = new RegExp(
     [...forms]
       .sort((a, b) => b.length - a.length)

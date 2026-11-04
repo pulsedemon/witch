@@ -61,12 +61,7 @@ export const statusArgs = [
   '--branch',
 ] as const;
 
-/**
- * blanks the filter drivers the repository's own config defines, since status runs a clean filter on a file whose stat
- * data changed; the user's own filters stay. an empty `process` stops `clean` too, and `required` would fail the read.
- * set through the environment, since `-c` splits a name at its `=`. a name Node decoded lossily can't be set, so it throws.
- */
-/** where a status read runs nothing the repository configures: its filters blanked, and no lazy fetch or transport. */
+/** a status read's environment: the repository's own filters blanked, and no lazy fetch or transport. */
 export async function statusEnv(
   run: Run,
   cwd: string,
@@ -79,6 +74,11 @@ export async function statusEnv(
   };
 }
 
+/**
+ * blanks the filter drivers the repository's own config defines, since status runs a clean filter on a file whose stat
+ * data changed; the user's own filters stay. an empty `process` stops `clean` too, and `required` would fail the read.
+ * set through the environment, since `-c` splits a name at its `=`. a name Node decoded lossily can't be set, so it throws.
+ */
 async function filterless(
   run: Run,
   cwd: string,

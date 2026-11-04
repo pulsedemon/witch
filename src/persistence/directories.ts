@@ -69,6 +69,20 @@ export async function identify(path: string): Promise<Identity | undefined> {
   }
 }
 
+/**
+ * takes in what's at an entry's path now, unless the directory it records still exists elsewhere: that one moved, and
+ * the next repair records the move rather than this taking its stand-in. says whether it did.
+ */
+export async function adoptIdentity(
+  entry: DirectoryEntry,
+  identity: Identity,
+): Promise<boolean> {
+  if (!sameIdentity(entry, identity) && (await locate(entry))) return false;
+  entry.device = identity.device;
+  entry.inode = identity.inode;
+  return true;
+}
+
 /** where a directory is now, which macOS resolves by device and inode under /.vol. node's realpath can't read /.vol, so sh does. */
 export async function locate(identity: Identity): Promise<string | undefined> {
   if (process.platform !== 'darwin') return undefined;
@@ -160,9 +174,22 @@ export async function mapper(ledger: Ledger): Promise<{
       return sameIdentity(move, found) ? 'back' : 'reused';
     }),
   );
+  // past the first hop, where a chain ends depends only on where it stands, the last move and passing reused paths
+  const followed = new Map<string, string | undefined>();
   const raw = (path: string, owner?: Owner): string | undefined => {
+    const through = owner?.throughReused ? 1 : 0;
+    const visited: string[] = [];
+    let result: string | undefined;
     // an older move from where this one landed was another directory's
     for (let current = path, last = -1; ;) {
+      const key = `${last}\0${through}\0${current}`;
+      if (last >= 0) {
+        if (followed.has(key)) {
+          result = followed.get(key);
+          break;
+        }
+        visited.push(key);
+      }
       let chosen = -1;
       for (const [index, move] of ledger.moves.entries()) {
         if (index <= last || !within(current, move.from)) continue;
@@ -176,14 +203,21 @@ export async function mapper(ledger: Ledger): Promise<{
         )
           chosen = index;
       }
-      if (chosen < 0) return current;
-      const move = ledger.moves[chosen]!;
-      const source = sources[chosen]!;
-      if (source === 'back') return current;
-      if (source === 'reused' && !owner?.throughReused) return undefined;
+      const move = ledger.moves[chosen];
+      const source = sources[chosen];
+      if (!move || source === 'back') {
+        result = current;
+        break;
+      }
+      if (source === 'reused' && !owner?.throughReused) {
+        result = undefined;
+        break;
+      }
       last = chosen;
       current = move.to + current.slice(move.from.length);
     }
+    for (const key of visited) followed.set(key, result);
+    return result;
   };
   // a known directory carried by a parent's move that isn't where the move would put it hasn't moved with it
   const stranded: string[] = [];

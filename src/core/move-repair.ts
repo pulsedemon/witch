@@ -10,9 +10,9 @@ import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import { projectKey } from '../memory/memory.js';
 import {
+  adoptIdentity,
   findMoves,
   identify,
-  locate,
   sameIdentity,
   mapper,
   readLedger,
@@ -269,6 +269,7 @@ export async function repairMoves(
     const { map } = await mapper(ledger);
     const used = (entry: DirectoryEntry) =>
       entry.main !== undefined ||
+      seeds.some((seed) => within(seed, entry.path)) ||
       records.some(
         (saved) =>
           within(saved.cwd, entry.path) ||
@@ -278,6 +279,9 @@ export async function repairMoves(
     if (declared) {
       const identity = (await identify(declared.to))!;
       moves.push({ ...declared, ...identity });
+      // the copy the user vouches for, so a stand-in put there later is never taken for it
+      if (!ledger.entries.some(({ path }) => path === declared.to))
+        ledger.entries.push({ path: declared.to, ...identity });
     }
     // read under the ledger lock, so prompts added while repair waited for it count as before the move
     const promptsSize =
@@ -468,18 +472,14 @@ async function record(
   run: Run,
   report: MoveReport,
 ) {
+  /** the entry for what's at `path` now, or undefined while the one recorded there still exists elsewhere. */
   const upsert = async (path: string, identity: Identity) => {
-    let entry = ledger.entries.find((known) => known.path === path);
+    const entry = ledger.entries.find((known) => known.path === path);
     if (!entry) {
-      entry = { path, ...identity };
-      ledger.entries.push(entry);
+      ledger.entries.push({ path, ...identity });
+      return ledger.entries.at(-1);
     }
-    // a directory recorded here that still exists elsewhere moved, and the next repair records that, not its stand-in
-    else if (!sameIdentity(entry, identity) && (await locate(entry)))
-      return entry;
-    entry.device = identity.device;
-    entry.inode = identity.inode;
-    return entry;
+    return (await adoptIdentity(entry, identity)) ? entry : undefined;
   };
   const paths = new Set([cwd, ...seeds, ...records.map(({ cwd }) => cwd)]);
   const lists = new Map<string, string[]>();
@@ -509,7 +509,8 @@ async function record(
       // one that can't be looked at keeps its entry; its repository's check already reported why
       const identity = await identify(path).catch(() => undefined);
       if (!identity) continue;
-      (await upsert(path, identity)).main = main;
+      const entry = await upsert(path, identity);
+      if (entry) entry.main = main;
     }
     const registered = ledger.entries.filter(
       (entry) => entry.main === main && list.includes(entry.path),

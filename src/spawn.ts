@@ -13,6 +13,7 @@ import {
 } from './core/move-repair.js';
 import { Memory } from './memory/memory.js';
 import {
+  adoptIdentity,
   identify,
   mapper,
   readLedger,
@@ -456,7 +457,8 @@ export async function runSpawn(
         if (!identity) continue;
         let entry = entries.find((known) => known.path === result.path);
         if (!entry) entries.push((entry = { path: result.path, ...identity }));
-        Object.assign(entry, identity, { main, slot: index + 1 });
+        else if (!(await adoptIdentity(entry, identity))) continue;
+        Object.assign(entry, { main, slot: index + 1 });
       }
     }).catch((error: unknown) => {
       process.stdout.write(
