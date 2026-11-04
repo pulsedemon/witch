@@ -288,10 +288,13 @@ export async function repairMoves(
           reason: `Couldn't look for where it went: ${errorMessage(error)}`,
         }),
     );
-    const vouched = declared && {
-      path: declared.to,
-      ...(await identify(declared.to))!,
-    };
+    const found = declared && (await identify(declared.to));
+    if (declared && !found)
+      report.blocked.push({
+        path: declared.to,
+        reason: `The destination directory is gone: ${declared.to}`,
+      });
+    const vouched = declared && found && { path: declared.to, ...found };
     if (declared && vouched)
       moves.push({
         ...declared,

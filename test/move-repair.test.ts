@@ -12,6 +12,7 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
@@ -1141,6 +1142,28 @@ test('an unprovable move is reported with its command, and a declared one repair
     });
     assert.ok(blocked.blocked.length, from);
   }
+});
+
+test('a declared copy removed as repair starts is reported, not recorded', async () => {
+  const f = await setup();
+  await f.save('copied', 'w/main');
+  await mkdir(f.at('c'));
+  await cp(f.at('w/main'), f.at('c/main'), { recursive: true });
+  await rm(f.at('w'), { recursive: true });
+  await mkdir(f.at('spare'));
+  ledgerCalls.before = () =>
+    rmSync(f.at('c/main'), { recursive: true, force: true });
+  const report = await f
+    .repair('spare', {
+      declared: { from: f.at('w/main'), to: f.at('c/main') },
+    })
+    .finally(() => (ledgerCalls.before = undefined));
+  assert.ok(
+    report.blocked.some(({ path }) => path === f.at('c/main')),
+    JSON.stringify(report),
+  );
+  assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
+  assert.deepEqual((await readLedger(f.at('state'))).moves, []);
 });
 
 test('an unreadable record is reported only for a declared move', async () => {
