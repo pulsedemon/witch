@@ -68,16 +68,17 @@ const scopeAt = async (memory: Memory, to: string) => ({
 });
 type Scopes = Map<string, ReturnType<typeof scopeAt>>;
 
-const compatible = async (
+/** the project key at `to` that a record's delivered sessions move to, false when one was delivered to another project, undefined when none was delivered. */
+const deliveredScope = async (
   memory: Memory,
   record: ConversationRecord,
   to: string,
   scopes: Scopes,
-) => {
+): Promise<string | false | undefined> => {
   const delivered = Object.values(record.sessions).flatMap(
     ({ deliveredProject }) => (deliveredProject ? [deliveredProject] : []),
   );
-  if (!delivered.length) return true;
+  if (!delivered.length) return undefined;
   if (!scopes.has(to)) scopes.set(to, scopeAt(memory, to));
   const { project, top } = await scopes.get(to)!;
   // a path-keyed project's key changes with the path, so the old paths' keys count too, including a stopped repair's
@@ -88,8 +89,28 @@ const compatible = async (
       ? [projectKey(from.slice(0, from.length - rest.length))]
       : [],
   );
-  return delivered.every((key) => key === project || old.includes(key));
+  return (
+    delivered.every((key) => key === project || old.includes(key)) && project
+  );
 };
+
+/** sessions delivered at an old path-keyed key take `project`, so a later move still accepts them. */
+const rekeyed = (sessions: ConversationRecord['sessions'], project: string) =>
+  Object.fromEntries(
+    Object.entries(sessions).map(([name, session]) => {
+      if (!session.deliveredProject || session.deliveredProject === project)
+        return [name, session];
+      // as the next turn's delivery would, a new key resends the whole snapshot
+      const next = { ...session, deliveredProject: project };
+      delete next.deliveredRevision;
+      return [name, next];
+    }),
+  );
+
+const scopeDiffers = ({ cwd, title }: ConversationRecord, target: string) => ({
+  path: cwd,
+  reason: `${title}'s saved project memory scope differs from ${target}`,
+});
 
 /** why a move the user declares can't be applied, found before anything is written. */
 async function declaredProblem(
@@ -108,7 +129,7 @@ async function declaredProblem(
       () => target,
       () => declared.to,
     );
-    if (!(await compatible(memory, record, checkAt, scopes)))
+    if ((await deliveredScope(memory, record, checkAt, scopes)) === false)
       return `The saved project memory scope of ${record.title} differs from ${declared.to}`;
   }
   return undefined;
@@ -320,16 +341,22 @@ async function repairConversations(
       const destination = [...prefixes(target)].flatMap(
         (path) => resolvedPaths.get(path) ?? [],
       )[0] ?? { path: target, ...current };
-      if (!(await compatible(memory, saved, target, scopes))) {
-        report.blocked.push({
-          path: saved.cwd,
-          reason: `${saved.title}'s saved project memory scope differs from ${target}`,
-        });
+      if ((await deliveredScope(memory, saved, target, scopes)) === false) {
+        report.blocked.push(scopeDiffers(saved, target));
         continue;
       }
       const repaired =
         preview ||
-        (await rewrite(store, saved, target, destination, resolved, report));
+        (await rewrite(
+          store,
+          memory,
+          scopes,
+          saved,
+          target,
+          destination,
+          resolved,
+          report,
+        ));
       if (repaired)
         tally.repaired.push({
           from: target === saved.cwd ? saved.historyMove!.from : saved.cwd,
@@ -440,6 +467,8 @@ async function record(
 /** rewrites one conversation's history and record under its lock, stopping native processes and `!` shells a crash left running, or says why it can't. */
 async function rewrite(
   store: StateStore,
+  memory: Memory,
+  scopes: Scopes,
   saved: ConversationRecord,
   target: string,
   destination: Identity & { path: string },
@@ -451,6 +480,12 @@ async function rewrite(
       (await store.repairRecord(saved.id, async (raw, directory, save) => {
         const current = conversationRecordSchema.parse(raw);
         if (current.cwd !== saved.cwd) return undefined;
+        // a turn saved since the listing may have delivered another project
+        const project = await deliveredScope(memory, current, target, scopes);
+        if (project === false) {
+          report.blocked.push(scopeDiffers(current, target));
+          return undefined;
+        }
         // holding the lock means no Witch has it open, so these are left from a crash, and claim would stop them too
         if (current.shell) await stopPreviousShell(current.shell);
         for (const identity of [
@@ -473,7 +508,14 @@ async function rewrite(
           });
           return undefined;
         }
-        const moved = { ...raw, cwd: target, cwdSince: resolved.at };
+        const moved = {
+          ...raw,
+          cwd: target,
+          cwdSince: resolved.at,
+          sessions: project
+            ? rekeyed(raw.sessions as ConversationRecord['sessions'], project)
+            : raw.sessions,
+        };
         const history = join(directory, 'history.jsonl');
         const times = await unlessGone(stat(history));
         if (times) {
