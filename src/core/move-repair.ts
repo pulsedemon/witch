@@ -212,14 +212,16 @@ async function recordMoves(
   await resolve(ledger, moves, promptsSize);
   // a declared move is a copy, so the directories under it have new identities the user vouches for
   if (declared && vouched) {
-    for (const entry of [...ledger.entries]) {
+    const copied: Array<[DirectoryEntry, string]> = [];
+    for (const entry of ledger.entries) {
       if (!within(entry.path, declared.from)) continue;
       const path = declared.to + entry.path.slice(declared.from.length);
       const identity = await identify(path);
       if (!identity) continue;
       Object.assign(entry, identity);
-      relocate(ledger, entry, path);
+      copied.push([entry, path]);
     }
+    relocate(ledger, copied);
     // the copy itself, so a stand-in put there later is never taken for it
     if (
       !ledger.entries.some(
@@ -227,7 +229,7 @@ async function recordMoves(
       )
     ) {
       ledger.entries.push(vouched);
-      relocate(ledger, vouched, vouched.path);
+      relocate(ledger, [[vouched, vouched.path]]);
     }
   }
   return moves;

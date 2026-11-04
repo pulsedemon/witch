@@ -138,6 +138,24 @@ test('resolving a move beside many known directories looks only at the ones it c
   assert.equal(ledger.entries.length, 100_000);
 });
 
+test('resolving a move that carries many known directories stays fast', async () => {
+  const f = await directories();
+  const entries: DirectoryEntry[] = [];
+  for (let index = 0; index < 8000; index++) {
+    await mkdir(f.at(`b/c${index}`), { recursive: true });
+    entries.push({
+      ...(await f.entry(`b/c${index}`)),
+      path: f.at(`a/c${index}`),
+    });
+  }
+  const ledger: Ledger = { entries, moves: [] };
+  // relocating each child by scanning every entry takes about a second here
+  const started = performance.now();
+  await resolve(ledger, [await f.move('a', 'b')], 0);
+  assert.ok(performance.now() - started < 500);
+  assert.equal(ledger.entries[7999]?.path, f.at('b/c7999'));
+});
+
 test('mapper never carries a replaced child', async () => {
   const f = await directories('old/nested', 'x', 'spare');
   const ledger: Ledger = {

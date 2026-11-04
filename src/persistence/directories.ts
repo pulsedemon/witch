@@ -432,20 +432,39 @@ function inOrder(
 }
 
 /**
- * puts an entry at `path`, with each `main` naming it. any other entry there is dropped with its repository and slot:
- * it described a directory gone from there, or the same one recorded before a declared copy.
+ * puts each entry at its path, in order, with each `main` naming it. any other entry there is dropped with its
+ * repository and slot: it described a directory gone from there, or the same one recorded before a declared copy. one
+ * dropped by an earlier relocation stays dropped.
  */
 export function relocate(
   ledger: Ledger,
-  entry: DirectoryEntry,
-  path: string,
+  relocations: ReadonlyArray<readonly [DirectoryEntry, string]>,
 ): void {
-  ledger.entries = ledger.entries.filter(
-    (other) => other === entry || other.path !== path,
-  );
-  for (const other of ledger.entries)
-    if (other.main === entry.path) other.main = path;
-  entry.path = path;
+  const at = new Map<string, DirectoryEntry[]>();
+  for (const entry of ledger.entries) {
+    const there = at.get(entry.path);
+    if (there) there.push(entry);
+    else at.set(entry.path, [entry]);
+  }
+  const dropped = new Set<DirectoryEntry>();
+  const renamed = new Map<string, string>();
+  for (const [entry, path] of relocations) {
+    if (dropped.has(entry)) continue;
+    for (const other of at.get(path) ?? [])
+      if (other !== entry) dropped.add(other);
+    const left = at.get(entry.path)?.filter((other) => other !== entry);
+    if (left?.length) at.set(entry.path, left);
+    else at.delete(entry.path);
+    at.set(path, [entry]);
+    renamed.set(entry.path, path);
+    entry.path = path;
+  }
+  if (dropped.size)
+    ledger.entries = ledger.entries.filter((entry) => !dropped.has(entry));
+  for (const entry of ledger.entries) {
+    const main = entry.main === undefined ? undefined : renamed.get(entry.main);
+    if (main !== undefined) entry.main = main;
+  }
 }
 
 /**
@@ -466,13 +485,13 @@ export async function resolve(
         prompts,
         at: Math.max(Date.now(), (ledger.moves.at(-1)?.at ?? -1) + 1),
       });
-    for (const entry of [...ledger.entries]) {
-      if (!within(entry.path, move.from) || !ledger.entries.includes(entry))
-        continue;
+    const carried: Array<[DirectoryEntry, string]> = [];
+    for (const entry of ledger.entries) {
+      if (!within(entry.path, move.from)) continue;
       const target = through(entry.path, move);
-      if (!sameIdentity(entry, await identify(target).catch(() => undefined)))
-        continue;
-      relocate(ledger, entry, target);
+      if (sameIdentity(entry, await identify(target).catch(() => undefined)))
+        carried.push([entry, target]);
     }
+    relocate(ledger, carried);
   }
 }
