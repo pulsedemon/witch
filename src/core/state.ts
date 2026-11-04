@@ -94,7 +94,7 @@ export const conversationRecordSchema = conversationSchema.extend({
   answerProcess: processIdentity.optional(),
   // the shell of a running `!` command Witch runs for Claude
   shell: processIdentity.optional(),
-  // when a move repair last set `cwd`, so earlier moves out of that path belong to the directories there before
+  // the newest ledger move's time when a repair last set `cwd`; moves recorded up to it belong to other directories
   cwdSince: z.string().optional(),
   activity: z
     .object({
