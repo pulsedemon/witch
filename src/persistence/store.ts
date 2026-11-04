@@ -24,8 +24,8 @@ import type {
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
-import { mapper, newestMoveTime, readLedger } from './directories.js';
-import { replaceFile, writeJson } from './json.js';
+import { mapper, newestMoveTime, readLedger, within } from './directories.js';
+import { replaceFile, unlessGone, writeJson } from './json.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
 import { lockedFiles, tryOpenLocked } from './lock.js';
 
@@ -50,6 +50,50 @@ function recordPath(directory: string): string {
 
 function historyPath(directory: string): string {
   return join(directory, 'history.jsonl');
+}
+
+/**
+ * `history` with each row under `from` moved to the same place under `to`, and how many rows that changed. every other
+ * byte stays, including torn, foreign and CRLF lines.
+ */
+export function moveRows(
+  history: Buffer,
+  from: string,
+  to: string,
+): { content: Buffer; changed: number } {
+  const parts: Buffer[] = [];
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let changed = 0;
+  for (let start = 0; start < history.length;) {
+    const newline = history.indexOf(10, start);
+    const end = newline < 0 ? history.length : newline;
+    const next = newline < 0 ? end : end + 1;
+    const textEnd = history[end - 1] === 13 ? end - 1 : end;
+    let line = history.subarray(start, next);
+    try {
+      const raw: unknown = JSON.parse(
+        decoder.decode(history.subarray(start, textEnd)),
+      );
+      const checked = displayUpdateSchema.safeParse(raw);
+      if (checked.success && within(checked.data.cwd, from)) {
+        const cwd = to + checked.data.cwd.slice(from.length);
+        if (cwd !== checked.data.cwd) {
+          line = Buffer.concat([
+            Buffer.from(
+              JSON.stringify({ ...(raw as Record<string, unknown>), cwd }),
+            ),
+            history.subarray(textEnd, next),
+          ]);
+          changed++;
+        }
+      }
+    } catch {
+      // a torn or unreadable line stays available for the store's existing recovery rules
+    }
+    parts.push(line);
+    start = next;
+  }
+  return { content: changed ? Buffer.concat(parts) : history, changed };
 }
 
 export class LockedElsewhere extends Error {}
@@ -228,13 +272,15 @@ export class StateStore {
 
   /**
    * rewrites a closed conversation's raw `state.json` under its lock, without the recovery `claim` does, keeping the
-   * fields its schema doesn't know and its times. `change` returns the new record, or undefined to leave it.
+   * fields its schema doesn't know and its times. `change` returns the new record, or undefined to leave it, and can
+   * `save` one before then.
    */
   async repairRecord(
     id: string,
     change: (
       raw: Record<string, unknown>,
       directory: string,
+      save: (record: Record<string, unknown>) => Promise<void>,
     ) => Promise<Record<string, unknown> | undefined>,
   ): Promise<'repaired' | 'unchanged'> {
     const directory = this.directory(id);
@@ -242,15 +288,18 @@ export class StateStore {
     try {
       const file = recordPath(directory);
       const { atime, mtime } = await stat(file);
+      const save = (record: Record<string, unknown>) =>
+        replaceFile(file, `${JSON.stringify(record, null, 2)}\n`, {
+          atime,
+          mtime,
+        });
       const record = await change(
         JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>,
         directory,
+        save,
       );
       if (!record) return 'unchanged';
-      await replaceFile(file, `${JSON.stringify(record, null, 2)}\n`, {
-        atime,
-        mtime,
-      });
+      await save(record);
       return 'repaired';
     } finally {
       await unlock();
@@ -286,6 +335,21 @@ export class StateStore {
     try {
       const record = await readRecord(directory);
       const files = new ConversationStore(directory, unlock, record);
+      // rows the conversation adds go to `cwd`, so a move repair a crash stopped finishes before any are added
+      if (record.historyMove) {
+        const file = historyPath(directory);
+        const times = await unlessGone(stat(file));
+        if (times?.ino === record.historyMove.inode) {
+          const moved = moveRows(
+            await readFile(file),
+            record.historyMove.from,
+            record.cwd,
+          );
+          if (moved.changed) await replaceFile(file, moved.content, times);
+        }
+        delete record.historyMove;
+        await files.save(record);
+      }
       if (
         record.shell ||
         record.process ||
