@@ -114,7 +114,6 @@ type Scopes = Map<string, ReturnType<typeof scopeAt>>;
 const compatible = async (
   memory: Memory,
   record: ConversationRecord,
-  from: string,
   to: string,
   scopes: Scopes,
 ) => {
@@ -124,13 +123,15 @@ const compatible = async (
   if (!delivered.length) return true;
   if (!scopes.has(to)) scopes.set(to, scopeAt(memory, to));
   const { project, top } = await scopes.get(to)!;
-  // a path-keyed project's key changes with the path, so the old path's key counts too
+  // a path-keyed project's key changes with the path, so the old paths' keys count too, including the one a stopped
+  // repair's history rows still name
   const rest = top && to.slice(top.length);
-  const old =
-    rest !== undefined && from.endsWith(rest)
-      ? projectKey(from.slice(0, from.length - rest.length))
-      : undefined;
-  return delivered.every((key) => key === project || key === old);
+  const old = [record.cwd, record.historyCwd].flatMap((from) =>
+    rest !== undefined && from?.endsWith(rest)
+      ? [projectKey(from.slice(0, from.length - rest.length))]
+      : [],
+  );
+  return delivered.every((key) => key === project || old.includes(key));
 };
 
 /** why a move the user declares can't be applied, found before anything is written. */
@@ -150,7 +151,7 @@ async function declaredProblem(
       () => target,
       () => declared.to,
     );
-    if (!(await compatible(memory, record, record.cwd, checkAt, scopes)))
+    if (!(await compatible(memory, record, checkAt, scopes)))
       return `The saved project memory scope of ${record.title} differs from ${declared.to}`;
   }
   return undefined;
@@ -356,13 +357,13 @@ async function repairConversations(
         tally.unresolved.push(saved.cwd);
         continue;
       }
-      // one left with `historyCwd` still has its history to rewrite
+      // one left with `historyCwd` has a stopped repair to finish
       if (target === saved.cwd && saved.historyCwd === undefined) continue;
       // the nearest directory this repair resolved at or above the target, which a stand-in put there since won't match
       const destination = [...prefixes(target)].flatMap(
         (path) => resolvedPaths.get(path) ?? [],
       )[0] ?? { path: target, ...current };
-      if (!(await compatible(memory, saved, saved.cwd, target, scopes))) {
+      if (!(await compatible(memory, saved, target, scopes))) {
         report.blocked.push({
           path: saved.cwd,
           reason: `${saved.title}'s saved project memory scope differs from ${target}`,
@@ -520,19 +521,25 @@ async function rewrite(
         const times = await unlessGone(stat(history));
         if (times) {
           const content = await readFile(history);
-          const moveRows = (from: string) =>
-            rewriteLines(content, (cwd) =>
-              within(cwd, from) ? target + cwd.slice(from.length) : cwd,
-            );
-          // the rows still name an earlier repair's `historyCwd` until that repair's history write lands
-          let named = current.historyCwd;
-          let rewritten = named === undefined ? undefined : moveRows(named);
-          if (!rewritten?.count) {
-            named = saved.cwd;
-            rewritten = moveRows(named);
+          const moveRows = (from: string) => {
+            let found = false;
+            const rewritten = rewriteLines(content, (cwd) => {
+              if (!within(cwd, from)) return cwd;
+              found = true;
+              return target + cwd.slice(from.length);
+            });
+            return { ...rewritten, found };
+          };
+          // the rows still name an earlier repair's `historyCwd` until that repair's history write lands, even when that
+          // path is the target again
+          let from = current.historyCwd;
+          let rewritten = from === undefined ? undefined : moveRows(from);
+          if (!rewritten?.found) {
+            from = saved.cwd;
+            rewritten = moveRows(from);
           }
           if (rewritten.count) {
-            await save({ ...moved, historyCwd: named });
+            await save({ ...moved, historyCwd: from });
             await replaceFile(history, rewritten.content, times);
           }
         }
