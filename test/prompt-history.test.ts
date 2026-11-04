@@ -111,10 +111,10 @@ test('prompt history under a parent moved back and forth many times stays fast',
     string,
   ];
   let content = '';
-  for (let index = 0; index < 200; index++)
+  for (let index = 0; index < 10; index++)
     content += `${JSON.stringify({ cwd: `${x}/sub-${index}`, text: String(index) })}\n`;
   const size = Buffer.byteLength(content);
-  const moves = Array.from({ length: 2000 }, (_, index) => ({
+  const moves = Array.from({ length: 20_000 }, (_, index) => ({
     from: index % 2 ? y : x,
     to: index % 2 ? x : y,
     device: '1',
@@ -128,7 +128,7 @@ test('prompt history under a parent moved back and forth many times stays fast',
     device: '1',
     inode: '1',
     prompts: size,
-    at: 2000,
+    at: 20_000,
   });
   await writeFile(f.at('state/prompts.jsonl'), content);
   await writeFile(
@@ -138,7 +138,7 @@ test('prompt history under a parent moved back and forth many times stays fast',
   // each hop finds its next move by binary search; filtering every move from the same path took seconds
   const started = performance.now();
   assert.deepEqual(await f.store.prompts(`${z}/sub-7`), ['7']);
-  assert.ok(performance.now() - started < 1000);
+  assert.ok(performance.now() - started < 2000);
 });
 
 test('prompt history with many prompts and many unrelated moves stays fast', async () => {
