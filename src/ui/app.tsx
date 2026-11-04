@@ -49,6 +49,7 @@ import { castTitle, useCasting } from './cast.js';
 import { Sidebar, sidebarWidth, usagePlacement } from './sidebar.js';
 import { delegation } from './delegation.js';
 import { coordinationText } from './peers.js';
+import { conversationLabel } from './conversations.js';
 import { StatusLine, statusFooter, useStatusTime } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
 import { accent, colors, piped, potion } from './theme.js';
@@ -669,7 +670,7 @@ export function App({
           'Conversations',
           conversations.map((conversation) => ({
             id: conversation.id,
-            label: `${conversation.title} · ${conversation.agent}`,
+            label: conversationLabel(conversation),
             cwd: conversation.cwd,
           })),
           (id) => {

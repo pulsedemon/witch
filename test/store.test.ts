@@ -1323,7 +1323,7 @@ test("listing keeps this directory's conversations with history, newest history 
   );
 });
 
-test("listing keeps a conversation with a saved draft or queue but no history, placed by its record's time", async () => {
+test("listing keeps a conversation with a saved draft or queue but no history, placed by and carrying its record's time", async () => {
   const root = await scratch('witch-listing-');
   const store = await StateStore.open(root);
   const conversations: [
@@ -1356,8 +1356,16 @@ test("listing keeps a conversation with a saved draft or queue but no history, p
   ] as const)
     await utimes(join(root, 'conversations', id, file), seconds, seconds);
   assert.deepEqual(
-    (await store.conversations('/project')).map(({ id }) => id),
-    ['b', 'drafted', 'a', 'queued'],
+    (await store.conversations('/project')).map(({ id, modified }) => [
+      id,
+      modified,
+    ]),
+    [
+      ['b', 3_000_000],
+      ['drafted', 2_000_000],
+      ['a', 1_000_000],
+      ['queued', 500_000],
+    ],
   );
 });
 

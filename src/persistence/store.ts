@@ -91,6 +91,9 @@ async function readRecord(directory: string): Promise<ConversationRecord> {
   );
 }
 
+/** `modified`, the time the listing sorts by, is when its history, or its record without history, last changed, in epoch milliseconds. */
+export type ListedConversation = Conversation & { modified: number };
+
 interface UnreadableRecord {
   file: string;
   error: string;
@@ -143,8 +146,8 @@ export class StateStore {
   }
 
   /** conversations that have history or a saved draft or queue, newest first: this directory's, or every directory's without one. */
-  async conversations(cwd?: string): Promise<Conversation[]> {
-    const listed: { conversation: Conversation; modified: number }[] = [];
+  async conversations(cwd?: string): Promise<ListedConversation[]> {
+    const listed: ListedConversation[] = [];
     for (const record of (await this.records()).records) {
       if (cwd !== undefined && record.cwd !== cwd) continue;
       const directory = this.directory(record.id);
@@ -154,17 +157,14 @@ export class StateStore {
           throw error;
         },
       );
-      if (history?.size)
-        listed.push({ conversation: record, modified: history.mtimeMs });
+      if (history?.size) listed.push({ ...record, modified: history.mtimeMs });
       else if (record.draft || record.queue?.length)
         listed.push({
-          conversation: record,
+          ...record,
           modified: (await stat(recordPath(directory))).mtimeMs,
         });
     }
-    return listed
-      .sort((a, b) => b.modified - a.modified)
-      .map(({ conversation }) => conversation);
+    return listed.sort((a, b) => b.modified - a.modified);
   }
 
   /** the prompts sent in `cwd`, newest first, skipping a line a crash cut short. */

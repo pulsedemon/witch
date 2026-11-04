@@ -205,7 +205,7 @@ test('a /sessions choice refused during a turn leaves queued prompts runnable', 
     );
     ui.stdin.write(ENTER);
     await until('the first conversation', () =>
-      ui.text().includes('first prompt · a'),
+      ui.text().includes('a · first prompt'),
     );
     ui.stdin.write('first prompt');
     ui.stdin.write(ENTER);
