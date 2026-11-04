@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
@@ -340,8 +340,8 @@ const through = (path: string, { from, to }: Move) =>
   within(path, from) ? to + path.slice(from.length) : path;
 
 /**
- * where missing entries went: seeds, then on macOS each one's own identity, then siblings of a resolved move that hold
- * their identity. an entry carried along by a resolved move gets no move of its own.
+ * where missing entries went: seeds, then siblings of a resolved move that hold their identity, then on macOS each one's
+ * own identity. an entry carried along by a resolved move gets no move of its own.
  */
 export async function findMoves(
   entries: readonly DirectoryEntry[],
@@ -363,14 +363,40 @@ export async function findMoves(
     }
     return false;
   };
+  const beside = new Map<string, Move[]>();
   const settle = (entry: DirectoryEntry, to: string) => {
     missing.splice(missing.indexOf(entry), 1);
-    moves.push({
+    const move = {
       from: entry.path,
       to,
       device: entry.device,
       inode: entry.inode,
-    });
+    };
+    moves.push(move);
+    const parent = dirname(move.from);
+    const there = beside.get(parent);
+    if (there) there.push(move);
+    else beside.set(parent, [move]);
+  };
+  // the real path, as locate gives, so a symlink or a name differing only in case at the candidate isn't recorded
+  const sibling = async (entry: DirectoryEntry) => {
+    const name = basename(entry.path);
+    const tried = new Set<string>();
+    for (const move of beside.get(dirname(entry.path)) ?? []) {
+      const moved = basename(move.from);
+      const candidates = [join(dirname(move.to), name)];
+      if (name.startsWith(moved))
+        candidates.push(
+          join(dirname(move.to), basename(move.to) + name.slice(moved.length)),
+        );
+      for (const candidate of candidates) {
+        if (tried.has(candidate)) continue;
+        tried.add(candidate);
+        if (sameIdentity(entry, await look(candidate)))
+          return realpath(candidate).catch(() => undefined);
+      }
+    }
+    return undefined;
   };
   const seeded = await Promise.all(
     seeds.map(async (seed) => ({ seed, identity: await look(seed) })),
@@ -386,10 +412,13 @@ export async function findMoves(
       missing.splice(missing.indexOf(entry), 1);
       continue;
     }
-    const found = await locate(entry).catch((error: unknown) => {
-      unreachable(entry, error);
-      return undefined;
-    });
+    // a sibling settles with a stat, saving locate's shell for the first entry under each moved parent
+    const found =
+      (await sibling(entry)) ??
+      (await locate(entry).catch((error: unknown) => {
+        unreachable(entry, error);
+        return undefined;
+      }));
     if (found && found !== entry.path) settle(entry, found);
   }
   for (let progress = true; progress;) {
@@ -400,30 +429,10 @@ export async function findMoves(
         progress = true;
         continue;
       }
-      for (const move of [...moves]) {
-        const candidates: string[] = [];
-        if (dirname(entry.path) === dirname(move.from)) {
-          const name = basename(entry.path);
-          const moved = basename(move.from);
-          candidates.push(join(dirname(move.to), name));
-          if (name.startsWith(moved))
-            candidates.push(
-              join(
-                dirname(move.to),
-                basename(move.to) + name.slice(moved.length),
-              ),
-            );
-        }
-        const found = await (async () => {
-          for (const candidate of candidates)
-            if (sameIdentity(entry, await look(candidate))) return candidate;
-          return undefined;
-        })();
-        if (found) {
-          settle(entry, found);
-          progress = true;
-          break;
-        }
+      const found = await sibling(entry);
+      if (found) {
+        settle(entry, found);
+        progress = true;
       }
     }
   }
