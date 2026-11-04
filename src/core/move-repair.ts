@@ -123,8 +123,8 @@ const compatible = async (
   if (!delivered.length) return true;
   if (!scopes.has(to)) scopes.set(to, scopeAt(memory, to));
   const { project, top } = await scopes.get(to)!;
-  // a path-keyed project's key changes with the path, so the old paths' keys count too, including the one a stopped
-  // repair's history rows still name
+  // a path-keyed project's key changes with the path, so the old paths' keys count too, including a stopped repair's
+  // `historyCwd`
   const rest = top && to.slice(top.length);
   const old = [record.cwd, record.historyCwd].flatMap((from) =>
     rest !== undefined && from?.endsWith(rest)
