@@ -135,8 +135,9 @@ test('conversation locks carry a registration lock that a lost race releases', a
 
 test('selected records exclude unreadable conversations and an empty selection reads nothing', async () => {
   const store = await StateStore.open(await scratch('witch-selected-records-'));
-  const selected = conversation('selected', '/selected');
-  await (await store.create(selected)).close();
+  const created = await store.create(conversation('selected', '/selected'));
+  const selected = created.record;
+  await created.close();
   await (await store.create(conversation('damaged', '/damaged'))).close();
   const damaged = join(store.root, 'conversations', 'damaged', 'state.json');
   await writeFile(damaged, '{broken');

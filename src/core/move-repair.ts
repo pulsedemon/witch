@@ -9,6 +9,7 @@ import {
   identify,
   sameIdentity,
   mapper,
+  newestMoveTime,
   prefixes,
   present,
   readLedger,
@@ -92,7 +93,8 @@ function rewriteLines(
 
 /**
  * a record as the owner of its cwd: there since before a move was recorded, the directory that moved was its own. one
- * waiting at a path another directory took stays there.
+ * waiting at a path another directory took stays there. `createdAt` dates only records saved before Witch set `cwdSince`
+ * on creation.
  */
 export const savedBefore = ({
   createdAt,
@@ -285,14 +287,12 @@ export async function repairMoves(
   );
 
   const { ledger, resolved } = await change(async (ledger) => {
-    // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone, and
-    // the newest move's time: every move recorded later is dated after it, so a conversation dated from this follows
-    // those and none before, whatever the clock reads
+    // the identities as resolved, before record() takes in what sits at a path whose recorded directory is gone
     const copied = structuredClone(ledger);
     const resolved: Snapshot = {
       ledger: copied,
       mapping: await mapper(copied),
-      at: new Date(ledger.moves.at(-1)?.at ?? Date.now()).toISOString(),
+      at: newestMoveTime(ledger),
     };
     const { map } = await mapper(ledger);
     await repairRepositories(ledger, listed?.[0], map, report, run, preview);

@@ -24,7 +24,7 @@ import type {
   DisplayItem,
   DisplayUpdate,
 } from '../core/state.js';
-import { mapper, readLedger } from './directories.js';
+import { mapper, newestMoveTime, readLedger } from './directories.js';
 import { replaceFile, writeJson } from './json.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
 import { lockedFiles, tryOpenLocked } from './lock.js';
@@ -257,14 +257,22 @@ export class StateStore {
     }
   }
 
-  /** locks before writing `state.json`, so `records()` never lists an unlocked new conversation. */
+  /**
+   * locks before writing `state.json`, so `records()` never lists an unlocked new conversation. dates its cwd from the
+   * ledger, so move repair never takes a move recorded while the clock read ahead for this conversation's own.
+   */
   async create(conversation: Conversation): Promise<ConversationStore> {
     const directory = this.directory(conversation.id);
+    // an unreadable ledger leaves `createdAt`, as move repair can't run until it reads
+    const ledger = await readLedger(this.root).catch(() => undefined);
+    const record = ledger
+      ? { ...conversation, cwdSince: newestMoveTime(ledger) }
+      : conversation;
     await mkdir(directory, { mode: 0o700 });
     const unlock = await hold(directory);
-    const files = new ConversationStore(directory, unlock, conversation);
+    const files = new ConversationStore(directory, unlock, record);
     try {
-      await files.save(conversation);
+      await files.save(record);
     } catch (error) {
       await files.close().catch(() => {});
       throw error;
