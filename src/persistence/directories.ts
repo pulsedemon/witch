@@ -451,6 +451,97 @@ function inOrder(
 }
 
 /**
+ * the ledger's entries by path, by the `main` each names and under each of `sources`, kept current as relocations
+ * move them, so a batch of relocations never rescans the ledger. `finish` drops the entries they displaced.
+ */
+function entryIndex(ledger: Ledger, sources: readonly string[] = []) {
+  const holding = new Map(
+    sources.map((source) => [source, new Set<DirectoryEntry>()]),
+  );
+  const dropped = new Set<DirectoryEntry>();
+  const add = (
+    index: Map<string, Set<DirectoryEntry>>,
+    key: string,
+    entry: DirectoryEntry,
+  ) => {
+    const there = index.get(key);
+    if (there) there.add(entry);
+    else index.set(key, new Set([entry]));
+  };
+  const shortest = sources.reduce(
+    (length, source) => Math.min(length, source.length),
+    Infinity,
+  );
+  const place = (entry: DirectoryEntry, keep: boolean) => {
+    for (const prefix of prefixes(entry.path)) {
+      if (prefix.length < shortest) break;
+      if (keep) holding.get(prefix)?.add(entry);
+      else holding.get(prefix)?.delete(entry);
+    }
+  };
+  for (const entry of ledger.entries) place(entry, true);
+  // built when first needed, so a move that carries nothing skips them
+  let lookups:
+    | {
+        order: Map<DirectoryEntry, number>;
+        at: Map<string, Set<DirectoryEntry>>;
+        naming: Map<string, Set<DirectoryEntry>>;
+      }
+    | undefined;
+  const lookup = () => {
+    if (lookups) return lookups;
+    lookups = { order: new Map(), at: new Map(), naming: new Map() };
+    for (const [index, entry] of ledger.entries.entries()) {
+      lookups.order.set(entry, index);
+      add(lookups.at, entry.path, entry);
+      if (entry.main !== undefined) add(lookups.naming, entry.main, entry);
+    }
+    return lookups;
+  };
+  return {
+    /** the entries within `source`, one of `sources`, in ledger order. */
+    under: (source: string) =>
+      [...(holding.get(source) ?? [])].sort((a, b) => {
+        const { order } = lookup();
+        return order.get(a)! - order.get(b)!;
+      }),
+    relocate(relocations: ReadonlyArray<readonly [DirectoryEntry, string]>) {
+      if (!relocations.length) return;
+      const { at, naming } = lookup();
+      const renamed = new Map<string, string>();
+      for (const [entry, path] of relocations) {
+        if (dropped.has(entry)) continue;
+        for (const other of at.get(path) ?? [])
+          if (other !== entry) {
+            dropped.add(other);
+            place(other, false);
+          }
+        at.get(entry.path)?.delete(entry);
+        at.set(path, new Set([entry]));
+        place(entry, false);
+        renamed.set(entry.path, path);
+        entry.path = path;
+        place(entry, true);
+      }
+      // read before any is renamed, so a `main` moves one step however the relocations chain
+      const references = [...renamed].map(
+        ([from, to]) => [[...(naming.get(from) ?? [])], to] as const,
+      );
+      for (const [entries, to] of references)
+        for (const entry of entries) {
+          naming.get(entry.main!)?.delete(entry);
+          entry.main = to;
+          add(naming, to, entry);
+        }
+    },
+    finish() {
+      if (dropped.size)
+        ledger.entries = ledger.entries.filter((entry) => !dropped.has(entry));
+    },
+  };
+}
+
+/**
  * puts each entry at its path, in order, with each `main` naming it. any other entry there is dropped with its
  * repository and slot: it described a directory gone from there, or the same one recorded before a declared copy. one
  * dropped by an earlier relocation stays dropped.
@@ -459,31 +550,9 @@ export function relocate(
   ledger: Ledger,
   relocations: ReadonlyArray<readonly [DirectoryEntry, string]>,
 ): void {
-  const at = new Map<string, DirectoryEntry[]>();
-  for (const entry of ledger.entries) {
-    const there = at.get(entry.path);
-    if (there) there.push(entry);
-    else at.set(entry.path, [entry]);
-  }
-  const dropped = new Set<DirectoryEntry>();
-  const renamed = new Map<string, string>();
-  for (const [entry, path] of relocations) {
-    if (dropped.has(entry)) continue;
-    for (const other of at.get(path) ?? [])
-      if (other !== entry) dropped.add(other);
-    const left = at.get(entry.path)?.filter((other) => other !== entry);
-    if (left?.length) at.set(entry.path, left);
-    else at.delete(entry.path);
-    at.set(path, [entry]);
-    renamed.set(entry.path, path);
-    entry.path = path;
-  }
-  if (dropped.size)
-    ledger.entries = ledger.entries.filter((entry) => !dropped.has(entry));
-  for (const entry of ledger.entries) {
-    const main = entry.main === undefined ? undefined : renamed.get(entry.main);
-    if (main !== undefined) entry.main = main;
-  }
+  const index = entryIndex(ledger);
+  index.relocate(relocations);
+  index.finish();
 }
 
 /**
@@ -495,22 +564,31 @@ export async function resolve(
   moves: ReadonlyArray<Move & Identity>,
   prompts: number,
 ): Promise<void> {
+  const key = ({ device, inode }: Identity) => `${device}\0${inode}`;
+  const newest = new Map(ledger.moves.map((move) => [key(move), move]));
+  const entries = entryIndex(
+    ledger,
+    moves.map(({ from }) => from),
+  );
   for (const move of moves) {
-    const newest = ledger.moves.findLast((known) => sameIdentity(known, move));
+    const last = newest.get(key(move));
     // moves are searched by recording time, which a clock stepping back mustn't reorder or tie
-    if (newest?.from !== move.from || newest.to !== move.to)
-      ledger.moves.push({
+    if (last?.from !== move.from || last.to !== move.to) {
+      const recorded = {
         ...move,
         prompts,
         at: Math.max(Date.now(), (ledger.moves.at(-1)?.at ?? -1) + 1),
-      });
+      };
+      ledger.moves.push(recorded);
+      newest.set(key(move), recorded);
+    }
     const carried: Array<[DirectoryEntry, string]> = [];
-    for (const entry of ledger.entries) {
-      if (!within(entry.path, move.from)) continue;
+    for (const entry of entries.under(move.from)) {
       const target = through(entry.path, move);
       if (sameIdentity(entry, await identify(target).catch(() => undefined)))
         carried.push([entry, target]);
     }
-    relocate(ledger, carried);
+    entries.relocate(carried);
   }
+  entries.finish();
 }
