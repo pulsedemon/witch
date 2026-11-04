@@ -449,7 +449,7 @@ export async function runSpawn(
       live: sessionsIn(stateRoot),
       slots,
     });
-    await updateLedger(stateRoot, async ({ entries }) => {
+    const recorded = await updateLedger(stateRoot, async ({ entries }) => {
       for (const [index, result] of spawned.entries()) {
         if (!result.slot) continue;
         const identity = await identify(result.path);
@@ -459,15 +459,19 @@ export async function runSpawn(
         else if (!(await adoptIdentity(entry, identity))) continue;
         Object.assign(entry, { main, slot: index + 1 });
       }
-    }).catch((error: unknown) => {
-      process.stdout.write(
-        `Could not record the worktrees: ${failure(error)}\n`,
-      );
-    });
+    }).then(
+      () => true,
+      (error: unknown) => {
+        process.stdout.write(
+          `Could not record the worktrees: ${failure(error)}\n`,
+        );
+        return false;
+      },
+    );
     process.stdout.write(
       `${[`Worktrees start at ${base}.`, ...spawned.map(describe)].join('\n')}\n`,
     );
-    return spawned.some(({ error }) => error) ? 1 : 0;
+    return recorded && !spawned.some(({ error }) => error) ? 0 : 1;
   } catch (error) {
     process.stderr.write(`witch: ${failure(error)}\n`);
     return 1;

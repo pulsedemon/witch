@@ -1003,6 +1003,23 @@ describe('moved checkouts', () => {
     await assert.rejects(sessionsIn(f.state)(f.slot(1)), /directories\.json/);
   });
 
+  test('spawn fails when it cannot record the worktrees it opened', async () => {
+    const f = await spawned(1);
+    const { run: recorded } = recording();
+    // breaks the ledger after repair read it, so only recording the slot fails
+    const run: Run = async (command, args, options) => {
+      if (command === 'osascript')
+        await writeFile(join(f.state, 'directories.json'), '{');
+      return recorded(command, args, options);
+    };
+    const { code, output } = await printed(() =>
+      runSpawn(f.main, 1, f.state, run),
+    );
+    assert.ok(output.includes('Could not record the worktrees'), output);
+    assert.ok(output.includes(`${f.slot(1)}: exists, opened`), output);
+    assert.equal(code, 1);
+  });
+
   test('a live session with a stale cwd still occupies its moved slot', async () => {
     const f = await spawned(1);
     const store = await StateStore.open(f.state);
