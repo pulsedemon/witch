@@ -138,22 +138,30 @@ test('resolving a move beside many known directories looks only at the ones it c
   assert.equal(ledger.entries.length, 100_000);
 });
 
-test('resolving a move that carries many known directories stays fast', async () => {
+test('resolving a move relocates the directories it carries in one pass over the ledger', async () => {
   const f = await directories();
   const entries: DirectoryEntry[] = [];
-  for (let index = 0; index < 8000; index++) {
+  for (let index = 0; index < 200; index++) {
     await mkdir(f.at(`b/c${index}`), { recursive: true });
     entries.push({
       ...(await f.entry(`b/c${index}`)),
       path: f.at(`a/c${index}`),
     });
   }
-  const ledger: Ledger = { entries, moves: [] };
-  // relocating each child by scanning every entry takes about a second here
-  const started = performance.now();
+  let reads = 0;
+  const ledger = new Proxy<Ledger>(
+    { entries, moves: [] },
+    {
+      get(target, key, receiver) {
+        if (key === 'entries') reads++;
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    },
+  );
   await resolve(ledger, [await f.move('a', 'b')], 0);
-  assert.ok(performance.now() - started < 500);
-  assert.equal(ledger.entries[7999]?.path, f.at('b/c7999'));
+  assert.equal(ledger.entries[199]?.path, f.at('b/c199'));
+  // reading every entry again for each carried directory made large moves quadratic
+  assert.ok(reads < 20, String(reads));
 });
 
 test('mapper never carries a replaced child', async () => {
