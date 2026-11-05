@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { test } from 'vitest';
 import { promisify } from 'node:util';
-import { Memory, main } from '../src/memory/memory.js';
+import { Memory, branchOf, main } from '../src/memory/memory.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import { fixture, save, git, repository } from './fixtures/memory.js';
 import type { GitHook } from './fixtures/git.js';
@@ -1296,11 +1296,8 @@ test('begin returns the worktree revision when main moves during it', async () =
   await save(second, { 'global/later.md': 'Later.' });
   hook.current = async (command, run, options) => {
     const result = await run();
-    if (
-      options.cwd === first.root &&
-      command[0] === 'rev-parse' &&
-      command.includes(main)
-    ) {
+    // a worktree level with main reads main's commit from status
+    if (options.cwd === first.root && command[0] === 'status') {
       hook.current = passThrough;
       await second.publish();
     }
@@ -1320,6 +1317,35 @@ test('publishing a clean worktree behind main leaves it where it was', async () 
   await second.publish();
   assert.equal(await first.publish(), 'published');
   assert.equal(await first.revision(), before);
+});
+
+test('status counts commits ahead of and behind main', async () => {
+  const { open } = await fixture();
+  const { workspace: first } = await open('first');
+  const { workspace: second } = await open('second');
+  const counts = async () => {
+    const { ahead, behind } = await first.status();
+    return { ahead, behind };
+  };
+  assert.deepEqual(await counts(), { ahead: 0, behind: 0 });
+  await save(first, { 'global/one.md': 'One.' });
+  await save(first, { 'global/two.md': 'Two.' });
+  await save(second, { 'global/theirs.md': 'Theirs.' });
+  await second.publish();
+  assert.deepEqual(await counts(), { ahead: 2, behind: 1 });
+});
+
+test('status gives no counts while the branch has another upstream', async () => {
+  const { memory, open } = await fixture();
+  const { workspace } = await open('a');
+  await memory.git(memory.root, ['update-ref', 'refs/heads/other', main]);
+  await memory.git(memory.root, [
+    'config',
+    `branch.${branchOf('a')}.merge`,
+    'refs/heads/other',
+  ]);
+  const { ahead, behind } = await workspace.status();
+  assert.deepEqual({ ahead, behind }, { ahead: undefined, behind: undefined });
 });
 
 test('discarding works when notes are named main and HEAD', async () => {

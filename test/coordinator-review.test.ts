@@ -852,7 +852,9 @@ test('a publication conflict after a correction stops the review', async (t) => 
 test("a final turn's memory publication failure fails the review", async (t) => {
   const h = await harness(t);
   h.state.outcome = (_round, { runtime }) =>
-    runtime === 'claude' ? { findings: [{ line: 7, blocking: false }] } : {};
+    runtime === 'claude'
+      ? { findings: [{ line: 7, blocking: false, summary: 'remember:seven' }] }
+      : {};
   h.corrections.push(async () => {
     vi.spyOn(Workspace.prototype, 'publish').mockRejectedValueOnce(
       new Error('remote refused'),
