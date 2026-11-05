@@ -224,16 +224,43 @@ test('a plan that also creates another branch stays whichever git command create
   );
 });
 
-test('a head branch still on its remote stays', async () => {
+test('a head branch still on its remote once GitHub would have deleted it stays', async () => {
   const { checkout, other, tip } = await merged();
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
   await merge(other, 'feat/x', true);
-  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
-    text: '#7 merged, but feat/x is still on its remote, so it stays.',
-    cleaned: false,
-  });
+  // close enough to the end of the wait for one more fetch
+  const mergedAt = new Date(Date.now() - 14_000).toISOString();
+  assert.deepEqual(
+    await cleanUpMerge(checkout, { ...pullRequest(tip), mergedAt }, idle),
+    {
+      text: '#7 merged, but feat/x is still on its remote, so it stays.',
+      cleaned: false,
+    },
+  );
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
   assert.ok(await exists(join(plans(checkout), 'x.md')));
+});
+
+test('a head branch GitHub deletes after the first fetch goes', async () => {
+  const { root, origin, checkout, other, tip } = await merged();
+  await merge(other, 'feat/x', true);
+  const pack = join(root, 'upload-pack');
+  const fetched = join(root, 'fetched');
+  await write(
+    pack,
+    `#!/bin/sh\nif [ -e '${fetched}' ]; then git -C '${origin}' update-ref -d refs/heads/feat/x; fi\ntouch '${fetched}'\nexec git upload-pack "$@"\n`,
+  );
+  await execute('chmod', ['+x', pack]);
+  await git(checkout, 'config', 'remote.origin.uploadpack', pack);
+  const mergedAt = new Date().toISOString();
+  const result = await cleanUpMerge(
+    checkout,
+    { ...pullRequest(tip), mergedAt },
+    idle,
+  );
+  assert.equal(typeof result === 'object' && result.cleaned, true);
+  assert.deepEqual(await branches(checkout), ['main']);
+  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
 test('a head branch that tracks no remote branch stays, and says so', async () => {

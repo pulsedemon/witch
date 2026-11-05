@@ -23,6 +23,8 @@ export const pullRequestSchema = z.object({
     .optional(),
   /** an open pull request's mergeability as GitHub last computed it, `UNKNOWN` while it computes. */
   mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']).optional(),
+  /** a merged pull request's merge time, as GitHub's ISO 8601 timestamp. */
+  mergedAt: z.string().optional(),
 });
 
 export type PullRequest = z.infer<typeof pullRequestSchema>;
@@ -175,6 +177,7 @@ export function fromGitHub({
 
 const pullRequestView = gitHubPullRequestFields.extend({
   mergeable: pullRequestSchema.shape.mergeable.unwrap(),
+  mergedAt: z.string().nullish(),
   statusCheckRollup: z
     .array(
       z.union([
@@ -196,12 +199,13 @@ const pullRequestView = gitHubPullRequestFields.extend({
     .nullish(),
 });
 
-/** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable`. */
+/** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable,mergedAt`. */
 export function parsePullRequest(json: string): PullRequest {
   const view = pullRequestView.parse(JSON.parse(json));
-  const { state, mergeable, statusCheckRollup } = view;
+  const { state, mergeable, mergedAt, statusCheckRollup } = view;
   const pullRequest = fromGitHub(view);
-  if (state !== 'OPEN') return pullRequest;
+  if (state !== 'OPEN')
+    return mergedAt ? { ...pullRequest, mergedAt } : pullRequest;
   // GitHub's rollup holds each check's latest run, so a rerun in progress hides its earlier failure
   const checks = statusCheckRollup ?? [];
   const named = (name: string, url: string | null | undefined) => [
@@ -475,7 +479,7 @@ export class RepositoryWatch {
           'pr',
           'view',
           '--json',
-          'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable',
+          'number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable,mergedAt',
         ],
         { cwd: this.cwd, timeout: 30_000 },
       );

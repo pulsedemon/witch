@@ -386,6 +386,7 @@ const view = (fields: object) =>
     headRefOid: 'a1b2c3',
     baseRefName: 'develop',
     mergeable: 'MERGEABLE',
+    mergedAt: null,
     ...fields,
   });
 
@@ -467,7 +468,13 @@ test("a pull request's checks fail on a failed run or status, stay pending while
     'CONFLICTING',
   );
   assert.deepEqual(
-    parsePullRequest(view({ state: 'MERGED', statusCheckRollup: [] })),
+    parsePullRequest(
+      view({
+        state: 'MERGED',
+        statusCheckRollup: [],
+        mergedAt: '2026-11-05T04:02:04Z',
+      }),
+    ),
     {
       number: 4,
       url: 'https://x.test/4',
@@ -475,6 +482,7 @@ test("a pull request's checks fail on a failed run or status, stay pending while
       branch: 'feat/x',
       commit: 'a1b2c3',
       base: 'develop',
+      mergedAt: '2026-11-05T04:02:04Z',
     },
   );
 });
@@ -506,7 +514,7 @@ test('the watch reads the pull request once per branch, again when the branch ch
     assert.equal(watch.snapshot?.pullRequest?.number, 4);
     assert.match(
       fields ?? '',
-      /,headRefName,headRefOid,baseRefName,mergeable$/,
+      /,headRefName,headRefOid,baseRefName,mergeable,mergedAt$/,
     );
     const settled = published;
     vi.advanceTimersByTime(5000);
