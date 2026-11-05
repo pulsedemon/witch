@@ -87,7 +87,7 @@ test("a head branch GitHub deletes after the first fetch goes, even when the rep
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
-test("a head branch the repository keeps after merging goes at once, unless its remote branch moved, it's the default branch or the settings can't be read", async () => {
+test("a head branch the repository keeps after merging goes at once, unless its remote branch moved, it's the default branch, or the repository deletes merged branches or its settings can't be read", async () => {
   // the default branch waits out GitHub's deletion like any branch the repository might delete
   for (const { settings, moved, ago, result, cleaned } of [
     {
@@ -111,6 +111,21 @@ test("a head branch the repository keeps after merging goes at once, unless its 
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
+    },
+    {
+      settings: 'true\nmain\n',
+      moved: false,
+      ago: 60_000,
+      cleaned: false,
+      result: '#7 merged, but feat/x is still on its remote, so it stays.',
+    },
+    {
+      settings: 'null\nmain\n',
+      moved: false,
+      ago: 60_000,
+      cleaned: false,
+      result:
+        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: delete_branch_on_merge was null).",
     },
     {
       settings: undefined,

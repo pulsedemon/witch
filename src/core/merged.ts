@@ -225,6 +225,8 @@ async function remoteKeeps(
     { cwd, timeout: 30_000, ...(signal ? { signal } : {}) },
   );
   const [deletes, base] = stdout.trim().split('\n');
+  if (deletes !== 'true' && deletes !== 'false')
+    throw new Error(`delete_branch_on_merge was ${deletes || 'empty'}`);
   return deletes === 'false' && base !== branch;
 }
 
@@ -466,8 +468,8 @@ async function clean(
         text: `#${number} merged, but ${branch} tracks ${upstream} rather than its own remote branch, so it stays.`,
         cleaned: false,
       };
-    // a repository that keeps merged branches leaves the merged commit there; one that deletes them leaves a
-    // long-lived head branch such as develop
+    // a kept branch has to be at the merged commit. any other has to be gone, since GitHub deletes a merged head branch
+    // but leaves a long-lived one such as develop
     if (keeps && tracking)
       return {
         text: `#${number} merged, but ${branch}'s remote branch has changed since, so it stays.`,
