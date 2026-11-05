@@ -576,6 +576,43 @@ test("a running familiar's time ticks once a second, also when it starts after t
   }
 });
 
+test('a terminal too narrow for the sidebar counts running familiars and brews in the phase row', async () => {
+  const familiar = (id: string, status: 'running' | 'completed') => ({
+    id,
+    name: `task ${id}`,
+    kind: '',
+    status,
+    startedAt: Date.now(),
+    rows: { start: `row ${id}` },
+  });
+  const brew = (id: string) => ({
+    id,
+    description: `brew ${id}`,
+    status: 'running' as const,
+  });
+  for (const columns of [90, 140]) {
+    const { app } = fake({
+      subagents: [familiar('1', 'running'), familiar('2', 'completed')],
+      backgroundCommands: [brew('a'), brew('b')],
+    });
+    const ui = show(
+      createElement(App, { coordinator: app, onExit: () => {} }),
+      columns,
+      24,
+    );
+    try {
+      await until('the phase row', () => ui.text().includes('BACKGROUND'));
+      // the sidebar shares the first row at 140 columns
+      const phase = ui.text().split('\n')[0]!.split('┃')[0]!;
+      if (columns === 90)
+        assert.match(phase, /BACKGROUND \| 1 FAMILIAR \| 2 BREWS/);
+      else assert.doesNotMatch(phase, /FAMILIAR|BREW/);
+    } finally {
+      ui.unmount();
+    }
+  }
+});
+
 test('familiars that overflow the sidebar show the last whole familiars in tree order under a count of the rest, above the whole pentacle', async () => {
   const { app } = fake({
     // the newest, 6, started under the oldest, so tree order puts it second

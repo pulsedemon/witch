@@ -1447,6 +1447,7 @@ export function App({
         <PhaseRow
           state={state}
           reading={top !== null && view.kind === 'chat'}
+          counts={!sidebar}
         />
         <Box flexDirection="column" paddingX={1}>
           {body}
