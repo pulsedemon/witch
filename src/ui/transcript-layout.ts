@@ -153,8 +153,13 @@ function prepare(
       : item.kind === 'assistant'
         ? colors.whiteBright.bold(item.title ?? 'Assistant')
         : tool
-          ? colors.dim(
-              `${expanded ? '−' : '+'} ${item.done ? (item.failed ? colors.red('✗') : '✓') : '…'} ${linkedTitle((expanded && item.expandedTitle) || (item.title ?? 'Tool'), item.path, item.cwd)}`,
+          ? // a failure's mark stays full red in its dim row
+            colors.dim(`${expanded ? '−' : '+'} `) +
+            (item.done && item.failed
+              ? colors.red('✗')
+              : colors.dim(item.done ? '✓' : '…')) +
+            colors.dim(
+              ` ${linkedTitle((expanded && item.expandedTitle) || (item.title ?? 'Tool'), item.path, item.cwd)}`,
             )
           : item.cast
             ? castTitle()

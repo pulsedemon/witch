@@ -168,3 +168,15 @@ test('a one-line notice renders without a heading, a multi-line one keeps it', (
     '',
   ]);
 });
+
+test("a failed tool's ✗ stays full red in its dim row", () => {
+  const output = new TranscriptLayout().render(
+    [tool('broken', { failed: true })],
+    80,
+    new Map(),
+  );
+  const title = output.lines.at(0)!;
+  assert.equal(stripAnsi(title), '+ ✗ Read  broken.ts');
+  // the dim before it closes, so the mark isn't dimmed with the row
+  assert.ok(title.includes('\u001b[22m\u001b[31m✗'));
+});
