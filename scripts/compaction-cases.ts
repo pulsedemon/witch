@@ -297,8 +297,7 @@ function prompts(entries: Entry[], count: number, fromEnd: boolean): Entry[] {
     entry.kind === 'user' ? [index] : [],
   );
   if (fromEnd) {
-    const first = count ? (starts.at(-count) ?? 0) : entries.length;
-    return entries.slice(first);
+    return entries.slice(starts.at(-count) ?? 0);
   }
   const end = starts[count] ?? entries.length;
   return entries.slice(0, end);

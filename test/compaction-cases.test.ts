@@ -104,10 +104,10 @@ async function extract(home: string) {
       join(out, 'packets', `${String(record.name)}.md`),
       'utf8',
     );
-    const [, before, after] = text.split(
-      /## before compaction|## after compaction/,
+    const [, opening, before, after] = text.split(
+      /## conversation opening|## before compaction|## after compaction/,
     );
-    return { before: before!, after: after! };
+    return { opening: opening!, before: before!, after: after! };
   };
   return { find, sections };
 }
@@ -280,6 +280,21 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   await jsonl(join(claude, 'lone.jsonl'), [
     boundary('lone', 3009, 'manual', 700000),
   ]);
+  // twelve prompts after a clear: the opening takes the first two, the turns before take the last eight
+  const numbered = Array.from({ length: 12 }, (_, index) => {
+    const n = String(index + 1).padStart(2, '0');
+    return [
+      ['user', `prompt-${n}`, 4000 + index * 10],
+      ['assistant', `reply-${n}`, 4005 + index * 10, 'claude'],
+    ] as Line[];
+  }).flat();
+  await conversation(home, 'long', { claude: { id: 'long-latest' } }, [
+    ['user', 'before the clear', 3900],
+    ['notice', 'cleared', 3950],
+    ...numbered,
+    ['notice', compacted, 4200],
+    ['assistant', 'long reply', 4210, 'claude'],
+  ]);
   // Finder leaves files beside the conversations
   await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
 
@@ -306,6 +321,32 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   assert.equal(native.promptsAfter, 0);
   assert.equal(find('compete-b', 3010).tokens, 700000);
   assert.equal(find('compete-a', 3000).runtime, undefined);
+  const long = await sections(find('long', 4200));
+  const has = (text: string, n: number) =>
+    text.includes(`prompt-${String(n).padStart(2, '0')}`);
+  assert.deepEqual(
+    [1, 2, 3].map((n) => has(long.opening, n)),
+    [true, true, false],
+  );
+  assert.ok(long.opening.includes('reply-02'));
+  assert.ok(!long.opening.includes('before the clear'));
+  assert.deepEqual(
+    Array.from({ length: 12 }, (_, i) => has(long.before, i + 1)),
+    [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ],
+  );
   const toolTurn = find('codex-older', 2010);
   assert.deepEqual(
     [toolTurn.trigger, toolTurn.afterOutput, toolTurn.tokens, toolTurn.session],
