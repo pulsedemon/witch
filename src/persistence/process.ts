@@ -102,7 +102,7 @@ export const nativeProcessKeys = [
   'answerProcess',
 ] as const;
 
-/** stops the processes a record left by a crash holds and returns whether it held any; one that won't stop throws once every stop settles. */
+/** stops the processes a record left by a crash holds and returns whether it held any; a shell that won't stop throws at once, a native process once every native stop settles. */
 export async function stopLeftProcesses(
   record: Pick<
     ConversationRecord,

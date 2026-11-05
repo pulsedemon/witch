@@ -52,7 +52,7 @@ export type Ledger = { claims: TaskClaim[]; selections: SelectionTicket[] };
 /** runs under the coordination lock with the reconciled ledger, throwing to refuse the operation. */
 export type Verify = (ledger: Ledger) => Promise<void>;
 
-/** a JSON list in the coordination directory, read and written under its lock. */
+/** a JSON list in the coordination directory; `transact` writes it under the lock. */
 interface StoredList<T> {
   file: string;
   schema: z.ZodType<T[]>;
