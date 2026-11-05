@@ -71,7 +71,7 @@ export function graceDeadline(deadline: number): number {
   return Math.min(deadline - killWaitMs, performance.now() + terminateGraceMs);
 }
 
-/** whether the group still has a member; other errors are thrown. */
+/** whether the group still has a member; errors other than EPERM and ESRCH are thrown. */
 export function signalGroup(
   group: number,
   signal: NodeJS.Signals | 0,
