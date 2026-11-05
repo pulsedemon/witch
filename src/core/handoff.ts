@@ -1,38 +1,34 @@
-import type { AgentSession, TurnResult } from '../agents/types.js';
-import type { Memory } from '../memory/memory.js';
-import type { SessionCoordination } from './coordination.js';
+import type { AgentSession } from '../agents/types.js';
 import type { ModelSelection } from './models.js';
-import type { Snapshot } from './snapshot.js';
+import type { SwitchHost } from './runtime-switch.js';
 import { contextStart } from './state.js';
 import type { ConversationRecord, DisplayItem } from './state.js';
 
 /** keeps a long transcript within the destination's context. */
 const transcriptLimit = 60_000;
 
-interface HandoffHost {
-  conversation: ConversationRecord;
-  snapshot: Snapshot;
-  memory: Memory;
-  coordination?: SessionCoordination;
-  cancelled(): boolean;
-  closed(): boolean;
-  session(): AgentSession | undefined;
-  send(
-    prompt: string,
-    kind: 'turn' | 'handoff',
-    images?: readonly string[],
-  ): Promise<TurnResult>;
-  connect(selection: ModelSelection): Promise<AgentSession>;
+type HandoffHost = Pick<
+  SwitchHost,
+  | 'conversation'
+  | 'snapshot'
+  | 'memory'
+  | 'coordination'
+  | 'cancelled'
+  | 'closed'
+  | 'session'
+  | 'send'
+  | 'connect'
+  | 'disconnect'
+  | 'save'
+  | 'publish'
+> & {
   select(
     session: AgentSession,
     selection: ModelSelection,
   ): Promise<ConversationRecord['sessions'][string]>;
-  disconnect(): Promise<void>;
-  save(): Promise<void>;
-  publish(update: Partial<Snapshot>): void;
   /** runs once the destination's activation is saved, before any continuation is sent. */
   activated?(): void;
-}
+};
 
 interface HandoffOptions {
   /** false skips asking the source, which usage exhaustion leaves unable to answer. */
@@ -45,7 +41,7 @@ export async function handoff(
   { summarize = true }: HandoffOptions = {},
 ): Promise<void> {
   const { agent } = selection;
-  const { conversation } = host;
+  const conversation = host.conversation();
   const { agent: from, handoff: previousHandoff } = conversation;
   const outcome = conversation.lastTurn?.status;
   const unfinished = outcome === 'interrupted' || outcome === 'failed';
@@ -53,7 +49,7 @@ export async function handoff(
   let activated = false;
   try {
     let summary = '';
-    const { items } = host.snapshot;
+    const { items } = host.snapshot();
     const context = items.slice(contextStart(items));
     if (context.some((item) => item.kind === 'user' && !item.unread)) {
       const result = summarize
@@ -107,10 +103,10 @@ export async function handoff(
       native: host.session()?.info,
       usage: host.session()?.usage ?? {},
     });
-    if (!activated && host.coordination) {
-      const { project } = await host.memory.scopePaths(conversation.cwd);
-      if (!host.closed())
-        await host.coordination.activate(conversation, project);
+    const coordination = host.coordination();
+    if (!activated && coordination) {
+      const { project } = await host.memory().scopePaths(conversation.cwd);
+      if (!host.closed()) await coordination.activate(conversation, project);
     }
     throw error;
   }

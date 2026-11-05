@@ -41,9 +41,10 @@ function stubHost(summary: TurnResult, activity = false) {
   };
   const events: string[] = [];
   const host = {
-    conversation,
-    snapshot: { ...initialSnapshot([]), items },
-    memory: {} as Memory,
+    conversation: () => conversation,
+    snapshot: () => ({ ...initialSnapshot([]), items }),
+    memory: () => ({}) as Memory,
+    coordination: () => undefined,
     cancelled: () => false,
     closed: () => false,
     session: () => undefined,
