@@ -98,7 +98,7 @@ test('clear dispatches locally, discards prose and appears in help', async () =>
 });
 
 test('the reminder stays stable when its row displaces the last archived row', async () => {
-  // five three-row blocks leave one archived row in the unpinned 13-row viewport
+  // a two-row clear marker and four three-row blocks leave one archived row in the unpinned 12-row viewport
   const items = [
     message('old'),
     marker('clear'),
@@ -110,7 +110,7 @@ test('the reminder stays stable when its row displaces the last archived row', a
   const ui = show(
     createElement(App, { coordinator: app, onExit: () => {} }),
     80,
-    20,
+    19,
   );
   try {
     await until('pinned last-row reminder', () => ui.text().includes(reminder));
@@ -234,7 +234,7 @@ test('batched drag events keep their row coordinates when scrolling removes the 
     await until('batched selection copied', () => copied.length > 0);
     assert.equal(
       copied[0],
-      'old alpha\n\nNotice\nContext cleared.\n\nAssistant\nfresh line 0\n\nAssistant\nfresh line 1\n\nAssistant\nfresh line 2\n\nAssistan',
+      'old alpha\n\nContext cleared.\n\nAssistant\nfresh line 0\n\nAssistant\nfresh line 1\n\nAssistant\nfresh line 2\n\nAssistant\nfresh li',
     );
   } finally {
     ui.unmount();

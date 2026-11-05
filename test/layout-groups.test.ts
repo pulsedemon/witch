@@ -146,3 +146,25 @@ test('an anchor on a group that grows backward resolves to the grown group', () 
   assert.equal(after.rowOf(anchor), start);
   assert.equal(after.shownAs(`tools:${b!.id}`), `tools:${a!.id}`);
 });
+
+test('a one-line notice renders without a heading, a multi-line one keeps it', () => {
+  const notice = (id: string, text: string): DisplayItem => ({
+    id,
+    kind: 'notice',
+    text,
+    cwd: '/work',
+  });
+  const output = new TranscriptLayout().render(
+    [notice('one', 'Saved the note.'), notice('two', 'First.\nSecond.')],
+    80,
+    new Map(),
+  );
+  assert.deepEqual(rows(output), [
+    'Saved the note.',
+    '',
+    'Notice',
+    'First.',
+    'Second.',
+    '',
+  ]);
+});

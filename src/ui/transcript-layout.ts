@@ -174,9 +174,12 @@ function prepare(
       : undefined;
   const complete = linked?.complete ?? assistant?.complete ?? [];
   const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
+  // a one-line notice needs no heading to read as one
+  const headless =
+    item.kind === 'notice' && !item.cast && !item.text.includes('\n');
   return {
     item,
-    title: title.split('\n'),
+    title: headless ? [] : title.split('\n'),
     singleLine: tool && !expanded && !!item.singleLine,
     complete,
     tail: hasBody ? (linked?.tail ?? body).split('\n') : [],
