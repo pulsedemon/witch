@@ -128,6 +128,14 @@ test("a head branch the repository keeps after merging goes at once, unless its 
         "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: delete_branch_on_merge was null).",
     },
     {
+      settings: 'false\nnull\n',
+      moved: false,
+      ago: 60_000,
+      cleaned: false,
+      result:
+        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: the default branch was missing).",
+    },
+    {
       settings: undefined,
       moved: false,
       ago: 60_000,

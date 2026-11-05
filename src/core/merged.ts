@@ -227,6 +227,8 @@ async function remoteKeeps(
   const [deletes, base] = stdout.trim().split('\n');
   if (deletes !== 'true' && deletes !== 'false')
     throw new Error(`delete_branch_on_merge was ${deletes || 'empty'}`);
+  if (!base || base === 'null')
+    throw new Error('the default branch was missing');
   return deletes === 'false' && base !== branch;
 }
 
