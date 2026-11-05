@@ -49,7 +49,14 @@ const cases: [string, WitchCommand[] | undefined][] = [
   ['/compactly /unknown /path/clear prefix/clear /clear,', undefined],
   ['! printf /clear /compact', undefined],
   ['/audit please /clear /compact', undefined],
-  ['prose /audit /clear', [{ name: 'clear', argument: '' }]],
+  ['prose /audit /clear', undefined],
+  ['why does /clear keep the transcript?', undefined],
+  ['rename the /exit command', undefined],
+  ['please /compact and /clear', [{ name: 'compact', argument: '' }]],
+  [
+    'please /model fable then /new',
+    [{ name: 'model', argument: 'fable then' }],
+  ],
   [
     '/review a.md /clear',
     [
@@ -201,7 +208,7 @@ for (const [draft, between] of [
   ['', false],
   ['', true],
   ['/clear', false],
-  ['! printf /clear', false],
+  ['! printf /compact', false],
 ] as const)
   test(`canceling two batches preserves ordinary input ${between ? 'between batches' : 'after batches'} and draft ${JSON.stringify(draft)}`, async () => {
     const f = await fixture(),
@@ -361,7 +368,7 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     await submit(ui, '/compact');
     await until('pending compact', () => c.snapshot.pendingCompaction);
     await submit(ui, 'queued prose');
-    await submit(ui, '! printf /clear');
+    await submit(ui, '! printf /compact');
     await until(
       'separate queued messages',
       () => c.snapshot.queue.length === 2,
@@ -378,7 +385,7 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
     assert.equal(ui.text().includes('Press ↑ to edit queued messages'), false);
     ui.stdin.write(UP);
     await delay(50);
-    assert.deepEqual(c.snapshot.queue, ['queued prose', '! printf /clear']);
+    assert.deepEqual(c.snapshot.queue, ['queued prose', '! printf /compact']);
     f.a.gate = undefined;
     f.a.refuseSteer = true;
     await submit(ui, 'explicit continuation');
@@ -389,7 +396,7 @@ test('unsafe queued-message merging retains native shell boundaries until an exp
         !c.snapshot.queue.length &&
         f.a.inputs.at(-1)?.prompt === 'explicit continuation',
     );
-    assert.deepEqual(f.a.shells, [' printf /clear']);
+    assert.deepEqual(f.a.shells, [' printf /compact']);
     assert.equal(f.a.inputs[1]!.prompt, 'queued prose');
     assert.equal(f.a.inputs.length, 4);
   } finally {

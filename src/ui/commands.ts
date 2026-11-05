@@ -2,7 +2,7 @@ import type { Skill } from '../agents/types.js';
 import { skillCall } from '../core/prompts.js';
 
 const catalog = [
-  { id: 'new', label: 'New conversation', takesArguments: true },
+  { id: 'new', label: 'New conversation', takesArguments: true, leading: true },
   { id: 'sessions', label: 'Saved conversations' },
   { id: 'peers', label: 'Other sessions in this repository' },
   {
@@ -22,12 +22,16 @@ const catalog = [
     takesArguments: true,
   },
   { id: 'compact', label: 'Compact the conversation' },
-  { id: 'clear', label: 'Clear agent context' },
+  { id: 'clear', label: 'Clear agent context', leading: true },
   { id: 'memory', label: 'Browse shared memory' },
   { id: 'jobs', label: 'Running jobs' },
   { id: 'help', label: 'Keyboard help' },
-  { id: 'restart', label: 'Restart Witch in this conversation' },
-  { id: 'exit', label: 'Exit', aliases: ['quit'] },
+  {
+    id: 'restart',
+    label: 'Restart Witch in this conversation',
+    leading: true,
+  },
+  { id: 'exit', label: 'Exit', aliases: ['quit'], leading: true },
 ] as const;
 
 export type CommandName = (typeof catalog)[number]['id'];
@@ -41,6 +45,8 @@ export const commands: readonly {
   label: string;
   aliases?: readonly string[];
   takesArguments?: boolean;
+  /** runs only in a message that starts with a Witch command, since a mention in prose would end or reset the session */
+  leading?: true;
 }[] = catalog;
 
 const names = new Map(
@@ -83,12 +89,21 @@ export function parseCommands(
     if (command) found.push({ command, start, end: start + token.length });
   }
   if (!found.length) return;
-  return found.map(({ command, end }, index) => ({
-    name: command.id,
-    argument: command.takesArguments
-      ? text.slice(end, found[index + 1]?.start).trim()
-      : '',
-  }));
+  const leading = found[0]!.start === text.length - text.trimStart().length;
+  const run = found.flatMap(({ command, end }, index) =>
+    leading || !command.leading
+      ? [
+          {
+            name: command.id,
+            // a dropped command still ends the argument before it
+            argument: command.takesArguments
+              ? text.slice(end, found[index + 1]?.start).trim()
+              : '',
+          },
+        ]
+      : [],
+  );
+  return run.length ? run : undefined;
 }
 
 /** recovered text must not turn separate native input or a command draft into an executable Witch batch. */
