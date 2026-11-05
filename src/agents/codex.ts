@@ -2,6 +2,7 @@ import { AnswerTurn } from './answer-turn.js';
 import {
   answerConfiguration,
   checkNoMcpTools,
+  object,
   readConfig,
   withoutMcp,
 } from './codex-answer.js';
@@ -50,7 +51,6 @@ import type {
   UserResponse,
 } from './types.js';
 
-const object = z.record(z.string(), z.unknown());
 const stringValue = z.string();
 const nullishString = stringValue.nullish();
 const completedTurn = z.object({
@@ -1342,14 +1342,9 @@ class CodexSession implements AgentSession {
       return;
     }
     if (!request) {
-      this.rpc.reject(
-        message.id!,
-        `Unsupported native request: ${message.method}`,
-      );
-      this.options.onEvent({
-        type: 'notice',
-        text: `Unsupported native request: ${message.method}`,
-      });
+      const text = `Unsupported native request: ${message.method}`;
+      this.rpc.reject(message.id!, text);
+      this.options.onEvent({ type: 'notice', text });
       return;
     }
     this.requests.set(request.id, message);

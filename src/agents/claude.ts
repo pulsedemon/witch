@@ -16,7 +16,7 @@ import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
 import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
-import { sideQuery, startupFailure } from './claude-side.js';
+import { promptless, sideQuery, startupFailure } from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
@@ -272,12 +272,9 @@ class ClaudeSession implements AgentSession {
         settingSources: ['user', 'project', 'local'],
         ...(options.answer
           ? {
+              ...promptless,
               forkSession: !!options.resume,
-              persistSession: false,
               tools: ['Read', 'Grep', 'Glob'],
-              strictMcpConfig: true,
-              mcpServers: {},
-              settings: { disableAllHooks: true },
               outputFormat: {
                 type: 'json_schema' as const,
                 schema: options.answer.outputSchema,

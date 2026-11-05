@@ -8,6 +8,7 @@ import type {
   FamiliarOutcome,
   FamiliarMarker,
 } from './familiar-report.js';
+import { pages } from './json-rpc.js';
 import type { JsonRpc, RpcMessage } from './json-rpc.js';
 import { errorMessage } from './stderr.js';
 import type { AgentEvent, BackgroundCommand, UserResponse } from './types.js';
@@ -278,18 +279,13 @@ export class CodexCommands {
     }
   }
 
-  private async *backgroundPages(threadId: string) {
-    let cursor: string | undefined;
-    do {
-      const page = backgroundList.parse(
-        await this.rpc.request('thread/backgroundTerminals/list', {
-          threadId,
-          cursor,
-        }),
-      );
-      yield page.data;
-      cursor = page.nextCursor ?? undefined;
-    } while (cursor);
+  private backgroundPages(threadId: string) {
+    return pages(
+      this.rpc,
+      'thread/backgroundTerminals/list',
+      { threadId },
+      backgroundList,
+    );
   }
 
   private async readBackground(threadId: string): Promise<void> {

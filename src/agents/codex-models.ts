@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { pages } from './json-rpc.js';
 import type { JsonRpc } from './json-rpc.js';
 import type { Model } from './types.js';
 
@@ -21,17 +22,14 @@ export async function readModels(
   includeHidden?: true,
 ): Promise<Model[]> {
   const models: Model[] = [];
-  let cursor: string | null = null;
-  do {
-    const page = modelPage.parse(
-      await rpc.request('model/list', {
-        cursor,
-        limit: 100,
-        ...(includeHidden && { includeHidden }),
-      }),
-    );
+  for await (const data of pages(
+    rpc,
+    'model/list',
+    { cursor: null, limit: 100, ...(includeHidden && { includeHidden }) },
+    modelPage,
+  ))
     models.push(
-      ...page.data.map((model) => ({
+      ...data.map((model) => ({
         id: model.id,
         label: model.displayName,
         efforts: model.supportedReasoningEfforts.map(
@@ -39,7 +37,5 @@ export async function readModels(
         ),
       })),
     );
-    cursor = page.nextCursor;
-  } while (cursor);
   return models;
 }
