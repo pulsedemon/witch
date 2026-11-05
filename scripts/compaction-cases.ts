@@ -4,7 +4,6 @@ import { createReadStream } from 'node:fs';
 import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
 
 const { values } = parseArgs({
@@ -43,11 +42,19 @@ interface Entry {
   agent?: string;
 }
 
+/** a missing file or directory reads as the fallback; any other failure stops the run. */
+function absent<T>(fallback: T): (error: NodeJS.ErrnoException) => T {
+  return (error) => {
+    if (error.code === 'ENOENT') return fallback;
+    throw error;
+  };
+}
+
 async function* jsonl(dir: string): AsyncGenerator<string> {
   for (const entry of await readdir(dir, {
     recursive: true,
     withFileTypes: true,
-  }).catch(() => []))
+  }).catch(absent([])))
     if (entry.isFile() && entry.name.endsWith('.jsonl'))
       yield join(entry.parentPath, entry.name);
 }
@@ -83,16 +90,43 @@ interface Row {
   };
 }
 
-/** streams a log's rows; some Codex rollouts exceed the maximum string length. */
-async function* lines(file: string): AsyncGenerator<Row> {
-  for await (const line of createInterface({ input: createReadStream(file) })) {
-    if (!line) continue;
+/** parses one JSONL row; only the last row may be malformed, since a running agent can be mid-write. */
+class Rows {
+  private malformed?: number;
+  private number = 0;
+
+  constructor(private readonly file: string) {}
+
+  parse(line: string): Row | undefined {
+    this.number++;
+    if (!line) return;
+    if (this.malformed)
+      throw new Error(`${this.file}:${this.malformed}: malformed JSON row`);
     try {
-      yield JSON.parse(line);
+      return JSON.parse(line) as Row;
     } catch {
-      continue;
+      this.malformed = this.number;
     }
   }
+}
+
+/**
+ * streams a log's rows; some Codex rollouts exceed the maximum string length. rows end at `\n` only, since
+ * `readline` also breaks at a U+2028 inside a row's text.
+ */
+async function* lines(file: string): AsyncGenerator<Row> {
+  const parsed = new Rows(file);
+  let rest = '';
+  for await (const chunk of createReadStream(file, { encoding: 'utf8' })) {
+    const split = (rest + (chunk as string)).split('\n');
+    rest = split.pop()!;
+    for (const line of split) {
+      const row = parsed.parse(line);
+      if (row) yield row;
+    }
+  }
+  const row = parsed.parse(rest);
+  if (row) yield row;
 }
 
 /**
@@ -192,23 +226,18 @@ async function codexCompactions(): Promise<NativeCompaction[]> {
   return found;
 }
 
-function rows(text: string): Row[] {
-  return text.split('\n').flatMap((line) => {
-    try {
-      return line ? [JSON.parse(line)] : [];
-    } catch {
-      return [];
-    }
-  });
+function rows(text: string, file: string): Row[] {
+  const parsed = new Rows(file);
+  return text.split('\n').flatMap((line) => parsed.parse(line) ?? []);
 }
 
 /** the conversation as the user saw it: prompts, compaction notices and the last reply before each, a replaced reply kept at its first position. */
-function transcript(text: string): Entry[] {
+function transcript(text: string, file: string): Entry[] {
   const entries: Entry[] = [];
   const byId = new Map<string, Entry>();
   // the queue sends an unread prompt again as a new row
   const unread = new Set<Entry>();
-  for (const row of rows(text)) {
+  for (const row of rows(text, file)) {
     const kind = row.contextCleared
       ? 'cleared'
       : row.kind === 'notice' && row.text === 'Conversation compacted'
@@ -280,17 +309,15 @@ const natives = [...(await claudeCompactions()), ...(await codexCompactions())];
 const conversations = join(values.state, 'conversations');
 const read = await Promise.all(
   (await readdir(conversations)).map(async (id) => {
-    const history = await readFile(
-      join(conversations, id, 'history.jsonl'),
-      'utf8',
-    ).catch(() => '');
+    const file = join(conversations, id, 'history.jsonl');
+    const history = await readFile(file, 'utf8').catch(absent(''));
     // only each runtime's latest session is recorded; older ones match by time alone
     const { sessions = {} } = JSON.parse(
       await readFile(join(conversations, id, 'state.json'), 'utf8').catch(
-        () => '{}',
+        absent('{}'),
       ),
     ) as { sessions?: Record<string, { id?: string } | undefined> };
-    return { id, sessions, entries: transcript(history) };
+    return { id, sessions, entries: transcript(history, file) };
   }),
 );
 const latest = new Set(
