@@ -61,6 +61,23 @@ test("a shell command runs in the session's directory as one open tool row, send
   }
 });
 
+test('a shell command that exits non-zero ends its row failed', async () => {
+  const tools: Extract<AgentEvent, { type: 'tool' }>[] = [];
+  const { session } = await fixture((event) => {
+    if (event.type === 'tool') tools.push(event);
+  });
+  try {
+    await within(session.shell('false'), 3000, 'the failing command');
+    assert.equal(tools.at(-1)!.done, true);
+    assert.equal(tools.at(-1)!.failed, true);
+    await within(session.shell('true'), 3000, 'the passing command');
+    assert.equal(tools.at(-1)!.done, true);
+    assert.equal(tools.at(-1)!.failed, undefined);
+  } finally {
+    await session.close();
+  }
+});
+
 for (const closed of [false, true]) {
   test(`unsent command context can be taken once ${closed ? 'after close' : 'before the next prompt'}`, async () => {
     const { session, cwd } = await fixture();

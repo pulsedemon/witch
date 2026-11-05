@@ -214,6 +214,8 @@ export type AgentEvent =
       diff?: FileDiff[];
       /** the user's `!` command, which shows expanded. */
       shell?: boolean;
+      /** the call failed or was declined; set with `done`. */
+      failed?: true;
     }
   | { type: 'request'; request: UserRequest }
   | { type: 'request-resolved'; id: string }

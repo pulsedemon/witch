@@ -154,7 +154,7 @@ function prepare(
         ? colors.whiteBright.bold(item.title ?? 'Assistant')
         : tool
           ? colors.dim(
-              `${expanded ? '−' : '+'} ${item.done ? '✓' : '…'} ${linkedTitle((expanded && item.expandedTitle) || (item.title ?? 'Tool'), item.path, item.cwd)}`,
+              `${expanded ? '−' : '+'} ${item.done ? (item.failed ? colors.red('✗') : '✓') : '…'} ${linkedTitle((expanded && item.expandedTitle) || (item.title ?? 'Tool'), item.path, item.cwd)}`,
             )
           : item.cast
             ? castTitle()

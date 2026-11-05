@@ -141,6 +141,8 @@ export const displayUpdateSchema = z.object({
   diff: z.array(fileDiff).optional(),
   // a command the user ran with `!`
   shell: z.boolean().optional(),
+  // a tool call that failed or was declined
+  failed: z.literal(true).optional(),
   contextCleared: z.literal(true).optional(),
   // a spell cast, animated while new
   cast: z.literal(true).optional(),
@@ -332,6 +334,7 @@ export function agentDisplay(
         ...(event.diff ? { diff: event.diff } : {}),
         // an append leaves it out, and keeps the one its row has
         ...(event.shell ? { shell: true } : {}),
+        ...(event.failed ? { failed: true } : {}),
       };
 }
 

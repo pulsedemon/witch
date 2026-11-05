@@ -16,7 +16,7 @@ import { CodexCommands } from './codex-commands.js';
 import { CodexAccount, probeAccountUsage, rateLimits } from './codex-limits.js';
 import type { FamiliarAction, FamiliarOutcome } from './familiar-report.js';
 import { mergeCasts } from './familiar-report.js';
-import { wholeFile } from './file-diff.js';
+import { diffLines, hunks, wholeFile } from './file-diff.js';
 import { errorMessage } from './stderr.js';
 import {
   beforeDeadline,
@@ -35,7 +35,6 @@ import type {
   AgentStopOptions,
   AnswerInput,
   FileDiff,
-  Hunk,
   Model,
   ModelDiscoveryOptions,
   SessionInfo,
@@ -109,36 +108,6 @@ const messageQuestions = z.array(
     options: z.array(z.string()).nullish(),
   }),
 );
-
-/** lines a unified diff adds and removes; only lines inside a hunk count, so file headers stay out. */
-function diffLines(diff: string): { added: number; removed: number } {
-  let added = 0;
-  let removed = 0;
-  let hunk = false;
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('@@')) hunk = true;
-    else if (line.startsWith('diff ')) hunk = false;
-    else if (hunk && line.startsWith('+')) added++;
-    else if (hunk && line.startsWith('-')) removed++;
-  }
-  return { added, removed };
-}
-
-/** the hunks of a Codex update's diff, which has no file headers and can end with a move's note. */
-function hunks(diff: string): Hunk[] {
-  const hunks: Hunk[] = [];
-  for (const line of diff.split('\n')) {
-    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-    if (header)
-      hunks.push({
-        oldStart: Number(header[1]),
-        newStart: Number(header[2]),
-        lines: [],
-      });
-    else if (/^[ +-]/.test(line)) hunks.at(-1)?.lines.push(line);
-  }
-  return hunks;
-}
 
 function fileDiffs(changes: z.infer<typeof fileChanges>): FileDiff[] {
   return changes.map(({ path, kind, diff }) =>
@@ -248,6 +217,15 @@ function itemTitle(
       cwd,
     );
   return toolTitle(type, item, cwd);
+}
+
+/** a tool item that failed, was declined or, for a command, exited non-zero. */
+function itemFailed(item: Record<string, unknown>): boolean {
+  return (
+    item.status === 'failed' ||
+    item.status === 'declined' ||
+    (typeof item.exitCode === 'number' && item.exitCode !== 0)
+  );
 }
 
 /** a viewed image file, or the images an MCP tool returned. */
@@ -1244,6 +1222,9 @@ class CodexSession implements AgentSession {
             ...(images.length ? { images } : {}),
             ...(diff ? { diff } : {}),
             ...(command === undefined ? {} : { shell: true }),
+            ...(message.method === 'item/completed' && itemFailed(item)
+              ? { failed: true }
+              : {}),
           });
         }
         break;
