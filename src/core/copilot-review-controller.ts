@@ -13,6 +13,8 @@ import {
 } from './copilot-reviews.js';
 import type { CopilotReviewState, ReviewBatch } from './copilot-reviews.js';
 import {
+  copilotChecks,
+  copilotRequested,
   isCopilot,
   readGitHubReviews,
   reviewCommitPushed,
@@ -20,7 +22,7 @@ import {
 import type { GitHubReviews } from './github-reviews.js';
 import type { SessionCoordination } from './coordination.js';
 import type { Repository } from './repository.js';
-import { bindingChanged } from './review-ownership.js';
+import { bindingChanged, revoke } from './review-ownership.js';
 import type { ConversationRecord } from './state.js';
 
 export interface ReviewWatch {
@@ -90,12 +92,10 @@ export class CopilotReviewController {
       )
     ) {
       this.revoked = batch.id;
-      this.host.notice(
+      revoke(
+        this.host,
         'Copilot review handling stopped because its branch or task ownership changed.',
       );
-      void this.host
-        .interrupt()
-        .catch((error: unknown) => this.host.notice(errorMessage(error)));
     }
   }
 
@@ -239,12 +239,8 @@ export class CopilotReviewController {
     this.head.unrequested =
       !!rules.length &&
       Date.now() - this.head.seen >= 60_000 &&
-      !source.requested.some(({ requestedReviewer }) =>
-        isCopilot(requestedReviewer),
-      ) &&
-      !source.checks.some(
-        ({ name }) => name === 'copilot-pull-request-reviewer',
-      ) &&
+      !copilotRequested(source) &&
+      !copilotChecks(source).length &&
       !source.reviews.some(
         ({ author, commit: reviewed }) =>
           isCopilot(author) && (!onPush || reviewed?.oid === commit),

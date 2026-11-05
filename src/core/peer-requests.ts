@@ -6,14 +6,11 @@ import type {
   Ledger,
   Verify,
 } from '../persistence/coordination.js';
-import type { SessionCoordination } from './coordination.js';
 import type {
   ClaimOwner,
   CoordinationAction,
   TaskClaim,
 } from './coordination-state.js';
-import type { Snapshot } from './snapshot.js';
-import type { DisplayUpdate } from './state.js';
 import type { PeerAnswerBatch } from './peer-answers.js';
 
 export const peerRequestSchema = z.object({
@@ -148,35 +145,20 @@ function about(request: PeerRequest): string {
   );
 }
 
-export function watchPeerRequestNotices(
-  coordination: SessionCoordination | undefined,
-  snapshot: () => Pick<Snapshot, 'conversation' | 'items'>,
-  show: (notice: DisplayUpdate) => void,
-): void {
-  coordination?.subscribe(() => {
-    const { conversation, items } = snapshot();
-    if (!conversation) return;
-    const requests = coordination.events.peerRequests(conversation.id);
-    const shown = new Set(items.map(({ id }) => id));
-    const notices = [
-      ...incoming(requests, conversation.id).map((request) => ({
-        id: `peer-request/${request.id}`,
-        text: `Peer request ${request.id} from session ${request.from} about ${about(request)}: ${peerText(request.message)}`,
-      })),
-      ...answered(requests, conversation.id).map((request) => ({
-        id: `peer-answer/${request.id}`,
-        text: `Answer to peer request ${request.id} from session ${request.to} about ${about(request)}: ${peerText(request.answer!.message)}`,
-      })),
-    ];
-    for (const notice of notices)
-      if (!shown.has(notice.id))
-        show({
-          ...notice,
-          kind: 'notice',
-          cwd: conversation.cwd,
-          replace: true,
-        });
-  });
+export function peerRequestNotices(
+  requests: readonly PeerRequest[],
+  conversation: string,
+): { id: string; text: string }[] {
+  return [
+    ...incoming(requests, conversation).map((request) => ({
+      id: `peer-request/${request.id}`,
+      text: `Peer request ${request.id} from session ${request.from} about ${about(request)}: ${peerText(request.message)}`,
+    })),
+    ...answered(requests, conversation).map((request) => ({
+      id: `peer-answer/${request.id}`,
+      text: `Answer to peer request ${request.id} from session ${request.to} about ${about(request)}: ${peerText(request.answer!.message)}`,
+    })),
+  ];
 }
 
 /** native context carries only ids, parties and the claim reference, since every native runtime takes context as user input. */

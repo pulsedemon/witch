@@ -2,9 +2,6 @@ import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { pullRequestSchema } from './repository.js';
 import type { PullRequest } from './repository.js';
-import type { DisplayUpdate } from './state.js';
-import type { SessionCoordination } from './coordination.js';
-import type { Snapshot } from './snapshot.js';
 
 export const mergeEventSchema = z.object({
   id: z.string(),
@@ -26,30 +23,15 @@ export function mergeEventId(
     .digest('hex');
 }
 
-function mergeNotice(event: MergeEvent, cwd: string): DisplayUpdate {
-  const { number, url, branch, base, commit } = event.pullRequest;
-  return {
-    id: `project-merge/${event.id}`,
-    kind: 'notice',
-    text: `Project merge: [#${number}](${url}) merged ${branch} into ${base} at ${commit}. Observed by Witch session ${event.source}.`,
-    cwd,
-    replace: true,
-  };
-}
-
-export function watchMergeNotices(
-  coordination: SessionCoordination | undefined,
-  snapshot: () => Pick<Snapshot, 'conversation' | 'items'>,
-  show: (notice: DisplayUpdate) => void,
-): void {
-  coordination?.subscribe(() => {
-    const { conversation, items } = snapshot();
-    if (!conversation) return;
-    const shown = new Set(items.map(({ id }) => id));
-    for (const event of coordination.events.mergeEvents(conversation.id)) {
-      const notice = mergeNotice(event, conversation.cwd);
-      if (!shown.has(notice.id)) show(notice);
-    }
+export function mergeNotices(
+  events: readonly MergeEvent[],
+): { id: string; text: string }[] {
+  return events.map((event) => {
+    const { number, url, branch, base, commit } = event.pullRequest;
+    return {
+      id: `project-merge/${event.id}`,
+      text: `Project merge: [#${number}](${url}) merged ${branch} into ${base} at ${commit}. Observed by Witch session ${event.source}.`,
+    };
   });
 }
 

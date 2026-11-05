@@ -142,14 +142,39 @@ export function parseStatus(text: string): Repository {
   return repository;
 }
 
-const pullRequestView = z.object({
+/** the fields `gh pr view` and GitHub's GraphQL API name a pull request with. */
+export const gitHubPullRequestFields = z.object({
   number: z.number(),
   url: z.string(),
-  state: z.enum(['OPEN', 'MERGED', 'CLOSED']),
+  state: pullRequestSchema.shape.state,
   headRefName: z.string(),
   headRefOid: z.string(),
   baseRefName: z.string(),
-  mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
+});
+
+export function fromGitHub({
+  number,
+  url,
+  state,
+  headRefName,
+  headRefOid,
+  baseRefName,
+}: z.infer<typeof gitHubPullRequestFields>): Pick<
+  PullRequest,
+  'number' | 'url' | 'state' | 'branch' | 'commit' | 'base'
+> {
+  return {
+    number,
+    url,
+    state,
+    branch: headRefName,
+    commit: headRefOid,
+    base: baseRefName,
+  };
+}
+
+const pullRequestView = gitHubPullRequestFields.extend({
+  mergeable: pullRequestSchema.shape.mergeable.unwrap(),
   statusCheckRollup: z
     .array(
       z.union([
@@ -173,24 +198,9 @@ const pullRequestView = z.object({
 
 /** reads `gh pr view --json number,state,statusCheckRollup,url,headRefName,headRefOid,baseRefName,mergeable`. */
 export function parsePullRequest(json: string): PullRequest {
-  const {
-    number,
-    url,
-    state,
-    headRefName,
-    headRefOid,
-    baseRefName,
-    mergeable,
-    statusCheckRollup,
-  } = pullRequestView.parse(JSON.parse(json));
-  const pullRequest = {
-    number,
-    url,
-    state,
-    branch: headRefName,
-    commit: headRefOid,
-    base: baseRefName,
-  };
+  const view = pullRequestView.parse(JSON.parse(json));
+  const { state, mergeable, statusCheckRollup } = view;
+  const pullRequest = fromGitHub(view);
   if (state !== 'OPEN') return pullRequest;
   // GitHub's rollup holds each check's latest run, so a rerun in progress hides its earlier failure
   const checks = statusCheckRollup ?? [];

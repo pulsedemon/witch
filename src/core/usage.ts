@@ -25,6 +25,11 @@ export function current(
   );
 }
 
+/** whether there are limits and every window is current. */
+export function currentLimits(limits: readonly Limit[], now: number): boolean {
+  return limits.length > 0 && limits.every((limit) => current(limit, now));
+}
+
 /** a missing, empty, stale or reset window never counts as room to work. */
 export function headroom(
   limits: readonly Limit[],
@@ -32,8 +37,8 @@ export function headroom(
   now: number,
 ): boolean {
   return (
-    limits.length > 0 &&
-    limits.every((limit) => current(limit, now) && limit.percent < shiftAt)
+    currentLimits(limits, now) &&
+    limits.every((limit) => limit.percent < shiftAt)
   );
 }
 
@@ -51,8 +56,7 @@ export function over(
 export function due(account: AccountReading | undefined, now: number): boolean {
   return (
     !account ||
-    account.limits.length === 0 ||
-    account.limits.some((limit) => !current(limit, now)) ||
+    !currentLimits(account.limits, now) ||
     !account.funding ||
     !current(account.funding, now) ||
     (account.funding.kind === 'credits' && !account.creditAccess) ||

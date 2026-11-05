@@ -8,13 +8,13 @@ import type { Snapshot } from './snapshot.js';
 import type { ConversationRecord } from './state.js';
 import {
   creditCapacity,
-  current,
+  currentLimits,
   describeReading,
   headroom,
   type AccountUsage,
 } from './usage.js';
 
-interface SwitchHost {
+export interface SwitchHost {
   conversation(): ConversationRecord;
   snapshot(): Snapshot;
   memory(): Memory;
@@ -93,13 +93,7 @@ export class RuntimeSwitch {
     this.continuation = undefined;
     return handoff(
       {
-        conversation: host.conversation(),
-        snapshot: host.snapshot(),
-        memory: host.memory(),
-        coordination: host.coordination(),
-        cancelled: () => host.cancelled(),
-        closed: () => host.closed(),
-        session: () => host.session(),
+        ...host,
         send: async (prompt, kind, images) => {
           const result = await host.send(prompt, kind, images);
           // a `/model` summary can exhaust its source too, and returning there needs later evidence
@@ -108,11 +102,7 @@ export class RuntimeSwitch {
           if (kind === 'turn') this.continuation = result;
           return result;
         },
-        connect: (choice) => host.connect(choice),
         select: (session, choice) => this.applyModel(session, choice),
-        disconnect: () => host.disconnect(),
-        save: () => host.save(),
-        publish: (update) => host.publish(update),
         // a failed summary must not hold prompts sent during the handoff from the destination
         activated: () => {
           host.failed(false);
@@ -247,11 +237,7 @@ export class RuntimeSwitch {
     ) {
       if (!limits.length && account?.funding?.kind === 'unavailable')
         return { reason: `${name} reports no usage limits` };
-      if (
-        !limits.length ||
-        !limits.every((limit) => current(limit, now)) ||
-        observed <= since
-      )
+      if (!currentLimits(limits, now) || observed <= since)
         return {
           reason: this.exhaustedAt.has(to)
             ? `${name} has no reading since it ran out`

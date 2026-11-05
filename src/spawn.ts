@@ -6,7 +6,7 @@ import { planDirectories } from './core/merged.js';
 import type { Run } from './core/repository.js';
 import { describeMoves, repairMoves, savedBefore } from './core/move-repair.js';
 import { listWorktrees } from './core/worktree-repair.js';
-import { exists, Memory } from './memory/memory.js';
+import { exists, Memory, memoryRepository } from './memory/memory.js';
 import {
   adoptIdentity,
   identify,
@@ -209,11 +209,7 @@ export async function spawnWorktrees(
 ): Promise<{ base: string; slots: Spawned[] }> {
   const git = async (directory: string, ...args: string[]) =>
     (await run('git', args, { cwd: directory, timeout: 60_000 })).stdout;
-  const registered = (await git(cwd, 'worktree', 'list', '--porcelain', '-z'))
-    .split('\0')
-    .flatMap((line) =>
-      line.startsWith('worktree ') ? [line.slice('worktree '.length)] : [],
-    );
+  const registered = await listWorktrees(run, cwd);
   const main = registered[0]!;
   const branch = await git(main, 'rev-parse', '--symbolic-full-name', 'HEAD');
   if (branch.trim() === 'HEAD')
@@ -421,7 +417,7 @@ export async function runSpawn(
       if (!known) throw error;
     });
     const store = await StateStore.open(stateRoot);
-    const memory = new Memory(join(stateRoot, 'memory.git'));
+    const memory = new Memory(memoryRepository(stateRoot));
     // spawning without a repair would open worktrees whose registrations nothing checked
     const report = await repairMoves(store, memory, cwd, { run });
     const notice = describeMoves(report, stateRoot);

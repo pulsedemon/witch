@@ -162,6 +162,11 @@ export function noticeText(text: string): string {
   return printable(text).replace(/[\\[\]]/g, '\\$&');
 }
 
+/** the shared memory repository under a state root. */
+export function memoryRepository(stateRoot: string): string {
+  return join(stateRoot, 'memory.git');
+}
+
 /** the path in an `ls-tree -z` entry, refusing anything but a regular file, named `name` in the refusal. */
 function noteEntry(
   entry: string,

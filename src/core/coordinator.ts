@@ -57,9 +57,9 @@ import { Reviewers } from './reviewers.js';
 import { ModelCatalog, type ModelSelection } from './models.js';
 import { AccountUsage } from './usage.js';
 import type { Conflict, PullRequest } from './repository.js';
-import { watchMergeNotices } from './merge-events.js';
-import { answerInstruction, watchPeerRequestNotices } from './peer-requests.js';
-import { entry, holding, watchPauseNotices } from './pauses.js';
+import { watchEventNotices } from './conversation-events.js';
+import { answerInstruction } from './peer-requests.js';
+import { entry, holding } from './pauses.js';
 import {
   agentWorking,
   applyDisplayUpdate,
@@ -287,18 +287,13 @@ export class Coordinator {
     this.snapshot = initialSnapshot(agents);
     this.coordination?.attach(() => this.link.session);
     this.publish({});
-    for (const watch of [
-      watchMergeNotices,
-      watchPeerRequestNotices,
-      watchPauseNotices,
-    ])
-      watch(
-        coordination,
-        () => this.snapshot,
-        (notice) => {
-          if (!this.closed) this.display(notice);
-        },
-      );
+    watchEventNotices(
+      coordination,
+      () => this.snapshot,
+      (notice) => {
+        if (!this.closed) this.display(notice);
+      },
+    );
     coordination?.subscribe(() => {
       this.applyPauses();
       this.copilot.checkBinding();

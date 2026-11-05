@@ -34,6 +34,8 @@ import type { AccountUsage } from './usage.js';
 
 const compactAt = 80;
 
+type TurnKind = 'turn' | 'handoff' | 'answer' | 'review' | 'repair';
+
 interface TurnOptions {
   delivered?: () => void;
   /** the user row is shown, just before the save that records it. */
@@ -96,7 +98,7 @@ export class TurnRunner {
   /** admitted automatic turns have already spent their attempt, so only queued user input waits behind delivery holds. */
   async run(
     prompt: string,
-    kind: 'turn' | 'answer' | 'review' | 'repair',
+    kind: Exclude<TurnKind, 'handoff'>,
     options: TurnOptions,
   ): Promise<TurnResult | undefined> {
     try {
@@ -130,7 +132,7 @@ export class TurnRunner {
 
   async perform(
     prompt: string,
-    kind: 'turn' | 'handoff' | 'answer' | 'review' | 'repair',
+    kind: TurnKind,
     {
       delivered,
       showing,

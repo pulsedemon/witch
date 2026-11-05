@@ -15,7 +15,7 @@ import { watchMerges } from './core/merged.js';
 import { watchConflicts } from './core/pr-repair.js';
 import { RepositoryWatch } from './core/repository.js';
 import { watchCopilotReviews } from './core/copilot-review-watch.js';
-import { Memory } from './memory/memory.js';
+import { Memory, memoryRepository } from './memory/memory.js';
 import { instanceDirectory } from './persistence/instance.js';
 import { writeJson } from './persistence/json.js';
 import { DelegationStore } from './persistence/delegation.js';
@@ -72,7 +72,7 @@ export async function runWitch(
       const preview = !values.apply;
       const report = await repairMoves(
         store,
-        new Memory(join(store.root, 'memory.git')),
+        new Memory(memoryRepository(store.root)),
         await realpath(process.cwd()),
         {
           declared: {
@@ -132,7 +132,7 @@ export async function runWitch(
     resume,
   });
   process.env.TMPDIR = scratch.directory;
-  const memory = new Memory(join(store.root, 'memory.git'));
+  const memory = new Memory(memoryRepository(store.root));
   const coordination = await SessionCoordination.open(
     store,
     memory,
@@ -150,6 +150,9 @@ export async function runWitch(
     undefined,
     coordination,
   );
+  /** a desktop action that failed; nothing in the conversation depends on it. */
+  const warn = (error: unknown) =>
+    coordinator.notice(errorMessage(error), undefined, false);
   const policy = await DelegationStore.open(join(store.root, 'delegation'));
   coordination.router = router(coordinator, policy);
   coordination.ownFamiliars = (action) => coordinator.reviewers.report(action);
@@ -222,13 +225,10 @@ export async function runWitch(
           coordinator.notice(target.notice, undefined, false);
         else
           execFile('/usr/bin/open', [target.open], (error) => {
-            if (error)
-              coordinator.notice(errorMessage(error), undefined, false);
+            if (error) warn(error);
           });
       })
-      .catch((error: unknown) =>
-        coordinator.notice(errorMessage(error), undefined, false),
-      );
+      .catch(warn);
   });
   const application = render(
     <App
@@ -243,7 +243,7 @@ export async function runWitch(
       graphics={graphics}
       copy={(text) => {
         const child = execFile('/usr/bin/pbcopy', (error) => {
-          if (error) coordinator.notice(errorMessage(error), undefined, false);
+          if (error) warn(error);
         });
         // a pbcopy that fails early fails the write with EPIPE, and the callback reports its failing exit
         child.stdin?.on('error', () => {}).end(text);
@@ -260,11 +260,10 @@ export async function runWitch(
     },
   );
   process.stdout.write(captureMouse);
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-  // a closed terminal fails every write and may send SIGHUP, and the first of these stops a running Claude `!`
+  // a closed terminal fails every write and may send SIGHUP; whichever comes first stops a running Claude `!`
   // command before anything awaits
-  process.on('SIGHUP', shutdown);
+  const signals = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const;
+  for (const signal of signals) process.on(signal, shutdown);
   process.stdout.on('error', shutdown);
   stopTerminal = watchTerminal(
     coordinator,
@@ -286,9 +285,7 @@ export async function runWitch(
   stopCoordinationRepository();
   repository.close();
   jobs.close();
-  process.removeListener('SIGTERM', shutdown);
-  process.removeListener('SIGINT', shutdown);
-  process.removeListener('SIGHUP', shutdown);
+  for (const signal of signals) process.removeListener(signal, shutdown);
   process.stdout.removeListener('error', shutdown);
   try {
     if (restarting) await writeJson(checkpointPath, await jobs.checkpoint());
