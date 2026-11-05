@@ -23,6 +23,33 @@ import { peerRequestSchema } from '../../src/core/peer-requests.js';
 import type { PeerRequest } from '../../src/core/peer-requests.js';
 
 /** holds gated turns until `open()`, which releases the current turn and every later one. */
+/**
+ * a `beforeConnect` that signals `entered`, then holds the connect until `release`, or until the connect aborts with
+ * `onAbort: 'resolve'`; `onAbort: 'reject'` fails it with an AbortError instead. `failure` is thrown once it continues.
+ */
+export function holdConnect(
+  entered: { resolve(): void },
+  release?: PromiseWithResolvers<void>,
+  {
+    failure,
+    onAbort,
+  }: { failure?: Error; onAbort?: 'reject' | 'resolve' } = {},
+): (options: SessionOptions) => Promise<void> {
+  return async (options) => {
+    if (onAbort === 'reject')
+      options.signal?.addEventListener('abort', () =>
+        release?.reject(new DOMException('Connect aborted', 'AbortError')),
+      );
+    entered.resolve();
+    await (onAbort === 'resolve'
+      ? new Promise((resolve) =>
+          options.signal?.addEventListener('abort', resolve, { once: true }),
+        )
+      : release?.promise);
+    if (failure) throw failure;
+  };
+}
+
 export class TurnGate {
   private readonly opening = Promise.withResolvers<void>();
   private readonly entering = Promise.withResolvers<void>();

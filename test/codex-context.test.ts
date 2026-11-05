@@ -3,15 +3,10 @@ import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { close, fixture } from './fixtures/codex-adapter.js';
-import { until, within } from './fixtures/within.js';
+import { appears, within } from './fixtures/within.js';
 
 async function inserted(cwd: string) {
-  await until('native context insertion', () =>
-    access(join(cwd, 'context.json')).then(
-      () => true,
-      () => false,
-    ),
-  );
+  await appears(join(cwd, 'context.json'), 'native context insertion');
 }
 
 test('Codex inserts complete context before the exact user request', async () => {

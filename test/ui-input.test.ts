@@ -7,7 +7,7 @@ import { Input, type InputHandle } from '../src/ui/input.js';
 import { Request } from '../src/ui/request.js';
 import { render as renderTerminal, Box } from 'ink';
 import { PassThrough, Writable } from 'node:stream';
-import type { UserResponse } from '../src/agents/types.js';
+import type { UserRequest, UserResponse } from '../src/agents/types.js';
 
 // act returns once React has committed and run effects, so a key never races a handler still attaching
 (
@@ -43,6 +43,16 @@ const unmount = (ui: { unmount: () => void }) =>
 
 /** passes the 500 ms in which a new request ignores keys */
 const ready = () => act(() => delay(600));
+
+const mountRequest = (
+  request: UserRequest,
+  respond: (response: UserResponse) => void,
+  width = 100,
+  height = 25,
+) =>
+  mount(
+    createElement(Request, { width, height, cwd: '/work', request, respond }),
+  );
 
 test('the terminal composer keeps a bracketed paste unsent until Enter', async () => {
   const sent: string[] = [];
@@ -342,28 +352,25 @@ test('the visible terminal cursor reaches the current insertion point without an
 
 test('native secret questions mask the display and preserve commas in a single answer, and a multiple answer splits', async () => {
   const answers: unknown[] = [];
-  const ui = await mount(
-    createElement(Request, {
-      width: 60,
-      height: 20,
-      cwd: '/work',
-      request: {
-        id: 'secret',
-        kind: 'question',
-        title: 'Question',
-        detail: '',
-        questions: [
-          { id: 'answer', title: 'Secret value', options: [], secret: true },
-          {
-            id: 'colors',
-            title: 'Colors?',
-            options: ['red', 'green', 'blue'],
-            multiple: true,
-          },
-        ],
-      },
-      respond: (value) => answers.push(value),
-    }),
+  const ui = await mountRequest(
+    {
+      id: 'secret',
+      kind: 'question',
+      title: 'Question',
+      detail: '',
+      questions: [
+        { id: 'answer', title: 'Secret value', options: [], secret: true },
+        {
+          id: 'colors',
+          title: 'Colors?',
+          options: ['red', 'green', 'blue'],
+          multiple: true,
+        },
+      ],
+    },
+    (value) => answers.push(value),
+    60,
+    20,
   );
   try {
     await ready();
@@ -385,20 +392,17 @@ test('native secret questions mask the display and preserve commas in a single a
 });
 
 test("a question's answer fills the request's width", async () => {
-  const ui = await mount(
-    createElement(Request, {
-      width: 40,
-      height: 20,
-      cwd: '/work',
-      request: {
-        id: 'name',
-        kind: 'question',
-        title: 'Question',
-        detail: '',
-        questions: [{ id: 'name', title: 'Name?', options: [] }],
-      },
-      respond: () => {},
-    }),
+  const ui = await mountRequest(
+    {
+      id: 'name',
+      kind: 'question',
+      title: 'Question',
+      detail: '',
+      questions: [{ id: 'name', title: 'Name?', options: [] }],
+    },
+    () => {},
+    40,
+    20,
   );
   try {
     await ready();
@@ -452,20 +456,15 @@ test('MCP form submissions validate required fields, types and constraints befor
   ] as const;
   for (const [text, error] of cases) {
     const sent: UserResponse[] = [];
-    const ui = await mount(
-      createElement(Request, {
-        width: 100,
-        height: 25,
-        cwd: '/work',
-        request: {
-          id: 'form',
-          kind: 'elicitation',
-          title: 'Contact',
-          detail: 'MCP server',
-          schema,
-        },
-        respond: (response) => sent.push(response),
-      }),
+    const ui = await mountRequest(
+      {
+        id: 'form',
+        kind: 'elicitation',
+        title: 'Contact',
+        detail: 'MCP server',
+        schema,
+      },
+      (response) => sent.push(response),
     );
     try {
       await ready();
@@ -489,25 +488,20 @@ test('MCP form submissions validate required fields, types and constraints befor
 
 test('an MCP form whose schema names draft-07 validates the answer', async () => {
   const sent: UserResponse[] = [];
-  const ui = await mount(
-    createElement(Request, {
-      width: 100,
-      height: 25,
-      cwd: '/work',
-      request: {
-        id: 'form',
-        kind: 'elicitation',
-        title: 'Contact',
-        detail: 'MCP server',
-        schema: {
-          $schema: 'http://json-schema.org/draft-07/schema#',
-          type: 'object',
-          properties: { name: { type: 'string' } },
-          required: ['name'],
-        },
+  const ui = await mountRequest(
+    {
+      id: 'form',
+      kind: 'elicitation',
+      title: 'Contact',
+      detail: 'MCP server',
+      schema: {
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
       },
-      respond: (response) => sent.push(response),
-    }),
+    },
+    (response) => sent.push(response),
   );
   try {
     await ready();
@@ -526,26 +520,21 @@ test('an MCP form whose schema names draft-07 validates the answer', async () =>
 });
 
 test('a validation error quoting a schema property name cannot carry a link of its own', async () => {
-  const ui = await mount(
-    createElement(Request, {
-      width: 100,
-      height: 25,
-      cwd: '/work',
-      request: {
-        id: 'form',
-        kind: 'elicitation',
-        title: 'Contact',
-        detail: 'MCP server',
-        schema: {
-          type: 'object',
-          required: [
-            '\u001b]8;;https://evil.example/share\u0007name\u001b]8;;\u0007' +
-              '\u001b\u001b[31m]8;;https://evil.example/share\u0007name\u001b\u001b[0m]8;;\u0007',
-          ],
-        },
+  const ui = await mountRequest(
+    {
+      id: 'form',
+      kind: 'elicitation',
+      title: 'Contact',
+      detail: 'MCP server',
+      schema: {
+        type: 'object',
+        required: [
+          '\u001b]8;;https://evil.example/share\u0007name\u001b]8;;\u0007' +
+            '\u001b\u001b[31m]8;;https://evil.example/share\u0007name\u001b\u001b[0m]8;;\u0007',
+        ],
       },
-      respond: () => {},
-    }),
+    },
+    () => {},
   );
   try {
     await ready();
@@ -563,20 +552,17 @@ test('a validation error quoting a schema property name cannot carry a link of i
 
 test('browser elicitation confirms without JSON form content', async () => {
   const sent: UserResponse[] = [];
-  const ui = await mount(
-    createElement(Request, {
-      width: 80,
-      height: 20,
-      cwd: '/work',
-      request: {
-        id: 'url',
-        kind: 'elicitation',
-        title: 'Connect',
-        detail: 'MCP server',
-        url: 'https://example.com/connect',
-      },
-      respond: (response) => sent.push(response),
-    }),
+  const ui = await mountRequest(
+    {
+      id: 'url',
+      kind: 'elicitation',
+      title: 'Connect',
+      detail: 'MCP server',
+      url: 'https://example.com/connect',
+    },
+    (response) => sent.push(response),
+    80,
+    20,
   );
   try {
     await ready();

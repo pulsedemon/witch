@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { access } from 'node:fs/promises';
 import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 
 export async function within<T>(
@@ -36,4 +37,24 @@ export async function until(
     await delay(20);
   }
   assert.fail(`timed out waiting for ${what}`);
+}
+
+export const exists = (path: string) =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+
+export async function appears(path: string, what = path) {
+  await until(what, () => exists(path));
+}
+
+/** whether the promise has settled yet, either way. */
+export function settled(promise: Promise<unknown>) {
+  let done = false;
+  void promise.then(
+    () => (done = true),
+    () => (done = true),
+  );
+  return () => done;
 }

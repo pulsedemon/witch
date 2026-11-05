@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
-import { fixture, close, appears, settled } from './fixtures/codex-adapter.js';
-import { within } from './fixtures/within.js';
+import { fixture, close } from './fixtures/codex-adapter.js';
+import { appears, settled, within } from './fixtures/within.js';
 
 for (const phase of ['start', 'response', 'completion', 'late response'])
   test(`Codex interruption closes a session stuck waiting for turn ${phase}`, async () => {

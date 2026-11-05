@@ -5,12 +5,10 @@ import type { RpcMessage } from '../src/agents/json-rpc.js';
 import {
   controlledFixture,
   close,
-  appears,
-  settled,
   commandFrame,
   turnFrame,
 } from './fixtures/codex-adapter.js';
-import { within } from './fixtures/within.js';
+import { appears, settled, within } from './fixtures/within.js';
 
 test('child model observations survive delayed reads and restarts', async () => {
   const f = await controlledFixture('identity');

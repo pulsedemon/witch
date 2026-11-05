@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test, vi } from 'vitest';
@@ -13,7 +13,7 @@ import {
   launcher,
   working,
 } from './fixtures/claude-adapter.js';
-import { until, within } from './fixtures/within.js';
+import { appears, until, within } from './fixtures/within.js';
 
 const state = (state: string) => ({
   type: 'system',
@@ -370,12 +370,7 @@ for (const commandFirst of [false, true])
       const command =
         "printf 'once\\n' >> executions; touch command-started; while [ ! -e command-release ]; do sleep 0.02; done; printf output";
       assert.equal(await f.session.steer('command reply', { command }), true);
-      await until('shell start', () =>
-        access(join(f.cwd, 'command-started')).then(
-          () => true,
-          () => false,
-        ),
-      );
+      await appears(join(f.cwd, 'command-started'), 'shell start');
       if (commandFirst) {
         await writeFile(join(f.cwd, 'command-release'), '');
         await until('reply input', async () => (await f.inputs()).length === 2);

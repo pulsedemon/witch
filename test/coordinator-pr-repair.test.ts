@@ -12,23 +12,19 @@ import { callControl } from '../src/persistence/control.js';
 import { TurnGate } from './fixtures/agent.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
-import { fixture } from './fixtures/coordinator.js';
+import { fixture, notices } from './fixtures/coordinator.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { until, within } from './fixtures/within.js';
+import { record as savedRecord } from './fixtures/copilot-reviews.js';
+import {
+  pullRequest as openPullRequest,
+  repositoryRead,
+} from './fixtures/repository.js';
 
 test("every turn carries the branch's pull request conflict until it clears", async () => {
   const f = await fixture();
   try {
-    const pullRequest = {
-      number: 7,
-      url: 'https://github.com/o/r/pull/7',
-      state: 'OPEN' as const,
-      branch: 'feat/x',
-      commit: 'a1b2c3',
-      base: 'main',
-      checks: 'passing' as const,
-      mergeable: 'CONFLICTING' as const,
-    };
+    const pullRequest = openPullRequest({ mergeable: 'CONFLICTING' });
     f.coordinator.conflict = { pullRequest, baseTip: 'f00' };
     await f.coordinator.send('First');
     assert.match(
@@ -63,17 +59,8 @@ async function setup(t: TestContext, name = 'A') {
   const cwd = c.snapshot.conversation!.cwd;
   await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/x');
   const project = (await f.memory.scopePaths(cwd)).project;
-  const pullRequest = (fields: Partial<PullRequest> = {}): PullRequest => ({
-    number: 7,
-    url: 'https://github.com/o/r/pull/7',
-    state: 'OPEN',
-    branch: 'feat/x',
-    commit: head(1),
-    base: 'main',
-    checks: 'passing',
-    mergeable: 'CONFLICTING',
-    ...fields,
-  });
+  const pullRequest = (fields: Partial<PullRequest> = {}) =>
+    openPullRequest({ commit: head(1), mergeable: 'CONFLICTING', ...fields });
   /** a read of the pull request; a conflicting one carries its conflict, as `RepositoryWatch` publishes it. */
   const read = (
     fields: Partial<PullRequest> = {},
@@ -81,20 +68,13 @@ async function setup(t: TestContext, name = 'A') {
   ): Repository => {
     const current = pullRequest(fields);
     const conflict = current.mergeable === 'CONFLICTING' ? current : kept;
-    return {
-      branch: 'feat/x',
-      ahead: 0,
-      behind: 0,
-      staged: 0,
-      modified: 0,
-      conflicts: 0,
-      untracked: 0,
+    return repositoryRead({
       pullRequest: current,
       pullRequestProject: project,
       ...(conflict
         ? { conflict: { pullRequest: conflict, baseTip: 'f00' } }
         : {}),
-    };
+    });
   };
   const observe = (
     repository: Repository,
@@ -109,24 +89,6 @@ async function setup(t: TestContext, name = 'A') {
     agent.inputs.filter(({ prompt }) => prompt.startsWith(repairPrefix));
   const idle = (coordinator = c) =>
     until('idle', () => coordinator.snapshot.phase === 'idle');
-  const record = async (client = x) =>
-    conversationRecordSchema.parse(
-      JSON.parse(
-        await readFile(
-          join(
-            f.store.root,
-            'conversations',
-            client.coordinator.snapshot.conversation!.id,
-            'state.json',
-          ),
-          'utf8',
-        ),
-      ),
-    );
-  const notices = (coordinator = c) =>
-    coordinator.snapshot.items
-      .filter(({ kind }) => kind === 'notice')
-      .map(({ text }) => text);
   return {
     f,
     x,
@@ -137,8 +99,8 @@ async function setup(t: TestContext, name = 'A') {
     observe,
     repairs,
     idle,
-    record,
-    notices,
+    record: (client = x) => savedRecord(f, client),
+    notices: (coordinator = c) => notices(coordinator),
   };
 }
 

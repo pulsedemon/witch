@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import {
   chmod,
   cp,
@@ -13,7 +12,6 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { promisify } from 'node:util';
 import { describe, test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import type { Run } from '../src/core/repository.js';
@@ -22,17 +20,7 @@ import { readLedger } from '../src/persistence/directories.js';
 import { StateStore } from '../src/persistence/store.js';
 import { runSpawn, sessionsIn, spawnWorktrees } from '../src/spawn.js';
 import { scratch } from './fixtures/scratch.js';
-
-const execute = promisify(execFile);
-
-async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await execute(
-    'git',
-    ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
-    { cwd },
-  );
-  return stdout.trim();
-}
+import { git } from './fixtures/git.js';
 
 /**
  * a checkout on `main` tracking a bare origin, in its own scratch root so its `<main>-<i>` slots are removed with it.

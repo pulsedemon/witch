@@ -1,37 +1,18 @@
 import assert from 'node:assert/strict';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-import { fixture, close } from './fixtures/codex-adapter.js';
+import { close, fixture, frameWriter } from './fixtures/codex-adapter.js';
 import { until, within } from './fixtures/within.js';
 
 async function scripted() {
   const events: AgentEvent[] = [];
   const f = await fixture((e) => events.push(e), { mode: 'compaction' });
-  let sequence = 0;
-  const emit = async (...frames: RpcMessage[]) => {
-    const index = ++sequence;
-    const text = `barrier ${index}`;
-    await writeFile(
-      join(f.cwd, 'events.next'),
-      JSON.stringify([
-        ...frames,
-        {
-          method: 'error',
-          params: { error: { message: text }, willRetry: true },
-        },
-      ]),
-    );
-    await rename(
-      join(f.cwd, 'events.next'),
-      join(f.cwd, `events-${index}.json`),
-    );
-    await until(text, () =>
-      events.some((e) => e.type === 'notice' && e.text === text),
-    );
-  };
+  const emit = frameWriter(f.cwd, (text) =>
+    events.some((e) => e.type === 'notice' && e.text === text),
+  );
   const compact = async () => {
     let settled = false;
     const result = f.session.compact().then((r) => {

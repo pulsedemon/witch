@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { AgentEvent, UserRequest } from '../src/agents/types.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
-import { fixture, close } from './fixtures/codex-adapter.js';
+import { close, fixture, frameWriter } from './fixtures/codex-adapter.js';
 import { until } from './fixtures/within.js';
 
 const proposal = (
@@ -60,26 +60,9 @@ async function approvalsFixture() {
   const context = await fixture((event) => events.push(event), {
     mode: 'file-approvals',
   });
-  let sequence = 0;
-  const emit = async (...frames: RpcMessage[]) => {
-    const index = ++sequence;
-    const barrier = `approval barrier ${index}`;
-    const file = join(context.cwd, `events-${index}.json`);
-    await writeFile(
-      `${file}.next`,
-      JSON.stringify([
-        ...frames,
-        {
-          method: 'error',
-          params: { willRetry: true, error: { message: barrier } },
-        },
-      ]),
-    );
-    await rename(`${file}.next`, file);
-    await until(barrier, () =>
-      events.some((event) => event.type === 'notice' && event.text === barrier),
-    );
-  };
+  const emit = frameWriter(context.cwd, (text) =>
+    events.some((event) => event.type === 'notice' && event.text === text),
+  );
   const request = (id: number): UserRequest => {
     const event = events.find(
       (event) => event.type === 'request' && event.request.id === String(id),
