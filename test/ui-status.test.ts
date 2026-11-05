@@ -287,9 +287,9 @@ for (const height of [20, 19, 15])
           [rows[0], rows[1], rows[2], rows[5], rows[6], rows[8]],
           [
             'FAMILIARS',
-            '● ASTRA REVIEW',
+            '● astra review',
             '  codex · gpt-6-astra',
-            '● OPUS REVIEW',
+            '● opus review',
             '  claude · claude-opus-5-5',
             '  Read source',
           ],
@@ -300,7 +300,7 @@ for (const height of [20, 19, 15])
           [
             'FAMILIARS',
             '+1 MORE',
-            '● OPUS REVIEW',
+            '● opus review',
             '  claude · claude-opus-5-5',
             '  Read source',
           ],
@@ -360,7 +360,7 @@ for (const height of [21, 20, 16])
           false,
         );
       } else {
-        const index = rows.indexOf('  ● INSPECT TESTS');
+        const index = rows.indexOf('  ● inspect tests');
         assert.ok(index > 0);
         assert.deepEqual(rows.slice(index + 1, index + 3), [
           '    claude ·',
@@ -368,7 +368,7 @@ for (const height of [21, 20, 16])
         ]);
         assert.match(rows[index + 3]!, /^ {4}\d+S \| 3 TOOLS$/);
         assert.equal(rows[index + 4], '    Read tests');
-        assert.equal(rows.includes('● INSPECT SOURCE'), height === 21);
+        assert.equal(rows.includes('● inspect source'), height === 21);
         if (height === 20) {
           assert.equal(rows[1], '+1 MORE');
           coordinator.publish({
@@ -383,7 +383,7 @@ for (const height of [21, 20, 16])
           );
           const updated = sidebarRows(ui.text());
           assert.equal(updated.includes('+1 MORE'), false);
-          assert.ok(updated.includes('● INSPECT SOURCE'));
+          assert.ok(updated.includes('● inspect source'));
           assert.equal(updated.filter((row) => row.includes('●')).length, 2);
         }
       }
@@ -494,13 +494,13 @@ test('the sidebar lists only running familiars, depth first under the familiar t
     assert.match(rows[8]!, /^ {2}\dS \| 0 TOOLS$/);
     assert.deepEqual(rows, [
       'FAMILIARS',
-      '● MAP CODE Explore',
+      '● map code Explore',
       rows[2],
       '  Read src/a.ts',
-      '  ● READ TESTS',
+      '  ● read tests',
       rows[5],
       '    Bash $ ls',
-      '● ORPHAN',
+      '● orphan',
       rows[8],
       '',
     ]);
@@ -537,7 +537,7 @@ test("a familiar's name and kind with line breaks stay on its sidebar row", asyn
     await until('the familiars', () => ui.text().includes('FAMILIARS'));
     assert.ok(
       sidebarRows(ui.text()).some((row) =>
-        row.includes('MAP ALL Explore fast'),
+        row.includes('map all Explore fast'),
       ),
       ui.text(),
     );
@@ -600,7 +600,7 @@ test('familiars that overflow the sidebar show the last whole familiars in tree 
     // eight rows above the pentacle: the heading, the count and two familiars of three rows each
     assert.deepEqual(
       [rows[0], rows[1], rows[2], rows[5]],
-      ['FAMILIARS', '+4 MORE', '● TASK 4', '● TASK 5'],
+      ['FAMILIARS', '+4 MORE', '● task 4', '● task 5'],
     );
     assert.ok(
       rows.slice(8, 19).every((row) => /[⠁-⣿]/.test(row)),
@@ -646,9 +646,9 @@ test('the sidebar lists running brews above the familiars, each with what it is 
     // a description that wrapped would push FAMILIARS down
     assert.deepEqual(sidebarRows(ui.text()).slice(0, 4), [
       'BREWS',
-      '● START THE DOCUMENTATION DEVEL…',
+      '● start the documentation devel…',
       'FAMILIARS',
-      '● MAP CODE',
+      '● map code',
     ]);
     coordinator.publish({ backgroundCommands: [] });
     await until('no brews', () => !ui.text().includes('BREWS'));
@@ -680,12 +680,12 @@ test('brews take the sidebar rows first and show their last whole brews under a 
     assert.deepEqual(above(), [
       'BREWS',
       '+2 MORE',
-      '● BREW 3',
-      '● BREW 4',
-      '● BREW 5',
-      '● BREW 6',
-      '● BREW 7',
-      '● BREW 8',
+      '● brew 3',
+      '● brew 4',
+      '● brew 5',
+      '● brew 6',
+      '● brew 7',
+      '● brew 8',
     ]);
 
     coordinator.publish({ subagents: [familiar('1', 'task 1')] });
@@ -693,10 +693,10 @@ test('brews take the sidebar rows first and show their last whole brews under a 
     assert.deepEqual(above(), [
       'BREWS',
       '+4 MORE',
-      '● BREW 5',
-      '● BREW 6',
-      '● BREW 7',
-      '● BREW 8',
+      '● brew 5',
+      '● brew 6',
+      '● brew 7',
+      '● brew 8',
       'FAMILIARS',
       '+1 MORE',
     ]);
@@ -705,16 +705,16 @@ test('brews take the sidebar rows first and show their last whole brews under a 
       backgroundCommands: [1, 2].map(brew),
       subagents: [familiar('1', 'task 1'), familiar('2', 'task 2')],
     });
-    await until('the second familiar', () => ui.text().includes('● TASK 2'));
+    await until('the second familiar', () => ui.text().includes('● task 2'));
     const rows = above();
     assert.match(rows[6]!, /^ {2}\dS \| 0 TOOLS$/);
     assert.deepEqual(rows, [
       'BREWS',
-      '● BREW 1',
-      '● BREW 2',
+      '● brew 1',
+      '● brew 2',
       'FAMILIARS',
       '+1 MORE',
-      '● TASK 2',
+      '● task 2',
       rows[6],
       '',
     ]);
