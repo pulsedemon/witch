@@ -95,19 +95,27 @@ test("a head branch GitHub deletes after the first fetch goes, even past the del
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
-test("a head branch the repository keeps after merging goes at once, unless its remote branch moved, it's the default branch or a fork's, or the repository deletes merged branches or its settings can't be read", async () => {
+test("a head branch the repository keeps after merging goes at once, unless its remote branch moved before or during the lookup, it's the default branch or a fork's, or the repository deletes merged branches or its settings can't be read", async () => {
   // the default branch waits out GitHub's deletion like any branch the repository might delete
   for (const { gh, moved, ago, result, cleaned } of [
     {
       gh: answering('false\nmain\nfalse\n'),
-      moved: false,
+      moved: '',
       ago: 0,
       cleaned: true,
       result: '#7 merged: switched to main and pulled, deleted branch feat/x.',
     },
     {
       gh: answering('false\nmain\nfalse\n'),
-      moved: true,
+      moved: 'before',
+      ago: 0,
+      cleaned: false,
+      result:
+        "#7 merged, but feat/x's remote branch has changed since, so it stays.",
+    },
+    {
+      gh: answering('false\nmain\nfalse\n'),
+      moved: 'during',
       ago: 0,
       cleaned: false,
       result:
@@ -115,21 +123,21 @@ test("a head branch the repository keeps after merging goes at once, unless its 
     },
     {
       gh: answering('false\nfeat/x\nfalse\n'),
-      moved: false,
+      moved: '',
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
       gh: answering('true\nmain\nfalse\n'),
-      moved: false,
+      moved: '',
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
       gh: answering('null\nmain\nfalse\n'),
-      moved: false,
+      moved: '',
       ago: 60_000,
       cleaned: false,
       result:
@@ -137,7 +145,7 @@ test("a head branch the repository keeps after merging goes at once, unless its 
     },
     {
       gh: answering('false\nnull\nfalse\n'),
-      moved: false,
+      moved: '',
       ago: 60_000,
       cleaned: false,
       result:
@@ -145,14 +153,14 @@ test("a head branch the repository keeps after merging goes at once, unless its 
     },
     {
       gh: answering('false\nmain\ntrue\n'),
-      moved: false,
+      moved: '',
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
       gh: failing,
-      moved: false,
+      moved: '',
       ago: 60_000,
       cleaned: false,
       result:
@@ -160,7 +168,7 @@ test("a head branch the repository keeps after merging goes at once, unless its 
     },
     {
       gh: 'exit 3',
-      moved: false,
+      moved: '',
       ago: 60_000,
       cleaned: false,
       result:
@@ -169,13 +177,18 @@ test("a head branch the repository keeps after merging goes at once, unless its 
   ]) {
     const { root, origin, checkout, other, tip } = await merged();
     await merge(other, 'feat/x', true);
+    let script = gh;
     if (moved) {
       await git(other, 'switch', 'feat/x');
       await git(other, 'commit', '--allow-empty', '-m', 'after');
-      await git(other, 'push', 'origin', 'feat/x');
+      // a push that lands while gh answers
+      if (moved === 'during') {
+        await git(other, 'push', 'origin', 'feat/x:later');
+        script = `git -C ${quote(origin)} update-ref refs/heads/feat/x refs/heads/later\n${gh}`;
+      } else await git(other, 'push', 'origin', 'feat/x');
     }
     const mergedAt = new Date(Date.now() - ago).toISOString();
-    const outcome = await withGh(root, gh, () =>
+    const outcome = await withGh(root, script, () =>
       within(
         cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
         5000,

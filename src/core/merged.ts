@@ -463,8 +463,8 @@ async function clean(
         unread = errorMessage(error).trim();
         return false;
       }));
-    // GitHub can delete the branch while the lookup runs, so a branch it doesn't keep is fetched again
-    if (!keeps && onRemote()) [upstream, tracking, merges] = await track();
+    // GitHub can delete the branch, or someone push to it, while the lookup runs
+    if (onRemote()) [upstream, tracking, merges] = await track();
     while (!keeps && onRemote() && deleting(pullRequest)) {
       await delay(2000, undefined, { signal }).catch(() =>
         signal?.throwIfAborted(),
