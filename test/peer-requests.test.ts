@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
+import { utimes } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'vitest';
 import type { ClaimOwner } from '../src/core/coordination-state.js';
 import { peerRequestStatus } from '../src/core/peer-requests.js';
@@ -354,28 +355,24 @@ test('requests are isolated by project and party', async () => {
 });
 
 test('a batch whose requests already have answers writes nothing, even past its deadline', async () => {
-  const [store] = await stores();
+  const root = await scratch('witch-peer-requests-');
+  const store = await CoordinationStore.open(await StateStore.open(root));
   const claimB = await claim(store!, b, 'b');
-  const request = await store!.askPeer(
+  const request = await store.askPeer(
     a,
     claimB.id,
     'first',
     deadline(),
     verify,
   );
-  await store!.answerPeer('b', request.id, 'manual answer', deadline());
-  // a coarse filesystem clock could otherwise give a second write the same mtime
-  await delay(20);
-  const before = store!.signature();
+  await store.answerPeer('b', request.id, 'manual answer', deadline());
+  // backdated, so a write shows as a new mtime whatever the filesystem clock's resolution
+  for (const directory of ['coordination', 'coordination/sessions'])
+    await utimes(join(root, directory), 0, 0);
+  const before = store.signature();
   const answers = [{ id: request.id, message: 'automatic' }];
-  assert.deepEqual(
-    await store!.answerPeers('b', answers, deadline(), true),
-    [],
-  );
-  assert.equal(store!.signature(), before);
+  assert.deepEqual(await store.answerPeers('b', answers, deadline(), true), []);
+  assert.equal(store.signature(), before);
   expireAfterLock();
-  assert.deepEqual(
-    await store!.answerPeers('b', answers, deadline(), true),
-    [],
-  );
+  assert.deepEqual(await store.answerPeers('b', answers, deadline(), true), []);
 });
