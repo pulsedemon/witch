@@ -222,19 +222,32 @@ test('unread coordination context never becomes queued user work', async (t) => 
   }
 });
 
-test('compaction leaves a pending policy for the next fresh context', async (t) => {
+test('a compaction inside a turn keeps claim policy current', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const { start } = await coordinationFixture(cleanup);
   const a = await start();
   const gate = new TurnGate();
   a.a.gate = gate;
   const sending = a.coordinator.send('Current task');
+  const compact = async () => {
+    const before = a.a.contextSteers.length;
+    a.a.sessions[0]!.options.onEvent({ type: 'compacted' });
+    await until('resent context', () => a.a.contextSteers.length > before);
+    return a.a.contextSteers.at(-1)!;
+  };
   try {
     await within(gate.entered, 5000, 'solo turn');
-    a.a.sessions[0]!.options.onEvent({ type: 'compacted' });
+    assert.doesNotMatch(await compact(), /Claim coordination is required/);
     await start('B');
     await a.query();
-    assert.deepEqual(a.a.contextSteers, []);
+    await until('policy update', () =>
+      a.a.contextSteers.some((text) =>
+        /^Witch coordination update:\nClaim coordination is required/.test(
+          text,
+        ),
+      ),
+    );
+    assert.match(await compact(), /Claim coordination is required/);
     assert.deepEqual(a.coordinator.snapshot.queue, []);
   } finally {
     gate.open();

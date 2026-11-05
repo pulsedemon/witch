@@ -88,6 +88,73 @@ test('automatic native replacement cannot be undone by successful ordinary-turn 
   }
 });
 
+test('a compaction inside a turn steers memory and the fixed instructions back into it', async () => {
+  const f = await fixture(),
+    c = f.coordinator,
+    gate = new TurnGate();
+  try {
+    await c.send('remember-port');
+    await c.send('latest revision');
+    f.a.gate = gate;
+    const turn = c.send('long turn');
+    await within(gate.entered, 3000, 'turn start');
+    assert.equal(f.a.inputs.at(-1)!.context, undefined);
+    f.a.sessions.at(-1)!.options.onEvent({ type: 'compacted' });
+    await until('resent context', () => f.a.contextSteers.length === 1);
+    const [resent] = f.a.contextSteers;
+    assert.match(resent!, /^Witch context, sent again after/);
+    assert.match(resent!, /You are running inside Witch/);
+    assert.match(resent!, /Accepted shared memory/);
+    assert.match(resent!, /Use port 4567/);
+    gate.open();
+    await turn;
+    const record = await readRecord(f.root, c.snapshot.conversation!.id);
+    assert.equal(record.lastTurn?.status, 'completed');
+  } finally {
+    gate.open();
+    await c.close();
+  }
+});
+
+test('a compaction inside a turn resends once a refused steer is admitted after the compaction completes', async () => {
+  const f = await fixture(),
+    c = f.coordinator,
+    gate = new TurnGate();
+  try {
+    await c.send('remember-port');
+    f.a.gate = gate;
+    const parent = c.send('parent result');
+    await within(gate.entered, 3000, 'turn start');
+    f.a.replied = true;
+    const native = f.a.sessions.at(-1)!,
+      completed = Promise.withResolvers<TurnResult>();
+    native.session.compactDuringTurn = () => completed.promise;
+    let refused = 0;
+    const steer = native.session.steer.bind(native.session);
+    native.session.steer = async (prompt, options) => {
+      if (f.a.refuseSteer && options?.contextOnly) refused++;
+      return steer(prompt, options);
+    };
+    // Claude refuses steering while its manual compaction runs
+    f.a.refuseSteer = true;
+    const compact = c.compact();
+    native.options.onEvent({ type: 'compacted' });
+    await until('refused resend', () => refused === 1);
+    assert.deepEqual(f.a.contextSteers, []);
+    f.a.refuseSteer = false;
+    completed.resolve({ status: 'completed', text: '' });
+    assert.equal(await within(compact, 3000, 'busy compact'), true);
+    await until('resent context', () => f.a.contextSteers.length === 1);
+    assert.match(f.a.contextSteers[0]!, /You are running inside Witch/);
+    assert.match(f.a.contextSteers[0]!, /Use port 4567/);
+    gate.open();
+    await parent;
+  } finally {
+    gate.open();
+    await c.close();
+  }
+});
+
 for (const outcome of [
   'cancelled',
   'failed',

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { aborted, errorMessage } from '../agents/stderr.js';
-import type { TurnResult } from '../agents/types.js';
+import type { AgentSession, TurnResult } from '../agents/types.js';
 import type { Memory, MemoryScope } from '../memory/memory.js';
 import type { Workspace } from '../memory/workspace.js';
 import type { ConversationStore } from '../persistence/store.js';
@@ -175,7 +175,8 @@ export class TurnRunner {
       const pendingContext = automatic
         ? undefined
         : this.pendingContext.get(conversation.id);
-      const context = () =>
+      // a resend inside the turn reads the current claim policy and omits the parts that describe output above its prompt
+      const context = async (resent = false) =>
         nativePrompt({
           prompt,
           memory: this.memory,
@@ -184,9 +185,11 @@ export class TurnRunner {
           revision: activity.baseRevision,
           reference: conversation.sessions[conversation.agent]!,
           pendingHandoff,
-          coordination,
-          pendingContext,
-          command,
+          coordination: resent
+            ? await this.coordination?.context(scope.project)
+            : coordination,
+          pendingContext: resent ? undefined : pendingContext,
+          command: resent ? undefined : command,
           familiarCommand:
             session.familiar && this.coordination
               ? {
@@ -313,16 +316,21 @@ export class TurnRunner {
               this.coordination,
               kind === 'turn' ? coordination?.snapshot : undefined,
               (text) =>
-                !this.host.cancelled() &&
-                this.link.session === session &&
-                generation === this.link.generation
+                !this.host.cancelled() && this.link.session === session
                   ? session.steer(text, { contextOnly: true })
                   : Promise.resolve(false),
+            );
+            const stopResend = this.resendAfterCompaction(
+              session,
+              async () => (await context(true)).context,
             );
             // before any await, so these steers go ahead of a prompt sent once the turn runs, whose steer can wait for this turn to end
             if (queued && command === undefined)
               steering = this.host.steerQueued();
-            result = await sending.finally(stopPolicy);
+            result = await sending.finally(() => {
+              stopPolicy?.();
+              stopResend();
+            });
             if (requests)
               await recordPeerAnswers(result, requests, this.coordination!);
           }
@@ -386,6 +394,42 @@ export class TurnRunner {
         if (batch) await rm(batch.file, { force: true });
       }
     }
+  }
+
+  /**
+   * a compaction inside a turn drops memory and the fixed instructions, so they go back in before its next model
+   * request. a refused steer or failed read leaves them to the next turn, which compaction left undelivered.
+   */
+  private resendAfterCompaction(
+    session: AgentSession,
+    context: () => Promise<string | undefined>,
+  ): () => void {
+    let stopped = false;
+    const live = () =>
+      !stopped && !this.host.cancelled() && this.link.session === session;
+    const resend = async () => {
+      const text = await context();
+      if (!text || !live()) return;
+      const steer = () =>
+        session.steer(
+          `Witch context, sent again after the conversation compacted:\n\n${text}`,
+          { contextOnly: true },
+        );
+      // Claude takes no steer until a manual compaction completes
+      if (await steer()) return;
+      await this.compaction.busy;
+      if (live()) await steer();
+    };
+    const unsubscribe = this.link.onCompacted(
+      () =>
+        void resend().catch((error: unknown) =>
+          this.host.notice(errorMessage(error)),
+        ),
+    );
+    return () => {
+      stopped = true;
+      unsubscribe();
+    };
   }
 
   compact(read?: MemoryScope): Promise<TurnResult> {
