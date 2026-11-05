@@ -2,25 +2,23 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
-import type { TestContext } from 'vitest';
 import type { AccountReading } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
-import * as github from '../src/core/github-reviews.js';
 import { callControl } from '../src/persistence/control.js';
 import { StateStore } from '../src/persistence/store.js';
-import { FixtureAgent, TurnGate } from './fixtures/agent.js';
+import { FixtureAgent, holdConnect, TurnGate } from './fixtures/agent.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import {
   coordinationFixture,
-  git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { hookedGit, passThrough } from './fixtures/git.js';
 import { png } from './fixtures/png.js';
-import { reviewSource } from './fixtures/github-reviews.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
 import { until, within } from './fixtures/within.js';
+import { setup } from './fixtures/copilot-reviews.js';
+import { notices } from './fixtures/coordinator.js';
 
 const continuation =
   'Continue the task described by the handoff context. Check the working files before relying on statements about their state.';
@@ -82,11 +80,6 @@ async function exhaustion(
   };
   return { coordinator, claude, codex, store, memory, hook, reopen };
 }
-
-const notices = (coordinator: Coordinator) =>
-  coordinator.snapshot.items
-    .filter(({ kind }) => kind === 'notice')
-    .map(({ text }) => text);
 
 /** sends `First`, which runs out of usage, with `Queued` waiting behind it. */
 async function exhaustWithQueue(
@@ -734,12 +727,9 @@ test('after a restart before activation, the next exhausted prompt switches once
   const connecting = Promise.withResolvers<void>();
   let restarted: Coordinator | undefined;
   try {
-    codex.beforeConnect = async (options) => {
-      connecting.resolve();
-      await new Promise((resolve) =>
-        options.signal?.addEventListener('abort', resolve, { once: true }),
-      );
-    };
+    codex.beforeConnect = holdConnect(connecting, undefined, {
+      onAbort: 'resolve',
+    });
     claude.exhaust = (prompt) => /First|Second/.test(prompt);
     const sending = coordinator.send('First');
     await within(connecting.promise, 2000, 'the destination connect');
@@ -840,44 +830,9 @@ test('an exhausted answer turn does not switch', async (t) => {
   assert.equal(owner.b.sessions.length, 0);
 });
 
-/** a conversation watching its open pull request for Copilot feedback, as the review tests set one up. */
-async function watching(t: TestContext) {
-  const register = orderedCleanup(t.onTestFinished);
-  const source = reviewSource();
-  vi.spyOn(github, 'readGitHubReviews').mockImplementation(async () =>
-    structuredClone(source),
-  );
-  const f = await coordinationFixture(register, async (references) => ({
-    assigned: references,
-  }));
-  const packets = await scratch('witch-review-packets-');
-  vi.stubEnv('TMPDIR', packets);
-  register(() => {
-    vi.unstubAllEnvs();
-  });
-  const client = await f.start('A');
-  const { coordinator } = client;
-  const cwd = coordinator.snapshot.conversation!.cwd;
-  await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
-  const repository = {
-    branch: 'feat/reviews',
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    conflicts: 0,
-    untracked: 0,
-    pullRequest: { ...source.pullRequest },
-    pullRequestProject: (await f.memory.scopePaths(cwd)).project,
-  };
-  client.coordination.updateRepository(repository);
-  coordinator.copilot.updateRepository(repository);
-  await client.claim(source.closingIssues[0]!);
-  return { ...client, source };
-}
-
 test('an exhausted Copilot review turn does not switch', async (t) => {
-  const { coordinator, a, b, source } = await watching(t);
+  const { a: client, source } = await setup(t);
+  const { coordinator, a, b } = client;
   a.exhaust = () => true;
   await coordinator.copilot.observe(structuredClone(source));
   await until(

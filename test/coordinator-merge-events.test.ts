@@ -15,6 +15,7 @@ import { CoordinationStore } from '../src/persistence/coordination.js';
 import { TurnGate } from './fixtures/agent.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { until, within } from './fixtures/within.js';
+import { repositoryRead } from './fixtures/repository.js';
 
 const merged: PullRequest = {
   number: 17,
@@ -24,16 +25,13 @@ const merged: PullRequest = {
   base: 'release',
   commit: 'head-23',
 };
-const repository = (pullRequest = merged): Repository => ({
-  branch: pullRequest.branch,
-  ahead: 0,
-  behind: 0,
-  staged: 1,
-  modified: 1,
-  conflicts: 0,
-  untracked: 0,
-  pullRequest,
-});
+const repository = (pullRequest = merged): Repository =>
+  repositoryRead({
+    branch: pullRequest.branch,
+    staged: 1,
+    modified: 1,
+    pullRequest,
+  });
 async function observe(
   client: { coordinator: Coordinator; coordination: SessionCoordination },
   pullRequest = merged,

@@ -9,7 +9,7 @@ import { main } from '../src/memory/memory.js';
 import type { SessionInfo } from '../src/agents/types.js';
 import type { ConversationRecord } from '../src/core/state.js';
 import { ConversationStore } from '../src/persistence/store.js';
-import { TurnGate } from './fixtures/agent.js';
+import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { record, readRecord, fixture } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 
@@ -774,12 +774,9 @@ test('a handoff cancelled during the destination connect keeps the source', asyn
   const context = await handoffFixture();
   const { coordinator, b } = context;
   const connecting = Promise.withResolvers<void>();
-  b.beforeConnect = async (options) => {
-    connecting.resolve();
-    await new Promise((resolve) =>
-      options.signal?.addEventListener('abort', resolve, { once: true }),
-    );
-  };
+  b.beforeConnect = holdConnect(connecting, undefined, {
+    onAbort: 'resolve',
+  });
   try {
     const switching = coordinator.selectModel({ agent: 'b', id: 'b-model' });
     await within(connecting.promise, 2000, 'the destination connect');

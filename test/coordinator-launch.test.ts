@@ -17,7 +17,7 @@ import { Coordinator } from '../src/core/coordinator.js';
 import type { Conversation, ConversationRecord } from '../src/core/state.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
-import { FixtureAgent } from './fixtures/agent.js';
+import { FixtureAgent, holdConnect } from './fixtures/agent.js';
 import {
   record,
   activity,
@@ -845,10 +845,7 @@ test('an interrupt while a chosen model connects keeps the stored one', async ()
     await a.sessions.at(-1)!.session.close();
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    a.beforeConnect = async () => {
-      entered.resolve();
-      await release.promise;
-    };
+    a.beforeConnect = holdConnect(entered, release);
     const selecting = coordinator.selectModel({ agent: 'a', id: 'a-new' });
     await within(entered.promise, 3000, 'the connect');
     const interrupting = coordinator.interrupt();

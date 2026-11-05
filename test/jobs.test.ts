@@ -60,15 +60,16 @@ function commandRows(group: number, identity: string): Row[] {
   ];
 }
 
-async function leaders(pids: number[]) {
-  return pids.map((pid) => ({
+/** describes each process as the leader of `pgid`, or of its own group without one. */
+const groupLeaders = (pgid?: number) => async (pids: number[]) =>
+  pids.map((pid) => ({
     pid,
-    pgid: pid,
+    pgid: pgid ?? pid,
     cpu: 0,
     startedAt: 0,
     command: '',
   }));
-}
+const leaders = groupLeaders();
 
 test("jobs are the groups an agent's commands start, one stays listed after its leader exits, and stop kills a member that ignores SIGTERM and leaves other groups alone", async () => {
   const jobs = new JobWatch({ interval: 50, grace: 300 });
@@ -793,26 +794,12 @@ test('a group handed to track while a read runs is a job at the next read and af
 
 test('a handed group stays a job while any process holds its id, and once a read finds it empty, a later group given its id is not', async () => {
   // each orphan is new to its read, so only the handed group reaches it
-  const orphan = (pid: number): Row => ({
-    pid,
-    ppid: 1,
-    pgid: 100000,
-    name: 'node',
-    leadsSession: false,
-    identity: `${pid} a`,
-  });
+  const orphan = (pid: number) => orphanRow(pid, 100000);
   const tables = [[orphan(100001)], [orphan(100002)], [], [orphan(100000)]];
   const jobs = new JobWatch({
     interval: 60_000,
     processes: async () => tables.shift()!,
-    describe: async (pids) =>
-      pids.map((pid) => ({
-        pid,
-        pgid: 100000,
-        cpu: 0,
-        startedAt: 0,
-        command: '',
-      })),
+    describe: groupLeaders(100000),
   });
   try {
     jobs.track(100000);
@@ -970,14 +957,7 @@ test("a report written while a read's ps runs is a job at the next read, and sta
     directory,
     interval: 60_000,
     processes: () => tables.shift()!(),
-    describe: async (pids) =>
-      pids.map((pid) => ({
-        pid,
-        pgid: 100000,
-        cpu: 0,
-        startedAt: 0,
-        command: '',
-      })),
+    describe: groupLeaders(100000),
     marked: async () => [],
   });
   try {
@@ -1074,14 +1054,7 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
     directory: await scratch('witch-jobs-'),
     interval: 60_000,
     processes: async () => tables.shift()!,
-    describe: async (pids) =>
-      pids.map((pid) => ({
-        pid,
-        pgid: 100020,
-        cpu: 0,
-        startedAt: 0,
-        command: '',
-      })),
+    describe: groupLeaders(100020),
     marked: async (pids) => pids.filter((pid) => pid === 100021),
   });
   try {
@@ -1092,12 +1065,12 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
   }
 });
 
-/** a process launchd adopted, alone in a group of its own. */
-function orphanRow(pid: number): Row {
+/** a process launchd adopted, alone in a group of its own unless given `pgid`. */
+function orphanRow(pid: number, pgid = pid): Row {
   return {
     pid,
     ppid: 1,
-    pgid: pid,
+    pgid,
     name: 'node',
     leadsSession: false,
     identity: `${pid} a`,

@@ -34,6 +34,7 @@ import {
 import { scratch } from './fixtures/scratch.js';
 import { readRecord } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
+import { repositoryRead } from './fixtures/repository.js';
 
 type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
 type Client = Awaited<ReturnType<Fixture['start']>>;
@@ -680,17 +681,13 @@ test('answer turns keep pending context, handoffs, merges and answers, and the c
   const { project } = await a.coordinator.memory.scopePaths(
     a.coordinator.snapshot.conversation!.cwd,
   );
-  a.coordination.updateRepository({
-    branch: merged.branch,
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    conflicts: 0,
-    untracked: 0,
-    pullRequest: merged,
-    pullRequestProject: project,
-  });
+  a.coordination.updateRepository(
+    repositoryRead({
+      branch: merged.branch,
+      pullRequest: merged,
+      pullRequestProject: project,
+    }),
+  );
   const own = await ask(b, await claimed(a, 'a-work'), 'From B?');
   await answer(a, own, 'From A');
   await until('merge and answer reach the owner', async () => {
@@ -1036,17 +1033,13 @@ test('a failed peer request read leaves merge events flowing', async (t) => {
   const { project } = await a.coordinator.memory.scopePaths(
     a.coordinator.snapshot.conversation!.cwd,
   );
-  a.coordination.updateRepository({
-    branch: merged.branch,
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    conflicts: 0,
-    untracked: 0,
-    pullRequest: merged,
-    pullRequestProject: project,
-  });
+  a.coordination.updateRepository(
+    repositoryRead({
+      branch: merged.branch,
+      pullRequest: merged,
+      pullRequestProject: project,
+    }),
+  );
   await until('merge reaches the owner', async () => {
     await refreshed(b);
     return b.coordination.events.mergeEvents(owner).length === 1;

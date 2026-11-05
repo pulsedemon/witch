@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   appendFile,
   chmod,
@@ -15,7 +15,6 @@ import {
 } from 'node:fs/promises';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import { describeMoves, repairMoves } from '../src/core/move-repair.js';
@@ -30,6 +29,7 @@ import { quote } from '../src/shell.js';
 import { record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
+import { git } from './fixtures/git.js';
 
 const ledgerCalls = vi.hoisted(() => ({
   before: undefined as (() => void) | undefined,
@@ -45,17 +45,7 @@ vi.mock('../src/persistence/directories.js', async (importOriginal) => {
   };
 });
 
-const execute = promisify(execFile);
 const darwin = process.platform === 'darwin';
-
-async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await execute(
-    'git',
-    ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
-    { cwd },
-  );
-  return stdout.trim();
-}
 
 const status = (cwd: string) => git(cwd, 'status', '--porcelain');
 

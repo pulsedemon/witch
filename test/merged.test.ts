@@ -21,15 +21,14 @@ import { openLocked } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
 import {
   branches,
-  exists,
-  git,
   idle,
   merge,
   merged,
   pullRequest,
   write,
 } from './fixtures/merged.js';
-import { within } from './fixtures/within.js';
+import { git } from './fixtures/git.js';
+import { exists, within } from './fixtures/within.js';
 
 // a developer's own ssh command would take the place of the ssh test's stand-in
 process.env.GIT_CONFIG_GLOBAL = '/dev/null';
