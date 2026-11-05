@@ -260,7 +260,7 @@ export async function runWitch(
     },
   );
   process.stdout.write(captureMouse);
-  // a closed terminal fails every write and may send SIGHUP, and the first of these stops a running Claude `!`
+  // a closed terminal fails every write and may send SIGHUP; whichever comes first stops a running Claude `!`
   // command before anything awaits
   const signals = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const;
   for (const signal of signals) process.on(signal, shutdown);
