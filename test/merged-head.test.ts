@@ -34,22 +34,20 @@ const lookup = [
   '--jq .data.repository | .deleteBranchOnMerge, .defaultBranchRef.name, .pullRequest.isCrossRepository',
 ].join(' ');
 
-/**
- * runs `body` with a `gh` on PATH that prints `settings`, the lines of deleteBranchOnMerge, the default branch and
- * isCrossRepository, for the pull request's lookup, or fails it without them.
- */
+/** a `gh` script that prints `settings`, the lines of deleteBranchOnMerge, the default branch and isCrossRepository. */
+const answering = (settings: string) =>
+  `[ "$*" = ${quote(lookup)} ] || exit 1\nprintf ${quote(settings)}`;
+
+const failing = "echo 'HTTP 502' >&2\nexit 1";
+
+/** runs `body` with `script` as the `gh` on PATH. */
 async function withGh<T>(
   root: string,
-  settings: string | undefined,
+  script: string,
   body: () => Promise<T>,
 ): Promise<T> {
   const bin = join(root, 'bin');
-  await write(
-    join(bin, 'gh'),
-    settings === undefined
-      ? `#!/bin/sh\necho 'HTTP 502' >&2\nexit 1\n`
-      : `#!/bin/sh\n[ "$*" = ${quote(lookup)} ] || exit 1\nprintf ${quote(settings)}\n`,
-  );
+  await write(join(bin, 'gh'), `#!/bin/sh\n${script}\n`);
   await chmod(join(bin, 'gh'), 0o755);
   const previousPath = process.env.PATH;
   process.env.PATH = `${bin}:${previousPath}`;
@@ -77,7 +75,7 @@ test('a head branch still on its remote once GitHub would have deleted it stays'
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
-test("a head branch GitHub deletes after the first fetch goes, even when the repository's settings can't be read", async () => {
+test("a head branch GitHub deletes after the first fetch goes, even when reading the repository's settings fails past the deletion window", async () => {
   const { root, origin, checkout, other, tip } = await merged();
   await merge(other, 'feat/x', true);
   const pack = join(root, 'upload-pack');
@@ -88,8 +86,8 @@ test("a head branch GitHub deletes after the first fetch goes, even when the rep
   );
   await execute('chmod', ['+x', pack]);
   await git(checkout, 'config', 'remote.origin.uploadpack', pack);
-  const mergedAt = new Date().toISOString();
-  const result = await withGh(root, undefined, () =>
+  const mergedAt = new Date(Date.now() - 14_500).toISOString();
+  const result = await withGh(root, `sleep 1\n${failing}`, () =>
     cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
   );
   assert.equal(typeof result === 'object' && result.cleaned, true);
@@ -99,16 +97,16 @@ test("a head branch GitHub deletes after the first fetch goes, even when the rep
 
 test("a head branch the repository keeps after merging goes at once, unless its remote branch moved, it's the default branch or a fork's, or the repository deletes merged branches or its settings can't be read", async () => {
   // the default branch waits out GitHub's deletion like any branch the repository might delete
-  for (const { settings, moved, ago, result, cleaned } of [
+  for (const { gh, moved, ago, result, cleaned } of [
     {
-      settings: 'false\nmain\nfalse\n',
+      gh: answering('false\nmain\nfalse\n'),
       moved: false,
       ago: 0,
       cleaned: true,
       result: '#7 merged: switched to main and pulled, deleted branch feat/x.',
     },
     {
-      settings: 'false\nmain\nfalse\n',
+      gh: answering('false\nmain\nfalse\n'),
       moved: true,
       ago: 0,
       cleaned: false,
@@ -116,21 +114,21 @@ test("a head branch the repository keeps after merging goes at once, unless its 
         "#7 merged, but feat/x's remote branch has changed since, so it stays.",
     },
     {
-      settings: 'false\nfeat/x\nfalse\n',
+      gh: answering('false\nfeat/x\nfalse\n'),
       moved: false,
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
-      settings: 'true\nmain\nfalse\n',
+      gh: answering('true\nmain\nfalse\n'),
       moved: false,
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
-      settings: 'null\nmain\nfalse\n',
+      gh: answering('null\nmain\nfalse\n'),
       moved: false,
       ago: 60_000,
       cleaned: false,
@@ -138,7 +136,7 @@ test("a head branch the repository keeps after merging goes at once, unless its 
         "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: deleteBranchOnMerge was null).",
     },
     {
-      settings: 'false\nnull\nfalse\n',
+      gh: answering('false\nnull\nfalse\n'),
       moved: false,
       ago: 60_000,
       cleaned: false,
@@ -146,19 +144,27 @@ test("a head branch the repository keeps after merging goes at once, unless its 
         "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: the default branch was missing).",
     },
     {
-      settings: 'false\nmain\ntrue\n',
+      gh: answering('false\nmain\ntrue\n'),
       moved: false,
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
-      settings: undefined,
+      gh: failing,
       moved: false,
       ago: 60_000,
       cleaned: false,
       result:
         "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: HTTP 502).",
+    },
+    {
+      gh: 'exit 3',
+      moved: false,
+      ago: 60_000,
+      cleaned: false,
+      result:
+        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: gh exited with code 3).",
     },
   ]) {
     const { root, origin, checkout, other, tip } = await merged();
@@ -169,7 +175,7 @@ test("a head branch the repository keeps after merging goes at once, unless its 
       await git(other, 'push', 'origin', 'feat/x');
     }
     const mergedAt = new Date(Date.now() - ago).toISOString();
-    const outcome = await withGh(root, settings, () =>
+    const outcome = await withGh(root, gh, () =>
       within(
         cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
         5000,
