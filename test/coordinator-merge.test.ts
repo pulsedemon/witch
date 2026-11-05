@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import { watchMerges } from '../src/core/merged.js';
 import type { MergeCleanup } from '../src/core/merged.js';
-import type { PullRequest, Repository } from '../src/core/repository.js';
+import type { Repository } from '../src/core/repository.js';
 import { openLocked } from '../src/persistence/lock.js';
 import { identifyProcess, ps } from '../src/persistence/process.js';
 import type { ConversationStore } from '../src/persistence/store.js';
@@ -24,32 +24,9 @@ import {
 } from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
-
-const gitIn = async (cwd: string, ...args: string[]) =>
-  (
-    await promisify(execFile)(
-      'git',
-      [
-        '-c',
-        'init.defaultBranch=main',
-        '-c',
-        'user.name=t',
-        '-c',
-        'user.email=t@t',
-        ...args,
-      ],
-      { cwd },
-    )
-  ).stdout.trim();
-
-const mergedPullRequest = (commit: string): PullRequest => ({
-  number: 7,
-  url: 'https://x.test/7',
-  state: 'MERGED',
-  branch: 'feat/x',
-  commit,
-  base: 'main',
-});
+import { git } from './fixtures/git.js';
+import { repositoryRead } from './fixtures/repository.js';
+import { pullRequest } from './fixtures/merged.js';
 
 const kept =
   "#7 merged, but feat/x's last commit isn't the one it merged, so it stays.";
@@ -57,8 +34,8 @@ const kept =
 test('a merge cleanup holds the phase and spins the pentacle, a prompt sent during it runs after it, and its notice says what it did', async () => {
   const { coordinator, a, project } = await fixture();
   try {
-    await gitIn(project, 'init', '-q', '-b', 'feat/x');
-    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(project, 'init', '-q', '-b', 'feat/x');
+    await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
     let queued = false;
     const spinning: boolean[] = [];
     let sent: Promise<void> | undefined;
@@ -69,7 +46,7 @@ test('a merge cleanup holds the phase and spins the pentacle, a prompt sent duri
       if (coordinator.snapshot.queue.includes('After')) queued = true;
     });
     const acted = await coordinator.cleanUpMerge(
-      mergedPullRequest('0'.repeat(40)),
+      pullRequest('0'.repeat(40)),
       project,
     );
     assert.equal(acted, true);
@@ -87,20 +64,13 @@ test('a merge cleanup holds the phase and spins the pentacle, a prompt sent duri
 
 test('a turn that ends with a prompt queued runs that prompt before the merge cleanup', async () => {
   const { coordinator, a, project } = await fixture();
-  await gitIn(project, 'init', '-q', '-b', 'feat/x');
-  await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+  await git(project, 'init', '-q', '-b', 'feat/x');
+  await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
   const gate = new TurnGate();
   const repository = {
-    snapshot: {
-      branch: 'feat/x',
-      ahead: 0,
-      behind: 0,
-      staged: 0,
-      modified: 0,
-      conflicts: 0,
-      untracked: 0,
-      pullRequest: mergedPullRequest('0'.repeat(40)),
-    } as Repository,
+    snapshot: repositoryRead({
+      pullRequest: pullRequest('0'.repeat(40)),
+    }) as Repository,
     subscribe: () => () => {},
   };
   let stop = () => {};
@@ -137,13 +107,13 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
   const left: ConversationStore[] = [];
   try {
     await other.initialize(project);
-    await gitIn(project, 'init', '-q', '-b', 'feat/x');
-    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(project, 'init', '-q', '-b', 'feat/x');
+    await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
     agent.gate = gate;
     const sending = other.send('Start');
     await within(gate.entered, 2000, 'the other turn');
     assert.equal(
-      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
       false,
     );
     assert.deepEqual(notices(coordinator), []);
@@ -161,7 +131,7 @@ test("a merge cleanup waits for another Witch's turn in its directory, but not f
       await files.save(files.record);
     }
     assert.equal(
-      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
       true,
     );
     assert.deepEqual(notices(coordinator), [kept]);
@@ -184,35 +154,28 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
   let sending: Promise<void> | undefined;
   try {
     const origin = join(root, 'origin.git');
-    await gitIn(root, 'init', '--bare', origin);
-    await gitIn(root, 'clone', origin, project);
-    await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
-    await gitIn(project, 'push', '-u', 'origin', 'main');
-    await gitIn(project, 'switch', '-c', 'feat/x');
-    await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
-    await gitIn(project, 'push', '-u', 'origin', 'feat/x');
-    const tip = await gitIn(project, 'rev-parse', 'HEAD');
+    await git(root, 'init', '--bare', origin);
+    await git(root, 'clone', origin, project);
+    await git(project, 'commit', '--allow-empty', '-m', 'base');
+    await git(project, 'push', '-u', 'origin', 'main');
+    await git(project, 'switch', '-c', 'feat/x');
+    await git(project, 'commit', '--allow-empty', '-m', 'feature');
+    await git(project, 'push', '-u', 'origin', 'feat/x');
+    const tip = await git(project, 'rev-parse', 'HEAD');
     const merger = join(root, 'merger');
-    await gitIn(root, 'clone', origin, merger);
-    await gitIn(merger, 'merge', '--no-ff', '-m', 'merge', 'origin/feat/x');
-    await gitIn(merger, 'push', 'origin', 'main');
-    await gitIn(merger, 'push', 'origin', '--delete', 'feat/x');
-    const merged = await gitIn(merger, 'rev-parse', 'HEAD');
+    await git(root, 'clone', origin, merger);
+    await git(merger, 'merge', '--no-ff', '-m', 'merge', 'origin/feat/x');
+    await git(merger, 'push', 'origin', 'main');
+    await git(merger, 'push', 'origin', '--delete', 'feat/x');
+    const merged = await git(merger, 'rev-parse', 'HEAD');
     await peer.initialize(project);
     agent.gate = gate;
     sending = peer.send('Read without changing the checkout');
     await within(gate.entered, 3000, 'the peer turn');
     const repository = {
-      snapshot: {
-        branch: 'feat/x',
-        ahead: 0,
-        behind: 0,
-        staged: 0,
-        modified: 0,
-        conflicts: 0,
-        untracked: 0,
-        pullRequest: mergedPullRequest(tip),
-      } satisfies Repository,
+      snapshot: repositoryRead({
+        pullRequest: pullRequest(tip),
+      }) satisfies Repository,
       subscribe: () => () => {},
     };
     const first =
@@ -221,9 +184,7 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
     const statuses: string[] = [];
     const cleanup = coordinator.cleanUpMerge.bind(coordinator);
     coordinator.cleanUpMerge = async (...args) => {
-      statuses.push(
-        await gitIn(project, 'status', '--porcelain=v2', '--branch'),
-      );
+      statuses.push(await git(project, 'status', '--porcelain=v2', '--branch'));
       const acted = await cleanup(...args);
       first.resolve(acted);
       if (acted) completed.resolve();
@@ -239,10 +200,10 @@ test('a blocked merge cleanup retries after a peer turn ends without a repositor
     await within(completed.promise, 15_000, 'automatic cleanup');
     assert.equal(statuses.length, 2);
     assert.equal(statuses[1], statuses[0]);
-    assert.equal(await gitIn(project, 'branch', '--show-current'), 'main');
-    assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), merged);
+    assert.equal(await git(project, 'branch', '--show-current'), 'main');
+    assert.equal(await git(project, 'rev-parse', 'HEAD'), merged);
     await assert.rejects(
-      gitIn(project, 'show-ref', '--verify', '--quiet', 'refs/heads/feat/x'),
+      git(project, 'show-ref', '--verify', '--quiet', 'refs/heads/feat/x'),
       { code: 1 },
     );
     assert.deepEqual(notices(coordinator), [
@@ -264,8 +225,8 @@ test("a merge cleanup waits for another Witch's turn anywhere in its checkout, b
   ]);
   const left: ConversationStore[] = [];
   try {
-    await gitIn(project, 'init', '-q', '-b', 'feat/x');
-    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(project, 'init', '-q', '-b', 'feat/x');
+    await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
     await mkdir(join(project, 'src'));
     await other.initialize(join(project, 'src'));
     const live = (await identifyProcess(process.pid))!;
@@ -284,13 +245,13 @@ test("a merge cleanup waits for another Witch's turn anywhere in its checkout, b
     ] as const) {
       const files = await running(cwd);
       assert.equal(
-        await cleaner.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+        await cleaner.cleanUpMerge(pullRequest('0'.repeat(40))),
         false,
       );
       delete files.record.activity;
       await files.save(files.record);
       assert.equal(
-        await cleaner.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+        await cleaner.cleanUpMerge(pullRequest('0'.repeat(40))),
         true,
       );
     }
@@ -304,19 +265,19 @@ test("a merge cleanup waits for another Witch's turn anywhere in its checkout, b
 test("a merge cleanup waits while a conversation record can't be read", async () => {
   const { coordinator, store, project } = await fixture();
   try {
-    await gitIn(project, 'init', '-q', '-b', 'feat/x');
-    await gitIn(project, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(project, 'init', '-q', '-b', 'feat/x');
+    await git(project, 'commit', '-q', '--allow-empty', '-m', 'one');
     const broken = join(store.root, 'conversations', randomUUID());
     await mkdir(broken);
     await writeFile(join(broken, 'state.json'), '{');
     assert.equal(
-      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
       false,
     );
     assert.deepEqual(notices(coordinator), []);
     await rm(broken, { recursive: true });
     assert.equal(
-      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
       true,
     );
   } finally {
@@ -327,13 +288,13 @@ test("a merge cleanup waits while a conversation record can't be read", async ()
 test('a merge cleanup leaves a checkout that changed alone, and says nothing', async () => {
   const { coordinator, project } = await fixture();
   try {
-    await gitIn(project, 'init', '-q', '-b', 'feat/x');
+    await git(project, 'init', '-q', '-b', 'feat/x');
     await writeFile(join(project, 'a.txt'), 'a\n');
-    await gitIn(project, 'add', '.');
-    await gitIn(project, 'commit', '-q', '-m', 'one');
+    await git(project, 'add', '.');
+    await git(project, 'commit', '-q', '-m', 'one');
     await writeFile(join(project, 'a.txt'), 'b\n');
     assert.equal(
-      await coordinator.cleanUpMerge(mergedPullRequest('0'.repeat(40))),
+      await coordinator.cleanUpMerge(pullRequest('0'.repeat(40))),
       'changed',
     );
     assert.deepEqual(notices(coordinator), []);
@@ -347,17 +308,17 @@ test('a partial cleanup failure reaches the coordinator without a success notice
   const previousPath = process.env.PATH;
   try {
     const origin = join(root, 'origin.git');
-    await gitIn(root, 'init', '--bare', origin);
-    await gitIn(root, 'clone', origin, project);
-    await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
-    await gitIn(project, 'push', '-u', 'origin', 'main');
-    await gitIn(project, 'switch', '-c', 'feat/x');
-    await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
-    const tip = await gitIn(project, 'rev-parse', 'HEAD');
-    await gitIn(project, 'push', 'origin', 'feat/x:main');
-    await gitIn(project, 'config', 'branch.feat/x.remote', 'origin');
-    await gitIn(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
-    const expectedRevision = await gitIn(origin, 'rev-parse', 'main');
+    await git(root, 'init', '--bare', origin);
+    await git(root, 'clone', origin, project);
+    await git(project, 'commit', '--allow-empty', '-m', 'base');
+    await git(project, 'push', '-u', 'origin', 'main');
+    await git(project, 'switch', '-c', 'feat/x');
+    await git(project, 'commit', '--allow-empty', '-m', 'feature');
+    const tip = await git(project, 'rev-parse', 'HEAD');
+    await git(project, 'push', 'origin', 'feat/x:main');
+    await git(project, 'config', 'branch.feat/x.remote', 'origin');
+    await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+    const expectedRevision = await git(origin, 'rev-parse', 'main');
     const bin = join(root, 'bin');
     const realGit = (
       await promisify(execFile)('/usr/bin/which', ['git'])
@@ -379,7 +340,7 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     process.env.PATH = `${bin}:${previousPath}`;
     let rejected: Error | undefined;
     await assert.rejects(
-      coordinator.cleanUpMerge(mergedPullRequest(tip)),
+      coordinator.cleanUpMerge(pullRequest(tip)),
       (error: unknown) => {
         assert.ok(error instanceof Error);
         rejected = error;
@@ -396,12 +357,12 @@ process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).s
     assert.equal(coordinator.snapshot.error, rejected!.message);
     assert.equal(coordinator.snapshot.phase, 'idle');
     assert.deepEqual(notices(coordinator), []);
-    assert.equal(await gitIn(project, 'branch', '--show-current'), 'main');
+    assert.equal(await git(project, 'branch', '--show-current'), 'main');
     assert.equal(
-      await gitIn(project, 'branch', '--format=%(refname:short)'),
+      await git(project, 'branch', '--format=%(refname:short)'),
       'main',
     );
-    assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), expectedRevision);
+    assert.equal(await git(project, 'rev-parse', 'HEAD'), expectedRevision);
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
@@ -416,36 +377,36 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
     let lock: FileHandle | undefined;
     try {
       const a = join(root, 'a.git');
-      await gitIn(root, 'init', '-q', '--bare', a);
-      await gitIn(root, 'clone', '-q', a, project);
+      await git(root, 'init', '-q', '--bare', a);
+      await git(root, 'clone', '-q', a, project);
       await writeFile(join(project, 'a.txt'), 'a\n');
-      await gitIn(project, 'add', '.');
-      await gitIn(project, 'commit', '-q', '-m', 'base');
-      await gitIn(project, 'push', '-q', '-u', 'origin', 'main');
-      await gitIn(project, 'switch', '-q', '-c', 'feat/x');
+      await git(project, 'add', '.');
+      await git(project, 'commit', '-q', '-m', 'base');
+      await git(project, 'push', '-q', '-u', 'origin', 'main');
+      await git(project, 'switch', '-q', '-c', 'feat/x');
       await writeFile(join(project, 'x.txt'), 'x\n');
-      await gitIn(project, 'add', '.');
-      await gitIn(project, 'commit', '-q', '-m', 'x');
-      await gitIn(project, 'push', '-q', '-u', 'origin', 'feat/x');
-      const tip = await gitIn(project, 'rev-parse', 'HEAD');
+      await git(project, 'add', '.');
+      await git(project, 'commit', '-q', '-m', 'x');
+      await git(project, 'push', '-q', '-u', 'origin', 'feat/x');
+      const tip = await git(project, 'rev-parse', 'HEAD');
       const merger = join(root, 'merger');
-      await gitIn(root, 'clone', '-q', a, merger);
-      await gitIn(merger, 'merge', '-q', '--no-ff', 'origin/feat/x');
-      await gitIn(merger, 'push', '-q');
-      await gitIn(merger, 'push', '-q', 'origin', '--delete', 'feat/x');
+      await git(root, 'clone', '-q', a, merger);
+      await git(merger, 'merge', '-q', '--no-ff', 'origin/feat/x');
+      await git(merger, 'push', '-q');
+      await git(merger, 'push', '-q', 'origin', '--delete', 'feat/x');
       const install = join(root, 'install');
       if (variant === 'b') {
         const b = join(root, 'b.git');
-        await gitIn(root, 'init', '-q', '--bare', b);
-        await gitIn(root, 'clone', '-q', b, install);
+        await git(root, 'init', '-q', '--bare', b);
+        await git(root, 'clone', '-q', b, install);
       } else if (variant !== 'none') {
-        await gitIn(root, 'clone', '-q', a, install);
+        await git(root, 'clone', '-q', a, install);
         if (variant === 'a')
-          await gitIn(install, 'switch', '-q', '-c', 'elsewhere');
+          await git(install, 'switch', '-q', '-c', 'elsewhere');
         else if (variant === 'diverged') {
           // a commit the merge doesn't have, so the install can't fast-forward
-          await gitIn(install, 'reset', '-q', '--hard', 'HEAD~1');
-          await gitIn(install, 'commit', '-q', '--allow-empty', '-m', 'local');
+          await git(install, 'reset', '-q', '--hard', 'HEAD~1');
+          await git(install, 'commit', '-q', '--allow-empty', '-m', 'local');
         }
       }
       const pnpmCalls = join(root, 'pnpm-calls');
@@ -464,7 +425,7 @@ test('merge cleanup preserves its notice when the install is absent, belongs to 
         );
       }
       const cleanup = coordinator.cleanUpMerge(
-        mergedPullRequest(tip),
+        pullRequest(tip),
         variant === 'none' ? undefined : install,
       );
       if (variant === 'diverged') await assert.rejects(cleanup);
@@ -510,16 +471,16 @@ test("a merge cleanup stops before switching when another Witch's turn starts in
   let sending: Promise<void> | undefined;
   try {
     const origin = join(root, 'origin.git');
-    await gitIn(root, 'init', '--bare', origin);
-    await gitIn(root, 'clone', origin, project);
-    await gitIn(project, 'commit', '--allow-empty', '-m', 'base');
-    await gitIn(project, 'push', '-u', 'origin', 'main');
-    await gitIn(project, 'switch', '-c', 'feat/x');
-    await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
-    const tip = await gitIn(project, 'rev-parse', 'HEAD');
-    await gitIn(project, 'push', 'origin', 'feat/x:main');
-    await gitIn(project, 'config', 'branch.feat/x.remote', 'origin');
-    await gitIn(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+    await git(root, 'init', '--bare', origin);
+    await git(root, 'clone', origin, project);
+    await git(project, 'commit', '--allow-empty', '-m', 'base');
+    await git(project, 'push', '-u', 'origin', 'main');
+    await git(project, 'switch', '-c', 'feat/x');
+    await git(project, 'commit', '--allow-empty', '-m', 'feature');
+    const tip = await git(project, 'rev-parse', 'HEAD');
+    await git(project, 'push', 'origin', 'feat/x:main');
+    await git(project, 'config', 'branch.feat/x.remote', 'origin');
+    await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
     await other.initialize(project);
     const bin = join(root, 'bin');
     const realGit = (
@@ -541,7 +502,7 @@ exec '${realGit}' "$@"
       { mode: 0o755 },
     );
     process.env.PATH = `${bin}:${previousPath}`;
-    const cleanup = coordinator.cleanUpMerge(mergedPullRequest(tip));
+    const cleanup = coordinator.cleanUpMerge(pullRequest(tip));
     await until('the fetch', () =>
       readFile(join(root, 'fetching')).then(
         () => true,
@@ -554,8 +515,8 @@ exec '${realGit}' "$@"
     await writeFile(join(root, 'release'), '');
     assert.equal(await cleanup, false);
     assert.deepEqual(notices(coordinator), []);
-    assert.equal(await gitIn(project, 'branch', '--show-current'), 'feat/x');
-    assert.equal(await gitIn(project, 'rev-parse', 'feat/x'), tip);
+    assert.equal(await git(project, 'branch', '--show-current'), 'feat/x');
+    assert.equal(await git(project, 'rev-parse', 'feat/x'), tip);
   } finally {
     await writeFile(join(root, 'release'), '');
     if (previousPath === undefined) delete process.env.PATH;
@@ -576,28 +537,27 @@ async function interruptedCleanup(
   const { coordinator, root, project } = await fixture();
   const origin = join(root, 'origin.git');
   const install = worktree ? join(root, 'launcher') : project;
-  await gitIn(root, 'init', '--bare', origin);
-  await gitIn(root, 'clone', origin, install);
-  await gitIn(install, 'commit', '--allow-empty', '-m', 'base');
-  await gitIn(install, 'push', '-u', 'origin', 'main');
-  const base = await gitIn(install, 'rev-parse', 'HEAD');
-  if (worktree)
-    await gitIn(install, 'worktree', 'add', '-b', 'feat/x', project);
-  else await gitIn(project, 'switch', '-c', 'feat/x');
-  await gitIn(project, 'commit', '--allow-empty', '-m', 'feature');
-  const tip = await gitIn(project, 'rev-parse', 'HEAD');
-  await gitIn(project, 'push', 'origin', 'feat/x:main');
-  await gitIn(project, 'config', 'branch.feat/x.remote', 'origin');
-  await gitIn(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
-  await gitIn(project, 'branch', 'feat/y', 'main');
-  await gitIn(project, 'config', 'branch.feat/y.remote', 'origin');
-  await gitIn(project, 'config', 'branch.feat/y.merge', 'refs/heads/feat/y');
+  await git(root, 'init', '--bare', origin);
+  await git(root, 'clone', origin, install);
+  await git(install, 'commit', '--allow-empty', '-m', 'base');
+  await git(install, 'push', '-u', 'origin', 'main');
+  const base = await git(install, 'rev-parse', 'HEAD');
+  if (worktree) await git(install, 'worktree', 'add', '-b', 'feat/x', project);
+  else await git(project, 'switch', '-c', 'feat/x');
+  await git(project, 'commit', '--allow-empty', '-m', 'feature');
+  const tip = await git(project, 'rev-parse', 'HEAD');
+  await git(project, 'push', 'origin', 'feat/x:main');
+  await git(project, 'config', 'branch.feat/x.remote', 'origin');
+  await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+  await git(project, 'branch', 'feat/y', 'main');
+  await git(project, 'config', 'branch.feat/y.remote', 'origin');
+  await git(project, 'config', 'branch.feat/y.merge', 'refs/heads/feat/y');
   const later = join(root, 'later');
   let expectedHead = tip;
   if (stage === 'advanced') {
-    await gitIn(root, 'clone', origin, later);
-    await gitIn(later, 'commit', '--allow-empty', '-m', 'later remote commit');
-    expectedHead = await gitIn(later, 'rev-parse', 'HEAD');
+    await git(root, 'clone', origin, later);
+    await git(later, 'commit', '--allow-empty', '-m', 'later remote commit');
+    expectedHead = await git(later, 'rev-parse', 'HEAD');
   }
   const previousPath = process.env.PATH;
   const realGit = (
@@ -725,16 +685,7 @@ for (const [stage, worktree] of [
       commands,
     } = await interruptedCleanup(stage, t.onTestFinished, worktree);
     const repository: { snapshot: Repository; subscribe: () => () => void } = {
-      snapshot: {
-        branch: 'feat/x',
-        ahead: 0,
-        behind: 0,
-        staged: 0,
-        modified: 0,
-        conflicts: 0,
-        untracked: 0,
-        pullRequest: mergedPullRequest(tip),
-      },
+      snapshot: repositoryRead({ pullRequest: pullRequest(tip) }),
       subscribe: () => () => {},
     };
     const results: Awaited<ReturnType<Coordinator['cleanUpMerge']>>[] = [];
@@ -748,7 +699,7 @@ for (const [stage, worktree] of [
     const stop = watchMerges(repository, coordinator, install);
     try {
       await entered();
-      repository.snapshot.branch = await gitIn(
+      repository.snapshot.branch = await git(
         project,
         'branch',
         '--show-current',
@@ -764,14 +715,14 @@ for (const [stage, worktree] of [
       assert.deepEqual(results, ['interrupted', true]);
       assert.equal(coordinator.snapshot.error, undefined);
       assert.equal(
-        await gitIn(project, 'branch', '--show-current'),
+        await git(project, 'branch', '--show-current'),
         worktree ? '' : 'main',
       );
-      assert.equal(await gitIn(project, 'rev-parse', 'HEAD'), expectedHead);
+      assert.equal(await git(project, 'rev-parse', 'HEAD'), expectedHead);
       // the launcher, still on main, is pulled before its rebuild
-      assert.equal(await gitIn(install, 'rev-parse', 'HEAD'), expectedHead);
+      assert.equal(await git(install, 'rev-parse', 'HEAD'), expectedHead);
       assert.equal(
-        await gitIn(
+        await git(
           project,
           'for-each-ref',
           '--format=%(refname:short)',
@@ -832,7 +783,7 @@ for (const changed of ['edit', 'branch', 'commit', 'recreated branch'])
     const { coordinator, project, tip, entered, stopped, commands } =
       await interruptedCleanup('install', t.onTestFinished);
     const progress: MergeCleanup = {};
-    const request = mergedPullRequest(tip);
+    const request = pullRequest(tip);
     const first = coordinator.cleanUpMerge(request, project, progress);
     await entered();
     await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
@@ -840,23 +791,23 @@ for (const changed of ['edit', 'branch', 'commit', 'recreated branch'])
     await stopped();
     if (changed === 'edit') {
       await writeFile(join(project, 'added.txt'), 'keep this');
-      await gitIn(project, 'add', 'added.txt');
+      await git(project, 'add', 'added.txt');
     } else if (changed === 'branch')
-      await gitIn(project, 'switch', '-c', 'feat/new');
+      await git(project, 'switch', '-c', 'feat/new');
     else if (changed === 'commit')
-      await gitIn(project, 'commit', '--allow-empty', '-m', 'new work');
-    else await gitIn(project, 'branch', 'feat/x');
-    const before = await gitIn(project, 'status', '--porcelain=v2', '--branch');
+      await git(project, 'commit', '--allow-empty', '-m', 'new work');
+    else await git(project, 'branch', 'feat/x');
+    const before = await git(project, 'status', '--porcelain=v2', '--branch');
     assert.equal(
       await coordinator.cleanUpMerge(request, project, progress),
       'changed',
     );
     assert.equal(
-      await gitIn(project, 'status', '--porcelain=v2', '--branch'),
+      await git(project, 'status', '--porcelain=v2', '--branch'),
       before,
     );
     if (changed === 'recreated branch')
-      assert.equal(await gitIn(project, 'rev-parse', 'feat/x'), tip);
+      assert.equal(await git(project, 'rev-parse', 'feat/x'), tip);
     assert.equal(
       (await commands()).filter(([tool]) => tool === 'pnpm').length,
       1,
@@ -867,7 +818,7 @@ for (const restart of [false, true])
   test(`${restart ? 'restart' : 'close'} stops an in-flight cleanup install and its children within five seconds`, async (t) => {
     const { coordinator, project, tip, entered, stopped, commands } =
       await interruptedCleanup('install', t.onTestFinished);
-    const cleanup = coordinator.cleanUpMerge(mergedPullRequest(tip), project);
+    const cleanup = coordinator.cleanUpMerge(pullRequest(tip), project);
     await entered();
     await within(
       coordinator.close({ restart }),
@@ -887,7 +838,7 @@ for (const stage of ['delete', 'prune'])
     const { coordinator, project, tip, base, entered, stopped, commands } =
       await interruptedCleanup(stage, t.onTestFinished);
     const progress: MergeCleanup = {};
-    const request = mergedPullRequest(tip);
+    const request = pullRequest(tip);
     const first = coordinator.cleanUpMerge(request, project, progress);
     await entered();
     await within(coordinator.interrupt(), 5000, 'cleanup cancellation');
@@ -895,21 +846,16 @@ for (const stage of ['delete', 'prune'])
     await stopped();
     const name = stage === 'delete' ? 'feat/x' : 'feat/y';
     const head = stage === 'delete' ? tip : base;
-    await gitIn(project, 'branch', name, head);
-    await gitIn(project, 'config', `branch.${name}.remote`, 'origin');
-    await gitIn(
-      project,
-      'config',
-      `branch.${name}.merge`,
-      `refs/heads/${name}`,
-    );
+    await git(project, 'branch', name, head);
+    await git(project, 'config', `branch.${name}.remote`, 'origin');
+    await git(project, 'config', `branch.${name}.merge`, `refs/heads/${name}`);
     assert.equal(
       await coordinator.cleanUpMerge(request, project, progress),
       stage === 'delete' ? 'changed' : true,
     );
-    assert.equal(await gitIn(project, 'rev-parse', name), head);
+    assert.equal(await git(project, 'rev-parse', name), head);
     assert.equal(
-      await gitIn(project, 'config', `branch.${name}.merge`),
+      await git(project, 'config', `branch.${name}.merge`),
       `refs/heads/${name}`,
     );
     const command = stage === 'delete' ? 'update-ref' : 'branch';

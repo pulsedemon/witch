@@ -12,6 +12,7 @@ import { coordinationFixture, git } from './coordination.js';
 import { reviewSource } from './github-reviews.js';
 import { scratch } from './scratch.js';
 import { until } from './within.js';
+import { repositoryRead } from './repository.js';
 
 type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
 type Client = Awaited<ReturnType<Fixture['start']>>;
@@ -55,17 +56,11 @@ export async function setup(t: TestContext) {
   const c = a.coordinator;
   const cwd = c.snapshot.conversation!.cwd;
   await git('-C', cwd, 'symbolic-ref', 'HEAD', 'refs/heads/feat/reviews');
-  const repository = {
+  const repository = repositoryRead({
     branch: 'feat/reviews',
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    conflicts: 0,
-    untracked: 0,
     pullRequest: { ...source.pullRequest },
     pullRequestProject: (await f.memory.scopePaths(cwd)).project,
-  };
+  });
   a.coordination.updateRepository(repository);
   c.copilot.updateRepository(repository);
   await a.claim(source.closingIssues[0]!);

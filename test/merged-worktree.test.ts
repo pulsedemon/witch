@@ -7,13 +7,13 @@ import type { MergeCleanup } from '../src/core/merged.js';
 import {
   branches,
   exists,
-  git,
   idle,
   merge,
   merged,
   pullRequest,
   write,
 } from './fixtures/merged.js';
+import { git } from './fixtures/git.js';
 import { until } from './fixtures/within.js';
 
 // a developer's own git config would take part in the fixtures' switches and fetches

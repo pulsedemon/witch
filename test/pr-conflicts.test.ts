@@ -4,36 +4,15 @@ import { test, vi } from 'vitest';
 import type { MergeEvent } from '../src/core/merge-events.js';
 import { watchConflicts } from '../src/core/pr-repair.js';
 import { RepositoryWatch } from '../src/core/repository.js';
-import type {
-  Conflict,
-  PullRequest,
-  Repository,
-} from '../src/core/repository.js';
+import type { Conflict, Repository } from '../src/core/repository.js';
 import type { Snapshot } from '../src/core/snapshot.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { until } from './fixtures/within.js';
+import { pullRequest, repositoryRead } from './fixtures/repository.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-const pr = (fields: Partial<PullRequest> = {}): PullRequest => ({
-  number: 7,
-  url: 'https://github.com/o/r/pull/7',
-  state: 'OPEN',
-  branch: 'feat/x',
-  commit: 'a1b2c3',
-  base: 'main',
-  checks: 'passing',
-  ...fields,
-});
-const status = (fields: Partial<Repository> = {}): Repository => ({
-  branch: 'feat/x',
-  ahead: 0,
-  behind: 0,
-  staged: 0,
-  modified: 0,
-  conflicts: 0,
-  untracked: 0,
-  ...fields,
-});
+const pr = pullRequest;
+const status = repositoryRead;
 const merge = (id: string, base: string): MergeEvent => ({
   id,
   project: 'p',

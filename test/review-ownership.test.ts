@@ -11,6 +11,7 @@ import {
 } from './fixtures/coordination.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
+import { repositoryRead } from './fixtures/repository.js';
 
 type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
 type Client = Awaited<ReturnType<Fixture['start']>>;
@@ -25,17 +26,13 @@ async function attach(f: Fixture, client: Client, source: GitHubReviews) {
     `refs/heads/${source.pullRequest.branch}`,
   );
   const project = (await f.memory.scopePaths(cwd)).project;
-  client.coordination.updateRepository({
-    branch: source.pullRequest.branch,
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    conflicts: 0,
-    untracked: 0,
-    pullRequest: source.pullRequest,
-    pullRequestProject: project,
-  });
+  client.coordination.updateRepository(
+    repositoryRead({
+      branch: source.pullRequest.branch,
+      pullRequest: source.pullRequest,
+      pullRequestProject: project,
+    }),
+  );
   return cwd;
 }
 

@@ -6,22 +6,13 @@ import { watchMerges } from '../src/core/merged.js';
 import type { MergeCleanup } from '../src/core/merged.js';
 import type { PullRequest, Repository } from '../src/core/repository.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
+import { repositoryRead } from './fixtures/repository.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const status = (
   pullRequest?: PullRequest,
   fields: Partial<Repository> = {},
-): Repository => ({
-  branch: 'feat/x',
-  ahead: 0,
-  behind: 0,
-  staged: 0,
-  modified: 0,
-  conflicts: 0,
-  untracked: 0,
-  pullRequest,
-  ...fields,
-});
+): Repository => repositoryRead({ pullRequest, ...fields });
 const pr = (
   state: PullRequest['state'],
   commit: string,

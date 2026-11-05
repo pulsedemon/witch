@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { mkdir, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import { Coordinator } from '../src/core/coordinator.js';
@@ -16,16 +14,7 @@ import { notices, record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
 import { until } from './fixtures/within.js';
-
-const execute = promisify(execFile);
-const git = async (cwd: string, ...args: string[]) =>
-  (
-    await execute(
-      'git',
-      ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
-      { cwd },
-    )
-  ).stdout.trim();
+import { git } from './fixtures/git.js';
 
 /** runs git for real and stands in for `pnpm` and `osascript`. */
 const run: Run = (command, args, options) =>

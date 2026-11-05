@@ -4,6 +4,7 @@ import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
 import type { Limit } from '../src/agents/types.js';
 import { statusFooter, statusLines } from '../src/ui/status-line.js';
+import { repositoryRead } from './fixtures/repository.js';
 
 const now = Date.parse('2026-10-13T12:00:00Z');
 const seconds = now / 1000;
@@ -219,17 +220,11 @@ test('a merged pull request says so in magenta, a closed one plainly, checks get
       {
         usage: {},
         cwd: '/w',
-        repository: {
+        repository: repositoryRead({
           branch: 'main',
-          ahead: 0,
-          behind: 0,
-          staged: 0,
-          modified: 0,
-          conflicts: 0,
-          untracked: 0,
           ...(read ? { pullRequest } : {}),
           ...(conflict ? { conflict: { pullRequest } } : {}),
-        },
+        }),
       },
       now,
     )[1];

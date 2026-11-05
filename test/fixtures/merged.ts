@@ -1,28 +1,8 @@
-import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { promisify } from 'node:util';
 import type { PullRequest } from '../../src/core/repository.js';
+import { git } from './git.js';
 import { scratch } from './scratch.js';
-
-const execute = promisify(execFile);
-
-export const git = async (cwd: string, ...args: string[]) =>
-  (
-    await execute(
-      'git',
-      [
-        '-c',
-        'init.defaultBranch=main',
-        '-c',
-        'user.name=t',
-        '-c',
-        'user.email=t@t',
-        ...args,
-      ],
-      { cwd },
-    )
-  ).stdout.trim();
 
 export const write = async (path: string, text: string) => {
   await mkdir(dirname(path), { recursive: true });
