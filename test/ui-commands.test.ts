@@ -440,3 +440,16 @@ test('/review hands its files to the coordinator, and a failed review cancels th
     ui.unmount();
   }
 });
+
+test('/help draws its section headings in bold violet', async () => {
+  const { app } = fake({});
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  try {
+    await delay(60);
+    await submit(ui, '/help');
+    await until('the help page', () => ui.text().includes('COMPOSER'));
+    assert.ok(ui.frame().includes('\u001b[38;2;168;85;247m\u001b[1mCOMMANDS'));
+  } finally {
+    ui.unmount();
+  }
+});
