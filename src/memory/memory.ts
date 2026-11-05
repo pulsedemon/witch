@@ -166,6 +166,11 @@ export function noticeText(text: string): string {
   return printable(text).replace(/[\\[\]]/g, '\\$&');
 }
 
+/** the shared memory repository under a state root. */
+export function memoryRepository(stateRoot: string): string {
+  return join(stateRoot, 'memory.git');
+}
+
 export class Memory {
   constructor(
     readonly root: string,

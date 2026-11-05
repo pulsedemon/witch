@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sessionList, unregisteredList } from './coordination-state.js';
 import type {
   ClaimOwner,
   CoordinationAction,
@@ -138,7 +139,7 @@ export function pauseRecipients(
     const unregistered = discovery.unregistered.get(issuer.project) ?? [];
     if (unregistered.length)
       throw new Error(
-        `Restart or close these unregistered Witch sessions before pausing: ${unregistered.map((entry) => `${entry.title} (${entry.id}, ${entry.cwd})`).join('; ')}`,
+        `Restart or close these unregistered Witch sessions before pausing: ${unregisteredList(unregistered)}`,
       );
     recipients = [...discovery.live.values()].filter(
       (presence) =>
@@ -150,7 +151,7 @@ export function pauseRecipients(
   const older = recipients.filter((presence) => !presence.pauses);
   if (older.length)
     throw new Error(
-      `These Witch sessions cannot be paused until their user restarts them onto a current build: ${older.map((presence) => `${presence.title} (${presence.id})`).join('; ')}`,
+      `These Witch sessions cannot be paused until their user restarts them onto a current build: ${sessionList(older)}`,
     );
   return recipients;
 }

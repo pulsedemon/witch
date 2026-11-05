@@ -12,6 +12,8 @@ import type { Activation, LedgerView, RequestState } from './coordination.js';
 import {
   checkTaskRelease,
   conversationSummarySchema,
+  sessionList,
+  unregisteredList,
   type ClaimOwner,
   type CoordinationSnapshot,
   type SelectionScope,
@@ -173,7 +175,7 @@ export async function dispatchControl(
       if (host.presenceFailure()) throw new Error(host.presenceFailure());
       if (snapshot.unregistered.length)
         throw new Error(
-          `Restart or close these unregistered Witch sessions before claiming: ${snapshot.unregistered.map((entry) => `${entry.title} (${entry.id}, ${entry.cwd})`).join('; ')}`,
+          `Restart or close these unregistered Witch sessions before claiming: ${unregisteredList(snapshot.unregistered)}`,
         );
       if (
         snapshot.ownClaim &&
@@ -188,7 +190,7 @@ export async function dispatchControl(
         );
         if (older.length)
           throw new Error(
-            `Restart or close these Witch sessions before selecting: ${older.map((peer) => `${peer.presence.title} (${peer.presence.id})`).join('; ')}`,
+            `Restart or close these Witch sessions before selecting: ${sessionList(older.map(({ presence }) => presence))}`,
           );
       }
       if (

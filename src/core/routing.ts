@@ -4,6 +4,7 @@ import type { ModelChoice } from './models.js';
 import {
   creditCapacity,
   current,
+  currentLimits,
   describeReading,
   headroom,
   over,
@@ -184,9 +185,8 @@ export function route({
 }): Route {
   const evidence = (runtime: string) => {
     const state = reading(runtime, accounts[runtime], now);
-    return accounts[runtime]?.limits.every((limit) => current(limit, now)) &&
-      accounts[runtime].limits.length &&
-      !accounts[runtime].funding
+    return currentLimits(accounts[runtime]?.limits ?? [], now) &&
+      !accounts[runtime]!.funding
       ? ''
       : `; ${state}`;
   };
@@ -284,8 +284,7 @@ export function route({
         ) {
           if (credits) continue;
           blocked.push(
-            accounts[id]?.limits.length &&
-              accounts[id].limits.every((limit) => current(limit, now))
+            currentLimits(accounts[id]?.limits ?? [], now)
               ? `${id} is at ${shiftAt}% or more too`
               : reading(id, accounts[id], now),
           );

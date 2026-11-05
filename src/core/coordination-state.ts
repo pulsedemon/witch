@@ -215,6 +215,21 @@ export function checkTaskRelease(
     );
 }
 
+/** names unregistered sessions where a refusal asks the user to restart or close them. */
+export function unregisteredList(
+  entries: readonly z.infer<typeof conversationSummarySchema>[],
+): string {
+  return entries
+    .map((entry) => `${entry.title} (${entry.id}, ${entry.cwd})`)
+    .join('; ');
+}
+
+export function sessionList(presences: readonly SessionPresence[]): string {
+  return presences
+    .map((presence) => `${presence.title} (${presence.id})`)
+    .join('; ');
+}
+
 export function presenceStatus(presence: SessionPresence): string {
   if (presence.requests) return 'waiting';
   return idleStatus(presence.phase, !!(presence.familiars || presence.brews));

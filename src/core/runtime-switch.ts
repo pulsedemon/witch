@@ -8,7 +8,7 @@ import type { Snapshot } from './snapshot.js';
 import type { ConversationRecord } from './state.js';
 import {
   creditCapacity,
-  current,
+  currentLimits,
   describeReading,
   headroom,
   type AccountUsage,
@@ -237,11 +237,7 @@ export class RuntimeSwitch {
     ) {
       if (!limits.length && account?.funding?.kind === 'unavailable')
         return { reason: `${name} reports no usage limits` };
-      if (
-        !limits.length ||
-        !limits.every((limit) => current(limit, now)) ||
-        observed <= since
-      )
+      if (!currentLimits(limits, now) || observed <= since)
         return {
           reason: this.exhaustedAt.has(to)
             ? `${name} has no reading since it ran out`

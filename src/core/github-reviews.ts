@@ -80,7 +80,7 @@ export function isCopilot(
   );
 }
 
-/** the check run Copilot's review runs as; a separate name from its bot login. */
+/** the check run Copilot's review runs as; it spells its bot login too, but GitHub could rename either alone. */
 const copilotCheck = 'copilot-pull-request-reviewer';
 
 export function copilotChecks(source: GitHubReviews): GitHubReviews['checks'] {
