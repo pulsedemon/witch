@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import {
   appendFileSync,
   writeFileSync,
+  renameSync,
   existsSync,
   readFileSync,
 } from 'node:fs';
@@ -538,9 +539,14 @@ for await (const line of lines) {
       }
     }
     if (mode === 'compaction' && message.message.content === '/compact') {
+      // whole, through a rename, since the test polls for it and parses what it reads
       writeFileSync(
-        join(process.cwd(), 'compact.json'),
+        join(process.cwd(), 'compact.json.next'),
         JSON.stringify(message),
+      );
+      renameSync(
+        join(process.cwd(), 'compact.json.next'),
+        join(process.cwd(), 'compact.json'),
       );
       continue;
     }
