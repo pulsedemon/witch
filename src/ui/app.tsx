@@ -205,6 +205,11 @@ export function App({
   const [query, setQuery] = useState('');
   const [selection, selectionRef, setSelection] = useLiveState(0);
   const [pageScroll, setPageScroll] = useState(0);
+  /** a page view always opens at its top. */
+  const openPage = (next: View) => {
+    setPageScroll(0);
+    setView(next);
+  };
   const [top, topRef, setAnchor] = useLiveState<ScrollAnchor | null>(null);
   const [seen, seenRef, setSeen] = useLiveState({
     conversation: state.conversation?.id,
@@ -509,8 +514,7 @@ export function App({
     try {
       await operation;
       if (viewRef.current.kind === 'chat') {
-        setPageScroll(0);
-        setView({ kind: 'coordination', mode: 'task' });
+        openPage({ kind: 'coordination', mode: 'task' });
       }
       return true;
     } catch (error) {
@@ -592,8 +596,7 @@ export function App({
         } else if (notes.find((note) => note.path === file)?.deleted) {
           return showHistory(file, active);
         } else {
-          setPageScroll(0);
-          setView({
+          openPage({
             kind: 'page',
             title: file,
             text: noteChoices.find((choice) => choice.id === file)!.search,
@@ -696,8 +699,7 @@ export function App({
         );
       }
       case 'peers':
-        setPageScroll(0);
-        setView({ kind: 'coordination', mode: 'peers' });
+        openPage({ kind: 'coordination', mode: 'peers' });
         break;
       case 'task':
         if (argument === 'release')
@@ -712,8 +714,7 @@ export function App({
           );
           return false;
         }
-        setPageScroll(0);
-        setView({ kind: 'coordination', mode: 'task' });
+        openPage({ kind: 'coordination', mode: 'task' });
         break;
       case 'model':
         if (argument) {
@@ -736,8 +737,7 @@ export function App({
       case 'delegation': {
         const text = await delegation(argument, policy, coordinator);
         if (!text) return false;
-        setPageScroll(0);
-        setView({ kind: 'page', title: 'Delegation', text });
+        openPage({ kind: 'page', title: 'Delegation', text });
         break;
       }
       case 'review':
@@ -752,8 +752,7 @@ export function App({
       case 'jobs':
         return showJobs(active);
       case 'help':
-        setPageScroll(0);
-        setView({
+        openPage({
           kind: 'page',
           title: 'Keyboard help',
           text: helpText(),
@@ -1014,6 +1013,15 @@ export function App({
     bodyWidth,
   ]);
   const pageRows = Math.max(1, bodyHeight - (recovering ? 5 : 3));
+  const page = (
+    <ScrollPage
+      lines={pageLines}
+      height={pageRows}
+      scroll={pageScroll}
+      setScroll={setPageScroll}
+      arrows
+    />
+  );
   usePointer((pointer, { column, row }) => {
     // a press or release ends the drag even while another view covers the transcript
     if (pointer !== 'drag') {
@@ -1215,13 +1223,7 @@ export function App({
             ? 'Another conversation published changes to the same notes. Keep mine merges your current changes.'
             : 'Accept these changes with their original attribution, or discard them.'}
         </Text>
-        <ScrollPage
-          lines={pageLines}
-          height={pageRows}
-          scroll={pageScroll}
-          setScroll={setPageScroll}
-          arrows
-        />
+        {page}
         <Text bold>
           {piped([
             ...(conflict
@@ -1302,13 +1304,7 @@ export function App({
             ? hyperlink(title, view.link, cwd)
             : title}
         </Text>
-        <ScrollPage
-          lines={pageLines}
-          height={pageRows}
-          scroll={pageScroll}
-          setScroll={setPageScroll}
-          arrows
-        />
+        {page}
         <Text dimColor>
           {piped([
             ...(view.kind === 'page' && view.note
