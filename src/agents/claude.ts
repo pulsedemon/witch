@@ -151,8 +151,9 @@ export class ClaudeAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
-      await session.close(stopOptions(options.signal));
+      // read before close, so a stop that lands while it waits doesn't replace the startup error
       const reason: unknown = options.signal?.reason;
+      await session.close(stopOptions(options.signal));
       throw reason instanceof NativeStop ? reason : error;
     }
   }

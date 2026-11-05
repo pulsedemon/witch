@@ -96,7 +96,7 @@ export function familiarMarker(marker: FamiliarMarker): string {
   return `${familiarMarkerPrefix}${JSON.stringify(marker)}\n`;
 }
 
-export function readFamiliarMarker(line: string): FamiliarMarker | undefined {
+function readFamiliarMarker(line: string): FamiliarMarker | undefined {
   if (!line.startsWith(familiarMarkerPrefix)) return;
   try {
     return familiarMarkerSchema.safeParse(

@@ -8,7 +8,7 @@ interface Request {
 }
 
 /** a familiar's forwarded questions and approvals, shown in Witch until answered, resolved or the familiar ends. */
-export class FamiliarRequests {
+class FamiliarRequests {
   /** keyed by the familiar's own request ID. */
   private readonly requests = new Map<string, Request>();
 
