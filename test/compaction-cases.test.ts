@@ -131,6 +131,8 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
     // the queue left it unread and sends it again as a new row
     { id: 'claude-6', kind: 'user', text: '', unread: true },
     ['user', 'queued prompt', 40],
+    // only the last of consecutive replies reaches the packet
+    ['assistant', 'superseded draft', 45, 'claude'],
     ['assistant', 'queued answer', 50, 'claude'],
     ['notice', compacted, 100],
     ['user', 'prompt sent before the compaction ran', 101],
@@ -295,6 +297,40 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
     ['notice', compacted, 4200],
     ['assistant', 'long reply', 4210, 'claude'],
   ]);
+  // with no reply after it, a notice takes the runtime of the reply before it
+  await conversation(home, 'terminal', { claude: { id: 'terminal-latest' } }, [
+    ['user', 'terminal task', 5000],
+    ['assistant', 'terminal reply', 5010, 'claude'],
+    ['notice', compacted, 5100],
+  ]);
+  await jsonl(join(claude, 'terminal.jsonl'), [
+    boundary('terminal-latest', 5099, 'manual', 111000),
+  ]);
+  // after a switch, the reply that follows names the runtime that compacted
+  await conversation(
+    home,
+    'mixed',
+    { claude: { id: 'mixed-claude' }, codex: { id: 'mixed-thread' } },
+    [
+      ['user', 'mixed task', 5200],
+      ['assistant', 'claude reply', 5210, 'claude'],
+      ['notice', compacted, 5300],
+      ['assistant', 'codex reply', 5310, 'codex'],
+    ],
+  );
+  await jsonl(join(claude, 'mixed-claude.jsonl'), [
+    boundary('mixed-claude', 5299, 'manual', 222000),
+  ]);
+  await jsonl(join(home, '.codex', 'sessions', 'rollout-mixed-thread.jsonl'), [
+    {
+      type: 'session_meta',
+      payload: { id: 'mixed-thread', originator: 'witch', source: 'vscode' },
+    },
+    event('task_started'),
+    compaction(5299),
+    item('assistant'),
+    event('task_complete'),
+  ]);
   // Finder leaves files beside the conversations
   await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
 
@@ -347,6 +383,9 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
       true,
     ],
   );
+  const terminal = find('terminal', 5100);
+  assert.deepEqual([terminal.runtime, terminal.tokens], ['claude', 111000]);
+  assert.equal(find('mixed', 5300).runtime, 'codex');
   const toolTurn = find('codex-older', 2010);
   assert.deepEqual(
     [toolTurn.trigger, toolTurn.afterOutput, toolTurn.tokens, toolTurn.session],
@@ -377,6 +416,8 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   assert.ok(!claudePacket.before.includes('forgotten request'));
   assert.ok(claudePacket.before.includes('finished part one'));
   assert.equal(claudePacket.before.split('queued prompt').length, 2);
+  assert.ok(claudePacket.before.includes('queued answer'));
+  assert.ok(!claudePacket.before.includes('superseded draft'));
   assert.match(
     claudePacket.after,
     /^\s*### user\s+prompt sent before the compaction ran/,
