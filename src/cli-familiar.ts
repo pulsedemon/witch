@@ -1,12 +1,17 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ClaudeTask } from './agents/claude-task.js';
 import { familiarMarker } from './agents/familiar-report.js';
-import type { FamiliarProgress } from './agents/familiar-report.js';
+import type {
+  FamiliarAction,
+  FamiliarProgress,
+} from './agents/familiar-report.js';
 import { errorMessage } from './agents/stderr.js';
+import type { TaskStatus } from './agents/types.js';
 import { callControl, ControlTimeoutError } from './persistence/control.js';
 import type { ControlBinding, ControlResult } from './persistence/control.js';
 
@@ -93,47 +98,81 @@ export class FamiliarReports {
     while (this.pending) {
       const progress = this.pending;
       this.pending = undefined;
-      const sequence = this.sequence++;
-      const deadline = Date.now() + 10_000;
-      for (;;) {
-        let outcome: ControlResult;
-        try {
-          outcome = await callControl(
-            this.binding,
-            {
-              kind: 'familiar-update',
-              run: this.run,
-              sequence,
-              progress,
-            },
-            Math.min(deadline, Date.now() + 1500),
-          );
-        } catch (error) {
-          if (Date.now() < deadline) await delay(100);
-          if (Date.now() >= deadline) {
-            if (
-              progress.status === 'running' &&
-              error instanceof ControlTimeoutError
-            )
-              break;
-            throw error;
-          }
+      let outcome: ControlResult;
+      try {
+        outcome = await callFamiliar(this.binding, {
+          kind: 'familiar-update',
+          run: this.run,
+          sequence: this.sequence++,
+          progress,
+        });
+      } catch (error) {
+        if (
+          progress.status === 'running' &&
+          error instanceof ControlTimeoutError
+        )
           continue;
-        }
-        if (outcome.kind === 'error') throw new Error(outcome.message);
-        if (outcome.kind !== 'familiar-updated')
-          throw new Error(`Unexpected familiar reply: ${outcome.kind}`);
-        break;
+        throw error;
       }
+      if (outcome.kind !== 'familiar-updated')
+        throw new Error(`Unexpected familiar reply: ${outcome.kind}`);
     }
   }
+}
+
+/** retries a familiar's control call for 10 s, each try capped at 1.5 s, then throws the last failure. */
+export async function callFamiliar(
+  binding: ControlBinding,
+  action: FamiliarAction,
+): Promise<Exclude<ControlResult, { kind: 'error' }>> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    let outcome: ControlResult;
+    try {
+      outcome = await callControl(
+        binding,
+        action,
+        Math.min(deadline, Date.now() + 1500),
+      );
+    } catch (error) {
+      if (Date.now() < deadline) await delay(100);
+      if (Date.now() >= deadline) throw error;
+      continue;
+    }
+    if (outcome.kind === 'error') throw new Error(outcome.message);
+    return outcome;
+  }
+}
+
+/** overwrites the report file in place, so the path stays the one the caller was told. */
+export async function saveReport(
+  file: FileHandle,
+  report: string,
+): Promise<void> {
+  const bytes = Buffer.from(report);
+  let offset = 0;
+  while (offset < bytes.length) {
+    const { bytesWritten } = await file.write(
+      bytes,
+      offset,
+      bytes.length - offset,
+      offset,
+    );
+    offset += bytesWritten;
+  }
+  await file.truncate(bytes.length);
+  await file.sync();
+}
+
+export function exitCode(status: TaskStatus): number {
+  return status === 'completed' ? 0 : status === 'stopped' ? 130 : 1;
 }
 
 export async function registerFamiliar(
   binding: ControlBinding,
   run: string,
   name: string,
-  runtime: 'claude' | 'codex',
+  runtime: Extract<FamiliarAction, { kind: 'familiar-register' }>['runtime'],
   stopped: () => boolean,
 ): Promise<void> {
   const marker = familiarMarker({
@@ -257,21 +296,7 @@ export async function runClaudeFamiliar(
       code,
       stopped ?? (reports.error ? null : signal),
     );
-    const save = async () => {
-      const bytes = Buffer.from(terminal.report ?? '');
-      let offset = 0;
-      while (offset < bytes.length) {
-        const { bytesWritten } = await file.write(
-          bytes,
-          offset,
-          bytes.length - offset,
-          offset,
-        );
-        offset += bytesWritten;
-      }
-      await file.truncate(bytes.length);
-      await file.sync();
-    };
+    const save = () => saveReport(file, terminal.report ?? '');
     await save();
     try {
       await reports.finish(terminal);
@@ -281,11 +306,7 @@ export async function runClaudeFamiliar(
       await save();
     }
     process.stdout.write(`${terminal.report ?? ''}\n\nSaved report: ${path}\n`);
-    return terminal.status === 'completed'
-      ? 0
-      : terminal.status === 'stopped'
-        ? 130
-        : 1;
+    return exitCode(terminal.status);
   } catch (error) {
     const message = errorMessage(error);
     await file.writeFile(message);

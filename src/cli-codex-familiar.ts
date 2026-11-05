@@ -11,9 +11,14 @@ import type {
 import { mergeCasts } from './agents/familiar-report.js';
 import { errorMessage, watchChild, withTail } from './agents/stderr.js';
 import type { AgentEvent, AgentSession, UserRequest } from './agents/types.js';
-import { FamiliarReports, registerFamiliar } from './cli-familiar.js';
+import {
+  callFamiliar,
+  exitCode,
+  FamiliarReports,
+  registerFamiliar,
+  saveReport,
+} from './cli-familiar.js';
 import { questionReply } from './core/prompts.js';
-import { callControl } from './persistence/control.js';
 import type { ControlBinding } from './persistence/control.js';
 
 /** the wrapper owns transport and input; native configuration remains Codex's. */
@@ -85,23 +90,6 @@ export async function runCodexFamiliar(
     close();
   };
   const reports = new FamiliarReports(binding, run, fail);
-  const requestCall = async (action: FamiliarAction) => {
-    const deadline = Date.now() + 10_000;
-    for (;;) {
-      const outcome = await callControl(
-        binding,
-        action,
-        Math.min(deadline, Date.now() + 1500),
-      ).catch(async (error: unknown) => {
-        if (Date.now() >= deadline) throw error;
-        await delay(100);
-        return undefined;
-      });
-      if (!outcome) continue;
-      if (outcome.kind === 'error') throw new Error(outcome.message);
-      return outcome;
-    }
-  };
   const request = (input: UserRequest) => {
     if (requests.has(input.id)) return;
     const pending = { input, resolved: false, work: Promise.resolve() };
@@ -113,7 +101,7 @@ export async function runCodexFamiliar(
         request: input,
       };
       while (!pending.resolved && !ending && !stopped && !failure) {
-        const outcome = await requestCall(action);
+        const outcome = await callFamiliar(binding, action);
         if (pending.resolved || ending) return;
         if (outcome.kind === 'familiar-response') {
           if (input.replyAsPrompt) {
@@ -121,7 +109,7 @@ export async function runCodexFamiliar(
               const prompt = questionReply(input.questions, outcome.response);
               if (!(await session!.steer(prompt))) prompts.push(prompt);
             } else if (outcome.response.decision === 'cancel') stop();
-            await requestCall({
+            await callFamiliar(binding, {
               kind: 'familiar-request-resolved',
               run,
               id: input.id,
@@ -167,7 +155,7 @@ export async function runCodexFamiliar(
         pending.resolved = true;
         pending.work = pending.work
           .then(async () => {
-            await requestCall({
+            await callFamiliar(binding, {
               kind: 'familiar-request-resolved',
               run,
               id: event.id,
@@ -186,21 +174,7 @@ export async function runCodexFamiliar(
   let report = '';
   let status: FamiliarProgress['status'] = 'failed';
   let registered = false;
-  const save = async () => {
-    const bytes = Buffer.from(report);
-    let offset = 0;
-    while (offset < bytes.length) {
-      const written = await file.write(
-        bytes,
-        offset,
-        bytes.length - offset,
-        offset,
-      );
-      offset += written.bytesWritten;
-    }
-    await file.truncate(bytes.length);
-    await file.sync();
-  };
+  const save = () => saveReport(file, report);
   try {
     await registerFamiliar(binding, run, name, 'codex', () => stopped);
     registered = true;
@@ -302,7 +276,7 @@ export async function runCodexFamiliar(
       }
     }
     process.stdout.write(`${report}\n\nSaved report: ${path}\n`);
-    return status === 'completed' ? 0 : status === 'stopped' ? 130 : 1;
+    return exitCode(status);
   } finally {
     await file.close();
   }
