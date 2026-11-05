@@ -1,0 +1,30 @@
+# Compaction check
+
+This check grades whether a conversation kept its task, open decisions and constraints after compaction. It uses real conversations from the state directory and compares the compactions Witch ran with each runtime's own. The threshold it informs is `compactAt` in [turn-runner.ts](../src/core/turn-runner.ts).
+
+## Extract
+
+```sh
+node --import tsx scripts/compaction-cases.ts --out <new-dir-under-scratch>
+```
+
+The script reads every conversation's `history.jsonl` under `~/.witch` (`--state` overrides). It matches each `Conversation compacted` notice to a native compaction within a minute on the runtime of the reply that follows it, or with none, the one before it. In a first pass, notices and compactions in the conversation's latest session for that runtime, from `state.json`, are paired closest first. Leftover notices are then paired the same way with compactions outside any conversation's latest session, since earlier sessions aren't recorded. Notices from before history rows carried times are skipped. Candidates come from:
+
+- Claude: a non-sidechain `compact_boundary` row in a `~/.claude/projects` transcript with `entrypoint` `sdk-ts`, which leaves out familiars but admits other Agent SDK sessions, such as tests. A `manual` trigger is a compaction Witch ran; `auto` is native.
+- Codex: a `compacted` row in a `~/.codex/sessions` rollout with originator `witch` and source `vscode`, which leaves out subagents and guardian reviews but not Witch's Codex familiars. Answer forks are ephemeral and write no rollout. A compaction in a turn with no output is Witch's `thread/compact/start`. One in a turn with output, before or after it, is native, including Codex's own compaction at the start of a turn.
+
+It writes `cases.json` and one packet per case in `packets/`. Each case records runtime, trigger, whether it matched in the latest session, tokens at compaction, the prompts after it (up to four, stopping at the next compaction or `/clear`) and, on Codex, the percent of the context window and whether the turn had output before the compaction. Claude tokens are the transcript's `preTokens`. A packet starts at the last `/clear` and contains the first two prompts after it, the last eight prompts before compaction and up to four prompts after it, each followed by the agent's last message before the next prompt or compaction. When a compaction falls inside a turn before the agent's first reply, the prompt just before it counts as after it, since the agent answers it after compaction, unless it's a `!` command. Witch writes the prompt after its own compaction before a turn, so nothing moves there. Prompts the queue sent again are shown once. Messages are cut at 3,000 characters in the opening, 2,000 before compaction and 4,000 after it. It prints counts per runtime and trigger.
+
+A `command` compaction is Witch's threshold or the user's `/compact`, which neither the native logs nor Witch's history tell apart, except that one inside a turn is always `/compact`, since the threshold runs only before a turn. The threshold only fires at `compactAt` percent, so a `command` case below it was `/compact`, and one at or above it may be either. Codex's percent uses Witch's measure, the last request's total tokens over the context window. Witch reads Claude's percent from `getContextUsage`, which the transcript doesn't record, so a Claude case near the threshold is undetermined.
+
+## Grade
+
+Grade only cases with at least two prompts after compaction. Take every `command` case and an even spread by date of `native` cases on each runtime, and shuffle them. Packets leave out runtime, trigger and row times, though message text can carry its own. A compaction after the turn's first output, native, or on Claude a `/compact` sent during work, usually shows as an `after` section that opens with a reply. One grader per batch of about eight packets, with this prompt:
+
+> For each packet, read the opening and the turns before compaction and list what the agent had to carry forward: the task, open decisions or pending questions, and constraints the user set. Then read the turns after compaction and mark each item `kept`, `lost` or `untested` (the later turns never exercise it). An item is `lost` only when a later turn contradicts it, repeats settled work, asks a question the user already answered, or the user has to restate it; quote that turn. Count user messages that correct the agent for lost context. Give a verdict: `kept` (nothing lost), `minor` (a lost item the agent recovered without the user), or `lost` (the user had to restore context, or the task drifted). Reply with one JSON object per line: `{"packet", "items": [{"item", "status", "evidence"}], "corrections", "verdict"}`.
+
+Join the verdicts with `cases.json` by packet name and tabulate them per runtime and trigger.
+
+## Limits
+
+The packets show the user's and agent's messages, not tool calls or the Witch memory and instructions the agent received, so loss that never reaches a reply goes unseen, and a broken memory rule reads as kept. Witch re-sends memory at the next dispatched turn, so after a compaction inside a turn, check the native transcript for whether the rule was back in context. Automatic turns such as Copilot reviews have no prompt row, so their replies read as replies to the prompt before them and replace the agent's own reply to it. A compaction before such a turn reads as one between two replies, and an unanswered prompt before it moves after it. An idle `/compact` followed by a runtime switch is matched on the new runtime and goes unmatched. Long messages are cut. In a conversation with fewer than ten prompts before compaction, the opening and the turns before it overlap. The turns before a compaction can run across an earlier one without marking it. A Codex compaction at the start of a turn that is interrupted before any output reads as `command`. Claude Code deletes transcripts after its cleanup period, which limits Claude cases to recent weeks. Cases where the conversation ended with the task done read as `untested`.
