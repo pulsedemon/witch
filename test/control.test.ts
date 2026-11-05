@@ -49,6 +49,49 @@ const exists = (path: string) =>
     () => false,
   );
 
+const timers = [
+  'setTimeout',
+  'clearTimeout',
+  'setInterval',
+  'clearInterval',
+] as const;
+
+const clock = () =>
+  vi.useFakeTimers({ toFake: ['Date', ...timers], now: 1000 });
+
+/** a host that releases every request, counting how many reach its handler. */
+async function countingHost(bound: ControlBinding) {
+  let calls = 0;
+  const failures: unknown[] = [];
+  const host = await ControlHost.open(
+    bound.directory,
+    async () => {
+      calls++;
+      return { kind: 'released' };
+    },
+    (error) => failures.push(error),
+  );
+  return { host, failures, calls: () => calls };
+}
+
+async function exchange(bound: ControlBinding): Promise<void> {
+  await files.mkdir(join(bound.directory, 'inbox'));
+  await files.mkdir(join(bound.directory, 'replies'));
+}
+
+/** the id of the request a client published to the inbox. */
+async function published(bound: ControlBinding): Promise<string> {
+  let id = '';
+  await until('published request', async () => {
+    id =
+      (await files.readdir(join(bound.directory, 'inbox')))
+        .find((name) => name.endsWith('.json'))
+        ?.slice(0, -5) ?? '';
+    return !!id;
+  });
+  return id;
+}
+
 /** on macOS a write just after `ControlHost.open` can send no event, so this waits for one; the host skips names that aren't `.json`. */
 async function watching(directory: string): Promise<void> {
   const readdir = vi.spyOn(files, 'readdir');
@@ -199,8 +242,7 @@ test('control requests preserve their binding and action through a real ledger m
 
 test('a reply for another request is not accepted or acknowledged', async () => {
   const bound = await binding();
-  await files.mkdir(join(bound.directory, 'inbox'));
-  await files.mkdir(join(bound.directory, 'replies'));
+  await exchange(bound);
   const calling = callControl(bound, { kind: 'peers' });
   const rejected = assert.rejects(calling, (error: unknown) => {
     assert.ok(error instanceof Error);
@@ -208,14 +250,7 @@ test('a reply for another request is not accepted or acknowledged', async () => 
     assert.match(error.message, /result unknown.*Reply id/s);
     return true;
   });
-  let id = '';
-  await until('published request', async () => {
-    id =
-      (await files.readdir(join(bound.directory, 'inbox')))
-        .find((name) => name.endsWith('.json'))
-        ?.slice(0, -5) ?? '';
-    return !!id;
-  });
+  const id = await published(bound);
   await writeJson(join(bound.directory, 'replies', `${id}.json`), {
     id: randomUUID(),
     kind: 'released',
@@ -231,8 +266,7 @@ test('a reply for another request is not accepted or acknowledged', async () => 
 
 test('the client waits through an incomplete reply before accepting and acknowledging it', async () => {
   const bound = await binding();
-  await files.mkdir(join(bound.directory, 'inbox'));
-  await files.mkdir(join(bound.directory, 'replies'));
+  await exchange(bound);
   const partialRead = Promise.withResolvers<void>();
   const originalRead = files.readFile;
   vi.spyOn(files, 'readFile').mockImplementation(
@@ -256,14 +290,7 @@ test('the client waits through an incomplete reply before accepting and acknowle
       settled = true;
     },
   );
-  let id = '';
-  await until('published request', async () => {
-    id =
-      (await files.readdir(join(bound.directory, 'inbox')))
-        .find((name) => name.endsWith('.json'))
-        ?.slice(0, -5) ?? '';
-    return !!id;
-  });
+  const id = await published(bound);
   const reply = join(bound.directory, 'replies', `${id}.json`);
   try {
     await files.writeFile(reply, '{"id":');
@@ -285,16 +312,7 @@ for (const redirect of ['file', 'inbox'] as const) {
     const bound = await binding();
     const target = await scratch('witch-control-request-target-');
     const request = envelope(bound);
-    let calls = 0;
-    const failures: unknown[] = [];
-    const host = await ControlHost.open(
-      bound.directory,
-      async () => {
-        calls++;
-        return { kind: 'released' };
-      },
-      (error) => failures.push(error),
-    );
+    const { host, failures, calls } = await countingHost(bound);
     try {
       await host.drain();
       await watching(bound.directory);
@@ -311,13 +329,13 @@ for (const redirect of ['file', 'inbox'] as const) {
       await until(
         'request read or refused',
         () =>
-          calls > 0 ||
+          calls() > 0 ||
           failures.some(
             (error) => (error as NodeJS.ErrnoException).code === 'ELOOP',
           ),
       );
       await host.drain();
-      assert.equal(calls, 0);
+      assert.equal(calls(), 0);
       assert.deepEqual(
         await files.readdir(join(bound.directory, 'replies')),
         [],
@@ -335,16 +353,7 @@ for (const redirect of ['file', 'inbox'] as const) {
 test('the host cannot create a reply through a redirected parent', async () => {
   const bound = await binding();
   const target = await scratch('witch-control-reply-target-');
-  const failures: unknown[] = [];
-  let calls = 0;
-  const host = await ControlHost.open(
-    bound.directory,
-    async () => {
-      calls++;
-      return { kind: 'released' };
-    },
-    (error) => failures.push(error),
-  );
+  const { host, failures, calls } = await countingHost(bound);
   try {
     await host.drain();
     await watching(bound.directory);
@@ -356,7 +365,7 @@ test('the host cannot create a reply through a redirected parent', async () => {
       join(bound.directory, 'inbox', `${request.id}.json`),
       request,
     );
-    await until('request handled', () => calls > 0);
+    await until('request handled', () => calls() > 0);
     await host.drain();
     assert.deepEqual(await files.readdir(target), []);
     assert.equal((failures[0] as NodeJS.ErrnoException).code, 'ELOOP');
@@ -437,8 +446,7 @@ test('replacing a parent after open cannot redirect the request being read', asy
 
 test('a missing host reply leaves the result unknown and keeps the published request', async () => {
   const bound = await binding();
-  await files.mkdir(join(bound.directory, 'inbox'));
-  await files.mkdir(join(bound.directory, 'replies'));
+  await exchange(bound);
   await assert.rejects(
     callControl(bound, {
       kind: 'claim',
@@ -468,8 +476,7 @@ for (const { code, expired } of [
 ])
   test(`re-notification ${code} ${expired ? 'after' : 'before'} expiry preserves its failure kind`, async () => {
     const bound = await binding();
-    await files.mkdir(join(bound.directory, 'inbox'));
-    await files.mkdir(join(bound.directory, 'replies'));
+    await exchange(bound);
     const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const failure = Object.assign(new Error('Cannot touch request'), { code });
     vi.spyOn(files, 'lutimes').mockImplementation(async () => {
@@ -574,8 +581,6 @@ test('a listed request removed before its read is acknowledged without dispatch 
   const inbox = join(bound.directory, 'inbox', `${request.id}.json`);
   const reached = Promise.withResolvers<void>();
   const originalOpen = files.open;
-  let calls = 0;
-  const failures: unknown[] = [];
   vi.spyOn(files, 'open').mockImplementation(
     async (...args: Parameters<typeof files.open>) => {
       if (basename(String(args[0])) === `${request.id}.json`) {
@@ -585,21 +590,14 @@ test('a listed request removed before its read is acknowledged without dispatch 
       return originalOpen(...args);
     },
   );
-  const host = await ControlHost.open(
-    bound.directory,
-    async () => {
-      calls++;
-      return { kind: 'released' };
-    },
-    (error) => failures.push(error),
-  );
+  const { host, failures, calls } = await countingHost(bound);
   try {
     await host.drain();
     await watching(bound.directory);
     await writeJson(inbox, request);
     await within(reached.promise, 3000, 'request disappearance');
     await host.drain();
-    assert.equal(calls, 0);
+    assert.equal(calls(), 0);
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
     assert.deepEqual(failures, []);
   } finally {
@@ -695,16 +693,7 @@ test('expiry after asynchronous authority verification removes the exchange with
 
 test('invalid envelopes never reach the action handler', async () => {
   const bound = await binding();
-  let calls = 0;
-  const failures: unknown[] = [];
-  const host = await ControlHost.open(
-    bound.directory,
-    async () => {
-      calls++;
-      return { kind: 'released' };
-    },
-    (error) => failures.push(error),
-  );
+  const { host, failures, calls } = await countingHost(bound);
   try {
     await host.drain();
     await watching(bound.directory);
@@ -726,7 +715,7 @@ test('invalid envelopes never reach the action handler', async () => {
       assert.equal(result.id, id);
       assert.equal(result.kind, 'error');
     }
-    assert.equal(calls, 0);
+    assert.equal(calls(), 0);
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
@@ -734,16 +723,7 @@ test('invalid envelopes never reach the action handler', async () => {
 });
 
 test('an unread successful reply expires without undoing its claim', async () => {
-  vi.useFakeTimers({
-    toFake: [
-      'Date',
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-    ],
-    now: 1000,
-  });
+  clock();
   const spy = spyWatch();
   const bound = await binding();
   const store = await CoordinationStore.open(
@@ -808,27 +788,9 @@ test('an unread successful reply expires without undoing its claim', async () =>
 });
 
 test('an expired unanswered request is removed without dispatch', async () => {
-  vi.useFakeTimers({
-    toFake: [
-      'Date',
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-    ],
-    now: 1000,
-  });
+  clock();
   const bound = await binding();
-  let calls = 0;
-  const failures: unknown[] = [];
-  const host = await ControlHost.open(
-    bound.directory,
-    async () => {
-      calls++;
-      return { kind: 'released' };
-    },
-    (error) => failures.push(error),
-  );
+  const { host, failures, calls } = await countingHost(bound);
   try {
     await host.drain();
     await watching(bound.directory);
@@ -849,7 +811,7 @@ test('an expired unanswered request is removed without dispatch', async () => {
     );
     await host.drain();
     assert.deepEqual(await files.readdir(join(bound.directory, 'replies')), []);
-    assert.equal(calls, 0);
+    assert.equal(calls(), 0);
     assert.equal(created(), 0);
     assert.deepEqual(failures, []);
   } finally {
@@ -858,16 +820,7 @@ test('an expired unanswered request is removed without dispatch', async () => {
 });
 
 test('a handler finishing after expiry leaves no late reply', async () => {
-  vi.useFakeTimers({
-    toFake: [
-      'Date',
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-    ],
-    now: 1000,
-  });
+  clock();
   const bound = await binding();
   let entered = false;
   const proceed = Promise.withResolvers<void>();
@@ -912,16 +865,7 @@ test('a handler finishing after expiry leaves no late reply', async () => {
 });
 
 test('expiry cleanup tolerates concurrent acknowledgement', async () => {
-  vi.useFakeTimers({
-    toFake: [
-      'Date',
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-    ],
-    now: 1000,
-  });
+  clock();
   const bound = await binding();
   const inbox = join(bound.directory, 'inbox');
   const replies = join(bound.directory, 'replies');
@@ -987,16 +931,7 @@ test('expiry cleanup tolerates concurrent acknowledgement', async () => {
 
 for (const redirect of ['inbox', 'replies', 'reply'] as const)
   test(`expiry cleanup cannot delete through a redirected ${redirect}`, async () => {
-    vi.useFakeTimers({
-      toFake: [
-        'Date',
-        'setTimeout',
-        'clearTimeout',
-        'setInterval',
-        'clearInterval',
-      ],
-      now: 1000,
-    });
+    clock();
     const bound = await binding();
     const target = await scratch('witch-control-expiry-target-');
     const request = { ...envelope(bound), deadline: 1000 };
@@ -1005,16 +940,7 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
     const contents =
       redirect === 'inbox' ? JSON.stringify(request) : 'untouched';
     await files.writeFile(outside, contents);
-    let calls = 0;
-    const failures: unknown[] = [];
-    const host = await ControlHost.open(
-      bound.directory,
-      async () => {
-        calls++;
-        return { kind: 'released' };
-      },
-      (error) => failures.push(error),
-    );
+    const { host, failures, calls } = await countingHost(bound);
     try {
       await host.drain();
       await watching(bound.directory);
@@ -1046,7 +972,7 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
         );
       await host.drain();
       assert.equal(await files.readFile(outside, 'utf8'), contents);
-      assert.equal(calls, 0);
+      assert.equal(calls(), 0);
       if (redirect === 'reply') {
         assert.deepEqual(
           await files.readdir(join(bound.directory, 'inbox')),
@@ -1064,30 +990,12 @@ for (const redirect of ['inbox', 'replies', 'reply'] as const)
   });
 
 test('a failed expiry deletion leaves the request available for retry', async () => {
-  vi.useFakeTimers({
-    toFake: [
-      'Date',
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-    ],
-    now: 1000,
-  });
+  clock();
   const spy = spyWatch();
   const bound = await binding();
   const request = { ...envelope(bound), deadline: 1000 };
   const name = `${request.id}.json`;
-  let calls = 0;
-  const failures: unknown[] = [];
-  const host = await ControlHost.open(
-    bound.directory,
-    async () => {
-      calls++;
-      return { kind: 'released' };
-    },
-    (error) => failures.push(error),
-  );
+  const { host, failures, calls } = await countingHost(bound);
   try {
     await host.drain();
     await watching(bound.directory);
@@ -1116,19 +1024,12 @@ test('a failed expiry deletion leaves the request available for retry', async ()
     await host.drain();
     assert.deepEqual(await files.readdir(inbox), []);
     assert.deepEqual(await files.readdir(replies), []);
-    assert.equal(calls, 0);
+    assert.equal(calls(), 0);
     assert.equal(failures.length, 1);
   } finally {
     await host.close();
   }
 });
-
-const timers = [
-  'setTimeout',
-  'clearTimeout',
-  'setInterval',
-  'clearInterval',
-] as const;
 
 test('an idle host reads its inbox only after a change', async () => {
   vi.useFakeTimers({ toFake: [...timers] });
@@ -1269,18 +1170,9 @@ for (const failure of ['open', 'error'] as const)
   });
 
 test('a request answered before the host reads it expires at its deadline', async () => {
-  vi.useFakeTimers({ toFake: ['Date', ...timers], now: 1000 });
+  clock();
   const bound = await binding();
-  let calls = 0;
-  const failures: unknown[] = [];
-  const host = await ControlHost.open(
-    bound.directory,
-    async () => {
-      calls++;
-      return { kind: 'released' };
-    },
-    (error) => failures.push(error),
-  );
+  const { host, failures, calls } = await countingHost(bound);
   try {
     await host.drain();
     await watching(bound.directory);
@@ -1316,7 +1208,7 @@ test('a request answered before the host reads it expires at its deadline', asyn
     await host.drain();
     assert.deepEqual(await files.readdir(inbox), names([later]));
     assert.deepEqual(await files.readdir(replies), names([later]));
-    assert.equal(calls, 0);
+    assert.equal(calls(), 0);
     assert.deepEqual(failures, []);
   } finally {
     await host.close();
