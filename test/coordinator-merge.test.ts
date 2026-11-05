@@ -15,7 +15,13 @@ import { openLocked } from '../src/persistence/lock.js';
 import { identifyProcess, ps } from '../src/persistence/process.js';
 import type { ConversationStore } from '../src/persistence/store.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
-import { activity, fixture, record, turns } from './fixtures/coordinator.js';
+import {
+  activity,
+  fixture,
+  notices,
+  record,
+  turns,
+} from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 
@@ -47,11 +53,6 @@ const mergedPullRequest = (commit: string): PullRequest => ({
 
 const kept =
   "#7 merged, but feat/x's last commit isn't the one it merged, so it stays.";
-
-const notices = (coordinator: Coordinator) =>
-  coordinator.snapshot.items
-    .filter((item) => item.kind === 'notice')
-    .map((item) => item.text);
 
 test('a merge cleanup holds the phase and spins the pentacle, a prompt sent during it runs after it, and its notice says what it did', async () => {
   const { coordinator, a, project } = await fixture();

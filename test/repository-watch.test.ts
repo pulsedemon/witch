@@ -136,9 +136,6 @@ watching(
       toFake: ['setInterval', 'clearInterval', 'Date'],
       now: 0,
     });
-    t.onTestFinished(() => {
-      vi.useRealTimers();
-    });
     const directory = await scratch('witch-repository-pr-');
     await mkdir(join(directory, '.git'));
     await quiet();
@@ -221,9 +218,6 @@ watching(
     vi.useFakeTimers({
       toFake: ['setInterval', 'clearInterval', 'performance'],
     });
-    t.onTestFinished(() => {
-      vi.useRealTimers();
-    });
     const parent = await scratch('witch-repository-parent-');
     const directory = join(parent, 'sub');
     await mkdir(directory);
@@ -261,9 +255,6 @@ watching(
     vi.useFakeTimers({
       toFake: ['setInterval', 'clearInterval', 'performance'],
     });
-    t.onTestFinished(() => {
-      vi.useRealTimers();
-    });
     const work = await workTree();
     await quiet();
     const { run, status } = counting();
@@ -292,9 +283,6 @@ watching(
   async (t) => {
     vi.useFakeTimers({
       toFake: ['setInterval', 'clearInterval', 'performance'],
-    });
-    t.onTestFinished(() => {
-      vi.useRealTimers();
     });
     const work = await workTree();
     await quiet();

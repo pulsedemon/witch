@@ -975,11 +975,8 @@ test('a terminal too short for the usage block leaves usage to the status line',
   }
 });
 
-test('a usage window turns dim with its age once it stops being current, without a new reading', async (t) => {
+test('a usage window turns dim with its age once it stops being current, without a new reading', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-  t.onTestFinished(() => {
-    vi.useRealTimers();
-  });
   const now = Date.now();
   const { app } = fake({
     accounts: {

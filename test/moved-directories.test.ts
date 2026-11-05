@@ -12,7 +12,7 @@ import { StateStore } from '../src/persistence/store.js';
 import { quote } from '../src/shell.js';
 import { runSpawn } from '../src/spawn.js';
 import { FixtureAgent } from './fixtures/agent.js';
-import { record } from './fixtures/coordinator.js';
+import { notices, record } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
 import { until } from './fixtures/within.js';
@@ -114,10 +114,7 @@ test('a moved main checkout keeps its conversations, prompts, worktree, memory l
       (await coordinator.conversations()).map(({ id }) => id),
       ['newer', 'older'],
     );
-    const notice = coordinator.snapshot.items
-      .filter(({ kind }) => kind === 'notice')
-      .map(({ text }) => text)
-      .join('\n');
+    const notice = notices(coordinator).join('\n');
     assert.match(notice, /Repaired the move of .*w\/main to .*c\/main/);
     assert.ok(
       notice.includes(`--recover-directory ${quote(at('w/gone'))}`),

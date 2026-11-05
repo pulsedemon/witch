@@ -7,7 +7,7 @@ import { Coordinator } from '../src/core/coordinator.js';
 import type { DisplayItem } from '../src/core/state.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import type { FixtureAgent } from './fixtures/agent.js';
-import { TurnGate } from './fixtures/agent.js';
+import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { fixture, readRecord, turns } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
@@ -388,16 +388,9 @@ describe('an interrupted initial reconnect leaves the prompt queued without an e
         const release = Promise.withResolvers<void>();
         try {
           a.failConnect = false;
-          a.beforeConnect = (options) => {
-            if (abort)
-              options.signal?.addEventListener('abort', () =>
-                release.reject(
-                  new DOMException('Connect aborted', 'AbortError'),
-                ),
-              );
-            connecting.resolve();
-            return release.promise;
-          };
+          a.beforeConnect = holdConnect(connecting, release, {
+            onAbort: abort ? 'reject' : undefined,
+          });
           const sending = coordinator.send('Queued');
           await within(connecting.promise, 2000, 'the reconnect');
           await coordinator.interrupt();
@@ -430,11 +423,7 @@ describe('an unrelated initial reconnect failure remains visible', () => {
           : new DOMException('Connection aborted', 'AbortError');
         try {
           a.failConnect = false;
-          a.beforeConnect = async () => {
-            connecting.resolve();
-            await release.promise;
-            throw failure;
-          };
+          a.beforeConnect = holdConnect(connecting, release, { failure });
           const sending = coordinator.send('Queued');
           await within(connecting.promise, 2000, 'the reconnect');
           if (interrupt) await coordinator.interrupt();
@@ -824,10 +813,7 @@ test('a prompt sent while the launch connects goes once the load ends', async ()
   );
   const connecting = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  a.beforeConnect = async () => {
-    connecting.resolve();
-    await release.promise;
-  };
+  a.beforeConnect = holdConnect(connecting, release);
   try {
     const initializing = coordinator.initialize(project);
     await within(connecting.promise, 2000, 'the launch connect');

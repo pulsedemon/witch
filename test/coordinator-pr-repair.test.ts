@@ -12,9 +12,10 @@ import { callControl } from '../src/persistence/control.js';
 import { TurnGate } from './fixtures/agent.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
-import { fixture } from './fixtures/coordinator.js';
+import { fixture, notices } from './fixtures/coordinator.js';
 import { coordinationFixture, git } from './fixtures/coordination.js';
 import { until, within } from './fixtures/within.js';
+import { record as savedRecord } from './fixtures/copilot-reviews.js';
 
 test("every turn carries the branch's pull request conflict until it clears", async () => {
   const f = await fixture();
@@ -109,24 +110,6 @@ async function setup(t: TestContext, name = 'A') {
     agent.inputs.filter(({ prompt }) => prompt.startsWith(repairPrefix));
   const idle = (coordinator = c) =>
     until('idle', () => coordinator.snapshot.phase === 'idle');
-  const record = async (client = x) =>
-    conversationRecordSchema.parse(
-      JSON.parse(
-        await readFile(
-          join(
-            f.store.root,
-            'conversations',
-            client.coordinator.snapshot.conversation!.id,
-            'state.json',
-          ),
-          'utf8',
-        ),
-      ),
-    );
-  const notices = (coordinator = c) =>
-    coordinator.snapshot.items
-      .filter(({ kind }) => kind === 'notice')
-      .map(({ text }) => text);
   return {
     f,
     x,
@@ -137,8 +120,8 @@ async function setup(t: TestContext, name = 'A') {
     observe,
     repairs,
     idle,
-    record,
-    notices,
+    record: (client = x) => savedRecord(f, client),
+    notices: (coordinator = c) => notices(coordinator),
   };
 }
 

@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { Coordinator } from '../src/core/coordinator.js';
 import { editorEnvironment } from '../src/core/editor.js';
 import { main } from '../src/memory/memory.js';
-import { FixtureAgent, TurnGate } from './fixtures/agent.js';
+import { FixtureAgent, holdConnect, TurnGate } from './fixtures/agent.js';
 import {
   activity,
   readRecord,
@@ -686,16 +686,9 @@ describe('an interrupted moved-project reconnect leaves the prompt queued withou
             'origin',
             'https://github.com/owner/repo.git',
           );
-          a.beforeConnect = (options) => {
-            if (abort)
-              options.signal?.addEventListener('abort', () =>
-                release.reject(
-                  new DOMException('Connect aborted', 'AbortError'),
-                ),
-              );
-            connecting.resolve();
-            return release.promise;
-          };
+          a.beforeConnect = holdConnect(connecting, release, {
+            onAbort: abort ? 'reject' : undefined,
+          });
           const sending = coordinator.send('Queued');
           await within(connecting.promise, 2000, 'the reconnect');
           await coordinator.interrupt();
@@ -733,11 +726,7 @@ describe('an unrelated reconnect failure after interrupt remains visible', () =>
             'origin',
             'https://github.com/owner/repo.git',
           );
-          a.beforeConnect = async () => {
-            entered.resolve();
-            await release.promise;
-            throw failure;
-          };
+          a.beforeConnect = holdConnect(entered, release, { failure });
           const sending = coordinator.send('Moved');
           await within(entered.promise, 2000, 'the reconnect');
           if (interrupt) await coordinator.interrupt();

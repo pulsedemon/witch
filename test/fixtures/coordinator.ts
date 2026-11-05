@@ -174,5 +174,10 @@ export async function stranded(
 }
 
 /** each turn's prompt and spell, in the order the agent got them. */
+export const notices = (coordinator: Coordinator) =>
+  coordinator.snapshot.items
+    .filter(({ kind }) => kind === 'notice')
+    .map(({ text }) => text);
+
 export const turns = (a: FixtureAgent) =>
   a.inputs.map(({ prompt, skill }) => [prompt, skill]);

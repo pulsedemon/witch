@@ -10,7 +10,7 @@ import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type { UserRequest } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { StateStore } from '../src/persistence/store.js';
-import { TurnGate } from './fixtures/agent.js';
+import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { fixture, turns } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
@@ -304,10 +304,7 @@ test('answering retained questions resumes once and preserves the remaining ques
       question('first'),
       question('second'),
     ]);
-    a.beforeConnect = async () => {
-      entered.resolve();
-      await release.promise;
-    };
+    a.beforeConnect = holdConnect(entered, release);
     answering = Promise.all([
       coordinator.respond('first', response),
       coordinator.respond('first', response),

@@ -19,7 +19,7 @@ import {
   ConversationStore,
   LockedElsewhere,
 } from '../src/persistence/store.js';
-import { TurnGate } from './fixtures/agent.js';
+import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { frameWriter } from './fixtures/claude-adapter.js';
 import {
   coordinationFixture,
@@ -269,10 +269,7 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
   assert.ok(before);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  owner.a.beforeConnect = async () => {
-    entered.resolve();
-    await release.promise;
-  };
+  owner.a.beforeConnect = holdConnect(entered, release);
   const clearing = owner.coordinator.clear();
   try {
     await within(entered.promise, 3000, 'the clear reconnect');

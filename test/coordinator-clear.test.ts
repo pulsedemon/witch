@@ -5,7 +5,7 @@ import { test } from 'vitest';
 import type { AgentSession } from '../src/agents/types.js';
 import type { Coordinator } from '../src/core/coordinator.js';
 import { fixture, readRecord } from './fixtures/coordinator.js';
-import { TurnGate } from './fixtures/agent.js';
+import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { until, within } from './fixtures/within.js';
 
 test('clear starts a new native session while retaining the conversation, settings, transcript and memory workspace', async () => {
@@ -310,10 +310,7 @@ test('input sent during a clear reconnect runs once in the new session', async (
   let clearing: Promise<void> | undefined;
   try {
     const previous = f.coordinator.snapshot.native!.id;
-    f.a.beforeConnect = async () => {
-      entered.resolve();
-      await release.promise;
-    };
+    f.a.beforeConnect = holdConnect(entered, release);
     clearing = f.coordinator.clear();
     await within(entered.promise, 3000, 'the clear reconnect');
     await f.coordinator.send('during reconnect');
