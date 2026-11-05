@@ -10,8 +10,10 @@ export async function settleMemory(
   let conflict: MemoryConflict | undefined;
   let failure: string | undefined;
   if (await workspace.exists()) {
-    dirty = await workspace.isDirty();
-    if (!dirty)
+    const status = await workspace.status();
+    dirty = status.dirty;
+    // main already holds a clean worktree's commits
+    if (!dirty && status.ahead !== 0)
       try {
         const result = await workspace.publish();
         if (result !== 'published') conflict = result;

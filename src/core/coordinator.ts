@@ -1272,10 +1272,9 @@ export class Coordinator {
       await this.task?.catch(() => {});
       await this.draining?.promise;
       // settle() returns early once closed, so an accepted recovery is published here
-      if (
-        (await this.workspace?.exists()) &&
-        !(await this.workspace!.isDirty())
-      )
+      const status =
+        (await this.workspace?.exists()) && (await this.workspace!.status());
+      if (status && !status.dirty && status.ahead !== 0)
         await this.workspace!.publish();
     } catch (error) {
       failure ??= error;

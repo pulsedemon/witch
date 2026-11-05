@@ -237,15 +237,21 @@ export class Workspace {
       if (await this.rebaseStopped()) await this.git(['rebase', '--abort']);
       return;
     }
-    await this.memory.git(this.memory.root, [
-      'worktree',
-      'add',
-      '--force',
-      '--quiet',
-      ...((await this.branchExists())
-        ? [this.root, this.branch]
-        : ['-b', this.branch, this.root, main]),
-    ]);
+    const add = (args: string[]) =>
+      this.memory.git(this.memory.root, [
+        'worktree',
+        'add',
+        '--force',
+        '--quiet',
+        ...args,
+      ]);
+    // a missing worktree is almost always a new conversation's, so creating its branch first spares a lookup
+    await add(['-b', this.branch, this.root, main]).catch(
+      async (error: unknown) => {
+        if (!(await this.branchExists())) throw error;
+        await add([this.root, this.branch]);
+      },
+    );
   }
 
   /** restores the worktree of a branch that exists, never creating the branch. */
@@ -295,20 +301,39 @@ export class Workspace {
     return (await this.status()).dirty;
   }
 
-  /** whether the worktree holds changes, and the commit HEAD names, from one process. */
-  private async status(): Promise<{ dirty: boolean; head: string }> {
+  /** whether the worktree holds changes, the commit HEAD names, and HEAD's commits ahead of and behind `main`, from one process. the counts are absent when git can't give them, such as on a detached HEAD. */
+  async status(): Promise<{
+    dirty: boolean;
+    head: string;
+    ahead?: number;
+    behind?: number;
+  }> {
     // the user's status.showUntrackedFiles=no would hide new notes
     const output = await this.git([
+      // `main` as the branch's upstream has status count against it, sparing a merge-base
+      '-c',
+      `branch.${this.branch}.remote=.`,
+      '-c',
+      `branch.${this.branch}.merge=${main}`,
       'status',
       '--porcelain=v2',
       '--branch',
+      '--ahead-behind',
       '--untracked-files=normal',
       '--ignored=matching',
     ]);
+    // an upstream in the repository's config comes first and outranks the one given here
+    const [, ahead, behind] =
+      /^# branch\.upstream main\n# branch\.ab \+(\d+) -(\d+)$/m.exec(output) ??
+      [];
     return {
       // every line but the `# ` headers is a change
       dirty: /^[^#]/m.test(output),
       head: /^# branch\.oid (\S+)$/m.exec(output)![1]!,
+      ...(ahead !== undefined && {
+        ahead: Number(ahead),
+        behind: Number(behind),
+      }),
     };
   }
 
@@ -323,10 +348,11 @@ export class Workspace {
     ledger?: Ledger,
     former: readonly string[] = [],
   ): Promise<{ revision: string; repointed: number; notice?: string }> {
-    const { dirty, head } = await this.status();
+    const { dirty, head, ahead, behind } = await this.status();
     if (dirty)
       throw new Error('Resolve pending memory before running another task');
-    let latest = await this.latest();
+    // level with main, HEAD names main's commit
+    let latest = ahead === 0 && behind === 0 ? head : await this.latest();
     // a worktree at or behind main has nothing to publish
     if (head !== latest && !(await this.isAncestor(head, latest))) {
       if ((await this.publish()) !== 'published')
@@ -452,9 +478,9 @@ export class Workspace {
     former: readonly string[] = [],
   ): Promise<{ repointed: number; notice?: string }> {
     if (!(await this.exists())) return { repointed: 0 };
-    const { dirty, head } = await this.status();
+    const { dirty, head, ahead, behind } = await this.status();
     if (dirty) return { repointed: 0 };
-    const latest = await this.latest();
+    const latest = ahead === 0 && behind === 0 ? head : await this.latest();
     if (head !== latest && !(await this.isAncestor(head, latest)))
       return { repointed: 0 };
     const { repointed, notice } = await this.beginFrom(
@@ -480,7 +506,12 @@ export class Workspace {
 
   /** merges the notes under another project key into `project` as a commit of its own, and says whether that key held notes. */
   private async adopt(project: string, key: string): Promise<boolean> {
-    // the index matches HEAD here, since begin runs only on a clean worktree
+    // begin runs only on a clean worktree, so the index matches HEAD and a key missing on disk tracks nothing
+    const missing = await lstat(join(this.root, key)).then(
+      () => false,
+      (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT',
+    );
+    if (missing) return false;
     const files = (await this.git(['ls-files', '-z', '--', key]))
       .split('\0')
       .filter(Boolean);

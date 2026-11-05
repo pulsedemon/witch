@@ -80,7 +80,7 @@ async function exhaustion(
     await reopened.initialize(project, { continue: true });
     return reopened;
   };
-  return { coordinator, claude, codex, store, hook, reopen };
+  return { coordinator, claude, codex, store, memory, hook, reopen };
 }
 
 const notices = (coordinator: Coordinator) =>
@@ -655,11 +655,17 @@ test('pending commands make the switch yield with a notice', async () => {
 });
 
 test('a settlement error stays shown and nothing switches', async () => {
-  const { coordinator, claude, codex, hook } = await exhaustion();
+  const { coordinator, claude, codex, memory, hook } = await exhaustion();
   try {
     claude.exhaust = (prompt) => {
       if (!prompt.includes('First')) return false;
-      hook.current = async (command, run) => {
+      let unpublished = false;
+      hook.current = async (command, run, { cwd }) => {
+        // a commit the failed turn leaves behind gives settlement something to publish
+        if (command[0] === 'status' && !unpublished) {
+          unpublished = true;
+          await memory.git(cwd, ['commit', '--allow-empty', '-qm', 'mine']);
+        }
         if (command[0] !== 'merge-base') return run();
         hook.current = passThrough;
         throw new Error('memory is unreadable');
