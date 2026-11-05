@@ -13,7 +13,7 @@ const imageName = /\.(?:png|jpe?g|gif|webp)$/i;
 // a quoted path, or one where a backslash escapes the next character, then ASCII whitespace; `\s` would split at the U+202F in screenshot names
 const token =
   /(?:"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^ \t\r\n\\"'])+))(?:[ \t\r\n]+|$)/gy;
-const pngSignature = Buffer.from([
+export const pngSignature = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
 const largestSide = 2000;
@@ -117,25 +117,41 @@ async function encode(
     Math.ceil(data.length / 3) * 4 <= largestEncoded
   )
     return { bytes: data, extension: 'png' };
-  const directory = await mkdtemp(join(tmpdir(), 'witch-attachment-'));
+  return {
+    bytes: await convertImage(data, 'jpeg', signal, largestSide),
+    extension: 'jpg',
+  };
+}
+
+/** converts with macOS `sips`, shrinking an image with a side over `fit` to fit it. */
+export async function convertImage(
+  data: Buffer,
+  format: 'png' | 'jpeg',
+  signal: AbortSignal,
+  fit?: number,
+): Promise<Buffer> {
+  signal.throwIfAborted();
+  const directory = await mkdtemp(join(tmpdir(), 'witch-image-'));
   try {
     const input = join(directory, 'input');
-    const output = join(directory, 'output.jpg');
+    const output = join(directory, `output.${format}`);
     await writeFile(input, data);
-    const size = await sips(
-      ['-g', 'pixelWidth', '-g', 'pixelHeight', input],
-      signal,
-    );
-    const sides = [...size.matchAll(/pixel(?:Width|Height): (\d+)/g)];
-    // `-Z` enlarges a smaller image too
-    const fit = sides.some(([, side]) => Number(side) > largestSide)
-      ? ['-Z', String(largestSide)]
-      : [];
+    const resize: string[] = [];
+    if (fit !== undefined) {
+      const size = await sips(
+        ['-g', 'pixelWidth', '-g', 'pixelHeight', input],
+        signal,
+      );
+      const sides = [...size.matchAll(/pixel(?:Width|Height): (\d+)/g)];
+      // `-Z` enlarges a smaller image too
+      if (sides.some(([, side]) => Number(side) > fit))
+        resize.push('-Z', String(fit));
+    }
     await sips(
-      ['-s', 'format', 'jpeg', ...fit, input, '--out', output],
+      ['-s', 'format', format, ...resize, input, '--out', output],
       signal,
     );
-    return { bytes: await readFile(output), extension: 'jpg' };
+    return await readFile(output);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
