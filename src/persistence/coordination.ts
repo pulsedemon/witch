@@ -49,6 +49,27 @@ const ledgerSchema = z.discriminatedUnion('version', [
 ]);
 
 export type Ledger = { claims: TaskClaim[]; selections: SelectionTicket[] };
+/** runs under the coordination lock with the reconciled ledger, throwing to refuse the operation. */
+export type Verify = (ledger: Ledger) => Promise<void>;
+
+/** a JSON list in the coordination directory; `transact` writes it under the lock. */
+interface StoredList<T> {
+  file: string;
+  schema: z.ZodType<T[]>;
+}
+
+const merges: StoredList<MergeEvent> = {
+  file: 'merges.json',
+  schema: z.array(mergeEventSchema),
+};
+const peerRequests: StoredList<PeerRequest> = {
+  file: 'peer-requests.json',
+  schema: z.array(peerRequestSchema),
+};
+const pauses: StoredList<Pause> = {
+  file: 'pauses.json',
+  schema: z.array(pauseSchema),
+};
 
 function sameOwner(left: ClaimOwner, right: ClaimOwner): boolean {
   return (
@@ -197,20 +218,11 @@ export class CoordinationStore {
     return result;
   }
 
-  private async readMerges(): Promise<MergeEvent[]> {
-    return (
-      (await readJson(
-        join(this.directory, 'merges.json'),
-        z.array(mergeEventSchema),
-      )) ?? []
-    );
-  }
-
   async mergeEvents(
     project: string,
     conversation: string,
   ): Promise<MergeEvent[]> {
-    return (await this.readMerges()).filter(
+    return (await this.list(merges)).filter(
       (event) =>
         event.project === project && event.recipients.includes(conversation),
     );
@@ -223,11 +235,9 @@ export class CoordinationStore {
     recipients: readonly string[],
   ): Promise<MergeEvent> {
     const id = mergeEventId(project, pullRequest);
-    const lock = await this.lock(Date.now() + 1000);
-    try {
-      const events = await this.readMerges();
+    return this.transact(merges, Date.now() + 1000, async (events) => {
       const existing = events.find((event) => event.id === id);
-      if (existing) return existing;
+      if (existing) return { result: existing };
       const event = mergeEventSchema.parse({
         id,
         project,
@@ -236,27 +246,15 @@ export class CoordinationStore {
         pullRequest,
         recipients: [...new Set(recipients)],
       });
-      await writeJson(join(this.directory, 'merges.json'), [...events, event]);
-      return event;
-    } finally {
-      await lock.close();
-    }
-  }
-
-  private async readPeerRequests(): Promise<PeerRequest[]> {
-    return (
-      (await readJson(
-        join(this.directory, 'peer-requests.json'),
-        z.array(peerRequestSchema),
-      )) ?? []
-    );
+      return { result: event, next: [...events, event] };
+    });
   }
 
   async peerRequests(
     project: string,
     conversation: string,
   ): Promise<PeerRequest[]> {
-    return parties(await this.readPeerRequests(), project, conversation);
+    return parties(await this.list(peerRequests), project, conversation);
   }
 
   async peerRequest(owner: ClaimOwner, id: string): Promise<PeerRequest> {
@@ -276,11 +274,9 @@ export class CoordinationStore {
     claim: string,
     message: string,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<PeerRequest> {
-    const lock = await this.lock(deadline);
-    try {
-      const requests = await this.readPeerRequests();
+    return this.transact(peerRequests, deadline, async (requests) => {
       const existing = requests.find(
         (request) =>
           request.project === sender.project &&
@@ -288,7 +284,7 @@ export class CoordinationStore {
           request.claim === claim &&
           request.message === message.trim(),
       );
-      if (existing) return existing;
+      if (existing) return { result: existing };
       const ledger = await this.reconcile(await this.read(), deadline);
       const owned = ledger.claims.find(({ id }) => id === claim);
       if (!owned)
@@ -308,12 +304,8 @@ export class CoordinationStore {
         message,
         askedAt: new Date().toISOString(),
       });
-      checkDeadline(deadline);
-      await this.writePeerRequests([...requests, request]);
-      return request;
-    } finally {
-      await lock.close();
-    }
+      return { result: request, next: [...requests, request] };
+    });
   }
 
   /** stamps the conversation's answerable requests so each gets one automatic answer attempt. */
@@ -321,20 +313,20 @@ export class CoordinationStore {
     project: string,
     conversation: string,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<{ attempted: PeerRequest[]; requests: PeerRequest[] }> {
-    const lock = await this.lock(deadline);
-    try {
+    return this.transact(peerRequests, deadline, async (stored) => {
       const ledger = await this.reconcile(await this.read(), deadline);
       await verify(ledger);
-      const stored = await this.readPeerRequests();
       const batch = new Set(
         answerable(stored, conversation, project, ledger.claims),
       );
       if (!batch.size)
         return {
-          attempted: [],
-          requests: parties(stored, project, conversation),
+          result: {
+            attempted: [],
+            requests: parties(stored, project, conversation),
+          },
         };
       const attemptedAt = new Date().toISOString();
       const attempted: PeerRequest[] = [];
@@ -344,15 +336,14 @@ export class CoordinationStore {
         attempted.push(stamped);
         return stamped;
       });
-      checkDeadline(deadline);
-      await this.writePeerRequests(requests);
       return {
-        attempted,
-        requests: parties(requests, project, conversation),
+        result: {
+          attempted,
+          requests: parties(requests, project, conversation),
+        },
+        next: requests,
       };
-    } finally {
-      await lock.close();
-    }
+    });
   }
 
   async answerPeer(
@@ -376,9 +367,7 @@ export class CoordinationStore {
     deadline: number,
     preserveAnswered = false,
   ): Promise<PeerRequest[]> {
-    const lock = await this.lock(deadline);
-    try {
-      const requests = await this.readPeerRequests();
+    return this.transact(peerRequests, deadline, async (requests) => {
       const updates = new Map<number, PeerRequest>();
       for (const { id, message } of answers) {
         const index = requests.findIndex((request) => request.id === id);
@@ -397,32 +386,19 @@ export class CoordinationStore {
         });
         updates.set(index, answer);
       }
-      checkDeadline(deadline);
-      await this.writePeerRequests(
-        requests.map((request, index) => updates.get(index) ?? request),
-      );
-      return [...updates.values()];
-    } finally {
-      await lock.close();
-    }
-  }
-
-  private async writePeerRequests(requests: PeerRequest[]): Promise<void> {
-    await writeJson(join(this.directory, 'peer-requests.json'), requests);
-  }
-
-  private async readPauses(): Promise<Pause[]> {
-    return (
-      (await readJson(
-        join(this.directory, 'pauses.json'),
-        z.array(pauseSchema),
-      )) ?? []
-    );
+      const result = [...updates.values()];
+      // a batch whose every request was already answered changes nothing to write
+      if (!updates.size) return { result };
+      return {
+        result,
+        next: requests.map((request, index) => updates.get(index) ?? request),
+      };
+    });
   }
 
   /** the pauses the conversation issued or receives. */
   async pauses(conversation: string): Promise<Pause[]> {
-    return (await this.readPauses()).filter(
+    return (await this.list(pauses)).filter(
       (pause) =>
         pause.from === conversation || entry(pause, conversation) !== undefined,
     );
@@ -443,7 +419,7 @@ export class CoordinationStore {
     turn: string | undefined,
     requested: readonly string[] | undefined,
   ): Promise<Pause | undefined> {
-    return (await this.readPauses()).find((pause) =>
+    return (await this.list(pauses)).find((pause) =>
       sameRequest(pause, from, turn, requested),
     );
   }
@@ -457,13 +433,11 @@ export class CoordinationStore {
     deadline: number,
     verify: () => Promise<void>,
   ): Promise<Pause> {
-    const lock = await this.lock(deadline);
-    try {
-      const pauses = await this.readPauses();
-      const existing = pauses.find((pause) =>
+    return this.transact(pauses, deadline, async (issued) => {
+      const existing = issued.find((pause) =>
         sameRequest(pause, issuer.conversation, turn, requested),
       );
-      if (existing) return existing;
+      if (existing) return { result: existing };
       await verify();
       const unique = [
         ...new Map(
@@ -482,12 +456,8 @@ export class CoordinationStore {
           project,
         })),
       });
-      checkDeadline(deadline);
-      await this.writePauses([...pauses, pause]);
-      return pause;
-    } finally {
-      await lock.close();
-    }
+      return { result: pause, next: [...issued, pause] };
+    });
   }
 
   async confirmPause(
@@ -559,26 +529,16 @@ export class CoordinationStore {
     deadline: number,
     update: (pause: Pause) => PauseRecipient[] | undefined,
   ): Promise<void> {
-    const lock = await this.lock(deadline);
-    try {
-      const pauses = await this.readPauses();
+    await this.transact(pauses, deadline, async (issued) => {
       let changed = false;
-      const next = pauses.map((pause) => {
+      const next = issued.map((pause) => {
         const recipients = update(pause);
         if (!recipients) return pause;
         changed = true;
         return { ...pause, recipients };
       });
-      if (!changed) return;
-      checkDeadline(deadline);
-      await this.writePauses(next);
-    } finally {
-      await lock.close();
-    }
-  }
-
-  private async writePauses(pauses: Pause[]): Promise<void> {
-    await writeJson(join(this.directory, 'pauses.json'), pauses);
+      return { result: undefined, ...(changed ? { next } : {}) };
+    });
   }
 
   async publish(presence: SessionPresence): Promise<void> {
@@ -651,7 +611,7 @@ export class CoordinationStore {
     owner: ClaimOwner,
     process: ProcessIdentity,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       const claim = ledger.claims.find((claim) =>
@@ -666,7 +626,7 @@ export class CoordinationStore {
     input: ClaimInput,
     process: ProcessIdentity,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<TaskClaim> {
     const normalized = claimInput(owner, input);
     return this.mutate(deadline, verify, (ledger) => {
@@ -682,7 +642,7 @@ export class CoordinationStore {
     id: string,
     references: string[],
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<TaskClaim | undefined> {
     return this.mutate(deadline, verify, (ledger) => {
       const claim = ledger.claims.find((claim) => claim.id === id);
@@ -698,7 +658,7 @@ export class CoordinationStore {
     owner: ClaimOwner,
     id: string,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       const index = ledger.claims.findIndex((claim) => claim.id === id);
@@ -714,7 +674,7 @@ export class CoordinationStore {
     target: TransferTarget,
     request: Pick<Transfer, 'activation' | 'process' | 'expires'>,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<TaskClaim> {
     const normalized =
       target.field === 'transfer'
@@ -768,7 +728,7 @@ export class CoordinationStore {
     owner: ClaimOwner,
     id: string,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
     refusal: () => string | undefined,
     field: TransferField = 'transfer',
   ): Promise<TaskClaim | undefined> {
@@ -818,7 +778,7 @@ export class CoordinationStore {
     activation: string,
     id: string,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
     field: TransferField = 'transfer',
   ): Promise<TaskClaim | undefined> {
     return this.mutate(deadline, verify, (ledger) => {
@@ -831,7 +791,7 @@ export class CoordinationStore {
   async beginSelection(
     scope: SelectionScope,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<SelectionState> {
     return this.mutate(deadline, verify, (ledger) => {
       const existing = ledger.selections.find(
@@ -854,7 +814,7 @@ export class CoordinationStore {
     scope: SelectionScope,
     id: string,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<SelectionState> {
     return this.mutate(deadline, verify, (ledger) =>
       selection(ledger, scope, id),
@@ -867,7 +827,7 @@ export class CoordinationStore {
     input: ClaimInput,
     process: ProcessIdentity,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<TaskClaim> {
     const normalized = claimInput(scope.owner, input);
     return this.mutate(deadline, verify, (ledger) => {
@@ -905,7 +865,7 @@ export class CoordinationStore {
     scope: SelectionScope,
     id: string | undefined,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       if (id && ledger.selections.some((ticket) => ticket.id === id))
@@ -921,7 +881,7 @@ export class CoordinationStore {
     owner: ClaimOwner,
     process: ProcessIdentity,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<void> {
     await this.mutate(deadline, verify, (ledger) => {
       ledger.claims = ledger.claims.filter(
@@ -1003,9 +963,34 @@ export class CoordinationStore {
     };
   }
 
+  private async list<T>(stored: StoredList<T>): Promise<T[]> {
+    return (
+      (await readJson(join(this.directory, stored.file), stored.schema)) ?? []
+    );
+  }
+
+  /** runs `change` on the list under the lock, writing the `next` it returns after a last deadline check. */
+  private async transact<T, R>(
+    stored: StoredList<T>,
+    deadline: number,
+    change: (items: T[]) => Promise<{ result: R; next?: T[] }>,
+  ): Promise<R> {
+    const lock = await this.lock(deadline);
+    try {
+      const { result, next } = await change(await this.list(stored));
+      if (next) {
+        checkDeadline(deadline);
+        await writeJson(join(this.directory, stored.file), next);
+      }
+      return result;
+    } finally {
+      await lock.close();
+    }
+  }
+
   private async mutate<T>(
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
     change: (ledger: Ledger) => T,
   ): Promise<T> {
     const lock = await this.lock(deadline);

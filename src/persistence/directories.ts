@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { errorMessage } from '../agents/stderr.js';
-import { readJson, writeJson } from './json.js';
+import { readJson, unlessGone, writeJson } from './json.js';
 import { openLocked } from './lock.js';
 
 const execute = promisify(execFile);
@@ -66,18 +66,8 @@ export function sameIdentity(a: Identity, b: Identity | undefined): boolean {
 
 /** undefined for a path that's gone. */
 export async function identify(path: string): Promise<Identity | undefined> {
-  try {
-    const { dev, ino } = await stat(path, { bigint: true });
-    return { device: String(dev), inode: String(ino) };
-  } catch (error) {
-    if (
-      ['ENOENT', 'ENOTDIR'].includes(
-        (error as NodeJS.ErrnoException).code ?? '',
-      )
-    )
-      return undefined;
-    throw error;
-  }
+  const found = await unlessGone(stat(path, { bigint: true }));
+  return found && { device: String(found.dev), inode: String(found.ino) };
 }
 
 /**

@@ -9,8 +9,10 @@ import {
   bootSession,
   identifyProcess,
   identifyProcesses,
+  stopLeftProcesses,
 } from '../src/persistence/process.js';
 import { countProbes } from './fixtures/probes.js';
+import { within } from './fixtures/within.js';
 
 test('boot identity comes from the native boot session', async () => {
   const expected =
@@ -84,4 +86,32 @@ test('process identities preserve native start strings across a batch', async (t
     git: 0,
     sh: 0,
   });
+});
+
+test('a left process that refuses to stop still lets the others stop, then fails', async () => {
+  const start = async (script: string) => {
+    const child = spawn(process.execPath, ['-e', script]);
+    await once(child.stdout, 'data');
+    return child;
+  };
+  const stubborn = await start(
+    "process.on('SIGTERM', () => {}); console.log('ready'); setTimeout(() => {}, 60_000);",
+  );
+  const usage = await start(
+    "console.log('ready'); setTimeout(() => {}, 60_000);",
+  );
+  try {
+    const exited = once(usage, 'exit');
+    await assert.rejects(
+      stopLeftProcesses({
+        process: await identifyProcess(stubborn.pid!),
+        usageProcess: await identifyProcess(usage.pid!),
+      }),
+      /has not stopped/,
+    );
+    await within(exited, 1000, 'the usage process stopping');
+  } finally {
+    stubborn.kill('SIGKILL');
+    usage.kill('SIGKILL');
+  }
 });

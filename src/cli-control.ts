@@ -57,6 +57,38 @@ const options = {
   spawn: { type: 'string' },
 } as const;
 
+const bindingOptions = [
+  'control-dir',
+  'control-conversation',
+  'control-activation',
+] as const;
+/** in the order the "choose exactly one" refusal lists them. */
+const actionOptions = [
+  'peers',
+  'claim',
+  'release',
+  'select-next',
+  'recommend',
+  'cancel-selection',
+  'ask',
+  'answer',
+  'peer-request',
+  'pause',
+  'resume',
+  'pause-status',
+  'route',
+] as const;
+
+function bindingOf(values: {
+  [name in (typeof bindingOptions)[number]]?: string;
+}) {
+  return controlBindingSchema.parse({
+    directory: values['control-dir'] && resolve(values['control-dir']),
+    conversation: values['control-conversation'],
+    activation: values['control-activation'],
+  });
+}
+
 export function parseCommand(args = process.argv.slice(2)) {
   const separator = args.indexOf('--');
   const parsed = parseArgs({
@@ -76,9 +108,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     const option = runtime === 'codex' ? 'familiar-codex' : 'familiar-claude';
     const label = runtime === 'codex' ? 'Codex' : 'Claude';
     const allowed = new Set([
-      'control-dir',
-      'control-conversation',
-      'control-activation',
+      ...bindingOptions,
       option,
       'report-file',
       ...(runtime === 'codex' ? ['without-mcp'] : []),
@@ -95,11 +125,7 @@ export function parseCommand(args = process.argv.slice(2)) {
       throw new Error(
         `${label} familiar mode requires a task name and --report-file.`,
       );
-    const binding = controlBindingSchema.parse({
-      directory: values['control-dir'] && resolve(values['control-dir']),
-      conversation: values['control-conversation'],
-      activation: values['control-activation'],
-    });
+    const binding = bindingOf(values);
     (runtime === 'codex' ? codexArguments : claudeArguments)(positionals);
     return {
       ...parsed,
@@ -141,27 +167,13 @@ export function parseCommand(args = process.argv.slice(2)) {
       '--recover-directory needs a saved directory and cannot include prompts, --continue or --help.',
     );
   const controls = [
-    'control-dir',
-    'control-conversation',
-    'control-activation',
-    'peers',
-    'claim',
+    ...bindingOptions,
+    ...actionOptions,
     'summary',
     'alias',
-    'release',
-    'select-next',
-    'cancel-selection',
-    'recommend',
     'selection',
-    'ask',
-    'answer',
     'message',
-    'peer-request',
-    'pause',
     'to',
-    'resume',
-    'pause-status',
-    'route',
     'of',
     'named',
     'json',
@@ -173,24 +185,10 @@ export function parseCommand(args = process.argv.slice(2)) {
       familiar: undefined,
       spawn: undefined,
     };
-  const actions = [
-    !!values.peers,
-    values.claim !== undefined,
-    values.release !== undefined,
-    values['select-next'] !== undefined,
-    values['cancel-selection'] !== undefined,
-    values.recommend !== undefined,
-    values.ask !== undefined,
-    values.answer !== undefined,
-    values['peer-request'] !== undefined,
-    !!values.pause,
-    values.resume !== undefined,
-    values['pause-status'] !== undefined,
-    values.route !== undefined,
-  ].filter(Boolean).length;
-  if (actions !== 1)
+  const flags = actionOptions.map((name) => `--${name}`);
+  if (actionOptions.filter((name) => values[name] !== undefined).length !== 1)
     throw new Error(
-      'Choose exactly one control action: --peers, --claim, --release, --select-next, --recommend, --cancel-selection, --ask, --answer, --peer-request, --pause, --resume, --pause-status or --route.',
+      `Choose exactly one control action: ${flags.slice(0, -1).join(', ')} or ${flags.at(-1)}.`,
     );
   if (!values.pause && values.to) throw new Error('--to requires --pause.');
   if (
@@ -208,11 +206,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error(
       'Control commands cannot include prompts, --continue, --help, --state-dir or --recover-directory.',
     );
-  if (
-    !values['control-dir'] ||
-    !values['control-conversation'] ||
-    !values['control-activation']
-  )
+  if (bindingOptions.some((name) => !values[name]))
     throw new Error(
       'Use the complete control prefix from the current Witch context.',
     );
@@ -231,11 +225,7 @@ export function parseCommand(args = process.argv.slice(2)) {
     throw new Error('--ask and --answer require --message.');
   if (!asking && values.message !== undefined)
     throw new Error('--message requires --ask or --answer.');
-  const binding = controlBindingSchema.parse({
-    directory: resolve(values['control-dir']),
-    conversation: values['control-conversation'],
-    activation: values['control-activation'],
-  });
+  const binding = bindingOf(values);
   const action = coordinationActionSchema.parse(
     values.peers
       ? { kind: 'peers' }

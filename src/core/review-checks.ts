@@ -3,6 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { decodeHTMLStrict } from 'entities';
+import { unlessGone } from '../persistence/json.js';
 
 const execute = promisify(execFile);
 
@@ -658,22 +659,10 @@ async function show(
 
 /** undefined for a missing path or a directory; other read failures throw, so no check passes unread. */
 async function readText(path: string): Promise<string | undefined> {
-  try {
-    if (!(await stat(path)).isFile()) return;
-    return await readFile(path, 'utf8');
-  } catch (error) {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return;
-    throw error;
-  }
+  if (!(await unlessGone(stat(path)))?.isFile()) return;
+  return unlessGone(readFile(path, 'utf8'));
 }
 
 async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch (error) {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
-    throw error;
-  }
+  return (await unlessGone(stat(path)))?.isDirectory() ?? false;
 }

@@ -678,14 +678,7 @@ export class Workspace {
 
   /** the pending changes, with new files shown whole. */
   async diff(): Promise<string> {
-    const tracked = await this.git([
-      'diff',
-      // a user's diff.external would otherwise replace the unified diff
-      '--no-ext-diff',
-      '--no-prefix',
-      'HEAD',
-      '--',
-    ]);
+    const tracked = await this.patch('HEAD');
     const untracked = (await this.git(['ls-files', '--others', '-z']))
       .split('\0')
       .filter(Boolean);
@@ -705,6 +698,30 @@ export class Workspace {
   private async rebaseConflict(): Promise<MemoryConflict> {
     const blocked = (await this.git(['rev-parse', 'REBASE_HEAD'])).trim();
     const replayed = await this.revision();
+    const { paths, relocated } = await this.mergeTree(
+      `--merge-base=${blocked}^`,
+      replayed,
+      blocked,
+    );
+    return {
+      paths: [...new Set(paths.map((path) => relocated.get(path) ?? path))],
+      diff: await this.patch(`${blocked}^`, blocked),
+    };
+  }
+
+  /** a unified diff; a user's diff.external would otherwise replace it. */
+  private patch(...revisions: string[]): Promise<string> {
+    return this.git([
+      'diff',
+      '--no-ext-diff',
+      '--no-prefix',
+      ...revisions,
+      '--',
+    ]);
+  }
+
+  /** `git merge-tree` exits 1 for a conflicted merge it still reports. */
+  private async mergeTree(...args: string[]) {
     const merged = await this.memory.run(
       this.root,
       [
@@ -713,24 +730,11 @@ export class Workspace {
         '--messages',
         '-z',
         '--name-only',
-        `--merge-base=${blocked}^`,
-        replayed,
-        blocked,
+        ...args,
       ],
       { codes: [0, 1] },
     );
-    const { paths, relocated } = mergeResult(merged.stdout);
-    return {
-      paths: [...new Set(paths.map((path) => relocated.get(path) ?? path))],
-      diff: await this.git([
-        'diff',
-        '--no-ext-diff',
-        '--no-prefix',
-        `${blocked}^`,
-        blocked,
-        '--',
-      ]),
-    };
+    return mergeResult(merged.stdout);
   }
 
   /** `clean -ffdx` also removes repositories an agent created inside memory. */
@@ -742,22 +746,12 @@ export class Workspace {
   /** my side wins each conflicting change; every other change from both sides merges. */
   async keepMine(): Promise<void> {
     const latest = await this.latest();
-    const merged = await this.memory.run(
-      this.root,
-      [
-        'merge-tree',
-        '--write-tree',
-        '-X',
-        'ours',
-        '--messages',
-        '-z',
-        '--name-only',
-        'HEAD',
-        latest,
-      ],
-      { codes: [0, 1] },
+    const { tree, paths, relocated } = await this.mergeTree(
+      '-X',
+      'ours',
+      'HEAD',
+      latest,
     );
-    const { tree, paths, relocated } = mergeResult(merged.stdout);
     const base = (await this.git(['merge-base', 'HEAD', latest])).trim();
     const index = resolve(
       this.root,

@@ -6,7 +6,7 @@ import { cp, readFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
-import type { vi } from 'vitest';
+import { vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { controlPrefix } from '../../src/cli-control.js';
@@ -196,4 +196,20 @@ export async function coordinationFixture(
     ledger,
     checkout: (name: string) => checkout(join(root, name)),
   };
+}
+
+/** lets the coordination lock be taken, then moves the clock past the deadline it was given. */
+export function expireAfterLock(): void {
+  const store = CoordinationStore.prototype as unknown as {
+    lock(deadline: number): Promise<unknown>;
+  };
+  const lock = store.lock;
+  vi.spyOn(store, 'lock').mockImplementation(async function (
+    this: unknown,
+    deadline: number,
+  ) {
+    const held = await lock.call(this, deadline);
+    vi.spyOn(Date, 'now').mockReturnValue(deadline + 1);
+    return held;
+  });
 }

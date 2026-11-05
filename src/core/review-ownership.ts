@@ -8,7 +8,7 @@ import type {
 } from './coordination-state.js';
 import { recordTaskAssignment } from './github-assignment.js';
 import type { assignGitHubTask } from './github-assignment.js';
-import type { Ledger } from '../persistence/coordination.js';
+import type { Verify } from '../persistence/coordination.js';
 import type { SessionCoordination } from './coordination.js';
 import type { PullRequest, Repository } from './repository.js';
 
@@ -26,7 +26,7 @@ interface ReviewOwnershipPort {
     owner: ClaimOwner,
     input: ClaimInput,
     deadline: number,
-    verify: (ledger: Ledger) => Promise<void>,
+    verify: Verify,
   ): Promise<TaskClaim>;
   assign: typeof assignGitHubTask;
   record(
