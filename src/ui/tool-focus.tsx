@@ -5,10 +5,12 @@ import type { DisplayItem } from '../core/state.js';
 import { canExpandDiff } from './diff.js';
 import { useLiveState } from './live-state.js';
 import { piped } from './theme.js';
-import { isExpanded } from './transcript-layout.js';
+import { isExpanded, toggleGroup } from './transcript-layout.js';
 
 /** where a shown row's id leads once grouping hides or regroups it; ungrouped, every id leads to itself. */
 export type ShownAs = (id: string) => string;
+/** the tools a group row stands for; undefined for any other row. */
+export type Members = (id: string) => readonly DisplayItem[] | undefined;
 
 /** the index of the selected tool among `tools`; with none selected, or one no longer shown, the first. */
 function indexOf(
@@ -39,9 +41,11 @@ export function useToolFocus(conversation: string | undefined) {
     setFullDiffs(new Set());
   }, [conversation]);
 
-  const toggle = (item: DisplayItem) =>
+  const toggle = (item: DisplayItem, members?: readonly DisplayItem[]) =>
     setExpanded((previous) =>
-      new Map(previous).set(item.id, !isExpanded(item, previous)),
+      members
+        ? toggleGroup(members, previous)
+        : new Map(previous).set(item.id, !isExpanded(item, previous)),
     );
 
   return {
@@ -59,6 +63,7 @@ export function useToolFocus(conversation: string | undefined) {
       key: Key,
       tools: readonly DisplayItem[],
       shownAs: ShownAs,
+      members: Members,
       scrollTo: (id: string | null) => void,
     ) {
       const current = indexOf(tools, shownAs, selectionRef.current);
@@ -82,7 +87,7 @@ export function useToolFocus(conversation: string | undefined) {
         setExpanded((previous) => new Map(previous).set(item.id, true));
         scrollTo(item.id);
       }
-      if (key.return && item) toggle(item);
+      if (key.return && item) toggle(item, members(item.id));
     },
   };
 }

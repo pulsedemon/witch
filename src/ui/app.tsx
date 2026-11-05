@@ -398,9 +398,8 @@ export function App({
       dismissedRef.current,
       recalled(buffer.value, recall.current, history.current),
     );
-  const tools = state.items.filter((item) => item.kind === 'tool');
-  const shownAs = (id: string) => id;
-  const selectedTool = tools[toolFocus.selected(tools, shownAs)];
+  const tools = transcript.items.filter((item) => item.kind === 'tool');
+  const selectedTool = tools[toolFocus.selected(tools, transcript.shownAs)];
   const diffHint =
     toolFocus.focused && selectedTool?.diff && canExpandDiff(selectedTool.diff)
       ? diffExpansionHint(toolFocus.fullDiffs.has(selectedTool.id))
@@ -1153,10 +1152,16 @@ export function App({
     if (key.pageDown) scrollBy(1, true);
     if (key.tab) toolFocus.setFocused(!toolFocus.focusedRef.current);
     if (toolFocus.focusedRef.current)
-      toolFocus.key(input, key, tools, shownAs, (id) =>
-        id === null
-          ? setTop(null)
-          : scrollTo(transcript.starts.get(id) ?? null),
+      toolFocus.key(
+        input,
+        key,
+        tools,
+        transcript.shownAs,
+        transcript.members,
+        (id) =>
+          id === null
+            ? setTop(null)
+            : scrollTo(transcript.starts.get(id) ?? null),
       );
   });
 
