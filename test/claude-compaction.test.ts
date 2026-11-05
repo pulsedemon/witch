@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
@@ -20,20 +20,12 @@ async function scripted(sessionState = true) {
   });
   await f.session.send('seed');
   events.length = 0;
-  let sequence = 0;
-  const emit = async (...frames: object[]) => {
-    const index = ++sequence;
-    await writeFile(join(f.cwd, 'events.next'), JSON.stringify(frames));
-    await rename(
-      join(f.cwd, 'events.next'),
-      join(f.cwd, `events-${index}.json`),
-    );
-    await until('frame barrier', () =>
-      events.some(
-        (e) => e.type === 'skills' && e.skills[0]?.name === `barrier-${index}`,
-      ),
-    );
-  };
+  const emit = frameWriter(
+    f.cwd,
+    (name) =>
+      events.some((e) => e.type === 'skills' && e.skills[0]?.name === name),
+    f.child,
+  );
   const compact = async () => {
     let settled = false;
     const result = f.session.compact().then((r) => {

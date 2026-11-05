@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { rename, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../../src/agents/codex.js';
@@ -11,6 +11,7 @@ import type {
   SessionOptions,
 } from '../../src/agents/types.js';
 import type { RpcMessage } from '../../src/agents/json-rpc.js';
+import { writeJson } from '../../src/persistence/json.js';
 import { appears, until } from './within.js';
 import { scratch } from './scratch.js';
 import type { ControlBinding } from '../../src/persistence/control.js';
@@ -114,6 +115,26 @@ export const turnFrame = (
   method: status === 'inProgress' ? 'turn/started' : 'turn/completed',
   params: { threadId, turn: { id, status, error: null } },
 });
+/** writes each batch of native frames as the fixture's next events file, then waits until its barrier notice is `noticed`. */
+export function frameWriter(
+  cwd: string,
+  noticed: (text: string) => boolean,
+): (...frames: RpcMessage[]) => Promise<void> {
+  let sequence = 0;
+  return async (...frames) => {
+    const index = ++sequence;
+    const text = `fixture barrier ${index}`;
+    await writeJson(join(cwd, `events-${index}.json`), [
+      ...frames,
+      {
+        method: 'error',
+        params: { error: { message: text }, willRetry: true },
+      },
+    ]);
+    await until(text, () => noticed(text));
+  };
+}
+
 export async function controlledFixture(
   mode = 'brews',
   commandPrefixes?: CommandPrefixes,
@@ -124,24 +145,13 @@ export async function controlledFixture(
     commandPrefixes,
   });
   const { session, cwd } = context;
-  let sequence = 0;
-  const write = async (name: string, value: unknown) => {
-    await writeFile(join(cwd, `${name}.next`), JSON.stringify(value));
-    await rename(join(cwd, `${name}.next`), join(cwd, name));
-  };
-  const emit = async (...frames: RpcMessage[]) => {
-    const index = ++sequence;
-    const text = `fixture barrier ${index}`;
-    await write(`events-${index}.json`, [
-      ...frames,
-      {
-        method: 'error',
-        params: { error: { message: text }, willRetry: true },
-      },
-    ]);
-    await until(text, () =>
-      events.some((event) => event.type === 'notice' && event.text === text),
-    );
+  const write = (name: string, value: unknown) =>
+    writeJson(join(cwd, name), value);
+  const frames = frameWriter(cwd, (text) =>
+    events.some((event) => event.type === 'notice' && event.text === text),
+  );
+  const emit = async (...batch: RpcMessage[]) => {
+    await frames(...batch);
     await session.skills();
   };
   const reply = async (index: number, response: unknown, kind = 'list') => {
