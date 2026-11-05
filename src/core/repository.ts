@@ -175,6 +175,15 @@ export function fromGitHub({
   };
 }
 
+/** the host and `owner/name` of a pull request's repository, read from the pull request's URL. */
+export function gitHubRepository(
+  url: string,
+): { host: string; repository: string } | undefined {
+  const [, host, repository] =
+    /^https:\/\/([^/]+)\/([^/]+\/[^/]+)\/pull\//.exec(url) ?? [];
+  return host && repository ? { host, repository } : undefined;
+}
+
 const pullRequestView = gitHubPullRequestFields.extend({
   mergeable: pullRequestSchema.shape.mergeable.unwrap(),
   mergedAt: z.string().nullish(),
@@ -522,17 +531,16 @@ export class RepositoryWatch {
 
   /** the base branch's current tip, which gh's `baseRefOid` isn't, from the pull request's own repository. */
   private async tip({ url, base }: PullRequest): Promise<string | undefined> {
-    const [, host, repository] =
-      /^https:\/\/([^/]+)\/([^/]+\/[^/]+)\/pull\//.exec(url) ?? [];
-    if (!host || !repository) return;
+    const github = gitHubRepository(url);
+    if (!github) return;
     try {
       const { stdout } = await this.run(
         'gh',
         [
           'api',
           '--hostname',
-          host,
-          `repos/${repository}/commits/${base}`,
+          github.host,
+          `repos/${github.repository}/commits/${base}`,
           '--jq',
           '.sha',
         ],

@@ -12,7 +12,7 @@ import type { StateStore } from '../persistence/store.js';
 import { runCommand } from './command.js';
 import type { Coordinator } from './coordinator.js';
 import type { Conversation } from './state.js';
-import { parseStatus, statusArgs } from './repository.js';
+import { gitHubRepository, parseStatus, statusArgs } from './repository.js';
 import type {
   PullRequest,
   Repository,
@@ -201,6 +201,30 @@ const read = async (git: Git) => parseStatus(await git(...statusArgs));
 const deleting = ({ mergedAt }: PullRequest) =>
   !!mergedAt && Date.now() - Date.parse(mergedAt) < 15_000;
 
+/** whether the repository keeps merged head branches, so this one stays on its remote, unless it's the default branch. */
+async function remoteKeeps(
+  { url, branch }: PullRequest,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const github = gitHubRepository(url);
+  if (!github) return false;
+  const { stdout } = await runCommand(
+    'gh',
+    [
+      'api',
+      '--hostname',
+      github.host,
+      `repos/${github.repository}`,
+      '--jq',
+      '.delete_branch_on_merge, .default_branch',
+    ],
+    { cwd, timeout: 30_000, ...(signal ? { signal } : {}) },
+  );
+  const [deletes, base] = stdout.trim().split('\n');
+  return deletes === 'false' && base !== branch;
+}
+
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */
 const ignored = (git: Git, path: string) =>
   git('check-ignore', '-q', path).then(
@@ -292,7 +316,7 @@ export async function cleanUpMerge(
   });
   if (!lock) return undefined;
   try {
-    return await clean(git, pullRequest, blocked, progress, signal);
+    return await clean(git, cwd, pullRequest, blocked, progress, signal);
   } catch (error) {
     if (error === signal?.reason && progress.switchHead) {
       const reconcile = AbortSignal.timeout(1000);
@@ -311,6 +335,7 @@ export async function cleanUpMerge(
 
 async function clean(
   git: Git,
+  cwd: string,
   pullRequest: PullRequest,
   blocked: () => Promise<boolean>,
   progress: MergeCleanup,
@@ -392,12 +417,12 @@ async function clean(
       ).split('\t');
     };
     let [upstream, tracking, merges] = await track();
-    while (
-      upstream &&
-      merges === `refs/heads/${branch}` &&
-      tracking !== '[gone]' &&
-      deleting(pullRequest)
-    ) {
+    const onRemote = () =>
+      !!upstream && merges === `refs/heads/${branch}` && tracking !== '[gone]';
+    const keeps =
+      onRemote() &&
+      (await remoteKeeps(pullRequest, cwd, signal).catch(stopped));
+    while (!keeps && onRemote() && deleting(pullRequest)) {
       await delay(2000, undefined, { signal }).catch(() =>
         signal?.throwIfAborted(),
       );
@@ -432,8 +457,14 @@ async function clean(
         text: `#${number} merged, but ${branch} tracks ${upstream} rather than its own remote branch, so it stays.`,
         cleaned: false,
       };
-    // GitHub deletes a merged pull request's branch, and a long-lived head branch such as develop keeps its own
-    if (tracking !== '[gone]')
+    // a repository that keeps merged branches leaves the merged commit there; one that deletes them leaves a
+    // long-lived head branch such as develop
+    if (keeps && tracking)
+      return {
+        text: `#${number} merged, but ${branch}'s remote branch has changed since, so it stays.`,
+        cleaned: false,
+      };
+    if (!keeps && tracking !== '[gone]')
       return {
         text: `#${number} merged, but ${branch} is still on its remote, so it stays.`,
         cleaned: false,
