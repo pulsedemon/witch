@@ -942,8 +942,8 @@ test('an earlier layout frame retains its rows and anchors after the tool grows'
   const page = after.lines.slice(0, 2);
   page[0] = 'highlighted';
   assert.notEqual(after.lines.at(0), 'highlighted');
-  assert.equal(after.lines.at(-2), 'after');
-  assert.deepEqual(after.lines.slice(-2), ['after', '']);
+  assert.equal(stripAnsi(after.lines.at(-2)!), 'after');
+  assert.deepEqual(after.lines.slice(-2).map(stripAnsi), ['after', '']);
 });
 
 test('warm tool appends and a fixed page do not scale with completed prefix rows', () => {

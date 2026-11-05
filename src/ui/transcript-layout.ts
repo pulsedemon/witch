@@ -170,7 +170,15 @@ function prepare(
     item.kind === 'assistant' && !fullMarkdown
       ? markdownAppend(item.text, item.cwd)
       : undefined;
-  const body = tool ? '' : (assistant?.tail ?? markdown(item.text, item.cwd));
+  // a one-line notice needs no heading to read as one, only dim text
+  const headless =
+    item.kind === 'notice' && !item.cast && !item.text.includes('\n');
+  const body = tool
+    ? ''
+    : (assistant?.tail ??
+      (headless
+        ? colors.dim(markdown(item.text, item.cwd))
+        : markdown(item.text, item.cwd)));
   const sources =
     item.kind === 'user' || (tool && expanded) ? (item.images ?? []) : [];
   const diff =
@@ -179,9 +187,6 @@ function prepare(
       : undefined;
   const complete = linked?.complete ?? assistant?.complete ?? [];
   const hasBody = linked ? linked.complete.length > 0 || !!linked.tail : !!body;
-  // a one-line notice needs no heading to read as one
-  const headless =
-    item.kind === 'notice' && !item.cast && !item.text.includes('\n');
   return {
     item,
     title: headless ? [] : title.split('\n'),

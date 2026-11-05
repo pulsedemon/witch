@@ -159,6 +159,8 @@ test('a one-line notice renders without a heading, a multi-line one keeps it', (
     80,
     new Map(),
   );
+  // dim, so it reads as a notice without the heading
+  assert.ok(output.lines.at(0)!.startsWith('\u001b[2m'));
   assert.deepEqual(rows(output), [
     'Saved the note.',
     '',
