@@ -27,6 +27,13 @@ const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
 
 const url = 'https://github.test/o/r/pull/7';
 
+const lookup = [
+  'api graphql --hostname github.test',
+  '-f query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { deleteBranchOnMerge defaultBranchRef { name } pullRequest(number: $number) { isCrossRepository } } }',
+  '-f owner=o -f name=r -F number=7',
+  '--jq .data.repository | .deleteBranchOnMerge, .defaultBranchRef.name, .pullRequest.isCrossRepository',
+].join(' ');
+
 /**
  * runs `body` with a `gh` on PATH that prints `settings`, the lines of deleteBranchOnMerge, the default branch and
  * isCrossRepository, for the pull request's lookup, or fails it without them.
@@ -41,7 +48,7 @@ async function withGh<T>(
     join(bin, 'gh'),
     settings === undefined
       ? `#!/bin/sh\necho 'HTTP 502' >&2\nexit 1\n`
-      : `#!/bin/sh\ncase "$*" in 'api graphql --hostname github.test '*' -f owner=o -f name=r -F number=7 '*) ;; *) exit 1 ;; esac\nprintf ${quote(settings)}\n`,
+      : `#!/bin/sh\n[ "$*" = ${quote(lookup)} ] || exit 1\nprintf ${quote(settings)}\n`,
   );
   await chmod(join(bin, 'gh'), 0o755);
   const previousPath = process.env.PATH;

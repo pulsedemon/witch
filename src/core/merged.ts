@@ -232,7 +232,17 @@ async function remoteKeeps(
       '.data.repository | .deleteBranchOnMerge, .defaultBranchRef.name, .pullRequest.isCrossRepository',
     ],
     { cwd, timeout: 30_000, ...(signal ? { signal } : {}) },
-  );
+  ).catch((error: unknown) => {
+    if (error === signal?.reason) throw error;
+    // the command line carries the whole query, so the error keeps only gh's own message and whether it timed out
+    const { stderr, killed } = error as { stderr?: unknown; killed?: unknown };
+    throw new Error(
+      [killed && 'gh timed out', String(stderr ?? '').trim()]
+        .filter(Boolean)
+        .join(': ') || errorMessage(error),
+      { cause: error },
+    );
+  });
   const [deletes, base, fork] = stdout.trim().split('\n');
   if (deletes !== 'true' && deletes !== 'false')
     throw new Error(`deleteBranchOnMerge was ${deletes || 'empty'}`);
@@ -443,10 +453,7 @@ async function clean(
       onRemote() &&
       (await remoteKeeps(pullRequest, cwd, signal).catch((error: unknown) => {
         if (error === signal?.reason) throw error;
-        // gh's own message: the command line it fails with carries the whole query
-        unread =
-          String((error as { stderr?: unknown }).stderr ?? '').trim() ||
-          errorMessage(error).trim();
+        unread = errorMessage(error).trim();
         return false;
       }));
     while (!keeps && onRemote() && deleting(pullRequest)) {
