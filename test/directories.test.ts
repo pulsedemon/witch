@@ -50,6 +50,15 @@ async function directories(...paths: string[]) {
   return { root, at, entry, move, moved };
 }
 
+/** `items` behind a proxy that adds each element read to `reads.n`. */
+const counted = <T extends object>(items: T[], reads: { n: number }) =>
+  new Proxy(items, {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && /^\d+$/.test(key)) reads.n++;
+      return Reflect.get(target, key, receiver) as unknown;
+    },
+  });
+
 test('mapper maps a path and its descendants at a boundary only', async () => {
   const f = await directories('c/main');
   const { map } = await mapper({
@@ -107,37 +116,44 @@ test('a move recorded while the clock reads behind the last one is dated after i
 
 test('rechecking a mapping looks only at the known directories holding its path', async () => {
   const f = await directories('a');
+  const reads = { n: 0 };
   const ledger: Ledger = {
-    entries: Array.from({ length: 50_000 }, (_, index) => ({
-      path: f.at(`known/e${index}`),
-      device: '1',
-      inode: String(index),
-    })),
+    entries: counted(
+      Array.from({ length: 1000 }, (_, index) => ({
+        path: f.at(`known/e${index}`),
+        device: '1',
+        inode: String(index),
+      })),
+      reads,
+    ),
     moves: [],
   };
   const mapping = await mapper(ledger);
-  // scanning every entry for each recheck takes seconds here
-  const started = performance.now();
-  for (let index = 0; index < 2000; index++)
+  reads.n = 0;
+  for (let index = 0; index < 200; index++)
     assert.equal(await mapping.unchanged(f.at(`a/c${index}`)), true);
-  assert.ok(performance.now() - started < 500);
+  // scanning every entry for each recheck reads them all again per call
+  assert.ok(reads.n < 1000, String(reads.n));
 });
 
-test('resolving a move beside many known directories looks only at the ones it carries', async () => {
+test('resolving a move beside many known directories reads each one a bounded number of times', async () => {
   const f = await directories('b');
+  const reads = { n: 0 };
   const ledger: Ledger = {
-    entries: Array.from({ length: 100_000 }, (_, index) => ({
-      path: f.at(`known/e${index}`),
-      device: '1',
-      inode: String(index),
-    })),
+    entries: counted(
+      Array.from({ length: 2000 }, (_, index) => ({
+        path: f.at(`known/e${index}`),
+        device: '1',
+        inode: String(index),
+      })),
+      reads,
+    ),
     moves: [],
   };
-  // checking every entry's membership before its path takes a second here
-  const started = performance.now();
   await resolve(ledger, [await f.move('a', 'b')], 0);
-  assert.ok(performance.now() - started < 300);
-  assert.equal(ledger.entries.length, 100_000);
+  assert.equal(ledger.entries.length, 2000);
+  // checking each entry's place in the ledger before its path reads every entry per entry
+  assert.ok(reads.n < 20_000, String(reads.n));
 });
 
 test('resolving a move relocates the directories it carries in one pass over the ledger', async () => {
@@ -182,18 +198,14 @@ test('resolving many moves at once reads the ledger a fixed number of times', as
     device,
     inode,
   }));
-  let reads = 0;
-  const counted = <T extends object>(items: T[]) =>
-    new Proxy(items, {
-      get(target, key, receiver) {
-        if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
-        return Reflect.get(target, key, receiver) as unknown;
-      },
-    });
-  const ledger: Ledger = { entries: counted(entries), moves: counted([]) };
+  const reads = { n: 0 };
+  const ledger: Ledger = {
+    entries: counted(entries, reads),
+    moves: counted([], reads),
+  };
   await resolve(ledger, moves, 0);
   // scanning the entries and the moves for each move made a parent holding thousands of known directories take seconds
-  assert.ok(reads < 4 * moves.length, String(reads));
+  assert.ok(reads.n < 4 * moves.length, String(reads.n));
   assert.deepEqual(
     ledger.entries.map(({ path, main }) => [path, main]),
     moves.map(({ to }) => [to, to]),
