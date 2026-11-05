@@ -5,6 +5,7 @@ import {
   ClaimConflict,
   type CoordinationStore,
   type Ledger,
+  type Verify,
 } from '../persistence/coordination.js';
 import type { ControlOutcome, ControlRequest } from '../persistence/control.js';
 import type { StateStore } from '../persistence/store.js';
@@ -48,8 +49,8 @@ export interface DispatchHost {
   readLedger(state?: RequestState): Promise<LedgerView>;
   change<T>(
     state: RequestState | undefined,
-    work: (verify: (ledger: Ledger) => Promise<void>) => Promise<T>,
-    verify?: (ledger: Ledger) => Promise<void>,
+    work: (verify: Verify) => Promise<T>,
+    verify?: Verify,
   ): Promise<T>;
   observe(state: RequestState): Promise<Discovery>;
   requestSnapshot(
