@@ -110,10 +110,12 @@ const entities: Record<string, string> = {
   '>': '&gt;',
 };
 
+export const shellFailed = (run: ShellRun) => run.interrupted || run.code !== 0;
+
 /** the command and its output, modeled on the record Claude Code's `!` writes; exit codes are Witch's addition. */
 export function bashRecord(command: string, run: ShellRun): string {
   const output = clip(run.output).replace(/[&<>]/g, (char) => entities[char]!);
-  const failed = run.interrupted || run.code !== 0;
+  const failed = shellFailed(run);
   const note = run.interrupted
     ? '[Request interrupted by user]'
     : `Exit code ${run.code ?? 'unknown'}`;

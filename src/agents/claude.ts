@@ -33,9 +33,10 @@ import {
   terminationReserveMs,
 } from './shutdown.js';
 import { claudeTitle } from './tool-title.js';
+import { modelsOf } from './claude-models.js';
 import { acknowledged, skillCasts, skillsOf } from './claude-spells.js';
 import { mergeCasts } from './familiar-report.js';
-import { bashRecord, runShell } from './user-shell.js';
+import { bashRecord, runShell, shellFailed } from './user-shell.js';
 import { RateLimit } from './claude-limits.js';
 import type {
   AgentAdapter,
@@ -86,14 +87,6 @@ const commandLifecycle = z.object({
     'refused',
   ]),
 });
-
-function modelsOf(models: readonly ModelInfo[]): Model[] {
-  return models.map((model) => ({
-    id: model.value,
-    label: model.displayName,
-    efforts: model.supportedEffortLevels ?? [],
-  }));
-}
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
@@ -613,7 +606,7 @@ class ClaudeSession implements AgentSession {
     this.command = { controller: abort, finished: finished.promise };
     try {
       const id = randomUUID();
-      const row = (text: string, done = false) =>
+      const row = (text: string, done = false, failed = false) =>
         this.options.onEvent({
           type: 'tool',
           id,
@@ -621,6 +614,7 @@ class ClaudeSession implements AgentSession {
           text,
           done,
           append: true,
+          ...(failed ? { failed: true } : {}),
         });
       this.options.onEvent({
         type: 'tool',
@@ -631,6 +625,7 @@ class ClaudeSession implements AgentSession {
         shell: true,
       });
       let started: Promise<void> | undefined;
+      let failed = true;
       try {
         const run = await runShell(command, {
           cwd: this.options.cwd,
@@ -644,6 +639,7 @@ class ClaudeSession implements AgentSession {
           },
         });
         this.records.push(bashRecord(command, run));
+        failed = shellFailed(run);
         return {
           status: run.interrupted ? 'interrupted' : 'completed',
           text: '',
@@ -651,7 +647,7 @@ class ClaudeSession implements AgentSession {
       } catch (error) {
         return { status: 'failed', text: '', error: errorMessage(error) };
       } finally {
-        row('', true);
+        row('', true, failed);
         if (started) {
           await started;
           await this.options.onShell?.(undefined);
@@ -1258,6 +1254,7 @@ class ClaudeSession implements AgentSession {
           done: true,
           ...(images.length ? { images } : {}),
           ...(diff ? { diff } : {}),
+          ...(block.is_error ? { failed: true } : {}),
         });
       }
     } else if (message.type === 'rate_limit_event') {

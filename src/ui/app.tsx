@@ -17,7 +17,6 @@ import { modelKey, modelTarget } from '../core/models.js';
 import type { JobWatch } from '../core/jobs.js';
 import type { RepositoryWatch } from '../core/repository.js';
 import { agentWorking, contextStart } from '../core/state.js';
-import { sessionStatus } from '../core/coordination-state.js';
 import type { StateStore } from '../persistence/store.js';
 import { commands, parseCommands, safeQueueMerge } from './commands.js';
 import type { WitchCommand, CommandName } from './commands.js';
@@ -34,7 +33,7 @@ import {
 import { Request } from './request.js';
 import { canExpandDiff, diffExpansionHint } from './diff.js';
 import type { Graphics } from './images.js';
-import { isExpanded, TranscriptLayout } from './transcript-layout.js';
+import { TranscriptLayout } from './transcript-layout.js';
 import type { ScrollAnchor } from './transcript-layout.js';
 import { markdown } from './markdown.js';
 import { hyperlink, linkify, oneLine, plain } from './links.js';
@@ -52,6 +51,10 @@ import { coordinationText } from './peers.js';
 import { conversationLabel } from './conversations.js';
 import { StatusLine, statusFooter, useStatusTime } from './status-line.js';
 import { ScrollPage } from './scroll-page.js';
+import { helpText } from './help.js';
+import { PhaseRow } from './phase-row.js';
+import { ToolHint, useToolFocus } from './tool-focus.js';
+import { useExitConfirm } from './exit-confirm.js';
 import { accent, colors, piped, potion } from './theme.js';
 import { wrapLines } from './wrap.js';
 
@@ -210,10 +213,8 @@ export function App({
       setSeen({ conversation: state.conversation?.id, items: state.items });
     setAnchor(anchor);
   };
-  const [toolFocus, toolFocusRef, setToolFocus] = useLiveState(false);
-  const [toolSelection, toolSelectionRef, setToolSelection] = useLiveState(0);
-  const [expanded, setExpanded] = useState<Map<string, boolean>>(new Map());
-  const [fullDiffs, setFullDiffs] = useState<Set<string>>(new Set());
+  const toolFocus = useToolFocus(state.conversation?.id);
+  const exit = useExitConfirm(onExit);
   const [leaving, leavingRef, setLeaving] = useLiveState<string | undefined>(
     undefined,
   );
@@ -239,8 +240,21 @@ export function App({
   const [layout] = useState(() => new TranscriptLayout(graphics));
   const transcript = useMemo(
     () =>
-      layout.render(state.items, bodyWidth, expanded, fullDiffs, imageLoads),
-    [layout, state.items, bodyWidth, expanded, fullDiffs, imageLoads],
+      layout.render(
+        state.items,
+        bodyWidth,
+        toolFocus.expanded,
+        toolFocus.fullDiffs,
+        imageLoads,
+      ),
+    [
+      layout,
+      state.items,
+      bodyWidth,
+      toolFocus.expanded,
+      toolFocus.fullDiffs,
+      imageLoads,
+    ],
   );
   const casting = useCasting(state.items);
   // a drag's ends are anchored to their text, so they follow it when output above grows
@@ -373,7 +387,7 @@ export function App({
     Math.min(index, open.items.length - 1);
   const list = listFor(
     buffer,
-    toolFocus,
+    toolFocus.focused,
     dismissed,
     recalled(buffer.value, browsing, prompts),
   );
@@ -382,19 +396,19 @@ export function App({
   const liveListFor = (buffer: InputBuffer) =>
     listFor(
       buffer,
-      toolFocusRef.current,
+      toolFocus.focusedRef.current,
       dismissedRef.current,
       recalled(buffer.value, recall.current, history.current),
     );
-  const tools = state.items.filter((item) => item.kind === 'tool');
-  const selectedTool = tools[toolSelection];
+  const tools = transcript.items.filter((item) => item.kind === 'tool');
+  const selectedTool = tools[toolFocus.selected(tools, transcript.shownAs)];
   const diffHint =
-    toolFocus && selectedTool?.diff && canExpandDiff(selectedTool.diff)
-      ? diffExpansionHint(fullDiffs.has(selectedTool.id))
+    toolFocus.focused && selectedTool?.diff && canExpandDiff(selectedTool.diff)
+      ? diffExpansionHint(toolFocus.fullDiffs.has(selectedTool.id))
       : undefined;
   const listRows = list
     ? Math.min(8, list.items.length, Math.max(1, bodyHeight - 7))
-    : toolFocus
+    : toolFocus.focused
       ? 1 + Number(!!diffHint)
       : 0;
   const listFirst = Math.max(0, listSelected - listRows + 1);
@@ -740,7 +754,7 @@ export function App({
         setView({
           kind: 'page',
           title: 'Keyboard help',
-          text: `${commands.map(({ id, label, aliases = [] }) => `${[id, ...aliases].map((name) => `/${name}`).join(', ')}  ${label}`).join('\n')}\n\nWitch commands run wherever they appear outside backticks, in message order. Surrounding prose is discarded. /new, /model, /task, /delegation and /review take arguments up to the next command. A leading ! or listed native command keeps the whole input unchanged.\n/compact waits for foreground work without interrupting the task. Claude can compact while familiars continue; Codex waits for its active turn to finish. Pending: /compact shows unfinished requests. Prompts wait until compaction, picker choices and model changes finish. A failed or canceled command stops later command batches and lists them for explicit retry.\n\nEnter sends. Shift+Enter inserts a newline. Pasted newlines never send.\nCmd+←/→ go to the start or end of the wrapped row, and Option+←/→ move by word. Cmd+Delete deletes to the start of the wrapped row, Option+Delete the word before the cursor, and Fn+Option+Delete the word after it. Ctrl+A, Ctrl+E and Ctrl+U work as Cmd+←, Cmd+→ and Cmd+Delete, and Option+B and Option+F as Option+←/→.\nA message that starts with ! runs the rest as a shell command in this directory, without a sandbox, and the agent then replies to it. One sent while the agent works waits until the agent finishes, unless the agent has replied while familiars or workflows still run and nothing but a spell or native command is waiting, when it runs at once.\nWhile the agent works, Enter passes a message into its turn, or queues it for the next one, which still runs after an ordinary turn is interrupted. A message sent while Witch answers another session's peer requests waits for that answer turn. Escape or Ctrl+C that stops work holds answer turns until your next message, another conversation or /restart, and stopping an answer turn ends automatic answers for its requests. Cancelled or failed compaction leaves queued messages undelivered. ↑ on the first line takes queued messages back to edit when merging would not execute Witch commands, or with none queued shows the prompt sent before, from any conversation in this directory. ↓ on the last line goes back to newer prompts and the draft.\nCtrl+P opens commands. PageUp/PageDown and the mouse wheel scroll.\nType / for commands and spells, or @ for files. In that list, ↑/↓ choose, Tab completes, Enter runs a command or inserts a file, and Escape closes it.\nWith no list open, Tab selects tool results; ↑/↓ choose a tool, Enter expands or collapses it. Ctrl+O switches new or deleted files between their preview and all lines.\nEnd returns to live output while tools are focused.\nWith no list open, Escape closes a view, then leaves tool focus, then interrupts execution.\nOn a request, Escape declines it and the turn continues. Ctrl+O switches new or deleted files between their preview and all lines.\nCtrl+C interrupts active work or cancels a pending question. It exits while idle with no request, and quits at once while closing.\n\nClick web links to open your browser.\nClick file paths to open VS Code at their line and column.\nDrag selects transcript text, and Cmd+C copies it.\nShift+drag selects as the terminal does.\n\n/model <id> [effort] selects a model on the active runtime, or hands off to the runtime that lists it when only another runtime does.\n/model <agent>:<id> [effort] selects a runtime and model; choosing another runtime performs a handoff.\n\nIn memory: e edits the note in VS Code; h shows its history.\nClose the VS Code file to finish editing and commit its changes.`,
+          text: helpText(),
         });
         break;
       case 'restart':
@@ -776,7 +790,7 @@ export function App({
     // Enter while tools are focused toggles a tool, and one the composer would refuse keeps the draft, even in the
     // same read as the Tab or switch before it. a lone `!` has no command to run
     if (
-      toolFocusRef.current ||
+      toolFocus.focusedRef.current ||
       !composerOpen(coordinator.snapshot, leavingRef.current) ||
       /^!\s*$/.test(text)
     )
@@ -883,7 +897,7 @@ export function App({
   /** ↑ on the first line takes the queue back, or else shows an older prompt; ↓ on the last line shows a newer one. */
   const arrow = (direction: 'up' | 'down', current: InputBuffer) =>
     // arrows while tools are focused move through tools, even in the same read as Tab
-    toolFocusRef.current ||
+    toolFocus.focusedRef.current ||
     moveInList(direction, current) ||
     (direction === 'up'
       ? !current.value.slice(0, current.cursor).includes('\n') &&
@@ -911,8 +925,6 @@ export function App({
 
   useEffect(() => {
     setTop(null);
-    setToolSelection(0);
-    setFullDiffs(new Set());
     const id = state.conversation?.id ?? '';
     return () => {
       // the shown prompt became this conversation's draft, so the one typed before browsing goes back
@@ -1056,6 +1068,16 @@ export function App({
       pressedNewMessages.current = false;
       setTop(null);
     }
+    // a tool's `+ ✓` cells hold no link, so a click on them toggles it
+    const pressed = pressedAt.current;
+    const item = transcript.items.find(({ id }) => id === pressed?.anchor.item);
+    if (
+      pressed &&
+      item?.kind === 'tool' &&
+      pressed.column < 3 &&
+      transcript.rowOf(pressed.anchor) === transcript.starts.get(item.id)
+    )
+      toolFocus.toggle(item, transcript.members(item.id));
   });
   useWheel((rows) => {
     if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
@@ -1064,12 +1086,20 @@ export function App({
   useInput((input, key) => {
     if (key.eventType === 'release') return;
     if (key.ctrl && input === 'c') {
-      // a second Ctrl+C while closing quits without waiting for the agent
-      if ((busy || request || batches.pending) && state.phase !== 'closing') {
+      // a second Ctrl+C while closing quits without waiting for the agent; a request can outlive its turn into recovery
+      if (state.phase === 'closing' || state.phase === 'recovery') onExit();
+      else if (busy || request || batches.pending) {
         run(coordinator.interrupt());
         batches.cancel();
         dismissPicker(false);
-      } else onExit();
+      } else if (
+        viewRef.current.kind === 'chat' &&
+        !toolFocus.focusedRef.current &&
+        composerOpen(state, leavingRef.current) &&
+        bufferRef.current.value
+      )
+        composer.current?.set({ value: '', cursor: 0 });
+      else exit.press();
       return;
     }
     if (key.super && input === 'c') {
@@ -1105,7 +1135,7 @@ export function App({
     }
     if (key.escape) {
       if (viewRef.current.kind !== 'chat') dismissPicker();
-      else if (toolFocusRef.current) setToolFocus(false);
+      else if (toolFocus.focusedRef.current) toolFocus.setFocused(false);
       else if (busy || batches.pending || state.phase === 'cleaning') {
         run(coordinator.interrupt());
         batches.cancel();
@@ -1140,38 +1170,19 @@ export function App({
     }
     if (key.pageUp) scrollBy(-1, true);
     if (key.pageDown) scrollBy(1, true);
-    if (key.tab) setToolFocus(!toolFocusRef.current);
-    if (toolFocusRef.current) {
-      const current = toolSelectionRef.current;
-      let next = current;
-      if (key.upArrow) next = Math.max(0, current - 1);
-      if (key.downArrow)
-        next = Math.max(0, Math.min(tools.length - 1, current + 1));
-      if (next !== current) {
-        setToolSelection(next);
-        scrollTo(transcript.starts.get(tools[next]?.id ?? '') ?? null);
-      }
-      if (key.end) setTop(null);
-      if (key.ctrl && input === 'o') {
-        const item = tools[next];
-        if (item?.diff && canExpandDiff(item.diff)) {
-          setFullDiffs((previous) => {
-            const full = new Set(previous);
-            if (full.has(item.id)) full.delete(item.id);
-            else full.add(item.id);
-            return full;
-          });
-          setExpanded((previous) => new Map(previous).set(item.id, true));
-          scrollTo(transcript.starts.get(item.id) ?? null);
-        }
-      }
-      if (key.return && tools[next]) {
-        const item = tools[next]!;
-        setExpanded((previous) =>
-          new Map(previous).set(item.id, !isExpanded(item, previous)),
-        );
-      }
-    }
+    if (key.tab) toolFocus.setFocused(!toolFocus.focusedRef.current);
+    if (toolFocus.focusedRef.current)
+      toolFocus.key(
+        input,
+        key,
+        tools,
+        transcript.shownAs,
+        transcript.members,
+        (id) =>
+          id === null
+            ? setTop(null)
+            : scrollTo(transcript.starts.get(id) ?? null),
+      );
   });
 
   let body;
@@ -1318,11 +1329,9 @@ export function App({
       )
         visible[row - scrollTop] = castTitle(frame);
     }
-    const selectedToolRow = transcript.starts.get(
-      tools[toolSelection]?.id ?? '',
-    );
+    const selectedToolRow = transcript.starts.get(selectedTool?.id ?? '');
     if (
-      toolFocus &&
+      toolFocus.focused &&
       selectedToolRow !== undefined &&
       selectedToolRow >= scrollTop &&
       selectedToolRow < scrollTop + transcriptHeight
@@ -1382,7 +1391,11 @@ export function App({
         <Box
           borderStyle="bold"
           borderColor={
-            toolFocus ? 'gray' : buffer.value.startsWith('!') ? potion : accent
+            toolFocus.focused
+              ? 'gray'
+              : buffer.value.startsWith('!')
+                ? potion
+                : accent
           }
           height={composerRows + 2}
           paddingX={1}
@@ -1393,7 +1406,7 @@ export function App({
             width={composerWidth}
             height={composerRows}
             shell
-            active={!toolFocus && composerPhase}
+            active={!toolFocus.focused && composerPhase}
             ref={composer}
             initialValue={draftOf(drafts, state) ?? ''}
             placeholder={
@@ -1433,20 +1446,7 @@ export function App({
               ))}
           </Box>
         ) : (
-          toolFocus && (
-            <Box flexDirection="column">
-              <Text dimColor>
-                {piped([
-                  '↑/↓ TOOLS',
-                  'ENTER TOGGLE',
-                  'TAB COMPOSE',
-                  'END LIVE OUTPUT',
-                  'ESC LEAVE TOOLS',
-                ])}
-              </Text>
-              {diffHint && <Text dimColor>{diffHint}</Text>}
-            </Box>
-          )
+          toolFocus.focused && <ToolHint hint={diffHint} />
         )}
       </Box>
     );
@@ -1454,22 +1454,12 @@ export function App({
   return (
     <Box width={columns} height={height}>
       <Box flexDirection="column" width={width} height={height}>
-        <Box height={1}>
-          <Text dimColor wrap="truncate-end">
-            {piped([
-              sessionStatus(state).toUpperCase(),
-              ...(state.native?.permissionMode
-                ? [plain(state.native.permissionMode).toUpperCase()]
-                : []),
-              ...(top !== null && view.kind === 'chat'
-                ? ['READING EARLIER OUTPUT']
-                : []),
-              ...(state.phase === 'editing'
-                ? ['CLOSE THE VS CODE FILE TO FINISH']
-                : []),
-            ])}
-          </Text>
-        </Box>
+        <PhaseRow
+          state={state}
+          reading={top !== null && view.kind === 'chat'}
+          counts={!sidebar}
+          exitArmed={exit.armed}
+        />
         <Box flexDirection="column" paddingX={1}>
           {body}
         </Box>

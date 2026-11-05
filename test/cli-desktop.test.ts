@@ -377,7 +377,8 @@ test('the CLI opens the pressed link or image, copies selected text and runs que
       url.includes('witch-images-'),
     );
     assert.deepEqual(await readFile(fileURLToPath(saved)), toolImage);
-    write('\u0003');
+    // an idle Ctrl+C asks for a second press before exiting
+    write('\u0003\u0003');
     const [code, signal] = await within(closed, 5000, 'CLI exit');
     assert.equal(code, 0, `${stderr} ${signal}`);
     assert.equal(existsSync(fileURLToPath(saved)), false);

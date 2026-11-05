@@ -329,9 +329,10 @@ test('the wheel scrolls a page and a request by rows', async () => {
   try {
     await delay(60);
     await openCommand(ui, '/help', '/new  New');
-    ui.stdin.write(wheelDown.repeat(2));
+    // the COMMANDS heading sits above /new
+    ui.stdin.write(wheelDown.repeat(3));
     await until(
-      'two rows down',
+      'three rows down',
       () => !ui.text().includes('/sessions') && ui.text().includes('/model'),
     );
     ui.stdin.write(wheelUp);

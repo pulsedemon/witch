@@ -142,7 +142,7 @@ for (const [height, expected] of [
       '+1 MORE',
     ],
   ],
-  [16, ['BREWS', '+2 MORE', '● BREW 3', 'FAMILIARS', '+1 MORE']],
+  [16, ['BREWS', '+2 MORE', '● brew 3', 'FAMILIARS', '+1 MORE']],
 ] as const) {
   test(`at ${height} rows peers preserve local group counts and the whole pentacle`, async () => {
     const fixture = peersApp(snapshot([0, 1, 2, 3, 4].map(peer)));

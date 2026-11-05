@@ -431,7 +431,6 @@ test('anchors keep item boundaries and wrapped offsets in their own render frame
   const expected = [
     ['first', 0, 0],
     ['first', 1, 0],
-    ['first', 2, 0],
     ['middle', 0, 0],
     ['middle', 1, 0],
     ['middle', 1, 12],

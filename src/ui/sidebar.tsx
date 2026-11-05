@@ -221,8 +221,7 @@ export function Sidebar({
             )}
             {listedBrews.shown.map((brew) => (
               <Text key={brew.id} wrap="truncate-end">
-                <Text color={accent}>●</Text>{' '}
-                {oneLine(brew.description).toUpperCase()}
+                <Text color={accent}>●</Text> {oneLine(brew.description)}
               </Text>
             ))}
           </>
@@ -235,8 +234,7 @@ export function Sidebar({
               <Box key={subagent.id} flexDirection="column">
                 <Text wrap="truncate-end">
                   {'  '.repeat(depth)}
-                  <Text color={accent}>●</Text>{' '}
-                  {oneLine(subagent.name).toUpperCase()}
+                  <Text color={accent}>●</Text> {oneLine(subagent.name)}
                   {subagent.kind && (
                     <Text dimColor> {oneLine(subagent.kind)}</Text>
                   )}
