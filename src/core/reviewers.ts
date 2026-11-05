@@ -8,11 +8,11 @@ import type {
 import { FamiliarRun } from '../agents/familiar-requests.js';
 import {
   beforeDeadline,
-  killWaitMs,
+  graceDeadline,
   NativeStop,
   NativeStopTimeout,
+  signalGroup,
   stopDeadline,
-  terminateGraceMs,
 } from '../agents/shutdown.js';
 import { errorMessage } from '../agents/stderr.js';
 import type { AgentEvent, TaskStatus } from '../agents/types.js';
@@ -194,29 +194,13 @@ export class Reviewers {
 async function stopGroups(groups: readonly number[], deadline: number) {
   for (const group of groups) signalGroup(group, 'SIGTERM');
   try {
-    await beforeDeadline(
-      gone(groups, deadline),
-      Math.min(deadline - killWaitMs, performance.now() + terminateGraceMs),
-    );
+    await beforeDeadline(gone(groups, deadline), graceDeadline(deadline));
     return;
   } catch (error) {
     if (!(error instanceof NativeStopTimeout)) throw error;
   }
   for (const group of groups) signalGroup(group, 'SIGKILL');
   await beforeDeadline(gone(groups, deadline), deadline);
-}
-
-function signalGroup(group: number, signal: NodeJS.Signals | 0): boolean {
-  try {
-    process.kill(-group, signal);
-    return true;
-  } catch (error) {
-    const { code } = error as NodeJS.ErrnoException;
-    // macOS answers EPERM while the group's last members are still exiting, so they count until ESRCH
-    if (code === 'EPERM') return true;
-    if (code === 'ESRCH') return false;
-    throw error;
-  }
 }
 
 /** resolves once no group has a member or an abort's stop takes over the wait, rejecting when one still has a member at the deadline. */

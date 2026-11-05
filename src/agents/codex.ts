@@ -23,6 +23,7 @@ import {
   NativeStop,
   NativeStopTimeout,
   stopDeadline,
+  stopOptions,
   terminationReserveMs,
 } from './shutdown.js';
 import { boundCommandTitle, shortPath, toolTitle } from './tool-title.js';
@@ -285,10 +286,7 @@ export class CodexAdapter implements AgentAdapter {
       await initializeRpc(rpc);
       return await read(rpc);
     } finally {
-      const reason: unknown = options.signal?.reason;
-      await rpc.close(
-        reason instanceof NativeStop ? reason.options : undefined,
-      );
+      await rpc.close(stopOptions(options.signal));
     }
   }
 
@@ -303,10 +301,8 @@ export class CodexAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
+      await session.close(stopOptions(options.signal));
       const reason: unknown = options.signal?.reason;
-      await session.close(
-        reason instanceof NativeStop ? reason.options : undefined,
-      );
       throw reason instanceof NativeStop ? reason : error;
     }
   }

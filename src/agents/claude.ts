@@ -28,7 +28,9 @@ import {
   beforeDeadline,
   NativeStop,
   NativeStopTimeout,
+  running,
   stopDeadline,
+  stopOptions,
   terminateChild,
   terminationReserveMs,
 } from './shutdown.js';
@@ -149,10 +151,8 @@ export class ClaudeAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
+      await session.close(stopOptions(options.signal));
       const reason: unknown = options.signal?.reason;
-      await session.close(
-        reason instanceof NativeStop ? reason.options : undefined,
-      );
       throw reason instanceof NativeStop ? reason : error;
     }
   }
@@ -907,12 +907,7 @@ class ClaudeSession implements AgentSession {
       );
     } finally {
       this.options.signal?.removeEventListener('abort', this.cancelConnection);
-      if (
-        !this.process ||
-        this.process.pid === undefined ||
-        this.process.exitCode !== null ||
-        this.process.signalCode !== null
-      )
+      if (!this.process || !running(this.process))
         await this.options.onProcess(undefined);
     }
   }

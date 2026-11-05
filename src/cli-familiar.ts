@@ -10,7 +10,8 @@ import type {
   FamiliarAction,
   FamiliarProgress,
 } from './agents/familiar-report.js';
-import { errorMessage } from './agents/stderr.js';
+import { running, terminateGraceMs } from './agents/shutdown.js';
+import { errorMessage, readLines } from './agents/stderr.js';
 import type { TaskStatus } from './agents/types.js';
 import { callControl, ControlTimeoutError } from './persistence/control.js';
 import type { ControlBinding, ControlResult } from './persistence/control.js';
@@ -218,13 +219,11 @@ export async function runClaudeFamiliar(
   let escalation: ReturnType<typeof setTimeout> | undefined;
   let drain: ReturnType<typeof setTimeout> | undefined;
   const terminate = (signal: NodeJS.Signals) => {
-    if (!child?.pid || child.exitCode !== null || child.signalCode !== null)
-      return;
+    if (!child || !running(child)) return;
     child.kill(signal);
     escalation ??= setTimeout(() => {
-      if (child?.pid && child.exitCode === null && child.signalCode === null)
-        child.kill('SIGKILL');
-    }, 2000);
+      if (child && running(child)) child.kill('SIGKILL');
+    }, terminateGraceMs);
   };
   const interrupt = () => {
     stopped = 'SIGINT';
@@ -250,26 +249,12 @@ export async function runClaudeFamiliar(
       detached: false,
     });
     child.stderr!.pipe(process.stderr, { end: false });
-    let pending = '';
-    const line = (text: string) => {
+    readLines(child.stdout!, (text) => {
       if (!text.trim()) return;
       try {
         task.message(JSON.parse(text));
       } catch (error) {
         task.failed(`Invalid Claude task JSON: ${errorMessage(error)}`);
-      }
-    };
-    child.stdout!.setEncoding('utf8');
-    child.stdout!.on('data', (chunk: string) => {
-      const lines = chunk.split('\n');
-      lines[0] = pending + lines[0];
-      pending = lines.pop()!;
-      for (const text of lines) line(text);
-    });
-    child.stdout!.on('end', () => {
-      if (pending) {
-        line(pending);
-        pending = '';
       }
     });
     child.once('error', (error) =>

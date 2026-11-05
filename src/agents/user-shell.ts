@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { Socket } from 'node:net';
+import { signalGroup } from './shutdown.js';
 
 /** the output Witch keeps of a command, as Codex keeps 1 MiB of its own. */
 const keptLength = 1 << 20;
@@ -13,16 +14,6 @@ export interface ShellRun {
   /** null when a signal ended the shell. */
   code: number | null;
   interrupted: boolean;
-}
-
-/** a group holding only the unreaped shell refuses signals with EPERM, and a throw from an abort listener would end Witch. */
-export function killGroup(pid: number): void {
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ESRCH' && code !== 'EPERM') throw error;
-  }
 }
 
 /**
@@ -65,7 +56,7 @@ export function runShell(
     };
     const interrupt = () => {
       interrupted = true;
-      if (child.pid) killGroup(child.pid);
+      if (child.pid) signalGroup(child.pid, 'SIGKILL');
     };
     // a background child can hold the pipes long after the shell exits, so its later output is drained and dropped
     const settle = (end: () => void) => {
@@ -91,7 +82,7 @@ export function runShell(
     child.once('exit', (exitCode) => {
       code = exitCode;
       // a child forked as the first kill landed isn't signaled, and keeps the group's id
-      if (interrupted && child.pid) killGroup(child.pid);
+      if (interrupted && child.pid) signalGroup(child.pid, 'SIGKILL');
       timer = setTimeout(done, 100);
     });
   });

@@ -1,8 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
-import { watchChild, withTail } from './stderr.js';
+import { readLines, watchChild, withTail } from './stderr.js';
 import type { ChildExit } from './stderr.js';
-import { stopDeadline, terminateChild } from './shutdown.js';
+import { running, stopDeadline, terminateChild } from './shutdown.js';
 import type { AgentStopOptions } from './types.js';
 
 const envelope = z.object({
@@ -31,18 +31,7 @@ export class JsonRpc {
 
   constructor(private readonly process: ChildProcessWithoutNullStreams) {
     this.child = watchChild(process);
-    let pending = '';
-    process.stdout.setEncoding('utf8');
-    process.stdout.on('data', (chunk: string) => {
-      // readline also splits Unicode separators that JSON strings may contain
-      const lines = chunk.split('\n');
-      lines[0] = pending + lines[0];
-      pending = lines.pop()!;
-      for (const line of lines) this.receive(line);
-    });
-    process.stdout.on('end', () => {
-      if (pending) this.receive(pending);
-    });
+    readLines(process.stdout, (line) => this.receive(line));
     process.stdin.on('error', (error) => this.fail(error));
     process.on('error', (error) => this.fail(error));
     process.on('close', (code, signal) => {
@@ -91,12 +80,7 @@ export class JsonRpc {
         stopDeadline(options.deadline),
       );
     // killing in the tick after a failed spawn signals the caller's whole process group
-    if (
-      this.process.pid !== undefined &&
-      this.process.exitCode === null &&
-      this.process.signalCode === null
-    )
-      this.process.kill('SIGTERM');
+    if (running(this.process)) this.process.kill('SIGTERM');
     await this.child.closed;
     return false;
   }
