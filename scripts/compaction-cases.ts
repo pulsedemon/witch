@@ -8,7 +8,6 @@ import { parseArgs } from 'node:util';
 
 const { values } = parseArgs({
   options: {
-    state: { type: 'string', default: join(homedir(), '.witch') },
     out: { type: 'string' },
   },
 });
@@ -311,7 +310,7 @@ function trailing(entries: Entry[], from: number, to: number, count: number) {
 const shown = (entry: Entry) => entry.kind !== 'compaction';
 
 const natives = [...(await claudeCompactions()), ...(await codexCompactions())];
-const conversations = join(values.state, 'conversations');
+const conversations = join(homedir(), '.witch', 'conversations');
 // one history at a time, streamed, so tool output never accumulates in memory
 const read = [];
 for (const entry of await readdir(conversations, { withFileTypes: true })) {
@@ -372,6 +371,23 @@ const notices = read.flatMap(({ id, sessions, entries }) => {
   }
   return found;
 });
+natives.sort((a, b) => a.at - b.at);
+
+/** native compactions less than a minute from `at`, found by binary search over the sorted list. */
+function near(at: number): NativeCompaction[] {
+  let low = 0;
+  let high = natives.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (natives[middle]!.at <= at - 60_000) low = middle + 1;
+    else high = middle;
+  }
+  const found = [];
+  for (let i = low; i < natives.length && natives[i]!.at < at + 60_000; i++)
+    found.push(natives[i]!);
+  return found;
+}
+
 const matched = new Set<NativeCompaction>();
 // every conversation's own session first, so a time-only match can't take another's compaction; each pass
 // assigns the closest pairs first
@@ -379,7 +395,7 @@ for (const own of [true, false]) {
   const pairs = notices
     .filter((notice) => !notice.native && (!own || notice.current))
     .flatMap((notice) =>
-      natives
+      near(notice.at)
         .filter(
           (candidate) =>
             !matched.has(candidate) &&
@@ -392,8 +408,7 @@ for (const own of [true, false]) {
           notice,
           candidate,
           gap: Math.abs(candidate.at - notice.at),
-        }))
-        .filter(({ gap }) => gap < 60_000),
+        })),
     )
     .sort((a, b) => a.gap - b.gap);
   for (const { notice, candidate } of pairs)
