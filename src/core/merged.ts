@@ -234,7 +234,7 @@ async function remoteKeeps(
     { cwd, timeout: 30_000, ...(signal ? { signal } : {}) },
   ).catch((error: unknown) => {
     if (error === signal?.reason) throw error;
-    // the command line carries the whole query, so the error names gh's timeout, its stderr or its exit code instead
+    // the command line carries the whole query, so the error names gh's timeout, stderr or exit code where it has one
     const { stderr, killed, code } = error as {
       stderr?: unknown;
       killed?: unknown;
@@ -463,7 +463,7 @@ async function clean(
         unread = errorMessage(error).trim();
         return false;
       }));
-    // the lookup can outlast GitHub's deletion, so a branch it doesn't keep is fetched again before the wait
+    // GitHub can delete the branch while the lookup runs, so a branch it doesn't keep is fetched again
     if (!keeps && onRemote()) [upstream, tracking, merges] = await track();
     while (!keeps && onRemote() && deleting(pullRequest)) {
       await delay(2000, undefined, { signal }).catch(() =>

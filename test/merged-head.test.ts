@@ -75,7 +75,7 @@ test('a head branch still on its remote once GitHub would have deleted it stays'
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
-test("a head branch GitHub deletes after the first fetch goes, even when reading the repository's settings fails past the deletion window", async () => {
+test("a head branch GitHub deletes after the first fetch goes, even past the deletion window and when reading the repository's settings fails", async () => {
   const { root, origin, checkout, other, tip } = await merged();
   await merge(other, 'feat/x', true);
   const pack = join(root, 'upload-pack');
@@ -86,8 +86,8 @@ test("a head branch GitHub deletes after the first fetch goes, even when reading
   );
   await execute('chmod', ['+x', pack]);
   await git(checkout, 'config', 'remote.origin.uploadpack', pack);
-  const mergedAt = new Date(Date.now() - 14_500).toISOString();
-  const result = await withGh(root, `sleep 1\n${failing}`, () =>
+  const mergedAt = new Date(Date.now() - 60_000).toISOString();
+  const result = await withGh(root, failing, () =>
     cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
   );
   assert.equal(typeof result === 'object' && result.cleaned, true);
