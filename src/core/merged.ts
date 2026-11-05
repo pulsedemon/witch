@@ -500,9 +500,9 @@ async function clean(
         text: `#${number} merged, but ${branch} tracks ${upstream} rather than its own remote branch, so it stays.`,
         cleaned: false,
       };
-    // a kept branch has to be at the merged commit. any other has to be gone, since GitHub deletes a merged head branch
-    // but leaves a long-lived one such as develop
-    if (keeps && tracking)
+    // a kept branch has to be at the merged commit or gone. any other has to be gone, since GitHub deletes a merged head
+    // branch but leaves a long-lived one such as develop
+    if (keeps && tracking && tracking !== '[gone]')
       return {
         text: `#${number} merged, but ${branch}'s remote branch has changed since, so it stays.`,
         cleaned: false,

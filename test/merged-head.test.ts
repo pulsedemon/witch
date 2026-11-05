@@ -95,7 +95,7 @@ test("a head branch GitHub deletes after the first fetch goes, even past the del
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
-test("a head branch the repository keeps after merging goes at once, unless its remote branch moved before or during the lookup, it's the default branch or a fork's, or the repository deletes merged branches or its settings can't be read", async () => {
+test("a head branch the repository keeps after merging goes at once, also once deleted during the lookup, unless its remote branch moved before or during it, it's the default branch or a fork's, or the repository deletes merged branches or its settings can't be read", async () => {
   // the default branch waits out GitHub's deletion like any branch the repository might delete
   for (const { gh, moved, ago, result, cleaned } of [
     {
@@ -112,6 +112,13 @@ test("a head branch the repository keeps after merging goes at once, unless its 
       cleaned: false,
       result:
         "#7 merged, but feat/x's remote branch has changed since, so it stays.",
+    },
+    {
+      gh: answering('false\nmain\nfalse\n'),
+      moved: 'deleted',
+      ago: 0,
+      cleaned: true,
+      result: '#7 merged: switched to main and pulled, deleted branch feat/x.',
     },
     {
       gh: answering('false\nmain\nfalse\n'),
@@ -178,7 +185,9 @@ test("a head branch the repository keeps after merging goes at once, unless its 
     const { root, origin, checkout, other, tip } = await merged();
     await merge(other, 'feat/x', true);
     let script = gh;
-    if (moved) {
+    if (moved === 'deleted')
+      script = `git -C ${quote(origin)} update-ref -d refs/heads/feat/x\n${gh}`;
+    else if (moved) {
       await git(other, 'switch', 'feat/x');
       await git(other, 'commit', '--allow-empty', '-m', 'after');
       // a push that lands while gh answers
@@ -196,7 +205,15 @@ test("a head branch the repository keeps after merging goes at once, unless its 
       ),
     );
     assert.deepEqual(outcome, { text: result, cleaned });
-    assert.ok(await git(origin, 'rev-parse', '--verify', 'refs/heads/feat/x'));
+    assert.equal(
+      await git(
+        origin,
+        'for-each-ref',
+        '--format=%(refname)',
+        'refs/heads/feat/x',
+      ),
+      moved === 'deleted' ? '' : 'refs/heads/feat/x',
+    );
     assert.equal(
       await git(checkout, 'branch', '--show-current'),
       cleaned ? 'main' : 'feat/x',
