@@ -237,15 +237,21 @@ export class Workspace {
       if (await this.rebaseStopped()) await this.git(['rebase', '--abort']);
       return;
     }
-    await this.memory.git(this.memory.root, [
-      'worktree',
-      'add',
-      '--force',
-      '--quiet',
-      ...((await this.branchExists())
-        ? [this.root, this.branch]
-        : ['-b', this.branch, this.root, main]),
-    ]);
+    const add = (args: string[]) =>
+      this.memory.git(this.memory.root, [
+        'worktree',
+        'add',
+        '--force',
+        '--quiet',
+        ...args,
+      ]);
+    // a missing worktree is almost always a new conversation's, so creating its branch first spares a lookup
+    await add(['-b', this.branch, this.root, main]).catch(
+      async (error: unknown) => {
+        if (!(await this.branchExists())) throw error;
+        await add([this.root, this.branch]);
+      },
+    );
   }
 
   /** restores the worktree of a branch that exists, never creating the branch. */
@@ -500,7 +506,12 @@ export class Workspace {
 
   /** merges the notes under another project key into `project` as a commit of its own, and says whether that key held notes. */
   private async adopt(project: string, key: string): Promise<boolean> {
-    // the index matches HEAD here, since begin runs only on a clean worktree
+    // begin runs only on a clean worktree, so the index matches HEAD and a key missing on disk tracks nothing
+    const missing = await lstat(join(this.root, key)).then(
+      () => false,
+      (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT',
+    );
+    if (missing) return false;
     const files = (await this.git(['ls-files', '-z', '--', key]))
       .split('\0')
       .filter(Boolean);
