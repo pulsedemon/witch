@@ -506,7 +506,12 @@ export class Workspace {
 
   /** merges the notes under another project key into `project` as a commit of its own, and says whether that key held notes. */
   private async adopt(project: string, key: string): Promise<boolean> {
-    // the index matches HEAD here, since begin runs only on a clean worktree
+    // begin runs only on a clean worktree, so the index matches HEAD and a key missing on disk tracks nothing
+    const missing = await lstat(join(this.root, key)).then(
+      () => false,
+      (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT',
+    );
+    if (missing) return false;
     const files = (await this.git(['ls-files', '-z', '--', key]))
       .split('\0')
       .filter(Boolean);
