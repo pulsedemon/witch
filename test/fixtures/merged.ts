@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PullRequest } from '../../src/core/repository.js';
 import { git } from './git.js';
@@ -8,12 +8,6 @@ export const write = async (path: string, text: string) => {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, text);
 };
-
-export const exists = (path: string) =>
-  readFile(path).then(
-    () => true,
-    () => false,
-  );
 
 /** `checkout` is on `feat/x`; with `worktree`, it's a linked worktree of `launcher`, a clone that holds `main`. */
 export async function merged(

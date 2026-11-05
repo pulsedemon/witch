@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { access, rename, writeFile } from 'node:fs/promises';
+import { rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../../src/agents/codex.js';
@@ -11,7 +11,7 @@ import type {
   SessionOptions,
 } from '../../src/agents/types.js';
 import type { RpcMessage } from '../../src/agents/json-rpc.js';
-import { until } from './within.js';
+import { appears, until } from './within.js';
 import { scratch } from './scratch.js';
 import type { ControlBinding } from '../../src/persistence/control.js';
 import type { CommandPrefixes } from '../../src/agents/tool-title.js';
@@ -80,24 +80,6 @@ export async function fixture(
 export async function close(session: AgentSession, cwd: string) {
   await writeFile(join(cwd, 'release'), 'yes');
   await session.close();
-}
-
-export async function appears(path: string) {
-  await until(path, () =>
-    access(path).then(
-      () => true,
-      () => false,
-    ),
-  );
-}
-
-export function settled(promise: Promise<unknown>) {
-  let done = false;
-  void promise.then(
-    () => (done = true),
-    () => (done = true),
-  );
-  return () => done;
 }
 
 export const commandFrame = (

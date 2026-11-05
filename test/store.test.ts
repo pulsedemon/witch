@@ -30,7 +30,7 @@ import type {
   DisplayUpdate,
 } from '../src/core/state.js';
 import { scratch } from './fixtures/scratch.js';
-import { until, within } from './fixtures/within.js';
+import { appears, until, within } from './fixtures/within.js';
 
 function conversation(id: string, cwd = '/project'): Conversation {
   return {
@@ -243,12 +243,7 @@ BEGIN {
   process.env.WITCH_LOCK_PROBE = root;
   const observing = store.openConversations(['current']);
   try {
-    await until('lock observation', () =>
-      access(join(root, 'ready')).then(
-        () => true,
-        () => false,
-      ),
-    );
+    await appears(join(root, 'ready'), 'lock observation');
     await held.close();
     await writeFile(join(root, 'continue'), '');
     assert.deepEqual(

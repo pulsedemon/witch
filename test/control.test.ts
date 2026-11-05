@@ -20,7 +20,7 @@ import { identifyProcess } from '../src/persistence/process.js';
 import { writeJson } from '../src/persistence/json.js';
 import { openLocked } from '../src/persistence/lock.js';
 import { scratch } from './fixtures/scratch.js';
-import { until, within } from './fixtures/within.js';
+import { exists, until, within } from './fixtures/within.js';
 
 const identity = (await identifyProcess(process.pid))!;
 
@@ -42,12 +42,6 @@ function envelope(bound: ControlBinding): ControlRequest {
     action: { kind: 'peers' },
   };
 }
-
-const exists = (path: string) =>
-  files.access(path).then(
-    () => true,
-    () => false,
-  );
 
 const timers = [
   'setTimeout',

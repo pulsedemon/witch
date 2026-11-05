@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { access, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import { test, vi } from 'vitest';
@@ -29,7 +29,7 @@ import {
 import { orderedCleanup } from './fixtures/cleanup.js';
 import { record } from './fixtures/coordinator.js';
 import { selectionTurn } from './fixtures/task-selection.js';
-import { until, within } from './fixtures/within.js';
+import { appears, until, within } from './fixtures/within.js';
 
 test('a peer joining and leaving updates ongoing work without adding user input', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
@@ -498,12 +498,7 @@ for (const name of ['claude', 'codex'] as const) {
           );
           assert.equal(coordinator.snapshot.backgroundCommands.length, 1);
         } else {
-          await until('Codex turn', () =>
-            access(join(cwd, 'turn-1.json')).then(
-              () => true,
-              () => false,
-            ),
-          );
+          await appears(join(cwd, 'turn-1.json'), 'Codex turn');
           await writeFile(
             join(cwd, 'events.next'),
             JSON.stringify([
