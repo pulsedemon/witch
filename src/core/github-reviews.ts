@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { pullRequestSchema } from './repository.js';
+import { fromGitHub, gitHubPullRequestFields } from './repository.js';
 import type { PullRequest, Run } from './repository.js';
 
 const execute = promisify(execFile);
@@ -89,14 +89,8 @@ const reviewFields =
   'id body url author { __typename login } state submittedAt commit { oid }';
 const requestedFields =
   'requestedReviewer { __typename ... on Bot { login } ... on User { login } }';
-const metadata = z.object({
+const metadata = gitHubPullRequestFields.extend({
   id: z.string(),
-  number: z.number(),
-  url: z.string(),
-  state: pullRequestSchema.shape.state,
-  headRefName: z.string(),
-  headRefOid: z.string(),
-  baseRefName: z.string(),
   isDraft: z.boolean(),
 });
 const fields = 'id number url state headRefName headRefOid baseRefName isDraft';
@@ -319,14 +313,7 @@ export async function readGitHubReviews(
   if (checks.some((entry) => entry.head_sha !== current.headRefOid))
     throw new Error('GitHub returned checks for another pull request head.');
   return {
-    pullRequest: {
-      number: current.number,
-      url: current.url,
-      state: current.state,
-      branch: current.headRefName,
-      commit: current.headRefOid,
-      base: current.baseRefName,
-    },
+    pullRequest: fromGitHub(current),
     draft: current.isDraft,
     copilotRules: z
       .array(z.array(rule))
