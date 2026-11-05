@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { readFile, readdir, rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
 import { unlessGone } from '../persistence/json.js';
@@ -196,6 +197,10 @@ const succeeds = (promise: Promise<unknown>, signal?: AbortSignal) =>
 
 const read = async (git: Git) => parseStatus(await git(...statusArgs));
 
+/** GitHub deletes a merged branch seconds after the merge, which the watch can see first. */
+const deleting = ({ mergedAt }: PullRequest) =>
+  !!mergedAt && Date.now() - Date.parse(mergedAt) < 15_000;
+
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */
 const ignored = (git: Git, path: string) =>
   git('check-ignore', '-q', path).then(
@@ -376,7 +381,28 @@ async function clean(
             )
           : `${await configValue(git, `branch.${branch}.remote`).catch(stopped)}/${base}`;
     }
-    await fetchRemote(git, '--prune').catch(stopped);
+    const track = async () => {
+      await fetchRemote(git, '--prune').catch(stopped);
+      return (
+        await git(
+          'for-each-ref',
+          '--format=%(upstream:short)%09%(upstream:track)%09%(upstream:remoteref)',
+          `refs/heads/${branch}`,
+        ).catch(stopped)
+      ).split('\t');
+    };
+    let [upstream, tracking, merges] = await track();
+    while (
+      upstream &&
+      merges === `refs/heads/${branch}` &&
+      tracking !== '[gone]' &&
+      deleting(pullRequest)
+    ) {
+      await delay(2000, undefined, { signal }).catch(() =>
+        signal?.throwIfAborted(),
+      );
+      [upstream, tracking, merges] = await track();
+    }
     // a detach takes the base's upstream as it is now, so its own remote is fetched here, before the checks below, since
     // a slow fetch gives another terminal time to switch or edit
     if (progress.detached) {
@@ -395,14 +421,6 @@ async function clean(
         text: `#${number} merged, but ${branch}'s last commit isn't the one it merged, so it stays.`,
         cleaned: false,
       };
-    // GitHub deletes a merged pull request's branch, and a long-lived head branch such as develop keeps its own
-    const [upstream, tracking, merges] = (
-      await git(
-        'for-each-ref',
-        '--format=%(upstream:short)%09%(upstream:track)%09%(upstream:remoteref)',
-        `refs/heads/${branch}`,
-      ).catch(stopped)
-    ).split('\t');
     if (!upstream)
       return {
         text: `#${number} merged, but ${branch} tracks no remote branch, so it stays.`,
@@ -414,6 +432,7 @@ async function clean(
         text: `#${number} merged, but ${branch} tracks ${upstream} rather than its own remote branch, so it stays.`,
         cleaned: false,
       };
+    // GitHub deletes a merged pull request's branch, and a long-lived head branch such as develop keeps its own
     if (tracking !== '[gone]')
       return {
         text: `#${number} merged, but ${branch} is still on its remote, so it stays.`,
