@@ -54,6 +54,7 @@ import { ScrollPage } from './scroll-page.js';
 import { helpText } from './help.js';
 import { PhaseRow } from './phase-row.js';
 import { ToolHint, useToolFocus } from './tool-focus.js';
+import { useExitConfirm } from './exit-confirm.js';
 import { accent, colors, piped, potion } from './theme.js';
 import { wrapLines } from './wrap.js';
 
@@ -213,6 +214,7 @@ export function App({
     setAnchor(anchor);
   };
   const toolFocus = useToolFocus(state.conversation?.id);
+  const exit = useExitConfirm(onExit);
   const [leaving, leavingRef, setLeaving] = useLiveState<string | undefined>(
     undefined,
   );
@@ -1084,12 +1086,20 @@ export function App({
   useInput((input, key) => {
     if (key.eventType === 'release') return;
     if (key.ctrl && input === 'c') {
-      // a second Ctrl+C while closing quits without waiting for the agent
-      if ((busy || request || batches.pending) && state.phase !== 'closing') {
+      // a second Ctrl+C while closing quits without waiting for the agent; a request can outlive its turn into recovery
+      if (state.phase === 'closing' || state.phase === 'recovery') onExit();
+      else if (busy || request || batches.pending) {
         run(coordinator.interrupt());
         batches.cancel();
         dismissPicker(false);
-      } else onExit();
+      } else if (
+        viewRef.current.kind === 'chat' &&
+        !toolFocus.focusedRef.current &&
+        composerOpen(state, leavingRef.current) &&
+        bufferRef.current.value
+      )
+        composer.current?.set({ value: '', cursor: 0 });
+      else exit.press();
       return;
     }
     if (key.super && input === 'c') {
@@ -1448,6 +1458,7 @@ export function App({
           state={state}
           reading={top !== null && view.kind === 'chat'}
           counts={!sidebar}
+          exitArmed={exit.armed}
         />
         <Box flexDirection="column" paddingX={1}>
           {body}

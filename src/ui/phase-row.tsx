@@ -9,12 +9,15 @@ export function PhaseRow({
   state,
   reading,
   counts,
+  exitArmed,
 }: {
   state: Snapshot;
   /** scrolled up from live output in the conversation */
   reading: boolean;
   /** count running familiars and brews, which the sidebar shows when it fits */
   counts: boolean;
+  /** a second Ctrl+C now exits */
+  exitArmed: boolean;
 }) {
   const { familiars, brews } = taskActivity(state);
   const count = (n: number, name: string) =>
@@ -24,6 +27,7 @@ export function PhaseRow({
       <Text dimColor wrap="truncate-end">
         {piped([
           sessionStatus(state).toUpperCase(),
+          ...(exitArmed ? ['PRESS CTRL+C AGAIN TO EXIT'] : []),
           ...(state.native?.permissionMode
             ? [plain(state.native.permissionMode).toUpperCase()]
             : []),
