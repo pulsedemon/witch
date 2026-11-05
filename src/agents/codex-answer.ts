@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { pages } from './json-rpc.js';
 import type { JsonRpc } from './json-rpc.js';
 
-const object = z.record(z.string(), z.unknown());
+export const object = z.record(z.string(), z.unknown());
 const configuration = z.object({ config: object });
 const servers = z.object({
   data: z.array(
@@ -112,23 +113,18 @@ export async function checkNoMcpTools(
   threadId: string,
   holder: string,
 ) {
-  let cursor: string | null | undefined;
-  do {
-    const page = servers.parse(
-      await rpc.request('mcpServerStatus/list', {
-        threadId,
-        cursor,
-        limit: 100,
-      }),
-    );
+  for await (const data of pages(
+    rpc,
+    'mcpServerStatus/list',
+    { threadId, limit: 100 },
+    servers,
+  ))
     if (
-      page.data.some(
+      data.some(
         (server) =>
           server.runtimeStatus !== 'disabled' ||
           Object.keys(server.tools).length > 0,
       )
     )
       throw new Error(`Codex exposed MCP tools to ${holder}.`);
-    cursor = page.nextCursor;
-  } while (cursor);
 }

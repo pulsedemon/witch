@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { noticeText } from '../memory/memory.js';
 import type { ControlOutcome } from '../persistence/control.js';
-import type { CoordinationStore, Ledger } from '../persistence/coordination.js';
+import type {
+  CoordinationStore,
+  Ledger,
+  Verify,
+} from '../persistence/coordination.js';
 import type {
   ClaimOwner,
   CoordinationAction,
@@ -192,8 +196,8 @@ export async function peerOutcome(
     owner: ClaimOwner;
     deadline: number;
     change(
-      work: (check: (ledger: Ledger) => Promise<void>) => Promise<PeerRequest>,
-      verify: (ledger: Ledger) => Promise<void>,
+      work: (check: Verify) => Promise<PeerRequest>,
+      verify: Verify,
     ): Promise<PeerRequest>;
     peers(ledger: Ledger): Promise<readonly Peer[]>;
     claims(): Promise<readonly TaskClaim[]>;

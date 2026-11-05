@@ -15,6 +15,7 @@ import {
   sameIdentity,
   updateLedger,
 } from './persistence/directories.js';
+import { unlessGone } from './persistence/json.js';
 import { StateStore } from './persistence/store.js';
 import { oneLine } from './ui/links.js';
 
@@ -96,11 +97,7 @@ async function seed(
     !!(await stat(join(directory, '.git')).catch(() => undefined))?.isFile() ||
     (await exists(join(directory, 'pyvenv.cfg')));
   // deleted since the listing; any other failure to look is reported
-  const listed = await lstat(source).catch((error: unknown) => {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
-    throw error;
-  });
+  const listed = await unlessGone(lstat(source));
   if (!listed) return;
   // lstat, since a symlink the upstream tracks would carry the copy outside the worktree
   const placed = await lstat(target).catch(() => undefined);

@@ -1,17 +1,10 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { convertImage, startsLikePng } from '../core/attachments.js';
 import { resolveFile } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image
@@ -21,7 +14,6 @@ const diacritics = [
   0x0364, 0x0365, 0x0366, 0x0367, 0x0368, 0x0369,
 ].map((code) => String.fromCodePoint(code));
 export const placeholder = '\u{10EEEE}';
-const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 // read whole into memory and sent to the terminal in one transmission
 const largestFile = 64 * 1024 * 1024;
 const retryDelay = 2_000;
@@ -184,30 +176,8 @@ async function decode(key: string, signal: AbortSignal) {
     data = await readFile(key, { signal });
   }
   // the terminal decodes only PNG
-  if (!data.subarray(0, 4).equals(pngSignature))
-    data = await toPng(data, signal);
+  if (!startsLikePng(data)) data = await convertImage(data, 'png', signal);
   // a truncated file throws here, failing its load
   const size = { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
   return size.width && size.height ? { data, size } : undefined;
-}
-
-async function toPng(data: Buffer, signal: AbortSignal): Promise<Buffer> {
-  signal.throwIfAborted();
-  const directory = await mkdtemp(join(tmpdir(), 'witch-image-'));
-  try {
-    const input = join(directory, 'input');
-    const output = join(directory, 'output.png');
-    await writeFile(input, data);
-    await new Promise<void>((resolve, reject) =>
-      execFile(
-        '/usr/bin/sips',
-        ['-s', 'format', 'png', input, '--out', output],
-        { signal },
-        (error) => (error ? reject(error) : resolve()),
-      ),
-    );
-    return await readFile(output);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
 }

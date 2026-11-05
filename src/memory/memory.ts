@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
 import { Workspace } from './workspace.js';
+import { gone } from '../persistence/json.js';
 
 export interface MemoryScope {
   global: string;
@@ -125,11 +126,6 @@ function decoded(run: string): string {
   }
 }
 
-const gone = (error: unknown) => {
-  const { code } = error as NodeJS.ErrnoException;
-  return code === 'ENOENT' || code === 'ENOTDIR';
-};
-
 /** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and an origin not created yet keys as its path, as it does once created with no origin of its own. one the OS refuses to read throws. */
 async function physical(path: string): Promise<string> {
   const real = await realpath(path).catch((error: unknown) => {
@@ -169,6 +165,16 @@ export function noticeText(text: string): string {
 /** the shared memory repository under a state root. */
 export function memoryRepository(stateRoot: string): string {
   return join(stateRoot, 'memory.git');
+}
+
+/** the path in an `ls-tree -z` entry, refusing anything but a regular file, named `name` in the refusal. */
+function noteEntry(
+  entry: string,
+  name = entry.slice(entry.indexOf('\t') + 1),
+): string {
+  if (!/^100(644|755) blob /.test(entry))
+    throw new Error(`Memory notes must be regular files: ${name}`);
+  return entry.slice(entry.indexOf('\t') + 1);
 }
 
 export class Memory {
@@ -461,13 +467,7 @@ export class Memory {
     return result
       .split('\0')
       .filter(Boolean)
-      .map((entry) => {
-        if (!/^100(644|755) blob /.test(entry))
-          throw new Error(
-            `Memory notes must be regular files: ${entry.slice(entry.indexOf('\t') + 1)}`,
-          );
-        return entry.slice(entry.indexOf('\t') + 1);
-      });
+      .map((entry) => noteEntry(entry));
   }
 
   async readBytes(revision: string, path: string): Promise<Buffer> {
@@ -479,8 +479,7 @@ export class Memory {
       '--',
       file,
     ]);
-    if (!/^100(644|755) blob /.test(entry))
-      throw new Error(`Memory notes must be regular files: ${file}`);
+    noteEntry(entry, file);
     return (await this.run(this.root, ['show', `${revision}:${file}`])).stdout;
   }
 

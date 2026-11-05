@@ -13,7 +13,7 @@ import {
   jsonLines,
   launcher,
 } from './fixtures/claude-adapter.js';
-import { holdSettlement, readRecord } from './fixtures/coordinator.js';
+import { holdSettlement, notices, readRecord } from './fixtures/coordinator.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
 import { until, within } from './fixtures/within.js';
 
@@ -212,16 +212,9 @@ for (const dispatch of [true, false])
               }
             : { status: 'interrupted', text: 'Finished.' },
         );
-        assert.deepEqual(
-          coordinator.snapshot.items
-            .filter((item) => item.kind === 'notice')
-            .map((item) => item.text),
-          [
-            dispatch
-              ? 'Cannot write to terminated process'
-              : 'Turn interrupted',
-          ],
-        );
+        assert.deepEqual(notices(coordinator), [
+          dispatch ? 'Cannot write to terminated process' : 'Turn interrupted',
+        ]);
         assert.equal(coordinator.snapshot.phase, 'idle');
       } finally {
         await coordinator.close();

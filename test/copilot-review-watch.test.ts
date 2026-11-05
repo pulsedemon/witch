@@ -6,9 +6,6 @@ import { reviewSource } from './fixtures/github-reviews.js';
 
 test('polling speeds up for requests and outstanding feedback, then returns to quiet reads', async (t) => {
   vi.useFakeTimers();
-  t.onTestFinished(() => {
-    vi.useRealTimers();
-  });
   const source = reviewSource();
   source.requested = [
     {
@@ -52,9 +49,6 @@ test('polling speeds up for requests and outstanding feedback, then returns to q
 
 test('a newly completed check triggers another read for delayed review publication', async (t) => {
   vi.useFakeTimers();
-  t.onTestFinished(() => {
-    vi.useRealTimers();
-  });
   const source = reviewSource();
   source.reviews = [];
   source.threads = [];
@@ -92,9 +86,6 @@ test('a newly completed check triggers another read for delayed review publicati
 for (const state of ['CLOSED', 'MERGED'] as const) {
   test(`a ${state} observation stops polling even when a completed check requests another read`, async (t) => {
     vi.useFakeTimers();
-    t.onTestFinished(() => {
-      vi.useRealTimers();
-    });
     const source = reviewSource();
     source.checks = [
       {
@@ -206,9 +197,6 @@ test('refresh requests coalesce while a read is running', async () => {
 
 test('repeated read errors do not erase published work or repeat the notice', async (t) => {
   vi.useFakeTimers();
-  t.onTestFinished(() => {
-    vi.useRealTimers();
-  });
   const source = reviewSource();
   const publications: string[] = [];
   const notices: string[] = [];

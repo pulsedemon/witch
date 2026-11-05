@@ -16,7 +16,7 @@ import { InputQueue } from './input-queue.js';
 import { TurnText } from './turn-text.js';
 import { accountReading, ClaudeUsage } from './claude-usage.js';
 import { ClaudeCompaction } from './claude-compaction.js';
-import { sideQuery, startupFailure } from './claude-side.js';
+import { promptless, sideQuery, startupFailure } from './claude-side.js';
 import type { ClaudeLaunch } from './claude-side.js';
 import { ClaudeCommands } from './claude-commands.js';
 import type { ClaudeTaskControl } from './claude-commands.js';
@@ -28,7 +28,9 @@ import {
   beforeDeadline,
   NativeStop,
   NativeStopTimeout,
+  running,
   stopDeadline,
+  stopOptions,
   terminateChild,
   terminationReserveMs,
 } from './shutdown.js';
@@ -149,10 +151,9 @@ export class ClaudeAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
+      // read before close, so a stop that lands while it waits doesn't replace the startup error
       const reason: unknown = options.signal?.reason;
-      await session.close(
-        reason instanceof NativeStop ? reason.options : undefined,
-      );
+      await session.close(stopOptions(options.signal));
       throw reason instanceof NativeStop ? reason : error;
     }
   }
@@ -272,12 +273,9 @@ class ClaudeSession implements AgentSession {
         settingSources: ['user', 'project', 'local'],
         ...(options.answer
           ? {
+              ...promptless,
               forkSession: !!options.resume,
-              persistSession: false,
               tools: ['Read', 'Grep', 'Glob'],
-              strictMcpConfig: true,
-              mcpServers: {},
-              settings: { disableAllHooks: true },
               outputFormat: {
                 type: 'json_schema' as const,
                 schema: options.answer.outputSchema,
@@ -907,12 +905,7 @@ class ClaudeSession implements AgentSession {
       );
     } finally {
       this.options.signal?.removeEventListener('abort', this.cancelConnection);
-      if (
-        !this.process ||
-        this.process.pid === undefined ||
-        this.process.exitCode !== null ||
-        this.process.signalCode !== null
-      )
+      if (!this.process || !running(this.process))
         await this.options.onProcess(undefined);
     }
   }

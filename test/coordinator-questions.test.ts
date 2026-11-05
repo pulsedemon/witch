@@ -1,20 +1,20 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../src/agents/codex.js';
-import type { RpcMessage } from '../src/agents/json-rpc.js';
 import type { UserRequest } from '../src/agents/types.js';
 import { Coordinator } from '../src/core/coordinator.js';
 import { StateStore } from '../src/persistence/store.js';
-import { TurnGate } from './fixtures/agent.js';
+import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { fixture, turns } from './fixtures/coordinator.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
 import { until, within } from './fixtures/within.js';
+import { frameWriter } from './fixtures/codex-adapter.js';
 
 const question = (id = 'choice'): UserRequest => ({
   id,
@@ -63,30 +63,11 @@ async function codexFixture() {
   const coordinator = new Coordinator(store, memory, [
     { adapter, executable: 'fixture' },
   ]);
-  let sequence = 0;
-  const emit = async (...frames: RpcMessage[]) => {
-    const index = ++sequence;
-    const barrier = `request barrier ${index}`;
-    await writeFile(
-      join(project, 'events.next'),
-      JSON.stringify([
-        ...frames,
-        {
-          method: 'error',
-          params: { willRetry: true, error: { message: barrier } },
-        },
-      ]),
-    );
-    await rename(
-      join(project, 'events.next'),
-      join(project, `events-${index}.json`),
-    );
-    await until(barrier, () =>
-      coordinator.snapshot.items.some(
-        (item) => item.kind === 'notice' && item.text === barrier,
-      ),
-    );
-  };
+  const emit = frameWriter(project, (text) =>
+    coordinator.snapshot.items.some(
+      (item) => item.kind === 'notice' && item.text === text,
+    ),
+  );
   const receipt = async (id: number): Promise<unknown> => {
     const file = join(project, `response-${id}.json`);
     await until(`response ${id}`, () =>
@@ -304,10 +285,7 @@ test('answering retained questions resumes once and preserves the remaining ques
       question('first'),
       question('second'),
     ]);
-    a.beforeConnect = async () => {
-      entered.resolve();
-      await release.promise;
-    };
+    a.beforeConnect = holdConnect(entered, release);
     answering = Promise.all([
       coordinator.respond('first', response),
       coordinator.respond('first', response),

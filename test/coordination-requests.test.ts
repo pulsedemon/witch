@@ -143,6 +143,32 @@ for (const kind of [
     }
   });
 
+/** a discovery read that, once armed, signals `observed` and waits for `finish` before returning. */
+function holdDiscovery(observed: { resolve(): void }, finish: Promise<void>) {
+  const records = StateStore.prototype.records;
+  let holding = false;
+  const spy = vi
+    .spyOn(StateStore.prototype, 'records')
+    .mockImplementation(async function (
+      this: StateStore,
+      ...args: Parameters<typeof records>
+    ) {
+      const result = await records.apply(this, args);
+      if (holding) {
+        holding = false;
+        observed.resolve();
+        await finish;
+      }
+      return result;
+    });
+  return {
+    arm: () => {
+      holding = true;
+    },
+    mockRestore: () => spy.mockRestore(),
+  };
+}
+
 test('human release reuses its lookup and publishes the released state', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
@@ -684,22 +710,7 @@ for (const outcome of ['success', 'failure'] as const)
         await finishMutation.promise;
         return value;
       });
-    const records = StateStore.prototype.records;
-    let holding = false;
-    const reading = vi
-      .spyOn(StateStore.prototype, 'records')
-      .mockImplementation(async function (
-        this: StateStore,
-        ...args: Parameters<typeof records>
-      ) {
-        const result = await records.apply(this, args);
-        if (holding) {
-          holding = false;
-          observed.resolve();
-          await finishDiscovery.promise;
-        }
-        return result;
-      });
+    const reading = holdDiscovery(observed, finishDiscovery.promise);
     const claiming = a.claim('task:chosen');
     try {
       const reserved = await within(committed.promise, 5000, 'claim committed');
@@ -713,7 +724,7 @@ for (const outcome of ['success', 'failure'] as const)
           title: 'Newer overlapping observation',
         });
       }
-      holding = true;
+      reading.arm();
       refreshes[0]!();
       await within(observed.promise, 5000, 'background discovery observed');
       finishMutation.resolve();
@@ -828,22 +839,7 @@ for (const stage of ['waiting', 'verifying'] as const)
         readCompleted.resolve();
         return value;
       });
-    let holding = false;
-    const records = StateStore.prototype.records;
-    const discovering = vi
-      .spyOn(StateStore.prototype, 'records')
-      .mockImplementation(async function (
-        this: StateStore,
-        ...args: Parameters<typeof records>
-      ) {
-        const value = await records.apply(this, args);
-        if (holding) {
-          holding = false;
-          observed.resolve();
-          await finishDiscovery.promise;
-        }
-        return value;
-      });
+    const discovering = holdDiscovery(observed, finishDiscovery.promise);
     const claiming = a.claim('task:chosen');
     let unsubscribe = () => {};
     try {
@@ -853,7 +849,7 @@ for (const stage of ['waiting', 'verifying'] as const)
       )!;
       await registry.publish({ ...peer, title: 'Observed while pending' });
       capture = true;
-      holding = true;
+      discovering.arm();
       refreshes[0]!();
       const refreshing = a.coordination['refreshing']!.promise;
       await within(
@@ -1238,22 +1234,7 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
         },
       );
     });
-  const records = StateStore.prototype.records;
-  let holding = false;
-  const reading = vi
-    .spyOn(StateStore.prototype, 'records')
-    .mockImplementation(async function (
-      this: StateStore,
-      ...args: Parameters<typeof records>
-    ) {
-      const result = await records.apply(this, args);
-      if (holding) {
-        holding = false;
-        observed.resolve();
-        await finishDiscovery.promise;
-      }
-      return result;
-    });
+  const reading = holdDiscovery(observed, finishDiscovery.promise);
   const state = CoordinationStore.prototype.state;
   let finalizing = false;
   const finalRead = vi
@@ -1281,7 +1262,7 @@ test('a newer discovery survives rejected mutation completion', async (t) => {
       ...peer,
       title: 'Observed before rejection finalizes',
     });
-    holding = true;
+    reading.arm();
     refreshes[0]!();
     const refreshing = a.coordination['refreshing']!.promise;
     await within(observed.promise, 5000, 'background discovery');

@@ -347,6 +347,35 @@ test('registration requires a live native process handle and cannot adopt an end
   }
 });
 
+test('a registration renamed after its command ended reports the ended command, as Claude does', async () => {
+  const f = await reportedFixture();
+  try {
+    await f.emit(
+      { method: 'item/started', params: { ...f.params, item: f.item } },
+      f.output(f.marker),
+    );
+    assert.equal((await f.register()).kind, 'familiar-registered');
+    await f.emit({
+      method: 'item/completed',
+      params: { ...f.params, item: { ...f.item, status: 'completed' } },
+    });
+    await assert.rejects(
+      f.session.familiar!.report(
+        {
+          kind: 'familiar-register',
+          run: f.run,
+          name: 'another review',
+          runtime: 'claude',
+        },
+        Date.now() + 5000,
+      ),
+      { message: 'The familiar command has already ended.' },
+    );
+  } finally {
+    await f.session.close();
+  }
+});
+
 test('an approval-first start resolves only its own native handle before admitting the familiar', async () => {
   const f = await reportedFixture();
   try {

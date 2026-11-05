@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFile, spawn } from 'node:child_process';
 import {
   appendFile,
   chmod,
@@ -15,21 +14,16 @@ import {
 } from 'node:fs/promises';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { test, vi } from 'vitest';
 import { runCommand } from '../src/core/command.js';
 import { describeMoves, repairMoves } from '../src/core/move-repair.js';
-import type { Run } from '../src/core/repository.js';
-import type { ConversationRecord } from '../src/core/state.js';
 import { projectKey } from '../src/memory/memory.js';
 import { readLedger, updateLedger } from '../src/persistence/directories.js';
 import type * as Directories from '../src/persistence/directories.js';
-import { identifyProcess } from '../src/persistence/process.js';
 import { StateStore } from '../src/persistence/store.js';
 import { quote } from '../src/shell.js';
-import { record } from './fixtures/coordinator.js';
-import { scratch } from './fixtures/scratch.js';
-import { seededMemory } from './fixtures/seeded-memory.js';
+import { git } from './fixtures/git.js';
+import { setup } from './fixtures/move-repair.js';
 
 const ledgerCalls = vi.hoisted(() => ({
   before: undefined as (() => void) | undefined,
@@ -45,95 +39,9 @@ vi.mock('../src/persistence/directories.js', async (importOriginal) => {
   };
 });
 
-const execute = promisify(execFile);
 const darwin = process.platform === 'darwin';
 
-async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await execute(
-    'git',
-    ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
-    { cwd },
-  );
-  return stdout.trim();
-}
-
 const status = (cwd: string) => git(cwd, 'status', '--porcelain');
-
-/** a main checkout `w/main` with a worktree `w/main-1`, a state directory, and one repair already run there. */
-async function setup({ origin = true }: { origin?: boolean } = {}) {
-  const root = await scratch('witch-move-');
-  const at = (path: string) => join(root, path);
-  await mkdir(at('w/main'), { recursive: true });
-  await git(at('w/main'), 'init', '-q', '-b', 'main');
-  await git(at('w/main'), 'commit', '-q', '--allow-empty', '-m', 'first');
-  if (origin)
-    await git(
-      at('w/main'),
-      'remote',
-      'add',
-      'origin',
-      'https://example.invalid/move.git',
-    );
-  await git(at('w/main'), 'worktree', 'add', '-q', '--detach', at('w/main-1'));
-  const store = await StateStore.open(at('state'));
-  const memory = await seededMemory(at('state/memory.git'));
-  const runs: string[][] = [];
-  const recording: Run = (command, args, options) => {
-    runs.push([command, ...args]);
-    return runCommand(command, args, options);
-  };
-  const repair = (
-    cwd: string,
-    options: Parameters<typeof repairMoves>[3] = {},
-  ) => repairMoves(store, memory, at(cwd), { run: recording, ...options });
-  let day = 1;
-  const save = async (
-    id: string,
-    cwd: string,
-    extra: Partial<ConversationRecord> & Record<string, unknown> = {},
-    history = true,
-  ) => {
-    const files = await store.create({ ...record(id, at(cwd)), ...extra });
-    if (history)
-      await files.append({
-        id: `${id}-line`,
-        kind: 'assistant',
-        cwd: at(cwd),
-        text: `in ${id}`,
-      });
-    await files.close();
-    const directory = at(`state/conversations/${id}`);
-    const raw = JSON.parse(
-      await readFile(join(directory, 'state.json'), 'utf8'),
-    );
-    await writeFile(
-      join(directory, 'state.json'),
-      JSON.stringify({ ...raw, ...extra }, null, 2),
-    );
-    const date = new Date(`2020-01-${String(day++).padStart(2, '0')}`);
-    for (const file of ['state.json', 'history.jsonl'])
-      await utimes(join(directory, file), date, date).catch(() => {});
-  };
-  const saved = async (id: string) => {
-    const directory = at(`state/conversations/${id}`);
-    return {
-      raw: JSON.parse(
-        await readFile(join(directory, 'state.json'), 'utf8'),
-      ) as Record<string, unknown>,
-      history: await readFile(join(directory, 'history.jsonl'), 'utf8').catch(
-        () => undefined,
-      ),
-      mtimes: await Promise.all(
-        ['state.json', 'history.jsonl'].map(
-          async (file) =>
-            (await stat(join(directory, file)).catch(() => undefined))?.mtimeMs,
-        ),
-      ),
-    };
-  };
-  await repair('w/main');
-  return { root, at, store, memory, repair, runs, save, saved };
-}
 
 test('a moved main checkout and worktree are repaired from the new location', async () => {
   const f = await setup();
@@ -668,37 +576,6 @@ test('a repaired conversation follows its directory past an earlier move out of 
   assert.equal((await f.saved('b')).raw.cwd, f.at('c'));
 });
 
-for (const race of ['source', 'parent', 'destination'])
-  test(`a ${race} that changes while repair stops a leftover process keeps the conversation where it was`, async () => {
-    const f = await setup();
-    const cwd = race === 'parent' ? 'w/main/sub' : 'w/main';
-    if (race === 'parent') await mkdir(f.at(cwd));
-    // changes the paths as it's stopped, the last moment before the rewrite
-    const change =
-      race === 'destination'
-        ? `fs.renameSync(${JSON.stringify(f.at('c/main'))}, ${JSON.stringify(f.at('actual'))}); fs.mkdirSync(${JSON.stringify(f.at('c/main'))});`
-        : `fs.mkdirSync(${JSON.stringify(f.at('w/main'))}, { recursive: true });`;
-    const child = spawn(process.execPath, [
-      '-e',
-      `const fs = require('node:fs'); process.on('SIGTERM', () => { ${change} process.exit(0); }); console.log('ready'); setTimeout(() => {}, 60_000);`,
-    ]);
-    try {
-      await new Promise((ready) => child.stdout.once('data', ready));
-      await f.save('live', cwd, {
-        process: await identifyProcess(child.pid!),
-      });
-      await rename(f.at('w'), f.at('c'));
-      const report = await f.repair('c/main');
-      assert.equal((await f.saved('live')).raw.cwd, f.at(cwd));
-      assert.ok(
-        report.blocked.some(({ path }) => path === f.at(cwd)),
-        JSON.stringify(report),
-      );
-    } finally {
-      child.kill('SIGKILL');
-    }
-  });
-
 test('a destination copied back in place during worktree repair is not taken for the moved one', async () => {
   const f = await setup();
   await f.save('held', 'w/main');
@@ -739,32 +616,6 @@ test("a replacement child follows its parent's later move, not the earlier child
   assert.deepEqual(await f.store.prompts(f.at('b/sub')), [
     'in the replacement',
   ]);
-});
-
-test('a destination replaced between two conversations keeps the later one where it was', async () => {
-  const f = await setup();
-  // whichever stop comes first swaps the destination; the other conversation is checked against the ledger
-  const swap = `if (!fs.existsSync(${JSON.stringify(f.at('actual'))})) { fs.renameSync(${JSON.stringify(f.at('c/main'))}, ${JSON.stringify(f.at('actual'))}); fs.mkdirSync(${JSON.stringify(f.at('c/main'))}); }`;
-  const children = ['one', 'two'].map(() =>
-    spawn(process.execPath, [
-      '-e',
-      `const fs = require('node:fs'); process.on('SIGTERM', () => { ${swap} process.exit(0); }); console.log('ready'); setTimeout(() => {}, 60_000);`,
-    ]),
-  );
-  try {
-    for (const [index, child] of children.entries()) {
-      await new Promise((ready) => child.stdout.once('data', ready));
-      await f.save(`live-${index}`, 'w/main', {
-        process: await identifyProcess(child.pid!),
-      });
-    }
-    await rename(f.at('w'), f.at('c'));
-    await f.repair('c/main');
-    for (const index of [0, 1])
-      assert.equal((await f.saved(`live-${index}`)).raw.cwd, f.at('w/main'));
-  } finally {
-    for (const child of children) child.kill('SIGKILL');
-  }
 });
 
 test('prompts added while repair waits for the ledger lock stay with the moved directory', async () => {
@@ -954,43 +805,6 @@ test('an open conversation is reported and repaired after it closes', async () =
   await files.close();
   await f.repair('c/main');
   assert.equal((await f.saved('open')).raw.cwd, f.at('c/main'));
-});
-
-for (const field of ['process', 'usageProcess', 'answerProcess', 'shell'])
-  test(`a recorded ${field} left running by a crash is stopped and its conversation repaired`, async () => {
-    const f = await setup();
-    // a recorded shell leads its own process group, which is what gets killed
-    const child = spawn(
-      process.execPath,
-      ['-e', 'setTimeout(() => {}, 60_000)'],
-      { detached: field === 'shell' },
-    );
-    const exited = new Promise((done) => child.once('exit', done));
-    try {
-      const identity = await identifyProcess(child.pid!);
-      await f.save('live', 'w/main', { [field]: identity });
-      const before = (await f.saved('live')).mtimes;
-      await rename(f.at('w'), f.at('c'));
-      const report = await f.repair('c/main');
-      assert.deepEqual(report.blocked, []);
-      await exited;
-      const after = await f.saved('live');
-      assert.equal(after.raw.cwd, f.at('c/main'));
-      assert.deepEqual(after.raw[field], identity);
-      assert.deepEqual(after.mtimes, before);
-    } finally {
-      child.kill();
-    }
-  });
-
-test('a live pid with a different start time is left running', async () => {
-  const f = await setup();
-  await f.save('reused', 'w/main', {
-    process: { pid: process.pid, started: 'Thu Jan  1 00:00:00 1970' },
-  });
-  await rename(f.at('w'), f.at('c'));
-  await f.repair('c/main');
-  assert.equal((await f.saved('reused')).raw.cwd, f.at('c/main'));
 });
 
 /** a native session whose memory was delivered for `deliveredProject`. */

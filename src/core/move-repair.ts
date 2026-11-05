@@ -27,10 +27,7 @@ import type {
   Owner,
 } from '../persistence/directories.js';
 import { replaceFile, unlessGone } from '../persistence/json.js';
-import {
-  stopPreviousProcess,
-  stopPreviousShell,
-} from '../persistence/process.js';
+import { stopLeftProcesses } from '../persistence/process.js';
 import { LockedElsewhere, moveRows } from '../persistence/store.js';
 import type { StateStore } from '../persistence/store.js';
 import { quote } from '../shell.js';
@@ -487,13 +484,7 @@ async function rewrite(
           return undefined;
         }
         // holding the lock means no Witch has it open, so these are left from a crash, and claim would stop them too
-        if (current.shell) await stopPreviousShell(current.shell);
-        for (const identity of [
-          current.process,
-          current.usageProcess,
-          current.answerProcess,
-        ])
-          if (identity) await stopPreviousProcess(identity);
+        await stopLeftProcesses(current);
         // the mapping as resolved must still give the target, and anything it relied on that changed while this waited
         // for the lock or the stops leaves the conversation for the next start
         const owner = savedBefore(saved);

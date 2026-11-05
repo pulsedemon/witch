@@ -14,9 +14,9 @@ import {
 } from '../src/core/usage.js';
 import { App } from '../src/ui/app.js';
 import { accountRows } from '../src/ui/status-line.js';
-import { appears, close, controlledFixture } from './fixtures/codex-adapter.js';
+import { close, controlledFixture } from './fixtures/codex-adapter.js';
 import { ENTER, fake, show } from './fixtures/ui.js';
-import { until } from './fixtures/within.js';
+import { appears, until } from './fixtures/within.js';
 
 test('native Codex credit states reach both rendered layouts beside a full weekly window', async () => {
   const f = await controlledFixture();

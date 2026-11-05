@@ -8,7 +8,7 @@ import {
   CoordinationStore,
   checkDeadline,
 } from '../persistence/coordination.js';
-import type { Ledger } from '../persistence/coordination.js';
+import type { Ledger, Verify } from '../persistence/coordination.js';
 import { ControlHost } from '../persistence/control.js';
 import type {
   ControlBinding,
@@ -802,8 +802,8 @@ export class SessionCoordination {
 
   private async change<T>(
     state: RequestState | undefined,
-    work: (verify: (ledger: Ledger) => Promise<void>) => Promise<T>,
-    verify: (ledger: Ledger) => Promise<void> = async () => {},
+    work: (verify: Verify) => Promise<T>,
+    verify: Verify = async () => {},
   ): Promise<T> {
     let committed: LedgerView | undefined;
     try {

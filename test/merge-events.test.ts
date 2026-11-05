@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { CoordinationStore } from '../src/persistence/coordination.js';
 import { StateStore } from '../src/persistence/store.js';
 import type { PullRequest } from '../src/core/repository.js';
+import { expireAfterLock } from './fixtures/coordination.js';
 import { scratch } from './fixtures/scratch.js';
 
 const merged: PullRequest = {
@@ -66,4 +67,17 @@ test('different projects, pull requests and head revisions retain distinct event
     nextHead,
   ]);
   assert.deepEqual(await store.mergeEvents('project-b', 'recipient'), [other]);
+});
+
+test('a merge whose deadline passes after the lock is taken records nothing', async () => {
+  const store = await CoordinationStore.open(
+    await StateStore.open(await scratch('witch-merge-deadline-')),
+  );
+  expireAfterLock();
+  await assert.rejects(
+    store.recordMerge('project-a', merged, 'source', ['a']),
+    /expired/,
+  );
+  vi.restoreAllMocks();
+  assert.deepEqual(await store.mergeEvents('project-a', 'a'), []);
 });

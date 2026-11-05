@@ -2,6 +2,7 @@ import { AnswerTurn } from './answer-turn.js';
 import {
   answerConfiguration,
   checkNoMcpTools,
+  object,
   readConfig,
   withoutMcp,
 } from './codex-answer.js';
@@ -23,6 +24,7 @@ import {
   NativeStop,
   NativeStopTimeout,
   stopDeadline,
+  stopOptions,
   terminationReserveMs,
 } from './shutdown.js';
 import { boundCommandTitle, shortPath, toolTitle } from './tool-title.js';
@@ -49,7 +51,6 @@ import type {
   UserResponse,
 } from './types.js';
 
-const object = z.record(z.string(), z.unknown());
 const stringValue = z.string();
 const nullishString = stringValue.nullish();
 const completedTurn = z.object({
@@ -285,10 +286,7 @@ export class CodexAdapter implements AgentAdapter {
       await initializeRpc(rpc);
       return await read(rpc);
     } finally {
-      const reason: unknown = options.signal?.reason;
-      await rpc.close(
-        reason instanceof NativeStop ? reason.options : undefined,
-      );
+      await rpc.close(stopOptions(options.signal));
     }
   }
 
@@ -303,10 +301,9 @@ export class CodexAdapter implements AgentAdapter {
       await session.initialize();
       return session;
     } catch (error) {
+      // read before close, so a stop that lands while it waits doesn't replace the startup error
       const reason: unknown = options.signal?.reason;
-      await session.close(
-        reason instanceof NativeStop ? reason.options : undefined,
-      );
+      await session.close(stopOptions(options.signal));
       throw reason instanceof NativeStop ? reason : error;
     }
   }
@@ -1346,14 +1343,9 @@ class CodexSession implements AgentSession {
       return;
     }
     if (!request) {
-      this.rpc.reject(
-        message.id!,
-        `Unsupported native request: ${message.method}`,
-      );
-      this.options.onEvent({
-        type: 'notice',
-        text: `Unsupported native request: ${message.method}`,
-      });
+      const text = `Unsupported native request: ${message.method}`;
+      this.rpc.reject(message.id!, text);
+      this.options.onEvent({ type: 'notice', text });
       return;
     }
     this.requests.set(request.id, message);

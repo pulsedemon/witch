@@ -156,6 +156,20 @@ test('a failed image conversion sends nothing and removes its temporary files', 
   assert.equal(existsSync(dirname(calls[0]!.args[3]!)), false);
 });
 
+test('data that starts like a PNG but breaks its signature after `\\x89PNG` is converted, not sent as PNG', async (t) => {
+  const calls = sips(t, () => new Error('fixture conversion failure'));
+  const image = png(1, 1);
+  image[4] = 0;
+  const source = `data:image/png;base64,${image.toString('base64')}`;
+  const graphics = new Graphics(() => {});
+  graphics.rows(source, '/', 80);
+  await loaded(graphics);
+  assert.deepEqual(
+    calls.map(({ file }) => file),
+    ['/usr/bin/sips'],
+  );
+});
+
 test('a FIFO or a file over 64 MiB named like an image shows and reads nothing', async () => {
   const directory = await scratch('witch-images-');
   const source = join(directory, 'source.png');

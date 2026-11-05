@@ -30,17 +30,19 @@ export async function readJson<T>(
   file: string,
   schema: ZodType<T>,
 ): Promise<T | undefined> {
-  const text = await readFile(file, 'utf8').catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  });
+  const text = await unlessGone(readFile(file, 'utf8'));
   return text === undefined ? undefined : schema.parse(JSON.parse(text));
+}
+
+/** whether a path is gone; ENOTDIR covers one under a stray file, such as Finder's .DS_Store, where a directory would be. */
+export function gone(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
 }
 
 /** undefined for a file that's gone; one that can't be read throws, so its caller reports it rather than skipping it. */
 export const unlessGone = <T>(read: Promise<T>): Promise<T | undefined> =>
   read.catch((error: unknown) => {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    if (gone(error)) return undefined;
     throw error;
   });

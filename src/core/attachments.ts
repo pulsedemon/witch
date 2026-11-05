@@ -20,6 +20,9 @@ const largestSide = 2000;
 // Claude's per-image limit, which applies to the base64 encoding
 const largestEncoded = 5 * 1024 * 1024;
 
+export const startsLikePng = (data: Buffer) =>
+  data.subarray(0, pngSignature.length).equals(pngSignature);
+
 /** the absolute paths a paste lists when every one names a readable image; a terminal drop arrives as such a paste. */
 export function imagePaste(text: string): string[] | undefined {
   const trimmed = text.trim();
@@ -110,32 +113,48 @@ async function encode(
 ): Promise<{ bytes: Buffer; extension: 'png' | 'jpg' }> {
   if (
     data.length >= 24 &&
-    data.subarray(0, 8).equals(pngSignature) &&
+    startsLikePng(data) &&
     data.toString('latin1', 12, 16) === 'IHDR' &&
     data.readUInt32BE(16) <= largestSide &&
     data.readUInt32BE(20) <= largestSide &&
     Math.ceil(data.length / 3) * 4 <= largestEncoded
   )
     return { bytes: data, extension: 'png' };
-  const directory = await mkdtemp(join(tmpdir(), 'witch-attachment-'));
+  return {
+    bytes: await convertImage(data, 'jpeg', signal, largestSide),
+    extension: 'jpg',
+  };
+}
+
+/** converts with macOS `sips`, shrinking an image with a side over `fit` to fit it. */
+export async function convertImage(
+  data: Buffer,
+  format: 'png' | 'jpeg',
+  signal: AbortSignal,
+  fit?: number,
+): Promise<Buffer> {
+  signal.throwIfAborted();
+  const directory = await mkdtemp(join(tmpdir(), 'witch-image-'));
   try {
     const input = join(directory, 'input');
-    const output = join(directory, 'output.jpg');
+    const output = join(directory, `output.${format}`);
     await writeFile(input, data);
-    const size = await sips(
-      ['-g', 'pixelWidth', '-g', 'pixelHeight', input],
-      signal,
-    );
-    const sides = [...size.matchAll(/pixel(?:Width|Height): (\d+)/g)];
-    // `-Z` enlarges a smaller image too
-    const fit = sides.some(([, side]) => Number(side) > largestSide)
-      ? ['-Z', String(largestSide)]
-      : [];
+    const resize: string[] = [];
+    if (fit !== undefined) {
+      const size = await sips(
+        ['-g', 'pixelWidth', '-g', 'pixelHeight', input],
+        signal,
+      );
+      const sides = [...size.matchAll(/pixel(?:Width|Height): (\d+)/g)];
+      // `-Z` enlarges a smaller image too
+      if (sides.some(([, side]) => Number(side) > fit))
+        resize.push('-Z', String(fit));
+    }
     await sips(
-      ['-s', 'format', 'jpeg', ...fit, input, '--out', output],
+      ['-s', 'format', format, ...resize, input, '--out', output],
       signal,
     );
-    return { bytes: await readFile(output), extension: 'jpg' };
+    return await readFile(output);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
