@@ -37,7 +37,11 @@ import { assignGitHubTask } from './github-assignment.js';
 import { ReviewOwnership } from './review-ownership.js';
 import type { Repository } from './repository.js';
 import { ConversationEvents } from './conversation-events.js';
-import { dispatchControl, type DispatchHost } from './control-dispatch.js';
+import {
+  activationOwner,
+  dispatchControl,
+  type DispatchHost,
+} from './control-dispatch.js';
 import { PresencePublisher } from './presence.js';
 import type { PeerRequest } from './peer-requests.js';
 import type { PeerAnswer } from './peer-answers.js';
@@ -93,10 +97,7 @@ export class SessionCoordination {
     current: () => {
       const active = this.admit();
       return {
-        owner: {
-          conversation: active.conversation.id,
-          project: active.project,
-        },
+        owner: activationOwner(active),
         cwd: active.conversation.cwd,
         repository: this.repository,
       };
@@ -549,7 +550,7 @@ export class SessionCoordination {
   beginTurn(turn: string): void {
     const active = this.admit();
     this.turn = {
-      owner: { conversation: active.conversation.id, project: active.project },
+      owner: activationOwner(active),
       activation: active.binding.activation,
       turn,
     };
@@ -772,13 +773,7 @@ export class SessionCoordination {
     const project = active?.project;
     let revision = 0;
     const accept = () => {
-      if (
-        this.active !== active ||
-        active?.project !== project ||
-        !active?.publishing ||
-        this.closed
-      )
-        return false;
+      if (!this.current(active, project)) return false;
       // lock acquisition failures have no locked observation.
       const observed = revision || ++this.revision;
       if (observed <= this.ledgerObservation) return false;
@@ -863,13 +858,7 @@ export class SessionCoordination {
     discovery: Discovery,
     ledger?: LedgerView,
   ): CoordinationSnapshot {
-    if (
-      this.active !== active ||
-      active.project !== project ||
-      !active.publishing ||
-      this.closed
-    )
-      return this.snapshot;
+    if (!this.current(active, project)) return this.snapshot;
     const previous =
       this.view?.active === active && this.view.project === project
         ? this.view
@@ -1092,11 +1081,7 @@ export class SessionCoordination {
         ? this.refreshing.promise
         : this.refreshing.promise.then(() => this.refresh());
     const revision = ++this.revision;
-    const current = () =>
-      this.active === active &&
-      active.project === project &&
-      active.publishing &&
-      !this.closed;
+    const current = () => this.current(active, project);
     const discovery = this.discover(revision).catch((error: unknown) => {
       if (current()) this.failDiscovery(error, revision);
     });
@@ -1131,11 +1116,21 @@ export class SessionCoordination {
     return this.events.refresh(
       active,
       { conversation: active.conversation.id, project },
-      () =>
-        this.active === active &&
-        active.project === project &&
-        active.publishing &&
-        !this.closed,
+      () => this.current(active, project),
+    );
+  }
+
+  /** whether `active` is still the publishing activation, on the project the caller captured. */
+  private current(
+    active: Activation | undefined,
+    project: string | undefined,
+  ): boolean {
+    return (
+      !!active &&
+      this.active === active &&
+      active.project === project &&
+      active.publishing &&
+      !this.closed
     );
   }
 

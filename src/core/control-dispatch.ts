@@ -125,10 +125,7 @@ export async function dispatchControl(
     }
     await host.refreshProject(active, request.deadline);
     await host.retireProject(active, state);
-    const owner = {
-      conversation: active.conversation.id,
-      project: active.project,
-    };
+    const owner = activationOwner(active);
     if (isPeerAction(action))
       return await peerOutcome(action, {
         registry: host.registry,
@@ -424,4 +421,8 @@ async function record(host: DispatchHost, conversation: string) {
   return (await host.store.records([conversation])).records.find(
     (entry) => entry.id === conversation,
   );
+}
+
+export function activationOwner(active: Activation): ClaimOwner {
+  return { conversation: active.conversation.id, project: active.project };
 }
