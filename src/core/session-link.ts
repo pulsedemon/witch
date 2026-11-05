@@ -53,6 +53,7 @@ export class SessionLink {
   private connected?: AgentSession;
   private aborter?: AbortController;
   private compactions = 0;
+  private readonly compactedListeners = new Set<() => void>();
   /** the project memory the live session may write; native permissions are fixed at connect. */
   private sessionProject?: string;
 
@@ -80,6 +81,12 @@ export class SessionLink {
   /** changes when the native session compacts, which invalidates delivered context. */
   get generation(): number {
     return this.compactions;
+  }
+
+  /** calls `listener` after each native compaction until the returned function removes it. */
+  onCompacted(listener: () => void): () => void {
+    this.compactedListeners.add(listener);
+    return () => this.compactedListeners.delete(listener);
   }
 
   live(agent: string): AgentSession | undefined {
@@ -218,6 +225,7 @@ export class SessionLink {
       if (reference) clearDelivery(reference);
       host.persist(host.save());
       host.notice('Conversation compacted');
+      for (const listener of this.compactedListeners) listener();
     } else if (event.type === 'request') {
       if (host.cancelled() && event.request.replyAsPrompt) return;
       host.publish({ requests: [...host.snapshot().requests, event.request] });
