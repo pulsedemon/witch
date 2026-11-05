@@ -4,7 +4,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { convertImage, pngSignature } from '../core/attachments.js';
+import { convertImage, startsLikePng } from '../core/attachments.js';
 import { resolveFile } from '../paths.js';
 
 // the start of the Kitty protocol's row/column diacritics; a placeholder's diacritic gives its row in the image
@@ -176,8 +176,7 @@ async function decode(key: string, signal: AbortSignal) {
     data = await readFile(key, { signal });
   }
   // the terminal decodes only PNG
-  if (!data.subarray(0, pngSignature.length).equals(pngSignature))
-    data = await convertImage(data, 'png', signal);
+  if (!startsLikePng(data)) data = await convertImage(data, 'png', signal);
   // a truncated file throws here, failing its load
   const size = { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
   return size.width && size.height ? { data, size } : undefined;
