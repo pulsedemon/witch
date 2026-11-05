@@ -10,13 +10,12 @@ const { values } = parseArgs({
   options: {
     state: { type: 'string', default: join(homedir(), '.witch') },
     out: { type: 'string' },
-    before: { type: 'string', default: '8' },
-    after: { type: 'string', default: '4' },
   },
 });
 assert.ok(values.out, '--out is required');
-const before = Number(values.before);
-const after = Number(values.after);
+// prompts per packet before and after the compaction, as docs/compaction-check.md describes
+const before = 8;
+const after = 4;
 const out = resolve(values.out);
 
 /** `command` is a compaction Witch ran, at its threshold or for `/compact`; `native` is the runtime's own. */

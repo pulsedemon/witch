@@ -174,6 +174,8 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   await conversation(home, 'claude-native', { claude: { id: 'native' } }, [
     ['user', 'native task', 1500],
     ['assistant', 'native progress', 1510, 'claude'],
+    // a shell command is not a prompt the agent answers after compaction
+    ['user', '!git status', 1590],
     ['notice', compacted, 1600],
     ['assistant', 'native reply', 1610, 'claude'],
   ]);
@@ -265,6 +267,19 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
       compaction(2110),
       event('task_complete'),
     ]);
+  // two notices compete for one compaction; the closer one is read second
+  for (const [id, seconds] of [
+    ['compete-a', 3000],
+    ['compete-b', 3010],
+  ] as const)
+    await conversation(home, id, { claude: { id: `${id}-latest` } }, [
+      ['user', 'competing task', seconds - 10],
+      ['notice', compacted, seconds],
+      ['assistant', 'competing reply', seconds + 5, 'claude'],
+    ]);
+  await jsonl(join(claude, 'lone.jsonl'), [
+    boundary('lone', 3009, 'manual', 700000),
+  ]);
   // Finder leaves files beside the conversations
   await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
 
@@ -285,6 +300,12 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
     [native.runtime, native.trigger, native.tokens],
     ['claude', 'native', 968000],
   );
+  const nativePacket = await sections(native);
+  assert.ok(nativePacket.before.includes('!git status'));
+  assert.ok(!nativePacket.after.includes('!git status'));
+  assert.equal(native.promptsAfter, 0);
+  assert.equal(find('compete-b', 3010).tokens, 700000);
+  assert.equal(find('compete-a', 3000).runtime, undefined);
   const toolTurn = find('codex-older', 2010);
   assert.deepEqual(
     [toolTurn.trigger, toolTurn.afterOutput, toolTurn.tokens, toolTurn.session],
