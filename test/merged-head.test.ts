@@ -27,7 +27,10 @@ const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
 
 const url = 'https://github.test/o/r/pull/7';
 
-/** runs `body` with a `gh` on PATH that prints `settings` for the repository lookup, or fails it without them. */
+/**
+ * runs `body` with a `gh` on PATH that prints `settings`, the lines of deleteBranchOnMerge, the default branch and
+ * isCrossRepository, for the pull request's lookup, or fails it without them.
+ */
 async function withGh<T>(
   root: string,
   settings: string | undefined,
@@ -38,7 +41,7 @@ async function withGh<T>(
     join(bin, 'gh'),
     settings === undefined
       ? `#!/bin/sh\necho 'HTTP 502' >&2\nexit 1\n`
-      : `#!/bin/sh\n[ "$*" = 'api --hostname github.test repos/o/r --jq .delete_branch_on_merge, .default_branch' ] || exit 1\nprintf ${quote(settings)}\n`,
+      : `#!/bin/sh\ncase "$*" in 'api graphql --hostname github.test '*' -f owner=o -f name=r -F number=7 '*) ;; *) exit 1 ;; esac\nprintf ${quote(settings)}\n`,
   );
   await chmod(join(bin, 'gh'), 0o755);
   const previousPath = process.env.PATH;
@@ -87,18 +90,18 @@ test("a head branch GitHub deletes after the first fetch goes, even when the rep
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
-test("a head branch the repository keeps after merging goes at once, unless its remote branch moved, it's the default branch, or the repository deletes merged branches or its settings can't be read", async () => {
+test("a head branch the repository keeps after merging goes at once, unless its remote branch moved, it's the default branch or a fork's, or the repository deletes merged branches or its settings can't be read", async () => {
   // the default branch waits out GitHub's deletion like any branch the repository might delete
   for (const { settings, moved, ago, result, cleaned } of [
     {
-      settings: 'false\nmain\n',
+      settings: 'false\nmain\nfalse\n',
       moved: false,
       ago: 0,
       cleaned: true,
       result: '#7 merged: switched to main and pulled, deleted branch feat/x.',
     },
     {
-      settings: 'false\nmain\n',
+      settings: 'false\nmain\nfalse\n',
       moved: true,
       ago: 0,
       cleaned: false,
@@ -106,29 +109,29 @@ test("a head branch the repository keeps after merging goes at once, unless its 
         "#7 merged, but feat/x's remote branch has changed since, so it stays.",
     },
     {
-      settings: 'false\nfeat/x\n',
+      settings: 'false\nfeat/x\nfalse\n',
       moved: false,
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
-      settings: 'true\nmain\n',
+      settings: 'true\nmain\nfalse\n',
       moved: false,
       ago: 60_000,
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
     {
-      settings: 'null\nmain\n',
+      settings: 'null\nmain\nfalse\n',
       moved: false,
       ago: 60_000,
       cleaned: false,
       result:
-        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: delete_branch_on_merge was null).",
+        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: deleteBranchOnMerge was null).",
     },
     {
-      settings: 'false\nnull\n',
+      settings: 'false\nnull\nfalse\n',
       moved: false,
       ago: 60_000,
       cleaned: false,
@@ -136,12 +139,19 @@ test("a head branch the repository keeps after merging goes at once, unless its 
         "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: the default branch was missing).",
     },
     {
+      settings: 'false\nmain\ntrue\n',
+      moved: false,
+      ago: 60_000,
+      cleaned: false,
+      result: '#7 merged, but feat/x is still on its remote, so it stays.',
+    },
+    {
       settings: undefined,
       moved: false,
       ago: 60_000,
       cleaned: false,
       result:
-        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: Command failed: gh api --hostname github.test repos/o/r --jq .delete_branch_on_merge, .default_branch\nHTTP 502).",
+        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: HTTP 502).",
     },
   ]) {
     const { root, origin, checkout, other, tip } = await merged();

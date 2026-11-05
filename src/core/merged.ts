@@ -202,34 +202,45 @@ const deleting = ({ mergedAt }: PullRequest) =>
   !!mergedAt && Date.now() - Date.parse(mergedAt) < 15_000;
 
 /**
- * true when the repository keeps merged head branches and this isn't its default branch, false for a pull request URL
- * outside GitHub.
+ * true when the repository keeps merged head branches and this one is its own, not a fork's, and isn't its default
+ * branch. false for a pull request URL outside GitHub.
  */
 async function remoteKeeps(
-  { url, branch }: PullRequest,
+  { url, number, branch }: PullRequest,
   cwd: string,
   signal?: AbortSignal,
 ): Promise<boolean> {
   const github = gitHubRepository(url);
   if (!github) return false;
+  const [owner, name] = github.repository.split('/');
   const { stdout } = await runCommand(
     'gh',
     [
       'api',
+      'graphql',
       '--hostname',
       github.host,
-      `repos/${github.repository}`,
+      '-f',
+      'query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { deleteBranchOnMerge defaultBranchRef { name } pullRequest(number: $number) { isCrossRepository } } }',
+      '-f',
+      `owner=${owner}`,
+      '-f',
+      `name=${name}`,
+      '-F',
+      `number=${number}`,
       '--jq',
-      '.delete_branch_on_merge, .default_branch',
+      '.data.repository | .deleteBranchOnMerge, .defaultBranchRef.name, .pullRequest.isCrossRepository',
     ],
     { cwd, timeout: 30_000, ...(signal ? { signal } : {}) },
   );
-  const [deletes, base] = stdout.trim().split('\n');
+  const [deletes, base, fork] = stdout.trim().split('\n');
   if (deletes !== 'true' && deletes !== 'false')
-    throw new Error(`delete_branch_on_merge was ${deletes || 'empty'}`);
+    throw new Error(`deleteBranchOnMerge was ${deletes || 'empty'}`);
   if (!base || base === 'null')
     throw new Error('the default branch was missing');
-  return deletes === 'false' && base !== branch;
+  if (fork !== 'true' && fork !== 'false')
+    throw new Error(`isCrossRepository was ${fork || 'empty'}`);
+  return deletes === 'false' && base !== branch && fork === 'false';
 }
 
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */
@@ -432,7 +443,10 @@ async function clean(
       onRemote() &&
       (await remoteKeeps(pullRequest, cwd, signal).catch((error: unknown) => {
         if (error === signal?.reason) throw error;
-        unread = errorMessage(error).trim();
+        // gh's own message: the command line it fails with carries the whole query
+        unread =
+          String((error as { stderr?: unknown }).stderr ?? '').trim() ||
+          errorMessage(error).trim();
         return false;
       }));
     while (!keeps && onRemote() && deleting(pullRequest)) {
