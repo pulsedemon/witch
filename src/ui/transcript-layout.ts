@@ -388,7 +388,6 @@ export class TranscriptLayout {
     const shown: DisplayItem[] = [];
     const groups = new Map<string, readonly DisplayItem[]>();
     const owner = new Map<string, string>();
-    const hidden = new Set<string>();
     for (let index = 0; index < items.length;) {
       let end = index;
       while (end < items.length && groupable(items[end]!)) end++;
@@ -413,7 +412,6 @@ export class TranscriptLayout {
       for (const member of members) {
         owner.set(member.id, id);
         if (open) shown.push(member);
-        else hidden.add(member.id);
       }
       index = end;
     }
@@ -454,17 +452,16 @@ export class TranscriptLayout {
       rendered.set(item.id, current);
     }
     // a collapsed group's members keep their blocks for when it opens again
-    for (const id of hidden) {
+    for (const id of owner.keys()) {
       const kept = this.cache.get(id);
-      if (kept) cache.set(id, kept);
+      if (kept && !cache.has(id)) cache.set(id, kept);
     }
     this.cache = cache;
     const positions = [...starts];
     /** where an id that no longer shows leads: a collapsed member to its group, a former group to the one holding its first tool. */
     const shownAs = (id: string): string => {
-      if (hidden.has(id)) return owner.get(id)!;
-      if (starts.has(id) || !id.startsWith('tools:')) return id;
-      const first = id.slice('tools:'.length);
+      if (starts.has(id)) return id;
+      const first = id.startsWith('tools:') ? id.slice('tools:'.length) : id;
       return owner.get(first) ?? (starts.has(first) ? first : id);
     };
     const positionAt = (row: number) => {
