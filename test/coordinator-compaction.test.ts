@@ -838,17 +838,18 @@ for (const closed of [false, true])
       reading = Promise.withResolvers<void>();
     const settling = Promise.withResolvers<void>(),
       finish = Promise.withResolvers<void>();
-    const publish = Workspace.prototype.publish;
-    let gated = false;
+    // the held batch skips the turn's begin, so settlement reads the next status
+    const status = Workspace.prototype.status;
+    let armed = false;
     const override = vi
-      .spyOn(Workspace.prototype, 'publish')
+      .spyOn(Workspace.prototype, 'status')
       .mockImplementation(async function (this: Workspace) {
-        if (!gated) {
-          gated = true;
+        if (armed) {
+          armed = false;
           settling.resolve();
           await finish.promise;
         }
-        return publish.call(this);
+        return status.call(this);
       });
     try {
       f.a.sessions[0]!.session.contextUsage = () => {
@@ -858,6 +859,7 @@ for (const closed of [false, true])
       const sending = c.send('original awaiting delivery');
       await reading.promise;
       const release = c.holdPromptDelivery();
+      armed = true;
       read.resolve(0);
       await within(settling.promise, 3000, 'settling held batch');
       assert.deepEqual(c.snapshot.queue, []);
