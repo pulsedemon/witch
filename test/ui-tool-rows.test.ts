@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'vitest';
 import type { DisplayItem } from '../src/core/state.js';
 import { App } from '../src/ui/app.js';
-import { fake, show, DOWN, ENTER, UP } from './fixtures/ui.js';
+import { fake, left, show, DOWN, ENTER, UP } from './fixtures/ui.js';
 import { until } from './fixtures/within.js';
 
 const tool = (id: string): DisplayItem => ({
@@ -160,6 +160,31 @@ test('a selected tool that joins a group leaves the group selected', async () =>
     );
     assert.ok(!row(ui, 'xray tool').includes('\u001b[7m'));
     assert.ok(!row(ui, 'west tool').includes('\u001b[7m'));
+  } finally {
+    ui.unmount();
+  }
+});
+
+test("clicking a tool's marker toggles it and a click on its title text does not", async () => {
+  const { app } = fake({ items: [said('start'), tool('alpha')] });
+  const ui = show(createElement(App, { coordinator: app, onExit: () => {} }));
+  const click = (column: number) => {
+    const at = ui
+      .text()
+      .split('\n')
+      .findIndex((line) => line.includes('alpha tool'));
+    ui.stdin.write(left('press', column, at) + left('release', column, at));
+  };
+  try {
+    await until('the tool', () => ui.text().includes('+ ✓ alpha tool'));
+    click(8);
+    await delay(60);
+    assert.ok(!ui.text().includes('alpha output'));
+    click(1);
+    await until('the open tool', () => ui.text().includes('alpha output'));
+    assert.ok(ui.text().includes('− ✓ alpha tool'));
+    click(1);
+    await until('the closed tool', () => !ui.text().includes('alpha output'));
   } finally {
     ui.unmount();
   }

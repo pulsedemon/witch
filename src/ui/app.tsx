@@ -1066,6 +1066,16 @@ export function App({
       pressedNewMessages.current = false;
       setTop(null);
     }
+    // a tool's `+ ✓` cells hold no link, so a click on them toggles it
+    const pressed = pressedAt.current;
+    const item = transcript.items.find(({ id }) => id === pressed?.anchor.item);
+    if (
+      pressed &&
+      item?.kind === 'tool' &&
+      pressed.column < 3 &&
+      transcript.rowOf(pressed.anchor) === transcript.starts.get(item.id)
+    )
+      toolFocus.toggle(item, transcript.members(item.id));
   });
   useWheel((rows) => {
     if (!request && !recovering && view.kind === 'chat') scrollBy(rows);
