@@ -1,13 +1,10 @@
 import { z } from 'zod';
-import type { SessionCoordination } from './coordination.js';
 import type {
   ClaimOwner,
   CoordinationAction,
   SessionPresence,
 } from './coordination-state.js';
 import type { Discovery } from './discovery.js';
-import type { Snapshot } from './snapshot.js';
-import type { DisplayUpdate } from './state.js';
 
 const pauseRecipientSchema = z.object({
   conversation: z.string(),
@@ -97,37 +94,28 @@ export function sameRequest(
   );
 }
 
-export function watchPauseNotices(
-  coordination: SessionCoordination | undefined,
-  snapshot: () => Pick<Snapshot, 'conversation' | 'items'>,
-  show: (notice: DisplayUpdate) => void,
-): void {
-  coordination?.subscribe(() => {
-    const { conversation, items } = snapshot();
-    if (!conversation) return;
-    const shown = new Set(items.map(({ id }) => id));
-    for (const pause of coordination.events.pauses(conversation.id) ?? []) {
-      const recipient = entry(pause, conversation.id);
-      if (!recipient) continue;
-      const notice = !recipient.resumedAt
-        ? {
-            id: `pause/${pause.id}`,
-            text: `Session ${pause.from} paused this conversation (pause ${pause.id}). Your next prompt resumes it.`,
-          }
-        : recipient.resumedBy === 'issuer'
-          ? {
-              id: `pause-lifted/${pause.id}`,
-              text: `Session ${pause.from} lifted pause ${pause.id}.`,
-            }
-          : undefined;
-      if (notice && !shown.has(notice.id))
-        show({
-          ...notice,
-          kind: 'notice',
-          cwd: conversation.cwd,
-          replace: true,
-        });
-    }
+export function pauseNotices(
+  pauses: readonly Pause[],
+  conversation: string,
+): { id: string; text: string }[] {
+  return pauses.flatMap((pause) => {
+    const recipient = entry(pause, conversation);
+    if (!recipient) return [];
+    if (!recipient.resumedAt)
+      return [
+        {
+          id: `pause/${pause.id}`,
+          text: `Session ${pause.from} paused this conversation (pause ${pause.id}). Your next prompt resumes it.`,
+        },
+      ];
+    return recipient.resumedBy === 'issuer'
+      ? [
+          {
+            id: `pause-lifted/${pause.id}`,
+            text: `Session ${pause.from} lifted pause ${pause.id}.`,
+          },
+        ]
+      : [];
   });
 }
 

@@ -1,11 +1,15 @@
 import type { CoordinationStore } from '../persistence/coordination.js';
 import type { TaskClaim } from './coordination-state.js';
-import { mergeEventId } from './merge-events.js';
+import type { SessionCoordination } from './coordination.js';
+import { mergeEventId, mergeNotices } from './merge-events.js';
 import type { MergeEvent } from './merge-events.js';
-import { answerable, answered } from './peer-requests.js';
+import { answerable, answered, peerRequestNotices } from './peer-requests.js';
 import type { PeerRequest } from './peer-requests.js';
+import { pauseNotices } from './pauses.js';
 import type { Pause } from './pauses.js';
 import type { PullRequest } from './repository.js';
+import type { Snapshot } from './snapshot.js';
+import type { DisplayUpdate } from './state.js';
 
 export interface EventScope {
   conversation: string;
@@ -205,4 +209,33 @@ export class ConversationEvents {
     this.reading = { key, scope, promise };
     return promise;
   }
+}
+
+/** shows each merge, peer request and pause notice the open conversation hasn't shown yet. */
+export function watchEventNotices(
+  coordination: SessionCoordination | undefined,
+  snapshot: () => Pick<Snapshot, 'conversation' | 'items'>,
+  show: (notice: DisplayUpdate) => void,
+): void {
+  coordination?.subscribe(() => {
+    const { conversation, items } = snapshot();
+    if (!conversation) return;
+    const { events } = coordination;
+    const shown = new Set(items.map(({ id }) => id));
+    for (const notice of [
+      ...mergeNotices(events.mergeEvents(conversation.id)),
+      ...peerRequestNotices(
+        events.peerRequests(conversation.id),
+        conversation.id,
+      ),
+      ...pauseNotices(events.pauses(conversation.id) ?? [], conversation.id),
+    ])
+      if (!shown.has(notice.id))
+        show({
+          ...notice,
+          kind: 'notice',
+          cwd: conversation.cwd,
+          replace: true,
+        });
+  });
 }
