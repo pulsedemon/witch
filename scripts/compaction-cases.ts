@@ -309,7 +309,10 @@ const natives = [...(await claudeCompactions()), ...(await codexCompactions())];
 const conversations = join(values.state, 'conversations');
 // one history at a time, streamed, so tool output never accumulates in memory
 const read = [];
-for (const id of await readdir(conversations)) {
+for (const entry of await readdir(conversations, { withFileTypes: true })) {
+  // Finder's .DS_Store and other stray files sit beside the conversations
+  if (!entry.isDirectory()) continue;
+  const id = entry.name;
   // only each runtime's latest session is recorded; older ones match by time alone
   const { sessions = {} } = JSON.parse(
     await readFile(join(conversations, id, 'state.json'), 'utf8').catch(

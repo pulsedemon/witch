@@ -78,6 +78,8 @@ const item = (role: string) => ({
   type: 'response_item',
   payload: { type: 'message', role },
 });
+/** a model output item with no role, such as a tool call or reasoning. */
+const output = (type: string) => ({ type: 'response_item', payload: { type } });
 const compaction = (seconds: number) => ({
   type: 'compacted',
   timestamp: at(seconds),
@@ -151,7 +153,7 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
       type: 'user',
       entrypoint: 'sdk-ts',
       sessionId: 'mine',
-      message: { content: 'a line separator inside a row' },
+      message: { content: 'a line\u2028separator inside a row' },
     },
     boundary('mine', 98, 'manual', 820000),
     // closest to the older conversation's notice, but another conversation's latest session
@@ -161,6 +163,22 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   await jsonl(join(claude, 'other.jsonl'), [boundary('other', 100, 'auto', 1)]);
   await jsonl(join(claude, 'older.jsonl'), [
     boundary('older', 690, 'manual', 450000),
+  ]);
+  // exact in time, but not Witch's own sessions
+  await jsonl(join(claude, 'cli.jsonl'), [
+    { ...boundary('cli', 702, 'manual', 5), entrypoint: 'cli' },
+  ]);
+  await jsonl(join(claude, 'side.jsonl'), [
+    { ...boundary('side', 702, 'manual', 6), isSidechain: true },
+  ]);
+  await conversation(home, 'claude-native', { claude: { id: 'native' } }, [
+    ['user', 'native task', 1500],
+    ['assistant', 'native progress', 1510, 'claude'],
+    ['notice', compacted, 1600],
+    ['assistant', 'native reply', 1610, 'claude'],
+  ]);
+  await jsonl(join(claude, 'native.jsonl'), [
+    boundary('native', 1599, 'auto', 968000),
   ]);
 
   await conversation(home, 'codex', { codex: { id: 'thread' } }, [
@@ -210,6 +228,46 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
     event('task_complete'),
   ]);
 
+  await conversation(home, 'codex-older', { codex: { id: 'newer' } }, [
+    ['user', 'tool task', 2000],
+    ['assistant', 'calling a tool', 2005, 'codex'],
+    ['notice', compacted, 2010],
+    ['assistant', 'tool result', 2020, 'codex'],
+    ['user', 'reasoning task', 2100],
+    ['notice', compacted, 2110],
+    ['assistant', 'reasoned', 2120, 'codex'],
+  ]);
+  await jsonl(join(home, '.codex', 'sessions', 'rollout-old-thread.jsonl'), [
+    {
+      type: 'session_meta',
+      payload: { id: 'old-thread', originator: 'witch', source: 'vscode' },
+    },
+    event('task_started'),
+    output('function_call'),
+    usage(500),
+    compaction(2009),
+    event('task_complete'),
+    item('user'),
+    event('task_started'),
+    compaction(2109),
+    output('reasoning'),
+    event('task_complete'),
+  ]);
+  // exact in time, each with no output, so either would read as `command`
+  for (const [id, meta] of [
+    ['foreign', { originator: 'codex_cli_rs', source: 'vscode' }],
+    ['subagent', { originator: 'witch', source: { subagent: 'review' } }],
+  ] as const)
+    await jsonl(join(home, '.codex', 'sessions', `rollout-${id}.jsonl`), [
+      { type: 'session_meta', payload: { id, ...meta } },
+      event('task_started'),
+      compaction(2010),
+      compaction(2110),
+      event('task_complete'),
+    ]);
+  // Finder leaves files beside the conversations
+  await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
+
   const { find, sections } = await extract(home);
 
   const witch = find('claude', 100);
@@ -221,6 +279,21 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   assert.deepEqual(
     [older.trigger, older.tokens, older.session],
     ['command', 450000, false],
+  );
+  const native = find('claude-native', 1600);
+  assert.deepEqual(
+    [native.runtime, native.trigger, native.tokens],
+    ['claude', 'native', 968000],
+  );
+  const toolTurn = find('codex-older', 2010);
+  assert.deepEqual(
+    [toolTurn.trigger, toolTurn.afterOutput, toolTurn.tokens, toolTurn.session],
+    ['native', true, 500, false],
+  );
+  const reasoningTurn = find('codex-older', 2110);
+  assert.deepEqual(
+    [reasoningTurn.trigger, reasoningTurn.afterOutput],
+    ['native', false],
   );
   const command = find('codex', 300);
   assert.deepEqual(
