@@ -26,7 +26,7 @@ import type {
 } from '../core/state.js';
 import { mapper, newestMoveTime, readLedger, within } from './directories.js';
 import { gone, replaceFile, unlessGone, writeJson } from './json.js';
-import { stopPreviousProcess, stopPreviousShell } from './process.js';
+import { nativeProcessKeys, stopLeftProcesses } from './process.js';
 import { lockedFiles, tryOpenLocked } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
@@ -332,25 +332,9 @@ export class StateStore {
         delete record.historyMove;
         await files.save(record);
       }
-      if (
-        record.shell ||
-        record.process ||
-        record.usageProcess ||
-        record.answerProcess
-      ) {
-        // the shell goes first, so a CLI that won't stop still leaves the command killed
-        if (record.shell) await stopPreviousShell(record.shell);
-        const stopped = await Promise.allSettled(
-          [record.process, record.usageProcess, record.answerProcess].flatMap(
-            (identity) => (identity ? [stopPreviousProcess(identity)] : []),
-          ),
-        );
-        for (const result of stopped)
-          if (result.status === 'rejected') throw result.reason;
+      if (await stopLeftProcesses(record)) {
         delete record.shell;
-        delete record.process;
-        delete record.usageProcess;
-        delete record.answerProcess;
+        for (const key of nativeProcessKeys) delete record[key];
         await files.save(record);
       }
       return files;

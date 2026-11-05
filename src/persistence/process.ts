@@ -95,6 +95,33 @@ export async function identifyProcess(
   return (await identifyProcesses([pid])).get(pid);
 }
 
+/** the native processes a conversation records, besides its `!` shell. */
+export const nativeProcessKeys = [
+  'process',
+  'usageProcess',
+  'answerProcess',
+] as const;
+
+/** stops the processes a record left by a crash holds and returns whether it held any; one that won't stop throws once every stop settles. */
+export async function stopLeftProcesses(
+  record: Pick<
+    ConversationRecord,
+    'shell' | (typeof nativeProcessKeys)[number]
+  >,
+): Promise<boolean> {
+  const natives = nativeProcessKeys.flatMap((key) => {
+    const identity = record[key];
+    return identity ? [identity] : [];
+  });
+  if (!record.shell && !natives.length) return false;
+  // the shell goes first, so a CLI that won't stop still leaves the command killed
+  if (record.shell) await stopPreviousShell(record.shell);
+  const stopped = await Promise.allSettled(natives.map(stopPreviousProcess));
+  for (const result of stopped)
+    if (result.status === 'rejected') throw result.reason;
+  return true;
+}
+
 /** session callbacks that save the identity of each native process a session reports, so a later Witch can stop it. */
 export function processReports(
   conversation: ConversationRecord,
@@ -102,7 +129,7 @@ export function processReports(
   track: (pid: number) => void,
 ) {
   const identify =
-    (key: 'process' | 'usageProcess' | 'answerProcess' | 'shell') =>
+    (key: (typeof nativeProcessKeys)[number] | 'shell') =>
     async (pid?: number) => {
       const id = pid === undefined ? undefined : await identifyProcess(pid);
       if (files.closed) return;
@@ -144,9 +171,7 @@ async function ends(recorded: ProcessIdentity, what: string): Promise<void> {
   );
 }
 
-export async function stopPreviousProcess(
-  recorded: ProcessIdentity,
-): Promise<void> {
+async function stopPreviousProcess(recorded: ProcessIdentity): Promise<void> {
   if (!(await runs(recorded))) return;
   try {
     process.kill(recorded.pid, 'SIGTERM');
@@ -159,9 +184,7 @@ export async function stopPreviousProcess(
 }
 
 /** kills a recorded `!` command's group, then the group again once its shell exits, for a child forked as the first kill landed. */
-export async function stopPreviousShell(
-  recorded: ProcessIdentity,
-): Promise<void> {
+async function stopPreviousShell(recorded: ProcessIdentity): Promise<void> {
   if (!(await runs(recorded))) return;
   killGroup(recorded.pid);
   await ends(recorded, 'shell command');
