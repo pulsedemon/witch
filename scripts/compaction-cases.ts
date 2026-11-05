@@ -114,16 +114,25 @@ class Rows {
  */
 async function* lines(file: string): AsyncGenerator<Row> {
   const parsed = new Rows(file);
-  let rest = '';
+  // a row's pieces, joined once at its newline, so a row spanning many chunks isn't rescanned
+  let pieces: string[] = [];
   for await (const chunk of createReadStream(file, { encoding: 'utf8' })) {
-    const split = (rest + (chunk as string)).split('\n');
-    rest = split.pop()!;
-    for (const line of split) {
-      const row = parsed.parse(line);
+    const text = chunk as string;
+    let start = 0;
+    for (
+      let end = text.indexOf('\n');
+      end !== -1;
+      end = text.indexOf('\n', start)
+    ) {
+      pieces.push(text.slice(start, end));
+      const row = parsed.parse(pieces.join(''));
+      pieces = [];
       if (row) yield row;
+      start = end + 1;
     }
+    pieces.push(text.slice(start));
   }
-  const row = parsed.parse(rest);
+  const row = parsed.parse(pieces.join(''));
   if (row) yield row;
 }
 
@@ -159,7 +168,9 @@ const outputTypes = new Set([
   'function_call',
   'custom_tool_call',
   'local_shell_call',
+  'tool_search_call',
   'web_search_call',
+  'image_generation_call',
 ]);
 
 /**

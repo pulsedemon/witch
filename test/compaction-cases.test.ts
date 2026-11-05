@@ -143,7 +143,9 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
     ['assistant', 'queued answer', 50, 'claude'],
     ['notice', compacted, 100],
     ['user', 'prompt sent before the compaction ran', 101],
-    ['assistant', 'answered', 110, 'claude'],
+    ['assistant', 'answ', 110, 'claude'],
+    // chunks with no replacement append
+    { id: 'claude-13', kind: 'assistant', text: 'ered in chunks' },
     ['user', 'second after', 200],
     ['user', 'third after', 220],
     ['user', 'fourth after', 240],
@@ -345,6 +347,38 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
     item('assistant'),
     event('task_complete'),
   ]);
+  // each kind of model output before a compaction makes it native, with the turn's current usage
+  const outputs = [
+    'agent_message',
+    'reasoning',
+    'function_call',
+    'custom_tool_call',
+    'local_shell_call',
+    'tool_search_call',
+    'web_search_call',
+    'image_generation_call',
+  ];
+  for (const [index, type] of outputs.entries()) {
+    const seconds = 6000 + index * 100;
+    await conversation(home, `out-${type}`, { codex: { id: `out-${type}` } }, [
+      ['user', `${type} task`, seconds - 20],
+      ['notice', compacted, seconds],
+      ['assistant', `${type} reply`, seconds + 10, 'codex'],
+    ]);
+    await jsonl(join(home, '.codex', 'sessions', `rollout-out-${type}.jsonl`), [
+      {
+        type: 'session_meta',
+        payload: { id: `out-${type}`, originator: 'witch', source: 'vscode' },
+      },
+      usage(300),
+      item('user'),
+      event('task_started'),
+      output(type),
+      usage(850),
+      compaction(seconds - 1),
+      event('task_complete'),
+    ]);
+  }
   // Finder leaves files beside the conversations
   await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
 
@@ -402,6 +436,13 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   const terminal = find('terminal', 5100);
   assert.deepEqual([terminal.runtime, terminal.tokens], ['claude', 111000]);
   assert.equal(find('mixed', 5300).runtime, 'codex');
+  for (const [index, type] of outputs.entries()) {
+    const record = find(`out-${type}`, 6000 + index * 100);
+    assert.deepEqual(
+      [type, record.trigger, record.afterOutput, record.percent],
+      [type, 'native', true, 85],
+    );
+  }
   const toolTurn = find('codex-older', 2010);
   assert.deepEqual(
     [toolTurn.trigger, toolTurn.afterOutput, toolTurn.tokens, toolTurn.session],
@@ -438,6 +479,7 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
     claudePacket.after,
     /^\s*### user\s+prompt sent before the compaction ran/,
   );
+  assert.ok(claudePacket.after.includes('answered in chunks'));
   assert.equal(witch.promptsAfter, 4);
   assert.ok(!claudePacket.after.includes('fifth after'));
 
