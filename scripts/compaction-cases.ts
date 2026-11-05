@@ -292,16 +292,23 @@ function render(entries: Entry[], limit: number): string {
     .join('\n\n');
 }
 
-function prompts(entries: Entry[], count: number, fromEnd: boolean): Entry[] {
-  const starts = entries.flatMap((entry, index) =>
-    entry.kind === 'user' ? [index] : [],
-  );
-  if (fromEnd) {
-    return entries.slice(starts.at(-count) ?? 0);
-  }
-  const end = starts[count] ?? entries.length;
-  return entries.slice(0, end);
+/** entries from `from` up to, not including, the prompt after the first `count`; each scan stops at its bound. */
+function leading(entries: Entry[], from: number, to: number, count: number) {
+  let end = from;
+  for (let prompts = 0; end < to; end++)
+    if (entries[end]!.kind === 'user' && ++prompts > count) break;
+  return entries.slice(from, end);
 }
+
+/** entries from the `count`th prompt before `to`, or from `from` when there are fewer. */
+function trailing(entries: Entry[], from: number, to: number, count: number) {
+  let start = to;
+  for (let prompts = 0; start > from;)
+    if (entries[--start]!.kind === 'user' && ++prompts === count) break;
+  return entries.slice(start, to);
+}
+
+const shown = (entry: Entry) => entry.kind !== 'compaction';
 
 const natives = [...(await claudeCompactions()), ...(await codexCompactions())];
 const conversations = join(values.state, 'conversations');
@@ -327,33 +334,44 @@ const latest = new Set(
     ),
   ),
 );
-const notices = read.flatMap(({ id, sessions, entries }) =>
-  entries.flatMap((entry, index) => {
-    if (entry.kind !== 'compaction') return [];
-    const next = entries.findIndex(
-      (e, i) => i > index && (e.kind === 'compaction' || e.kind === 'cleared'),
-    );
-    const window = entries.slice(index, next === -1 ? undefined : next);
-    const prompt = window.findIndex((e) => e.kind === 'user');
-    // the reply after a compaction, before the next prompt can switch runtime, comes from the session that compacted
-    const agent =
-      window
-        .slice(0, prompt === -1 ? undefined : prompt + 2)
-        .find((e) => e.agent)?.agent ??
-      entries.slice(0, index).findLast((e) => e.agent)?.agent;
-    return [
-      {
-        id,
-        entries,
-        index,
-        at: Date.parse(entry.at!),
-        agent,
-        current: agent ? sessions[agent]?.id : undefined,
-        native: undefined as NativeCompaction | undefined,
-      },
-    ];
-  }),
-);
+// one pass per history: each notice's last clear, the reply before it and its next boundary
+const notices = read.flatMap(({ id, sessions, entries }) => {
+  const found = [];
+  let cleared = -1;
+  let previous: string | undefined;
+  for (const [index, entry] of entries.entries()) {
+    if (entry.kind === 'cleared') cleared = index;
+    if (entry.agent) previous = entry.agent;
+    if (entry.kind !== 'compaction') continue;
+    let end = index + 1;
+    while (
+      end < entries.length &&
+      entries[end]!.kind !== 'compaction' &&
+      entries[end]!.kind !== 'cleared'
+    )
+      end++;
+    // the first reply after the compaction, or the reply to the prompt after it, comes from the session that
+    // compacted; a later reply can follow a runtime switch
+    let following: string | undefined;
+    for (let i = index + 1, prompts = 0; i < end && !following; i++) {
+      if (entries[i]!.kind === 'user' && ++prompts > 1) break;
+      following = entries[i]!.agent;
+    }
+    const agent = following ?? previous;
+    found.push({
+      id,
+      entries,
+      index,
+      cleared,
+      end,
+      at: Date.parse(entry.at!),
+      agent,
+      current: agent ? sessions[agent]?.id : undefined,
+      native: undefined as NativeCompaction | undefined,
+    });
+  }
+  return found;
+});
 const matched = new Set<NativeCompaction>();
 // every conversation's own session first, so a time-only match can't take another's compaction; each pass
 // assigns the closest pairs first
@@ -386,7 +404,7 @@ for (const own of [true, false]) {
 }
 const cases = [];
 await mkdir(join(out, 'packets'), { recursive: true });
-for (const { id, entries, index, current, native } of notices) {
+for (const { id, entries, index, cleared, end, current, native } of notices) {
   // a prompt whose turn compacts is answered after the compaction; Witch writes the prompt after its own
   // compaction before a turn, so a prompt before that one belongs to an earlier turn
   const last = entries[index - 1];
@@ -395,21 +413,10 @@ for (const { id, entries, index, current, native } of notices) {
     inTurn && last?.kind === 'user' && !last.text.startsWith('!')
       ? index - 1
       : index;
-  const cleared = entries.findLastIndex(
-    (e, i) => i < prompt && e.kind === 'cleared',
-  );
-  const earlier = entries
-    .slice(cleared + 1, prompt)
-    .filter((e) => e.kind !== 'compaction');
-  const later = [...entries.slice(prompt, index), ...entries.slice(index + 1)];
-  const next = later.findIndex(
-    (e) => e.kind === 'compaction' || e.kind === 'cleared',
-  );
-  const following = prompts(
-    next === -1 ? later : later.slice(0, next),
-    after,
-    false,
-  );
+  const following = [
+    ...entries.slice(prompt, index),
+    ...leading(entries, index + 1, end, after - (index - prompt)),
+  ];
   const name = `${id}-${index}`;
   const record = {
     name,
@@ -434,9 +441,12 @@ for (const { id, entries, index, current, native } of notices) {
       // runtime and trigger stay in cases.json so the grader is blind to them
       `# ${name}`,
       '## conversation opening',
-      render(prompts(earlier, 2, false), 3000),
+      render(leading(entries, cleared + 1, prompt, 2).filter(shown), 3000),
       '## before compaction',
-      render(prompts(earlier, before, true), 2000),
+      render(
+        trailing(entries, cleared + 1, prompt, before).filter(shown),
+        2000,
+      ),
       '## after compaction',
       render(following, 4000),
     ].join('\n\n'),

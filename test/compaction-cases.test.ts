@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -109,7 +115,8 @@ async function extract(home: string) {
     );
     return { opening: opening!, before: before!, after: after! };
   };
-  return { find, sections };
+  const packets = await readdir(join(out, 'packets'));
+  return { cases, packets, find, sections };
 }
 
 test('classifies compactions by runtime and trigger and bounds their packets', async () => {
@@ -299,10 +306,17 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   ]);
   // with no reply after it, a notice takes the runtime of the reply before it
   await conversation(home, 'terminal', { claude: { id: 'terminal-latest' } }, [
+    // a notice from before history rows carried times can't be matched
+    { id: 'undated', kind: 'notice', text: compacted },
     ['user', 'terminal task', 5000],
     ['assistant', 'terminal reply', 5010, 'claude'],
     ['notice', compacted, 5100],
   ]);
+  // a running agent can leave its last row half written
+  await appendFile(
+    join(home, '.witch', 'conversations', 'terminal', 'history.jsonl'),
+    '\n{"kind":',
+  );
   await jsonl(join(claude, 'terminal.jsonl'), [
     boundary('terminal-latest', 5099, 'manual', 111000),
   ]);
@@ -334,7 +348,7 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   // Finder leaves files beside the conversations
   await writeFile(join(home, '.witch', 'conversations', '.DS_Store'), '');
 
-  const { find, sections } = await extract(home);
+  const { cases, packets, find, sections } = await extract(home);
 
   const witch = find('claude', 100);
   assert.deepEqual(
@@ -383,6 +397,8 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
       true,
     ],
   );
+  assert.equal(cases.filter((c) => c.conversation === 'terminal').length, 1);
+  assert.equal(packets.filter((p) => p.startsWith('terminal-')).length, 1);
   const terminal = find('terminal', 5100);
   assert.deepEqual([terminal.runtime, terminal.tokens], ['claude', 111000]);
   assert.equal(find('mixed', 5300).runtime, 'codex');
