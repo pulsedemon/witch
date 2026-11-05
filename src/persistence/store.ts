@@ -25,20 +25,11 @@ import type {
   DisplayUpdate,
 } from '../core/state.js';
 import { mapper, newestMoveTime, readLedger, within } from './directories.js';
-import { replaceFile, unlessGone, writeJson } from './json.js';
+import { gone, replaceFile, unlessGone, writeJson } from './json.js';
 import { stopPreviousProcess, stopPreviousShell } from './process.js';
 import { lockedFiles, tryOpenLocked } from './lock.js';
 
 const promptSchema = z.object({ cwd: z.string(), text: z.string() });
-
-// ENOTDIR covers a stray file, such as Finder's .DS_Store, where a conversation directory would be
-function missing(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    'code' in error &&
-    (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-  );
-}
 
 function conversationsPath(root: string): string {
   return join(root, 'conversations');
@@ -164,7 +155,7 @@ export class StateStore {
       try {
         records.push(await readRecord(this.directory(id)));
       } catch (error) {
-        if (!missing(error))
+        if (!gone(error))
           unreadable.push({
             file: recordPath(this.directory(id)),
             error: errorMessage(error),
@@ -180,12 +171,7 @@ export class StateStore {
     for (const record of (await this.records()).records) {
       if (cwd !== undefined && record.cwd !== cwd) continue;
       const directory = this.directory(record.id);
-      const history = await stat(historyPath(directory)).catch(
-        (error: unknown) => {
-          if (missing(error)) return undefined;
-          throw error;
-        },
-      );
+      const history = await unlessGone(stat(historyPath(directory)));
       if (history?.size) listed.push({ ...record, modified: history.mtimeMs });
       else if (record.draft || record.queue?.length)
         listed.push({
@@ -201,12 +187,8 @@ export class StateStore {
    * since moved here counts, matched by its byte offset against when each move was recorded.
    */
   async prompts(cwd: string): Promise<string[]> {
-    const content = await readFile(this.promptsPath()).catch(
-      (error: unknown) => {
-        if (missing(error)) return Buffer.alloc(0);
-        throw error;
-      },
-    );
+    const content =
+      (await unlessGone(readFile(this.promptsPath()))) ?? Buffer.alloc(0);
     // an unreadable ledger leaves exact matching
     const ledger = await readLedger(this.root).catch(() => undefined);
     const { map } = ledger
@@ -506,7 +488,7 @@ export class ConversationStore {
         .filter(Boolean)
         .map((line) => displayUpdateSchema.parse(JSON.parse(line)));
     } catch (error) {
-      if (missing(error)) return [];
+      if (gone(error)) return [];
       throw error;
     }
   }

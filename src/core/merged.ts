@@ -4,6 +4,7 @@ import { readFile, readdir, rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { errorMessage } from '../agents/stderr.js';
 import type { Memory } from '../memory/memory.js';
+import { unlessGone } from '../persistence/json.js';
 import { tryOpenLocked } from '../persistence/lock.js';
 import { runs } from '../persistence/process.js';
 import type { StateStore } from '../persistence/store.js';
@@ -738,15 +739,6 @@ function createdBranches(text: string): Set<string> {
   return created;
 }
 
-/** `fallback` for a path that isn't there, ENOTDIR included for one under a stray file such as Finder's .DS_Store. */
-const absent =
-  <T>(fallback: T) =>
-  (error: unknown): T => {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
-    return fallback;
-  };
-
 /**
  * where a checkout keeps the gitignored plans and ledgers its merge cleanup removes with their branch. a repository
  * keeps its plans in whichever of `plans` its own instructions name.
@@ -776,7 +768,7 @@ async function removePlans(
     const plans = join(top, directory);
     let names: string[];
     try {
-      names = await readdir(plans).catch(absent([]));
+      names = (await unlessGone(readdir(plans))) ?? [];
     } catch (error) {
       progress.unlisted ??= errorMessage(error);
       continue;
@@ -792,7 +784,7 @@ async function removePlans(
       try {
         // a plan that isn't there, such as a dangling link, creates no branch
         const created = createdBranches(
-          await readFile(plan, 'utf8').catch(absent('')),
+          (await unlessGone(readFile(plan, 'utf8'))) ?? '',
         );
         // a plan for several branches has work left until its last one merges, so only a plan for this branch alone goes
         if (
@@ -802,11 +794,12 @@ async function removePlans(
         )
           continue;
         // the ledgers first, since only the plan leads to them
-        for (const ledger of await readdir(ledgers).catch(absent([]))) {
+        for (const ledger of (await unlessGone(readdir(ledgers))) ?? []) {
           const folder = join(ledgers, ledger);
           if (progress.ledgers.includes(folder)) continue;
           const link = (
-            await readFile(join(folder, 'plan-path'), 'utf8').catch(absent(''))
+            (await unlessGone(readFile(join(folder, 'plan-path'), 'utf8'))) ??
+            ''
           ).trim();
           if (
             link &&

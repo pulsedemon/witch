@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { unlessGone } from '../persistence/json.js';
 import type { SessionCoordination } from './coordination.js';
 import {
   afterCorrection,
@@ -102,13 +103,7 @@ async function runReview(
     // file completion inserts `@path`
     const path = resolve(cwd, file.replace(/^@/, ''));
     const inside = relative(cwd, path);
-    const exists = await stat(path).then(
-      (entry) => entry.isFile(),
-      (error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false;
-        throw error;
-      },
-    );
+    const exists = (await unlessGone(stat(path)))?.isFile() ?? false;
     if (!inside || inside.startsWith('..') || isAbsolute(inside) || !exists) {
       host.notice(`Review refused: ${file} is not a file in ${cwd}`);
       return;

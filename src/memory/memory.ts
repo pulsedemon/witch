@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
 import { Workspace } from './workspace.js';
+import { gone } from '../persistence/json.js';
 
 export interface MemoryScope {
   global: string;
@@ -124,11 +125,6 @@ function decoded(run: string): string {
     return run;
   }
 }
-
-const gone = (error: unknown) => {
-  const { code } = error as NodeJS.ErrnoException;
-  return code === 'ENOENT' || code === 'ENOTDIR';
-};
 
 /** a path as the OS reads it: links resolve in the part that exists, so `..` climbs out of a link's target, and an origin not created yet keys as its path, as it does once created with no origin of its own. one the OS refuses to read throws. */
 async function physical(path: string): Promise<string> {
