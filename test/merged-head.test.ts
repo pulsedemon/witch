@@ -25,6 +25,31 @@ const execute = promisify(execFile);
 
 const plans = (checkout: string) => join(checkout, 'docs/superpowers/plans');
 
+const url = 'https://github.test/o/r/pull/7';
+
+/** runs `body` with a `gh` on PATH that prints `settings` for the repository lookup, or fails it without them. */
+async function withGh<T>(
+  root: string,
+  settings: string | undefined,
+  body: () => Promise<T>,
+): Promise<T> {
+  const bin = join(root, 'bin');
+  await write(
+    join(bin, 'gh'),
+    settings === undefined
+      ? `#!/bin/sh\necho 'HTTP 502' >&2\nexit 1\n`
+      : `#!/bin/sh\n[ "$*" = 'api --hostname github.test repos/o/r --jq .delete_branch_on_merge, .default_branch' ] || exit 1\nprintf ${quote(settings)}\n`,
+  );
+  await chmod(join(bin, 'gh'), 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath}`;
+  try {
+    return await body();
+  } finally {
+    process.env.PATH = previousPath;
+  }
+}
+
 test('a head branch still on its remote once GitHub would have deleted it stays', async () => {
   const { checkout, other, tip } = await merged();
   await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
@@ -42,7 +67,7 @@ test('a head branch still on its remote once GitHub would have deleted it stays'
   assert.ok(await exists(join(plans(checkout), 'x.md')));
 });
 
-test('a head branch GitHub deletes after the first fetch goes', async () => {
+test("a head branch GitHub deletes after the first fetch goes, even when the repository's settings can't be read", async () => {
   const { root, origin, checkout, other, tip } = await merged();
   await merge(other, 'feat/x', true);
   const pack = join(root, 'upload-pack');
@@ -54,17 +79,15 @@ test('a head branch GitHub deletes after the first fetch goes', async () => {
   await execute('chmod', ['+x', pack]);
   await git(checkout, 'config', 'remote.origin.uploadpack', pack);
   const mergedAt = new Date().toISOString();
-  const result = await cleanUpMerge(
-    checkout,
-    { ...pullRequest(tip), mergedAt },
-    idle,
+  const result = await withGh(root, undefined, () =>
+    cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
   );
   assert.equal(typeof result === 'object' && result.cleaned, true);
   assert.deepEqual(await branches(checkout), ['main']);
   assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
 });
 
-test("a head branch the repository keeps after merging goes at once, unless its remote branch moved or it's the default branch", async () => {
+test("a head branch the repository keeps after merging goes at once, unless its remote branch moved, it's the default branch or the settings can't be read", async () => {
   // the default branch waits out GitHub's deletion like any branch the repository might delete
   for (const { settings, moved, ago, result, cleaned } of [
     {
@@ -89,6 +112,14 @@ test("a head branch the repository keeps after merging goes at once, unless its 
       cleaned: false,
       result: '#7 merged, but feat/x is still on its remote, so it stays.',
     },
+    {
+      settings: undefined,
+      moved: false,
+      ago: 60_000,
+      cleaned: false,
+      result:
+        "#7 merged, but feat/x is still on its remote, so it stays (couldn't read whether the repository keeps merged branches: Command failed: gh api --hostname github.test repos/o/r --jq .delete_branch_on_merge, .default_branch\nHTTP 502).",
+    },
   ]) {
     const { root, origin, checkout, other, tip } = await merged();
     await merge(other, 'feat/x', true);
@@ -97,36 +128,23 @@ test("a head branch the repository keeps after merging goes at once, unless its 
       await git(other, 'commit', '--allow-empty', '-m', 'after');
       await git(other, 'push', 'origin', 'feat/x');
     }
-    const bin = join(root, 'bin');
-    await write(
-      join(bin, 'gh'),
-      `#!/bin/sh\n[ "$*" = 'api --hostname github.test repos/o/r --jq .delete_branch_on_merge, .default_branch' ] || exit 1\nprintf ${quote(settings)}\n`,
-    );
-    await chmod(join(bin, 'gh'), 0o755);
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${bin}:${previousPath}`;
-    try {
-      const outcome = await within(
-        cleanUpMerge(
-          checkout,
-          {
-            ...pullRequest(tip),
-            url: 'https://github.test/o/r/pull/7',
-            mergedAt: new Date(Date.now() - ago).toISOString(),
-          },
-          idle,
-        ),
+    const mergedAt = new Date(Date.now() - ago).toISOString();
+    const outcome = await withGh(root, settings, () =>
+      within(
+        cleanUpMerge(checkout, { ...pullRequest(tip), url, mergedAt }, idle),
         5000,
         'the cleanup',
-      );
-      assert.deepEqual(outcome, { text: result, cleaned });
-    } finally {
-      process.env.PATH = previousPath;
-    }
+      ),
+    );
+    assert.deepEqual(outcome, { text: result, cleaned });
     assert.ok(await git(origin, 'rev-parse', '--verify', 'refs/heads/feat/x'));
     assert.equal(
       await git(checkout, 'branch', '--show-current'),
       cleaned ? 'main' : 'feat/x',
+    );
+    assert.deepEqual(
+      await branches(checkout),
+      cleaned ? ['main'] : ['feat/x', 'main'],
     );
   }
 });

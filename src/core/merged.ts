@@ -201,7 +201,10 @@ const read = async (git: Git) => parseStatus(await git(...statusArgs));
 const deleting = ({ mergedAt }: PullRequest) =>
   !!mergedAt && Date.now() - Date.parse(mergedAt) < 15_000;
 
-/** whether the repository keeps merged head branches, so this one stays on its remote, unless it's the default branch. */
+/**
+ * true when the repository keeps merged head branches and this isn't its default branch, false for a pull request URL
+ * outside GitHub.
+ */
 async function remoteKeeps(
   { url, branch }: PullRequest,
   cwd: string,
@@ -419,9 +422,15 @@ async function clean(
     let [upstream, tracking, merges] = await track();
     const onRemote = () =>
       !!upstream && merges === `refs/heads/${branch}` && tracking !== '[gone]';
+    // a failed lookup falls back to waiting for GitHub's deletion, and is named only if the branch stays
+    let unread = '';
     const keeps =
       onRemote() &&
-      (await remoteKeeps(pullRequest, cwd, signal).catch(stopped));
+      (await remoteKeeps(pullRequest, cwd, signal).catch((error: unknown) => {
+        if (error === signal?.reason) throw error;
+        unread = errorMessage(error).trim();
+        return false;
+      }));
     while (!keeps && onRemote() && deleting(pullRequest)) {
       await delay(2000, undefined, { signal }).catch(() =>
         signal?.throwIfAborted(),
@@ -466,7 +475,7 @@ async function clean(
       };
     if (!keeps && tracking !== '[gone]')
       return {
-        text: `#${number} merged, but ${branch} is still on its remote, so it stays.`,
+        text: `#${number} merged, but ${branch} is still on its remote, so it stays${unread && ` (couldn't read whether the repository keeps merged branches: ${unread})`}.`,
         cleaned: false,
       };
     // again: a turn that started during the fetch changes nothing the status shows
