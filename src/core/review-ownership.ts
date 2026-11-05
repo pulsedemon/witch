@@ -1,3 +1,4 @@
+import { errorMessage } from '../agents/stderr.js';
 import { runCommand } from './command.js';
 import { taskReference } from './coordination-state.js';
 import type {
@@ -65,6 +66,17 @@ export function bindingChanged(
         (!!scope.ownClaim &&
           scope.ownClaim.owner.project !== coordination.reviews.owner.project)))
   );
+}
+
+/** posts why an automatic turn stopped and interrupts it, posting an interrupt failure too. */
+export function revoke(
+  host: { notice(text: string): void; interrupt(): Promise<void> },
+  text: string,
+): void {
+  host.notice(text);
+  void host
+    .interrupt()
+    .catch((error: unknown) => host.notice(errorMessage(error)));
 }
 
 export class ReviewOwnership {

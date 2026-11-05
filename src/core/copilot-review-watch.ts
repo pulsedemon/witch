@@ -1,5 +1,9 @@
 import { errorMessage } from '../agents/stderr.js';
-import { isCopilot, readGitHubReviews } from './github-reviews.js';
+import {
+  copilotChecks,
+  copilotRequested,
+  readGitHubReviews,
+} from './github-reviews.js';
 import type { GitHubReviews } from './github-reviews.js';
 import type { PullRequest } from './repository.js';
 import type { RepositoryWatch } from './repository.js';
@@ -77,14 +81,10 @@ export class CopilotReviewWatch {
       if (this.failure)
         this.notice(`Copilot review watching resumed for #${pr.number}.`);
       this.failure = undefined;
-      const checks = source.checks.filter(
-        ({ name }) => name === 'copilot-pull-request-reviewer',
-      );
+      const checks = copilotChecks(source);
       this.active =
         pending ||
-        source.requested.some(({ requestedReviewer }) =>
-          isCopilot(requestedReviewer),
-        ) ||
+        copilotRequested(source) ||
         checks.some(({ status }) => status !== 'completed');
       for (const check of checks) {
         if (check.status !== 'completed' || this.completed.has(check.id))

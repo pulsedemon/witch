@@ -9,7 +9,11 @@ import type {
   Repository,
   RepositoryWatch,
 } from './repository.js';
-import { bindingChanged, type PullRequestBinding } from './review-ownership.js';
+import {
+  bindingChanged,
+  revoke,
+  type PullRequestBinding,
+} from './review-ownership.js';
 import type { ConversationRecord } from './state.js';
 
 export function conflictNotice(conflict: Conflict): string {
@@ -230,12 +234,10 @@ export class PullRequestRepair {
     )
       return;
     this.revoked = repair;
-    this.host.notice(
+    revoke(
+      this.host,
       `${repair.failed ? 'Check' : 'Conflict'} repair stopped because its branch, base or task ownership changed.`,
     );
-    void this.host
-      .interrupt()
-      .catch((error: unknown) => this.host.notice(errorMessage(error)));
   }
 
   private decline(

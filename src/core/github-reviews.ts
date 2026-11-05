@@ -80,6 +80,19 @@ export function isCopilot(
   );
 }
 
+/** the check run Copilot's review runs as; a separate name from its bot login. */
+const copilotCheck = 'copilot-pull-request-reviewer';
+
+export function copilotChecks(source: GitHubReviews): GitHubReviews['checks'] {
+  return source.checks.filter(({ name }) => name === copilotCheck);
+}
+
+export function copilotRequested(source: GitHubReviews): boolean {
+  return source.requested.some(({ requestedReviewer }) =>
+    isCopilot(requestedReviewer),
+  );
+}
+
 const commentFields =
   'id body url author { __typename login } createdAt updatedAt';
 const reviewCommentFields = `${commentFields} pullRequestReview { id }`;
