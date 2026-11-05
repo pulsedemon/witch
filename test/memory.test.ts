@@ -230,7 +230,7 @@ test('global memory crosses projects while project notes remain scoped', async (
     await memory.scopePaths(other),
   );
   assert.match(snapshot, /Use concise replies/);
-  assert.doesNotMatch(snapshot, /4567/);
+  assert.doesNotMatch(snapshot, /Project A uses port/);
   assert.match(
     snapshot,
     /This baseline supersedes all earlier shared-memory snapshots/,
