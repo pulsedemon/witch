@@ -5,6 +5,7 @@ import type {
   FamiliarAction,
   FamiliarOutcome,
 } from '../agents/familiar-report.js';
+import { FamiliarRun } from '../agents/familiar-requests.js';
 import {
   beforeDeadline,
   killWaitMs,
@@ -14,7 +15,7 @@ import {
   terminateGraceMs,
 } from '../agents/shutdown.js';
 import { errorMessage } from '../agents/stderr.js';
-import type { AgentEvent, Subagent, TaskStatus } from '../agents/types.js';
+import type { AgentEvent, TaskStatus } from '../agents/types.js';
 
 export interface Reviewer {
   name: string;
@@ -34,11 +35,6 @@ export interface ReviewerResult {
   report: string;
 }
 
-interface Run {
-  subagent: Subagent;
-  sequence: number;
-}
-
 /**
  * familiars Witch launches itself, outside any native session. the familiar mailbox asks `report` before the live
  * session, so a registration whose name Witch expects is admitted here instead of needing a native command's marker.
@@ -46,7 +42,7 @@ interface Run {
 export class Reviewers {
   /** reviewer names awaiting or holding a registration, with the run that registered. */
   private readonly expected = new Map<string, { run?: string }>();
-  private readonly runs = new Map<string, Run>();
+  private readonly runs = new Map<string, FamiliarRun>();
 
   constructor(
     private readonly publish: (
@@ -67,17 +63,12 @@ export class Reviewers {
       if (expected.run)
         throw new Error('This reviewer has already registered.');
       expected.run = action.run;
-      const subagent: Subagent = {
-        id: `${action.runtime}-familiar/${action.run}`,
-        run: action.run,
-        name: action.name,
-        kind: '',
-        runtime: action.runtime,
-        status: 'running',
-        tools: 0,
-      };
-      this.runs.set(action.run, { subagent, sequence: -1 });
-      this.publish({ type: 'subagent', subagent });
+      this.runs.set(
+        action.run,
+        new FamiliarRun(action, (event) => {
+          if (event.type === 'subagent') this.publish(event);
+        }),
+      );
       return { kind: 'familiar-registered' };
     }
     const run = this.runs.get(action.run);
@@ -86,14 +77,7 @@ export class Reviewers {
       throw new Error(
         'A reviewer Witch launched runs read-only and cannot ask for anything.',
       );
-    // the wrapper retries an update under its sequence, so an older or repeated one changes nothing
-    if (action.sequence <= run.sequence) return { kind: 'familiar-updated' };
-    if (run.subagent.status !== 'running')
-      throw new Error('The familiar run has already ended.');
-    run.sequence = action.sequence;
-    run.subagent = { ...run.subagent, ...action.progress };
-    this.publish({ type: 'subagent', subagent: run.subagent });
-    return { kind: 'familiar-updated' };
+    return run.report(action);
   }
 
   /** runs each reviewer's command in its own process group and resolves once every group is gone. */
@@ -152,13 +136,7 @@ export class Reviewers {
     /** ends a reviewer that never reported its own end, so a failed or stopped run leaves none running. */
     const finish = (name: string) => {
       const run = this.runs.get(this.expected.get(name)?.run ?? '');
-      if (run?.subagent.status === 'running') {
-        run.subagent = {
-          ...run.subagent,
-          status: signal.aborted ? 'stopped' : 'failed',
-        };
-        this.publish({ type: 'subagent', subagent: run.subagent });
-      }
+      run?.end(signal.aborted ? 'stopped' : 'failed');
       return run;
     };
     try {

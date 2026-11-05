@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
-import { readFamiliarMarker } from './familiar-report.js';
-import { FamiliarRequests } from './familiar-requests.js';
+import { boundMarker, findFamiliar } from './familiar-report.js';
+import { FamiliarRun } from './familiar-requests.js';
 import type {
   FamiliarAction,
   FamiliarOutcome,
@@ -10,12 +10,7 @@ import type {
 } from './familiar-report.js';
 import type { JsonRpc, RpcMessage } from './json-rpc.js';
 import { errorMessage } from './stderr.js';
-import type {
-  AgentEvent,
-  BackgroundCommand,
-  Subagent,
-  UserResponse,
-} from './types.js';
+import type { AgentEvent, BackgroundCommand, UserResponse } from './types.js';
 
 interface Command {
   threadId: string;
@@ -31,11 +26,7 @@ interface Command {
   partial: string;
   discarding?: boolean;
   marker?: FamiliarMarker;
-  familiar?: {
-    sequence: number;
-    subagent: Subagent;
-    requests: FamiliarRequests;
-  };
+  familiar?: FamiliarRun;
   cleanup?: Promise<void>;
 }
 
@@ -115,20 +106,13 @@ export class CodexCommands {
         : undefined;
     entry.done = true;
     if (entry.familiar) {
-      entry.familiar.requests.resolveAll();
-      const subagent = entry.familiar.subagent;
-      if (subagent.status === 'running') {
-        entry.familiar.subagent = {
-          ...subagent,
-          status:
-            this.closing ||
-            entry.interrupted ||
-            this.interrupted(entry.threadId, entry.turnId)
-              ? 'stopped'
-              : 'failed',
-        };
-        this.emit({ type: 'subagent', subagent: entry.familiar.subagent });
-      }
+      entry.familiar.end(
+        this.closing ||
+          entry.interrupted ||
+          this.interrupted(entry.threadId, entry.turnId)
+          ? 'stopped'
+          : 'failed',
+      );
       void this.collect(entry);
     } else {
       if (entry.command)
@@ -171,12 +155,7 @@ export class CodexCommands {
           entry.partial = '';
           entry.discarding = true;
         } else if (ends) {
-          const marker = readFamiliarMarker(entry.partial.trimEnd());
-          if (
-            marker?.conversation === this.binding.conversation &&
-            marker.activation === this.binding.activation
-          )
-            entry.marker ??= marker;
+          entry.marker ??= boundMarker(entry.partial.trimEnd(), this.binding);
         }
       }
       if (ends) {
@@ -190,29 +169,16 @@ export class CodexCommands {
     checkDeadline(deadline);
     if (this.stopped || this.closing || !this.binding)
       throw new Error('Familiar reporting is unavailable.');
-    const matches = [...this.entries.values()].filter(
-      (entry) => entry.marker?.run === action.run,
-    );
-    if (matches.length > 1)
-      throw new Error('This familiar run belongs to more than one command.');
-    const entry = matches[0];
-    if (!entry) {
-      if (action.kind === 'familiar-register')
-        return { kind: 'familiar-pending' };
-      throw new Error(
-        'The familiar run is not registered in this native session.',
-      );
-    }
+    const entry = findFamiliar(this.entries.values(), action);
+    if (!entry) return { kind: 'familiar-pending' };
     if (action.kind === 'familiar-register') {
+      if (entry.done)
+        throw new Error('The familiar command has already ended.');
       if (entry.familiar) {
         if (entry.familiar.subagent.name !== action.name)
           throw new Error('The familiar name changed.');
-        if (entry.done)
-          throw new Error('The familiar command has already ended.');
         return { kind: 'familiar-registered' };
       }
-      if (entry.done)
-        throw new Error('The familiar command has already ended.');
       if (!entry.processId) {
         if (entry.lookupError) throw new Error(entry.lookupError);
         entry.lookup ??= this.readHandle(entry)
@@ -224,47 +190,21 @@ export class CodexCommands {
           });
         return { kind: 'familiar-pending' };
       }
-      const subagent: Subagent = {
-        id: `${action.runtime}-familiar/${action.run}`,
-        run: action.run,
-        name: action.name,
-        kind: '',
-        runtime: action.runtime,
-        status: 'running',
-        tools: 0,
-        ...(entry.threadId === this.mainThread()
-          ? {}
-          : { parent: entry.threadId }),
-      };
-      entry.familiar = {
-        sequence: -1,
-        subagent,
-        requests: new FamiliarRequests(action.run, this.emit),
-      };
-      this.emit({ type: 'subagent', subagent });
+      entry.familiar = new FamiliarRun(
+        action,
+        this.emit,
+        entry.threadId === this.mainThread() ? undefined : entry.threadId,
+      );
       if (entry.command)
         this.emit({
           type: 'command',
-          command: { ...entry.command, familiar: subagent.id },
+          command: { ...entry.command, familiar: entry.familiar.subagent.id },
         });
       return { kind: 'familiar-registered' };
     }
-    const familiar = entry.familiar;
-    if (!familiar) throw new Error('The familiar run has not registered.');
-    if (action.kind !== 'familiar-update') {
-      if (entry.done || familiar.subagent.status !== 'running')
-        throw new Error('The familiar run has already ended.');
-      return familiar.requests.report(action);
-    }
-    if (action.sequence <= familiar.sequence)
-      return { kind: 'familiar-updated' };
-    if (entry.done || familiar.subagent.status !== 'running')
-      throw new Error('The familiar run has already ended.');
-    familiar.sequence = action.sequence;
-    familiar.subagent = { ...familiar.subagent, ...action.progress };
-    if (familiar.subagent.status !== 'running') familiar.requests.resolveAll();
-    this.emit({ type: 'subagent', subagent: familiar.subagent });
-    return { kind: 'familiar-updated' };
+    if (!entry.familiar)
+      throw new Error('The familiar run has not registered.');
+    return entry.familiar.report(action);
   }
 
   respond(id: string, response: UserResponse): boolean {
@@ -286,13 +226,8 @@ export class CodexCommands {
   stop(): void {
     this.stopped = true;
     for (const entry of this.entries.values()) {
-      entry.familiar?.requests.resolveAll();
-      if (entry.familiar?.subagent.status === 'running')
-        this.emit({
-          type: 'subagent',
-          subagent: { ...entry.familiar.subagent, status: 'stopped' },
-        });
-      else if (!entry.familiar && entry.command)
+      if (entry.familiar) entry.familiar.end('stopped');
+      else if (entry.command)
         this.emit({
           type: 'command',
           command: { ...entry.command, status: 'stopped' },
