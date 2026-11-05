@@ -226,49 +226,49 @@ async function codexCompactions(): Promise<NativeCompaction[]> {
   return found;
 }
 
-function rows(text: string, file: string): Row[] {
-  const parsed = new Rows(file);
-  return text.split('\n').flatMap((line) => parsed.parse(line) ?? []);
-}
-
 /** the conversation as the user saw it: prompts, compaction notices and the last reply before each, a replaced reply kept at its first position. */
-function transcript(text: string, file: string): Entry[] {
+async function transcript(file: string): Promise<Entry[]> {
   const entries: Entry[] = [];
   const byId = new Map<string, Entry>();
   // the queue sends an unread prompt again as a new row
   const unread = new Set<Entry>();
-  for (const row of rows(text, file)) {
-    const kind = row.contextCleared
-      ? 'cleared'
-      : row.kind === 'notice' && row.text === 'Conversation compacted'
-        ? 'compaction'
-        : row.kind;
-    if (
-      kind !== 'user' &&
-      kind !== 'assistant' &&
-      kind !== 'compaction' &&
-      kind !== 'cleared'
-    )
-      continue;
-    // old rows carry no time to match a compaction by
-    if (!row.at && kind === 'compaction') continue;
-    const known = row.id ? byId.get(row.id) : undefined;
-    if (known) {
-      if (row.unread) unread.add(known);
-      // an update without `replace` is a streamed chunk
-      known.text = row.replace
-        ? (row.text ?? '')
-        : known.text + (row.text ?? '');
-      continue;
+  try {
+    for await (const row of lines(file)) {
+      const kind = row.contextCleared
+        ? 'cleared'
+        : row.kind === 'notice' && row.text === 'Conversation compacted'
+          ? 'compaction'
+          : row.kind;
+      if (
+        kind !== 'user' &&
+        kind !== 'assistant' &&
+        kind !== 'compaction' &&
+        kind !== 'cleared'
+      )
+        continue;
+      // old rows carry no time to match a compaction by
+      if (!row.at && kind === 'compaction') continue;
+      const known = row.id ? byId.get(row.id) : undefined;
+      if (known) {
+        if (row.unread) unread.add(known);
+        // an update without `replace` is a streamed chunk
+        known.text = row.replace
+          ? (row.text ?? '')
+          : known.text + (row.text ?? '');
+        continue;
+      }
+      const entry: Entry = {
+        kind,
+        text: row.text ?? '',
+        at: row.at,
+        agent: row.kind === 'assistant' ? row.title : undefined,
+      };
+      if (row.id) byId.set(row.id, entry);
+      entries.push(entry);
     }
-    const entry: Entry = {
-      kind,
-      text: row.text ?? '',
-      at: row.at,
-      agent: row.kind === 'assistant' ? row.title : undefined,
-    };
-    if (row.id) byId.set(row.id, entry);
-    entries.push(entry);
+  } catch (error) {
+    // a conversation can lack a history; any other failure still stops the run
+    absent(undefined)(error as NodeJS.ErrnoException);
   }
   const sent = entries.filter((entry) => !unread.has(entry));
   // keep only the last reply before the next prompt or notice
@@ -307,19 +307,18 @@ function prompts(entries: Entry[], count: number, fromEnd: boolean): Entry[] {
 
 const natives = [...(await claudeCompactions()), ...(await codexCompactions())];
 const conversations = join(values.state, 'conversations');
-const read = await Promise.all(
-  (await readdir(conversations)).map(async (id) => {
-    const file = join(conversations, id, 'history.jsonl');
-    const history = await readFile(file, 'utf8').catch(absent(''));
-    // only each runtime's latest session is recorded; older ones match by time alone
-    const { sessions = {} } = JSON.parse(
-      await readFile(join(conversations, id, 'state.json'), 'utf8').catch(
-        absent('{}'),
-      ),
-    ) as { sessions?: Record<string, { id?: string } | undefined> };
-    return { id, sessions, entries: transcript(history, file) };
-  }),
-);
+// one history at a time, streamed, so tool output never accumulates in memory
+const read = [];
+for (const id of await readdir(conversations)) {
+  // only each runtime's latest session is recorded; older ones match by time alone
+  const { sessions = {} } = JSON.parse(
+    await readFile(join(conversations, id, 'state.json'), 'utf8').catch(
+      absent('{}'),
+    ),
+  ) as { sessions?: Record<string, { id?: string } | undefined> };
+  const entries = await transcript(join(conversations, id, 'history.jsonl'));
+  read.push({ id, sessions, entries });
+}
 const latest = new Set(
   read.flatMap(({ sessions }) =>
     Object.values(sessions).flatMap((session) =>
