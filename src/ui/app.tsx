@@ -92,6 +92,8 @@ type View =
       link?: string;
       /** a memory note's relative path, for edit and history. */
       note?: string;
+      /** Witch's own text, already styled, shown as written rather than as Markdown, which drops styling. */
+      styled?: true;
     };
 
 const unwatched = () => () => {};
@@ -755,6 +757,7 @@ export function App({
           kind: 'page',
           title: 'Keyboard help',
           text: helpText(),
+          styled: true,
         });
         break;
       case 'restart':
@@ -985,19 +988,21 @@ export function App({
             : (recovery?.diff ?? ''),
           recovery?.root ?? cwd,
         )
-      : pageView?.kind === 'page'
-        ? markdown(
-            pageView.text,
-            cwd,
-            pageView.note === undefined
-              ? cwd
-              : pageView.link
-                ? dirname(pageView.link)
-                : null,
-          )
-        : pageView?.kind === 'coordination'
-          ? coordinationText(pageCoordination, pageView.mode)
-          : '';
+      : pageView?.kind === 'page' && pageView.styled
+        ? pageView.text
+        : pageView?.kind === 'page'
+          ? markdown(
+              pageView.text,
+              cwd,
+              pageView.note === undefined
+                ? cwd
+                : pageView.link
+                  ? dirname(pageView.link)
+                  : null,
+            )
+          : pageView?.kind === 'coordination'
+            ? coordinationText(pageCoordination, pageView.mode)
+            : '';
     return wrapLines(pageText, bodyWidth);
   }, [
     recovering,
