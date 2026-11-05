@@ -115,6 +115,15 @@ function windowLimits(
     }));
 }
 
+const defaultLimit = 'codex';
+
+function accountIdentity(
+  accountId: string | null | undefined,
+  limitId: string | null | undefined,
+): string | undefined {
+  return accountId ? `${accountId}:${limitId ?? defaultLimit}` : undefined;
+}
+
 /** a window the read leaves out keeps its `previous` entry, as a session's sparse updates do. */
 export async function probeAccountUsage(
   rpc: JsonRpc,
@@ -122,9 +131,7 @@ export async function probeAccountUsage(
 ): Promise<AccountReading> {
   const { rateLimits: update, accountId } = await readRateLimits(rpc);
   const { primary, secondary, limitId } = update;
-  const identity = accountId
-    ? `${accountId}:${limitId ?? 'codex'}`
-    : previous.identity;
+  const identity = accountIdentity(accountId, limitId) ?? previous.identity;
   if (identity !== previous.identity) previous = { limits: [] };
   const observedAt = Date.now();
   const limits = windowLimits([
@@ -147,7 +154,7 @@ export async function probeAccountUsage(
 /** merges native account slots without borrowing observations from another account or quota. */
 export class CodexAccount {
   // account reads select codex; an earlier notification can belong to another quota.
-  private limitId = 'codex';
+  private limitId = defaultLimit;
   private windows: { primary?: ObservedWindow; secondary?: ObservedWindow } =
     {};
   private reading: AccountReading = { limits: [] };
@@ -190,12 +197,10 @@ export class CodexAccount {
     complete = false,
     accountId?: string | null,
   ): AccountReading | undefined {
-    const identity = accountId
-      ? `${accountId}:${update.limitId ?? 'codex'}`
-      : undefined;
+    const identity = accountIdentity(accountId, update.limitId);
     if (identity && identity !== this.reading.identity) {
       this.windows = {};
-      this.limitId = update.limitId ?? 'codex';
+      this.limitId = update.limitId ?? defaultLimit;
       this.reading = { limits: [], identity };
     }
     if (update.limitId) {

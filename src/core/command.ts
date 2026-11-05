@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import type { ExecFileException, ExecFileOptions } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { killGroup } from '../agents/user-shell.js';
+import { signalGroup } from '../agents/shutdown.js';
 import { ps } from '../persistence/process.js';
 import type { Run } from './repository.js';
 
@@ -45,7 +45,7 @@ async function cancellable(
   let timedOut = false;
   const interrupt = () => {
     stopped = true;
-    if (child.pid) killGroup(child.pid);
+    if (child.pid) signalGroup(child.pid, 'SIGKILL');
   };
   for (const name of ['stdout', 'stderr'] as const) {
     child[name].setEncoding('utf8');

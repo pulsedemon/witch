@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import type { Readable } from 'node:stream';
 
 export interface ChildExit {
   /** resolves once the child exited or failed to spawn and both output streams closed. */
@@ -7,6 +8,25 @@ export interface ChildExit {
   readonly exited: boolean;
   /** the last 4 KB of its stderr. */
   tail(): string;
+}
+
+/** calls `line` with each line, then with any unterminated rest; readline would also split at Unicode separators JSON strings may hold. */
+export function readLines(
+  stream: Readable,
+  line: (text: string) => void,
+): void {
+  let pending = '';
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk: string) => {
+    const lines = chunk.split('\n');
+    lines[0] = pending + lines[0];
+    pending = lines.pop()!;
+    for (const text of lines) line(text);
+  });
+  stream.on('end', () => {
+    if (pending) line(pending);
+    pending = '';
+  });
 }
 
 /** watches a child from its spawn, since a failed spawn emits `close` and no `exit`. */

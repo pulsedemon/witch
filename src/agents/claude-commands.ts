@@ -2,19 +2,14 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { ControlBinding } from '../persistence/control.js';
 import { checkDeadline } from '../persistence/coordination.js';
-import { readFamiliarMarker } from './familiar-report.js';
-import { FamiliarRequests } from './familiar-requests.js';
+import { boundMarker, findFamiliar } from './familiar-report.js';
+import { FamiliarRun } from './familiar-requests.js';
 import type {
   FamiliarAction,
   FamiliarMarker,
   FamiliarOutcome,
 } from './familiar-report.js';
-import type {
-  AgentEvent,
-  Subagent,
-  TaskStatus,
-  UserResponse,
-} from './types.js';
+import type { AgentEvent, TaskStatus, UserResponse } from './types.js';
 
 export interface ClaudeTaskControl {
   getTaskOutput(taskId: string): Promise<unknown>;
@@ -30,11 +25,7 @@ interface Command {
   listed: boolean;
   status: TaskStatus;
   marker?: FamiliarMarker;
-  familiar?: {
-    sequence: number;
-    subagent: Subagent;
-    requests: FamiliarRequests;
-  };
+  familiar?: FamiliarRun;
 }
 
 const taskOutput = z.object({ output: z.string() });
@@ -158,15 +149,7 @@ export class ClaudeCommands {
   private end(entry: Command, status: TaskStatus): void {
     if (entry.status !== 'running') return;
     entry.status = status;
-    const familiar = entry.familiar;
-    familiar?.requests.resolveAll();
-    if (familiar?.subagent.status === 'running') {
-      familiar.subagent = {
-        ...familiar.subagent,
-        status: status === 'stopped' ? 'stopped' : 'failed',
-      };
-      this.emit({ type: 'subagent', subagent: familiar.subagent });
-    }
+    entry.familiar?.end(status === 'stopped' ? 'stopped' : 'failed');
     this.publish(entry);
     if (!entry.background) this.entries.delete(entry.id);
   }
@@ -187,30 +170,16 @@ export class ClaudeCommands {
         if (this.entries.get(entry.id) !== entry || entry.status !== 'running')
           continue;
         for (const line of output.split('\n').slice(0, -1)) {
-          const marker = readFamiliarMarker(line);
-          if (
-            marker?.conversation === this.binding!.conversation &&
-            marker.activation === this.binding!.activation
-          ) {
+          const marker = boundMarker(line, this.binding!);
+          if (marker) {
             entry.marker = marker;
             break;
           }
         }
       }
     }
-    const matches = [...this.entries.values()].filter(
-      (entry) => entry.marker?.run === action.run,
-    );
-    if (matches.length > 1)
-      throw new Error('This familiar run belongs to more than one command.');
-    const entry = matches[0];
-    if (!entry) {
-      if (action.kind === 'familiar-register')
-        return { kind: 'familiar-pending' };
-      throw new Error(
-        'The familiar run is not registered in this native session.',
-      );
-    }
+    const entry = findFamiliar(this.entries.values(), action);
+    if (!entry) return { kind: 'familiar-pending' };
     if (action.kind === 'familiar-register') {
       if (entry.status !== 'running')
         throw new Error('The familiar command has already ended.');
@@ -219,43 +188,19 @@ export class ClaudeCommands {
           throw new Error('The familiar name changed.');
         return { kind: 'familiar-registered' };
       }
-      const subagent: Subagent = {
-        id: `${action.runtime}-familiar/${action.run}`,
-        run: action.run,
-        name: action.name,
-        kind: '',
-        runtime: action.runtime,
-        status: 'running',
-        tools: 0,
-        ...(entry.parent && this.knownParent(entry.parent)
-          ? { parent: entry.parent }
-          : {}),
-      };
-      entry.familiar = {
-        sequence: -1,
-        subagent,
-        requests: new FamiliarRequests(action.run, this.emit),
-      };
-      this.emit({ type: 'subagent', subagent });
+      entry.familiar = new FamiliarRun(
+        action,
+        this.emit,
+        entry.parent && this.knownParent(entry.parent)
+          ? entry.parent
+          : undefined,
+      );
       this.publish(entry);
       return { kind: 'familiar-registered' };
     }
-    const familiar = entry.familiar;
-    if (!familiar) throw new Error('The familiar run has not registered.');
-    if (action.kind !== 'familiar-update') {
-      if (entry.status !== 'running' || familiar.subagent.status !== 'running')
-        throw new Error('The familiar run has already ended.');
-      return familiar.requests.report(action);
-    }
-    if (action.sequence <= familiar.sequence)
-      return { kind: 'familiar-updated' };
-    if (entry.status !== 'running' || familiar.subagent.status !== 'running')
-      throw new Error('The familiar run has already ended.');
-    familiar.sequence = action.sequence;
-    familiar.subagent = { ...familiar.subagent, ...action.progress };
-    if (familiar.subagent.status !== 'running') familiar.requests.resolveAll();
-    this.emit({ type: 'subagent', subagent: familiar.subagent });
-    return { kind: 'familiar-updated' };
+    if (!entry.familiar)
+      throw new Error('The familiar run has not registered.');
+    return entry.familiar.report(action);
   }
 
   respond(id: string, response: UserResponse): boolean {

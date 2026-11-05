@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ControlBinding } from '../persistence/control.js';
 import type { Cast } from './types.js';
 import {
   taskStatuses,
@@ -95,7 +96,7 @@ export function familiarMarker(marker: FamiliarMarker): string {
   return `${familiarMarkerPrefix}${JSON.stringify(marker)}\n`;
 }
 
-export function readFamiliarMarker(line: string): FamiliarMarker | undefined {
+function readFamiliarMarker(line: string): FamiliarMarker | undefined {
   if (!line.startsWith(familiarMarkerPrefix)) return;
   try {
     return familiarMarkerSchema.safeParse(
@@ -104,4 +105,33 @@ export function readFamiliarMarker(line: string): FamiliarMarker | undefined {
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
   }
+}
+
+/** the line's marker when it was written for `binding`'s conversation and activation. */
+export function boundMarker(
+  line: string,
+  binding: Pick<ControlBinding, 'conversation' | 'activation'>,
+): FamiliarMarker | undefined {
+  const marker = readFamiliarMarker(line);
+  return marker?.conversation === binding.conversation &&
+    marker.activation === binding.activation
+    ? marker
+    : undefined;
+}
+
+/** the command whose marker names the action's run; undefined only for a registration whose marker hasn't appeared yet. */
+export function findFamiliar<T extends { marker?: FamiliarMarker }>(
+  entries: Iterable<T>,
+  action: FamiliarAction,
+): T | undefined {
+  const matches = [...entries].filter(
+    (entry) => entry.marker?.run === action.run,
+  );
+  if (matches.length > 1)
+    throw new Error('This familiar run belongs to more than one command.');
+  if (!matches[0] && action.kind !== 'familiar-register')
+    throw new Error(
+      'The familiar run is not registered in this native session.',
+    );
+  return matches[0];
 }

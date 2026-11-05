@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { killGroup } from '../agents/user-shell.js';
+import { signalGroup } from '../agents/shutdown.js';
 import type { ConversationRecord, ProcessIdentity } from '../core/state.js';
 import type { ConversationStore } from './store.js';
 
@@ -186,7 +186,7 @@ async function stopPreviousProcess(recorded: ProcessIdentity): Promise<void> {
 /** kills a recorded `!` command's group, then the group again once its shell exits, for a child forked as the first kill landed. */
 async function stopPreviousShell(recorded: ProcessIdentity): Promise<void> {
   if (!(await runs(recorded))) return;
-  killGroup(recorded.pid);
+  signalGroup(recorded.pid, 'SIGKILL');
   await ends(recorded, 'shell command');
-  killGroup(recorded.pid);
+  signalGroup(recorded.pid, 'SIGKILL');
 }
