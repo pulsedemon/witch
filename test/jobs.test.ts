@@ -1220,9 +1220,15 @@ test('process names do not alter start identities', () => {
 });
 
 for (const admission of ['direct', 'handed', 'reported', 'marked']) {
-  test.each(['tmux', 'zellij'])(
-    `%s trees stay out of ${admission} admission`,
-    async (name) => {
+  test.each([
+    { name: 'tmux', args: ['tmux'] },
+    { name: 'zellij', args: ['zellij'] },
+    { name: 'emacs', args: ['emacs', '--daemon'] },
+    { name: 'emacs-31.1', args: ['emacs', '-Q', '--bg-daemon=work'] },
+    { name: 'Emacs', args: ['Emacs', '--fg-daemon'] },
+  ])(
+    `$name trees stay out of ${admission} admission`,
+    async ({ name, args }) => {
       const directory = await scratch(`witch-jobs-${name}-`);
       const server = {
         ...orphanRow(100101),
@@ -1248,6 +1254,13 @@ for (const admission of ['direct', 'handed', 'reported', 'marked']) {
         interval: 60_000,
         processes: async () => rows,
         describe: leaders,
+        arguments: async (pids) =>
+          new Map(
+            pids.map((pid) => [
+              pid,
+              pid === server.pid ? args : [`${name}-helper`, '--daemon'],
+            ]),
+          ),
         marked: async (pids) =>
           new Map(
             (admission === 'marked' ? pids : []).map((pid) => [pid, undefined]),

@@ -8,6 +8,65 @@ import type { ConversationStore } from './store.js';
 
 const execute = promisify(execFile);
 
+// ps replaces argument separators with spaces; KERN_PROCARGS2 preserves them.
+const argumentsQuery = `
+my $mib = pack('i*', 1, 8);
+my $maximum = pack('i', 0);
+my $size = pack('Q', length($maximum));
+syscall(202, $mib, 2, $maximum, $size, 0, 0) == 0 or die "Cannot read KERN_ARGMAX: $!";
+for my $pid (@ARGV) {
+  $mib = pack('i*', 1, 49, $pid);
+  my $buffer = "\\0" x unpack('i', $maximum);
+  $size = pack('Q', length($buffer));
+  if (syscall(202, $mib, 3, $buffer, $size, 0, 0) != 0) {
+    next if $!{ESRCH} || $!{EINVAL} || $!{EPERM} || $!{EACCES};
+    die "Cannot read arguments for $pid: $!";
+  }
+  my $count = unpack('i', $buffer);
+  $buffer = substr($buffer, 4, unpack('Q', $size) - 4);
+  $buffer =~ s/^[^\\0]*\\0+//;
+  my @args = split(/\\0/, $buffer, -1);
+  print join("\\0", $pid, $count, @args[0 .. $count - 1]), "\\0";
+}
+`;
+
+/** preserves argv boundaries; exited or inaccessible processes are omitted. */
+export async function processArguments(
+  pids: readonly number[],
+): Promise<Map<number, string[]>> {
+  const result = new Map<number, string[]>();
+  if (!pids.length) return result;
+  if (process.platform === 'linux') {
+    for (const pid of pids) {
+      try {
+        const content = await readFile(`/proc/${pid}/cmdline`, 'utf8');
+        if (content) result.set(pid, content.split('\0').slice(0, -1));
+      } catch (error) {
+        if (
+          !['ENOENT', 'ESRCH', 'EACCES', 'EPERM'].includes(
+            (error as NodeJS.ErrnoException).code ?? '',
+          )
+        )
+          throw error;
+      }
+    }
+    return result;
+  }
+  const { stdout } = await execute('/usr/bin/perl', [
+    '-e',
+    argumentsQuery,
+    ...pids.map(String),
+  ]);
+  const fields = stdout.split('\0');
+  for (let at = 0; at < fields.length - 1;) {
+    const pid = Number(fields[at++]);
+    const count = Number(fields[at++]);
+    result.set(pid, fields.slice(at, at + count));
+    at += count;
+  }
+  return result;
+}
+
 export async function bootSession(): Promise<string> {
   if (process.platform === 'linux')
     return (await readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
