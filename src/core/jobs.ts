@@ -3,8 +3,9 @@ import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { ps } from '../persistence/process.js';
+import { processArguments, ps } from '../persistence/process.js';
 import { quote } from '../shell.js';
+import { isEmacsDaemon } from './emacs.js';
 
 const mark = 'WITCH_JOBS';
 
@@ -129,11 +130,11 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
  * `track`, and of any group a process inside one moves to. a listed group keeps its generation while a process from
  * the last read remains in it, so a command orphaned to launchd still shows.
  *
- * tmux and Zellij processes, the apps described below and their observed descendants are excluded, including after
+ * tmux, Zellij, Emacs daemons, the apps described below and their observed descendants are excluded, including after
  * reparenting.
  * their entire groups are withheld, but ordinary peers keep their ownership and return with a new generation once the
  * exclusion ends.
- * exclusion stops at this Witch so running it inside a multiplexer leaves its own agent commands available.
+ * exclusion stops at this Witch so its own agent commands remain available.
  *
  * with a `directory`, Claude Code runs `script` as its `CLAUDE_ENV_FILE` ahead of each Bash command, in the shell that
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
@@ -186,6 +187,8 @@ export class JobWatch {
       marked?: (pids: number[]) => Promise<Map<number, string | undefined>>;
       /** each listed process's argv[0], from `ps -o comm=` without it. */
       executables?: (pids: number[]) => Promise<Map<number, string>>;
+      /** exact process arguments, including argv[0]. */
+      arguments?: (pids: number[]) => Promise<Map<number, string[]>>;
       resume?: JobCheckpoint;
     } = {},
   ) {
@@ -322,9 +325,25 @@ export class JobWatch {
     const rows = await (this.options.processes ?? processTable)();
     const children = Map.groupBy(rows, ({ ppid }) => ppid);
     const excluded = new Set<string>();
-    const boundaries = rows.filter(
+    const emacs = rows.filter(
       ({ name, identity }) =>
-        name === 'tmux' || name === 'zellij' || this.excluded.has(identity),
+        /^emacs(?:-\d+(?:\.\d+)*)?$/i.test(name) &&
+        !this.excluded.has(identity),
+    );
+    const args = emacs.length
+      ? await (this.options.arguments ?? processArguments)(
+          emacs.map(({ pid }) => pid),
+        )
+      : new Map<number, string[]>();
+    const daemons = new Set(
+      [...args].filter(([, argv]) => isEmacsDaemon(argv)).map(([pid]) => pid),
+    );
+    const boundaries = rows.filter(
+      ({ pid, name, identity }) =>
+        name === 'tmux' ||
+        name === 'zellij' ||
+        daemons.has(pid) ||
+        this.excluded.has(identity),
     );
     while (boundaries.length) {
       const row = boundaries.pop()!;
