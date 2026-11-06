@@ -103,7 +103,11 @@ test('marked app roots exclude their trees, while commands and tools stay jobs',
           command: '',
         })),
     marked: async (pids) =>
-      pids.filter((pid) => pid !== terminal.pid && pid !== unmarkedApp.pid),
+      new Map(
+        pids
+          .filter((pid) => pid !== terminal.pid && pid !== unmarkedApp.pid)
+          .map((pid) => [pid, undefined]),
+      ),
     executables: async (pids) => {
       lookedUp.push(...pids);
       return new Map([...paths].filter(([pid]) => pids.includes(pid)));
@@ -149,8 +153,17 @@ for (const joins of ['later', 'in the read that opens the app']) {
       [app, terminal, ...strays],
     ];
     const lookedUp: number[] = [];
+    const directory = await scratch('witch-jobs-');
+    const environment = vi
+      .spyOn(processes, 'ps')
+      .mockImplementation(async (_format, pids) =>
+        pids!.map(
+          (pid) =>
+            `${pid} node WITCH_JOBS=${directory} XPC_SERVICE_NAME=${pid === app.pid || pid === terminal.pid ? 'application.com.witch-test.editor.2' : '0'}`,
+        ),
+      );
     const jobs = new JobWatch({
-      directory: await scratch('witch-jobs-'),
+      directory,
       interval: 60_000,
       processes: async () => tables.shift()!,
       describe: async (pids) =>
@@ -163,7 +176,6 @@ for (const joins of ['later', 'in the read that opens the app']) {
             startedAt: 0,
             command: '',
           })),
-      marked: async (pids) => pids,
       executables: async (pids) => {
         lookedUp.push(...pids);
         const paths = new Map([
@@ -186,6 +198,7 @@ for (const joins of ['later', 'in the read that opens the app']) {
       );
     } finally {
       jobs.close();
+      environment.mockRestore();
     }
   });
 }
@@ -211,7 +224,7 @@ test('an excluded app keeps an inactive watch reading', async () => {
         startedAt: 0,
         command: '',
       })),
-    marked: async (pids) => pids,
+    marked: async (pids) => new Map(pids.map((pid) => [pid, undefined])),
     executables: async (pids) => {
       assert.deepEqual(pids, [app.pid]);
       return new Map([[app.pid, '/Applications/Code.app/Contents/MacOS/Code']]);
@@ -294,6 +307,7 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
       [100951, 'application.com.witch-test.editor.2'],
       [100952, undefined],
       [100953, '0'],
+      [100955, '0'],
       ...(service ? [[100954, service] as const] : []),
     ]);
     let rows: Row[] = [];
@@ -304,7 +318,11 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
         assert.equal(options?.environment, true);
         return pids!.map((pid) => {
           const application = services.get(pid);
-          return `${pid} node WITCH_JOBS=${directory}${application ? ` XPC_SERVICE_NAME=${application}` : ''}`;
+          const argument =
+            pid === 100955
+              ? ' XPC_SERVICE_NAME=application.com.witch-test.argument'
+              : '';
+          return `${pid} node${argument} WITCH_JOBS=${directory}${application ? ` XPC_SERVICE_NAME=${application}` : ''}`;
         });
       });
     const jobs = new JobWatch({
@@ -330,7 +348,7 @@ for (const service of [undefined, 'application.com.witch-test.host.1']) {
       rows = [...services.keys()].map(orphanRow);
       assert.deepEqual(
         (await jobs.list()).map(({ group }) => group),
-        service ? [100952, 100953, 100954] : [100952, 100953],
+        service ? [100952, 100953, 100955, 100954] : [100952, 100953, 100955],
       );
     } finally {
       if (original === undefined) delete process.env.XPC_SERVICE_NAME;
