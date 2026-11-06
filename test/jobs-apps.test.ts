@@ -4,9 +4,10 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { JobWatch } from '../src/core/jobs.js';
 import type { Row } from '../src/core/jobs.js';
+import * as processes from '../src/persistence/process.js';
 import { scratch } from './fixtures/scratch.js';
 import { until } from './fixtures/within.js';
 
@@ -285,3 +286,57 @@ test.skipIf(process.platform !== 'darwin')(
     }
   },
 );
+
+for (const service of [undefined, 'application.com.witch-test.host.1']) {
+  test(`orphans from another app stay outside jobs when Witch's application service is ${service ?? 'absent'}`, async () => {
+    const directory = await scratch('witch-jobs-');
+    const services = new Map([
+      [100951, 'application.com.witch-test.editor.2'],
+      [100952, undefined],
+      [100953, '0'],
+      ...(service ? [[100954, service] as const] : []),
+    ]);
+    let rows: Row[] = [];
+    const environment = vi
+      .spyOn(processes, 'ps')
+      .mockImplementation(async (format, pids, options) => {
+        assert.equal(format, 'pid=,command=');
+        assert.equal(options?.environment, true);
+        return pids!.map((pid) => {
+          const application = services.get(pid);
+          return `${pid} node WITCH_JOBS=${directory}${application ? ` XPC_SERVICE_NAME=${application}` : ''}`;
+        });
+      });
+    const jobs = new JobWatch({
+      directory,
+      interval: 60_000,
+      processes: async () => rows,
+      describe: async (pids) =>
+        pids.map((pid) => ({
+          pid,
+          pgid: pid,
+          cpu: 0,
+          startedAt: 0,
+          command: 'node',
+        })),
+      executables: async (pids) =>
+        new Map(pids.map((pid) => [pid, '/usr/local/bin/node'])),
+    });
+    const original = process.env.XPC_SERVICE_NAME;
+    if (service === undefined) delete process.env.XPC_SERVICE_NAME;
+    else process.env.XPC_SERVICE_NAME = service;
+    try {
+      await jobs.list();
+      rows = [...services.keys()].map(orphanRow);
+      assert.deepEqual(
+        (await jobs.list()).map(({ group }) => group),
+        service ? [100952, 100953, 100954] : [100952, 100953],
+      );
+    } finally {
+      if (original === undefined) delete process.env.XPC_SERVICE_NAME;
+      else process.env.XPC_SERVICE_NAME = original;
+      jobs.close();
+      environment.mockRestore();
+    }
+  });
+}

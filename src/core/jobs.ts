@@ -96,12 +96,20 @@ async function describe(pids: number[]): Promise<Detail[]> {
   return parseDetails(await ps('pid=,pgid=,%cpu=,lstart=,command=', pids));
 }
 
-/** the listed processes whose environment holds `entry`. ps prints no environment for Apple's platform binaries. */
+/**
+ * an opened app can pass the mark to user daemons before a poll sees their ancestry.
+ * ps prints no environment for Apple's platform binaries.
+ */
 async function carrying(entry: string, pids: number[]): Promise<number[]> {
   return (await ps('pid=,command=', pids, { environment: true })).flatMap(
     (line) => {
       const [, pid, rest] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
-      return pid && ` ${rest} `.includes(` ${entry} `) ? [Number(pid)] : [];
+      if (!pid || !` ${rest} `.includes(` ${entry} `)) return [];
+      const application =
+        /(?:^| )XPC_SERVICE_NAME=(application\.[^ ]+)(?: |$)/.exec(rest!)?.[1];
+      return application && application !== process.env.XPC_SERVICE_NAME
+        ? []
+        : [Number(pid)];
     },
   );
 }
