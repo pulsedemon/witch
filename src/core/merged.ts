@@ -12,7 +12,7 @@ import type { StateStore } from '../persistence/store.js';
 import { runCommand } from './command.js';
 import type { Coordinator } from './coordinator.js';
 import type { Conversation } from './state.js';
-import { parseStatus, statusArgs } from './repository.js';
+import { gitHubRepository, parseStatus, statusArgs } from './repository.js';
 import type {
   PullRequest,
   Repository,
@@ -201,6 +201,65 @@ const read = async (git: Git) => parseStatus(await git(...statusArgs));
 const deleting = ({ mergedAt }: PullRequest) =>
   !!mergedAt && Date.now() - Date.parse(mergedAt) < 15_000;
 
+/**
+ * true when the repository keeps merged head branches and this one is its own, not a fork's, and isn't its default
+ * branch. false for a pull request URL outside GitHub.
+ */
+async function remoteKeeps(
+  { url, number, branch }: PullRequest,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const github = gitHubRepository(url);
+  if (!github) return false;
+  const [owner, name] = github.repository.split('/');
+  const { stdout } = await runCommand(
+    'gh',
+    [
+      'api',
+      'graphql',
+      '--hostname',
+      github.host,
+      '-f',
+      'query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { deleteBranchOnMerge defaultBranchRef { name } pullRequest(number: $number) { isCrossRepository } } }',
+      '-f',
+      `owner=${owner}`,
+      '-f',
+      `name=${name}`,
+      '-F',
+      `number=${number}`,
+      '--jq',
+      '.data.repository | .deleteBranchOnMerge, .defaultBranchRef.name, .pullRequest.isCrossRepository',
+    ],
+    { cwd, timeout: 30_000, ...(signal ? { signal } : {}) },
+  ).catch((error: unknown) => {
+    if (error === signal?.reason) throw error;
+    // the command line carries the whole query, so the error names gh's timeout, stderr or exit code where it has one
+    const { stderr, killed, code } = error as {
+      stderr?: unknown;
+      killed?: unknown;
+      code?: unknown;
+    };
+    throw new Error(
+      [killed && 'gh timed out', String(stderr ?? '').trim()]
+        .filter(Boolean)
+        .join(': ') ||
+        (typeof code === 'number'
+          ? `gh exited with code ${code}`
+          : errorMessage(error)),
+      { cause: error },
+    );
+  });
+  const [deletes, base, fork] = stdout.trim().split('\n');
+  if (deletes !== 'true' && deletes !== 'false')
+    throw new Error(`deleteBranchOnMerge was ${deletes || 'empty'}`);
+  if (!base || base === 'null')
+    throw new Error('the default branch was missing');
+  if (fork !== 'true' && fork !== 'false')
+    throw new Error(`isCrossRepository was ${fork || 'empty'}`);
+  return deletes === 'false' && base !== branch && fork === 'false';
+}
+
 /** `git check-ignore` exits 1 for a path no rule ignores, and for a tracked file. any other failure throws. */
 const ignored = (git: Git, path: string) =>
   git('check-ignore', '-q', path).then(
@@ -292,7 +351,7 @@ export async function cleanUpMerge(
   });
   if (!lock) return undefined;
   try {
-    return await clean(git, pullRequest, blocked, progress, signal);
+    return await clean(git, cwd, pullRequest, blocked, progress, signal);
   } catch (error) {
     if (error === signal?.reason && progress.switchHead) {
       const reconcile = AbortSignal.timeout(1000);
@@ -311,6 +370,7 @@ export async function cleanUpMerge(
 
 async function clean(
   git: Git,
+  cwd: string,
   pullRequest: PullRequest,
   blocked: () => Promise<boolean>,
   progress: MergeCleanup,
@@ -392,12 +452,20 @@ async function clean(
       ).split('\t');
     };
     let [upstream, tracking, merges] = await track();
-    while (
-      upstream &&
-      merges === `refs/heads/${branch}` &&
-      tracking !== '[gone]' &&
-      deleting(pullRequest)
-    ) {
+    const onRemote = () =>
+      !!upstream && merges === `refs/heads/${branch}` && tracking !== '[gone]';
+    // a failed lookup falls back to waiting for GitHub's deletion, and is named only if the branch stays
+    let unread = '';
+    const keeps =
+      onRemote() &&
+      (await remoteKeeps(pullRequest, cwd, signal).catch((error: unknown) => {
+        if (error === signal?.reason) throw error;
+        unread = errorMessage(error).trim();
+        return false;
+      }));
+    // GitHub can delete the branch, or someone push to it, while the lookup runs
+    if (onRemote()) [upstream, tracking, merges] = await track();
+    while (!keeps && onRemote() && deleting(pullRequest)) {
       await delay(2000, undefined, { signal }).catch(() =>
         signal?.throwIfAborted(),
       );
@@ -432,10 +500,16 @@ async function clean(
         text: `#${number} merged, but ${branch} tracks ${upstream} rather than its own remote branch, so it stays.`,
         cleaned: false,
       };
-    // GitHub deletes a merged pull request's branch, and a long-lived head branch such as develop keeps its own
-    if (tracking !== '[gone]')
+    // a kept branch has to be at the merged commit or gone. any other has to be gone, since GitHub deletes a merged head
+    // branch but leaves a long-lived one such as develop
+    if (keeps && tracking && tracking !== '[gone]')
       return {
-        text: `#${number} merged, but ${branch} is still on its remote, so it stays.`,
+        text: `#${number} merged, but ${branch}'s remote branch has changed since, so it stays.`,
+        cleaned: false,
+      };
+    if (!keeps && tracking !== '[gone]')
+      return {
+        text: `#${number} merged, but ${branch} is still on its remote, so it stays${unread && ` (couldn't read whether the repository keeps merged branches: ${unread})`}.`,
         cleaned: false,
       };
     // again: a turn that started during the fetch changes nothing the status shows

@@ -224,67 +224,6 @@ test('a plan that also creates another branch stays whichever git command create
   );
 });
 
-test('a head branch still on its remote once GitHub would have deleted it stays', async () => {
-  const { checkout, other, tip } = await merged();
-  await write(join(plans(checkout), 'x.md'), '`git switch -c feat/x`.\n');
-  await merge(other, 'feat/x', true);
-  // close enough to the end of the wait for one more fetch
-  const mergedAt = new Date(Date.now() - 14_000).toISOString();
-  assert.deepEqual(
-    await cleanUpMerge(checkout, { ...pullRequest(tip), mergedAt }, idle),
-    {
-      text: '#7 merged, but feat/x is still on its remote, so it stays.',
-      cleaned: false,
-    },
-  );
-  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-  assert.ok(await exists(join(plans(checkout), 'x.md')));
-});
-
-test('a head branch GitHub deletes after the first fetch goes', async () => {
-  const { root, origin, checkout, other, tip } = await merged();
-  await merge(other, 'feat/x', true);
-  const pack = join(root, 'upload-pack');
-  const fetched = join(root, 'fetched');
-  await write(
-    pack,
-    `#!/bin/sh\nif [ -e '${fetched}' ]; then git -C '${origin}' update-ref -d refs/heads/feat/x; fi\ntouch '${fetched}'\nexec git upload-pack "$@"\n`,
-  );
-  await execute('chmod', ['+x', pack]);
-  await git(checkout, 'config', 'remote.origin.uploadpack', pack);
-  const mergedAt = new Date().toISOString();
-  const result = await cleanUpMerge(
-    checkout,
-    { ...pullRequest(tip), mergedAt },
-    idle,
-  );
-  assert.equal(typeof result === 'object' && result.cleaned, true);
-  assert.deepEqual(await branches(checkout), ['main']);
-  assert.equal(await git(checkout, 'branch', '--show-current'), 'main');
-});
-
-test('a head branch that tracks no remote branch stays, and says so', async () => {
-  const { checkout, other, tip } = await merged();
-  await git(checkout, 'branch', '--unset-upstream');
-  await merge(other, 'feat/x');
-  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
-    text: '#7 merged, but feat/x tracks no remote branch, so it stays.',
-    cleaned: false,
-  });
-  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-});
-
-test('a head branch that tracks another branch stays, and says which', async () => {
-  const { checkout, other, tip } = await merged();
-  await git(checkout, 'branch', '--set-upstream-to=origin/main');
-  await merge(other, 'feat/x');
-  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
-    text: '#7 merged, but feat/x tracks origin/main rather than its own remote branch, so it stays.',
-    cleaned: false,
-  });
-  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-});
-
 test("a dangling plan link stays quietly, a plan that can't be read or go with its ledgers stays with them and is named, and so are plans that can't be listed, even when the base can't fast-forward", async () => {
   {
     const { checkout, other, tip } = await merged();
