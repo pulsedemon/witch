@@ -32,14 +32,25 @@ test('process arguments preserve boundaries and omit exited processes', async (t
     env: { ...process.env, WITCH_ARGUMENTS_PROBE: 'must stay out of argv' },
   });
   const ended = once(child, 'close');
+  const empty = spawn('/bin/sleep', ['30'], {
+    argv0: '',
+    stdio: 'ignore',
+    env: { WITCH_ARGUMENTS_PROBE: 'must stay out of argv' },
+  });
+  const emptyEnded = once(empty, 'close');
   t.onTestFinished(async () => {
     child.kill();
+    empty.kill();
     await ended;
+    await emptyEnded;
   });
-  await once(child, 'spawn');
+  await Promise.all([once(child, 'spawn'), once(empty, 'spawn')]);
   assert.deepEqual(
-    await processArguments([child.pid!]),
-    new Map([[child.pid!, [process.execPath, ...args]]]),
+    await processArguments([child.pid!, empty.pid!]),
+    new Map([
+      [child.pid!, [process.execPath, ...args]],
+      [empty.pid!, ['', '30']],
+    ]),
   );
   child.kill();
   await ended;

@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { processArguments, ps } from '../persistence/process.js';
 import { quote } from '../shell.js';
+import { isEmacsDaemon } from './emacs.js';
 
 const mark = 'WITCH_JOBS';
 
@@ -335,13 +336,7 @@ export class JobWatch {
         )
       : new Map<number, string[]>();
     const daemons = new Set(
-      [...args]
-        .filter(
-          ([, argv]) =>
-            argv.some((arg) => /^--?(?:(?:bg|fg)-)?daemon(?:=|$)/.test(arg)) &&
-            !argv.some((arg) => /^(?:--?(?:batch|script)|-x)(?:=|$)/.test(arg)),
-        )
-        .map(([pid]) => pid),
+      [...args].filter(([, argv]) => isEmacsDaemon(argv)).map(([pid]) => pid),
     );
     const boundaries = rows.filter(
       ({ pid, name, identity }) =>

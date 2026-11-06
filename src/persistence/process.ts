@@ -24,7 +24,8 @@ for my $pid (@ARGV) {
   }
   my $count = unpack('i', $buffer);
   $buffer = substr($buffer, 4, unpack('Q', $size) - 4);
-  $buffer =~ s/^[^\\0]*\\0+//;
+  # the saved executable path is padded to eight bytes on 64-bit macOS.
+  $buffer = substr($buffer, (index($buffer, "\\0") + 8) & ~7);
   my @args = split(/\\0/, $buffer, -1);
   print join("\\0", $pid, $count, @args[0 .. $count - 1]), "\\0";
 }

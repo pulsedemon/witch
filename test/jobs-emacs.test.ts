@@ -13,6 +13,15 @@ test.each([
   { args: ['--script', 'check.el', ' --daemon '], managed: true },
   { args: ['-x', 'check.el', ' --daemon '], managed: true },
   { args: ['-Q', 'notes.txt'], managed: true },
+  { args: ['--fg-daemon=work', '-L', '--batch'], managed: false },
+  { args: ['--fg-daemo=work'], managed: false },
+  { args: ['--dae=work'], managed: false },
+  { args: ['--bg-daemo=work'], managed: false },
+  { args: ['--fg-daemon', '--directory=--batch'], managed: false },
+  { args: ['--fg-daemon', '--direc', '--batch'], managed: false },
+  { args: ['-Q', '-L', '--daemon'], managed: true },
+  { args: ['-Q', '--', '--daemon'], managed: true },
+  { args: ['--fg-daemon', '--', '--batch'], managed: false },
 ])(
   'Emacs arguments $args leave managed=$managed',
   async ({ args, managed }) => {
