@@ -30,7 +30,7 @@ import type {
   DisplayUpdate,
 } from '../src/core/state.js';
 import { scratch } from './fixtures/scratch.js';
-import { appears, until, within } from './fixtures/within.js';
+import { settled, appears, until, within } from './fixtures/within.js';
 
 function conversation(id: string, cwd = '/project'): Conversation {
   return {
@@ -586,15 +586,11 @@ test('a failed main stop retains the recovery lock until the usage helper stop s
         return kill(pid, signal);
       },
     );
-    let settled = false;
-    recovering = assert
-      .rejects(store.claim('usage-stop'), /Main stop failed/)
-      .finally(() => {
-        settled = true;
-      });
+    recovering = assert.rejects(store.claim('usage-stop'), /Main stop failed/);
+    const isSettled = settled(recovering);
     await signalled;
     assert.equal(await store.isOpen('usage-stop'), true);
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     const closed = once(helper, 'close');
     helper.stdin.write('finish');
     await recovering;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'vitest';
+import { writeJson } from '../src/persistence/json.js';
 import type { AgentEvent } from '../src/agents/types.js';
 import { fixture, close } from './fixtures/codex-adapter.js';
 import { within } from './fixtures/within.js';
@@ -45,8 +45,7 @@ test('native async question messages produce one shared request with choices and
         },
       },
     ];
-    await writeFile(join(cwd, 'events.next'), JSON.stringify(frames));
-    await rename(join(cwd, 'events.next'), join(cwd, 'events-1.json'));
+    await writeJson(join(cwd, 'events-1.json'), frames);
     assert.equal(
       (await within(sending, 3000, 'the question turn')).status,
       'completed',

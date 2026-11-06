@@ -31,6 +31,24 @@ import { pullRequest } from './fixtures/merged.js';
 const kept =
   "#7 merged, but feat/x's last commit isn't the one it merged, so it stays.";
 
+async function mergedOrigin(root: string, project: string, worktree = false) {
+  const origin = join(root, 'origin.git');
+  const install = worktree ? join(root, 'launcher') : project;
+  await git(root, 'init', '--bare', origin);
+  await git(root, 'clone', origin, install);
+  await git(install, 'commit', '--allow-empty', '-m', 'base');
+  await git(install, 'push', '-u', 'origin', 'main');
+  const base = await git(install, 'rev-parse', 'HEAD');
+  if (worktree) await git(install, 'worktree', 'add', '-b', 'feat/x', project);
+  else await git(project, 'switch', '-c', 'feat/x');
+  await git(project, 'commit', '--allow-empty', '-m', 'feature');
+  const tip = await git(project, 'rev-parse', 'HEAD');
+  await git(project, 'push', 'origin', 'feat/x:main');
+  await git(project, 'config', 'branch.feat/x.remote', 'origin');
+  await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+  return { origin, install, base, tip };
+}
+
 test('a merge cleanup holds the phase and spins the pentacle, a prompt sent during it runs after it, and its notice says what it did', async () => {
   const { coordinator, a, project } = await fixture();
   try {
@@ -307,17 +325,7 @@ test('a partial cleanup failure reaches the coordinator without a success notice
   const { coordinator, root, project } = await fixture();
   const previousPath = process.env.PATH;
   try {
-    const origin = join(root, 'origin.git');
-    await git(root, 'init', '--bare', origin);
-    await git(root, 'clone', origin, project);
-    await git(project, 'commit', '--allow-empty', '-m', 'base');
-    await git(project, 'push', '-u', 'origin', 'main');
-    await git(project, 'switch', '-c', 'feat/x');
-    await git(project, 'commit', '--allow-empty', '-m', 'feature');
-    const tip = await git(project, 'rev-parse', 'HEAD');
-    await git(project, 'push', 'origin', 'feat/x:main');
-    await git(project, 'config', 'branch.feat/x.remote', 'origin');
-    await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+    const { origin, tip } = await mergedOrigin(root, project);
     const expectedRevision = await git(origin, 'rev-parse', 'main');
     const bin = join(root, 'bin');
     const realGit = (
@@ -470,17 +478,7 @@ test("a merge cleanup stops before switching when another Witch's turn starts in
   const previousPath = process.env.PATH;
   let sending: Promise<void> | undefined;
   try {
-    const origin = join(root, 'origin.git');
-    await git(root, 'init', '--bare', origin);
-    await git(root, 'clone', origin, project);
-    await git(project, 'commit', '--allow-empty', '-m', 'base');
-    await git(project, 'push', '-u', 'origin', 'main');
-    await git(project, 'switch', '-c', 'feat/x');
-    await git(project, 'commit', '--allow-empty', '-m', 'feature');
-    const tip = await git(project, 'rev-parse', 'HEAD');
-    await git(project, 'push', 'origin', 'feat/x:main');
-    await git(project, 'config', 'branch.feat/x.remote', 'origin');
-    await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+    const { tip } = await mergedOrigin(root, project);
     await other.initialize(project);
     const bin = join(root, 'bin');
     const realGit = (
@@ -535,20 +533,11 @@ async function interruptedCleanup(
   worktree = false,
 ) {
   const { coordinator, root, project } = await fixture();
-  const origin = join(root, 'origin.git');
-  const install = worktree ? join(root, 'launcher') : project;
-  await git(root, 'init', '--bare', origin);
-  await git(root, 'clone', origin, install);
-  await git(install, 'commit', '--allow-empty', '-m', 'base');
-  await git(install, 'push', '-u', 'origin', 'main');
-  const base = await git(install, 'rev-parse', 'HEAD');
-  if (worktree) await git(install, 'worktree', 'add', '-b', 'feat/x', project);
-  else await git(project, 'switch', '-c', 'feat/x');
-  await git(project, 'commit', '--allow-empty', '-m', 'feature');
-  const tip = await git(project, 'rev-parse', 'HEAD');
-  await git(project, 'push', 'origin', 'feat/x:main');
-  await git(project, 'config', 'branch.feat/x.remote', 'origin');
-  await git(project, 'config', 'branch.feat/x.merge', 'refs/heads/feat/x');
+  const { origin, install, base, tip } = await mergedOrigin(
+    root,
+    project,
+    worktree,
+  );
   await git(project, 'branch', 'feat/y', 'main');
   await git(project, 'config', 'branch.feat/y.remote', 'origin');
   await git(project, 'config', 'branch.feat/y.merge', 'refs/heads/feat/y');

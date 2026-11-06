@@ -5,7 +5,7 @@ import { test } from 'vitest';
 import type { AgentEvent } from '../src/agents/types.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { close, fixture, frameWriter } from './fixtures/codex-adapter.js';
-import { until, within } from './fixtures/within.js';
+import { settled, until, within } from './fixtures/within.js';
 
 async function scripted() {
   const events: AgentEvent[] = [];
@@ -14,11 +14,8 @@ async function scripted() {
     events.some((e) => e.type === 'notice' && e.text === text),
   );
   const compact = async () => {
-    let settled = false;
-    const result = f.session.compact().then((r) => {
-      settled = true;
-      return r;
-    });
+    const result = f.session.compact();
+    const isSettled = settled(result);
     await until('compact request', async () =>
       readFile(join(f.cwd, 'compact.json'), 'utf8').then(
         (s) => {
@@ -29,7 +26,7 @@ async function scripted() {
       ),
     );
     await emit();
-    return { result, settled: () => settled };
+    return { result, settled: isSettled };
   };
   return { ...f, events, emit, compact };
 }

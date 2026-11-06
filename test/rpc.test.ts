@@ -10,7 +10,7 @@ import { CodexAdapter } from '../src/agents/codex.js';
 import { JsonRpc } from '../src/agents/json-rpc.js';
 import type { RpcMessage } from '../src/agents/json-rpc.js';
 import { scratch } from './fixtures/scratch.js';
-import { within } from './fixtures/within.js';
+import { settled, within } from './fixtures/within.js';
 
 function server(ignoreTerm = false) {
   return spawn(
@@ -127,16 +127,10 @@ test('reads a final reply without a newline when stdout ends', async () => {
   const child = server();
   const rpc = new JsonRpc(child);
   const reply = rpc.request('hold', {});
-  let settled = false;
-  void reply.then(
-    () => {
-      settled = true;
-    },
-    () => {},
-  );
+  const isSettled = settled(reply);
   try {
     await write(child, rpc, Buffer.from('{"id":1,"result":"final"}'));
-    assert.equal(settled, false);
+    assert.equal(isSettled(), false);
     rpc.notify('end', {});
     assert.equal(await within(reply, 2000, 'the final reply'), 'final');
   } finally {
