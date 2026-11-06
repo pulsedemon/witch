@@ -31,14 +31,18 @@ interface NativeCompaction {
   afterOutput?: boolean;
 }
 
-interface Entry {
-  kind: string;
+type Entry = {
   text: string;
-  /** absent on rows older than history timestamps. */
-  at?: string;
   /** the runtime that wrote a reply. */
   agent?: string;
-}
+} & (
+  | { kind: 'compaction'; at: string }
+  | {
+      kind: 'user' | 'assistant' | 'cleared';
+      /** absent on rows older than history timestamps. */
+      at?: string;
+    }
+);
 
 /** a missing file or directory reads as the fallback; any other failure stops the run. */
 function absent<T>(fallback: T): (error: NodeJS.ErrnoException) => T {
@@ -255,8 +259,19 @@ async function transcript(file: string): Promise<Entry[]> {
         kind !== 'cleared'
       )
         continue;
-      // old rows carry no time to match a compaction by
-      if (!row.at && kind === 'compaction') continue;
+      let entry: Entry;
+      if (kind === 'compaction') {
+        // old rows carry no time to match a compaction by
+        if (!row.at) continue;
+        entry = { kind, text: row.text ?? '', at: row.at };
+      } else {
+        entry = {
+          kind,
+          text: row.text ?? '',
+          at: row.at,
+          agent: row.kind === 'assistant' ? row.title : undefined,
+        };
+      }
       const known = row.id ? byId.get(row.id) : undefined;
       if (known) {
         if (row.unread) unread.add(known);
@@ -266,12 +281,6 @@ async function transcript(file: string): Promise<Entry[]> {
           : known.text + (row.text ?? '');
         continue;
       }
-      const entry: Entry = {
-        kind,
-        text: row.text ?? '',
-        at: row.at,
-        agent: row.kind === 'assistant' ? row.title : undefined,
-      };
       if (row.id) byId.set(row.id, entry);
       entries.push(entry);
     }
@@ -374,7 +383,7 @@ const notices = read.flatMap(({ id, sessions, entries }) => {
       index,
       cleared,
       end,
-      at: Date.parse(entry.at!),
+      at: Date.parse(entry.at),
       agent,
       current: agent ? sessions[agent]?.id : undefined,
       native: undefined as NativeCompaction | undefined,

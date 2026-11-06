@@ -496,6 +496,30 @@ test('classifies compactions by runtime and trigger and bounds their packets', a
   assert.ok(!midTurnPacket.after.includes('p2 after clear'));
 });
 
+test('matches compactions just inside either one-minute boundary but not at it', async () => {
+  const home = await scratch('witch-compaction-cases-');
+  const candidates = [
+    ['before-inside', 100, 40.001, 100],
+    ['before-boundary', 300, 240, undefined],
+    ['after-inside', 500, 559.999, 500],
+    ['after-boundary', 700, 760, undefined],
+  ] as const;
+  for (const [id, seconds, nativeAt] of candidates) {
+    await conversation(home, id, { claude: { id } }, [
+      ['user', 'task', seconds - 90],
+      ['notice', compacted, seconds],
+      ['assistant', 'reply', seconds + 90, 'claude'],
+    ]);
+    await jsonl(join(home, '.claude', 'projects', 'project', `${id}.jsonl`), [
+      boundary(id, nativeAt, 'manual', seconds),
+    ]);
+  }
+
+  const { find } = await extract(home);
+  for (const [id, seconds, , tokens] of candidates)
+    assert.equal(find(id, seconds).tokens, tokens, id);
+});
+
 test('stops on a malformed row before the last one', async () => {
   const home = await scratch('witch-compaction-cases-');
   const dir = join(home, '.witch', 'conversations', 'broken');
