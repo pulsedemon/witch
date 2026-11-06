@@ -10,7 +10,11 @@ import { openLocked } from './lock.js';
 
 const execute = promisify(execFile);
 
-const identitySchema = z.object({ device: z.string(), inode: z.string() });
+const identitySchema = z.object({
+  device: z.string(),
+  inode: z.string(),
+  birthtimeNs: z.string().optional(),
+});
 const entrySchema = identitySchema.extend({
   path: z.string(),
   main: z.string().optional(),
@@ -61,13 +65,26 @@ export const present = async (path: string) =>
   (await identify(path)) !== undefined;
 
 export function sameIdentity(a: Identity, b: Identity | undefined): boolean {
-  return a.device === b?.device && a.inode === b.inode;
+  return (
+    a.device === b?.device &&
+    a.inode === b.inode &&
+    // macOS timestamp restoration can backdate creation; a reused inode is newer
+    (a.birthtimeNs === undefined ||
+      (b.birthtimeNs !== undefined &&
+        BigInt(b.birthtimeNs) <= BigInt(a.birthtimeNs)))
+  );
 }
 
 /** undefined for a path that's gone. */
 export async function identify(path: string): Promise<Identity | undefined> {
   const found = await unlessGone(stat(path, { bigint: true }));
-  return found && { device: String(found.dev), inode: String(found.ino) };
+  return (
+    found && {
+      device: String(found.dev),
+      inode: String(found.ino),
+      birthtimeNs: String(found.birthtimeNs),
+    }
+  );
 }
 
 /**
@@ -88,6 +105,7 @@ export async function adoptIdentity(
   }
   entry.device = identity.device;
   entry.inode = identity.inode;
+  entry.birthtimeNs = identity.birthtimeNs;
   return true;
 }
 
@@ -361,6 +379,7 @@ export async function findMoves(
       to,
       device: entry.device,
       inode: entry.inode,
+      birthtimeNs: entry.birthtimeNs,
     };
     moves.push(move);
     const parent = dirname(move.from);
@@ -563,7 +582,8 @@ export async function resolve(
   moves: ReadonlyArray<Move & Identity>,
   prompts: number,
 ): Promise<void> {
-  const key = ({ device, inode }: Identity) => `${device}\0${inode}`;
+  const key = ({ device, inode, birthtimeNs }: Identity) =>
+    `${device}\0${inode}\0${birthtimeNs ?? ''}`;
   const newest = new Map(ledger.moves.map((move) => [key(move), move]));
   const entries = entryIndex(
     ledger,
