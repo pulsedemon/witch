@@ -26,7 +26,8 @@ import { StateStore } from '../src/persistence/store.js';
 import { TranscriptLayout } from '../src/ui/transcript-layout.js';
 import { TurnGate } from './fixtures/agent.js';
 import { jsonLines, launcher } from './fixtures/claude-adapter.js';
-import { readRecord, fixture } from './fixtures/coordinator.js';
+import { unitFixture as fixture, readRecord } from './fixtures/coordinator.js';
+import { fixture as integrationFixture } from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import { scratch } from './fixtures/scratch.js';
 import { seededMemory } from './fixtures/seeded-memory.js';
@@ -640,7 +641,7 @@ test('close releases the conversation when its disconnect throws', async () => {
 });
 
 test('close rejects with a publish failure and still closes the session and the conversation', async () => {
-  const { coordinator, a, hook, store } = await fixture();
+  const { coordinator, a, hook, store } = await integrationFixture();
   a.interruptNext = true;
   await coordinator.send('remember-port');
   const id = coordinator.snapshot.conversation!.id;
@@ -803,7 +804,7 @@ test('an idle tool timer write failure needs a restart without another operation
 });
 
 test('a git failure in settle tells the user to restart before continuing', async () => {
-  const { coordinator, a, hook } = await fixture();
+  const { coordinator, a, hook } = await integrationFixture();
   const gate = new TurnGate();
   try {
     await coordinator.send('Start');

@@ -22,7 +22,7 @@ import { openLocked } from '../src/persistence/lock.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   git,
   legacyLock,
   measureControl,
@@ -37,7 +37,7 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 test('discovery batches conversation ownership and keeps only open peers', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-  const { root, start, store } = await coordinationFixture(cleanup);
+  const { root, start, store } = await unitCoordinationFixture(cleanup);
   cleanup(() => {
     vi.useRealTimers();
   });
@@ -90,7 +90,7 @@ test('discovery batches conversation ownership and keeps only open peers', async
 test('idle discovery without peers probes only conversation ownership', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   cleanup(() => {
     vi.useRealTimers();
   });
@@ -101,7 +101,7 @@ test('idle discovery without peers probes only conversation ownership', async (t
 
 test('clones expose current task metadata without themselves or another project, and token-only updates do not write presence', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, registry } = await coordinationFixture(cleanup);
+  const { root, start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const b = await start('B');
   await start('C');
@@ -148,7 +148,7 @@ test('clones expose current task metadata without themselves or another project,
 
 test('in-place title, cwd and agent changes publish without a phase change', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, registry } = await coordinationFixture(cleanup);
+  const { root, start, registry } = await unitCoordinationFixture(cleanup);
   const { coordinator, coordination } = await start();
   const snapshot = coordinator.snapshot;
   const conversation = snapshot.conversation!;
@@ -176,7 +176,7 @@ for (const assignmentFails of [false, true]) {
   test(`a granted claim survives final cleanup failure ${assignmentFails ? 'with an assignment warning' : 'after successful assignment'}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     let pending: Promise<void> | undefined;
-    const { start, registry } = await coordinationFixture(
+    const { start, registry } = await unitCoordinationFixture(
       cleanup,
       async (references) => {
         pending = owner.coordination.endTurn().catch(() => {});
@@ -231,10 +231,13 @@ for (const assignmentFails of [false, true]) {
 test('pre-claim cleanup failure still refuses new ownership', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   let assignments = 0;
-  const { start, registry } = await coordinationFixture(cleanup, async () => {
-    assignments++;
-    return { assigned: [] };
-  });
+  const { start, registry } = await unitCoordinationFixture(
+    cleanup,
+    async () => {
+      assignments++;
+      return { assigned: [] };
+    },
+  );
   const owner = await start();
   const turn = await selectionTurn(cleanup, owner);
   const cancelling = vi
@@ -258,7 +261,7 @@ test('pre-claim cleanup failure still refuses new ownership', async (t) => {
 for (const failures of [1, 2]) {
   test(`presence publication recovers after ${failures} failed ${failures === 1 ? 'write' : 'writes'} without another state update`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-    const { start, registry } = await coordinationFixture(cleanup);
+    const { start, registry } = await unitCoordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const bound = await a.binding();
@@ -326,7 +329,7 @@ for (const failures of [1, 2]) {
 
 test('a slow presence retry preserves newer state without accumulating retries', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const bound = await a.binding();
@@ -417,7 +420,7 @@ test('a slow presence retry preserves newer state without accumulating retries',
 for (const action of ['switch', 'close'] as const) {
   test(`a presence retry cannot republish an activation after ${action}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-    const { start, registry } = await coordinationFixture(cleanup);
+    const { start, registry } = await unitCoordinationFixture(cleanup);
     const a = await start();
     const bound = await a.binding();
     await until('initial idle presence', async () =>
@@ -500,7 +503,7 @@ for (const action of ['switch', 'close'] as const) {
 
 test('waiting and idle background work stay visible and retain ownership through refusal, failure and interruption', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, ledger } = await coordinationFixture(cleanup);
+  const { start, ledger } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.claim();
@@ -571,7 +574,7 @@ test('waiting and idle background work stay visible and retain ownership through
 
 test('task counts, pentacle and release follow running work', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   assert.equal((await a.claim()).kind, 'claimed');
@@ -624,7 +627,8 @@ test('task counts, pentacle and release follow running work', async (t) => {
 
 test('a live legacy owner blocks new work until its lock closes, and a reused identity is never treated as registered', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, store, registry } = await coordinationFixture(cleanup);
+  const { root, start, store, registry } =
+    await unitCoordinationFixture(cleanup);
   const a = await start();
   // select-next refuses while the legacy lock is held, so the ticket comes first
   const choosing = await selectionTurn(cleanup, a);
@@ -667,7 +671,7 @@ for (const name of ['B', 'C']) {
   test(`a missing directory in ${name === 'B' ? 'the same' : 'another'} project preserves claims without blocking discovery or selection`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     const { root, start, store, memory, registry } =
-      await coordinationFixture(cleanup);
+      await unitCoordinationFixture(cleanup);
     const a = await start();
     const choosing = await selectionTurn(cleanup, a);
     const cwd = join(root, name);
@@ -718,7 +722,7 @@ for (const failure of [
   test(`${failure.code} from ${failure.syscall} still blocks discovery and new ownership`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     const { root, start, store, memory, registry } =
-      await coordinationFixture(cleanup);
+      await unitCoordinationFixture(cleanup);
     const a = await start();
     const choosing = await selectionTurn(cleanup, a);
     const cwd = join(root, 'B');
@@ -748,7 +752,7 @@ for (const failure of [
 
 test('closing a conversation releases its claim even if its stale presence says it runs', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const result = await a.claim();
@@ -766,7 +770,7 @@ test('closing a conversation releases its claim even if its stale presence says 
 
 test('a failed presence removal cannot register a later legacy lock owner', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, store, registry } = await coordinationFixture(cleanup);
+  const { start, store, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const old = await a.binding();
@@ -805,7 +809,7 @@ test('a failed presence removal cannot register a later legacy lock owner', asyn
 for (const window of ['opening', 'closing', 'reconnecting'] as const) {
   test(`a peer ${window} a conversation neither refuses a claim nor ends a selection wait`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-    const { start, store, registry } = await coordinationFixture(cleanup);
+    const { start, store, registry } = await unitCoordinationFixture(cleanup);
     const a = await start(),
       b = await start('B');
     const choosing = await selectionTurn(cleanup, a);
@@ -864,7 +868,7 @@ for (const window of ['opening', 'closing', 'reconnecting'] as const) {
 test('unknown discovery refuses both a successful query and new ownership', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start, store, registry } = await coordinationFixture(cleanup);
+  const { start, store, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const id = randomUUID();
   const directory = join(store.root, 'conversations', id);
@@ -892,7 +896,8 @@ test('unknown discovery refuses both a successful query and new ownership', asyn
 
 test('an origin change leaves a discoverable reservation in the original project until explicit release', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, ledger, registry } = await coordinationFixture(cleanup);
+  const { root, start, ledger, registry } =
+    await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const result = await a.claim();
@@ -944,7 +949,7 @@ test('an origin change leaves a discoverable reservation in the original project
 
 test('closing rejects a mutation waiting for the ledger and drains one already committing', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, store, registry } = await coordinationFixture(cleanup);
+  const { start, store, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const bound = await a.binding();
   const lock = await openLocked(
@@ -1033,7 +1038,7 @@ test('closing rejects a mutation waiting for the ledger and drains one already c
 
 test('a delayed presence writer drains before replacement activation publishes', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const bound = await a.binding();
   const entered = Promise.withResolvers<void>(),
@@ -1095,7 +1100,7 @@ for (const size of [1, 8])
       const cleanup = orderedCleanup(t.onTestFinished);
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
       const { root, start, store, registry } =
-        await coordinationFixture(cleanup);
+        await unitCoordinationFixture(cleanup);
       cleanup(() => {
         vi.useRealTimers();
       });
@@ -1255,7 +1260,7 @@ for (const damage of ['JSON', 'EACCES'])
         async (t) => {
           const cleanup = orderedCleanup(t.onTestFinished);
           const { start, store, root, ledger, registry } =
-            await coordinationFixture(cleanup);
+            await unitCoordinationFixture(cleanup);
           const a = await start();
           await files.writeFile(
             join(store.root, 'coordination', 'claims.json'),

@@ -8,13 +8,13 @@ import type { GitHubReviews } from '../../src/core/github-reviews.js';
 import type { ReviewResult } from '../../src/core/copilot-reviews.js';
 import { conversationRecordSchema } from '../../src/core/state.js';
 import { orderedCleanup } from './cleanup.js';
-import { coordinationFixture, git } from './coordination.js';
+import { unitCoordinationFixture, git } from './coordination.js';
 import { reviewSource } from './github-reviews.js';
 import { scratch } from './scratch.js';
 import { until } from './within.js';
 import { repositoryRead } from './repository.js';
 
-type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
+type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;
 type Client = Awaited<ReturnType<Fixture['start']>>;
 
 export async function record(f: Fixture, client: Client) {
@@ -44,7 +44,7 @@ export async function setup(t: TestContext) {
     async (pr, commit) =>
       pr.commit === 'b'.repeat(40) && commit === 'b'.repeat(40),
   );
-  const f = await coordinationFixture(register, async (references) => ({
+  const f = await unitCoordinationFixture(register, async (references) => ({
     assigned: references,
   }));
   const packets = await scratch('witch-review-packets-');

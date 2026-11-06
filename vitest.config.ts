@@ -7,6 +7,7 @@ const ui = fileURLToPath(new URL('./src/ui/', import.meta.url));
 const configFile = fileURLToPath(new URL('./babel.config.js', import.meta.url));
 // keep above the slowest case, so a hang fails naming its test instead of running to ci's job limit
 const timeout = 60_000;
+const workers = Math.min(8, availableParallelism());
 
 export default defineConfig({
   plugins: [
@@ -30,7 +31,7 @@ export default defineConfig({
       ...configDefaults.forceRerunTriggers,
       '**/test/fixtures/**',
     ],
-    maxWorkers: Math.min(8, availableParallelism()),
+    maxWorkers: process.platform === 'darwin' ? workers + 2 : workers,
     environment: 'node',
     pool: 'forks',
     isolate: true,

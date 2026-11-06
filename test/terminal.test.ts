@@ -10,7 +10,7 @@ import type { Snapshot } from '../src/core/snapshot.js';
 import { watchTerminal } from '../src/ui/terminal.js';
 import {
   record,
-  fixture as coordinatorFixture,
+  unitFixture as coordinatorFixture,
 } from './fixtures/coordinator.js';
 
 function source<T>(snapshot: T) {

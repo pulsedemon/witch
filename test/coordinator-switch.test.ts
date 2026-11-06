@@ -10,11 +10,16 @@ import type { SessionInfo } from '../src/agents/types.js';
 import type { ConversationRecord } from '../src/core/state.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-import { record, readRecord, fixture } from './fixtures/coordinator.js';
+import {
+  record,
+  readRecord,
+  fixture,
+  unitFixture,
+} from './fixtures/coordinator.js';
 import { until, within } from './fixtures/within.js';
 
 test('handoff returns to the original native session with updated context, and a switch to the current or an uninstalled agent sends nothing', async () => {
-  const { coordinator, a, b } = await fixture();
+  const { coordinator, a, b } = await unitFixture();
   try {
     await coordinator.send(' Start the migration\n');
     const original = a.inputs[0]!.session;
@@ -48,7 +53,7 @@ test('handoff returns to the original native session with updated context, and a
 for (const status of ['completed', 'interrupted', 'failed'] as const)
   for (const restart of [false, true])
     test(`handoff after a ${status} ordinary turn${restart ? ' survives restart' : ''}`, async () => {
-      const f = await fixture();
+      const f = await unitFixture();
       let coordinator = f.coordinator;
       const gate = new TurnGate();
       let switching: Promise<void> | undefined;
@@ -98,7 +103,7 @@ for (const status of ['completed', 'interrupted', 'failed'] as const)
     });
 
 test('a legacy conversation with history defers its handoff until the next prompt', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   let coordinator = f.coordinator;
   try {
     await coordinator.send('Existing conversation');
@@ -128,7 +133,7 @@ test('a legacy conversation with history defers its handoff until the next promp
 });
 
 test('destination startup failure retains the source conversation and session', async () => {
-  const { coordinator, a, b, root } = await fixture();
+  const { coordinator, a, b, root } = await unitFixture();
   try {
     await coordinator.send('Start');
     b.failConnect = true;
@@ -149,7 +154,7 @@ test('destination startup failure retains the source conversation and session', 
 for (const resumed of [false, true])
   for (const effort of ['high', undefined])
     test(`${resumed ? 'resumed' : 'first'} handoff dispatch uses the selected model and ${effort ?? 'destination'} effort`, async () => {
-      const { coordinator, a, b, root } = await fixture();
+      const { coordinator, a, b, root } = await unitFixture();
       const dispatched: SessionInfo[] = [];
       try {
         if (resumed) {
@@ -209,7 +214,7 @@ for (const resumed of [false, true])
 for (const prior of [false, true])
   for (const cancel of [false, true])
     test(`${cancel ? 'interrupted' : 'rejected'} destination selection restores ${prior ? 'the prior preference' : 'an absent destination'} before activation`, async () => {
-      const { coordinator, a, b, root } = await fixture();
+      const { coordinator, a, b, root } = await unitFixture();
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
       let switching: Promise<void> | undefined;
@@ -281,7 +286,7 @@ for (const prior of [false, true])
     });
 
 test('handoff preference and activation are durable together before continuation', async () => {
-  const { coordinator, a, b, root, reopen } = await fixture();
+  const { coordinator, a, b, root, reopen } = await unitFixture();
   const beforeReady = Promise.withResolvers<void>(),
     afterReady = Promise.withResolvers<void>();
   const activate = Promise.withResolvers<void>(),
@@ -371,7 +376,7 @@ test('handoff preference and activation are durable together before continuation
 });
 
 test('failed destination shutdown preserves the handoff error and persists pre-activation rollback', async () => {
-  const { coordinator, a, b, root } = await fixture();
+  const { coordinator, a, b, root } = await unitFixture();
   try {
     await coordinator.send('Start');
     const source = coordinator.snapshot.native!.id;
@@ -421,7 +426,7 @@ for (const stage of [
       b,
       project,
       reopen,
-    } = await fixture();
+    } = await unitFixture();
     const id = original.snapshot.conversation!.id;
     await original.close();
     const activated = ['activated', 'continuing', 'completed'].includes(stage);
@@ -500,7 +505,7 @@ test('undelivered handoff context survives visiting another conversation and cle
     b,
     project,
     reopen,
-  } = await fixture();
+  } = await unitFixture();
   const id = original.snapshot.conversation!.id;
   await original.close();
   const files = await store.claim(id);
@@ -550,7 +555,7 @@ test('undelivered handoff context survives visiting another conversation and cle
 
 for (const reason of ['held', 'bad history'] as const) {
   test(`a switch to a conversation with ${reason} keeps the current conversation, session and lock`, async () => {
-    const { coordinator, store, a, root, project } = await fixture();
+    const { coordinator, store, a, root, project } = await unitFixture();
     const target = await store.create(record(randomUUID(), project));
     try {
       await coordinator.send('Start');
@@ -590,7 +595,7 @@ for (const reason of ['held', 'bad history'] as const) {
 }
 
 test('selecting the current conversation keeps its session and claim', async () => {
-  const { coordinator, store, a } = await fixture();
+  const { coordinator, store, a } = await unitFixture();
   try {
     await coordinator.send('Start');
     const current = coordinator.snapshot.conversation!.id;
@@ -607,7 +612,7 @@ test('selecting the current conversation keeps its session and claim', async () 
 });
 
 async function failedCloseSwitch() {
-  const context = await fixture();
+  const context = await unitFixture();
   const { coordinator, store, a, project } = context;
   await coordinator.send('Start');
   const previous = coordinator.snapshot.conversation!.id;
@@ -683,7 +688,7 @@ test('a late event from a released session reaches neither conversation', async 
 });
 
 test('switching between conversations on one agent connects a fresh native session', async () => {
-  const { coordinator, a, root } = await fixture();
+  const { coordinator, a, root } = await unitFixture();
   try {
     await coordinator.send('First');
     const first = coordinator.snapshot.conversation!.id;
@@ -698,8 +703,8 @@ test('switching between conversations on one agent connects a fresh native sessi
 });
 
 /** a conversation on agent a with one turn, ready to hand off to b. */
-async function handoffFixture() {
-  const context = await fixture();
+async function handoffFixture(createFixture = unitFixture) {
+  const context = await createFixture();
   await context.coordinator.send('Start the migration');
   const source = context.a.inputs[0]!.session;
   const assertSourceActive = async () => {
@@ -789,7 +794,7 @@ test('a handoff cancelled during the destination connect keeps the source', asyn
 });
 
 test('a handoff cancelled while saving its connection starts no catalog discovery', async () => {
-  const { coordinator, a, b } = await fixture();
+  const { coordinator, a, b } = await unitFixture();
   const entered = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
   const save = ConversationStore.prototype.save;
@@ -919,7 +924,7 @@ test('a /model switch whose summary fails activates with transcript context and 
 });
 
 test('a /model switch whose failed summary leaves memory pending keeps the source', async () => {
-  const { coordinator, a, b } = await handoffFixture();
+  const { coordinator, a, b } = await handoffFixture(fixture);
   try {
     const { session, options } = a.sessions.at(-1)!;
     const send = session.send.bind(session);

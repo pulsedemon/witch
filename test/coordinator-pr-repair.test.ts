@@ -14,8 +14,8 @@ import { callControl } from '../src/persistence/control.js';
 import { TurnGate } from './fixtures/agent.js';
 import { reviewSource } from './fixtures/github-reviews.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
-import { fixture, notices } from './fixtures/coordinator.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import { unitFixture, notices } from './fixtures/coordinator.js';
+import { unitCoordinationFixture, git } from './fixtures/coordination.js';
 import { until, within } from './fixtures/within.js';
 import { record as savedRecord } from './fixtures/copilot-reviews.js';
 import {
@@ -24,7 +24,7 @@ import {
 } from './fixtures/repository.js';
 
 test("every turn carries the branch's pull request conflict until it clears", async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     const pullRequest = openPullRequest({ mergeable: 'CONFLICTING' });
     f.coordinator.conflict = { pullRequest, baseTip: 'f00' };
@@ -53,7 +53,7 @@ const repairPrefix = 'Witch started this turn to repair the merge conflict';
 /** a session that claims pull request #7 on `feat/x`, with a way to feed it repository reads. */
 async function setup(t: TestContext, name = 'A') {
   const register = orderedCleanup(t.onTestFinished);
-  const f = await coordinationFixture(register, async (references) => ({
+  const f = await unitCoordinationFixture(register, async (references) => ({
     assigned: references,
   }));
   const x = await f.start(name);
@@ -808,7 +808,7 @@ test('unbinding the conflict watch during its refresh prevents admission', async
 for (const mergeable of ['MERGEABLE', 'CONFLICTING'] as const) {
   test(`the wired watch reads the pushed head before admission: ${mergeable}`, async (t) => {
     const register = orderedCleanup(t.onTestFinished);
-    const f = await coordinationFixture(register, async (references) => ({
+    const f = await unitCoordinationFixture(register, async (references) => ({
       assigned: references,
     }));
     const x = await f.start();

@@ -4,11 +4,11 @@ import type { BackgroundCommand, Model } from '../src/agents/types.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import { ConversationStore } from '../src/persistence/store.js';
 import { TurnGate } from './fixtures/agent.js';
-import { fixture, readRecord } from './fixtures/coordinator.js';
+import { unitFixture, readRecord } from './fixtures/coordinator.js';
 import { settled, until, within } from './fixtures/within.js';
 
 test('interrupting inactive model discovery keeps the connected session', async () => {
-  const { coordinator, a, b, root } = await fixture(undefined, (a) => {
+  const { coordinator, a, b, root } = await unitFixture(undefined, (a) => {
     a.connectUsage = { context: 0.75 };
     a.skills = [{ name: 'spell', description: 'Current spell' }];
   });
@@ -107,7 +107,7 @@ test('interrupting inactive model discovery keeps the connected session', async 
 });
 
 test('interrupting an active model read discards its result', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const entered = Promise.withResolvers<void>();
   const models = Promise.withResolvers<Model[]>();
   let refreshing: Promise<boolean> | undefined;
@@ -143,7 +143,7 @@ test('interrupting an active model read discards its result', async () => {
 });
 
 test('a queued turn cannot turn a canceled refresh into a successful result', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const gate = new TurnGate();
@@ -183,7 +183,7 @@ test('a queued turn cannot turn a canceled refresh into a successful result', as
 });
 
 test('interrupting model refresh settlement keeps the session and cancels the picker', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const flush = ConversationStore.prototype.flush;
@@ -218,7 +218,7 @@ test('interrupting model refresh settlement keeps the session and cancels the pi
 });
 
 test('the snapshot carries the family aliases read at connect and again on a model refresh', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.latest = async () => ({ opus: 'a-opus-2' });
   });
   try {

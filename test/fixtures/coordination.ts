@@ -19,6 +19,8 @@ import { StateStore } from '../../src/persistence/store.js';
 import { FixtureAgent } from './agent.js';
 import { scratch } from './scratch.js';
 import { seededMemory } from './seeded-memory.js';
+import { EmptyMemory } from './empty-memory.js';
+import { ephemeralFiles } from './ephemeral-files.js';
 import type { RegisterCleanup } from './cleanup.js';
 
 const execute = promisify(execFile);
@@ -107,8 +109,10 @@ export async function coordinationFixture(
   assign: Parameters<typeof SessionCoordination.open>[4] = async () => ({
     assigned: [],
   }),
+  unit = false,
 ) {
   const root = await scratch('witch-coordination-');
+  if (unit) ephemeralFiles(root);
   await cp(await (repositories ??= template()), root, { recursive: true });
   // C's copied origin still names the template's `other`
   await git(
@@ -120,7 +124,10 @@ export async function coordinationFixture(
     join(root, 'other'),
   );
   const store = await StateStore.open(join(root, 'state'));
-  const memory = await seededMemory(join(store.root, 'memory.git'));
+  const memoryRoot = join(store.root, 'memory.git');
+  const memory = unit
+    ? new EmptyMemory(memoryRoot)
+    : await seededMemory(memoryRoot);
   const registry = await CoordinationStore.open(store);
   const clients: Coordinator[] = [];
   register(async () => {
@@ -196,6 +203,14 @@ export async function coordinationFixture(
     ledger,
     checkout: (name: string) => checkout(join(root, name)),
   };
+}
+
+/** unit cases keep repository lookup, state files and locks; persistence integration requires the real fixture. */
+export function unitCoordinationFixture(
+  register: Parameters<typeof coordinationFixture>[0],
+  assign?: Parameters<typeof coordinationFixture>[1],
+) {
+  return coordinationFixture(register, assign, true);
 }
 
 /** lets the coordination lock be taken, then moves the clock past the deadline it was given. */

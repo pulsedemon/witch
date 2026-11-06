@@ -6,13 +6,13 @@ import { CoordinationStore } from '../src/persistence/coordination.js';
 import { callControl } from '../src/persistence/control.js';
 import type { ControlOutcome } from '../src/persistence/control.js';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 
 type Client = Awaited<
-  ReturnType<Awaited<ReturnType<typeof coordinationFixture>>['start']>
+  ReturnType<Awaited<ReturnType<typeof unitCoordinationFixture>>['start']>
 >;
 
 async function claimed(client: Client, name: string) {
@@ -57,7 +57,7 @@ test('asks need a live same-project owner that supports requests', async (t) => 
     if (presence.cwd.endsWith('/B')) delete older.peerRequests;
     return publish.call(this, older);
   });
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B'),
     c = await start('C');
@@ -94,7 +94,7 @@ test('asks need a live same-project owner that supports requests', async (t) => 
 test('a repeated ask returns the pending request', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const owned = await claimed(b, 'b');
@@ -127,7 +127,7 @@ test('a repeated ask returns the pending request', async (t) => {
 test('only the parties read a request', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start, registry } = await coordinationFixture(cleanup);
+  const { start, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B'),
     third = await start();

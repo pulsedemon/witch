@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import type { AgentSession } from '../src/agents/types.js';
 import type { Coordinator } from '../src/core/coordinator.js';
-import { fixture, readRecord } from './fixtures/coordinator.js';
+import { fixture, unitFixture, readRecord } from './fixtures/coordinator.js';
 import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { until, within } from './fixtures/within.js';
 
@@ -65,7 +65,7 @@ test('clear starts a new native session while retaining the conversation, settin
 });
 
 test('clear reapplies reported default model and effort before the next turn', async () => {
-  const f = await fixture(undefined, (a) => {
+  const f = await unitFixture(undefined, (a) => {
     const connect = a.connect.bind(a);
     a.connect = async (options) => {
       const session = await connect(options);
@@ -97,7 +97,7 @@ test('clear reapplies reported default model and effort before the next turn', a
 });
 
 test("clear preserves the resolved model, even one the agent wouldn't offer, without replacing its saved alias", async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     await f.coordinator.selectModel({
       agent: 'a',
@@ -124,7 +124,7 @@ test("clear preserves the resolved model, even one the agent wouldn't offer, wit
 });
 
 test('clear survives reopening and discards both runtime histories and unfinished handoff state', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   let c = f.coordinator;
   try {
     await c.send('old a history');
@@ -194,7 +194,7 @@ async function recoverOutput(
 }
 
 test('clear drops recovered and close-time output only for its own conversation', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const c = f.coordinator;
   try {
     const original = c.snapshot.conversation!.id;
@@ -230,7 +230,7 @@ test('clear drops recovered and close-time output only for its own conversation'
 
 for (const replied of [false, true]) {
   test(`clear refuses a ${replied ? 'replied held' : 'running'} turn without changing sessions`, async () => {
-    const f = await fixture();
+    const f = await unitFixture();
     const gate = new TurnGate();
     let sending: Promise<void> | undefined;
     try {
@@ -277,7 +277,7 @@ test('clear refuses pending memory recovery without dropping its queued input', 
 });
 
 test('clear refuses already queued input after a failed turn', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const gate = new TurnGate();
   let sending: Promise<void> | undefined;
   try {
@@ -304,7 +304,7 @@ test('clear refuses already queued input after a failed turn', async () => {
 });
 
 test('input sent during a clear reconnect runs once in the new session', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let clearing: Promise<void> | undefined;
@@ -333,7 +333,7 @@ test('input sent during a clear reconnect runs once in the new session', async (
 
 for (const stage of ['close', 'connect'] as const) {
   test(`a clear ${stage} failure ${stage === 'close' ? 'keeps the old context' : 'cannot restore the old context'}`, async () => {
-    const f = await fixture();
+    const f = await unitFixture();
     const c = f.coordinator;
     try {
       await c.send('old history');

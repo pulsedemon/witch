@@ -14,7 +14,7 @@ import type { Ledger } from '../src/persistence/coordination.js';
 import { identifyProcess } from '../src/persistence/process.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
-import { coordinationFixture, git } from './fixtures/coordination.js';
+import { unitCoordinationFixture, git } from './fixtures/coordination.js';
 import { record } from './fixtures/coordinator.js';
 import { countProbes } from './fixtures/probes.js';
 import { until } from './fixtures/within.js';
@@ -39,7 +39,7 @@ async function tick(coordination: SessionCoordination, milliseconds = 2000) {
 
 /** waits for `id`'s idle presence, then ticks past it and the presence write that follows. */
 async function quiesce(
-  fixture: Awaited<ReturnType<typeof coordinationFixture>>,
+  fixture: Awaited<ReturnType<typeof unitCoordinationFixture>>,
   id: string,
   coordination: SessionCoordination,
 ) {
@@ -57,7 +57,7 @@ async function quiesce(
 /** one Witch whose first ticks and presence writes are spent. */
 async function idle(register: RegisterCleanup) {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
-  const fixture = await coordinationFixture(register);
+  const fixture = await unitCoordinationFixture(register);
   register(() => {
     vi.useRealTimers();
   });
@@ -417,7 +417,7 @@ test('a project change refreshes the peers within its tick', async (t) => {
 test('a repository created after activation is followed at the minute reread', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   cleanup(() => {
     vi.useRealTimers();
   });

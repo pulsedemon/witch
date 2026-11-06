@@ -3,7 +3,12 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import { Workspace } from '../src/memory/workspace.js';
-import { fixture, holdSettlement, readRecord } from './fixtures/coordinator.js';
+import {
+  fixture,
+  unitFixture,
+  holdSettlement,
+  readRecord,
+} from './fixtures/coordinator.js';
 import { TurnGate } from './fixtures/agent.js';
 import { settled, within, until } from './fixtures/within.js';
 import type { TurnResult } from '../src/agents/types.js';
@@ -277,7 +282,7 @@ test('a successful compaction whose hook conflicts with accepted memory holds la
 });
 
 test('manual compaction without native history sends nothing', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     f.a.sessions[0]!.session.info.hasHistory = false;
     await f.coordinator.compact();
@@ -348,7 +353,7 @@ test('an interrupt before compaction delivery sends nothing', async () => {
 });
 
 test('compaction preserves the last ordinary-turn outcome', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     f.a.interruptNext = true;
     await f.coordinator.send('unfinished task');
@@ -365,7 +370,7 @@ test('compaction preserves the last ordinary-turn outcome', async () => {
 });
 
 test('compaction preserves active background records and pending handoff context', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     await f.coordinator.send('seed');
     await f.coordinator.selectModel({ agent: 'b', id: 'b-model' });
@@ -399,7 +404,7 @@ test('compaction preserves active background records and pending handoff context
 
 for (const usage of [79, 80, undefined]) {
   test(`queued work at ${usage ?? 'unknown'} percent makes one scheduling decision before delivery`, async () => {
-    const f = await fixture();
+    const f = await unitFixture();
     try {
       await f.coordinator.send('seed');
       const session = f.a.sessions[0]!.session;
@@ -428,7 +433,7 @@ for (const usage of [79, 80, undefined]) {
 }
 
 test('automatic compaction awaits fresh usage and preserves original input when interrupted during the read', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   const read = Promise.withResolvers<number>();
   const entered = Promise.withResolvers<void>();
   try {
@@ -456,7 +461,7 @@ test('automatic compaction awaits fresh usage and preserves original input when 
 
 for (const outcome of ['cancelled', 'failed', 'completed'] as const) {
   test(`automatic compaction ${outcome} preserves delivery order for input received meanwhile`, async () => {
-    const f = await fixture();
+    const f = await unitFixture();
     const gate = new TurnGate();
     try {
       await f.coordinator.send('seed');
@@ -518,7 +523,7 @@ test('automatic compaction does not deliver its batch over a memory publication 
 
 for (const prompt of ['/review exact target', '!printf exact-command']) {
   test(`${prompt} compacts before its native delivery`, async () => {
-    const f = await fixture(undefined, (a) => {
+    const f = await unitFixture(undefined, (a) => {
       a.skills = [{ name: 'review', description: 'Review' }];
     });
     try {
@@ -563,7 +568,7 @@ for (const prompt of ['/review exact target', '!printf exact-command']) {
 }
 
 test('a resumed native context sample schedules compaction and a model with no sample does not', async () => {
-  const f = await fixture();
+  const f = await unitFixture();
   try {
     await f.coordinator.send('seed');
     const id = f.a.sessions[0]!.session.info.id;
@@ -632,7 +637,7 @@ for (const interrupted of [false, true]) {
 }
 
 test('a direct busy compact coalesces callers and holds later input until the original turn and compact finish', async () => {
-  const f = await fixture(),
+  const f = await unitFixture(),
     c = f.coordinator,
     gate = new TurnGate();
   try {
@@ -743,7 +748,7 @@ for (const success of [true, false]) {
 }
 
 test('busy foreground compact waits for parent settlement before admitting model selection', async () => {
-  const f = await fixture(),
+  const f = await unitFixture(),
     c = f.coordinator,
     gate = new TurnGate();
   try {
@@ -772,7 +777,7 @@ test('busy foreground compact waits for parent settlement before admitting model
 });
 
 test('a model choice after a busy compaction waits for the finished turn to settle', async () => {
-  const f = await fixture(),
+  const f = await unitFixture(),
     c = f.coordinator,
     gate = new TurnGate();
   const native = f.a.sessions.at(-1)!.session;
@@ -805,7 +810,7 @@ test('a model choice after a busy compaction waits for the finished turn to sett
 });
 
 test('manual compact joins an automatic compact and restores the removed batch before the next command', async () => {
-  const f = await fixture(),
+  const f = await unitFixture(),
     c = f.coordinator,
     gate = new TurnGate();
   try {
@@ -845,7 +850,7 @@ test('manual compact joins an automatic compact and restores the removed batch b
 
 for (const outcome of ['interrupt', 'failure', 'close'] as const) {
   test(`a deferred compact ${outcome} holds queued input and settles its request`, async () => {
-    const f = await fixture(),
+    const f = await unitFixture(),
       c = f.coordinator,
       gate = new TurnGate();
     try {
@@ -875,7 +880,7 @@ for (const outcome of ['interrupt', 'failure', 'close'] as const) {
 }
 
 test('a compaction requested while a conversation changes never runs in the replacement conversation', async () => {
-  const f = await fixture(),
+  const f = await unitFixture(),
     c = f.coordinator;
   try {
     const before = c.snapshot.conversation!.id;

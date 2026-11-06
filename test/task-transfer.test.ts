@@ -10,15 +10,19 @@ import type { Snapshot } from '../src/core/snapshot.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import {
   coordinationFixture,
+  unitCoordinationFixture,
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import { until, within } from './fixtures/within.js';
 
-async function transfer(t: TestContext) {
+async function transfer(
+  t: TestContext,
+  createFixture = unitCoordinationFixture,
+) {
   const cleanup = orderedCleanup(t.onTestFinished);
   const ticks = pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await createFixture(cleanup);
   const a = await f.start(),
     b = await f.start('B');
   assert.equal((await a.claim('task:shared', 'Shared work')).kind, 'claimed');
@@ -76,7 +80,7 @@ test('an idle owner hands over its task without a model turn, and its next conte
 });
 
 test('a running turn, a native run, a running brew and memory recovery each refuse with their next action', async (t) => {
-  const { a, b, answer, registry } = await transfer(t);
+  const { a, b, answer, registry } = await transfer(t, coordinationFixture);
   const before = await registry.claims();
   const refuses = async (reason: RegExp) => {
     const taking = b.coordination.takeTask('task:shared');
@@ -216,10 +220,14 @@ test('a conflict reply names /task take with the reference the agent used', asyn
   );
 });
 
-async function automatic(t: TestContext, ids = ['claude', 'codex']) {
+async function automatic(
+  t: TestContext,
+  ids = ['claude', 'codex'],
+  createFixture = unitCoordinationFixture,
+) {
   const cleanup = orderedCleanup(t.onTestFinished);
   const ticks = pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await createFixture(cleanup);
   const nativeOwner = new FixtureAgent(ids[0]!);
   const nativeRequester = new FixtureAgent(ids[1]!);
   const owner = await f.start('A', {}, [
@@ -454,7 +462,7 @@ test('automatic transfer requires an exhausted window whose reported reset is st
 });
 
 test('automatic transfer keeps running turns, familiars, brews and recovery with their owner', async (t) => {
-  const f = await automatic(t);
+  const f = await automatic(t, undefined, coordinationFixture);
   const refuses = async () => {
     assert.equal((await f.attempt()).kind, 'conflict');
     assert.deepEqual(await f.registry.claims(), [f.original]);

@@ -5,7 +5,7 @@ import { callControl } from '../src/persistence/control.js';
 import { selectionTurn } from './fixtures/task-selection.js';
 import type { GitHubReviews } from '../src/core/github-reviews.js';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
@@ -13,7 +13,7 @@ import { reviewSource } from './fixtures/github-reviews.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import { repositoryRead } from './fixtures/repository.js';
 
-type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
+type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;
 type Client = Awaited<ReturnType<Fixture['start']>>;
 
 async function attach(f: Fixture, client: Client, source: GitHubReviews) {
@@ -37,7 +37,7 @@ async function attach(f: Fixture, client: Client, source: GitHubReviews) {
 }
 
 test('binding an issue claim adds the PR alias and records assignment without replacing its identity', async (t) => {
-  const f = await coordinationFixture(
+  const f = await unitCoordinationFixture(
     orderedCleanup(t.onTestFinished),
     async (references) => ({ assigned: references }),
   );
@@ -76,7 +76,7 @@ test('binding an issue claim adds the PR alias and records assignment without re
 });
 
 test('binding refuses a stale summary and retries with the current claim', async (t) => {
-  const f = await coordinationFixture(
+  const f = await unitCoordinationFixture(
     orderedCleanup(t.onTestFinished),
     async (references) => ({ assigned: references }),
   );
@@ -125,7 +125,7 @@ test('binding refuses a stale summary and retries with the current claim', async
 });
 
 test('another PR owner refuses alias binding without transfer or loss of either claim', async (t) => {
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const b = await f.start('B');
   const source = reviewSource();
@@ -152,7 +152,7 @@ test('another PR owner refuses alias binding without transfer or loss of either 
 });
 
 test('an unrelated task is never replaced by the branch PR', async (t) => {
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const source = reviewSource();
   await attach(f, a, source);
@@ -166,7 +166,7 @@ test('an unrelated task is never replaced by the branch PR', async (t) => {
 });
 
 test('fresh Git state rejects a changed branch even while the displayed status is stale', async (t) => {
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const source = reviewSource();
   const cwd = await attach(f, a, source);
@@ -185,7 +185,7 @@ test('fresh Git state rejects a changed branch even while the displayed status i
 
 test('failed GitHub assignment leaves usable ownership and retries only on an explicit claim', async (t) => {
   let writes = 0;
-  const f = await coordinationFixture(
+  const f = await unitCoordinationFixture(
     orderedCleanup(t.onTestFinished),
     async (references) => {
       writes++;
@@ -220,7 +220,7 @@ test('failed GitHub assignment leaves usable ownership and retries only on an ex
 });
 
 test('closed PRs do not bind even if the local status still says open', async (t) => {
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const source = reviewSource();
   await attach(f, a, source);
@@ -239,7 +239,7 @@ test('closed PRs do not bind even if the local status still says open', async (t
 
 test('a solo PR suggestion binds only after the requested claim promotion', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const f = await coordinationFixture(cleanup, async (references) => ({
+  const f = await unitCoordinationFixture(cleanup, async (references) => ({
     assigned: references,
   }));
   const a = await f.start('A');
@@ -277,7 +277,7 @@ test('a solo PR suggestion binds only after the requested claim promotion', asyn
 
 test("an ownership check given the turn's project reads no scope", async (t) => {
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start('A');
   const source = reviewSource();
   const cwd = await attach(f, a, source);

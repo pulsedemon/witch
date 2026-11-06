@@ -16,14 +16,14 @@ import { callControl } from '../src/persistence/control.js';
 import { TurnGate } from './fixtures/agent.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   legacyLock,
   pauseDiscovery,
 } from './fixtures/coordination.js';
 import { holdSettlement, record } from './fixtures/coordinator.js';
 import { until } from './fixtures/within.js';
 
-type Fixture = Awaited<ReturnType<typeof coordinationFixture>>;
+type Fixture = Awaited<ReturnType<typeof unitCoordinationFixture>>;
 type Client = Awaited<ReturnType<Fixture['start']>>;
 
 const id = (client: Client) => client.coordinator.snapshot.conversation!.id;
@@ -94,7 +94,7 @@ async function holdsAutomatic(from: Client, client: Client, name: string) {
 test('a pause stops and holds the sessions live when issued, and no session opened later', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   await f.checkout('D');
   const i = await f.start('I');
@@ -184,7 +184,7 @@ test('a pause stops and holds the sessions live when issued, and no session open
 test('a pause holds across switching conversations and a restart, until a prompt resumes it', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -259,7 +259,7 @@ test('a pause holds across switching conversations and a restart, until a prompt
 test('a resume whose write failed is stored when the session restarts', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -287,7 +287,7 @@ test('a resume whose write failed is stored when the session restarts', async (t
 test('a failed resume write retries on the tick while the prompt is delivered once', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const ticks = pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -319,7 +319,7 @@ test('a failed resume write retries on the tick while the prompt is delivered on
 test('a recipient confirms only after its stopped turn settles, and retries a failed stop', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -353,7 +353,7 @@ test('a recipient confirms only after its stopped turn settles, and retries a fa
 test('a recipient that Claude Code runs on its own confirms once that run ends', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -375,7 +375,7 @@ test('a recipient that Claude Code runs on its own confirms once that run ends',
 test('a resume cancels a scheduled stop retry, which never interrupts the next turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -400,7 +400,7 @@ test('a resume cancels a scheduled stop retry, which never interrupts the next t
 test('--to pauses only the named sessions, in any project', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   const a = await f.start('A');
   const b = await f.start('B');
   const c = await f.start('C');
@@ -418,7 +418,7 @@ test('--to pauses only the named sessions, in any project', async (t) => {
 test('a pause that cannot reach every intended recipient records nothing', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   const a = await f.start('A');
   const nothing = async () =>
     assert.deepEqual(await f.registry.pauses(id(a)), []);
@@ -471,7 +471,7 @@ test('a session whose Witch cannot be paused refuses the whole pause', async (t)
     if (presence.cwd.endsWith('/B')) delete older.pauses;
     return publish.call(this, older);
   });
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   await f.start('A');
@@ -486,7 +486,7 @@ test('a session whose Witch cannot be paused refuses the whole pause', async (t)
 test('a failed pause read is retried on the next tick without another write', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   const ticks = pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -520,7 +520,7 @@ test('a failed pause read is retried on the next tick without another write', as
 test('an issuer resume while a stopped, undelivered turn settles still runs the held queue', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -558,7 +558,7 @@ test('an issuer resume while a stopped, undelivered turn settles still runs the 
 test("an issuer resume leaves the user's own Escape hold in place", async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -576,7 +576,7 @@ test("an issuer resume leaves the user's own Escape hold in place", async (t) =>
 test('a pause arriving during an operation started while held stops it before confirming', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -596,7 +596,7 @@ test('a pause arriving during an operation started while held stops it before co
 test('automatic work waits for a restarted recipient to read its pauses', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -629,7 +629,7 @@ test('automatic work waits for a restarted recipient to read its pauses', async 
 test("a failed pause read after switching away drops the previous conversation's hold", async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -657,7 +657,7 @@ test("a failed pause read after switching away drops the previous conversation's
 test('a prompt that resumes a pause runs before automatic work its release wakes', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -676,7 +676,7 @@ test('a prompt that resumes a pause runs before automatic work its release wakes
 test('a prompt sent before a failed pause read resumes the pauses issued before it', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -716,7 +716,7 @@ test('a prompt sent before a failed pause read resumes the pauses issued before 
 test('a pause arriving during an in-flight stop gets its own stop before confirming', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -756,7 +756,7 @@ test('a pause arriving during an in-flight stop gets its own stop before confirm
 test('a prompt sent while /clear reconnects coordination still stores its resume', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');
@@ -782,7 +782,7 @@ test('a prompt sent while /clear reconnects coordination still stores its resume
 test('automatic work after /clear waits for the new activation to read its pauses', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   await f.checkout('I');
   const i = await f.start('I');
   const a = await f.start('A');

@@ -11,6 +11,8 @@ import { FixtureAgent } from './agent.js';
 import { hookedGit, passThrough } from './git.js';
 import { scratch } from './scratch.js';
 import { seededMemory } from './seeded-memory.js';
+import { EmptyMemory } from './empty-memory.js';
+import { ephemeralFiles } from './ephemeral-files.js';
 
 export function record(id: string, cwd: string, agent = 'a'): Conversation {
   return {
@@ -79,16 +81,18 @@ export async function fixture(
   editFile?: ConstructorParameters<typeof Coordinator>[4],
   /** runs before the launch connects. */
   prepare?: (a: FixtureAgent, b: FixtureAgent) => void,
+  unit = false,
 ) {
   const root = await scratch('witch-coordinator-');
+  if (unit) ephemeralFiles(root);
   const project = join(root, 'project');
   await mkdir(project);
   const store = await StateStore.open(join(root, 'state'));
   const hook = { current: passThrough };
-  const memory = await seededMemory(
-    join(root, 'state', 'memory.git'),
-    hookedGit(hook),
-  );
+  const memoryRoot = join(store.root, 'memory.git');
+  const memory = unit
+    ? new EmptyMemory(memoryRoot)
+    : await seededMemory(memoryRoot, hookedGit(hook));
   const a = new FixtureAgent('a');
   const b = new FixtureAgent('b');
   const agents = [a, b].map((adapter) => ({ adapter, executable: adapter.id }));
@@ -151,6 +155,14 @@ export async function fixture(
     active,
     jobs,
   };
+}
+
+/** unit cases keep real state files; memory publication and disk durability require the real fixture. */
+export function unitFixture(
+  editFile?: Parameters<typeof fixture>[0],
+  prepare?: Parameters<typeof fixture>[1],
+) {
+  return fixture(editFile, prepare, true);
 }
 
 /** a conversation whose branch holds an unpublished commit, made after any launch sweep. */

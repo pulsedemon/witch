@@ -24,6 +24,7 @@ import { holdConnect, TurnGate } from './fixtures/agent.js';
 import { frameWriter } from './fixtures/claude-adapter.js';
 import {
   coordinationFixture,
+  unitCoordinationFixture,
   git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
@@ -34,7 +35,7 @@ import { appears, until, within } from './fixtures/within.js';
 
 test('a peer joining and leaving updates ongoing work without adding user input', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const gate = new TurnGate();
   a.a.gate = gate;
@@ -76,7 +77,7 @@ test('a peer joining and leaving updates ongoing work without adding user input'
 
 test('a peer arriving during prompt construction reaches the newly started turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, memory } = await coordinationFixture(cleanup);
+  const { start, memory } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -108,7 +109,7 @@ test('a peer arriving during prompt construction reaches the newly started turn'
 
 test('a refused policy steer waits for fresh context on the next user turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   a.a.refuseSteer = true;
   const steer = vi.spyOn(a.a.sessions[0]!.session, 'steer');
@@ -143,7 +144,7 @@ test('a refused policy steer waits for fresh context on the next user turn', asy
 for (const finishFirst of [false, true]) {
   test(`a policy change during a pending reply ${finishFirst ? 'returns in the next turn after the current turn ends' : 'follows the accepted update'}`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-    const { start } = await coordinationFixture(cleanup);
+    const { start } = await unitCoordinationFixture(cleanup);
     const a = await start();
     const session = a.a.sessions[0]!.session;
     const steer = session.steer.bind(session);
@@ -196,7 +197,7 @@ for (const finishFirst of [false, true]) {
 
 test('unread coordination context never becomes queued user work', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   a.a.unreadOnInterrupt = true;
   const gate = new TurnGate();
@@ -225,7 +226,7 @@ test('unread coordination context never becomes queued user work', async (t) => 
 
 test('a compaction inside a turn keeps claim policy current', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const gate = new TurnGate();
   a.a.gate = gate;
@@ -261,7 +262,7 @@ test('a compaction inside a turn keeps claim policy current', async (t) => {
 
 test('clear preserves the same exclusive claim while the native runtime reconnects', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   const owner = await f.start('A');
   const peer = await f.start('B');
   const claimed = await owner.claim('task:clear');
@@ -286,7 +287,7 @@ test('clear preserves the same exclusive claim while the native runtime reconnec
 
 test('a model refused while disconnected keeps the exclusive claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   const owner = await f.start('A');
   const peer = await f.start('B');
   assert.equal((await owner.claim('task:model')).kind, 'claimed');
@@ -356,7 +357,7 @@ for (const stage of ['close', 'reconnect'] as const) {
 
 test('a clear whose close and reactivation both fail reports both', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   const owner = await f.start('A');
   owner.a.failClose = true;
   vi.spyOn(owner.coordination, 'activate').mockRejectedValueOnce(
@@ -370,7 +371,7 @@ test('a clear whose close and reactivation both fail reports both', async (t) =>
 
 test('bound tool titles use the delivered prefixes, refresh on reconnect and survive results and reopening', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const f = await coordinationFixture(cleanup);
+  const f = await unitCoordinationFixture(cleanup);
   const client = await f.start();
   const native = client.a.sessions[0]!;
   native.session.familiar = {
@@ -435,7 +436,7 @@ for (const name of ['claude', 'codex'] as const) {
       : 'Codex exit after its reply stops its familiar and permits task release',
     async (t) => {
       const cleanup = orderedCleanup(t.onTestFinished);
-      const { root, start, registry } = await coordinationFixture(cleanup);
+      const { root, start, registry } = await unitCoordinationFixture(cleanup);
       const cwd = join(root, 'A');
       const executable = fileURLToPath(
         new URL(`fixtures/${name}.mjs`, import.meta.url),
@@ -568,7 +569,7 @@ for (const name of ['claude', 'codex'] as const) {
 
 test('native closure preserves finished work and ends running activity once', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const { coordinator, a } = await start();
   const native = a.sessions[0]!;
   for (const [id, status, tools, report] of [
@@ -621,7 +622,7 @@ test('native closure preserves finished work and ends running activity once', as
 
 test('coordination context stays before the exact user request and raw steered spells', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start } = await coordinationFixture(cleanup);
+  const { root, start } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await b.claim('task:peer', 'Distinct peer task');
@@ -656,7 +657,8 @@ for (const name of ['claude', 'codex'] as const) {
   for (const coordinated of [true, false])
     test(`${name} preserves spells across instruction delivery with coordination ${coordinated}`, async (t) => {
       const cleanup = orderedCleanup(t.onTestFinished);
-      const { root, start, store, memory } = await coordinationFixture(cleanup);
+      const { root, start, store, memory } =
+        await unitCoordinationFixture(cleanup);
       const script = fileURLToPath(
         new URL(`fixtures/${name}.mjs`, import.meta.url),
       );
@@ -790,7 +792,7 @@ for (const name of ['claude', 'codex'] as const) {
 
 test('switch revokes old authority before native close and releases the departed claim', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, ledger, registry } = await coordinationFixture(cleanup);
+  const { start, ledger, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.claim();
@@ -838,7 +840,7 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
   test(`${replacement} replaces native authority without releasing the conversation's task`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
     const { root, start, registry, ledger, store } =
-      await coordinationFixture(cleanup);
+      await unitCoordinationFixture(cleanup);
     const a = await start();
     const peer = replacement === 'rollback' ? await start('B') : undefined;
     await a.claim();
@@ -918,7 +920,7 @@ for (const replacement of ['handoff', 'origin', 'rollback'] as const) {
 
 test('an interrupted handoff summary restores registration before source resume', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, store } = await coordinationFixture(cleanup);
+  const { start, store } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     peer = await start('B');
   await a.coordinator.send('Seed source history');
@@ -971,7 +973,7 @@ test('an interrupted handoff summary restores registration before source resume'
 
 test('closing during a handoff summary does not restore registration', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, store, registry } = await coordinationFixture(cleanup);
+  const { start, store, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     peer = await start('B');
   await a.coordinator.send('Seed source history');
@@ -1014,7 +1016,7 @@ test('closing during a handoff summary does not restore registration', async (t)
 
 test('reopening starts without a claim and old authority cannot release newly claimed work', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   await a.claim();
   const before = (await a.query()).ownClaim!,
@@ -1037,7 +1039,7 @@ test('reopening starts without a claim and old authority cannot release newly cl
 
 test('target lock and preparation failures keep source authority and free a prepared target lock', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, store } = await coordinationFixture(cleanup);
+  const { root, start, store } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     bound = await a.binding();
   const target = await store.create(record(randomUUID(), join(root, 'A')));
@@ -1074,7 +1076,7 @@ for (const boundary of ['write', 'remove'] as const) {
   for (const preparation of ['ordinary', 'delayed'] as const) {
     test(`a failed source presence ${boundary} still revokes authority and adopts the prepared target (${preparation} preparation)`, async (t) => {
       const cleanup = orderedCleanup(t.onTestFinished);
-      const { start, store, registry } = await coordinationFixture(cleanup);
+      const { start, store, registry } = await unitCoordinationFixture(cleanup);
       const a = await start(),
         bound = await a.binding();
       const entered = Promise.withResolvers<void>(),
@@ -1169,7 +1171,7 @@ for (const boundary of ['write', 'remove'] as const) {
 
 test('failed target activation holds its selected lock without starting native work and retries with fresh authority', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start, store, registry } = await coordinationFixture(cleanup);
+  const { start, store, registry } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     bound = await a.binding();
   await a.claim();
@@ -1226,7 +1228,7 @@ test('failed target activation holds its selected lock without starting native w
 
 test('compaction publishes a running presence and defers behind a held native turn', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   await a.coordinator.send('seed');
@@ -1263,7 +1265,7 @@ test('compaction publishes a running presence and defers behind a held native tu
 
 test('an idle session whose native agent runs on its own publishes a running presence', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start(),
     b = await start('B');
   const phase = async () => (await b.query()).peers[0]?.presence.phase;
@@ -1279,7 +1281,7 @@ test('an idle session whose native agent runs on its own publishes a running pre
 for (const reconnect of [false, true])
   test(`a ${reconnect ? 'reconnecting' : 'live'} turn reads its project scope once`, async (t) => {
     pauseDiscovery(vi.spyOn);
-    const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+    const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
     const a = await f.start();
     if (reconnect) await a.a.sessions.at(-1)!.session.close();
     const reads = vi.spyOn(f.memory, 'scopePaths');
@@ -1294,7 +1296,7 @@ for (const reconnect of [false, true])
 
 test('opening a conversation reads its project scope once', async (t) => {
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const reads = vi.spyOn(f.memory, 'scopePaths');
   const a = await f.start();
   assert.equal(a.coordinator.snapshot.phase, 'idle');
@@ -1305,7 +1307,7 @@ test('opening a conversation reads its project scope once', async (t) => {
 });
 
 test("an idle origin change still compacts from the old session's usage before reconnecting", async (t) => {
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await unitCoordinationFixture(orderedCleanup(t.onTestFinished));
   const a = await f.start();
   await a.coordinator.send('Seed');
   const seeded = a.a.sessions.at(-1)!.session;

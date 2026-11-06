@@ -28,6 +28,7 @@ import { orderedCleanup } from './fixtures/cleanup.js';
 import type { RegisterCleanup } from './fixtures/cleanup.js';
 import {
   coordinationFixture,
+  unitCoordinationFixture,
   git,
   pauseDiscovery,
 } from './fixtures/coordination.js';
@@ -71,9 +72,13 @@ async function answer(client: Client, request: PeerRequest, message: string) {
 }
 
 /** A runs the asker and B the owner, with discovery ticks under the test's control. */
-async function owners(register: RegisterCleanup, task = 'b-work') {
+async function owners(
+  register: RegisterCleanup,
+  task = 'b-work',
+  createFixture = unitCoordinationFixture,
+) {
   const refreshes = pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(orderedCleanup(register));
+  const f = await createFixture(orderedCleanup(register));
   const a = await f.start('A');
   const b = await f.start('B');
   const claim = await claimed(b, task);
@@ -320,7 +325,11 @@ test('busy owner answers after queued prompts', async (t) => {
 });
 
 test('recovery, pending questions and failed turns hold answer turns until resolved', async (t) => {
-  const { f, a, b, claim, seen } = await owners(t.onTestFinished);
+  const { f, a, b, claim, seen } = await owners(
+    t.onTestFinished,
+    undefined,
+    coordinationFixture,
+  );
   b.a.interruptNext = true;
   await b.coordinator.send('remember-port');
   assert.equal(b.coordinator.snapshot.phase, 'recovery');
@@ -1092,7 +1101,7 @@ async function nativeOwner(
   name: 'claude' | 'codex',
 ) {
   pauseDiscovery(vi.spyOn);
-  const f = await coordinationFixture(orderedCleanup(register));
+  const f = await unitCoordinationFixture(orderedCleanup(register));
   const source = await f.start('A');
   const cwd = join(f.root, 'B');
   const executable = fileURLToPath(

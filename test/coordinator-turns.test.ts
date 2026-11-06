@@ -8,13 +8,18 @@ import type { DisplayItem } from '../src/core/state.js';
 import { ConversationStore, StateStore } from '../src/persistence/store.js';
 import type { FixtureAgent } from './fixtures/agent.js';
 import { holdConnect, TurnGate } from './fixtures/agent.js';
-import { fixture, readRecord, turns } from './fixtures/coordinator.js';
+import {
+  fixture,
+  unitFixture,
+  readRecord,
+  turns,
+} from './fixtures/coordinator.js';
 import { passThrough } from './fixtures/git.js';
 import type { GitHook } from './fixtures/git.js';
 import { until, within } from './fixtures/within.js';
 
 test('a tool row keeps the path its title shows and its expanded title through its result and a reopen', async () => {
-  const { coordinator, a, reopen } = await fixture();
+  const { coordinator, a, reopen } = await unitFixture();
   let reopened: Coordinator | undefined;
   const title = 'Read  ./shot one.png';
   const row = (items: readonly DisplayItem[]) => {
@@ -46,7 +51,7 @@ test('a tool row keeps the path its title shows and its expanded title through i
 });
 
 test('an unfinished tool keeps its original row through idle and later turns', async () => {
-  const { coordinator, a, reopen } = await fixture();
+  const { coordinator, a, reopen } = await unitFixture();
   const first = new TurnGate();
   const second = new TurnGate();
   let reopened: Coordinator | undefined;
@@ -109,7 +114,7 @@ test('an unfinished tool keeps its original row through idle and later turns', a
 });
 
 test('completed tool IDs and new native connections get their own rows', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gates = [new TurnGate(), new TurnGate(), new TurnGate()];
   const emit = (id: string, text: string, done: boolean) =>
     a.sessions.at(-1)!.options.onEvent({
@@ -218,7 +223,7 @@ async function recoverCommandContext(
 }
 
 test('pending command context stays with its conversation', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     await recoverCommandContext(coordinator, a);
     const id = coordinator.snapshot.conversation!.id;
@@ -237,7 +242,7 @@ test('pending command context stays with its conversation', async () => {
 
 for (const identical of [false, true]) {
   test(`disconnect appends local records to recovered conversation context (${identical ? 'identical records' : 'distinct records'})`, async () => {
-    const { coordinator, a } = await fixture();
+    const { coordinator, a } = await unitFixture();
     const localCommand = identical
       ? savedCommand
       : '<bash-input>also-ran</bash-input>\n<bash-stdout>later-output</bash-stdout><bash-stderr></bash-stderr>';
@@ -268,7 +273,7 @@ for (const identical of [false, true]) {
 }
 
 test('a failed close preserves outgoing command context', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     const pending = [savedCommand];
     a.sessions.at(-1)!.session.takeUnreadContext = () => pending.splice(0);
@@ -359,7 +364,7 @@ test('an interrupt during the memory snapshot delivers nothing and leaves the pr
 });
 
 test('a connect failure leaves the prompt queued, and the next prompt sends both, a line each, and clears the error', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.failConnect = true;
   });
   try {
@@ -381,7 +386,7 @@ describe('an interrupted initial reconnect leaves the prompt queued without an e
     test(
       abort ? 'adapter rejects' : 'adapter connects after interrupt',
       async () => {
-        const { coordinator, a } = await fixture(undefined, (a) => {
+        const { coordinator, a } = await unitFixture(undefined, (a) => {
           a.failConnect = true;
         });
         const connecting = Promise.withResolvers<void>();
@@ -413,7 +418,7 @@ describe('an unrelated initial reconnect failure remains visible', () => {
     test(
       interrupt ? 'ordinary failure after interrupt' : 'unsolicited abort',
       async () => {
-        const { coordinator, a } = await fixture(undefined, (a) => {
+        const { coordinator, a } = await unitFixture(undefined, (a) => {
           a.failConnect = true;
         });
         const connecting = Promise.withResolvers<void>();
@@ -442,7 +447,7 @@ describe('an unrelated initial reconnect failure remains visible', () => {
 });
 
 test('a blank prompt starts no turn', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     await coordinator.send(' \n');
     assert.deepEqual(coordinator.snapshot.queue, []);
@@ -453,7 +458,7 @@ test('a blank prompt starts no turn', async () => {
 });
 
 test('a turn keeps the job watch active until it ends', async () => {
-  const { coordinator, active } = await fixture();
+  const { coordinator, active } = await unitFixture();
   try {
     // the launch is active and idle is not
     assert.deepEqual(active, [true, false]);
@@ -538,7 +543,7 @@ test('a failure after the agent has the prompt still counts as delivered', async
 });
 
 test('a spell, a native command and prompts sent during a turn join it in order and show at once, the spell and command with their calls', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [
       { name: 'review', description: 'Review changes' },
       { name: 'context', description: 'Context', builtin: true },
@@ -573,7 +578,7 @@ test('a spell, a native command and prompts sent during a turn join it in order 
 });
 
 test('a queued prompt taken back never runs', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
   const gate = new TurnGate();
@@ -595,7 +600,7 @@ test('a queued prompt taken back never runs', async () => {
 });
 
 test('steered prompts an interrupt leaves unread go as the next turn, ahead of what was queued', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
   const gate = new TurnGate();
@@ -641,7 +646,7 @@ for (const [name, prompt, prepare] of [
   ],
 ] as const)
   test(`${name} waits in the queue, unseen until it goes as the next turn`, async () => {
-    const { coordinator, a } = await fixture();
+    const { coordinator, a } = await unitFixture();
     const gate = new TurnGate();
     try {
       a.gate = gate;
@@ -667,7 +672,7 @@ for (const [name, prompt, prepare] of [
   });
 
 test('with steers refused, prompts queued ahead of a spell go as one turn, then the spell alone, then the prompts after it', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
   const gate = new TurnGate();
@@ -727,7 +732,7 @@ test('a report after a queued turn stays on screen, and the prompts after it wai
 });
 
 test('prompts sent together steer or queue in the order sent', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -761,7 +766,7 @@ test('prompts sent together steer or queue in the order sent', async () => {
 });
 
 test('a spell a failed connect leaves queued still goes alone once the agent connects, ahead of what was queued behind it', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
     a.failConnect = true;
   });
@@ -782,7 +787,7 @@ test('a spell a failed connect leaves queued still goes alone once the agent con
 });
 
 test('a refusal reported before a conversation opens sets the error', async () => {
-  const { coordinator: original, root, memory, a } = await fixture();
+  const { coordinator: original, root, memory, a } = await unitFixture();
   await original.close();
   const coordinator = new Coordinator(
     await StateStore.open(join(root, 'state')),
@@ -804,7 +809,13 @@ test('a refusal reported before a conversation opens sets the error', async () =
 });
 
 test('a prompt sent while the launch connects goes once the load ends', async () => {
-  const { coordinator: original, root, project, memory, a } = await fixture();
+  const {
+    coordinator: original,
+    root,
+    project,
+    memory,
+    a,
+  } = await unitFixture();
   await original.close();
   const coordinator = new Coordinator(
     await StateStore.open(join(root, 'state')),
@@ -831,7 +842,7 @@ test('a prompt sent while the launch connects goes once the load ends', async ()
 });
 
 test('a prompt sent while a switch opens the next conversation is refused, so it never runs there', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     const switching = coordinator.newConversation();
     await assert.rejects(coordinator.send('Leak'), /next conversation/);
@@ -845,7 +856,7 @@ test('a prompt sent while a switch opens the next conversation is refused, so it
 });
 
 test('a failed turn leaves what was queued behind it for the composer instead of running it', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -870,7 +881,7 @@ test('a failed turn leaves what was queued behind it for the composer instead of
 });
 
 test('a prompt whose steer is refused after a failed turn has ended stays for the composer, and one sent at idle still runs', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -903,7 +914,7 @@ test('a prompt whose steer is refused after a failed turn has ended stays for th
 });
 
 test('a failed handoff continuation leaves what was queued during the switch for the composer', async () => {
-  const { coordinator, a, b } = await fixture();
+  const { coordinator, a, b } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.interruptNext = true;
@@ -927,7 +938,7 @@ test('a failed handoff continuation leaves what was queued during the switch for
 });
 
 test('a prompt sent just before a switch stays queued for its conversation, so the switch is refused', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     const { id } = coordinator.snapshot.conversation!;
     const sending = coordinator.send('Stay');
@@ -943,7 +954,7 @@ test('a prompt sent just before a switch stays queued for its conversation, so t
 });
 
 test('a conversation switch is refused while prompts are queued, which wait with their report showing', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.failConnect = true;
   });
   try {
@@ -963,7 +974,7 @@ test('a conversation switch is refused while prompts are queued, which wait with
 
 for (const inputUnsent of [true, undefined]) {
   test(`failed input delivery ${inputUnsent ? 'preserves the original queue batch' : 'does not replay an uncertain submission'}`, async () => {
-    const { coordinator, a } = await fixture();
+    const { coordinator, a } = await unitFixture();
     const submitted: string[] = [];
     a.sessions[0]!.session.send = async (prompt) => {
       submitted.push(prompt);
@@ -996,7 +1007,7 @@ for (const inputUnsent of [true, undefined]) {
 }
 
 test('an unsent follow-up prompt never reruns an executed command', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const session = a.sessions[0]!.session;
   const send = session.send.bind(session);
   session.send = async () => ({
@@ -1022,7 +1033,7 @@ test('an unsent follow-up prompt never reruns an executed command', async () => 
 });
 
 test('a ! prompt runs its command, then a turn that sends the prompt as typed and says it ran, and its open row survives a reopen', async () => {
-  const { coordinator, a, reopen } = await fixture();
+  const { coordinator, a, reopen } = await unitFixture();
   try {
     await coordinator.send('!git status');
     assert.deepEqual(a.shells, ['git status']);
@@ -1050,7 +1061,7 @@ test('a ! prompt runs its command, then a turn that sends the prompt as typed an
 });
 
 test('a ! prompt sent during a turn waits in the queue and runs alone before the prompts after it', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -1075,7 +1086,7 @@ test('a ! prompt sent during a turn waits in the queue and runs alone before the
 });
 
 test('a ! command that fails posts its error and sends no turn', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   try {
     a.failNext = true;
     await coordinator.send('!x');
@@ -1090,7 +1101,7 @@ test('a ! command that fails posts its error and sends no turn', async () => {
 });
 
 test('an interrupt that lands as a ! command finishes sends no turn', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -1111,7 +1122,7 @@ test('an interrupt that lands as a ! command finishes sends no turn', async () =
 });
 
 test('after the reply, while a familiar holds the turn, a ! prompt runs at once and steers its reply, shown after the prompt', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -1140,7 +1151,7 @@ test('after the reply, while a familiar holds the turn, a ! prompt runs at once 
 });
 
 test('after the reply, a listed spell steers trimmed with its call, and an unlisted slash command steers as a prompt', async () => {
-  const { coordinator, a } = await fixture(undefined, (a) => {
+  const { coordinator, a } = await unitFixture(undefined, (a) => {
     a.skills = [{ name: 'review', description: 'Review changes' }];
   });
   const gate = new TurnGate();
@@ -1164,7 +1175,7 @@ test('after the reply, a listed spell steers trimmed with its call, and an unlis
 });
 
 test("a model change runs during a replied turn without waiting, and is refused during one that hasn't replied", async () => {
-  const { coordinator, a, b } = await fixture();
+  const { coordinator, a, b } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -1200,7 +1211,7 @@ test("a model change runs during a replied turn without waiting, and is refused 
 });
 
 test('a model change during a replied turn refuses another until it finishes, and the refusal reports as a notice', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -1265,7 +1276,7 @@ for (const rejected of [false, true])
       ? 'a rejected replied model change leaves queued prompts unsent'
       : 'a replied model change finishes before the next queued turn starts',
     async () => {
-      const { coordinator, a, root } = await fixture();
+      const { coordinator, a, root } = await unitFixture();
       const gate = new TurnGate();
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
@@ -1355,7 +1366,7 @@ for (const rejected of [false, true])
   );
 
 test('a replied turn opens the model list from its connect without refreshing', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;
@@ -1376,7 +1387,7 @@ test('a replied turn opens the model list from its connect without refreshing', 
 });
 
 test('commands that need idle say familiars or workflows hold the turn, and the usual refusal otherwise', async () => {
-  const { coordinator, a } = await fixture();
+  const { coordinator, a } = await unitFixture();
   const gate = new TurnGate();
   try {
     a.gate = gate;

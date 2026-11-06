@@ -17,7 +17,10 @@ import { CommandBatches } from '../src/ui/command-batches.js';
 import type { WitchCommand } from '../src/ui/commands.js';
 import { FixtureAgent, TurnGate } from './fixtures/agent.js';
 import { orderedCleanup } from './fixtures/cleanup.js';
-import { coordinationFixture } from './fixtures/coordination.js';
+import {
+  coordinationFixture,
+  unitCoordinationFixture,
+} from './fixtures/coordination.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 import { until, within } from './fixtures/within.js';
@@ -58,6 +61,7 @@ const runtimeOf = ({ name }: Reviewer) => name.split('-')[3]!;
 async function harness(
   t: TestContext,
   options: { usage?: Usage; plan?: string } = {},
+  createFixture = unitCoordinationFixture,
 ) {
   const previous = process.env.TMPDIR;
   process.env.TMPDIR = await scratch('witch-review-tmp-');
@@ -65,7 +69,7 @@ async function harness(
     if (previous === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = previous;
   });
-  const f = await coordinationFixture(orderedCleanup(t.onTestFinished));
+  const f = await createFixture(orderedCleanup(t.onTestFinished));
   const claude = new FixtureAgent('claude');
   const codex = new FixtureAgent('codex');
   if (options.usage) claude.connectUsage = options.usage;
@@ -216,7 +220,7 @@ const names = (round: { reviewers: Reviewer[] }) =>
   round.reviewers.map(runtimeOf);
 
 test('a single-harness change brings the quiet harness back', async (t) => {
-  const h = await harness(t);
+  const h = await harness(t, undefined, coordinationFixture);
   h.state.outcome = (round, { runtime }) =>
     round === 1 && runtime === 'claude'
       ? {
@@ -807,7 +811,7 @@ test('a route cancelled during its usage refresh posts nothing later', async (t)
 });
 
 test('an interrupted correction turn ends the review and keeps its memory pending', async (t) => {
-  const h = await harness(t);
+  const h = await harness(t, undefined, coordinationFixture);
   h.state.outcome = (_round, { runtime }) =>
     runtime === 'claude'
       ? { findings: [{ line: 5, blocking: true, summary: 'remember:pending' }] }
@@ -822,7 +826,7 @@ test('an interrupted correction turn ends the review and keeps its memory pendin
 });
 
 test('a publication conflict after a correction stops the review', async (t) => {
-  const h = await harness(t);
+  const h = await harness(t, undefined, coordinationFixture);
   h.state.outcome = (round, { runtime }) =>
     round === 1 && runtime === 'claude'
       ? {
@@ -850,7 +854,7 @@ test('a publication conflict after a correction stops the review', async (t) => 
 });
 
 test("a final turn's memory publication failure fails the review", async (t) => {
-  const h = await harness(t);
+  const h = await harness(t, undefined, coordinationFixture);
   h.state.outcome = (_round, { runtime }) =>
     runtime === 'claude'
       ? { findings: [{ line: 7, blocking: false, summary: 'remember:seven' }] }

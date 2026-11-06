@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createElement } from 'react';
 import type { JobWatch } from '../src/core/jobs.js';
 import { App } from '../src/ui/app.js';
-import { fixture as coordinatorFixture } from './fixtures/coordinator.js';
+import { unitFixture as coordinatorFixture } from './fixtures/coordinator.js';
 import {
   show,
   forgedLink,

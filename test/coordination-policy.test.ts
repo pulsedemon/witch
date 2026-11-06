@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, vi } from 'vitest';
 import {
-  coordinationFixture,
+  unitCoordinationFixture,
   git,
   legacyLock,
   pauseDiscovery,
@@ -16,7 +16,7 @@ import { until } from './fixtures/within.js';
 
 test('solo context retains PR claims and selection without requiring other task claims', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const choosing = await selectionTurn(cleanup, a);
   const input = a.a.inputs.at(-1)!;
@@ -46,7 +46,7 @@ test('solo context retains PR claims and selection without requiring other task 
 
 test('policy overrides survive fixed-instruction caching and ignore other projects', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { start } = await coordinationFixture(cleanup);
+  const { start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const send = async (prompt: string, required: boolean, fixed: boolean) => {
     await a.coordinator.send(prompt);
@@ -78,7 +78,7 @@ test('policy overrides survive fixed-instruction caching and ignore other projec
 
 test('a reservation retains claim instructions without a same-project peer', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start } = await coordinationFixture(cleanup);
+  const { root, start } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const b = await start('B');
   const held = await b.claim('task:reserved');
@@ -107,7 +107,7 @@ test('a reservation retains claim instructions without a same-project peer', asy
 
 test('an unregistered owner retains claim instructions', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
-  const { root, start, store } = await coordinationFixture(cleanup);
+  const { root, start, store } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const legacy = record(randomUUID(), join(root, 'B'));
   await (await store.create(legacy)).close();
@@ -127,7 +127,7 @@ test('an unregistered owner retains claim instructions', async (t) => {
 test('failed discovery never grants solo policy', async (t) => {
   const cleanup = orderedCleanup(t.onTestFinished);
   pauseDiscovery(vi.spyOn);
-  const { start, store } = await coordinationFixture(cleanup);
+  const { start, store } = await unitCoordinationFixture(cleanup);
   const a = await start();
   const id = randomUUID();
   const held = await store.create(
@@ -151,7 +151,7 @@ test('failed discovery never grants solo policy', async (t) => {
 for (const owned of ['active claim', 'recorded suggestion']) {
   test(`a solo ${owned} retains release instructions and its reservation`, async (t) => {
     const cleanup = orderedCleanup(t.onTestFinished);
-    const { start, registry } = await coordinationFixture(cleanup);
+    const { start, registry } = await unitCoordinationFixture(cleanup);
     const a = await start();
     if (owned === 'active claim')
       assert.equal((await a.claim()).kind, 'claimed');

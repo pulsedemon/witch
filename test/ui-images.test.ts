@@ -7,7 +7,7 @@ import { createElement } from 'react';
 import { test, vi } from 'vitest';
 import { App } from '../src/ui/app.js';
 import { Graphics, placeholder } from '../src/ui/images.js';
-import { fixture } from './fixtures/coordinator.js';
+import { unitFixture } from './fixtures/coordinator.js';
 import { png } from './fixtures/png.js';
 import { scratch } from './fixtures/scratch.js';
 import { fake, show } from './fixtures/ui.js';
@@ -58,7 +58,7 @@ test('typing stays responsive while an image converts, and the image shows once 
 });
 
 test('a reopened conversation still draws the image a message was sent with after the pasted file is gone', async () => {
-  const { coordinator, a, project, reopen } = await fixture();
+  const { coordinator, a, project, reopen } = await unitFixture();
   const shot = join(project, 'shot.png');
   await writeFile(shot, png(160, 80));
   await coordinator.send(`look at${coordinator.paste(shot, 'look at')!}`);
