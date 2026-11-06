@@ -230,10 +230,13 @@ test('a head branch that tracks no remote branch stays, and says so', async () =
   const { checkout, other, tip } = await merged();
   await git(checkout, 'branch', '--unset-upstream');
   await merge(other, 'feat/x');
-  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
-    text: '#7 merged, but feat/x tracks no remote branch, so it stays.',
-    cleaned: false,
-  });
+  assert.deepEqual(
+    await cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle),
+    {
+      text: '#7 merged, but feat/x tracks no remote branch, so it stays.',
+      cleaned: false,
+    },
+  );
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
@@ -270,19 +273,16 @@ for (const keepHead of [true, false])
     const changed = await older(checkout, other, 'feat/changed');
     await git(origin, 'update-ref', 'refs/heads/feat/changed', tip);
     await git(checkout, 'branch', 'feat/local', 'main');
-    await git(checkout, 'branch', 'feat/alias', 'main');
-    await git(
-      checkout,
-      'branch',
-      '--set-upstream-to=origin/main',
-      'feat/alias',
-    );
     await git(checkout, 'switch', '-c', 'feat/unmerged', 'main');
     await git(checkout, 'commit', '--allow-empty', '-m', 'unmerged');
     const unmerged = await git(checkout, 'rev-parse', 'HEAD');
     await git(checkout, 'push', '-u', 'origin', 'feat/unmerged');
     await git(checkout, 'switch', 'feat/x');
     await merge(other, 'feat/x', keepHead);
+    await git(checkout, 'fetch');
+    await git(checkout, 'branch', '--track', 'feat/alias', 'origin/main');
+    const alias = await git(checkout, 'rev-parse', 'feat/alias');
+    assert.equal(alias, await git(checkout, 'rev-parse', 'origin/main'));
     const result = await withGh(root, answering('false\nmain\nfalse\n'), () =>
       cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle),
     );
@@ -294,6 +294,7 @@ for (const keepHead of [true, false])
       'main',
     ]);
     assert.equal(await git(checkout, 'rev-parse', 'feat/changed'), changed);
+    assert.equal(await git(checkout, 'rev-parse', 'feat/alias'), alias);
     assert.equal(await git(checkout, 'rev-parse', 'feat/unmerged'), unmerged);
     assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
     assert.equal(await git(origin, 'rev-parse', 'feat/changed'), tip);
@@ -704,3 +705,29 @@ if (target && !existsSync(${JSON.stringify(entered)})) {
     );
     assert.equal(result.text.match(/feat\/old/g)?.length, 1);
   });
+
+test('a worktree acquired during the upstream-tip read keeps its branch and config', async () => {
+  const { root, checkout, other, tip } = await merged();
+  const old = await older(checkout, other, 'feat/old');
+  await merge(other, 'feat/x');
+  const holder = join(root, 'holder');
+  await withGit(
+    root,
+    `
+if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'refs/remotes/origin/feat/old' && !existsSync(${JSON.stringify(holder)})) {
+  const added = run(['worktree', 'add', ${JSON.stringify(holder)}, 'feat/old'], 'pipe');
+  if (added.status) { process.stderr.write(added.stderr); process.exit(added.status); }
+}
+`,
+    () =>
+      withGh(root, answering('false\nmain\nfalse\n'), () =>
+        cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle),
+      ),
+  );
+  assert.deepEqual(await branches(checkout), ['feat/old', 'main']);
+  assert.equal(await git(holder, 'rev-parse', 'HEAD'), old);
+  assert.equal(
+    await git(checkout, 'config', '--get', 'branch.feat/old.merge'),
+    'refs/heads/feat/old',
+  );
+});

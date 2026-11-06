@@ -72,7 +72,7 @@ export interface MergeCleanup {
   configured?: string[];
   failures?: string[];
   pruned?: string[];
-  pruning?: { name: string; head: string; retained?: boolean };
+  pruning?: { name: string; head: string; retained: boolean };
   result?: { text: string; cleaned: boolean };
   install?: InstallProgress;
 }
@@ -640,15 +640,14 @@ async function clean(
   const failures = (progress.failures ??= []);
   const pruned = (progress.pruned ??= []);
   await reconcilePruning(git, progress, signal);
-  const readBranches = async (pattern = 'refs/heads') =>
+  const readBranches = async (name?: string) =>
     (
       await git(
         'for-each-ref',
-        '--merged',
-        progress.pull!.head!,
+        ...(name ? [] : ['--merged', progress.pull!.head!]),
         // :short would print heads/<name> for a branch a tag shares a name with
         '--format=%(refname:lstrip=2)%09%(upstream:track)%09%(worktreepath)%09%(objectname)%09%(upstream)%09%(upstream:remotename)%09%(upstream:remoteref)',
-        pattern,
+        name ? `refs/heads/${name}` : 'refs/heads',
       )
     )
       .split('\n')
@@ -712,7 +711,8 @@ async function clean(
     progress.pruning = { name, head, retained: retaining };
     try {
       if (retaining) {
-        const fresh = (await readBranches(`refs/heads/${name}`)).find(
+        const remoteHead = await git('rev-parse', '--verify', upstream!);
+        const fresh = (await readBranches(name)).find(
           (candidate) => candidate.name === name,
         );
         if (
@@ -720,7 +720,7 @@ async function clean(
           fresh.head !== head ||
           fresh.upstream !== upstream ||
           !retained(fresh) ||
-          (await git('rev-parse', '--verify', upstream!)) !== head
+          remoteHead !== head
         ) {
           delete progress.pruning;
           continue;
