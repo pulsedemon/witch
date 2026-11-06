@@ -9,10 +9,54 @@ import {
   bootSession,
   identifyProcess,
   identifyProcesses,
+  processArguments,
   stopLeftProcesses,
 } from '../src/persistence/process.js';
 import { countProbes } from './fixtures/probes.js';
 import { within } from './fixtures/within.js';
+
+test('process arguments preserve boundaries and omit exited processes', async (t) => {
+  const args = [
+    '-e',
+    'setInterval(() => {}, 1000)',
+    '--',
+    'two words',
+    '',
+    ' --daemon ',
+    '雪\nline',
+    '--batch',
+    '',
+  ];
+  const child = spawn(process.execPath, args, {
+    stdio: 'ignore',
+    env: { ...process.env, WITCH_ARGUMENTS_PROBE: 'must stay out of argv' },
+  });
+  const ended = once(child, 'close');
+  const empty = spawn('/bin/sleep', ['30'], {
+    argv0: '',
+    stdio: 'ignore',
+    env: { WITCH_ARGUMENTS_PROBE: 'must stay out of argv' },
+  });
+  const emptyEnded = once(empty, 'close');
+  t.onTestFinished(async () => {
+    child.kill();
+    empty.kill();
+    await ended;
+    await emptyEnded;
+  });
+  await Promise.all([once(child, 'spawn'), once(empty, 'spawn')]);
+  assert.deepEqual(
+    await processArguments([child.pid!, empty.pid!]),
+    new Map([
+      [child.pid!, [process.execPath, ...args]],
+      [empty.pid!, ['', '30']],
+    ]),
+  );
+  child.kill();
+  await ended;
+  assert.deepEqual(await processArguments([child.pid!]), new Map());
+  assert.deepEqual(await processArguments([]), new Map());
+});
 
 test('boot identity comes from the native boot session', async () => {
   const expected =
