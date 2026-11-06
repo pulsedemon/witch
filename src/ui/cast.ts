@@ -19,7 +19,7 @@ export function castTitle(frame?: number, width = title.length): string {
     : colors
         .hex(frame < 4 ? '#d8b4fe' : frame < 13 ? fire : accent)
         .bold(title);
-  const reach = Math.min(width, 48) - title.length - 1;
+  const reach = width - title.length - 1;
   if (reach <= 0) return heading;
   const progress = (frame - 6) / 6;
   const front = Math.round(

@@ -63,13 +63,17 @@ async function staysFinal(ui: View) {
   }
 }
 
-test('every cast frame keeps the title anchored on one row within the available width', () => {
+test('every live cast frame fills the available width with the title anchored on one row', () => {
   for (const width of [7, 28, 78, 120]) {
     for (const frame of [...Array(castFrames).keys(), undefined]) {
       const line = castTitle(frame, width);
       assert.ok(stripAnsi(line).startsWith('✦ Spell'));
-      assert.ok(stringWidth(line) <= Math.min(width, 48));
+      assert.equal(stringWidth(line), frame === undefined ? 7 : width);
       assert.ok(!line.includes('\n'));
+    }
+    if (width > 7) {
+      assert.equal(stripAnsi(castTitle(0, width)).lastIndexOf('*'), width - 1);
+      assert.equal(stripAnsi(castTitle(12, width)).lastIndexOf('*'), width - 1);
     }
   }
   assert.equal(stripAnsi(castTitle()), '✦ Spell');
@@ -166,12 +170,20 @@ test('resizing a live cast preserves its rows and original expiry', async () => 
       .findIndex((line) => line.includes('Cast review'));
   try {
     await until('the animated title', () => animating(ui));
+    assert.equal(stripAnsi(titles(ui)[0]!).lastIndexOf('*'), 98);
     const original = bodyRow();
     vi.advanceTimersByTime(1000);
     ui.resize(30);
     await until(
       'the narrow frame',
-      () => stringWidth(titles(ui)[0] ?? '') <= 30,
+      () => stringWidth(titles(ui)[0] ?? '') === 29,
+    );
+    assert.ok(animating(ui));
+    assert.equal(bodyRow(), original);
+    ui.resize(100);
+    await until(
+      'the full-width frame again',
+      () => stringWidth(titles(ui)[0] ?? '') === 99,
     );
     assert.ok(animating(ui));
     assert.equal(bodyRow(), original);
