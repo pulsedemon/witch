@@ -15,8 +15,7 @@ export const pullRequestSchema = z.object({
   branch: z.string(),
   commit: z.string(),
   base: z.string(),
-  /** an open pull request's checks, pending while it has none. */
-  checks: z.enum(['passing', 'failing', 'pending']).optional(),
+  checks: z.enum(['passing', 'failing', 'pending', 'none']).optional(),
   /** the checks that make it failing, with their details pages. */
   failed: z
     .array(z.object({ name: z.string(), url: z.string().optional() }))
@@ -238,11 +237,12 @@ export function parsePullRequest(json: string): PullRequest {
   );
   return {
     ...pullRequest,
-    checks:
-      !checks.length || (!failing && pending)
-        ? 'pending'
-        : failing
-          ? 'failing'
+    checks: !checks.length
+      ? 'none'
+      : failing
+        ? 'failing'
+        : pending
+          ? 'pending'
           : 'passing',
     ...(failing ? { failed } : {}),
     mergeable,
@@ -493,6 +493,8 @@ export class RepositoryWatch {
         { cwd: this.cwd, timeout: 30_000 },
       );
       value = parsePullRequest(stdout);
+      if (value.checks === 'none' && (await this.checksExpected(value)))
+        value.checks = 'pending';
       if (this.project && project !== (await this.project())) value = undefined;
       if (value) this.conflict = await this.conflicted(branch, value);
     } catch {
@@ -507,6 +509,124 @@ export class RepositoryWatch {
         pullRequest: value,
         ...(project === undefined ? {} : { pullRequestProject: project }),
       });
+  }
+
+  /** an empty rollup stays pending unless GitHub confirms there is no check-producing configuration. */
+  private async checksExpected(pr: PullRequest): Promise<boolean> {
+    const github = gitHubRepository(pr.url);
+    if (!github) return true;
+    const [owner, name] = github.repository.split('/');
+    const tree = z
+      .object({
+        __typename: z.literal('Tree'),
+        entries: z.array(z.object({ name: z.string(), type: z.string() })),
+      })
+      .nullable();
+    const fields = '__typename ... on Tree { entries { name type } }';
+    const api = async (args: string[]) => {
+      const { stdout } = await this.run(
+        'gh',
+        ['api', '--hostname', github.host, ...args],
+        { cwd: this.cwd, timeout: 30_000 },
+      );
+      return JSON.parse(stdout) as unknown;
+    };
+    try {
+      const { data } = z
+        .object({
+          data: z.object({
+            repository: z.object({
+              object: tree,
+              pullRequest: z.object({
+                headRefOid: z.string(),
+                baseRefName: z.string(),
+                baseRef: z.object({
+                  target: z.object({
+                    statusCheckRollup: z
+                      .object({
+                        contexts: z.object({ totalCount: z.number() }),
+                      })
+                      .nullable(),
+                  }),
+                }),
+                headRepository: z.object({ object: tree }),
+              }),
+            }),
+          }),
+          errors: z.array(z.unknown()).max(0).optional(),
+        })
+        .parse(
+          await api([
+            'graphql',
+            '-f',
+            `query=query($owner:String!,$name:String!,$number:Int!,$head:String!,$base:String!) {
+              repository(owner:$owner,name:$name) {
+                object(expression:$base) { ${fields} }
+                pullRequest(number:$number) {
+                  headRefOid baseRefName
+                  baseRef { target { ... on Commit { statusCheckRollup { contexts(first:1) { totalCount } } } } }
+                  headRepository { object(expression:$head) { ${fields} } }
+                }
+              }
+            }`,
+            '-f',
+            `owner=${owner}`,
+            '-f',
+            `name=${name}`,
+            '-F',
+            `number=${pr.number}`,
+            '-f',
+            `head=${pr.commit}:.github/workflows`,
+            '-f',
+            `base=refs/heads/${pr.base}:.github/workflows`,
+          ]),
+        );
+      const found = data.repository.pullRequest;
+      if (
+        found.headRefOid !== pr.commit ||
+        found.baseRefName !== pr.base ||
+        found.baseRef.target.statusCheckRollup?.contexts.totalCount ||
+        [data.repository.object, found.headRepository.object].some((entry) =>
+          entry?.entries.some(
+            ({ name, type }) => type === 'blob' && /\.ya?ml$/.test(name),
+          ),
+        )
+      )
+        return true;
+      // read classic required checks through REST; GraphQL can hide their protection rule from readers.
+      const branch = z
+        .object({
+          protection: z.object({
+            required_status_checks: z.object({ contexts: z.array(z.string()) }),
+          }),
+        })
+        .parse(
+          await api([
+            `repos/${github.repository}/branches/${encodeURIComponent(pr.base)}`,
+          ]),
+        );
+      if (branch.protection.required_status_checks.contexts.length) return true;
+      const rules = z
+        .array(z.array(z.object({ type: z.string() })))
+        .parse(
+          await api([
+            `repos/${github.repository}/rules/branches/${encodeURIComponent(pr.base)}?per_page=100`,
+            '--paginate',
+            '--slurp',
+          ]),
+        )
+        .flat();
+      return rules.some(({ type }) =>
+        [
+          'required_status_checks',
+          'workflows',
+          'copilot_code_review',
+          'code_scanning',
+        ].includes(type),
+      );
+    } catch {
+      return true;
+    }
   }
 
   /** an `UNKNOWN` read of the same pull request keeps the conflict, even at a pushed head or a new base, until GitHub confirms mergeability. */
