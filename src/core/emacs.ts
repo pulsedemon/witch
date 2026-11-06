@@ -85,6 +85,43 @@ const operandOptions = [
   '-GSFilePath',
 ];
 
+const flagOptions = [
+  '--version',
+  '--fingerprint',
+  '--no-window-system',
+  '--no-windows',
+  '--batch',
+  '--daemon',
+  '--bg-daemon',
+  '--fg-daemon',
+  '--help',
+  '--no-loadup',
+  '--no-site-lisp',
+  '--no-build-details',
+  '--module-assertions',
+  '--quick',
+  '--no-init-file',
+  '--no-x-resources',
+  '--no-site-file',
+  '--no-comp-spawn',
+  '--debug-init',
+  '--iconic',
+  '--basic-display',
+  '--no-blinking-cursor',
+  '--no-bitmap-icon',
+  '--fullscreen',
+  '--fullwidth',
+  '--fullheight',
+  '--maximized',
+  '--reverse-video',
+  '--horizontal-scroll-bars',
+  '--vertical-scroll-bars',
+  '--color',
+  '--no-splash',
+  '--no-desktop',
+  '--kill',
+];
+
 function matchesOption(option: string, name: string, minimum: number): boolean {
   return (
     option === `-${name}` ||
@@ -100,7 +137,9 @@ export function isEmacsDaemon(argv: readonly string[]): boolean {
   for (let at = 1; at < argv.length; at++) {
     const argument = argv[at]!;
     if (argument === '--') break;
-    const option = argument.split('=', 1)[0]!;
+    const option = argument.startsWith('--')
+      ? argument.split('=', 1)[0]!
+      : argument;
     if (
       option === '-x' ||
       matchesOption(option, 'batch', 5) ||
@@ -113,12 +152,15 @@ export function isEmacsDaemon(argv: readonly string[]): boolean {
       matchesOption(option, 'fg-daemon', 10)
     )
       daemon = true;
+    const matches = option.startsWith('--')
+      ? [...operandOptions, ...flagOptions].filter((candidate) =>
+          candidate.startsWith(option),
+        )
+      : [];
     if (
       !argument.includes('=') &&
       (operandOptions.includes(option) ||
-        (option.startsWith('--') &&
-          operandOptions.filter((candidate) => candidate.startsWith(option))
-            .length === 1))
+        (matches.length === 1 && operandOptions.includes(matches[0]!)))
     )
       at++;
   }

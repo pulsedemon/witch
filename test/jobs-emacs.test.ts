@@ -22,6 +22,8 @@ test.each([
   { args: ['-Q', '-L', '--daemon'], managed: true },
   { args: ['-Q', '--', '--daemon'], managed: true },
   { args: ['--fg-daemon', '--', '--batch'], managed: false },
+  { args: ['--ba', '--daemon=work'], managed: false },
+  { args: ['-daemon=work'], managed: true },
 ])(
   'Emacs arguments $args leave managed=$managed',
   async ({ args, managed }) => {
