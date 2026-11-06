@@ -240,16 +240,20 @@ test('a head branch that tracks no remote branch stays, and says so', async () =
   assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
 });
 
-test('a head branch that tracks another branch stays, and says which', async () => {
-  const { checkout, other, tip } = await merged();
-  await git(checkout, 'branch', '--set-upstream-to=origin/main');
-  await merge(other, 'feat/x');
-  assert.deepEqual(await cleanUpMerge(checkout, pullRequest(tip), idle), {
-    text: '#7 merged, but feat/x tracks origin/main rather than its own remote branch, so it stays.',
-    cleaned: false,
+for (const upstream of ['origin/main', 'main'])
+  test(`a head branch tracking ${upstream} stays and names its upstream`, async () => {
+    const { checkout, other, tip } = await merged();
+    await git(checkout, 'branch', `--set-upstream-to=${upstream}`);
+    await merge(other, 'feat/x');
+    assert.deepEqual(
+      await cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle),
+      {
+        text: `#7 merged, but feat/x tracks ${upstream} rather than its own remote branch, so it stays.`,
+        cleaned: false,
+      },
+    );
+    assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
   });
-  assert.equal(await git(checkout, 'branch', '--show-current'), 'feat/x');
-});
 
 async function older(
   checkout: string,
@@ -731,3 +735,98 @@ if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'refs/remot
     'refs/heads/feat/old',
   );
 });
+
+for (const mode of ['bisect', 'rebase', 'apply', 'update-refs'])
+  test(`retained pruning preserves branches owned by ${mode} with a detached worktree HEAD`, async () => {
+    const { root, origin, checkout, other, tip } = await merged();
+    const base = await git(checkout, 'rev-parse', 'main');
+    await older(checkout, other, 'feat/old');
+    await git(checkout, 'switch', 'feat/old');
+    await git(checkout, 'commit', '--allow-empty', '-m', 'middle');
+    await write(join(checkout, 'shared.txt'), 'old\n');
+    await git(checkout, 'add', 'shared.txt');
+    await git(checkout, 'commit', '-m', 'last');
+    const old = await git(checkout, 'rev-parse', 'HEAD');
+    await git(checkout, 'push');
+    await merge(other, 'feat/old', true);
+    await git(checkout, 'switch', 'feat/x');
+    await merge(other, 'feat/x');
+    if (mode === 'apply') {
+      await git(checkout, 'switch', '-c', 'target', base);
+      await write(join(checkout, 'shared.txt'), 'target\n');
+      await git(checkout, 'add', 'shared.txt');
+      await git(checkout, 'commit', '-m', 'target');
+      await git(checkout, 'switch', 'feat/x');
+    }
+    const holder = join(root, 'holder');
+    if (mode === 'update-refs')
+      await git(
+        checkout,
+        'worktree',
+        'add',
+        '-b',
+        'control',
+        holder,
+        'feat/old',
+      );
+    else await git(checkout, 'worktree', 'add', holder, 'feat/old');
+    if (mode === 'bisect')
+      await git(holder, 'bisect', 'start', 'feat/old', base);
+    else if (mode === 'apply')
+      await assert.rejects(
+        git(holder, 'rebase', '--apply', '--onto', 'target', base),
+      );
+    else {
+      const editor = join(root, 'editor.cjs');
+      await write(
+        editor,
+        `#!${process.execPath}\nconst fs=require('node:fs');const path=process.argv[2];fs.writeFileSync(path,fs.readFileSync(path,'utf8').replace(/^pick /m,'edit '));\n`,
+      );
+      await chmod(editor, 0o755);
+      await git(
+        holder,
+        '-c',
+        `sequence.editor=${quote(editor)}`,
+        'rebase',
+        '-i',
+        '--force-rebase',
+        '--keep-empty',
+        ...(mode === 'update-refs' ? ['--update-refs'] : []),
+        base,
+      );
+    }
+    await assert.rejects(git(holder, 'symbolic-ref', '-q', 'HEAD'));
+    assert.equal(
+      await git(
+        checkout,
+        'for-each-ref',
+        '--format=%(worktreepath)',
+        'refs/heads/feat/old',
+      ),
+      '',
+    );
+    await assert.rejects(
+      git(checkout, 'branch', '-d', 'feat/old'),
+      /used by worktree/,
+    );
+    const result = await withGh(root, answering('false\nmain\nfalse\n'), () =>
+      cleanUpMerge(checkout, { ...pullRequest(tip), url }, idle),
+    );
+    assert.ok(typeof result === 'object' && result.cleaned);
+    assert.equal(await git(checkout, 'rev-parse', 'feat/old'), old);
+    assert.equal(await git(origin, 'rev-parse', 'feat/old'), old);
+    assert.equal(
+      await git(checkout, 'config', '--get', 'branch.feat/old.merge'),
+      'refs/heads/feat/old',
+    );
+    assert.equal((await branches(checkout)).includes('feat/x'), false);
+    await git(
+      holder,
+      ...(mode === 'bisect' ? ['bisect', 'reset'] : ['rebase', '--abort']),
+    );
+    assert.equal(await git(holder, 'rev-parse', 'HEAD'), old);
+    assert.equal(
+      await git(holder, 'symbolic-ref', '--short', 'HEAD'),
+      mode === 'update-refs' ? 'control' : 'feat/old',
+    );
+  });

@@ -679,6 +679,7 @@ async function clean(
   for (let index = failures.length - 1; index >= 0; index--)
     if (failures[index]!.startsWith(retainedFailure)) failures.splice(index, 1);
   let keptDefault: string | undefined;
+  let common: string | undefined;
   if (refs.some(retained))
     try {
       const name = await defaultBranch();
@@ -714,10 +715,17 @@ async function clean(
     try {
       if (retaining) {
         const remoteHead = await git('rev-parse', '--verify', upstream!);
+        common ??= await git(
+          'rev-parse',
+          '--path-format=absolute',
+          '--git-common-dir',
+        );
+        const busy = await branchInOperation(common, name);
         const fresh = (await readBranches(name)).find(
           (candidate) => candidate.name === name,
         );
         if (
+          busy ||
           !fresh ||
           fresh.head !== head ||
           fresh.upstream !== upstream ||
@@ -858,6 +866,41 @@ async function removePrunedConfig(
       `config section branch.${name} stayed: ${errorMessage(error).trim()}`,
     );
   }
+}
+
+/** keep branches owned by rebase or bisect; their detached HEADs are absent from %(worktreepath). */
+async function branchInOperation(
+  common: string,
+  name: string,
+): Promise<boolean> {
+  const worktrees = join(common, 'worktrees');
+  const admins = [
+    common,
+    ...((await unlessGone(readdir(worktrees))) ?? []).map((entry) =>
+      join(worktrees, entry),
+    ),
+  ];
+  for (const admin of admins) {
+    const [merge, apply, bisect, updates] = await Promise.all(
+      [
+        'rebase-merge/head-name',
+        'rebase-apply/head-name',
+        'BISECT_START',
+        'rebase-merge/update-refs',
+      ].map((file) => unlessGone(readFile(join(admin, file), 'utf8'))),
+    );
+    if (
+      [merge, apply, bisect].some(
+        (branch) =>
+          branch?.replace(/\n+$/, '').replace(/^refs\/heads\//, '') === name,
+      ) ||
+      updates
+        ?.split('\n')
+        .some((ref, index) => index % 3 === 0 && ref === `refs/heads/${name}`)
+    )
+      return true;
+  }
+  return false;
 }
 
 /**
