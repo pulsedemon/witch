@@ -178,11 +178,10 @@ async function recordMoves(
     declared && copyIdentity
       ? { path: declared.to, ...copyIdentity }
       : undefined;
-  if (declared && vouched)
+  if (declared && copyIdentity)
     moves.push({
       ...declared,
-      device: vouched.device,
-      inode: vouched.inode,
+      ...copyIdentity,
     });
   // read under the ledger lock, so prompts added while repair waited for it count as before the move
   const promptsSize =
@@ -315,7 +314,7 @@ async function repairConversations(
   const resolvedPaths = new Map<string, Identity & { path: string }>();
   for (const known of [
     ...resolved.ledger.entries,
-    ...found.map(({ to, device, inode }) => ({ path: to, device, inode })),
+    ...found.map((move) => ({ path: move.to, ...move })),
   ])
     if (!resolvedPaths.has(known.path)) resolvedPaths.set(known.path, known);
   for (const saved of records) {

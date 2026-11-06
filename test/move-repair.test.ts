@@ -944,6 +944,13 @@ test('an unprovable move is reported with its command, and a declared one repair
   assert.match(describeMoves(preview, f.at('state'), true)!, /--apply/);
   await f.repair('c/main', { declared });
   assert.equal((await f.saved('copied')).raw.cwd, f.at('c/main'));
+  const recorded = (await readLedger(f.at('state'))).moves.find(
+    ({ from, to }) => from === declared.from && to === declared.to,
+  );
+  assert.equal(
+    recorded?.birthtimeNs,
+    String((await stat(f.at('c/main'), { bigint: true })).birthtimeNs),
+  );
   for (const from of ['relative', f.at('c/main')]) {
     const blocked = await f.repair('c/main', {
       declared: { from, to: f.at('c/main') },
@@ -971,6 +978,28 @@ test('a declared copy removed as repair starts is reported, not recorded', async
     JSON.stringify(report),
   );
   assert.equal((await f.saved('copied')).raw.cwd, f.at('w/main'));
+  assert.deepEqual((await readLedger(f.at('state'))).moves, []);
+});
+
+test('a reused directory inode cannot redirect a saved conversation', async () => {
+  const f = await setup();
+  await f.save('saved', 'w/main');
+  const before = await f.saved('saved');
+  await mkdir(f.at('spare'));
+  const replacement = await stat(f.at('spare'), { bigint: true });
+  await updateLedger(f.at('state'), async (ledger) => {
+    const original = ledger.entries.find(
+      ({ path }) => path === f.at('w/main'),
+    )!;
+    assert.notEqual(original.birthtimeNs, String(replacement.birthtimeNs));
+    // reproduce inode reuse without depending on the filesystem's allocator
+    original.device = String(replacement.dev);
+    original.inode = String(replacement.ino);
+  });
+  await rm(f.at('w'), { recursive: true });
+  const report = await f.repair('spare');
+  assert.deepEqual(await f.saved('saved'), before);
+  assert.deepEqual(report.repaired, []);
   assert.deepEqual((await readLedger(f.at('state'))).moves, []);
 });
 

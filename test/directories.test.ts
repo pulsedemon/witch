@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, rename, rm, symlink } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  rename,
+  rm,
+  stat,
+  symlink,
+  utimes,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -58,6 +66,61 @@ const counted = <T extends object>(items: T[], reads: { n: number }) =>
       return Reflect.get(target, key, receiver) as unknown;
     },
   });
+
+test('a real move retains its recorded identity after timestamp restoration', async () => {
+  const f = await directories('a');
+  const before = await stat(f.at('a'), { bigint: true });
+  await updateLedger(f.root, async (ledger) => {
+    ledger.entries.push(await f.entry('a'));
+  });
+  await mkdir(f.at('a/child'));
+  await utimes(f.at('a'), new Date('2000-01-01'), new Date('2000-01-01'));
+  await rename(f.at('a'), f.at('b'));
+  await updateLedger(f.root, async (ledger) => {
+    const moves = await findMoves(ledger.entries, [f.at('b')]);
+    assert.equal(moves.length, 1);
+    await resolve(ledger, moves, 0);
+  });
+  const ledger = await readLedger(f.root);
+  assert.equal(ledger.entries[0]!.path, f.at('b'));
+  assert.equal(ledger.entries[0]!.birthtimeNs, String(before.birthtimeNs));
+  assert.equal(ledger.moves[0]!.birthtimeNs, String(before.birthtimeNs));
+});
+
+test('legacy directory identities still move and gain creation time when adopted', async () => {
+  const f = await directories('a');
+  const { device, inode } = (await identify(f.at('a')))!;
+  await updateLedger(f.root, async (ledger) => {
+    ledger.entries.push({ path: f.at('a'), device, inode });
+  });
+  await rename(f.at('a'), f.at('b'));
+  const ledger = await readLedger(f.root);
+  const moves = await findMoves(ledger.entries, [f.at('b')]);
+  assert.deepEqual(f.moved(moves), [[f.at('a'), f.at('b')]]);
+  await resolve(ledger, moves, 0);
+  assert.equal(
+    await adoptIdentity(ledger.entries[0]!, (await identify(f.at('b')))!),
+    true,
+  );
+  assert.equal(
+    ledger.entries[0]!.birthtimeNs,
+    String((await stat(f.at('b'), { bigint: true })).birthtimeNs),
+  );
+});
+
+test('different generations of an inode record separate moves between the same paths', async () => {
+  const f = await directories('destination');
+  const move = await f.move('source', 'destination');
+  const earlier = { ...move, birthtimeNs: '1' };
+  const later = { ...move, birthtimeNs: '2' };
+  const ledger: Ledger = { entries: [], moves: [] };
+  await resolve(ledger, [earlier], 0);
+  await resolve(ledger, [later], 0);
+  assert.deepEqual(
+    ledger.moves.map(({ birthtimeNs }) => birthtimeNs),
+    ['1', '2'],
+  );
+});
 
 test('mapper maps a path and its descendants at a boundary only', async () => {
   const f = await directories('c/main');
