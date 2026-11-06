@@ -958,7 +958,7 @@ test("a report written while a read's ps runs is a job at the next read, and sta
     interval: 60_000,
     processes: () => tables.shift()!(),
     describe: groupLeaders(100000),
-    marked: async () => [],
+    marked: async () => new Map(),
   });
   try {
     assert.deepEqual(await jobs.list(), []);
@@ -1018,7 +1018,12 @@ test("the first read only learns the processes, so the terminal Witch runs in is
       agentRow,
     ],
     describe: leaders,
-    marked: async (pids) => pids.filter((pid) => pid === agentRow.pid),
+    marked: async (pids) =>
+      new Map(
+        pids
+          .filter((pid) => pid === agentRow.pid)
+          .map((pid) => [pid, undefined]),
+      ),
   });
   try {
     assert.deepEqual(await jobs.list(), []);
@@ -1055,7 +1060,10 @@ test("a marked process orphaned in Witch's own group doesn't make that group a j
     interval: 60_000,
     processes: async () => tables.shift()!,
     describe: groupLeaders(100020),
-    marked: async (pids) => pids.filter((pid) => pid === 100021),
+    marked: async (pids) =>
+      new Map(
+        pids.filter((pid) => pid === 100021).map((pid) => [pid, undefined]),
+      ),
   });
   try {
     await jobs.list();
@@ -1100,7 +1108,10 @@ test("a launchd child the last read didn't list is a job when it or a process be
     interval: 60_000,
     processes: async () => tables.shift()!,
     describe: leaders,
-    marked: async (pids) => pids.filter((pid) => now.has(pid)),
+    marked: async (pids) =>
+      new Map(
+        pids.filter((pid) => now.has(pid)).map((pid) => [pid, undefined]),
+      ),
   });
   try {
     await jobs.list();
@@ -1131,7 +1142,9 @@ test('a failed mark check fails the read, and the next read checks the same proc
     describe: leaders,
     marked: async (pids) => {
       if (!checks++) throw new Error('ps failed');
-      return pids.filter((pid) => pid === 100004);
+      return new Map(
+        pids.filter((pid) => pid === 100004).map((pid) => [pid, undefined]),
+      );
     },
   });
   try {
@@ -1235,7 +1248,10 @@ for (const admission of ['direct', 'handed', 'reported', 'marked']) {
         interval: 60_000,
         processes: async () => rows,
         describe: leaders,
-        marked: async (pids) => (admission === 'marked' ? pids : []),
+        marked: async (pids) =>
+          new Map(
+            (admission === 'marked' ? pids : []).map((pid) => [pid, undefined]),
+          ),
       });
       try {
         await jobs.list();
@@ -1372,7 +1388,7 @@ test('observed tmux descendants stay excluded after reparenting and group change
           cpu: 0,
           startedAt: 0,
         })),
-    marked: async (pids) => pids,
+    marked: async (pids) => new Map(pids.map((pid) => [pid, undefined])),
   });
   try {
     await jobs.list();
@@ -1428,7 +1444,7 @@ test('a failed read does not commit partial tmux exclusions', async () => {
     describe: leaders,
     marked: async () => {
       if (fail) throw new Error('mark failed');
-      return [];
+      return new Map();
     },
   });
   try {

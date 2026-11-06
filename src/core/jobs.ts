@@ -96,13 +96,21 @@ async function describe(pids: number[]): Promise<Detail[]> {
   return parseDetails(await ps('pid=,pgid=,%cpu=,lstart=,command=', pids));
 }
 
-/** the listed processes whose environment holds `entry`. ps prints no environment for Apple's platform binaries. */
-async function carrying(entry: string, pids: number[]): Promise<number[]> {
-  return (await ps('pid=,command=', pids, { environment: true })).flatMap(
-    (line) => {
+/** marked pids and their macOS service names. ps prints no environment for Apple's platform binaries. */
+async function carrying(
+  entry: string,
+  pids: number[],
+): Promise<Map<number, string | undefined>> {
+  return new Map(
+    (await ps('pid=,command=', pids, { environment: true })).flatMap((line) => {
       const [, pid, rest] = /^\s*(\d+)\s(.*)$/s.exec(line) ?? [];
-      return pid && ` ${rest} `.includes(` ${entry} `) ? [Number(pid)] : [];
-    },
+      if (!pid || !` ${rest} `.includes(` ${entry} `)) return [];
+      // use the last value because ps appends the environment after arguments.
+      const service = [
+        ...rest!.matchAll(/(?:^| )XPC_SERVICE_NAME=([^ ]*)/g),
+      ].at(-1)?.[1];
+      return [[Number(pid), service] as const];
+    }),
   );
 }
 
@@ -131,8 +139,9 @@ async function executables(pids: number[]): Promise<Map<number, string>> {
  * leads the command's group. the script records that shell's pid in the directory, and the next read takes the group
  * as handed over. every command also carries `environment`, the mark, which `ps -E` reads from each launchd child no
  * read has seen and the processes below it, though not from Apple's platform binaries. a marked process's group, and
- * those below it, are then tracked. a marked launchd child running an executable in an app's Contents/MacOS while
- * leading its own group, or a helper from its Contents/Frameworks, is excluded instead. an orphan
+ * those below it, are then tracked, unless its service names another macOS application. a marked launchd child
+ * running an executable in an app's Contents/MacOS while leading its own group, or a helper from its
+ * Contents/Frameworks, is excluded instead. an orphan
  * no read saw is missed unless its group was handed over or reported, or a process in it carries the mark.
  */
 export class JobWatch {
@@ -173,8 +182,8 @@ export class JobWatch {
       describe?: (pids: number[]) => Promise<Detail[]>;
       /** an existing directory this instance alone reports into; without it nothing reports or is marked. */
       directory?: string;
-      /** the listed processes whose environment holds the mark, from `ps` without it. */
-      marked?: (pids: number[]) => Promise<number[]>;
+      /** marked pids and their macOS service names, from `ps` without it. */
+      marked?: (pids: number[]) => Promise<Map<number, string | undefined>>;
       /** each listed process's argv[0], from `ps -o comm=` without it. */
       executables?: (pids: number[]) => Promise<Map<number, string>>;
       resume?: JobCheckpoint;
@@ -373,12 +382,10 @@ export class JobWatch {
       );
       const candidates = roots.flatMap(below);
       if (candidates.length) {
-        const marked = new Set(
-          await (
-            this.options.marked ??
-            ((pids) => carrying(`${mark}=${directory}`, pids))
-          )(candidates.map(({ pid }) => pid)),
-        );
+        const marked = await (
+          this.options.marked ??
+          ((pids) => carrying(`${mark}=${directory}`, pids))
+        )(candidates.map(({ pid }) => pid));
         // LaunchServices starts an app in a group of its own, and `open --env` hands it the mark, as VS Code's `code`
         // does. the app, its terminals and its frameworks' helpers, such as its crash handler, are the user's. a
         // command's own run of an executable in Contents/MacOS stays a job unless it leads its own group
@@ -388,16 +395,25 @@ export class JobWatch {
               markedRoots.map(({ pid }) => pid),
             )
           : new Map<number, string>();
-        for (const root of markedRoots) {
+        for (const candidate of candidates) {
+          // exclude app-origin daemons even when they reparent between reads.
+          const service = marked.get(candidate.pid);
+          const application =
+            service?.startsWith('application.') &&
+            service !== process.env.XPC_SERVICE_NAME;
           // only the outermost app outside a framework matches, so Xcode's nested tools and framework-installed Python stay jobs
           const bundle =
             /^(?:(?!\.app\/|\.framework\/).)*\.app\/Contents\/(MacOS|Frameworks)\//.exec(
-              paths.get(root.pid) ?? '',
+              paths.get(candidate.pid) ?? '',
             );
-          if (!bundle || (root.pid !== root.pgid && bundle[1] === 'MacOS'))
+          if (
+            !application &&
+            (!bundle ||
+              (candidate.pid !== candidate.pgid && bundle[1] === 'MacOS'))
+          )
             continue;
           // excluded like a multiplexer tree, so a process that joins the app's group later can't bring the app back
-          for (const row of below(root)) {
+          for (const row of below(candidate)) {
             excluded.add(row.identity);
             excludedGroups.add(row.pgid);
           }
