@@ -7,7 +7,7 @@ import type { RegisterCleanup } from './cleanup.js';
 const open = files.open;
 const directories = new Set<string>();
 
-/** unit fixtures keep real writes without crash durability; persistence integration fixtures keep their flushes. */
+/** skip disk flushes for opens under unit roots; integration fixtures retain their flushes. */
 export function ephemeralFiles(
   directory: string,
   register: RegisterCleanup = onTestFinished,

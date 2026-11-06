@@ -286,7 +286,7 @@ for (const prior of [false, true])
     });
 
 test('handoff preference and activation are durable together before continuation', async () => {
-  const { coordinator, a, b, root, reopen } = await unitFixture();
+  const { coordinator, a, b, root, reopen } = await fixture();
   const beforeReady = Promise.withResolvers<void>(),
     afterReady = Promise.withResolvers<void>();
   const activate = Promise.withResolvers<void>(),

@@ -31,7 +31,7 @@ export default defineConfig({
       ...configDefaults.forceRerunTriggers,
       '**/test/fixtures/**',
     ],
-    maxWorkers: process.platform === 'darwin' ? workers + 2 : workers,
+    maxWorkers: process.platform === 'darwin' ? workers + 4 : workers,
     environment: 'node',
     pool: 'forks',
     isolate: true,
