@@ -738,7 +738,11 @@ if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'refs/remot
 
 for (const mode of ['bisect', 'rebase', 'apply', 'update-refs'])
   test(`retained pruning preserves branches owned by ${mode} with a detached worktree HEAD`, async () => {
-    const { root, origin, checkout, other, tip } = await merged();
+    const { root, origin, launcher, checkout, other, tip } = await merged(
+      {},
+      [],
+      mode === 'bisect',
+    );
     const base = await git(checkout, 'rev-parse', 'main');
     await older(checkout, other, 'feat/old');
     await git(checkout, 'switch', 'feat/old');
@@ -758,8 +762,9 @@ for (const mode of ['bisect', 'rebase', 'apply', 'update-refs'])
       await git(checkout, 'commit', '-m', 'target');
       await git(checkout, 'switch', 'feat/x');
     }
-    const holder = join(root, 'holder');
-    if (mode === 'update-refs')
+    const holder = mode === 'bisect' ? launcher : join(root, 'holder');
+    if (mode === 'bisect') await git(holder, 'switch', 'feat/old');
+    else if (mode === 'update-refs')
       await git(
         checkout,
         'worktree',
