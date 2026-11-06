@@ -32,6 +32,8 @@ export type PullRequest = z.infer<typeof pullRequestSchema>;
 export interface Repository {
   /** `HEAD` when detached. */
   branch: string;
+  commit?: string;
+  upstream?: string;
   ahead: number;
   behind: number;
   staged: number;
@@ -132,6 +134,10 @@ export function parseStatus(text: string): Repository {
     const [kind, field, value, other] = line.split(' ');
     if (kind === '#' && field === 'branch.head' && value !== '(detached)')
       repository.branch = value!;
+    else if (kind === '#' && field === 'branch.oid' && value !== '(initial)')
+      repository.commit = value;
+    else if (kind === '#' && field === 'branch.upstream')
+      repository.upstream = value;
     else if (kind === '#' && field === 'branch.ab') {
       repository.ahead = Number(value);
       repository.behind = -Number(other);
@@ -271,7 +277,7 @@ const fallback = 60_000;
 
 /**
  * the Git status of `cwd` for the status line, with its branch's pull request read in the background every 90
- * seconds, after 10 while GitHub hasn't computed its mergeability, and whenever the branch changes or
+ * seconds, after 10 while GitHub hasn't computed its mergeability, and whenever the head or upstream status changes or
  * `refreshPullRequest` asks. on macOS a change in the work tree or its Git dirs starts a read, at most
  * one per `interval`, and a minute without a read starts one, so a change whose event is lost shows within a minute
  * and one `interval`. elsewhere, or once a watch fails, status is read every `interval`, since Linux's recursive watch
@@ -291,8 +297,9 @@ export class RepositoryWatch {
   /** a failed read confirms nothing, so it leaves this. */
   private conflict?: { branch: string; conflict: Conflict };
   private requested = false;
-  private fetching = false;
-  private refreshing = false;
+  private fetching?: Promise<void>;
+  private refreshing?: Promise<void>;
+  private closed = false;
   /** unset while polling. */
   private watchers?: FSWatcher[];
   private located = false;
@@ -326,6 +333,7 @@ export class RepositoryWatch {
   };
 
   close(): void {
+    this.closed = true;
     clearInterval(this.timer);
     clearTimeout(this.scheduled);
     this.unwatch();
@@ -359,9 +367,21 @@ export class RepositoryWatch {
     this.requested = true;
   }
 
+  /** an admission needs a read started after its request, including when an older read is still running. */
+  async readPullRequest(): Promise<void> {
+    await this.refreshing;
+    await this.refresh();
+    await this.fetching;
+    const branch = this.snapshot?.branch;
+    if (this.closed || !branch || branch === 'HEAD') return;
+    await this.fetchPullRequest(branch);
+    await this.refreshing;
+    await this.refresh();
+  }
+
   private due(branch: string): boolean {
     const known = this.pullRequest;
-    if (branch === 'HEAD' || this.fetching) return false;
+    if (this.closed || branch === 'HEAD' || this.fetching) return false;
     if (this.requested || known?.branch !== branch) return true;
     const wait = known.value?.mergeable === 'UNKNOWN' ? 10_000 : 90_000;
     return Date.now() - known.at >= wait;
@@ -426,10 +446,13 @@ export class RepositoryWatch {
     this.changed();
   }
 
-  private async refresh(): Promise<void> {
+  private refresh(): Promise<void> {
     // a status read can outlast the interval, and a slower, older read would publish over a newer one
-    if (this.refreshing) return;
-    this.refreshing = true;
+    if (this.closed) return Promise.resolve();
+    return (this.refreshing ??= this.readStatus());
+  }
+
+  private async readStatus(): Promise<void> {
     this.stale = false;
     // this read covers a change still waiting for its own, such as when the minute timer starts it first
     clearTimeout(this.scheduled);
@@ -453,8 +476,20 @@ export class RepositoryWatch {
       // unavailable status leaves Git out, including when a partial clone lacks an object
       failure = error;
     } finally {
-      this.refreshing = false;
+      this.refreshing = undefined;
     }
+    if (this.closed) return;
+    const previous = this.snapshot;
+    if (
+      previous &&
+      repository &&
+      (previous.branch !== repository.branch ||
+        previous.commit !== repository.commit ||
+        previous.upstream !== repository.upstream ||
+        previous.ahead !== repository.ahead ||
+        previous.behind !== repository.behind)
+    )
+      this.refreshPullRequest();
     const known = this.pullRequest;
     if (repository && known?.branch === repository.branch) {
       repository.pullRequest = known.value;
@@ -475,9 +510,13 @@ export class RepositoryWatch {
       void this.fetchPullRequest(repository.branch);
   }
 
-  private async fetchPullRequest(branch: string): Promise<void> {
-    this.fetching = true;
+  private fetchPullRequest(branch: string): Promise<void> {
+    return (this.fetching ??= this.fetch(branch));
+  }
+
+  private async fetch(branch: string): Promise<void> {
     this.requested = false;
+    const commit = this.snapshot?.commit;
     let value: PullRequest | undefined;
     let project: string | undefined;
     try {
@@ -493,12 +532,20 @@ export class RepositoryWatch {
         { cwd: this.cwd, timeout: 30_000 },
       );
       value = parsePullRequest(stdout);
+      const conflict = await this.conflicted(branch, value);
       if (this.project && project !== (await this.project())) value = undefined;
-      if (value) this.conflict = await this.conflicted(branch, value);
+      if (
+        this.closed ||
+        this.snapshot?.branch !== branch ||
+        this.snapshot.commit !== commit
+      )
+        value = undefined;
+      if (value) this.conflict = conflict;
     } catch {
       // no pull request, no gh or no network
+      value = undefined;
     } finally {
-      this.fetching = false;
+      this.fetching = undefined;
     }
     this.pullRequest = { branch, at: Date.now(), value, project };
     if (this.snapshot?.branch === branch)
@@ -554,6 +601,7 @@ export class RepositoryWatch {
 
   /** an unchanged status publishes nothing, so a quiet repository costs no redraws. */
   private publish(repository: Repository | undefined): void {
+    if (this.closed) return;
     if (repository) {
       repository = { ...repository };
       if (this.conflict?.branch === repository.branch)

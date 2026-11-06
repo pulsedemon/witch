@@ -43,9 +43,12 @@ test("Git's status counts staged, modified and untracked entries, and the branch
   await writeFile(join(work, 'new', 'one.txt'), '1');
   await writeFile(join(work, 'new', 'two.txt'), '2');
   const { stdout } = await git(work, 'status', '--porcelain=v2', '--branch');
+  const commit = (await git(work, 'rev-parse', 'HEAD')).stdout.trim();
   // b.txt is staged and modified; the new directory is one entry
   assert.deepEqual(parseStatus(stdout), {
     branch: 'main',
+    commit,
+    upstream: 'origin/main',
     ahead: 1,
     behind: 0,
     staged: 2,
@@ -368,6 +371,7 @@ test('a detached head reads as HEAD, and branch.ab and unmerged entries count', 
     ),
     {
       branch: 'HEAD',
+      commit: '0123',
       ahead: 0,
       behind: 3,
       staged: 0,
@@ -905,4 +909,144 @@ test('a project change during a pull request read invalidates the observation', 
   } finally {
     watch.close();
   }
+});
+
+test('head and upstream status changes refresh the pull request, while file edits keep its cache', async (t) => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
+  let commit = 'a1b2c3',
+    ahead = 0,
+    upstream = 'origin/feat/x',
+    dirty = false;
+  let reads = 0;
+  const watch = new RepositoryWatch('/work', async (command) => {
+    if (command === 'gh') {
+      reads++;
+      return { stdout: view({ state: 'OPEN', headRefOid: commit }) };
+    }
+    return {
+      stdout: `# branch.head feat/x\n# branch.oid ${commit}\n# branch.upstream ${upstream}\n# branch.ab +${ahead} -0\n${dirty ? '? file.txt\n' : ''}`,
+    };
+  });
+  t.onTestFinished(() => watch.close());
+  await until(
+    'initial pull request',
+    () => reads === 1 && !!watch.snapshot?.pullRequest,
+  );
+  const step = async () => {
+    vi.advanceTimersByTime(5000);
+    await delay(20);
+  };
+  dirty = true;
+  await step();
+  assert.equal(watch.snapshot?.untracked, 1);
+  assert.equal(reads, 1);
+  commit = 'd4e5f6';
+  ahead = 1;
+  await step();
+  assert.equal(watch.snapshot?.pullRequest?.commit, 'd4e5f6');
+  assert.equal(reads, 2);
+  ahead = 0;
+  await step();
+  assert.equal(watch.snapshot?.ahead, 0);
+  assert.equal(reads, 3, 'pushing the already observed commit');
+  upstream = 'other/feat/x';
+  await step();
+  assert.equal(watch.snapshot?.upstream, 'other/feat/x');
+  assert.equal(reads, 4);
+  await step();
+  assert.equal(reads, 4, 'unchanged status');
+  assert.equal(
+    parseStatus('# branch.head new\n# branch.oid (initial)\n').commit,
+    undefined,
+  );
+});
+
+test('an awaited admission refresh reads after an older request and publishes before it resolves', async (t) => {
+  const pending = Promise.withResolvers<{ stdout: string }>();
+  let reads = 0;
+  const watch = new RepositoryWatch('/work', async (command) => {
+    if (command !== 'gh')
+      return { stdout: '# branch.head feat/x\n# branch.oid a1b2c3\n' };
+    if (++reads === 1) return pending.promise;
+    return { stdout: view({ state: 'OPEN', mergeable: 'MERGEABLE' }) };
+  });
+  t.onTestFinished(() => watch.close());
+  await until('old read', () => reads === 1);
+  let finished = false;
+  const fresh = watch.readPullRequest().then(() => {
+    finished = true;
+  });
+  await delay(20);
+  assert.equal(finished, false);
+  assert.equal(reads, 1);
+  pending.resolve({ stdout: view({ state: 'OPEN', mergeable: 'UNKNOWN' }) });
+  await fresh;
+  assert.equal(reads, 2);
+  assert.equal(watch.snapshot?.pullRequest?.mergeable, 'MERGEABLE');
+  assert.equal(watch.snapshot?.commit, 'a1b2c3');
+});
+
+test('an awaited refresh retains a confirmed conflict on failure or UNKNOWN without retaining repair eligibility', async (t) => {
+  let answer: object | Error = { mergeable: 'CONFLICTING' };
+  const { watch, reads } = conflictWatch({ answer: () => answer });
+  t.onTestFinished(() => watch.close());
+  await until('conflict', () => !!watch.snapshot?.conflict);
+  const conflict = watch.snapshot!.conflict;
+  const current = () => watch.snapshot?.pullRequest;
+  answer = new Error('network unavailable');
+  await watch.readPullRequest();
+  assert.equal(current(), undefined);
+  assert.deepEqual(watch.snapshot?.conflict, conflict);
+  answer = { mergeable: 'UNKNOWN' };
+  await watch.readPullRequest();
+  assert.equal(current()?.mergeable, 'UNKNOWN');
+  assert.deepEqual(watch.snapshot?.conflict, conflict);
+  answer = { mergeable: 'MERGEABLE' };
+  await watch.readPullRequest();
+  assert.equal(watch.snapshot?.conflict, undefined);
+  assert.equal(reads.pr, 4);
+});
+
+test('a head change during the base-tip lookup cannot publish the old conflicting read', async (t) => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'Date'],
+    now: 0,
+  });
+  let commit = 'a1b2c3';
+  const tip = Promise.withResolvers<{ stdout: string }>();
+  let lookingUp = false;
+  const watch = new RepositoryWatch('/work', async (command, args) => {
+    if (command !== 'gh')
+      return { stdout: `# branch.head feat/x\n# branch.oid ${commit}\n` };
+    if (args[0] === 'api') {
+      lookingUp = true;
+      return tip.promise;
+    }
+    return {
+      stdout: view({
+        state: 'OPEN',
+        url: 'https://github.com/o/r/pull/4',
+        headRefOid: commit,
+        mergeable: commit === 'a1b2c3' ? 'CONFLICTING' : 'MERGEABLE',
+      }),
+    };
+  });
+  t.onTestFinished(() => watch.close());
+  const conflicts: string[] = [];
+  watch.subscribe(() => {
+    if (watch.snapshot?.conflict)
+      conflicts.push(watch.snapshot.conflict.pullRequest.commit);
+  });
+  await until('base-tip read', () => lookingUp);
+  commit = 'd4e5f6';
+  vi.advanceTimersByTime(5000);
+  await until('new local head', () => watch.snapshot?.commit === commit);
+  tip.resolve({ stdout: 'f00\n' });
+  await watch.readPullRequest();
+  assert.deepEqual(conflicts, []);
+  assert.equal(watch.snapshot?.pullRequest?.commit, 'd4e5f6');
+  assert.equal(watch.snapshot?.conflict, undefined);
 });
