@@ -221,7 +221,7 @@ test('restoration does not adopt pre-existing marked or foreign workers', async 
     directory: await scratch('witch-jobs-restart-'),
     marked: async (pids) => {
       markReads++;
-      return pids;
+      return new Map(pids.map((pid) => [pid, undefined]));
     },
   });
   restored.track(own.pgid);

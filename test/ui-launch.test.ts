@@ -97,6 +97,7 @@ for (const unreadable of [false, true]) {
         await until('the visible startup notice', () =>
           ui
             .text()
+            .replace(/\s+/g, ' ')
             .includes(unreadable ? 'Could not inspect' : '--recover-directory'),
         );
         assert.equal(coordinator.snapshot.error, undefined);

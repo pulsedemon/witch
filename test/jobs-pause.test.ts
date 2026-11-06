@@ -167,7 +167,7 @@ test('a job list while paused finds an orphan and resumes the reads', async () =
       return rows;
     },
     describe: leaders,
-    marked: async (pids) => pids,
+    marked: async (pids) => new Map(pids.map((pid) => [pid, undefined])),
     executables: async () => new Map(),
   });
   try {
