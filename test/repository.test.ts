@@ -1055,7 +1055,10 @@ for (const kind of ['status', 'pull request'] as const) {
   test(`closing during a ${kind} read prevents later publication or refresh`, async (t) => {
     const entered = Promise.withResolvers<void>();
     const response = Promise.withResolvers<{ stdout: string }>();
+    const reads = { status: 0, pullRequest: 0 };
     const watch = new RepositoryWatch('/work', async (command, args) => {
+      if (args.includes('status')) reads.status++;
+      if (command === 'gh' && args[0] === 'pr') reads.pullRequest++;
       if (
         (kind === 'status' && args.includes('status')) ||
         (kind === 'pull request' && command === 'gh')
@@ -1078,6 +1081,7 @@ for (const kind of ['status', 'pull request'] as const) {
     const before = publications;
     const reading = watch.readPullRequest();
     watch.close();
+    const readsAtClose = { ...reads };
     response.resolve({
       stdout:
         kind === 'status'
@@ -1087,6 +1091,7 @@ for (const kind of ['status', 'pull request'] as const) {
     await reading;
     assert.equal(watch.snapshot, snapshot);
     assert.equal(publications, before);
+    assert.deepEqual(reads, readsAtClose);
   });
 }
 
